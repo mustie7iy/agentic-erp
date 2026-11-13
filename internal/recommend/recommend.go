@@ -102,16 +102,21 @@ type Made struct {
 	ObjectType string `json:"object_type"`
 	ObjectID   string `json:"object_id"`
 	Kind       string `json:"kind"`
+	Content    string `json:"content"`
 }
 
 // Result is what a run did: its session, the recommendations the API
 // recorded, how many were refused (by the API, the pattern's guard or the
-// agent's check) and the model's last text.
+// agent's check), the model's last text and, where the agent gives them,
+// its objects' names.
 type Result struct {
 	Session         string
 	Recommendations []Made
 	Refused         int
 	Reply           string
+	// Names are the objects' names by id, where the agent gives them: a
+	// run over many objects names each to whoever reads its result.
+	Names map[string]string
 }
 
 // ErrNotThisRun refuses a recommendation that is not the run's: made in

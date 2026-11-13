@@ -474,6 +474,15 @@ type AccountDetermination struct {
 	// vendor reconciliation account. Once activated it stays
 	// (ledger.Setup.Check).
 	DownPayment string `yaml:"down_payment,omitempty" json:"down_payment,omitempty"`
+	// ContractAsset and ContractLiability take a revenue contract's
+	// position at a recognition run (ADR-0068 §9, T81d): revenue
+	// recognized less revenue billed stands on the contract asset
+	// account, an asset, when it is positive and on the contract
+	// liability account, a liability, when it is negative. A company
+	// that runs revenue recognition needs both; neither is a
+	// reconciliation account.
+	ContractAsset     string `yaml:"contract_asset,omitempty" json:"contract_asset,omitempty"`
+	ContractLiability string `yaml:"contract_liability,omitempty" json:"contract_liability,omitempty"`
 }
 
 // WithholdingTaxCode is a withholding tax deducted from what a supplier is

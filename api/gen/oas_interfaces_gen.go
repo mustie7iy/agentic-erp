@@ -193,6 +193,10 @@ type ConfirmSalesOrderRes interface {
 	confirmSalesOrderRes()
 }
 
+type CopyPlanCategoryRes interface {
+	copyPlanCategoryRes()
+}
+
 type CreateAllocationCycleRes interface {
 	createAllocationCycleRes()
 }
@@ -271,6 +275,10 @@ type CreateCostCenterRes interface {
 
 type CreateCreditLimitRes interface {
 	createCreditLimitRes()
+}
+
+type CreateCreditMemoRequestRes interface {
+	createCreditMemoRequestRes()
 }
 
 type CreateCustomerInvoiceRes interface {
@@ -381,6 +389,10 @@ type CreateRevenueContractRes interface {
 	createRevenueContractRes()
 }
 
+type CreateRevenueRecognitionRunRes interface {
+	createRevenueRecognitionRunRes()
+}
+
 type CreateRfqRes interface {
 	createRfqRes()
 }
@@ -441,6 +453,10 @@ type DecideRecommendationRes interface {
 	decideRecommendationRes()
 }
 
+type DeclineCreditMemoRequestRes interface {
+	declineCreditMemoRequestRes()
+}
+
 type DeclineQuotationRes interface {
 	declineQuotationRes()
 }
@@ -455,6 +471,10 @@ type DisableConnectorRes interface {
 
 type DiscardConsolidationRunRes interface {
 	discardConsolidationRunRes()
+}
+
+type DrillAnalyticsQueryRes interface {
+	drillAnalyticsQueryRes()
 }
 
 type EnableConnectorRes interface {
@@ -693,6 +713,10 @@ type GetCreditLimitRes interface {
 	getCreditLimitRes()
 }
 
+type GetCreditMemoRequestRes interface {
+	getCreditMemoRequestRes()
+}
+
 type GetCurrentPrincipalRes interface {
 	getCurrentPrincipalRes()
 }
@@ -793,6 +817,10 @@ type GetLiquidityForecastVarianceRes interface {
 	getLiquidityForecastVarianceRes()
 }
 
+type GetMarginReportRes interface {
+	getMarginReportRes()
+}
+
 type GetMatchResultRes interface {
 	getMatchResultRes()
 }
@@ -887,6 +915,14 @@ type GetRevaluationRunRes interface {
 
 type GetRevenueContractRes interface {
 	getRevenueContractRes()
+}
+
+type GetRevenueRecognitionRunRes interface {
+	getRevenueRecognitionRunRes()
+}
+
+type GetRevenueScheduleRes interface {
+	getRevenueScheduleRes()
 }
 
 type GetRfqComparisonRes interface {
@@ -1177,6 +1213,10 @@ type ListCreditLimitsRes interface {
 	listCreditLimitsRes()
 }
 
+type ListCreditMemoRequestsRes interface {
+	listCreditMemoRequestsRes()
+}
+
 type ListCustomerInvoicesRes interface {
 	listCustomerInvoicesRes()
 }
@@ -1421,6 +1461,10 @@ type ListRevenueContractsRes interface {
 	listRevenueContractsRes()
 }
 
+type ListRevenueRecognitionRunsRes interface {
+	listRevenueRecognitionRunsRes()
+}
+
 type ListRfqsRes interface {
 	listRfqsRes()
 }
@@ -1577,6 +1621,10 @@ type PostBillingDocumentRes interface {
 	postBillingDocumentRes()
 }
 
+type PostCreditMemoRequestRes interface {
+	postCreditMemoRequestRes()
+}
+
 type PostCustomerInvoiceRes interface {
 	postCustomerInvoiceRes()
 }
@@ -1695,6 +1743,10 @@ type RejectVarianceCommentRes interface {
 
 type ReleaseContractRes interface {
 	releaseContractRes()
+}
+
+type ReleaseCreditMemoRequestRes interface {
+	releaseCreditMemoRequestRes()
 }
 
 type ReleaseInternalOrderRes interface {

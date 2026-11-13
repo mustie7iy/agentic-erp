@@ -18,7 +18,13 @@
 // and is confirmed once (returns.go; ADR-0067, As built T85a); a person
 // confirms the quantities that arrived, as a delivery is confirmed
 // (receipts.go; As built T85b). It carries no amounts and counts neither
-// in the customer's credit exposure nor in a revenue contract.
+// in the customer's credit exposure nor in a revenue contract. A credit
+// memo request asks for a posted billing document's items to be
+// credited, for a returns order's received quantities at their billed
+// amount or for an amount per item, and is approved or rejected once
+// (credit_memo.go; As built T85c); an approved request posts as a
+// customer credit memo through receivables, naming the billing
+// document's invoice (credit_post.go; As built T85d).
 //
 // A sales document carries net amounts and posts nothing itself: tax is
 // calculated when the order is billed, and a billing document posts
@@ -103,10 +109,12 @@ type References interface {
 	AccountNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]ledger.AccountRef, error)
 }
 
-// Invoices is receivables' published API as billing uses it (ADR-0067
-// §9; ADR-0063 §1): a customer invoice entered and posted, in the
-// request's transaction.
+// Invoices is receivables' published API as billing and credit memo
+// requests use it (ADR-0067 §9, As built T85d; ADR-0063 §1): a customer
+// invoice or credit memo entered and posted, in the request's
+// transaction, and a posted invoice read for the tax its items bore.
 type Invoices interface {
+	Invoice(ctx context.Context, id uuid.UUID) (receivables.Invoice, error)
 	CreateInvoice(ctx context.Context, in receivables.Input) (receivables.Invoice, error)
 	PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, postingDate *time.Time) (receivables.Invoice, error)
 }

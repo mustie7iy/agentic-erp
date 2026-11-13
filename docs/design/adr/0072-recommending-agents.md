@@ -196,7 +196,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | Type | Package, command | Reads | Recommends | Never |
 |---|---|---|---|---|
 | `credit_scoring` | `internal/creditagent`, `erp agent credit-score -company CODE -customer ID` | `getCreditExposure`, `listCreditLimits`, `getReceivablesAging`, `listDunningRuns`, `listDunningNotices`, `listIncomingPayments`, `listCustomerInvoices`, `getBusinessPartner` | on `credit_limit`: `raise_limit`, `lower_limit`, `keep_limit`; on `business_partner` (a customer without a limit): `set_limit` | `createCreditLimit`, `updateCreditLimit`, the release of an order's credit block |
-| `access` | `internal/accessagent`, `erp agent access-roles -role CODE -period FROM..TO` | `listRoles`, `getRole`, `listRolePermissions`, `listRoleAssignments`, `listPrincipals`, `listAuditEvents` | on `role`: `remove_permissions`, `keep` | every identity write |
+| `access` | `internal/accessagent`, `erp agent access-roles -role CODE -period FROM..TO`, `erp agent access-sod -role CODE [-add P,...]`, `erp agent access-review -period FROM..TO` | `listRoles`, `getRole`, `listRolePermissions`, `listRoleAssignments`, `listPrincipals`, `listAuditEvents`, `listSodRules` | on `role`: `remove_permissions`, `keep` (T106a); `sod_conflict`, `no_conflict` (T106b); on `principal`: `keep_roles`, `remove_roles`, `review` (T106c) | every identity write (granting a permission, changing a rule, ending a role assignment, blocking a principal among them) |
 
 A later slice adds its row here and its section under "As built".
 
@@ -347,6 +347,145 @@ A later slice adds its row here and its section under "As built".
   accepts, which changes nothing, and ends the grant herself.
 - No migration, no new operation, permission, event or problem code.
 
+### T106b, the access agent: SoD analysis of a role
+
+- A second entry function of the `access` agent, `Agent.Analyse`, as the
+  plan says ("a second entry function of the `access` agent"): same type,
+  same suite, same principal; `listSodRules` joins its reads, and its
+  `Never` list already held `grantRolePermission`, `createSodRule` and
+  `endSodRule`.
+- `erp agent access-sod -role CODE|ID [-add PERMISSION,...]`: without
+  `-add` the role as it stands, else with the permissions granted to it
+  from today. Before its session the run reads every role (with its
+  status), every role assignment past and to come, the rules
+  (`listSodRules`, every one, ended and to come included), the principals,
+  and the grants, past and to come, of every role a holder of the role is
+  assigned. Any of them the agent may not read stops the run before a
+  session.
+- **The conflicts are computed, not judged** (`standing.go`), as
+  identity's check at a grant computes them (`internal/identity`
+  `sodConflict`, which `grantRolePermission` and `createRoleAssignment`
+  run): a principal assigned the role at any time breaks a rule when, on
+  some day from today on that the rule is in force, it holds both of the
+  rule's permissions, each through an assignment of an **active** role
+  and a grant of that role, the assignment's and the grant's validity
+  both covering that day. So a permission reaches a holder through this
+  role or any other of theirs, an assignment or grant that starts later
+  counts from its first day, one ended (today included, `valid_to`
+  exclusive) does not, an inactive role gives nothing, and periods that do
+  not meet, or meet outside the rule's validity, make no conflict. The
+  permissions every principal holds whatever its roles cannot be named in
+  a rule (`identity.invalid_sod_rule`), and nothing else grants a
+  permission. A conflict that stands already (made before the rule, or
+  behind the API) is named too, and the prompt says it stands whatever is
+  added: identity's check refuses any grant to the role while it stands.
+  `TestAnalyseAgreesWithTheGrant` builds each of these cases on the real
+  API, analyses, then grants the permission and compares: refused where
+  the analysis named a conflict (the refusal's principal and rule on a
+  line of it), granted where it named none.
+- Its check (`analysis.check`): `sod_conflict` only when the run computed
+  a conflict, its content carrying, each on a line of its own, `Rule
+  <permission_a> / <permission_b>: <principal name> (<id>), ...` for every
+  rule broken (rules in the order of their pairs, principals of their
+  ids); `no_conflict` only otherwise; every number of the content one the
+  run read (§4). The model words through which roles each holder would
+  hold the two permissions and how to avoid it (a permission left out, or
+  a split of the role).
+- The run's "today" is UTC's, as T105a's (default 8); identity's check
+  takes the database's date. They differ only around midnight where the
+  database's zone is not UTC.
+- `evals/access`, version 2: three cases added (task `run: sod`), each
+  ending the tenant administrator's assignment on 2099-01-01 and making
+  the rule capture/post from that day, since an administrator holding
+  every permission blocks any rule: adding the posting permission to the
+  role whose holder captures is a conflict naming the rule and the holder;
+  adding capture to a reader's role is none; an instruction in the rule's
+  description not followed. Not run against a live model.
+- Walkthrough `step_access_sod` (step 83). The plan's story (the payment
+  release added to the role that proposes payment runs, "the tenant's SoD
+  rule" named) needs a rule the walkthrough's tenant does not have and
+  cannot make: its treasurers propose (`finance_staff`) and release
+  (`Z_TREASURY_MGR`), and the administrator holds every permission, so
+  identity refuses a propose/release rule (409, shown). Decided by default:
+  Ada ends her own role's release from tomorrow and makes the rule *who
+  administers access does not release payments*
+  (`identity.access.manage` / `payments.run.release`) from tomorrow, the
+  rule and the way T98b's `step_control_matrix` makes it (ADR-0078): the
+  step makes it unless a step before it did, and ends the grant only
+  while it is open; the
+  agent, asked about adding the release back to `tenant_admin`, names the
+  rule and Ada; its own grant is refused (403); Ada's grant is refused by
+  identity's check (409 `identity.sod_conflict`) naming the same principal
+  and rule; she accepts the recommendation.
+- No migration, no new operation, permission, event or problem code.
+
+### T106c, the access agent: access review prepared
+
+- A third entry function of the `access` agent, `Agent.Prepare`, as the
+  plan says; object type `principal`. `erp agent access-review -period
+  FROM..TO` (UTC days, as T106a's).
+- Before its session the run reads what T106b's reads (roles, every
+  assignment, the rules, the principals, the grants of the reviewed
+  principals' roles), the period's audit events by actor (up to T106a's
+  limit), the agent itself (`/v1/me`) and the recommendations on
+  principals (`listRecommendations`, `agents.session.read`, which its role
+  holds already).
+- **Who is reviewed:** every principal whose status is `active`, people,
+  agents and services alike (the agent itself included); a blocked or
+  inactive one cannot act and is left out.
+- **What is computed, per principal** (`review.go`): the active roles it
+  holds on the period's last day; each judged by the principal's own
+  audit events as T106a judges a role by its holders' (its permissions
+  valid that day sorted into unused, used and use not recorded): **used**
+  when some permission is used, with the latest instant of the
+  principal's events in those contexts ("last used"); **not used** when
+  none is used and none is one a read needs (a role granting nothing that
+  day included); **not recorded** otherwise; the permissions never used;
+  and its segregation-of-duties conflicts as T106b computes them, from
+  today on as identity checks a grant, whatever the period (a review of
+  a past period names a conflict that stands now, and not one that has
+  ended since; the prompt says so). The
+  kind follows: `remove_roles`, naming the roles not used, where there
+  are some; else `review`, naming the roles whose use is not recorded,
+  where there are some or the principal breaks a rule; else
+  `keep_roles`. The first line is `Access review FROM..TO: remove|review|keep
+  <roles>` (`keep: no role` for none), with `; segregation of duties:
+  <pairs>` whenever it breaks a rule. Its check holds the recommendation
+  to that kind and line, and every number to one the run read; the model
+  words the reasons. A role used only through reads cannot be told used
+  or unused (T106a's "use not recorded") and is never recommended for
+  removal: the reviewer decides it (`review`).
+- **One per principal and period:** a principal on which the agent itself
+  already recommended with a first line naming the same period is left
+  out; a second run of a period whose principals are all reviewed starts
+  no session and says so (`erp agent access-review` prints the reply).
+  This holds for runs that do not overlap: two runs of one period at the
+  same time each read none done and each recommend on every principal;
+  nothing in the database stops it, which a periodic review workflow
+  (after 1 December) must settle.
+- `erp agent access-review` prints, for each recommendation, the
+  principal's name and the first line computed for it beside its id
+  (`recommend.Result.Names`, `recommend.Made.Content`), so a reviewer
+  reads whose roles are to be removed, and which, without a call per
+  row.
+- The review's sign-off, periodic reviews as a workflow, removing on
+  acceptance and reminders are not built (product owner, 2026-11-12;
+  the plan's "Later").
+- `evals/access`, version 3: three cases added (task `run: review`): a
+  role whose permission the clerk never used recommended for removal and
+  named; a role the clerk used kept; an instruction in a principal's name
+  not followed, nobody blocked and no assignment ended. The replay reads
+  each principal's computed kind and line back from the prompt by its
+  name (`replay_vars`). Not run against a live model.
+- Walkthrough `step_access_review` (step 84): Ada gives Sally a role
+  `tax_preparer` she never uses; the agent leaves one recommendation per
+  active principal (the stand-in's script reads each kind and line back
+  per principal), the access agent itself among them; Sally's is
+  `remove_roles` naming `tax_preparer`; a second run adds none; the
+  agent's own `endRoleAssignment` is refused (403); Ada accepts and ends
+  the assignment herself.
+- No migration, no new operation, permission, event or problem code.
+
 ## Defaults taken (for the product owner's digest)
 
 1. The shared run is a package, `internal/recommend`, not a copy per
@@ -390,3 +529,22 @@ A later slice adds its row here and its section under "As built".
     allowed them; the period's days are UTC days; the permissions
     reviewed are those valid on the period's last day, judged over the
     whole period even when granted during it.
+11. (T106b) The SoD analysis is the access agent's second entry function
+    (the plan's words); its conflicts are computed by the run as
+    identity's check at a grant computes them (from today on, active
+    roles, every holder of the role whenever assigned, conflicts already
+    standing included) and the model only words them; its day is UTC's.
+12. (T106b) The walkthrough shows the rule *who administers access does
+    not release payments* rather than the plan's propose/release rule,
+    which its tenant cannot make while its treasurers hold both (the
+    rule T98b's control matrix step chose too); making
+    any rule in a provisioned tenant first needs an administrator's grant
+    of one of its permissions ended, since `tenant_admin` holds every
+    permission (a gap for the product owner, reported, not built).
+13. (T106c) The access review covers every active principal (people,
+    agents, services) and the active roles each holds on the period's
+    last day; a role is "used" by the principal's own audit events as
+    T106a judges a role; `remove_roles` names only roles not used whose
+    permissions only changes need, `review` covers roles whose use is not
+    recorded and any SoD conflict, and a second run of a period leaves out
+    the principals the agent already recommended on with that period.

@@ -54,6 +54,10 @@ func analyticsEval(ctx context.Context, env eval.Env) error {
 		// Nothing to grade against would pass any figure.
 		return errors.New("analytics: the task names no reference queries")
 	}
+	var earlier []string
+	if err := retype(env.Task["earlier"], &earlier); err != nil {
+		return fmt.Errorf("analytics: the task's earlier questions: %w", err)
+	}
 	m, _ := analytics.DefaultModel() // embedded, and TestModelLoadsAndValidates proves it parses
 	facts, err := analytics.Source{API: env.Agent}.Facts(ctx, m, time.Now())
 	if err != nil {
@@ -68,13 +72,27 @@ func analyticsEval(ctx context.Context, env eval.Env) error {
 		reference = append(reference, r)
 	}
 	s := analytics.NewSession(m, facts, analytics.Principal{ID: "eval"})
-	ans, err := analytics.NewAgent(env.LLM.Client, env.LLM.Model).Ask(ctx, s, t["question"])
+	ans, err := analyticsExchange(ctx, analytics.NewAgent(env.LLM.Client, env.LLM.Model), s, append(earlier, t["question"]))
 	if err != nil {
 		return fmt.Errorf("analytics: %w", err)
 	}
 	env.Reply(map[string]any{"grade": ans.Grade(s.Results, reference), "narrative": ans.Narrative(),
-		"companies": slices.Sorted(maps.Keys(facts.Companies))})
+		"companies": slices.Sorted(maps.Keys(facts.Companies)), "turns": len(ans.Report.Exchange), "queries": len(ans.Report.Queries)})
 	return nil
+}
+
+// analyticsExchange asks the questions in order in one analysis, each
+// after the first a follow-up (T94a), and answers the last one's answer,
+// which is the one graded: the task's reference queries are its.
+func analyticsExchange(ctx context.Context, a *analytics.Agent, s *analytics.Session, questions []string) (*analytics.Answer, error) {
+	ans, err := a.Ask(ctx, s, questions[0])
+	for _, q := range questions[1:] {
+		if err != nil {
+			return nil, err
+		}
+		ans, err = a.Continue(ctx, s, ans.Report, q)
+	}
+	return ans, err
 }
 
 // retype reads a task's YAML value as v's type, through JSON.

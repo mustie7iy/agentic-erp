@@ -506,6 +506,19 @@ refuses of the entry is its own problem. Published as
 latest first by `posting_date`) and `GET /v1/allocation-runs/{id}` show
 the runs.
 
+The margin report (ADR-0075, T92b) is computed on read: `GET
+/v1/margin-report` (`controlling.margin.read` and `ledger.entry.read`,
+`x-slo-class: report`) takes a `legal_entity_id`, a `fiscal_year` and a
+range of periods and gives, per profit center by code, the revenue, the
+cost of sales and the margin in the company's local currency, from the
+leading ledger; the lines without a profit center are one last row,
+`unassigned`; the `totals` are the company's and are on every page; rows
+are cursor-paged. `cost_of_sales_accounts` are the numbers of the chart's
+accounts the configuration names (`controlling.margin_report`), and
+`cost_of_sales_named` is false when it names none for the chart, in which
+case the cost of sales is zero. A legal entity the caller may not act in
+is 422 `request.reference_not_found`.
+
 Plan values (ADR-0050 §8, T56g) are the controlling context's.
 `/v1/plan-categories` (`controlling.plan.read`, `.write`) are open or
 locked by a person (`:lock`, `:unlock`: `controlling.plan.lock`, an
@@ -520,7 +533,21 @@ batch as it was (`replayed`) and publishes nothing, with other lines 409
 `controlling.plan_category_locked`; a batch that would change a cost
 center's plan in a period it is locked for planning in (`lock_plan`,
 T56g2), by a line there or by replacing its current line there, is 422
-`controlling.cost_center_plan_locked`, naming the lines. `GET /v1/plan-lines` lists the current
+`controlling.cost_center_plan_locked`, naming the lines. `POST
+/v1/plan-categories/{id}:copy` (T93a; `controlling.plan.write`, `x-agent:
+false`, `If-Match` the category's version) copies the category's current
+plan of a `legal_entity_id` and `fiscal_year` into
+`target_plan_category_id` as one plan batch of the target, each amount
+multiplied by `percentage` (above 0, at most 1000, up to four decimals)
+and rounded half away from zero; the answer is the batch with
+`copied_from_plan_category_id`, its code and `copy_percentage`. A target
+that has a plan of the company and year is 409
+`controlling.plan_copy_target_planned` unless `replace` is true, which
+replaces all of it; a locked target and a cost center locked for planning
+refuse it as they refuse a batch, naming `source_lines[<plan line id>]`;
+the target being the source, a wrong percentage, no plan to copy, more
+than 50,000 lines and an amount that does not fit are 422
+`controlling.plan_copy_invalid`. `GET /v1/plan-lines` lists the current
 plan. `GET /v1/cost-center-plan-actual` (`controlling.plan.read` and
 `ledger.entry.read`, `x-slo-class: report`) gives per cost center and
 account, over a range of periods, the plan, the leading ledger's actual
@@ -965,7 +992,13 @@ stay people's (`x-agent: false`, ADR-0066). The access agent
 `access`, T106a) recommends on a `role`: `remove_permissions`, naming the
 permissions that only operations changing something need and in whose
 audited contexts no holder has an audit event in the period, or `keep`;
-a permission a read needs is listed as "use not recorded".
+a permission a read needs is listed as "use not recorded"; and
+(`erp agent access-sod -role CODE [-add P,...]`, T106b) `sod_conflict`,
+naming each segregation-of-duties rule the role's holders would break, as
+identity's check at a grant computes it, or `no_conflict`; and
+(`erp agent access-review -period FROM..TO`, T106c) one recommendation on
+each active `principal` of an access review: `keep_roles`, `remove_roles`
+naming the roles it never used, or `review`.
 It holds `identity.access.read` and `audit.event.read` only where a
 tenant's administrator granted them to its role, and identity writes stay
 people's.
@@ -998,12 +1031,12 @@ with the month's total against the tenant's cap.
 | credit | `credit-limits` (a customer's limit in a company, one amount in the company's currency, set and changed by people with `If-Match`; the companies the caller may act in, filtered by company and customer, by customer number), `credit-exposure` (a customer's open items added up as booked, credits netted, and its confirmed sales orders not yet billed at their gross value, each beside their sum, its limit, what is available and whether an amount is within the limit; computed on read, `x-snapshot: true`; it changes and blocks nothing; ADR-0066 §2-§4, T77a, T77b) | none |
 | grc | `controls` (the tenant's control library, none shipped: a control's code, objective, process, owner, frequency and nature, changed with `If-Match`; by code, filtered by process, status, owner and the last test's result, each with its owner's name and its last test) and their `tests` (the result of testing a control once, passed or failed with a note of the evidence, by a person: `x-agent: false`; never changed; the last test first; ADR-0078 §2-§4, T98a) and their `links` (to a permission, a segregation-of-duties rule or a configuration path that is there when the link is made; ADR-0078 §7, T98b); `control-matrix` (the active controls by code with their framework references, last test and links, each link with whether it holds and why not, filtered by process, framework reference and link state, with its totals; computed on read, `x-slo-class: report`, `x-snapshot: true`; it also needs `identity.access.read` and `config.version.read`; ADR-0078 §8, T98b) | `:retire` (an active control, once); a link's `:remove` (once, at the link's version; kept as removed: there is no `DELETE`, §4.3) |
 | sales | `quotations` (created `open` for a customer, dated the company's date and valid until a date, their items priced net of tax; the companies the caller may act in, filtered by company, customer, status and document number, ADR-0067 §2-§4, T78a), `sales-orders` (created `draft` from an accepted quotation, one per quotation, or directly, on the customer's payment term unless one is given, each item with its ordered, delivered and billed quantities; filtered by company, customer, status, credit block, document number and quotation, ADR-0067 §5, T78b; `credit_block` `none`, `blocked` or `released`, set by the credit check at confirmation, a blocked order taking no delivery, ADR-0066 and ADR-0067 As built T77b) with their `deliveries` (`sales-orders/{id}/deliveries`: a confirmation that quantities of a confirmed order's items were delivered on a date, written once, numbered within the order, listed by date; no stock and no posting, ADR-0067 §8, T78c), `billing-documents` (created `created` for one sales order, billing its delivered quantities not yet billed at the order's prices, dated the billing date given or the company's date; filtered by company, customer, sales order, status and document number; nothing posted until `:post`, after which it names its customer invoice and that invoice's journal entry, ADR-0067 §9, T79a, T79b), `sales-prices` (the price of an item key in a company, for every customer or for one, valid from a day, written once and never changed; a quotation or order item without a `unit_price` takes the one valid on its document's date, the customer's first, and says so in `price_source`; filtered by company, item key, customer, condition type and a day of validity, ADR-0067 §10, T80a; a record of a configured condition type of kind `discount_percent` is a discount, a `percent` of the item's value, and with a pricing procedure in the configuration an item lists the `conditions` applied, the price and each discount, with its net value after them, ADR-0067 §11, T80b; an item whose `unit_price` was entered has no discount, its price being the final net price, T80c) | `:accept`, `:decline` (the customer's answer, once; `:reject` is an approval decision's), `:confirm` (a draft order, once, with the credit check), `:releaseCreditBlock` (a blocked order, once, by `sales.order.credit_release`), `billing-documents/{id}:post` (a created billing document, once, as a customer invoice entered and posted in receivables in the same transaction, T79b) |
-| revenue | `revenue-contracts` (the contract of a confirmed sales order in local currency, created `draft` by itself when the order is confirmed or on request for an order that has none, with one performance obligation per order item and the order's net value without tax as its transaction price; the companies the caller may act in, filtered by company, customer, sales order and status, ADR-0068 §3-§4, T81a; a draft's obligations changed with `PATCH`, each named by its number: timing, service period and stand-alone selling price, ADR-0068 §7, T81b) | `:activate` (once: allocates the transaction price and fixes the contract, T81b) |
+| revenue | `revenue-contracts` (the contract of a confirmed sales order in local currency, created `draft` by itself when the order is confirmed or on request for an order that has none, with one performance obligation per order item and the order's net value without tax as its transaction price; the companies the caller may act in, filtered by company, customer, sales order and status, ADR-0068 §3-§4, T81a; a draft's obligations changed with `PATCH`, each named by its number: timing, service period, the day a point-in-time obligation is satisfied on and stand-alone selling price, ADR-0068 §7-§8, T81b, T81c); `revenue-contracts/{id}/schedule` (an active contract's recognition schedule, computed at the read: per obligation and fiscal period the amount, split at the company's date today into recognized and planned, with what is not yet scheduled and the totals, ADR-0068 §8, T81c); `revenue-recognition-runs` (a run of a company and a fiscal period, created by `POST`, which posts it: one per company and period, each for a later period than the last; read with its totals and its postings, one per contract that moved, each naming its journal entry; listed latest first by company, fiscal year and period, ADR-0068 §9, T81d) | `:activate` (once: allocates the transaction price and fixes the contract, T81b) |
 | payments | `payment-runs`, `bank-files` | `:propose` (202), `:submit`, `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |
 | cash | `cash-position`, `liquidity-forecast` (computed on read, ADR-0051; its sources include the released purchase orders' open values, `purchase_order`, T53g), `group-liquidity-forecast` (the companies the caller may act in, summed in group currency, T53e5), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key), `cash-snapshots` and their `exports` to treasury systems (`cash-exports`, the cash export schema v1 over a `treasury_export` connector's SFTP directory, T53h), `liquidity-forecast-variance` (computed on read) and its `comments` (a person's, T53f4) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
 | einvoicing | `e-invoices` (received from the tenant's accredited provider through an `einvoice_provider` connector, ADR-0061 §15, T65a: the companies the caller may act in, filtered by company, connector, status, fetch and when received, newest first); `/{id}/content` (the bytes as received, compared with their hash, human-only, T65b) | `:fetch` (202 with its `Operation`, carried out as the workflow `FetchEInvoices`, T65a; the same fetch scheduled once per period, T65b) |
 | consolidation | `consolidation-groups` (by code) and `group-accounts` (from the configuration, ADR-0059 §3, T68a; a group only to a caller who may act in its parent and every member, §12); `consolidation-runs` (a run of a group and regular period, 202 with its `Operation`, carried out as the workflow `ConsolidationRun`; `/{id}/balances`, its translated balances with totals, ADR-0059 §6, §7, T68d; `/{id}/statements/{statement}`, its consolidated balance sheet or profit and loss by group account with reported, eliminations and consolidated figures and totals, §11, T68e, the profit and loss with other comprehensive income (the year's translation differences), total comprehensive income with its attribution and the translation reserve per company, As built: other comprehensive income, and what the run moved out of the profit as the translation part of group-currency revaluations, `revaluation_translation`, As built: the group-currency revaluation's translation part, and as the exchange differences on the group's designated net investments (`net_investments` on the group, from the configuration; `net_investment` per company and in the totals), As built: a net investment's exchange differences; `/{id}/differences` and `/{id}/entries`, its intercompany differences per elimination and pair and its elimination entries with their lines, each with totals, §8, T68f; each member's investment entry against the member's share capital and acquisition, frozen by the first final run, and the profit's attribution to owners and non-controlling interests, §9, T68h, T68h2; a run only to a caller who may act in every company of its group) | `:discard` (T68d); `:finalize` and `/{id}/differences/{difference_id}:accept` (people only, T68g) |
-| controlling | `plan-categories`, `plan-batches` (by batch key), `plan-lines`, `cost-center-plan-actual`, `profit-center-plan-actual` (computed on read, ADR-0050 §8); `internal-orders` (ADR-0064 §1), `internal-order-balances` (computed on read, ADR-0064 §2), `internal-orders/{id}/budget`, `internal-orders/{id}/settlement-rule` (ADR-0064 §3) | `:lock`, `:unlock`; `:release` |
+| controlling | `plan-categories`, `plan-batches` (by batch key), `plan-lines`, `cost-center-plan-actual`, `profit-center-plan-actual` (computed on read, ADR-0050 §8); `internal-orders` (ADR-0064 §1), `internal-order-balances` (computed on read, ADR-0064 §2), `internal-orders/{id}/budget`, `internal-orders/{id}/settlement-rule` (ADR-0064 §3); `margin-report` (a company's revenue, cost of sales and margin by profit center, computed on read, ADR-0075) | `:lock`, `:unlock`, `:copy` (a category's plan into another, scaled, T93a); `:release` |
 | tax | `tax-registrations` (from the configuration), `tax-registrations/{id}/periods`, `tax-registrations/{id}/draft-return` and its `items` (computed on read, ADR-0049 §10-§11), `tax-registrations/{id}/returns`, `tax-returns/{id}` | `:file`, `:withdraw` (T61i) |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |
 | audit | `audit-events` | `:verify` |

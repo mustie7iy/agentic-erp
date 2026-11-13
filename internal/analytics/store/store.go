@@ -127,29 +127,40 @@ func (s *Source) Facts(ctx context.Context, m *analytics.Model, p analytics.Prin
 // fromStoreIfFresh answers from the store when it may, else says why not.
 // Without a reader (no erp-analytics configured) the pointer is not read.
 func (s *Source) fromStoreIfFresh(ctx context.Context, m *analytics.Model, p analytics.Principal, q analytics.Query, notBefore time.Time) (*analytics.Facts, string, error) {
+	snap, why, err := s.fresh(ctx, notBefore)
+	if err != nil || why != "" {
+		return nil, why, err
+	}
+	f, failed := s.fromStore(ctx, m, p, q, snap)
+	return f, reason(failed), nil
+}
+
+// fresh is the tenant's snapshot when the store may answer, else why it
+// may not ("" when it may). Without a reader (no erp-analytics
+// configured) the pointer is not read.
+func (s *Source) fresh(ctx context.Context, notBefore time.Time) (Snapshot, string, error) {
 	if s.Reader == nil {
-		return nil, "no erp-analytics configured", nil
+		return Snapshot{}, "no erp-analytics configured", nil
 	}
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
-		return nil, "", err
+		return Snapshot{}, "", err
 	}
 	if err := s.permitted(ctx); err != nil {
-		return nil, "", err
+		return Snapshot{}, "", err
 	}
 	snap, ok, err := ReadSnapshot(ctx, tx, s.target())
 	switch {
 	case err != nil:
-		return nil, "", err
+		return snap, "", err
 	case !ok:
-		return nil, "no snapshot", nil
+		return snap, "no snapshot", nil
 	case !snap.Fresh:
-		return nil, "snapshot stale", nil
+		return snap, "snapshot stale", nil
 	case snap.CheckedAt.Before(notBefore):
-		return nil, "snapshot older than asked", nil
+		return snap, "snapshot older than asked", nil
 	}
-	f, failed := s.fromStore(ctx, m, p, q, snap)
-	return f, reason(failed), nil
+	return snap, "", nil
 }
 
 // permitted refuses a caller lacking one of Requires, or barred from one

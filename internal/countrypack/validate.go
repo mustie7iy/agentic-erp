@@ -114,6 +114,7 @@ func determination(ad *config.AccountDetermination) map[string]*string {
 		"ap_reconciliation": &ad.APReconciliation, "input_tax": &ad.InputTax, "bank": &ad.Bank,
 		"fx_gain": &ad.FXGain, "fx_loss": &ad.FXLoss, "gr_ir": &ad.GRIR, "price_difference": &ad.PriceDifference,
 		"cash_discount": &ad.CashDiscount, "down_payment": &ad.DownPayment,
+		"contract_asset": &ad.ContractAsset, "contract_liability": &ad.ContractLiability,
 	}
 }
 

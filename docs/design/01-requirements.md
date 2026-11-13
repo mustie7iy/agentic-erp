@@ -56,6 +56,7 @@ The architecture must reach these numbers by adding capacity
 | Group liquidity forecast across the caller's companies over 100,000 open items in total (ADR-0051 §9, T53e5; product owner, 2026-11-04) | 3 s | 6 s |
 | AR aging of one company over 100,000 open customer items, every page (ADR-0063 §10, T75e; computed on read, no table; `TestReceivablesAgingBudget`) | 3 s | 6 s |
 | Collection worklist of one company over 100,000 open customer items, a page of 100 customers (ADR-0065 §9, T76c; computed on read, as the liquidity forecast; `TestCollectionWorklistBudget`: p95 1.2-1.5 s on a development machine under load, 2026-11-12) | 3 s | 6 s |
+| Margin report of one company and fiscal year by profit center, every page (ADR-0075, T92b; computed on read from the ledger's balances; `TestMarginReportBudget`: 100 profit centers over 720,000 balances, p95 0.6-0.75 s on a development machine under load, 2026-11-12) | 3 s | 6 s |
 | Asset history sheet of one company, ledger and fiscal year (ADR-0057) | 1 s | 3 s |
 | Depreciation run preview over 100,000 assets of one company and ledger, every page (ADR-0057) | 1 s | 3 s |
 | Consolidated statement of one run, every page (ADR-0059, T68e; `TestConsolidatedStatementBudget`: a run of 100 companies, 200,000 translated rows, on a group chart of 5,000 accounts, p95 0.2-0.3 s on a development machine, 2026-11-08; with T68f's eliminations 0.12-0.34 s, 2026-11-09; with T68g's `stale`, 0.23-0.42 s, 2026-11-09) | 1 s | 3 s |

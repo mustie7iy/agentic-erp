@@ -14,6 +14,9 @@ type Controlling struct {
 	// CostCenterCategories are the categories a cost center may have (SAP
 	// KOSAR): what may be posted to it and the locks a new one starts with.
 	CostCenterCategories []CostCenterCategory `yaml:"cost_center_categories,omitempty" json:"cost_center_categories,omitempty"`
+	// MarginReport names, per chart of accounts, the accounts the margin
+	// report counts as cost of sales (ADR-0075 §2, T92b).
+	MarginReport []MarginChart `yaml:"margin_report,omitempty" json:"margin_report,omitempty"`
 }
 
 // CostCenterCategory is a kind of cost center, such as administration or
@@ -105,7 +108,8 @@ type AutomaticAccount struct {
 func determinationKeys(ad AccountDetermination) [][2]string {
 	return [][2]string{{"ap_reconciliation", ad.APReconciliation}, {"input_tax", ad.InputTax}, {"bank", ad.Bank},
 		{"fx_gain", ad.FXGain}, {"fx_loss", ad.FXLoss}, {"gr_ir", ad.GRIR}, {"price_difference", ad.PriceDifference},
-		{"cash_discount", ad.CashDiscount}, {"down_payment", ad.DownPayment}}
+		{"cash_discount", ad.CashDiscount}, {"down_payment", ad.DownPayment}, {"contract_asset", ad.ContractAsset},
+		{"contract_liability", ad.ContractLiability}}
 }
 
 // AutomaticAccounts are the accounts the company's automatic postings use
@@ -159,7 +163,7 @@ var (
 )
 
 // controlling checks the cost center categories: codes as cost centers
-// carry them, each once, with a name.
+// carry them, each once, with a name; and the margin report's charts.
 func (v *validator) controlling(c *Config) {
 	seen := map[string]bool{}
 	for _, cat := range c.Controlling.CostCenterCategories {
@@ -172,6 +176,7 @@ func (v *validator) controlling(c *Config) {
 			v.err(p+".name", "is required")
 		}
 	}
+	v.marginReport(c)
 }
 
 // companyControlling checks a company's controlling rules: cost elements,

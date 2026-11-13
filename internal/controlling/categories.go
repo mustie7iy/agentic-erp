@@ -40,11 +40,18 @@ func scanCategory(r pgx.Row) (Category, error) {
 	return c, errs.Wrapf(err, "controlling: scan plan category")
 }
 
-// getCategory reads a category, FOR UPDATE when it is to change, or 404.
+// getCategory reads a category, held when it is to change, or 404. It is
+// held FOR NO KEY UPDATE, the lock an update of it takes: batches, copies
+// into it and its lock and unlock still run one after the other, and the
+// trigger's FOR SHARE (plan_category_open) still waits for them, but a
+// foreign key's check of the category (FOR KEY SHARE) does not. A copy's
+// batch names the category copied from by one (plan_batch_copied_from,
+// T93a), so with FOR UPDATE a copy would wait for whatever holds its
+// source, and two copies in opposite directions would deadlock.
 func getCategory(ctx context.Context, tx pgx.Tx, id uuid.UUID, forUpdate bool) (Category, error) {
 	lock := ``
 	if forUpdate {
-		lock = ` FOR UPDATE`
+		lock = ` FOR NO KEY UPDATE`
 	}
 	c, err := scanCategory(tx.QueryRow(ctx, `SELECT `+categoryColumns+` FROM controlling.plan_category WHERE id = $1`+lock, id))
 	if errors.Is(err, pgx.ErrNoRows) {

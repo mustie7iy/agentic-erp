@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/config"
@@ -120,4 +123,92 @@ func cell(col Column, value *string, currency string) (any, error) {
 		return nil, fmt.Errorf("analytics: %s %q: %w", col.Name, *value, err)
 	}
 	return Value{Units: units, Scale: len(frac), Currency: currency}, nil
+}
+
+// DocumentsPath is erp-server's drill-through (drillAnalyticsQuery, T94b).
+const DocumentsPath = "/v1/analytics-documents"
+
+// Drilled is a drill-through's answer, every page of it: the row's figure
+// (nil when the row has none) and the documents behind it.
+type Drilled struct {
+	Measure   string
+	Total     *Value
+	Documents []Document
+	Source    string
+	AsOf      time.Time
+}
+
+// remoteDocuments is a page of the drill-through's answer.
+type remoteDocuments struct {
+	Measure string `json:"measure"`
+	Total   struct {
+		Value    *string `json:"value"`
+		Currency string  `json:"currency"`
+	} `json:"total"`
+	Documents []struct {
+		Kind    string    `json:"kind"`
+		ID      uuid.UUID `json:"id"`
+		Number  string    `json:"number"`
+		Company string    `json:"company"`
+		Amount  amount    `json:"amount"`
+	} `json:"documents"`
+	NextPageToken string    `json:"next_page_token"`
+	Source        string    `json:"source"`
+	AsOf          time.Time `json:"as_of"`
+}
+
+// Documents lists the documents behind one measure of one row of a query
+// (Drill), following the pages to the last.
+func (r Remote) Documents(ctx context.Context, d Drill) (*Drilled, error) {
+	in := struct {
+		Query   remoteQuery       `json:"query"`
+		Measure string            `json:"measure,omitempty"`
+		Row     map[string]string `json:"row"`
+	}{remoteQuery{Query: d.Query, Companies: r.Companies}, d.Measure, d.Row}
+	if in.Row == nil {
+		in.Row = map[string]string{}
+	}
+	out := &Drilled{Documents: []Document{}}
+	// The default page: each document's number is one read of its own,
+	// so a page is held to the size the budget is measured at.
+	page := url.Values{}
+	for {
+		var got remoteDocuments
+		resp, err := r.API.Do(ctx, http.MethodPost, DocumentsPath, page, in, "")
+		if err == nil {
+			err = resp.Decode(&got)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("analytics: documents: %w", err)
+		}
+		if err := out.add(got); err != nil {
+			return nil, err
+		}
+		if got.NextPageToken == "" {
+			return out, nil
+		}
+		page.Set("page_token", got.NextPageToken)
+	}
+}
+
+// add takes in a page.
+func (d *Drilled) add(page remoteDocuments) error {
+	d.Measure, d.Source, d.AsOf = page.Measure, page.Source, page.AsOf
+	v, err := cell(Column{Name: page.Measure, Kind: "measure"}, page.Total.Value, page.Total.Currency)
+	if err != nil {
+		return err
+	}
+	if total, ok := v.(Value); ok {
+		d.Total = &total
+	}
+	for _, doc := range page.Documents {
+		_, frac, _ := strings.Cut(doc.Amount.Amount, ".")
+		units, err := money.ParseDecimal(doc.Amount.Amount, len(frac))
+		if err != nil {
+			return fmt.Errorf("analytics: document %s: %w", doc.ID, err)
+		}
+		d.Documents = append(d.Documents, Document{Kind: doc.Kind, ID: doc.ID, Number: doc.Number, Company: doc.Company, Currency: doc.Amount.Currency,
+			Amount: units, Exponent: len(frac)})
+	}
+	return nil
 }

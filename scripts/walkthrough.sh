@@ -1601,7 +1601,8 @@ PILOT_SETTINGS='
     | .fx_valuation.accounts += (["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"}))
     | .bank_statements = {"matching_rules": [{"kind": "end_to_end_id"}, {"kind": "amount", "date_window_days": 5, "counterparty": true}],
         "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})
-| .number_ranges += [{"company": "@CC@", "document_type": "returns_order", "fiscal_year": @YEAR@, "prefix": "RO", "first": 1, "last": 999999}]'
+| .number_ranges += [{"company": "@CC@", "document_type": "returns_order", "fiscal_year": @YEAR@, "prefix": "RO", "first": 1, "last": 999999},
+    {"company": "@CC@", "document_type": "credit_memo_request", "fiscal_year": @YEAR@, "prefix": "CR", "first": 1, "last": 999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -7453,7 +7454,8 @@ step_revenue_contract() {
 # not hold): Sally is refused, Ruth releases it, once, and the delivery
 # is confirmed. Throughout, the exposure shows Northwind's confirmed
 # orders not yet billed, gross, beside its open items; a blocked order
-# counts only once it is released. The amounts follow from the exposure
+# counts only once it is released. CREDIT_ORDER is the released order,
+# delivered and not billed, for later steps. The amounts follow from the exposure
 # read, so the step holds whatever earlier steps left open. Of the earlier
 # orders, step 63's no longer counts, since step 64 posted its billing
 # document as a customer invoice (T79b), which Northwind paid; step 67's
@@ -7552,7 +7554,13 @@ step_credit_block() {
   QUIET=1 api 200 '' listAuditEvents -p object_type=sales.sales_order -p "object_id=$large"
   expect "the order's audit trail" "$(field '[.items[].action] | sort | join(" ")')" \
     "sales.sales_order.confirm sales.sales_order.create sales.sales_order.release_credit_block"
+  CREDIT_ORDER=$large
   passed
+}
+
+# from_cents N writes N minor units as an amount with two decimals.
+from_cents() {
+  awk -v c="$1" 'BEGIN { printf "%.2f", c / 100 }'
 }
 
 # schedule_line_body DATE QUANTITY UNIT is the request for a schedule line
@@ -8302,6 +8310,747 @@ step_return_receipt() {
     "$(field '"\(.version) " + ([.items[] | "\(.delivered_quantity.value) \(.billed_quantity.value) \(.returned_quantity.value)"] | join(", "))')" "$sold"
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
   expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  passed
+}
+
+# step_margin is T92b (ADR-0075): Carla, the controller, reads Maple's
+# margin report: per profit center the revenue (the accounts of type
+# revenue), the cost of sales (the accounts the configuration names for
+# the chart) and their difference, from the general ledger. Nothing posts
+# a cost of goods sold (no stock; planning default of 2026-11-12), so the
+# cost of sales is what a person posts: Alex posts it by journal entry.
+# The revenue is checked against the trial balance, which holds what the
+# earlier steps billed and invoiced; the rows add up to the totals.
+step_margin() {
+  heading "Step 78 — The margin report: the cost of sales accounts named through a governed change; Maple's revenue from the general ledger, a cost of sales posted by journal entry and their difference by profit center, the rows adding up to the company's totals"
+  local base cr request cogs bank cc revenue rows before after want
+  local row='"  \(if .unassigned then "no profit center" else "\(.profit_center_code) \(.profit_center_name)" end): revenue \(.revenue.amount), cost of sales \(.cost_of_sales.amount), margin \(.margin.amount) \(.margin.currency)"'
+  local report="\"margin report of $YEAR, periods \(.fiscal_period_from) to \(.fiscal_period_to), in \(.currency); cost of sales accounts: \(if .cost_of_sales_named then .cost_of_sales_accounts | join(\", \") else \"none named\" end)\", (.items[] | $row), \"  totals: revenue \(.totals.revenue.amount), cost of sales \(.totals.cost_of_sales.amount), margin \(.totals.margin.amount) \(.totals.margin.currency)\""
+  # The rows' three amounts added up, in cents, beside the totals'.
+  local sums='def cents: sub("\\."; "") | tonumber; "\([.items[].revenue.amount | cents] | add // 0) \([.items[].cost_of_sales.amount | cents] | add // 0) \([.items[].margin.amount | cents] | add // 0)"'
+  local totals='def cents: sub("\\."; "") | tonumber; "\(.totals.revenue.amount | cents) \(.totals.cost_of_sales.amount | cents) \(.totals.margin.amount | cents)"'
+  as carla
+  say "Carla reads Maple's margin report of $YEAR (ADR-0075): per profit center the revenue, the cost of sales and the"
+  say "margin, from the leading ledger's balances. The configuration names no cost of sales account for Maple's chart"
+  say "yet, and the report says so: the cost of sales is zero and the margin is the revenue."
+  api 200 "$report" getMarginReport -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p page_size=200
+  expect "no cost of sales accounts named" "$(field '"\(.cost_of_sales_named) \(.cost_of_sales_accounts | length) \(.totals.cost_of_sales.amount)"')" "false 0 0.00"
+  expect "the margin, the revenue" "$(field .totals.margin.amount)" "$(field .totals.revenue.amount)"
+  expect "the report on one page" "$(field '.next_page_token // ""')" ""
+  expect "the rows add up to the totals" "$(field "$sums")" "$(field "$totals")"
+  revenue=$(field '.totals.revenue.amount')
+  rows=$(field '.items | length')
+  [ "$rows" -gt 0 ] || fail "no revenue in the margin report: the earlier steps' customer invoices and billing documents are not there"
+  say "The revenue is the general ledger's: the credits less the debits on Maple's revenue accounts in the trial balance."
+  accounts
+  want=$(jq -c '[.items[] | select(.account_type == "revenue") | .id]' "$WORK/accounts.json")
+  QUIET=1 api 200 '' listBalances -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p page_size=500
+  expect "the balances on one page" "$(field '.next_page_token // ""')" ""
+  expect "the report's revenue, the trial balance's revenue accounts" "$(cents "$revenue")" \
+    "$(field "def cents: sub(\"\\\\.\"; \"\") | tonumber; [.items[] | select(.account_id as \$a | $want | index(\$a)) | (.credit_lc.amount | cents) - (.debit_lc.amount | cents)] | add // 0")"
+  as ada
+  say "Which accounts are cost of sales is the tenant's configuration (controlling.margin_report, ADR-0075 §2): single"
+  say "accounts or ranges of a chart's expense accounts. Ada names Maple's account 5000, purchases and cost of goods"
+  say "sold. The setting posts nothing, so the change is tier 2, approved by the process owner:"
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Cost of sales accounts\", rationale: \"Maple's margin report (T92b)\", base_version: $base,
+    proposed: (.items[0].document | .controlling.margin_report = [{chart: \"$CC\", cost_of_sales_accounts: [{from: \"5000\"}]}])}" "$WORK/last.json" >"$WORK/margin.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @margin.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 2
+  expect "the change" "$(field '[.items[].path] | join(" ")')" "controlling.margin_report[$CC]"
+  request=$(field .workflow_request_id)
+  approve priya "$request" "The cost of sales accounts, as agreed with the controller"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  as carla
+  say "Carla reads the report again. It counts account 5000 now, with whatever the ledger holds on it:"
+  api 200 "$report" getMarginReport -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p page_size=200
+  expect "the cost of sales accounts" "$(field '"\(.cost_of_sales_named) \(.cost_of_sales_accounts | join(" "))"')" "true 5000"
+  expect "the revenue as before" "$(field .totals.revenue.amount)" "$revenue"
+  before=$(field '[.items[] | select(.profit_center_code == "PC-MTL")] | if length == 0 then "0.00 0.00" else .[0] | "\(.revenue.amount) \(.cost_of_sales.amount)" end')
+  as alex
+  cogs=$(account 5000)
+  bank=$(account 100000)
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  cc=$(field '.items[0].id')
+  say "No stock is kept, so nothing posts a cost of goods sold. At period end Alex posts the cost of what Maple sold,"
+  say "CAD 700.00, by journal entry on cost center CC-1100, whose profit center is PC-MTL:"
+  api 201 '"journal entry \(.document_number): \([.lines[] | "\(.account_id | acct) \(.amount.amount) \(.amount.currency)\(if .cost_center_code then " on cost center \(.cost_center_code), profit center \(.profit_center_code)" else "" end)"] | join(" / "))"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"Cost of sales of the period\", \"lines\": [{\"account_id\": \"$cogs\", \"amount\": {\"amount\": \"700.00\", \"currency\": \"CAD\"}, \"cost_center_id\": \"$cc\"}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-700.00\", \"currency\": \"CAD\"}}]}"
+  expect "the cost line's profit center" "$(field '.lines[0].profit_center_code')" PC-MTL
+  as carla
+  say "The report is exact at the read, so it shows the entry at once: PC-MTL's cost of sales is CAD 700.00 more, its"
+  say "margin its revenue less its cost of sales, and the rows still add up to Maple's totals."
+  api 200 "$report" getMarginReport -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p page_size=200
+  after=$(field '.items[] | select(.profit_center_code == "PC-MTL") | "\(.revenue.amount) \(.cost_of_sales.amount) \(.margin.amount)"')
+  expect "PC-MTL's revenue, cost of sales and margin" "$after" \
+    "${before% *} $(amount $(($(cents "${before#* }") + 70000))) $(amount $(($(cents "${before% *}") - $(cents "${before#* }") - 70000)))"
+  expect "the rows add up to the totals" "$(field "$sums")" "$(field "$totals")"
+  expect "the totals' margin, revenue less cost of sales" "$(cents "$(field .totals.margin.amount)")" \
+    "$(($(cents "$(field .totals.revenue.amount)") - $(cents "$(field .totals.cost_of_sales.amount)")))"
+  say "PC-MTL: revenue ${after%% *}, cost of sales $(echo "$after" | cut -d' ' -f2), margin ${after##* } CAD."
+  as rita
+  say "Rita holds neither the margin report's permission nor the ledger's entry read:"
+  refused 403 identity.permission_missing getMarginReport -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  as carla
+  passed
+}
+# step_plan_version is T93a (ADR-0050 §8, As built T93a): Carla enters
+# Maple's budget for two cost centers as a plan batch of the category
+# PLAN (the story had no plan yet) and copies it into a new category, FC,
+# at 105 percent: a planning version. The copy is one plan batch of FC
+# naming its origin; each amount is scaled and rounded half away from
+# zero; PLAN is unchanged; a second copy into FC is refused unless it says
+# to replace; the cost center plan against actual report reads FC.
+step_plan_version() {
+  heading "Step 79 — A planning version: a budget entered for two cost centers and copied into a forecast category at 105 percent, each amount scaled and rounded; the budget unchanged; the plan against actual report reads the forecast"
+  local plan fc tag admin sales account month batch
+  local lines='[.items[] | "\(.cost_center_id) \(.fiscal_period) \(.amount.amount) \(.amount.currency)"] | sort | join("; ")'
+  month=$((10#${TODAY:5:2}))
+  as carla
+  accounts
+  account=$(account 6000)
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  admin=$(field '.items[0].id')
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1300
+  sales=$(field '.items[0].id')
+  say "Carla creates two plan categories (ADR-0050 §8): PLAN for the budget and FC for a forecast."
+  api 201 '"plan category \(.code) \(.name): \(if .locked then "locked" else "open" end)"' createPlanCategory -body "{\"code\": \"PLAN\", \"name\": \"Budget $YEAR\"}"
+  plan=$(field .id)
+  tag=$ETAG
+  api 201 '"plan category \(.code) \(.name): \(if .locked then "locked" else "open" end)"' createPlanCategory -body "{\"code\": \"FC\", \"name\": \"Forecast $YEAR\"}"
+  fc=$(field .id)
+  say "She uploads this month's budget of office expenses for the cost centers CC-1100 and CC-1300 as one plan batch:"
+  api 200 '"plan batch \(.batch_key): \(.line_count) lines written, \(.replaced_count) replaced"' applyPlanBatch \
+    -body "{\"plan_category_id\": \"$plan\", \"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"batch_key\": \"budget-$YEAR\", \"lines\": [
+      {\"cost_center_id\": \"$admin\", \"account_id\": \"$account\", \"fiscal_period\": $month, \"amount\": {\"amount\": \"1000.00\", \"currency\": \"CAD\"}},
+      {\"cost_center_id\": \"$sales\", \"account_id\": \"$account\", \"fiscal_period\": $month, \"amount\": {\"amount\": \"333.33\", \"currency\": \"CAD\"}}]}"
+  expect "the budget's lines" "$(field .line_count)" 2
+  say "The forecast starts as the budget plus five percent. Carla copies PLAN's plan of $YEAR into FC at 105 percent"
+  say "(T93a): every line to the same cost center, account and period, its amount scaled and rounded half away from"
+  say "zero to the cent. The copy is one plan batch of FC that names where it came from:"
+  api 200 '"plan batch \(.batch_key) of FC: \(.line_count) lines copied from \(.copied_from_plan_category_code) at \(.copy_percentage) percent, \(.replaced_count) replaced"' \
+    copyPlanCategory -p "id=$plan" -if-match "$tag" -body "{\"target_plan_category_id\": \"$fc\", \"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"percentage\": \"105\"}"
+  batch=$(field .id)
+  expect "the copy" "$(field '"\(.plan_category_id) \(.line_count) \(.replaced_count) \(.copied_from_plan_category_id) \(.copied_from_plan_category_code) \(.copy_percentage)"')" \
+    "$fc 2 0 $plan PLAN 105"
+  api 200 '.items[] | "  FC period \(.fiscal_period): \(.amount.amount) \(.amount.currency)"' listPlanLines -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "plan_batch_id=$batch"
+  # 1000.00 at 105 percent is 1050.00; 333.33 is 349.9965, rounded to 350.00.
+  expect "the forecast's lines, scaled and rounded" "$(field "$lines")" \
+    "$(printf '%s\n' "$admin $month 1050.00 CAD" "$sales $month 350.00 CAD" | sort | paste -sd';' - | sed 's/;/; /g')"
+  QUIET=1 api 200 '' listPlanLines -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "plan_category_id=$plan"
+  expect "the budget's lines, unchanged" "$(field "$lines")" \
+    "$(printf '%s\n' "$admin $month 1000.00 CAD" "$sales $month 333.33 CAD" | sort | paste -sd';' - | sed 's/;/; /g')"
+  say "FC has a plan of $YEAR now. A second copy into it is refused unless it says to replace that plan:"
+  refused 409 controlling.plan_copy_target_planned copyPlanCategory -p "id=$plan" -if-match "$tag" \
+    -body "{\"target_plan_category_id\": \"$fc\", \"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"percentage\": \"110\"}"
+  say "The cost center plan against actual report reads the forecast as it reads any category:"
+  api 200 '.items[] | select(.account_id == "'"$account"'") | "  cost center \(.cost_center_id | if . == "'"$admin"'" then "CC-1100" else "CC-1300" end): plan \(.plan.amount), actual \(.actual.amount), variance \(.variance.amount) \(.variance.currency)"' \
+    listCostCenterPlanActual -p "plan_category_id=$fc" -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "fiscal_period_from=$month" -p "fiscal_period_to=$month" -p page_size=200
+  expect "the report's plan, the forecast's" \
+    "$(field '[.items[] | select(.account_id == "'"$account"'" and (.cost_center_id == "'"$admin"'" or .cost_center_id == "'"$sales"'")) | "\(.cost_center_id) \(.plan.amount)"] | sort | join("; ")')" \
+    "$(printf '%s\n' "$admin 1050.00" "$sales 350.00" | sort | paste -sd';' - | sed 's/;/; /g')"
+  say "FC plans 1050.00 CAD for CC-1100 and 350.00 CAD for CC-1300, copied from PLAN at 105 percent."
+  passed
+}
+# step_drill_through is T94b (ADR-0044 As built T94b): Carla drills from
+# the month's revenue, a row of a governed query, to the journal entries
+# behind it, a page at a time; their amounts add up to the figure, and
+# each number is the entry's own. A derived metric is refused naming its
+# bases, and Rita, who reads no supplier invoice, is refused the spend's.
+step_drill_through() {
+  heading "Step 80 — Drill-through: from the month's revenue to the journal entries behind it, a page at a time, adding up to the figure; a ratio refused naming its metrics; without the documents' read, none"
+  local month q figure body token total count entry number
+  as carla
+  month=$((10#${TODAY:5:2}))
+  say "Carla reads Maple's revenue by month of $YEAR, the governed metric of step 14:"
+  q="{\"measures\": [\"revenue\"], \"by\": [\"fiscal_year\", \"fiscal_month\"], \"where\": [{\"dim\": \"fiscal_year\", \"op\": \"in\", \"values\": [\"$YEAR\"]}], \"companies\": [\"$CC\"]}"
+  api 200 '(.rows[] | "  \(.[0].value)-\(.[1].value): \(.[2].value) \(.[2].currency)")' runAnalyticsQuery -body "$q"
+  figure=$(field "[.rows[] | select(.[1].value == \"$month\") | .[2].value] | first // \"\"")
+  [ -n "$figure" ] || fail "no revenue in month $month of $YEAR: the earlier steps' billing is not there"
+  say "She drills into month $month's $figure CAD (POST /v1/analytics-documents): the entries behind the"
+  say "figure, two to a page, each with its number, its part of the figure and the path that reads it:"
+  body="{\"query\": $q, \"row\": {\"fiscal_year\": \"$YEAR\", \"fiscal_month\": \"$month\"}}"
+  : >"$WORK/drill.jsonl"
+  token=''
+  while :; do
+    api 200 '"  total \(.total.value) \(.total.currency) from \(.source)", (.documents[] | "  \(.kind) \(.number) of \(.company): \(.amount.amount) \(.amount.currency)  \(.path | sub("[0-9a-f-]{36}$"; "…"))")' \
+      drillAnalyticsQuery -p page_size=2 ${token:+-p "page_token=$token"} -body "$body"
+    expect "the row's figure" "$(field .total.value)" "$figure"
+    jq -c '.documents[]' "$WORK/last.json" >>"$WORK/drill.jsonl"
+    token=$(field '.next_page_token // ""')
+    [ -n "$token" ] || break
+  done
+  total=$(jq -rs 'map(.amount.amount | sub("\\."; "") | tonumber) | add // 0' "$WORK/drill.jsonl")
+  count=$(jq -rs 'length' "$WORK/drill.jsonl")
+  expect "the documents' amounts added up" "$(amount "$total")" "$figure"
+  expect "every document a journal entry" "$(jq -rs 'map(.kind) | unique | join(" ")' "$WORK/drill.jsonl")" journal_entry
+  entry=$(jq -rs '.[0].id' "$WORK/drill.jsonl")
+  number=$(jq -rs '.[0].number' "$WORK/drill.jsonl")
+  say "Each number is the entry's own, read as Carla from the entry itself:"
+  api 200 '"journal entry \(.document_number) of \(.posting_date)"' getJournalEntry -p "id=$entry"
+  expect "the first document's number" "$(field .document_number)" "$number"
+  say "The same from the command line:"
+  show erp query -measures revenue -by fiscal_year,fiscal_month -where "fiscal_year in $YEAR" -companies "$CC" -documents "fiscal_year=$YEAR,fiscal_month=$month"
+  "$ERP" query -measures revenue -by fiscal_year,fiscal_month -where "fiscal_year in $YEAR" -companies "$CC" \
+    -documents "fiscal_year=$YEAR,fiscal_month=$month" >"$WORK/query.out" 2>&1 || { sed 's/^/     /' "$WORK/query.out"; fail "the drill-through failed"; }
+  sed 's/^/     /' "$WORK/query.out"
+  grep -q "revenue of the row: $figure CAD · $count documents" "$WORK/query.out" || fail "the command did not list the $count documents of $figure CAD"
+  say "A ratio has no documents of its own: drilling into it is refused, naming the metrics to drill into instead."
+  refused 422 analytics.invalid_query drillAnalyticsQuery -body "{\"query\": {\"measures\": [\"off_contract_share\"], \"companies\": [\"$CC\"]}, \"row\": {}}"
+  as rita
+  say "Rita reads no supplier invoice: the documents behind spend are not hers to list."
+  refused 403 identity.permission_missing drillAnalyticsQuery -body "{\"query\": {\"measures\": [\"spend\"], \"companies\": [\"$CC\"]}, \"row\": {}}"
+  as carla
+  say "$count journal entries make up month $month's $figure CAD of revenue."
+  passed
+}
+# step_follow_up is T94a (ADR-0044 As built T94a): an analytics agent
+# principal answers Carla's question with erp ask, then her follow-up
+# ("and by supplier?") with erp ask -continue: the agent is given the
+# earlier question, its answer and its results as data; its follow-up
+# query keeps the year the first question named, and the analysis keeps
+# the company its first erp ask was scoped to, neither named again. The model is the stand-in, answering from
+# a script of turns as the analytics suite's follow-up cases replay them
+# (evals/analytics). The saved report keeps both turns, and erp report
+# reruns every query of the exchange.
+step_follow_up() {
+  heading "Step 81 — A follow-up question in the same analysis: \"and by supplier?\" answered with the earlier question's year and the analysis's company, the report keeping the whole exchange"
+  local role got id report follow q
+  as ada
+  say "Ada sets up the analytics agent (agent type analytics, ADR-0044): it runs governed queries on what its role reads"
+  say "and builds dashboards; it writes nothing."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "analytics_agent", "name": "Analytics agent"}'
+  role=$(field .id)
+  grant "$role" analytics.query.run tenancy.org.read partner.supplier.read ledger.account.read payables.invoice.read procurement.order.read \
+    procurement.contract.read ledger.cost_center.read agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' createPrincipal \
+    -body '{"kind": "agent", "external_subject": "analytics-agent", "display_name": "Analytics agent", "all_companies": true, "agent_profile": {"autonomy_level": 0, "agent_type": "analytics", "model": "erp-analytics", "description": "Answers questions with governed metrics (ADR-0044)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token analytics-agent "Analytics agent"
+  q="{\"dim\": \"fiscal_year\", \"op\": \"in\", \"values\": [\"$YEAR\"]}"
+  jq -n --argjson year "$q" --arg y "$YEAR" '{vars: {query: "(q_[0-9a-f]{12})", latest: "(?s).*(q_[0-9a-f]{12})"}, turns: [
+    {tool: "run_query", input: {measures: ["spend"], by: ["fiscal_year", "currency"], where: [$year]}},
+    {tool: "build_dashboard", input: {spec: {title: ("Spend " + $y), tables: [{title: "By currency", query_id: "{{query}}"}]}}},
+    {final: ("The spend of " + $y + " is on the dashboard.")},
+    {tool: "run_query", input: {measures: ["spend"], by: ["vendor_name", "currency"], where: [$year]}},
+    {tool: "build_dashboard", input: {spec: {title: ("Spend " + $y + " by supplier"), assumptions: [("The follow-up keeps " + $y + " and the company of the first question.")],
+      tables: [{title: "By supplier", query_id: "{{latest}}"}]}}},
+    {final: ("The spend of " + $y + " by supplier is on the dashboard.")}]}' >"$WORK/model-script.json"
+  say "Carla asks through the agent (erp ask, the model a stand-in answering from a script of turns):"
+  show erp ask -companies "$CC" "What did we spend with suppliers this year?"
+  got=$(ERP_TOKEN=$(cat "$WORK/tokens/analytics-agent") "$ERP" ask -companies "$CC" -out "$WORK/reports" "What did we spend with suppliers this year?" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp ask failed ($(cat "$WORK/stderr"))"; }
+  printf '%s\n' "$got" | sed 's/^/     /'
+  id=$(printf '%s\n' "$got" | sed -nE 's/^Rerun later with: erp report -id (rpt_[0-9a-f]+)$/\1/p')
+  [ -n "$id" ] || { rm -f "$WORK/model-script.json"; fail "erp ask named no report"; }
+  say "Her follow-up names neither the year nor the company: the analysis keeps its company, and the agent answers with"
+  say "the earlier exchange in context."
+  show erp ask -continue "$id" "and by supplier?"
+  got=$(ERP_TOKEN=$(cat "$WORK/tokens/analytics-agent") "$ERP" ask -continue "$id" -out "$WORK/reports" "and by supplier?" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp ask -continue failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  report="$WORK/reports/$id.json"
+  say "The saved report keeps the whole exchange, each question with its answer and its queries:"
+  jq -r '.exchange[] | "  \(.question) -> \(.answer) (\(.queries | length) queries)"' "$report" | sed 's/^/   /'
+  expect "the exchange's questions" "$(jq -r '[.exchange[].question] | join(" | ")' "$report")" "What did we spend with suppliers this year? | and by supplier?"
+  follow=$(jq -c '[.queries[] | select(.by == ["vendor_name", "currency"])][0]' "$report")
+  expect "the follow-up's query keeps the year" "$(jq -r '.where[0] | "\(.dim) \(.op) \(.values | join(","))"' <<<"$follow")" "fiscal_year in $YEAR"
+  expect "the analysis keeps the company" "$(jq -r '.principal.companies | join(",")' "$report")" "$CC"
+  expect "the report's queries, both questions'" "$(jq -r '.queries | length' "$report")" 2
+  say "The follow-up's figures are the governed metric's, the same query run directly as Carla:"
+  as carla
+  api 200 '(.rows[] | "  \(.[0].value): \(.[2].value) \(.[2].currency)")' runAnalyticsQuery \
+    -body "{\"measures\": [\"spend\"], \"by\": [\"vendor_name\", \"currency\"], \"where\": [$q], \"companies\": [\"$CC\"]}"
+  say "Rerunning the report reruns every query of the exchange on current data:"
+  show erp report -id "$id" -companies "$CC"
+  ERP_TOKEN=$(cat "$WORK/tokens/analytics-agent") "$ERP" report -id "$id" -companies "$CC" -out "$WORK/reports" >"$WORK/report.out" 2>&1 ||
+    { sed 's/^/     /' "$WORK/report.out"; fail "erp report failed"; }
+  sed 's/^/     /' "$WORK/report.out"
+  grep -q "Refreshed \"Spend $YEAR by supplier\"" "$WORK/report.out" || fail "the report was not refreshed"
+  passed
+}
+# step_revenue_schedule is T81c (ADR-0068 §8): Nora reads the recognition
+# schedule of step 67's active contract. Nothing of it is stored: it is
+# computed from the obligations as the contract fixed them and from the
+# order's delivery confirmations. Before a delivery the brackets, a
+# point-in-time obligation, are in no period; the support, over time, is
+# spread on a straight line over the days of its service period, the
+# fiscal year, each fiscal period taking its days' share and the shares
+# adding up to the allocated amount to the cent. Sally confirms the
+# brackets as delivered today, and the schedule has their allocated
+# amount in today's fiscal period, recognized. The amounts follow from
+# the year's days, so the step holds in any year and on any day.
+# T81d (ADR-0068 §9): Ada adds a contract asset and a contract liability
+# account to Maple's account determination. The support is confirmed as
+# made available and Ruth bills the order in full and posts it; Nora
+# activates the contract of step 68's released order, delivered and not
+# billed. Nora runs revenue recognition for today's fiscal period: the
+# first contract, billed ahead of what is recognized, stands as a
+# contract liability, its revenue brought down to the brackets' allocated
+# amount and the support's share of the year's days to the period's end;
+# the second, delivered and not billed, is accrued as a contract asset
+# against revenue; step 63's contract, recognized as it was billed, posts
+# nothing. Each entry balances; a second run of the period is refused.
+step_revenue_schedule() {
+  heading "Step 82 — Recognition schedule and run: an active revenue contract's revenue per obligation and fiscal period, computed on read; goods in the period of their delivery confirmation, a service on a straight line by days over its service period, the shares adding up to the allocated amount; the recognition run posts each contract's position, a contract liability for what is billed ahead and a contract asset for what is delivered and not billed"
+  local order=$REVENUE_ORDER contract=$REVENUE_CONTRACT day year yeardays show
+  local base period support doc accrued run first second liability entry lines
+  [ -n "$order" ] && [ -n "$contract" ] || fail "step 67's order and revenue contract are not there"
+  [ -n "$CREDIT_ORDER" ] || fail "step 68's released order is not there"
+  day=$(company_day)
+  year=${day:0:4}
+  yeardays=$(jq -rn --arg y "$year" '($y | tonumber) as $n | if ($n % 4 == 0 and $n % 100 != 0) or $n % 400 == 0 then 366 else 365 end')
+  show='"recognition schedule of sales order \(.sales_order_number), \(.customer_number) \(.customer_name), as of \(.as_of): transaction price \(.transaction_price.amount) = recognized \(.recognized_amount.amount) + planned \(.planned_amount.amount) + not yet scheduled \(.unscheduled_amount.amount) \(.currency)", (.obligations[] | "  obligation \(.obligation_no) \(.description), \(.timing): allocated \(.allocated_amount.amount) = recognized \(.recognized_amount.amount) + planned \(.planned_amount.amount) + not yet scheduled \(.unscheduled_amount.amount)", (.periods[] | "    \(.fiscal_year)/\(.fiscal_period) \(.period_start) to \(.period_end): \(.amount.amount)" + (if .days then " for \(.days) days" else "" end) + (if .delivered_quantity then " for \(.delivered_quantity.value) \(.delivered_quantity.unit) delivered" else "" end) + ", recognized \(.recognized_amount.amount), planned \(.planned_amount.amount)"))'
+  as nora
+  say "Step 67's contract is active: 2700.00 allocated as 1446.43 to the brackets, satisfied at a point in time, and"
+  say "1253.57 to the year of support, satisfied over time. Nora reads its recognition schedule (ADR-0068 §8). It is"
+  say "computed at the read from the obligations and the order's delivery confirmations; nothing of it is stored and"
+  say "nothing is posted. Nothing is delivered yet, so the brackets' amount is in no period: not yet scheduled. The"
+  say "support is spread on a straight line over the $yeardays days of $year: each fiscal period takes 1253.57 x its days /"
+  say "$yeardays, rounded so that the periods add up to 1253.57 exactly. What falls on days up to today, $day, is"
+  say "recognized by the schedule; what falls later is planned:"
+  api 200 "$show" getRevenueSchedule -p "id=$contract"
+  expect "the schedule's contract, order and day" "$(field '"\(.revenue_contract_id) \(.sales_order_id) \(.as_of) \(.currency)"')" "$contract $order $day CAD"
+  expect "the brackets before a delivery: no period, all not yet scheduled" \
+    "$(field '.obligations[0] | "\(.timing) \(.periods | length) \(.recognized_amount.amount) \(.planned_amount.amount) \(.unscheduled_amount.amount)"')" \
+    "point_in_time 0 0.00 0.00 1446.43"
+  expect "the support's periods, the fiscal year's" "$(field '.obligations[1] | "\(.timing) \(.service_from) \(.service_to) \([.periods[].fiscal_period] | join(" "))"')" \
+    "over_time $year-01-01 $year-12-31 1 2 3 4 5 6 7 8 9 10 11 12"
+  expect "the periods' days, the year's" "$(field '[.obligations[1].periods[].days] | add')" "$yeardays"
+  expect "the periods' amounts in cents, the allocated amount's" "$(field '[.obligations[1].periods[].amount.amount | sub("\\."; "") | tonumber] | add')" 125357
+  expect "each period within a cent of 1253.57 x its days / $yeardays" \
+    "$(field "[.obligations[1].periods[] | ((.amount.amount | sub(\"\\\\.\"; \"\") | tonumber) - 125357 * .days / $yeardays) | fabs < 1] | all")" true
+  expect "every period before today's recognized, every later one planned" \
+    "$(field "[.obligations[1].periods[] | if .period_end < \"$day\" then .recognized_amount.amount == .amount.amount elif .period_start > \"$day\" then .planned_amount.amount == .amount.amount else true end] | all")" true
+  expect "the support: recognized and planned add up to its allocated amount, in cents" \
+    "$(field '.obligations[1] | [.recognized_amount.amount, .planned_amount.amount, .unscheduled_amount.amount] | map(sub("\\."; "") | tonumber) | add')" 125357
+  expect "the contract: recognized, planned and not yet scheduled add up to the transaction price, in cents" \
+    "$(field '[.recognized_amount.amount, .planned_amount.amount, .unscheduled_amount.amount] | map(sub("\\."; "") | tonumber) | add')" 270000
+  as sally
+  say "The brackets leave the warehouse today. Sally confirms the delivery of all 120 (T78c):"
+  api 201 '"delivery \(.delivery_no) of sales order \(.sales_order_number) on \(.delivery_date): " + ([.items[] | "item \(.item_no) \(.quantity.value) \(.quantity.unit)"] | join(", "))' \
+    confirmSalesDelivery -p "id=$order" -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"120\", \"unit\": \"EA\"}}]}"
+  as nora
+  say "The delivery confirmation is when a point-in-time obligation is satisfied, unless Nora names another day on the"
+  say "obligation: the schedule now has the brackets' whole allocated amount, 1446.43, in today's fiscal period,"
+  say "recognized. The support's line is as it was."
+  api 200 "$show" getRevenueSchedule -p "id=$contract"
+  expect "the brackets: their allocated amount in the delivery's period, recognized" \
+    "$(field ".obligations[0] | \"\\(.periods | length) \\(.periods[0].period_start <= \"$day\" and \"$day\" <= .periods[0].period_end) \\(.periods[0].amount.amount) \\(.periods[0].recognized_amount.amount) \\(.periods[0].delivered_quantity.value) \\(.periods[0].delivered_quantity.unit) \\(.unscheduled_amount.amount)\"")" \
+    "1 true 1446.43 1446.43 120 EA 0.00"
+  expect "nothing left unscheduled; the sums still the transaction price's, in cents" \
+    "$(field '"\(.unscheduled_amount.amount) \([.recognized_amount.amount, .planned_amount.amount] | map(sub("\\."; "") | tonumber) | add)"')" "0.00 270000"
+  expect "the contract's periods, the obligations' added up: today's holds the brackets and the support's share" \
+    "$(field "[.periods[] | select(.period_start <= \"$day\" and \"$day\" <= .period_end) | .amount.amount | sub(\"\\\\.\"; \"\") | tonumber] | add")" \
+    "$(field "[.obligations[].periods[] | select(.period_start <= \"$day\" and \"$day\" <= .period_end) | .amount.amount | sub(\"\\\\.\"; \"\") | tonumber] | add")"
+  say "A draft has no allocated amounts and so no schedule:"
+  QUIET=1 api 200 '' listRevenueContracts -p "legal_entity_id=$LE" -p status=draft
+  [ "$(field '.items | length')" -gt 0 ] || fail "no draft revenue contract to show"
+  refused 409 revenue.invalid_status getRevenueSchedule -p "id=$(field '.items[0].id')"
+  as ada
+  say "The recognition run (T81d, ADR-0068 §9) posts each contract's position: revenue recognized less revenue billed is a"
+  say "contract asset when it is positive and a contract liability when it is negative, never both. Maple's chart has"
+  say "neither account, so Ada proposes 1260 and 2460 and names them in the account determination, a governed change:"
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Contract asset and contract liability accounts\", rationale: \"Revenue recognition runs of the pilot company (T81d)\", base_version: $base,
+    proposed: (.items[0].document | (.companies[] | select(.code == \"$CC\")) |= ((any(.chart_of_accounts[]; .group_account)) as \$group
+      | .chart_of_accounts += [{number: \"1260\", name: \"Contract assets\", type: \"asset\"} + (if \$group then {group_account: \"G1000\"} else {} end),
+          {number: \"2460\", name: \"Contract liabilities\", type: \"liability\"} + (if \$group then {group_account: \"G2000\"} else {} end)]
+      | .account_determination += {contract_asset: \"1260\", contract_liability: \"2460\"}))}" "$WORK/last.json" >"$WORK/contract-accounts.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @contract-accounts.json
+  governed "$(field .id)" "the contract accounts"
+  accounts
+  as sally
+  say "The support is made available to Northwind today; Sally confirms it (T78c), so the whole order is delivered:"
+  api 201 '"delivery \(.delivery_no) of sales order \(.sales_order_number) on \(.delivery_date): " + ([.items[] | "item \(.item_no) \(.quantity.value) \(.quantity.unit)"] | join(", "))' \
+    confirmSalesDelivery -p "id=$order" -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 2, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  as ruth
+  say "Ruth bills the order in full, at the order's prices, and posts the billing document (T79b): 1500.00 for the"
+  say "brackets and 1200.00 for the year of support are credited to 4000 Sales, with the GST on top."
+  QUIET=1 api 201 '' createBillingDocument -body "{\"sales_order_id\": \"$order\"}"
+  doc=$(field .id)
+  api 200 '"billing document \(.document_number): \(.status) on \(.posting_date), net \(.net_amount.amount) \(.net_amount.currency), posted as customer invoice \(.customer_invoice_number)"' \
+    postBillingDocument -p "id=$doc" -if-match "$ETAG"
+  expect "the order billed in full" "$(field '"\(.status) \(.net_amount.amount)"')" "posted 2700.00"
+  as nora
+  say "Step 68's released order, 500 brackets M10 for 5000.00, is delivered and not billed. Its contract was created"
+  say "when the order was confirmed; Nora activates it as it stands, one obligation at a point in time:"
+  QUIET=1 api 200 '' listRevenueContracts -p "sales_order_id=$CREDIT_ORDER"
+  expect "the revenue contracts of step 68's released order" "$(field '[.items[].status] | join(" ")')" draft
+  accrued=$(field '.items[0].id')
+  QUIET=1 api 200 '' getRevenueContract -p "id=$accrued"
+  api 200 '"revenue contract of sales order \(.sales_order_number): \(.status), transaction price \(.transaction_price.amount) \(.transaction_price.currency)"' \
+    activateRevenueContract -p "id=$accrued" -if-match "$ETAG"
+  expect "the active contract" "$(field '"\(.status) \(.obligations[0].allocated_amount.amount)"')" "active 5000.00"
+  say "What the run will recognize for step 67's contract is its schedule to the last day of today's fiscal period:"
+  say "the brackets' 1446.43, delivered, and the support's periods up to and including this one."
+  QUIET=1 api 200 '' getRevenueSchedule -p "id=$contract"
+  period=$(field ".periods[] | select(.period_start <= \"$day\" and \"$day\" <= .period_end) | .fiscal_period")
+  support=$(field "[.obligations[1].periods[] | select(.period_start <= \"$day\") | .amount.amount | sub(\"\\\\.\"; \"\") | tonumber] | add")
+  say "  the support to the end of period $period: $(from_cents "$support") of 1253.57"
+  liability=$((270000 - 144643 - support))
+  say "Nora runs revenue recognition for Maple and period $period of $year. The run reads every active contract: for each"
+  say "obligation, the revenue recognized to the period's last day less the revenue billed to it, less what earlier runs"
+  say "posted. Billing credited 4000 Sales with 2700.00 for step 67's order; recognized are 1446.43 and $(from_cents "$support"), so the"
+  say "entry debits Sales with the difference per obligation and credits the contract liability with $(from_cents "$liability"): what"
+  say "Northwind was billed for support still to come. Step 68's order is recognized, 5000.00, and not billed: the entry"
+  say "credits Sales and debits the contract asset, the accrual of what is delivered and not billed. Step 63's order"
+  say "was billed as it was delivered, so its contract posts nothing. Output tax is untouched: it was reported with"
+  say "the invoice."
+  api 201 '"revenue recognition run of \(.company_code) \(.company_name) for \(.fiscal_year)/\(.fiscal_period), posted \(.posting_date): \(.contract_count) contracts read, \(.posting_count) posted; recognized \(.recognized_amount.amount), billed \(.billed_amount.amount), contract assets \(.contract_asset_amount.amount), contract liabilities \(.contract_liability_amount.amount), revenue moved by \(.revenue_amount.amount) \(.currency)", (.postings[] | "  sales order \(.sales_order_number) \(.customer_number) \(.customer_name): recognized \(.recognized_amount.amount), billed \(.billed_amount.amount), contract asset \(.contract_asset_amount.amount), contract liability \(.contract_liability_amount.amount), revenue moved by \(.revenue_amount.amount), journal entry \(.journal_entry_number)", (.obligations[] | "    obligation \(.obligation_no) \(.description) on \(.account_number): recognized \(.recognized_amount.amount) - billed \(.billed_amount.amount), revenue moved by \(.revenue_amount.amount)"))' \
+    createRevenueRecognitionRun -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $year, \"fiscal_period\": $period}"
+  run=$(field .id)
+  cp "$WORK/last.json" "$WORK/recognition-run.json"
+  expect "the run's period, contracts read and posted" "$(field '"\(.fiscal_year)/\(.fiscal_period) \(.contract_count) \(.posting_count) \(.currency)"')" "$year/$period 3 2 CAD"
+  expect "the run's contract assets and liabilities" "$(field '"\(.contract_asset_amount.amount) \(.contract_liability_amount.amount)"')" "5000.00 $(from_cents "$liability")"
+  expect "what the run moved revenue by, its postings' movements added up" "$(field .revenue_amount.amount)" "$(from_cents $((500000 - liability)))"
+  expect "recognized less billed, the assets less the liabilities, in cents" \
+    "$(field '[.recognized_amount.amount, .billed_amount.amount] | map(sub("\\."; "") | tonumber) | .[0] - .[1]')" "$((500000 - liability))"
+  first=$(field ".postings[] | select(.sales_order_id == \"$order\") | \"\(.recognized_amount.amount) \(.billed_amount.amount) \(.contract_asset_amount.amount) \(.contract_liability_amount.amount) \(.revenue_amount.amount)\"")
+  expect "step 67's contract: billed ahead, a contract liability, never both" "$first" \
+    "$(from_cents $((144643 + support))) 2700.00 0.00 $(from_cents "$liability") $(from_cents $((-liability)))"
+  expect "its obligations: the brackets at their allocated amount, the support at its days' share" \
+    "$(field ".postings[] | select(.sales_order_id == \"$order\") | [.obligations[] | \"\(.account_number) \(.recognized_amount.amount) \(.billed_amount.amount) \(.revenue_amount.amount)\"] | join(\", \")")" \
+    "4000 1446.43 1500.00 -53.57, 4000 $(from_cents "$support") 1200.00 $(from_cents $((support - 120000)))"
+  second=$(field ".postings[] | select(.sales_order_id == \"$CREDIT_ORDER\") | \"\(.recognized_amount.amount) \(.billed_amount.amount) \(.contract_asset_amount.amount) \(.contract_liability_amount.amount) \(.revenue_amount.amount)\"")
+  expect "step 68's contract: delivered and not billed, accrued as a contract asset" "$second" "5000.00 0.00 5000.00 0.00 5000.00"
+  say "Each contract posted one journal entry, dated the period's last day, to every ledger Maple keeps. The accrual:"
+  entry=$(jq -r --arg o "$CREDIT_ORDER" '.postings[] | select(.sales_order_id == $o) | .journal_entry_id' "$WORK/recognition-run.json")
+  api 200 '"journal entry \(.document_number), \(.document_type), source \(.source_context), posted \(.posting_date), reference \(.reference)", (.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' \
+    getJournalEntry -p "id=$entry"
+  expect "the accrual's source and type" "$(field '"\(.source_context) \(.document_type)"')" "revenue SA"
+  lines=$(field '[.lines[] | "\(.account_id) \(.amount.amount)"] | join(", ")')
+  expect "the accrual: Sales credited, the contract asset debited" "$lines" "$(account 4000) -5000.00, $(account 1260) 5000.00"
+  say "And the entry of step 67's contract, billed ahead:"
+  entry=$(jq -r --arg o "$order" '.postings[] | select(.sales_order_id == $o) | .journal_entry_id' "$WORK/recognition-run.json")
+  api 200 '"journal entry \(.document_number), \(.document_type), source \(.source_context), posted \(.posting_date), reference \(.reference)", (.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' \
+    getJournalEntry -p "id=$entry"
+  expect "the entry balances, in cents" "$(field '[.lines[].amount.amount | sub("\\."; "") | tonumber] | add')" 0
+  expect "Sales debited per obligation" "$(field "[.lines[] | select(.account_id == \"$(account 4000)\") | .amount.amount] | join(\" \")")" \
+    "53.57 $(from_cents $((120000 - support)))"
+  if [ "$liability" -gt 0 ]; then
+    expect "the contract liability credited with the rest of what was billed" \
+      "$(field "[.lines[] | select(.account_id == \"$(account 2460)\") | .amount.amount] | join(\" \")")" "$(from_cents $((-liability)))"
+  fi
+  say "The run is read back with its postings, and listed. One run per company and period: a second is refused, and"
+  say "the next run, for a later period, posts only what moved since."
+  QUIET=1 api 200 '' getRevenueRecognitionRun -p "id=$run"
+  expect "the run read back" "$(field '"\(.id) \(.posting_count) \(.postings | length)"')" "$run 2 2"
+  api 200 '.items[] | "  \(.company_code) \(.fiscal_year)/\(.fiscal_period), posted \(.posting_date): \(.posting_count) of \(.contract_count) contracts posted"' \
+    listRevenueRecognitionRuns -p "legal_entity_id=$LE"
+  expect "Maple's runs" "$(field '[.items[].id] | join(" ")')" "$run"
+  refused 409 revenue.recognition_run_exists createRevenueRecognitionRun -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $year, \"fiscal_period\": $period}"
+  passed
+}
+# step_access_sod is T106b (ADR-0072): the access agent, erp agent
+# access-sod through the model stand-in answering from a script of turns
+# (its suite's replay, evals/access), analyses a role against the
+# tenant's segregation-of-duties rules with a permission to be added.
+# The rule the plan names, who proposes a payment run does not release
+# it, cannot be made: Tom, Tara and Fiona
+# propose (finance_staff) and release (Z_TREASURY_MGR), and Ada's
+# tenant_admin holds every permission, so identity refuses it (409). Ada
+# keeps the treasury roles as they are and makes the rule that fits the
+# team: who administers access does not release payments. First she ends
+# her own role's release of payment runs from tomorrow, since an
+# administrator releases none, then makes the rule from tomorrow, unless
+# the control matrix's step (T98b), which makes the same rule the same
+# way, already did. Asked
+# about adding the release back to tenant_admin, the agent names the rule
+# and Ada, the role's holder, as the run computed it the way identity's
+# check at a grant does; the agent cannot grant it, and Ada's own grant
+# is refused by that check, naming the same rule and holder.
+step_access_sod() {
+  heading "Step 83 — The access agent: a role analysed against the tenant's segregation-of-duties rules with the payment release to be added; the conflict computed as identity's check at a grant computes it, the rule and the holder named; the grant refused as the agent said"
+  local admin_role ada tomorrow grant line got session rec
+  as ada
+  ada=$(awk -F'\t' '$2 == "Ada Admin" { print $1 }' "$WORK/names")
+  tomorrow=$(date_add "$(utc_day)" 1)
+  say "The rule that whoever proposes a payment run does not release it cannot be made while somebody would break it:"
+  say "the treasurers propose and release, and so may Ada:"
+  refused 409 identity.sod_conflict createSodRule -body "{\"permission_a\": \"payments.run.propose\", \"permission_b\": \"payments.run.release\", \"description\": \"Who proposes a payment run does not release it\", \"valid_from\": \"$tomorrow\"}"
+  say "The rule that fits the team is that whoever administers access does not release payment runs. An administrator"
+  say "releases no payment run, so Ada's own role releases none from tomorrow, and the rule is in force from then"
+  say "(made here, or already by the control matrix's step, T98b, which makes the same rule the same way):"
+  QUIET=1 api 200 '' listRoles -p page_size=100
+  admin_role=$(field '.items[] | select(.code == "tenant_admin") | .id')
+  QUIET=1 api 200 '' listRolePermissions -p "id=$admin_role" -p "valid_on=$(utc_day)" -p page_size=500
+  expect "the administrator role's grants on one page" "$(field '.next_page_token // "none"')" none
+  grant=$(field '.items[] | select(.permission_code == "payments.run.release") | .id')
+  [ -n "$grant" ] || fail "the administrator's role does not hold payments.run.release today"
+  QUIET=1 api 200 '' getRolePermission -p "id=$admin_role" -p "permission_id=$grant"
+  if [ "$(field '.valid_to // ""')" = "" ]; then
+    api 200 '"  \(.permission_code) on tenant_admin: valid to \(.valid_to)"' endRolePermission -p "id=$admin_role" -p "permission_id=$grant" -if-match "$ETAG" -body "{\"valid_to\": \"$tomorrow\"}"
+  fi
+  expect "the administrator role's release ends" "$(field '.valid_to')" "$tomorrow"
+  QUIET=1 api 200 '' listSodRules -p "valid_on=$tomorrow" -p page_size=500
+  if [ -z "$(field '.items[] | select(.permission_a == "identity.access.manage" and .permission_b == "payments.run.release") | .id')" ]; then
+    api 201 '"  rule \(.permission_a) / \(.permission_b) from \(.valid_from): \(.description)"' createSodRule \
+      -body "{\"permission_a\": \"identity.access.manage\", \"permission_b\": \"payments.run.release\", \"description\": \"Whoever administers access does not release payment runs.\", \"valid_from\": \"$tomorrow\"}"
+  fi
+  api 200 '.items[] | "  rule \(.permission_a) / \(.permission_b) from \(.valid_from): \(.description)"' listSodRules -p "valid_on=$tomorrow" -p page_size=500
+  expect "the rule in force from tomorrow" "$(field '[.items[] | select(.permission_a == "identity.access.manage" and .permission_b == "payments.run.release")] | length')" 1
+  line="Rule identity.access.manage / payments.run.release: Ada Admin ($ada)"
+  say "Asked whether the administrators may release payment runs again, the access agent (its role reads identity"
+  say "data since step 73) runs: erp agent access-sod reads the roles, the assignments, the rules, the principals and"
+  say "the grants of the role's holders itself, computes who would hold both permissions of a rule on a day it is in"
+  say "force, and starts a session. The model is the stand-in, answering from a script of turns as the agent's suite"
+  say "replays them (evals/access): it reads the rules and recommends sod_conflict, naming the rule and Ada."
+  jq -n --arg role "$admin_role" --arg line "$line" '
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "listSodRules", input: {}},
+      {tool: "createRecommendation", input: {body: {session_id: "{{session}}", object_type: "role", object_id: $role, kind: "sod_conflict",
+        content: "\($line)\nAda Admin administers access through tenant_admin and would release payment runs through it too. Keep payments.run.release out of tenant_admin: the treasury roles release, and nobody who administers access is given one of them."}}},
+      {final: "Adding payments.run.release to tenant_admin would break the rule; an identity administrator decides."}]}' >"$WORK/model-script.json"
+  show ERP_AGENT_TOKEN=… erp agent access-sod -role tenant_admin -add payments.run.release
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/access-agent") "$ERP" agent access-sod -role tenant_admin -add payments.run.release 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent access-sod failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 0."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): sod_conflict on role $admin_role\$/\1/p")
+  [ -n "$rec" ] || fail "erp agent access-sod printed no sod_conflict on the role $admin_role"
+  say "Ada reads the recommendation on the role:"
+  api 200 '(.items[] | select(.kind == "sod_conflict") | "  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)"))' listRecommendations -p "object_id=$admin_role" -p "session_id=$session"
+  expect "the recommendation of the session, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "naming the rule and its holder, first" "$(field '.items[0].content | split("\n")[0]')" "$line"
+  as access-agent
+  say "Recommending is all it may do: granting is a person's (x-agent: false), and the API refuses its own call:"
+  refused 403 identity.agent_not_allowed grantRolePermission -p "id=$admin_role" -body "{\"permission_code\": \"payments.run.release\", \"valid_from\": \"$tomorrow\"}"
+  api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "listSodRules createRecommendation"
+  as ada
+  say "Ada tries the grant herself, from tomorrow: identity's own check refuses it, naming the rule and the holder the"
+  say "agent named:"
+  refused 409 identity.sod_conflict grantRolePermission -p "id=$admin_role" -body "{\"permission_code\": \"payments.run.release\", \"valid_from\": \"$tomorrow\"}"
+  expect "the refusal names Ada and the rule's two permissions" "$(field '.detail')" \
+    "Segregation of duties: principal $ada would hold both identity.access.manage and payments.run.release."
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "The administrators release no payment run."}'
+  expect "the recommendation's outcome" "$(field .outcome)" accepted
+  passed
+}
+# step_access_review is T106c (ADR-0072): the access agent, erp agent
+# access-review through the model stand-in answering from a script of
+# turns (its suite's replay, evals/access), prepares the access review of
+# yesterday to tomorrow (UTC): one recommendation per active principal,
+# people, agents and services alike, for a reviewer to decide. Ada gave
+# Sally a role for preparing tax returns, tax_preparer, which Sally, who
+# sells, never used: its removal is recommended and named. The kind and
+# the first line of each recommendation are computed by the run and given
+# in its prompt; the stand-in's script reads them back per principal (the
+# script's vars), as a model would take them. A second run of the period
+# starts no session and adds none. The review's sign-off is not built.
+step_access_review() {
+  heading "Step 84 — The access agent: an access review prepared, one recommendation per principal, people, agents and services, the role nobody used recommended for removal; a second run adds none"
+  local role sally agent from to ids n got session rec before
+  as ada
+  say "Ada gives Sally, who sells, a role for preparing tax returns, tax_preparer, which she will not use:"
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "tax_preparer", "name": "Tax preparer"}'
+  role=$(field .id)
+  grant "$role" tax.return.prepare
+  sally=$(awk -F'\t' '$2 == "Sally Sales" { print $1 }' "$WORK/names")
+  [ -n "$sally" ] || fail "Sally is not among the people of the walkthrough"
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$sally\", \"role_id\": \"$role\"}"
+  from=$(date_add "$(utc_day)" -1) to=$(date_add "$(utc_day)" 1)
+  QUIET=1 api 200 '' listPrincipals -p status=active -p page_size=500
+  expect "the active principals on one page" "$(field '.next_page_token // "none"')" none
+  ids=$(field '[.items[].id] | sort | join(" ")')
+  n=$(field '.items | length')
+  agent=$(field '.items[] | select(.display_name == "Access agent") | .id')
+  say "The access agent prepares the review of $from to $to (UTC): erp agent access-review reads the roles, the"
+  say "assignments, the rules, the principals, their roles' grants and the period's audit events itself, judges for"
+  say "each active principal each role it holds on $to by its own audit events (as step 73 judges a role by its"
+  say "holders'), with its segregation-of-duties conflicts as step 83 computes them, and starts a session. The model"
+  say "is the stand-in, answering from a script of turns as the agent's suite replays them (evals/access): one"
+  say "recommendation per principal, with the kind and first line the run computed for it."
+  jq -n --arg ids "$ids" '
+    ($ids | split(" ")) as $p |
+    {vars: ([range(0; $p | length) as $i |
+       {key: "k\($i)", value: "Kind for \($p[$i]): ([a-z_]+)"}, {key: "l\($i)", value: "Line for \($p[$i]): ([^\\\\]+)"}] | from_entries
+       + {session: "session id is ([0-9a-f-]{36})"}),
+     turns: ([range(0; $p | length) as $i |
+       {tool: "createRecommendation", input: {body: {session_id: "{{session}}", object_type: "principal", object_id: $p[$i], kind: "{{k\($i)}}",
+         content: "{{l\($i)}}\nThe roles of this principal as the run found them, for the reviewer to decide."}}}]
+       + [{final: "The access review is prepared; the reviewer decides each recommendation."}])}' >"$WORK/model-script.json"
+  show ERP_AGENT_TOKEN=… erp agent access-review -period "$from..$to"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/access-agent") "$ERP" agent access-review -period "$from..$to" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent access-review failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made: one recommendation per active principal" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" \
+    "recommendations made $n, refused 0."
+  expect "the principals recommended on, every active one" \
+    "$(printf '%s\n' "$got" | sed -nE 's/^  recommendation [0-9a-f-]{36}: [a-z_]+ on principal ([0-9a-f-]{36}) \(.*/\1/p' | sort | tr '\n' ' ' | sed 's/ $//')" "$ids"
+  expect "an agent reviewed too: the access agent itself" "$(printf '%s\n' "$got" | grep -c " on principal $agent (Access agent): " || true)" 1
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): remove_roles on principal $sally \\(Sally Sales\\): Access review $from\\.\\.$to: remove tax_preparer\$/\\1/p")
+  [ -n "$rec" ] || fail "erp agent access-review printed no remove_roles of tax_preparer on Sally ($sally)"
+  say "The reviewer reads Sally's recommendation in full:"
+  api 200 '"  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)")' getRecommendation -p "id=$rec"
+  expect "made in the session" "$(field .session_id)" "$session"
+  QUIET=1 api 200 '' listRecommendations -p object_type=principal -p page_size=500
+  before=$(field '.items | length')
+  say "A second run of the same period adds nothing: every active principal has its recommendation already."
+  show ERP_AGENT_TOKEN=… erp agent access-review -period "$from..$to"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/access-agent") "$ERP" agent access-review -period "$from..$to" 2>"$WORK/stderr") ||
+    fail "the second erp agent access-review failed ($(cat "$WORK/stderr"))"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  expect "the second run" "$got" "Every active principal has its recommendation of the access review $from..$to already: nothing to add."
+  QUIET=1 api 200 '' listRecommendations -p object_type=principal -p page_size=500
+  expect "the recommendations on principals" "$(field '.items | length')" "$before"
+  as access-agent
+  say "Recommending is all it may do: ending an assignment is a person's (x-agent: false):"
+  QUIET=1 api 200 '' listRoleAssignments -p "principal_id=$sally" -p "role_id=$role"
+  local assignment
+  assignment=$(field '.items[0].id')
+  QUIET=1 api 200 '' getRoleAssignment -p "id=$assignment"
+  refused 403 identity.agent_not_allowed endRoleAssignment -p "id=$assignment" -if-match "$ETAG" -body "{\"valid_to\": \"$to\"}"
+  as ada
+  say "Ada, reviewing, accepts it and ends the assignment herself, through the normal operation, from $to:"
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "Sally prepares no tax returns."}'
+  QUIET=1 api 200 '' getRoleAssignment -p "id=$assignment"
+  api 200 '"  tax_preparer of Sally: valid to \(.valid_to)"' endRoleAssignment -p "id=$assignment" -if-match "$ETAG" -body "{\"valid_to\": \"$to\"}"
+  passed
+}
+# step_credit_memo_request is T85c (ADR-0067, As built T85c): Sally asks
+# for Northwind to be credited the 20 brackets step_return_receipt
+# received. The request for the returns order takes the received
+# quantity at the billed amount of it in full (product owner 2026-11-12):
+# the billing item's amount × 20 ÷ 120, shared out with money.Allocate. A
+# second request finds nothing more to credit, and one by amount for
+# more than the item billed is refused naming the item. Carla, a sales
+# manager with the approver roles, approves it once. Nothing is posted:
+# Northwind's open items are as they were. It keeps the request
+# (CREDIT_REQUEST).
+step_credit_memo_request() {
+  heading "Step 85 — Credit memo requests: a request for the returns order's received quantities at their billed amount, read back with the amount its quantity gives, more than was billed refused, approved once; nothing posted"
+  local customer=$CUSTOMER doc=$BILLING_DOCUMENT returns=$RETURNS_ORDER open billed net want request tag before
+  [ -n "$returns" ] && [ -n "$doc" ] || fail "step 74's returns order and step 64's billing document are not there"
+  as sally
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
+  QUIET=1 api 200 '' getBillingDocument -p "id=$doc"
+  billed=$(field '.items[0].net_amount.amount')
+  net=${billed/./}
+  net=$((10#$net))
+  # 20 of 120 of the billed amount, rounded half away from zero to the cent: what money.Allocate gives two positive shares.
+  want=$(((net * 20 * 2 + 120) / 240))
+  want=$(printf '%d.%02d' $((want / 100)) $((want % 100)))
+  say "All 20 brackets of the returns order arrived (step 75). Sally asks for Northwind to be credited them (ADR-0067,"
+  say "As built T85c): a credit memo request for the returns order takes what was received and not yet requested, at"
+  say "the amount billed for it in full, with no charge: $billed CAD billed for 120 brackets, so 20 are $want CAD net."
+  before=$(company_day)
+  api 201 '"credit memo request \(.document_number) of \(.customer_number) \(.customer_name): \(.status), dated \(.request_date), for returns order \(.returns_order_number) of billing document \(.billing_document_number), net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) (billing item \(.billing_item_no)) \(.item_key // "-") \(.description): \(.quantity.value) \(.quantity.unit) of \(.billed_quantity.value) billed for \(.billed_amount.amount), credited \(.net_amount.amount) on \(.account_number) \(.tax_code // "-")")' \
+    createCreditMemoRequest -body "{\"billing_document_id\": \"$doc\", \"returns_order_id\": \"$returns\"}"
+  request=$(field .id)
+  tag=$ETAG
+  expect "the request's status and version" "$(field '"\(.status) \(.version)"')" "open 1"
+  expect_today "the request date, Maple's today" "$(field .request_date)" "$before"
+  expect "the request's billing document, returns order and customer" "$(field '"\(.billing_document_id) \(.returns_order_id) \(.customer_id)"')" "$doc $returns $customer"
+  expect "the item: the quantity received, credited at its billed amount" \
+    "$(field '[.items[] | "\(.billing_item_no) \(.quantity.value) \(.quantity.unit) \(.net_amount.amount)"] | join(", ")')" "1 20 EA $want"
+  expect "the request's net value" "$(field '"\(.net_amount.amount) \(.net_amount.currency)"')" "$want CAD"
+  say "Read back, it is the same:"
+  api 200 '"credit memo request \(.document_number): \(.status), net \(.net_amount.amount) \(.net_amount.currency)"' getCreditMemoRequest -p "id=$request"
+  expect "the request read back" "$(field '"\(.status) \(.items[0].quantity.value) \(.net_amount.amount)"')" "open 20 $want"
+  say "Nothing more was received, so a second request for the returns order finds nothing to credit; a request by amount"
+  say "for more than the item billed, less what this request asks for, is refused naming the item:"
+  refused 422 sales.nothing_to_credit createCreditMemoRequest -body "{\"billing_document_id\": \"$doc\", \"returns_order_id\": \"$returns\"}"
+  expect "the field refused" "$(field '.errors[0].field')" returns_order_id
+  refused 422 sales.exceeds_billed_amount createCreditMemoRequest \
+    -body "{\"billing_document_id\": \"$doc\", \"reason\": \"Goodwill\", \"items\": [{\"billing_item_no\": 1, \"net_amount\": {\"amount\": \"$billed\", \"currency\": \"CAD\"}}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].net_amount.amount"
+  as carla
+  say "Carla approves it at the version she read, with the one permission that approves, whatever the amount (product"
+  say "owner 2026-11-12). It is approved once:"
+  api 200 '"credit memo request \(.document_number): \(.status), version \(.version)"' releaseCreditMemoRequest -p "id=$request" -if-match "$tag"
+  expect "the approved request" "$(field '"\(.status) \(.version)"')" "approved 2"
+  refused 409 sales.invalid_status releaseCreditMemoRequest -p "id=$request" -if-match "$ETAG"
+  api 200 '.items[] | "  \(.document_number): \(.status), returns order \(.returns_order_number), net \(.net_amount.amount) \(.net_amount.currency)"' \
+    listCreditMemoRequests -p "returns_order_id=$returns"
+  expect "the returns order's requests" "$(field '[.items[] | "\(.status) \(.net_amount.amount)"] | join(", ")')" "approved $want"
+  say "An approved request posts nothing by itself; Northwind's open items are as they were:"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  QUIET=1 api 200 '' listAuditEvents -p object_type=sales.credit_memo_request -p "object_id=$request"
+  expect "the request's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "sales.credit_memo_request.approve sales.credit_memo_request.create"
+  CREDIT_REQUEST=$request
+  passed
+}
+
+# step_credit_memo_posting is T85d (ADR-0067, As built T85d; ADR-0063,
+# As built T85d): Ruth, the billing clerk, posts step 85's approved
+# credit memo request. A customer credit memo naming the request and the
+# billing document's invoice is entered and posted in receivables in the
+# same transaction: its net is the request's and its tax the share of
+# the tax the invoice's item bore, so the entry moves 1200, 4000 and 2300
+# back by exactly its amounts. Northwind's open items gain the credit,
+# and its open amount falls by the credit memo's gross. A second post is
+# refused. Revenue contracts are not touched.
+step_credit_memo_posting() {
+  heading "Step 86 — Credit memo posted: the approved request posted as a customer credit memo naming the request and the invoice, receivables, revenue and output tax moved back by its amounts, the customer's open items lower by its gross"
+  local customer=$CUSTOMER doc=$BILLING_DOCUMENT request=$CREDIT_REQUEST invoice billed borne net tax gross memo entry before after tag day
+  [ -n "$request" ] || fail "step 85's credit memo request is not there"
+  as ruth
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer" -p page_size=200
+  before=$(field '[.items[].amount.amount | sub("\\."; "") | tonumber] | add // 0')
+  QUIET=1 api 200 '' getBillingDocument -p "id=$doc"
+  invoice=$(field .customer_invoice_id)
+  billed=$(field '.items[0].net_amount.amount | sub("\\."; "") | tonumber')
+  QUIET=1 api 200 '' getCustomerInvoice -p "id=$invoice"
+  borne=$(field '.items[0].tax_amount.amount | sub("\\."; "") | tonumber')
+  QUIET=1 api 200 '' getCreditMemoRequest -p "id=$request"
+  tag=$ETAG
+  net=$(field '.net_amount.amount | sub("\\."; "") | tonumber')
+  # The share of the item's tax the credited net is of its billed amount, rounded half away from zero (money.Allocate).
+  tax=$(((borne * net * 2 + billed) / (2 * billed)))
+  gross=$((net + tax))
+  show_cents() { printf '%d.%02d' $(($1 / 100)) $(($1 % 100)); }
+  say "Ruth posts the approved request (ADR-0067, As built T85d). Accounts receivable enters and posts a customer credit"
+  say "memo for it in the same transaction, naming the invoice billing document step 64 posted as: $(show_cents "$net") CAD"
+  say "net, and of the $(show_cents "$borne") CAD of GST the invoice's item bore, the share that net is of $(show_cents "$billed"):"
+  day=$(company_day)
+  api 200 '"credit memo request \(.document_number): \(.status), posted \(.posting_date) as \(.customer_invoice_number), entry \(.journal_entry_number)"' \
+    postCreditMemoRequest -p "id=$request" -if-match "$tag"
+  expect "the posted request" "$(field '"\(.status) \(.version) \(.posting_date)"')" "posted 3 $day"
+  memo=$(field .customer_invoice_id)
+  entry=$(field .journal_entry_id)
+  api 200 '"customer credit memo \(.document_number) to \(.customer_number) \(.customer_name): \(.kind) \(.status), for \(.reference_invoice_number), from \(.source_document_number), dated \(.invoice_date), net \(.net_amount.amount), tax \(.tax_amount.amount), gross \(.gross_amount.amount) \(.currency)", (.items[] | "  item \(.item_no) \(.description): \(.net_amount.amount) on \(.account_number), \(.tax_code // "no tax code"), tax \(.tax_amount.amount)")' \
+    getCustomerInvoice -p "id=$memo"
+  expect "the credit memo names the invoice and the request" \
+    "$(field '"\(.kind) \(.status) \(.reference_invoice_id) \(.source_document_id)"')" "credit_memo posted $invoice $request"
+  expect "net, tax and gross" "$(field '"\(.net_amount.amount) \(.tax_amount.amount) \(.gross_amount.amount) \(.currency)"')" \
+    "$(show_cents "$net") $(show_cents "$tax") $(show_cents "$gross") CAD"
+  say "The DG entry credits Northwind on 1200 with the gross and debits 4000 Sales and 2300 GST/HST payable: receivables,"
+  say "revenue and output tax moved back by exactly the credit memo's amounts."
+  api 200 '"journal entry \(.document_number), \(.document_type), source \(.source_context)", (.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' \
+    getJournalEntry -p "id=$entry"
+  expect "the entry's type and source" "$(field '"\(.document_type) \(.source_context) \(.source_document_id)"')" "DG receivables $memo"
+  expect "the entry's amounts" "$(field '[.lines[].amount.amount] | join(" ")')" "-$(show_cents "$gross") $(show_cents "$net") $(show_cents "$tax")"
+  expect "the entry's accounts" "$(field '[.lines[].account_id] | join(" ")')" "$(account 1200) $(account 4000) $(account 2300)"
+  say "Northwind's open items now hold the credit, and its open amount fell by the credit memo's gross:"
+  api 200 '.items[] | "  \(.document_number // .journal_entry_id): \(.amount.amount) \(.amount.currency)"' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer" -p page_size=200
+  after=$(field '[.items[].amount.amount | sub("\\."; "") | tonumber] | add // 0')
+  expect "the customer's open amount" "$after" "$((before - gross))"
+  say "The billing document's item shows what is credited of it; the request is posted once:"
+  QUIET=1 api 200 '' getBillingDocument -p "id=$doc"
+  expect "the billing item's credited amount" "$(field '.items[0].credited_amount.amount')" "$(show_cents "$net")"
+  QUIET=1 api 200 '' getCreditMemoRequest -p "id=$request"
+  refused 409 sales.invalid_status postCreditMemoRequest -p "id=$request" -if-match "$ETAG"
   passed
 }
 
@@ -10329,7 +11078,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_close'
 
 main() {
   stop_unseen

@@ -3997,6 +3997,254 @@ func (s *AnalyticsDerived) SetRight(val string) {
 	s.Right = val
 }
 
+// A document behind a figure: its part of the figure (`amount`, the metric's lines of it, signed as
+// the metric adds them) and how to read it.
+// Ref: #/components/schemas/AnalyticsDocument
+type AnalyticsDocument struct {
+	// What the document is, and so the operation that reads it.
+	Kind string `json:"kind"`
+	// The document's id.
+	ID uuid.UUID `json:"id"`
+	// The document's number.
+	Number string `json:"number"`
+	// The company code the document is of.
+	Company string `json:"company"`
+	Amount  Money  `json:"amount"`
+	// The path that reads the document, such as `/v1/journal-entries/{id}`.
+	Path string `json:"path"`
+}
+
+// GetKind returns the value of Kind.
+func (s *AnalyticsDocument) GetKind() string {
+	return s.Kind
+}
+
+// GetID returns the value of ID.
+func (s *AnalyticsDocument) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetNumber returns the value of Number.
+func (s *AnalyticsDocument) GetNumber() string {
+	return s.Number
+}
+
+// GetCompany returns the value of Company.
+func (s *AnalyticsDocument) GetCompany() string {
+	return s.Company
+}
+
+// GetAmount returns the value of Amount.
+func (s *AnalyticsDocument) GetAmount() Money {
+	return s.Amount
+}
+
+// GetPath returns the value of Path.
+func (s *AnalyticsDocument) GetPath() string {
+	return s.Path
+}
+
+// SetKind sets the value of Kind.
+func (s *AnalyticsDocument) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetID sets the value of ID.
+func (s *AnalyticsDocument) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *AnalyticsDocument) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetCompany sets the value of Company.
+func (s *AnalyticsDocument) SetCompany(val string) {
+	s.Company = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *AnalyticsDocument) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetPath sets the value of Path.
+func (s *AnalyticsDocument) SetPath(val string) {
+	s.Path = val
+}
+
+// A page of the documents behind a row's figure, with the figure itself and the answer's lineage.
+// Ref: #/components/schemas/AnalyticsDocuments
+type AnalyticsDocuments struct {
+	// The measure drilled.
+	Measure string        `json:"measure"`
+	Total   AnalyticsCell `json:"total"`
+	// The page's documents, by id and currency.
+	Documents []AnalyticsDocument `json:"documents"`
+	// The next page's token; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// `store` (the analytical store) or `database`, as for `runAnalyticsQuery`.
+	Source string `json:"source"`
+	// The state of the data answered: the store's snapshot, or the time of the database read.
+	AsOf time.Time `json:"as_of"`
+	// The configuration version whose metric definitions answered.
+	ConfigVersion int32 `json:"config_version"`
+}
+
+// GetMeasure returns the value of Measure.
+func (s *AnalyticsDocuments) GetMeasure() string {
+	return s.Measure
+}
+
+// GetTotal returns the value of Total.
+func (s *AnalyticsDocuments) GetTotal() AnalyticsCell {
+	return s.Total
+}
+
+// GetDocuments returns the value of Documents.
+func (s *AnalyticsDocuments) GetDocuments() []AnalyticsDocument {
+	return s.Documents
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AnalyticsDocuments) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetSource returns the value of Source.
+func (s *AnalyticsDocuments) GetSource() string {
+	return s.Source
+}
+
+// GetAsOf returns the value of AsOf.
+func (s *AnalyticsDocuments) GetAsOf() time.Time {
+	return s.AsOf
+}
+
+// GetConfigVersion returns the value of ConfigVersion.
+func (s *AnalyticsDocuments) GetConfigVersion() int32 {
+	return s.ConfigVersion
+}
+
+// SetMeasure sets the value of Measure.
+func (s *AnalyticsDocuments) SetMeasure(val string) {
+	s.Measure = val
+}
+
+// SetTotal sets the value of Total.
+func (s *AnalyticsDocuments) SetTotal(val AnalyticsCell) {
+	s.Total = val
+}
+
+// SetDocuments sets the value of Documents.
+func (s *AnalyticsDocuments) SetDocuments(val []AnalyticsDocument) {
+	s.Documents = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AnalyticsDocuments) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetSource sets the value of Source.
+func (s *AnalyticsDocuments) SetSource(val string) {
+	s.Source = val
+}
+
+// SetAsOf sets the value of AsOf.
+func (s *AnalyticsDocuments) SetAsOf(val time.Time) {
+	s.AsOf = val
+}
+
+// SetConfigVersion sets the value of ConfigVersion.
+func (s *AnalyticsDocuments) SetConfigVersion(val int32) {
+	s.ConfigVersion = val
+}
+
+// AnalyticsDocumentsHeaders wraps AnalyticsDocuments with response headers.
+type AnalyticsDocumentsHeaders struct {
+	IdempotentReplayed OptBool
+	Response           AnalyticsDocuments
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AnalyticsDocumentsHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *AnalyticsDocumentsHeaders) GetResponse() AnalyticsDocuments {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AnalyticsDocumentsHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AnalyticsDocumentsHeaders) SetResponse(val AnalyticsDocuments) {
+	s.Response = val
+}
+
+func (*AnalyticsDocumentsHeaders) drillAnalyticsQueryRes() {}
+
+// A drill-through: a query as `runAnalyticsQuery` takes it, the measure drilled and the row, by its
+// value of each dimension of the query's `by`.
+// Ref: #/components/schemas/AnalyticsDrill
+type AnalyticsDrill struct {
+	Query AnalyticsQuery `json:"query"`
+	// The measure drilled, one of the query's `measures`; the query's only one when omitted.
+	Measure OptString `json:"measure"`
+	// The row's value of each dimension of the query's `by`, as the result's cells wrote them (`""` for a
+	// blank); every one of them and no other. `{}` for a query without `by`.
+	Row AnalyticsDrillRow `json:"row"`
+}
+
+// GetQuery returns the value of Query.
+func (s *AnalyticsDrill) GetQuery() AnalyticsQuery {
+	return s.Query
+}
+
+// GetMeasure returns the value of Measure.
+func (s *AnalyticsDrill) GetMeasure() OptString {
+	return s.Measure
+}
+
+// GetRow returns the value of Row.
+func (s *AnalyticsDrill) GetRow() AnalyticsDrillRow {
+	return s.Row
+}
+
+// SetQuery sets the value of Query.
+func (s *AnalyticsDrill) SetQuery(val AnalyticsQuery) {
+	s.Query = val
+}
+
+// SetMeasure sets the value of Measure.
+func (s *AnalyticsDrill) SetMeasure(val OptString) {
+	s.Measure = val
+}
+
+// SetRow sets the value of Row.
+func (s *AnalyticsDrill) SetRow(val AnalyticsDrillRow) {
+	s.Row = val
+}
+
+// The row's value of each dimension of the query's `by`, as the result's cells wrote them (`""` for a
+// blank); every one of them and no other. `{}` for a query without `by`.
+type AnalyticsDrillRow map[string]string
+
+func (s *AnalyticsDrillRow) init() AnalyticsDrillRow {
+	m := *s
+	if m == nil {
+		m = map[string]string{}
+		*s = m
+	}
+	return m
+}
+
 // A filter on a dimension.
 // Ref: #/components/schemas/AnalyticsFilter
 type AnalyticsFilter struct {
@@ -14806,6 +15054,9 @@ type BillingDocumentItem struct {
 	TaxCode OptString `json:"tax_code"`
 	// The number of the sales order's item this item bills.
 	OrderItemNo int32 `json:"order_item_no"`
+	// The net amount credited of the item by the credit memo requests posted against it
+	// (`postCreditMemoRequest`): at most `net_amount`; zero when none is posted.
+	CreditedAmount Money `json:"credited_amount"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -14878,6 +15129,11 @@ func (s *BillingDocumentItem) GetOrderItemNo() int32 {
 	return s.OrderItemNo
 }
 
+// GetCreditedAmount returns the value of CreditedAmount.
+func (s *BillingDocumentItem) GetCreditedAmount() Money {
+	return s.CreditedAmount
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *BillingDocumentItem) SetItemNo(val int32) {
 	s.ItemNo = val
@@ -14946,6 +15202,11 @@ func (s *BillingDocumentItem) SetTaxCode(val OptString) {
 // SetOrderItemNo sets the value of OrderItemNo.
 func (s *BillingDocumentItem) SetOrderItemNo(val int32) {
 	s.OrderItemNo = val
+}
+
+// SetCreditedAmount sets the value of CreditedAmount.
+func (s *BillingDocumentItem) SetCreditedAmount(val Money) {
+	s.CreditedAmount = val
 }
 
 // One page of billing documents.
@@ -24408,6 +24669,7 @@ func (*ConflictHeaders) confirmReturnReceiptRes()                  {}
 func (*ConflictHeaders) confirmReturnsOrderRes()                   {}
 func (*ConflictHeaders) confirmSalesDeliveryRes()                  {}
 func (*ConflictHeaders) confirmSalesOrderRes()                     {}
+func (*ConflictHeaders) copyPlanCategoryRes()                      {}
 func (*ConflictHeaders) createAllocationCycleRes()                 {}
 func (*ConflictHeaders) createAssetAcquisitionRes()                {}
 func (*ConflictHeaders) createAssetRes()                           {}
@@ -24428,6 +24690,7 @@ func (*ConflictHeaders) createControlRes()                         {}
 func (*ConflictHeaders) createControlTestRes()                     {}
 func (*ConflictHeaders) createCostCenterRes()                      {}
 func (*ConflictHeaders) createCreditLimitRes()                     {}
+func (*ConflictHeaders) createCreditMemoRequestRes()               {}
 func (*ConflictHeaders) createCustomerInvoiceRes()                 {}
 func (*ConflictHeaders) createDownPaymentRequestRes()              {}
 func (*ConflictHeaders) createDunningRunRes()                      {}
@@ -24454,6 +24717,7 @@ func (*ConflictHeaders) createRecommendationRes()                  {}
 func (*ConflictHeaders) createRequisitionRes()                     {}
 func (*ConflictHeaders) createReturnsOrderRes()                    {}
 func (*ConflictHeaders) createRevenueContractRes()                 {}
+func (*ConflictHeaders) createRevenueRecognitionRunRes()           {}
 func (*ConflictHeaders) createRfqRes()                             {}
 func (*ConflictHeaders) createRoleAssignmentRes()                  {}
 func (*ConflictHeaders) createRoleRes()                            {}
@@ -24469,10 +24733,12 @@ func (*ConflictHeaders) createVarianceCommentRes()                 {}
 func (*ConflictHeaders) createWebhookSubscriptionRes()             {}
 func (*ConflictHeaders) createYearCloseRes()                       {}
 func (*ConflictHeaders) decideRecommendationRes()                  {}
+func (*ConflictHeaders) declineCreditMemoRequestRes()              {}
 func (*ConflictHeaders) declineQuotationRes()                      {}
 func (*ConflictHeaders) deleteWebhookSubscriptionRes()             {}
 func (*ConflictHeaders) disableConnectorRes()                      {}
 func (*ConflictHeaders) discardConsolidationRunRes()               {}
+func (*ConflictHeaders) drillAnalyticsQueryRes()                   {}
 func (*ConflictHeaders) enableConnectorRes()                       {}
 func (*ConflictHeaders) endAgentSessionRes()                       {}
 func (*ConflictHeaders) endCompanyAccessRes()                      {}
@@ -24494,8 +24760,10 @@ func (*ConflictHeaders) getControlMatrixRes()                      {}
 func (*ConflictHeaders) getEInvoiceContentRes()                    {}
 func (*ConflictHeaders) getLegalEntityTodayRes()                   {}
 func (*ConflictHeaders) getLiquidityForecastVarianceRes()          {}
+func (*ConflictHeaders) getMarginReportRes()                       {}
 func (*ConflictHeaders) getPeriodCloseRes()                        {}
 func (*ConflictHeaders) getPurchaseOrderDocumentRes()              {}
+func (*ConflictHeaders) getRevenueScheduleRes()                    {}
 func (*ConflictHeaders) getTaxReturnDraftRes()                     {}
 func (*ConflictHeaders) getVarianceCommentRes()                    {}
 func (*ConflictHeaders) getYearCloseRes()                          {}
@@ -24533,6 +24801,7 @@ func (*ConflictHeaders) pingWebhookSubscriptionRes()               {}
 func (*ConflictHeaders) placeInHierarchyRes()                      {}
 func (*ConflictHeaders) postBankStatementLineRes()                 {}
 func (*ConflictHeaders) postBillingDocumentRes()                   {}
+func (*ConflictHeaders) postCreditMemoRequestRes()                 {}
 func (*ConflictHeaders) postCustomerInvoiceRes()                   {}
 func (*ConflictHeaders) postGoodsReceiptRes()                      {}
 func (*ConflictHeaders) postJournalEntryRes()                      {}
@@ -24563,6 +24832,7 @@ func (*ConflictHeaders) rejectMemoRecordProposalRes()              {}
 func (*ConflictHeaders) rejectPaymentRunRes()                      {}
 func (*ConflictHeaders) rejectVarianceCommentRes()                 {}
 func (*ConflictHeaders) releaseContractRes()                       {}
+func (*ConflictHeaders) releaseCreditMemoRequestRes()              {}
 func (*ConflictHeaders) releaseInternalOrderRes()                  {}
 func (*ConflictHeaders) releasePaymentRunRes()                     {}
 func (*ConflictHeaders) releasePurchaseOrderRes()                  {}
@@ -29431,6 +29701,30 @@ func (s *ControlUpdate) SetFrameworkReferences(val []string) {
 	s.FrameworkReferences = val
 }
 
+type CopyPlanCategoryBadRequest Problem
+
+func (*CopyPlanCategoryBadRequest) copyPlanCategoryRes() {}
+
+type CopyPlanCategoryForbidden Problem
+
+func (*CopyPlanCategoryForbidden) copyPlanCategoryRes() {}
+
+type CopyPlanCategoryNotFound Problem
+
+func (*CopyPlanCategoryNotFound) copyPlanCategoryRes() {}
+
+type CopyPlanCategoryPreconditionFailed Problem
+
+func (*CopyPlanCategoryPreconditionFailed) copyPlanCategoryRes() {}
+
+type CopyPlanCategoryPreconditionRequired Problem
+
+func (*CopyPlanCategoryPreconditionRequired) copyPlanCategoryRes() {}
+
+type CopyPlanCategoryUnprocessableEntity Problem
+
+func (*CopyPlanCategoryUnprocessableEntity) copyPlanCategoryRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/CostCenter
 type CostCenter struct {
@@ -31235,6 +31529,22 @@ type CreateCreditLimitUnprocessableEntity Problem
 
 func (*CreateCreditLimitUnprocessableEntity) createCreditLimitRes() {}
 
+type CreateCreditMemoRequestBadRequest Problem
+
+func (*CreateCreditMemoRequestBadRequest) createCreditMemoRequestRes() {}
+
+type CreateCreditMemoRequestForbidden Problem
+
+func (*CreateCreditMemoRequestForbidden) createCreditMemoRequestRes() {}
+
+type CreateCreditMemoRequestPreconditionRequired Problem
+
+func (*CreateCreditMemoRequestPreconditionRequired) createCreditMemoRequestRes() {}
+
+type CreateCreditMemoRequestUnprocessableEntity Problem
+
+func (*CreateCreditMemoRequestUnprocessableEntity) createCreditMemoRequestRes() {}
+
 type CreateCustomerInvoiceBadRequest Problem
 
 func (*CreateCustomerInvoiceBadRequest) createCustomerInvoiceRes() {}
@@ -31771,6 +32081,22 @@ func (*CreateRevenueContractPreconditionRequired) createRevenueContractRes() {}
 type CreateRevenueContractUnprocessableEntity Problem
 
 func (*CreateRevenueContractUnprocessableEntity) createRevenueContractRes() {}
+
+type CreateRevenueRecognitionRunBadRequest Problem
+
+func (*CreateRevenueRecognitionRunBadRequest) createRevenueRecognitionRunRes() {}
+
+type CreateRevenueRecognitionRunForbidden Problem
+
+func (*CreateRevenueRecognitionRunForbidden) createRevenueRecognitionRunRes() {}
+
+type CreateRevenueRecognitionRunPreconditionRequired Problem
+
+func (*CreateRevenueRecognitionRunPreconditionRequired) createRevenueRecognitionRunRes() {}
+
+type CreateRevenueRecognitionRunUnprocessableEntity Problem
+
+func (*CreateRevenueRecognitionRunUnprocessableEntity) createRevenueRecognitionRunRes() {}
 
 type CreateRfqBadRequest Problem
 
@@ -32360,6 +32686,769 @@ func (s *CreditLimit) SetCredited(val Money) {
 // SetAttempted sets the value of Attempted.
 func (s *CreditLimit) SetAttempted(val Money) {
 	s.Attempted = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/CreditMemoRequest
+type CreditMemoRequest struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The document number, from the company's `credit_memo_request` number range.
+	DocumentNumber string `json:"document_number"`
+	// The company that credits: the billing document's.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer (`GET /v1/business-partners/{id}`): the billing document's.
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The posted billing document whose items are credited (`GET /v1/billing-documents/{id}`).
+	BillingDocumentID uuid.UUID `json:"billing_document_id"`
+	// The billing document's document number.
+	BillingDocumentNumber string `json:"billing_document_number"`
+	// The sales order the billing document billed (`GET /v1/sales-orders/{id}`).
+	SalesOrderID uuid.UUID `json:"sales_order_id"`
+	// The sales order's document number.
+	SalesOrderNumber string `json:"sales_order_number"`
+	// The returns order whose received quantities the request credits (`GET /v1/returns-orders/{id}`).
+	// Absent on a request by amount.
+	ReturnsOrderID OptUUID `json:"returns_order_id"`
+	// The returns order's document number. Absent on a request by amount.
+	ReturnsOrderNumber OptString `json:"returns_order_number"`
+	// The day the request was created: the company's date in its time zone.
+	RequestDate time.Time `json:"request_date"`
+	// Why the customer is credited; absent when none was given with a returns order.
+	Reason OptString `json:"reason"`
+	// `open`: created, not decided; `approved`: approved, once (`:release`); `rejected`: rejected, once
+	// (`:decline`), with `rejection_reason`; `posted`: an approved request posted as a customer credit
+	// memo (`:post`). Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Status string `json:"status"`
+	// Why the request was rejected. Absent unless it is `rejected`.
+	RejectionReason OptString `json:"rejection_reason"`
+	// The date the request posted on, its credit memo's date and posting date. Absent until posted.
+	PostingDate OptDate `json:"posting_date"`
+	// The customer credit memo the request posted as (`GET /v1/customer-invoices/{id}`): it shows the tax,
+	// the gross amount and the invoice it credits. Absent until posted.
+	CustomerInvoiceID OptUUID `json:"customer_invoice_id"`
+	// The credit memo's document number. Absent until posted.
+	CustomerInvoiceNumber OptString `json:"customer_invoice_number"`
+	// The journal entry the credit memo posted (`GET /v1/journal-entries/{id}`). Absent until posted.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The entry's fiscal year. Absent until posted.
+	JournalEntryYear OptInt32 `json:"journal_entry_year"`
+	// The entry's document number. Absent until posted.
+	JournalEntryNumber OptString `json:"journal_entry_number"`
+	// The request's currency (ISO 4217), the billing document's.
+	Currency string `json:"currency"`
+	// The sum of the items' amounts.
+	NetAmount Money `json:"net_amount"`
+	// The items, by item number.
+	Items []CreditMemoRequestItem `json:"items"`
+}
+
+// GetID returns the value of ID.
+func (s *CreditMemoRequest) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *CreditMemoRequest) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *CreditMemoRequest) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *CreditMemoRequest) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *CreditMemoRequest) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *CreditMemoRequest) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *CreditMemoRequest) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CreditMemoRequest) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CreditMemoRequest) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *CreditMemoRequest) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *CreditMemoRequest) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *CreditMemoRequest) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *CreditMemoRequest) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetBillingDocumentID returns the value of BillingDocumentID.
+func (s *CreditMemoRequest) GetBillingDocumentID() uuid.UUID {
+	return s.BillingDocumentID
+}
+
+// GetBillingDocumentNumber returns the value of BillingDocumentNumber.
+func (s *CreditMemoRequest) GetBillingDocumentNumber() string {
+	return s.BillingDocumentNumber
+}
+
+// GetSalesOrderID returns the value of SalesOrderID.
+func (s *CreditMemoRequest) GetSalesOrderID() uuid.UUID {
+	return s.SalesOrderID
+}
+
+// GetSalesOrderNumber returns the value of SalesOrderNumber.
+func (s *CreditMemoRequest) GetSalesOrderNumber() string {
+	return s.SalesOrderNumber
+}
+
+// GetReturnsOrderID returns the value of ReturnsOrderID.
+func (s *CreditMemoRequest) GetReturnsOrderID() OptUUID {
+	return s.ReturnsOrderID
+}
+
+// GetReturnsOrderNumber returns the value of ReturnsOrderNumber.
+func (s *CreditMemoRequest) GetReturnsOrderNumber() OptString {
+	return s.ReturnsOrderNumber
+}
+
+// GetRequestDate returns the value of RequestDate.
+func (s *CreditMemoRequest) GetRequestDate() time.Time {
+	return s.RequestDate
+}
+
+// GetReason returns the value of Reason.
+func (s *CreditMemoRequest) GetReason() OptString {
+	return s.Reason
+}
+
+// GetStatus returns the value of Status.
+func (s *CreditMemoRequest) GetStatus() string {
+	return s.Status
+}
+
+// GetRejectionReason returns the value of RejectionReason.
+func (s *CreditMemoRequest) GetRejectionReason() OptString {
+	return s.RejectionReason
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *CreditMemoRequest) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetCustomerInvoiceID returns the value of CustomerInvoiceID.
+func (s *CreditMemoRequest) GetCustomerInvoiceID() OptUUID {
+	return s.CustomerInvoiceID
+}
+
+// GetCustomerInvoiceNumber returns the value of CustomerInvoiceNumber.
+func (s *CreditMemoRequest) GetCustomerInvoiceNumber() OptString {
+	return s.CustomerInvoiceNumber
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *CreditMemoRequest) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *CreditMemoRequest) GetJournalEntryYear() OptInt32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *CreditMemoRequest) GetJournalEntryNumber() OptString {
+	return s.JournalEntryNumber
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CreditMemoRequest) GetCurrency() string {
+	return s.Currency
+}
+
+// GetNetAmount returns the value of NetAmount.
+func (s *CreditMemoRequest) GetNetAmount() Money {
+	return s.NetAmount
+}
+
+// GetItems returns the value of Items.
+func (s *CreditMemoRequest) GetItems() []CreditMemoRequestItem {
+	return s.Items
+}
+
+// SetID sets the value of ID.
+func (s *CreditMemoRequest) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *CreditMemoRequest) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *CreditMemoRequest) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *CreditMemoRequest) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *CreditMemoRequest) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *CreditMemoRequest) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *CreditMemoRequest) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CreditMemoRequest) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CreditMemoRequest) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *CreditMemoRequest) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *CreditMemoRequest) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *CreditMemoRequest) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *CreditMemoRequest) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetBillingDocumentID sets the value of BillingDocumentID.
+func (s *CreditMemoRequest) SetBillingDocumentID(val uuid.UUID) {
+	s.BillingDocumentID = val
+}
+
+// SetBillingDocumentNumber sets the value of BillingDocumentNumber.
+func (s *CreditMemoRequest) SetBillingDocumentNumber(val string) {
+	s.BillingDocumentNumber = val
+}
+
+// SetSalesOrderID sets the value of SalesOrderID.
+func (s *CreditMemoRequest) SetSalesOrderID(val uuid.UUID) {
+	s.SalesOrderID = val
+}
+
+// SetSalesOrderNumber sets the value of SalesOrderNumber.
+func (s *CreditMemoRequest) SetSalesOrderNumber(val string) {
+	s.SalesOrderNumber = val
+}
+
+// SetReturnsOrderID sets the value of ReturnsOrderID.
+func (s *CreditMemoRequest) SetReturnsOrderID(val OptUUID) {
+	s.ReturnsOrderID = val
+}
+
+// SetReturnsOrderNumber sets the value of ReturnsOrderNumber.
+func (s *CreditMemoRequest) SetReturnsOrderNumber(val OptString) {
+	s.ReturnsOrderNumber = val
+}
+
+// SetRequestDate sets the value of RequestDate.
+func (s *CreditMemoRequest) SetRequestDate(val time.Time) {
+	s.RequestDate = val
+}
+
+// SetReason sets the value of Reason.
+func (s *CreditMemoRequest) SetReason(val OptString) {
+	s.Reason = val
+}
+
+// SetStatus sets the value of Status.
+func (s *CreditMemoRequest) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetRejectionReason sets the value of RejectionReason.
+func (s *CreditMemoRequest) SetRejectionReason(val OptString) {
+	s.RejectionReason = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *CreditMemoRequest) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetCustomerInvoiceID sets the value of CustomerInvoiceID.
+func (s *CreditMemoRequest) SetCustomerInvoiceID(val OptUUID) {
+	s.CustomerInvoiceID = val
+}
+
+// SetCustomerInvoiceNumber sets the value of CustomerInvoiceNumber.
+func (s *CreditMemoRequest) SetCustomerInvoiceNumber(val OptString) {
+	s.CustomerInvoiceNumber = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *CreditMemoRequest) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *CreditMemoRequest) SetJournalEntryYear(val OptInt32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *CreditMemoRequest) SetJournalEntryNumber(val OptString) {
+	s.JournalEntryNumber = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CreditMemoRequest) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetNetAmount sets the value of NetAmount.
+func (s *CreditMemoRequest) SetNetAmount(val Money) {
+	s.NetAmount = val
+}
+
+// SetItems sets the value of Items.
+func (s *CreditMemoRequest) SetItems(val []CreditMemoRequestItem) {
+	s.Items = val
+}
+
+// Create a credit memo request against a posted billing document: either for a returns order's
+// received quantities (`returns_order_id`) or as an amount per billing item (`items`, with `reason`),
+// never both. It is created `open`, dated the company's date today.
+// Ref: #/components/schemas/CreditMemoRequestCreate
+type CreditMemoRequestCreate struct {
+	// The posted billing document whose items are credited: one of a company the caller may act in.
+	BillingDocumentID uuid.UUID `json:"billing_document_id"`
+	// A returns order of that billing document: the request credits what was received of its items and is
+	// not yet requested, at the billed amount of those quantities. Not with `items`.
+	ReturnsOrderID OptUUID `json:"returns_order_id"`
+	// Why the customer is credited. Required with `items`; optional with `returns_order_id`, the returns
+	// order carrying its own reason.
+	Reason OptString `json:"reason"`
+	// The amounts credited of the billing document's items, each item at most once, numbered in this order
+	// from 1. Not with `returns_order_id`.
+	Items []CreditMemoRequestItemCreate `json:"items"`
+}
+
+// GetBillingDocumentID returns the value of BillingDocumentID.
+func (s *CreditMemoRequestCreate) GetBillingDocumentID() uuid.UUID {
+	return s.BillingDocumentID
+}
+
+// GetReturnsOrderID returns the value of ReturnsOrderID.
+func (s *CreditMemoRequestCreate) GetReturnsOrderID() OptUUID {
+	return s.ReturnsOrderID
+}
+
+// GetReason returns the value of Reason.
+func (s *CreditMemoRequestCreate) GetReason() OptString {
+	return s.Reason
+}
+
+// GetItems returns the value of Items.
+func (s *CreditMemoRequestCreate) GetItems() []CreditMemoRequestItemCreate {
+	return s.Items
+}
+
+// SetBillingDocumentID sets the value of BillingDocumentID.
+func (s *CreditMemoRequestCreate) SetBillingDocumentID(val uuid.UUID) {
+	s.BillingDocumentID = val
+}
+
+// SetReturnsOrderID sets the value of ReturnsOrderID.
+func (s *CreditMemoRequestCreate) SetReturnsOrderID(val OptUUID) {
+	s.ReturnsOrderID = val
+}
+
+// SetReason sets the value of Reason.
+func (s *CreditMemoRequestCreate) SetReason(val OptString) {
+	s.Reason = val
+}
+
+// SetItems sets the value of Items.
+func (s *CreditMemoRequestCreate) SetItems(val []CreditMemoRequestItemCreate) {
+	s.Items = val
+}
+
+// CreditMemoRequestHeaders wraps CreditMemoRequest with response headers.
+type CreditMemoRequestHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           CreditMemoRequest
+}
+
+// GetETag returns the value of ETag.
+func (s *CreditMemoRequestHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CreditMemoRequestHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *CreditMemoRequestHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *CreditMemoRequestHeaders) GetResponse() CreditMemoRequest {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CreditMemoRequestHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CreditMemoRequestHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *CreditMemoRequestHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CreditMemoRequestHeaders) SetResponse(val CreditMemoRequest) {
+	s.Response = val
+}
+
+func (*CreditMemoRequestHeaders) createCreditMemoRequestRes() {}
+
+// An item of a credit memo request (ADR-0067, As built T85c): what is credited of one item of the
+// billing document. Amounts are net, in the request's `currency`.
+// Ref: #/components/schemas/CreditMemoRequestItem
+type CreditMemoRequestItem struct {
+	// The item's number within the request, from 1.
+	ItemNo int32 `json:"item_no"`
+	// The number of the billing document's item it credits.
+	BillingItemNo int32 `json:"billing_item_no"`
+	// The number of the sales order's item that billing document item billed.
+	OrderItemNo int32 `json:"order_item_no"`
+	// The sales order item's item key; absent when it has none.
+	ItemKey OptString `json:"item_key"`
+	// The sales order item's description.
+	Description string `json:"description"`
+	// The quantity credited, of what the request's returns order received, in the item's unit. Absent on a
+	// request by amount.
+	Quantity OptQuantity `json:"quantity"`
+	// The quantity the billing document's item billed, in the item's unit.
+	BilledQuantity Quantity `json:"billed_quantity"`
+	// The net amount the billing document's item billed: what the requests against it that are not
+	// rejected may ask for together.
+	BilledAmount Money `json:"billed_amount"`
+	// The net amount credited. For a quantity: the billed amount of that quantity, in full.
+	NetAmount Money `json:"net_amount"`
+	// The revenue account the billing item posted to, which the credit memo debits.
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name, as it is now.
+	AccountName string `json:"account_name"`
+	// The billing item's output tax code, which the credit memo's tax is calculated with; absent when the
+	// item has none.
+	TaxCode OptString `json:"tax_code"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *CreditMemoRequestItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetBillingItemNo returns the value of BillingItemNo.
+func (s *CreditMemoRequestItem) GetBillingItemNo() int32 {
+	return s.BillingItemNo
+}
+
+// GetOrderItemNo returns the value of OrderItemNo.
+func (s *CreditMemoRequestItem) GetOrderItemNo() int32 {
+	return s.OrderItemNo
+}
+
+// GetItemKey returns the value of ItemKey.
+func (s *CreditMemoRequestItem) GetItemKey() OptString {
+	return s.ItemKey
+}
+
+// GetDescription returns the value of Description.
+func (s *CreditMemoRequestItem) GetDescription() string {
+	return s.Description
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *CreditMemoRequestItem) GetQuantity() OptQuantity {
+	return s.Quantity
+}
+
+// GetBilledQuantity returns the value of BilledQuantity.
+func (s *CreditMemoRequestItem) GetBilledQuantity() Quantity {
+	return s.BilledQuantity
+}
+
+// GetBilledAmount returns the value of BilledAmount.
+func (s *CreditMemoRequestItem) GetBilledAmount() Money {
+	return s.BilledAmount
+}
+
+// GetNetAmount returns the value of NetAmount.
+func (s *CreditMemoRequestItem) GetNetAmount() Money {
+	return s.NetAmount
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *CreditMemoRequestItem) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *CreditMemoRequestItem) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *CreditMemoRequestItem) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *CreditMemoRequestItem) GetTaxCode() OptString {
+	return s.TaxCode
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *CreditMemoRequestItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetBillingItemNo sets the value of BillingItemNo.
+func (s *CreditMemoRequestItem) SetBillingItemNo(val int32) {
+	s.BillingItemNo = val
+}
+
+// SetOrderItemNo sets the value of OrderItemNo.
+func (s *CreditMemoRequestItem) SetOrderItemNo(val int32) {
+	s.OrderItemNo = val
+}
+
+// SetItemKey sets the value of ItemKey.
+func (s *CreditMemoRequestItem) SetItemKey(val OptString) {
+	s.ItemKey = val
+}
+
+// SetDescription sets the value of Description.
+func (s *CreditMemoRequestItem) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *CreditMemoRequestItem) SetQuantity(val OptQuantity) {
+	s.Quantity = val
+}
+
+// SetBilledQuantity sets the value of BilledQuantity.
+func (s *CreditMemoRequestItem) SetBilledQuantity(val Quantity) {
+	s.BilledQuantity = val
+}
+
+// SetBilledAmount sets the value of BilledAmount.
+func (s *CreditMemoRequestItem) SetBilledAmount(val Money) {
+	s.BilledAmount = val
+}
+
+// SetNetAmount sets the value of NetAmount.
+func (s *CreditMemoRequestItem) SetNetAmount(val Money) {
+	s.NetAmount = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *CreditMemoRequestItem) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *CreditMemoRequestItem) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *CreditMemoRequestItem) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *CreditMemoRequestItem) SetTaxCode(val OptString) {
+	s.TaxCode = val
+}
+
+// An amount credited of one item of the billing document.
+// Ref: #/components/schemas/CreditMemoRequestItemCreate
+type CreditMemoRequestItemCreate struct {
+	// The billing document item's number (`BillingDocument.items[].item_no`).
+	BillingItemNo int32 `json:"billing_item_no"`
+	// The net amount credited: more than zero, in the billing document's currency, at most the item's
+	// billed amount less what the document's other requests that are not rejected ask for.
+	NetAmount Money `json:"net_amount"`
+}
+
+// GetBillingItemNo returns the value of BillingItemNo.
+func (s *CreditMemoRequestItemCreate) GetBillingItemNo() int32 {
+	return s.BillingItemNo
+}
+
+// GetNetAmount returns the value of NetAmount.
+func (s *CreditMemoRequestItemCreate) GetNetAmount() Money {
+	return s.NetAmount
+}
+
+// SetBillingItemNo sets the value of BillingItemNo.
+func (s *CreditMemoRequestItemCreate) SetBillingItemNo(val int32) {
+	s.BillingItemNo = val
+}
+
+// SetNetAmount sets the value of NetAmount.
+func (s *CreditMemoRequestItemCreate) SetNetAmount(val Money) {
+	s.NetAmount = val
+}
+
+// One page of credit memo requests.
+// Ref: #/components/schemas/CreditMemoRequestPage
+type CreditMemoRequestPage struct {
+	// The credit memo requests on this page.
+	Items []CreditMemoRequest `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *CreditMemoRequestPage) GetItems() []CreditMemoRequest {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CreditMemoRequestPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *CreditMemoRequestPage) SetItems(val []CreditMemoRequest) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CreditMemoRequestPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CreditMemoRequestPage) listCreditMemoRequestsRes() {}
+
+// Options for posting a credit memo request.
+// Ref: #/components/schemas/CreditMemoRequestPost
+type CreditMemoRequestPost struct {
+	// The date and posting date of the customer credit memo the request posts as; absent: today, the
+	// company's date in its time zone (`companies[].time_zone`).
+	PostingDate OptDate `json:"posting_date"`
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *CreditMemoRequestPost) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *CreditMemoRequestPost) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// Reject a credit memo request.
+// Ref: #/components/schemas/CreditMemoRequestReject
+type CreditMemoRequestReject struct {
+	// Why the request is rejected; never white space alone.
+	Reason string `json:"reason"`
+}
+
+// GetReason returns the value of Reason.
+func (s *CreditMemoRequestReject) GetReason() string {
+	return s.Reason
+}
+
+// SetReason sets the value of Reason.
+func (s *CreditMemoRequestReject) SetReason(val string) {
+	s.Reason = val
 }
 
 // The caller (getCurrentPrincipal): advisory, as the API decides every call.
@@ -34065,6 +35154,71 @@ func (s *DecisionInput) GetComment() OptString {
 func (s *DecisionInput) SetComment(val OptString) {
 	s.Comment = val
 }
+
+type DeclineCreditMemoRequestBadRequest Problem
+
+func (*DeclineCreditMemoRequestBadRequest) declineCreditMemoRequestRes() {}
+
+type DeclineCreditMemoRequestForbidden Problem
+
+func (*DeclineCreditMemoRequestForbidden) declineCreditMemoRequestRes() {}
+
+type DeclineCreditMemoRequestNotFound Problem
+
+func (*DeclineCreditMemoRequestNotFound) declineCreditMemoRequestRes() {}
+
+// DeclineCreditMemoRequestOKHeaders wraps CreditMemoRequest with response headers.
+type DeclineCreditMemoRequestOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           CreditMemoRequest
+}
+
+// GetETag returns the value of ETag.
+func (s *DeclineCreditMemoRequestOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *DeclineCreditMemoRequestOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *DeclineCreditMemoRequestOKHeaders) GetResponse() CreditMemoRequest {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *DeclineCreditMemoRequestOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *DeclineCreditMemoRequestOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *DeclineCreditMemoRequestOKHeaders) SetResponse(val CreditMemoRequest) {
+	s.Response = val
+}
+
+func (*DeclineCreditMemoRequestOKHeaders) declineCreditMemoRequestRes() {}
+func (*DeclineCreditMemoRequestOKHeaders) postCreditMemoRequestRes()    {}
+func (*DeclineCreditMemoRequestOKHeaders) releaseCreditMemoRequestRes() {}
+
+type DeclineCreditMemoRequestPreconditionFailed Problem
+
+func (*DeclineCreditMemoRequestPreconditionFailed) declineCreditMemoRequestRes() {}
+
+type DeclineCreditMemoRequestPreconditionRequired Problem
+
+func (*DeclineCreditMemoRequestPreconditionRequired) declineCreditMemoRequestRes() {}
+
+type DeclineCreditMemoRequestUnprocessableEntity Problem
+
+func (*DeclineCreditMemoRequestUnprocessableEntity) declineCreditMemoRequestRes() {}
 
 type DeclineQuotationBadRequest Problem
 
@@ -35934,6 +37088,22 @@ func (s *DownPaymentRequestPage) SetNextPageToken(val OptString) {
 }
 
 func (*DownPaymentRequestPage) listDownPaymentRequestsRes() {}
+
+type DrillAnalyticsQueryBadRequest Problem
+
+func (*DrillAnalyticsQueryBadRequest) drillAnalyticsQueryRes() {}
+
+type DrillAnalyticsQueryForbidden Problem
+
+func (*DrillAnalyticsQueryForbidden) drillAnalyticsQueryRes() {}
+
+type DrillAnalyticsQueryPreconditionRequired Problem
+
+func (*DrillAnalyticsQueryPreconditionRequired) drillAnalyticsQueryRes() {}
+
+type DrillAnalyticsQueryUnprocessableEntity Problem
+
+func (*DrillAnalyticsQueryUnprocessableEntity) drillAnalyticsQueryRes() {}
 
 // A dunning notice (collections, ADR-0065 §3): what a dunning run proposes for one customer.
 // Ref: #/components/schemas/DunningNotice
@@ -41005,6 +42175,46 @@ func (s *GetCreditLimitOKHeaders) SetResponse(val CustomerCreditLimit) {
 
 func (*GetCreditLimitOKHeaders) getCreditLimitRes() {}
 
+type GetCreditMemoRequestBadRequest Problem
+
+func (*GetCreditMemoRequestBadRequest) getCreditMemoRequestRes() {}
+
+type GetCreditMemoRequestForbidden Problem
+
+func (*GetCreditMemoRequestForbidden) getCreditMemoRequestRes() {}
+
+type GetCreditMemoRequestNotFound Problem
+
+func (*GetCreditMemoRequestNotFound) getCreditMemoRequestRes() {}
+
+// GetCreditMemoRequestOKHeaders wraps CreditMemoRequest with response headers.
+type GetCreditMemoRequestOKHeaders struct {
+	ETag     OptString
+	Response CreditMemoRequest
+}
+
+// GetETag returns the value of ETag.
+func (s *GetCreditMemoRequestOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetCreditMemoRequestOKHeaders) GetResponse() CreditMemoRequest {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetCreditMemoRequestOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetCreditMemoRequestOKHeaders) SetResponse(val CreditMemoRequest) {
+	s.Response = val
+}
+
+func (*GetCreditMemoRequestOKHeaders) getCreditMemoRequestRes() {}
+
 type GetCurrentPrincipalBadRequest Problem
 
 func (*GetCurrentPrincipalBadRequest) getCurrentPrincipalRes() {}
@@ -41633,6 +42843,18 @@ func (*GetLiquidityForecastVarianceNotFound) getLiquidityForecastVarianceRes() {
 type GetLiquidityForecastVarianceUnprocessableEntity Problem
 
 func (*GetLiquidityForecastVarianceUnprocessableEntity) getLiquidityForecastVarianceRes() {}
+
+type GetMarginReportBadRequest Problem
+
+func (*GetMarginReportBadRequest) getMarginReportRes() {}
+
+type GetMarginReportForbidden Problem
+
+func (*GetMarginReportForbidden) getMarginReportRes() {}
+
+type GetMarginReportUnprocessableEntity Problem
+
+func (*GetMarginReportUnprocessableEntity) getMarginReportRes() {}
 
 type GetMatchResultBadRequest Problem
 
@@ -42478,6 +43700,34 @@ func (s *GetRevenueContractOKHeaders) SetResponse(val RevenueContract) {
 }
 
 func (*GetRevenueContractOKHeaders) getRevenueContractRes() {}
+
+type GetRevenueRecognitionRunBadRequest Problem
+
+func (*GetRevenueRecognitionRunBadRequest) getRevenueRecognitionRunRes() {}
+
+type GetRevenueRecognitionRunForbidden Problem
+
+func (*GetRevenueRecognitionRunForbidden) getRevenueRecognitionRunRes() {}
+
+type GetRevenueRecognitionRunNotFound Problem
+
+func (*GetRevenueRecognitionRunNotFound) getRevenueRecognitionRunRes() {}
+
+type GetRevenueScheduleBadRequest Problem
+
+func (*GetRevenueScheduleBadRequest) getRevenueScheduleRes() {}
+
+type GetRevenueScheduleForbidden Problem
+
+func (*GetRevenueScheduleForbidden) getRevenueScheduleRes() {}
+
+type GetRevenueScheduleNotFound Problem
+
+func (*GetRevenueScheduleNotFound) getRevenueScheduleRes() {}
+
+type GetRevenueScheduleUnprocessableEntity Problem
+
+func (*GetRevenueScheduleUnprocessableEntity) getRevenueScheduleRes() {}
 
 type GetRfqBadRequest Problem
 
@@ -52728,6 +53978,14 @@ type ListCreditLimitsForbidden Problem
 
 func (*ListCreditLimitsForbidden) listCreditLimitsRes() {}
 
+type ListCreditMemoRequestsBadRequest Problem
+
+func (*ListCreditMemoRequestsBadRequest) listCreditMemoRequestsRes() {}
+
+type ListCreditMemoRequestsForbidden Problem
+
+func (*ListCreditMemoRequestsForbidden) listCreditMemoRequestsRes() {}
+
 type ListCustomerInvoicesBadRequest Problem
 
 func (*ListCustomerInvoicesBadRequest) listCustomerInvoicesRes() {}
@@ -53288,6 +54546,14 @@ type ListRevenueContractsForbidden Problem
 
 func (*ListRevenueContractsForbidden) listRevenueContractsRes() {}
 
+type ListRevenueRecognitionRunsBadRequest Problem
+
+func (*ListRevenueRecognitionRunsBadRequest) listRevenueRecognitionRunsRes() {}
+
+type ListRevenueRecognitionRunsForbidden Problem
+
+func (*ListRevenueRecognitionRunsForbidden) listRevenueRecognitionRunsRes() {}
+
 type ListRfqsBadRequest Problem
 
 func (*ListRfqsBadRequest) listRfqsRes() {}
@@ -53677,6 +54943,269 @@ func (*LockProfitCenterPreconditionRequired) lockProfitCenterRes() {}
 type LockProfitCenterUnprocessableEntity Problem
 
 func (*LockProfitCenterUnprocessableEntity) lockProfitCenterRes() {}
+
+// One page of a legal entity's margin report by profit center (ADR-0075), with the selection, the
+// accounts counted as cost of sales and the totals on every page.
+// Ref: #/components/schemas/MarginReport
+type MarginReport struct {
+	// The rows on this page: profit centers by code, then the `unassigned` row.
+	Items []MarginReportRow `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Fiscal year of the selection.
+	FiscalYear int32 `json:"fiscal_year"`
+	// First period of the selection.
+	FiscalPeriodFrom int32 `json:"fiscal_period_from"`
+	// Last period of the selection.
+	FiscalPeriodTo int32 `json:"fiscal_period_to"`
+	// The legal entity's local currency, which every amount is in.
+	Currency string `json:"currency"`
+	// Whether the configuration names cost of sales accounts for the legal entity's chart
+	// (`controlling.margin_report`); false: the cost of sales is zero and the margin is the revenue.
+	CostOfSalesNamed bool `json:"cost_of_sales_named"`
+	// The numbers of the chart's accounts counted as cost of sales, in number order; empty when none is
+	// named.
+	CostOfSalesAccounts []string `json:"cost_of_sales_accounts"`
+	// The whole selection's totals, the same on every page.
+	Totals MarginReportTotals `json:"totals"`
+}
+
+// GetItems returns the value of Items.
+func (s *MarginReport) GetItems() []MarginReportRow {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *MarginReport) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *MarginReport) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *MarginReport) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriodFrom returns the value of FiscalPeriodFrom.
+func (s *MarginReport) GetFiscalPeriodFrom() int32 {
+	return s.FiscalPeriodFrom
+}
+
+// GetFiscalPeriodTo returns the value of FiscalPeriodTo.
+func (s *MarginReport) GetFiscalPeriodTo() int32 {
+	return s.FiscalPeriodTo
+}
+
+// GetCurrency returns the value of Currency.
+func (s *MarginReport) GetCurrency() string {
+	return s.Currency
+}
+
+// GetCostOfSalesNamed returns the value of CostOfSalesNamed.
+func (s *MarginReport) GetCostOfSalesNamed() bool {
+	return s.CostOfSalesNamed
+}
+
+// GetCostOfSalesAccounts returns the value of CostOfSalesAccounts.
+func (s *MarginReport) GetCostOfSalesAccounts() []string {
+	return s.CostOfSalesAccounts
+}
+
+// GetTotals returns the value of Totals.
+func (s *MarginReport) GetTotals() MarginReportTotals {
+	return s.Totals
+}
+
+// SetItems sets the value of Items.
+func (s *MarginReport) SetItems(val []MarginReportRow) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *MarginReport) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *MarginReport) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *MarginReport) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriodFrom sets the value of FiscalPeriodFrom.
+func (s *MarginReport) SetFiscalPeriodFrom(val int32) {
+	s.FiscalPeriodFrom = val
+}
+
+// SetFiscalPeriodTo sets the value of FiscalPeriodTo.
+func (s *MarginReport) SetFiscalPeriodTo(val int32) {
+	s.FiscalPeriodTo = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *MarginReport) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetCostOfSalesNamed sets the value of CostOfSalesNamed.
+func (s *MarginReport) SetCostOfSalesNamed(val bool) {
+	s.CostOfSalesNamed = val
+}
+
+// SetCostOfSalesAccounts sets the value of CostOfSalesAccounts.
+func (s *MarginReport) SetCostOfSalesAccounts(val []string) {
+	s.CostOfSalesAccounts = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *MarginReport) SetTotals(val MarginReportTotals) {
+	s.Totals = val
+}
+
+func (*MarginReport) getMarginReportRes() {}
+
+// A row of the margin report (ADR-0075 §3): a profit center's revenue, cost of sales and margin in
+// the selection, or, as `unassigned`, those of the lines that carry no profit center; in the legal
+// entity's local currency.
+// Ref: #/components/schemas/MarginReportRow
+type MarginReportRow struct {
+	// Profit center; absent on the `unassigned` row.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// The profit center's code; absent on the `unassigned` row.
+	ProfitCenterCode OptString `json:"profit_center_code"`
+	// The profit center's name; absent on the `unassigned` row.
+	ProfitCenterName OptString `json:"profit_center_name"`
+	// True on the one row of the lines that carry no profit center.
+	Unassigned bool `json:"unassigned"`
+	// Credits less debits on the accounts of type `revenue`.
+	Revenue Money `json:"revenue"`
+	// Debits less credits on the cost of sales accounts.
+	CostOfSales Money `json:"cost_of_sales"`
+	// Revenue less cost of sales.
+	Margin Money `json:"margin"`
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *MarginReportRow) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// GetProfitCenterCode returns the value of ProfitCenterCode.
+func (s *MarginReportRow) GetProfitCenterCode() OptString {
+	return s.ProfitCenterCode
+}
+
+// GetProfitCenterName returns the value of ProfitCenterName.
+func (s *MarginReportRow) GetProfitCenterName() OptString {
+	return s.ProfitCenterName
+}
+
+// GetUnassigned returns the value of Unassigned.
+func (s *MarginReportRow) GetUnassigned() bool {
+	return s.Unassigned
+}
+
+// GetRevenue returns the value of Revenue.
+func (s *MarginReportRow) GetRevenue() Money {
+	return s.Revenue
+}
+
+// GetCostOfSales returns the value of CostOfSales.
+func (s *MarginReportRow) GetCostOfSales() Money {
+	return s.CostOfSales
+}
+
+// GetMargin returns the value of Margin.
+func (s *MarginReportRow) GetMargin() Money {
+	return s.Margin
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *MarginReportRow) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetProfitCenterCode sets the value of ProfitCenterCode.
+func (s *MarginReportRow) SetProfitCenterCode(val OptString) {
+	s.ProfitCenterCode = val
+}
+
+// SetProfitCenterName sets the value of ProfitCenterName.
+func (s *MarginReportRow) SetProfitCenterName(val OptString) {
+	s.ProfitCenterName = val
+}
+
+// SetUnassigned sets the value of Unassigned.
+func (s *MarginReportRow) SetUnassigned(val bool) {
+	s.Unassigned = val
+}
+
+// SetRevenue sets the value of Revenue.
+func (s *MarginReportRow) SetRevenue(val Money) {
+	s.Revenue = val
+}
+
+// SetCostOfSales sets the value of CostOfSales.
+func (s *MarginReportRow) SetCostOfSales(val Money) {
+	s.CostOfSales = val
+}
+
+// SetMargin sets the value of Margin.
+func (s *MarginReportRow) SetMargin(val Money) {
+	s.Margin = val
+}
+
+// The legal entity's revenue, cost of sales and margin over the whole selection, which the rows of
+// every page add up to; in the legal entity's local currency.
+// Ref: #/components/schemas/MarginReportTotals
+type MarginReportTotals struct {
+	// Revenue.
+	Revenue Money `json:"revenue"`
+	// Cost of sales.
+	CostOfSales Money `json:"cost_of_sales"`
+	// Revenue less cost of sales.
+	Margin Money `json:"margin"`
+}
+
+// GetRevenue returns the value of Revenue.
+func (s *MarginReportTotals) GetRevenue() Money {
+	return s.Revenue
+}
+
+// GetCostOfSales returns the value of CostOfSales.
+func (s *MarginReportTotals) GetCostOfSales() Money {
+	return s.CostOfSales
+}
+
+// GetMargin returns the value of Margin.
+func (s *MarginReportTotals) GetMargin() Money {
+	return s.Margin
+}
+
+// SetRevenue sets the value of Revenue.
+func (s *MarginReportTotals) SetRevenue(val Money) {
+	s.Revenue = val
+}
+
+// SetCostOfSales sets the value of CostOfSales.
+func (s *MarginReportTotals) SetCostOfSales(val Money) {
+	s.CostOfSales = val
+}
+
+// SetMargin sets the value of Margin.
+func (s *MarginReportTotals) SetMargin(val Money) {
+	s.Margin = val
+}
 
 type MatchBankStatementBadRequest Problem
 
@@ -59538,6 +61067,52 @@ func (o OptCreditLimit) Get() (v CreditLimit, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptCreditLimit) Or(d CreditLimit) CreditLimit {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptCreditMemoRequestPost returns new OptCreditMemoRequestPost with value set to v.
+func NewOptCreditMemoRequestPost(v CreditMemoRequestPost) OptCreditMemoRequestPost {
+	return OptCreditMemoRequestPost{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptCreditMemoRequestPost is optional CreditMemoRequestPost.
+type OptCreditMemoRequestPost struct {
+	Value CreditMemoRequestPost
+	Set   bool
+}
+
+// IsSet returns true if OptCreditMemoRequestPost was set.
+func (o OptCreditMemoRequestPost) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptCreditMemoRequestPost) Reset() {
+	var v CreditMemoRequestPost
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptCreditMemoRequestPost) SetTo(v CreditMemoRequestPost) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptCreditMemoRequestPost) Get() (v CreditMemoRequestPost, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptCreditMemoRequestPost) Or(d CreditMemoRequestPost) CreditMemoRequestPost {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -65634,6 +67209,11 @@ type PerformanceObligation struct {
 	ServiceFrom OptDate `json:"service_from"`
 	// The last day of that period, not before `service_from`; absent for a `point_in_time` obligation.
 	ServiceTo OptDate `json:"service_to"`
+	// The day a `point_in_time` obligation is satisfied when that is not its order item's delivery
+	// confirmations, a person's judgement (ADR-0068 §8): the recognition schedule then has the whole
+	// allocated amount on this day. Absent when the delivery confirmations say it, which is how every
+	// obligation starts, and for an `over_time` obligation.
+	SatisfiedOn OptDate `json:"satisfied_on"`
 	// The obligation's stand-alone selling price, a person's judgement: it starts as the order item's net
 	// value.
 	StandaloneSellingPrice Money `json:"standalone_selling_price"`
@@ -65681,6 +67261,11 @@ func (s *PerformanceObligation) GetServiceFrom() OptDate {
 // GetServiceTo returns the value of ServiceTo.
 func (s *PerformanceObligation) GetServiceTo() OptDate {
 	return s.ServiceTo
+}
+
+// GetSatisfiedOn returns the value of SatisfiedOn.
+func (s *PerformanceObligation) GetSatisfiedOn() OptDate {
+	return s.SatisfiedOn
 }
 
 // GetStandaloneSellingPrice returns the value of StandaloneSellingPrice.
@@ -65733,6 +67318,11 @@ func (s *PerformanceObligation) SetServiceTo(val OptDate) {
 	s.ServiceTo = val
 }
 
+// SetSatisfiedOn sets the value of SatisfiedOn.
+func (s *PerformanceObligation) SetSatisfiedOn(val OptDate) {
+	s.SatisfiedOn = val
+}
+
 // SetStandaloneSellingPrice sets the value of StandaloneSellingPrice.
 func (s *PerformanceObligation) SetStandaloneSellingPrice(val Money) {
 	s.StandaloneSellingPrice = val
@@ -65758,6 +67348,13 @@ type PerformanceObligationUpdate struct {
 	// The last day of that period, not before `service_from`. Send null to remove it, with `timing`
 	// `point_in_time`.
 	ServiceTo OptNilDate `json:"service_to"`
+	// The day a `point_in_time` obligation is satisfied, when the terms of sale make that another day than
+	// its order item's delivery confirmations: the recognition schedule then has the obligation's whole
+	// allocated amount on this day, whatever was delivered. A person's judgement; the system does not
+	// check it. Refused on an `over_time` obligation (422 `revenue.satisfied_on_not_allowed`). Send null
+	// to remove it: the delivery confirmations then say when the obligation is satisfied, as they do by
+	// default.
+	SatisfiedOn OptNilDate `json:"satisfied_on"`
 	// The obligation's stand-alone selling price: more than zero, in the contract's currency. A person's
 	// judgement; the system does not estimate it.
 	StandaloneSellingPrice OptMoney `json:"standalone_selling_price"`
@@ -65783,6 +67380,11 @@ func (s *PerformanceObligationUpdate) GetServiceTo() OptNilDate {
 	return s.ServiceTo
 }
 
+// GetSatisfiedOn returns the value of SatisfiedOn.
+func (s *PerformanceObligationUpdate) GetSatisfiedOn() OptNilDate {
+	return s.SatisfiedOn
+}
+
 // GetStandaloneSellingPrice returns the value of StandaloneSellingPrice.
 func (s *PerformanceObligationUpdate) GetStandaloneSellingPrice() OptMoney {
 	return s.StandaloneSellingPrice
@@ -65806,6 +67408,11 @@ func (s *PerformanceObligationUpdate) SetServiceFrom(val OptNilDate) {
 // SetServiceTo sets the value of ServiceTo.
 func (s *PerformanceObligationUpdate) SetServiceTo(val OptNilDate) {
 	s.ServiceTo = val
+}
+
+// SetSatisfiedOn sets the value of SatisfiedOn.
+func (s *PerformanceObligationUpdate) SetSatisfiedOn(val OptNilDate) {
+	s.SatisfiedOn = val
 }
 
 // SetStandaloneSellingPrice sets the value of StandaloneSellingPrice.
@@ -67400,6 +69007,13 @@ type PlanBatch struct {
 	ReplacedCount int32 `json:"replaced_count"`
 	// Whether the batch key had already been applied with these lines, so nothing changed.
 	Replayed bool `json:"replayed"`
+	// The plan category the batch's lines were copied from (`POST /v1/plan-categories/{id}:copy`); absent
+	// on an uploaded batch.
+	CopiedFromPlanCategoryID OptUUID `json:"copied_from_plan_category_id"`
+	// The code of the category copied from; absent on an uploaded batch.
+	CopiedFromPlanCategoryCode OptString `json:"copied_from_plan_category_code"`
+	// The percentage the copied amounts were multiplied by; absent on an uploaded batch.
+	CopyPercentage OptString `json:"copy_percentage"`
 	// When the batch was applied (UTC).
 	CreatedAt time.Time `json:"created_at"`
 	// Principal that applied the batch.
@@ -67444,6 +69058,21 @@ func (s *PlanBatch) GetReplacedCount() int32 {
 // GetReplayed returns the value of Replayed.
 func (s *PlanBatch) GetReplayed() bool {
 	return s.Replayed
+}
+
+// GetCopiedFromPlanCategoryID returns the value of CopiedFromPlanCategoryID.
+func (s *PlanBatch) GetCopiedFromPlanCategoryID() OptUUID {
+	return s.CopiedFromPlanCategoryID
+}
+
+// GetCopiedFromPlanCategoryCode returns the value of CopiedFromPlanCategoryCode.
+func (s *PlanBatch) GetCopiedFromPlanCategoryCode() OptString {
+	return s.CopiedFromPlanCategoryCode
+}
+
+// GetCopyPercentage returns the value of CopyPercentage.
+func (s *PlanBatch) GetCopyPercentage() OptString {
+	return s.CopyPercentage
 }
 
 // GetCreatedAt returns the value of CreatedAt.
@@ -67494,6 +69123,21 @@ func (s *PlanBatch) SetReplacedCount(val int32) {
 // SetReplayed sets the value of Replayed.
 func (s *PlanBatch) SetReplayed(val bool) {
 	s.Replayed = val
+}
+
+// SetCopiedFromPlanCategoryID sets the value of CopiedFromPlanCategoryID.
+func (s *PlanBatch) SetCopiedFromPlanCategoryID(val OptUUID) {
+	s.CopiedFromPlanCategoryID = val
+}
+
+// SetCopiedFromPlanCategoryCode sets the value of CopiedFromPlanCategoryCode.
+func (s *PlanBatch) SetCopiedFromPlanCategoryCode(val OptString) {
+	s.CopiedFromPlanCategoryCode = val
+}
+
+// SetCopyPercentage sets the value of CopyPercentage.
+func (s *PlanBatch) SetCopyPercentage(val OptString) {
+	s.CopyPercentage = val
 }
 
 // SetCreatedAt sets the value of CreatedAt.
@@ -67599,7 +69243,8 @@ func (s *PlanBatchHeaders) SetResponse(val PlanBatch) {
 	s.Response = val
 }
 
-func (*PlanBatchHeaders) applyPlanBatchRes() {}
+func (*PlanBatchHeaders) applyPlanBatchRes()   {}
+func (*PlanBatchHeaders) copyPlanCategoryRes() {}
 
 // A line of a plan batch: the amount planned on a cost center or a profit center (exactly one) and an
 // account in a period.
@@ -67790,6 +69435,74 @@ func (s *PlanCategory) SetName(val string) {
 // SetLocked sets the value of Locked.
 func (s *PlanCategory) SetLocked(val bool) {
 	s.Locked = val
+}
+
+// A copy of a plan category's plan of one legal entity and fiscal year into another category, scaled
+// by a percentage.
+// Ref: #/components/schemas/PlanCategoryCopy
+type PlanCategoryCopy struct {
+	// The plan category the copy is written into: another one than the category copied, and open.
+	TargetPlanCategoryID uuid.UUID `json:"target_plan_category_id"`
+	// The legal entity whose plan is copied; a copy is one legal entity's, as a plan batch is.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year whose plan is copied, into the same year of the target.
+	FiscalYear int32 `json:"fiscal_year"`
+	// What each amount is multiplied by, in percent: above 0 and at most 1000, with up to four decimals;
+	// `100` copies the amounts as they are, `105` adds five percent.
+	Percentage string `json:"percentage"`
+	// Whether the copy may replace the target's current plan of the legal entity and year (all of it,
+	// every center's); false: a target that has one is refused.
+	Replace OptBool `json:"replace"`
+}
+
+// GetTargetPlanCategoryID returns the value of TargetPlanCategoryID.
+func (s *PlanCategoryCopy) GetTargetPlanCategoryID() uuid.UUID {
+	return s.TargetPlanCategoryID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *PlanCategoryCopy) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *PlanCategoryCopy) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPercentage returns the value of Percentage.
+func (s *PlanCategoryCopy) GetPercentage() string {
+	return s.Percentage
+}
+
+// GetReplace returns the value of Replace.
+func (s *PlanCategoryCopy) GetReplace() OptBool {
+	return s.Replace
+}
+
+// SetTargetPlanCategoryID sets the value of TargetPlanCategoryID.
+func (s *PlanCategoryCopy) SetTargetPlanCategoryID(val uuid.UUID) {
+	s.TargetPlanCategoryID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *PlanCategoryCopy) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *PlanCategoryCopy) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPercentage sets the value of Percentage.
+func (s *PlanCategoryCopy) SetPercentage(val string) {
+	s.Percentage = val
+}
+
+// SetReplace sets the value of Replace.
+func (s *PlanCategoryCopy) SetReplace(val OptBool) {
+	s.Replace = val
 }
 
 // A new plan category.
@@ -68207,6 +69920,30 @@ func (*PostBillingDocumentPreconditionRequired) postBillingDocumentRes() {}
 type PostBillingDocumentUnprocessableEntity Problem
 
 func (*PostBillingDocumentUnprocessableEntity) postBillingDocumentRes() {}
+
+type PostCreditMemoRequestBadRequest Problem
+
+func (*PostCreditMemoRequestBadRequest) postCreditMemoRequestRes() {}
+
+type PostCreditMemoRequestForbidden Problem
+
+func (*PostCreditMemoRequestForbidden) postCreditMemoRequestRes() {}
+
+type PostCreditMemoRequestNotFound Problem
+
+func (*PostCreditMemoRequestNotFound) postCreditMemoRequestRes() {}
+
+type PostCreditMemoRequestPreconditionFailed Problem
+
+func (*PostCreditMemoRequestPreconditionFailed) postCreditMemoRequestRes() {}
+
+type PostCreditMemoRequestPreconditionRequired Problem
+
+func (*PostCreditMemoRequestPreconditionRequired) postCreditMemoRequestRes() {}
+
+type PostCreditMemoRequestUnprocessableEntity Problem
+
+func (*PostCreditMemoRequestUnprocessableEntity) postCreditMemoRequestRes() {}
 
 type PostCustomerInvoiceBadRequest Problem
 
@@ -73485,6 +75222,26 @@ type ReleaseContractUnprocessableEntity Problem
 
 func (*ReleaseContractUnprocessableEntity) releaseContractRes() {}
 
+type ReleaseCreditMemoRequestBadRequest Problem
+
+func (*ReleaseCreditMemoRequestBadRequest) releaseCreditMemoRequestRes() {}
+
+type ReleaseCreditMemoRequestForbidden Problem
+
+func (*ReleaseCreditMemoRequestForbidden) releaseCreditMemoRequestRes() {}
+
+type ReleaseCreditMemoRequestNotFound Problem
+
+func (*ReleaseCreditMemoRequestNotFound) releaseCreditMemoRequestRes() {}
+
+type ReleaseCreditMemoRequestPreconditionFailed Problem
+
+func (*ReleaseCreditMemoRequestPreconditionFailed) releaseCreditMemoRequestRes() {}
+
+type ReleaseCreditMemoRequestPreconditionRequired Problem
+
+func (*ReleaseCreditMemoRequestPreconditionRequired) releaseCreditMemoRequestRes() {}
+
 type ReleaseInternalOrderBadRequest Problem
 
 func (*ReleaseInternalOrderBadRequest) releaseInternalOrderRes() {}
@@ -76877,6 +78634,1134 @@ func (s *RevenueContractUpdate) GetObligations() []PerformanceObligationUpdate {
 // SetObligations sets the value of Obligations.
 func (s *RevenueContractUpdate) SetObligations(val []PerformanceObligationUpdate) {
 	s.Obligations = val
+}
+
+// One performance obligation in a revenue recognition posting.
+// Ref: #/components/schemas/RevenueRecognitionObligation
+type RevenueRecognitionObligation struct {
+	// The obligation's number within the contract.
+	ObligationNo int32 `json:"obligation_no"`
+	// The order item's description: what was promised.
+	Description string `json:"description"`
+	// The order item's revenue account, which billing credits and the run moves (`GET /v1/accounts/{id}`).
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The obligation's revenue recognized to the period's last day, by the contract's schedule.
+	RecognizedAmount Money `json:"recognized_amount"`
+	// The obligation's revenue billed to the period's last day: the net amounts of its order item in
+	// billing documents posted on or before it.
+	BilledAmount Money `json:"billed_amount"`
+	// What the entry moved the obligation's revenue account by: `recognized_amount` less `billed_amount`,
+	// less what earlier runs posted for the obligation. Positive: a credit; negative: a debit; zero: no
+	// line.
+	RevenueAmount Money `json:"revenue_amount"`
+}
+
+// GetObligationNo returns the value of ObligationNo.
+func (s *RevenueRecognitionObligation) GetObligationNo() int32 {
+	return s.ObligationNo
+}
+
+// GetDescription returns the value of Description.
+func (s *RevenueRecognitionObligation) GetDescription() string {
+	return s.Description
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *RevenueRecognitionObligation) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *RevenueRecognitionObligation) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetRecognizedAmount returns the value of RecognizedAmount.
+func (s *RevenueRecognitionObligation) GetRecognizedAmount() Money {
+	return s.RecognizedAmount
+}
+
+// GetBilledAmount returns the value of BilledAmount.
+func (s *RevenueRecognitionObligation) GetBilledAmount() Money {
+	return s.BilledAmount
+}
+
+// GetRevenueAmount returns the value of RevenueAmount.
+func (s *RevenueRecognitionObligation) GetRevenueAmount() Money {
+	return s.RevenueAmount
+}
+
+// SetObligationNo sets the value of ObligationNo.
+func (s *RevenueRecognitionObligation) SetObligationNo(val int32) {
+	s.ObligationNo = val
+}
+
+// SetDescription sets the value of Description.
+func (s *RevenueRecognitionObligation) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *RevenueRecognitionObligation) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *RevenueRecognitionObligation) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetRecognizedAmount sets the value of RecognizedAmount.
+func (s *RevenueRecognitionObligation) SetRecognizedAmount(val Money) {
+	s.RecognizedAmount = val
+}
+
+// SetBilledAmount sets the value of BilledAmount.
+func (s *RevenueRecognitionObligation) SetBilledAmount(val Money) {
+	s.BilledAmount = val
+}
+
+// SetRevenueAmount sets the value of RevenueAmount.
+func (s *RevenueRecognitionObligation) SetRevenueAmount(val Money) {
+	s.RevenueAmount = val
+}
+
+// What a revenue recognition run posted for one revenue contract: the contract's cumulative amounts to
+// the period's last day, its position and its journal entry. `recognized_amount` less `billed_amount`
+// is `contract_asset_amount` when it is positive and `contract_liability_amount` when it is negative;
+// the other is zero.
+// Ref: #/components/schemas/RevenueRecognitionPosting
+type RevenueRecognitionPosting struct {
+	// The revenue contract (`GET /v1/revenue-contracts/{id}`).
+	RevenueContractID uuid.UUID `json:"revenue_contract_id"`
+	// The contract's sales order (`GET /v1/sales-orders/{id}`).
+	SalesOrderID uuid.UUID `json:"sales_order_id"`
+	// The sales order's document number: the entry's reference.
+	SalesOrderNumber string `json:"sales_order_number"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The contract's revenue recognized to the period's last day: its obligations' added up.
+	RecognizedAmount Money `json:"recognized_amount"`
+	// The contract's revenue billed to the period's last day: its obligations' added up.
+	BilledAmount Money `json:"billed_amount"`
+	// The contract's position after the run when revenue recognized exceeds revenue billed, on the
+	// contract asset account; zero otherwise.
+	ContractAssetAmount Money `json:"contract_asset_amount"`
+	// The contract's position after the run when revenue billed exceeds revenue recognized, on the
+	// contract liability account; zero otherwise.
+	ContractLiabilityAmount Money `json:"contract_liability_amount"`
+	// What the entry moved the contract's revenue by, its obligations' added up: positive when it credited
+	// revenue, negative when it debited it.
+	RevenueAmount Money `json:"revenue_amount"`
+	// The journal entry the run posted for the contract (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The entry's fiscal year.
+	JournalEntryYear int32 `json:"journal_entry_year"`
+	// The entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// The contract's performance obligations, by number, each with its cumulative amounts and what the
+	// entry moved its revenue account by.
+	Obligations []RevenueRecognitionObligation `json:"obligations"`
+}
+
+// GetRevenueContractID returns the value of RevenueContractID.
+func (s *RevenueRecognitionPosting) GetRevenueContractID() uuid.UUID {
+	return s.RevenueContractID
+}
+
+// GetSalesOrderID returns the value of SalesOrderID.
+func (s *RevenueRecognitionPosting) GetSalesOrderID() uuid.UUID {
+	return s.SalesOrderID
+}
+
+// GetSalesOrderNumber returns the value of SalesOrderNumber.
+func (s *RevenueRecognitionPosting) GetSalesOrderNumber() string {
+	return s.SalesOrderNumber
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *RevenueRecognitionPosting) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *RevenueRecognitionPosting) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *RevenueRecognitionPosting) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetRecognizedAmount returns the value of RecognizedAmount.
+func (s *RevenueRecognitionPosting) GetRecognizedAmount() Money {
+	return s.RecognizedAmount
+}
+
+// GetBilledAmount returns the value of BilledAmount.
+func (s *RevenueRecognitionPosting) GetBilledAmount() Money {
+	return s.BilledAmount
+}
+
+// GetContractAssetAmount returns the value of ContractAssetAmount.
+func (s *RevenueRecognitionPosting) GetContractAssetAmount() Money {
+	return s.ContractAssetAmount
+}
+
+// GetContractLiabilityAmount returns the value of ContractLiabilityAmount.
+func (s *RevenueRecognitionPosting) GetContractLiabilityAmount() Money {
+	return s.ContractLiabilityAmount
+}
+
+// GetRevenueAmount returns the value of RevenueAmount.
+func (s *RevenueRecognitionPosting) GetRevenueAmount() Money {
+	return s.RevenueAmount
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *RevenueRecognitionPosting) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *RevenueRecognitionPosting) GetJournalEntryYear() int32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *RevenueRecognitionPosting) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetObligations returns the value of Obligations.
+func (s *RevenueRecognitionPosting) GetObligations() []RevenueRecognitionObligation {
+	return s.Obligations
+}
+
+// SetRevenueContractID sets the value of RevenueContractID.
+func (s *RevenueRecognitionPosting) SetRevenueContractID(val uuid.UUID) {
+	s.RevenueContractID = val
+}
+
+// SetSalesOrderID sets the value of SalesOrderID.
+func (s *RevenueRecognitionPosting) SetSalesOrderID(val uuid.UUID) {
+	s.SalesOrderID = val
+}
+
+// SetSalesOrderNumber sets the value of SalesOrderNumber.
+func (s *RevenueRecognitionPosting) SetSalesOrderNumber(val string) {
+	s.SalesOrderNumber = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *RevenueRecognitionPosting) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *RevenueRecognitionPosting) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *RevenueRecognitionPosting) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetRecognizedAmount sets the value of RecognizedAmount.
+func (s *RevenueRecognitionPosting) SetRecognizedAmount(val Money) {
+	s.RecognizedAmount = val
+}
+
+// SetBilledAmount sets the value of BilledAmount.
+func (s *RevenueRecognitionPosting) SetBilledAmount(val Money) {
+	s.BilledAmount = val
+}
+
+// SetContractAssetAmount sets the value of ContractAssetAmount.
+func (s *RevenueRecognitionPosting) SetContractAssetAmount(val Money) {
+	s.ContractAssetAmount = val
+}
+
+// SetContractLiabilityAmount sets the value of ContractLiabilityAmount.
+func (s *RevenueRecognitionPosting) SetContractLiabilityAmount(val Money) {
+	s.ContractLiabilityAmount = val
+}
+
+// SetRevenueAmount sets the value of RevenueAmount.
+func (s *RevenueRecognitionPosting) SetRevenueAmount(val Money) {
+	s.RevenueAmount = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *RevenueRecognitionPosting) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *RevenueRecognitionPosting) SetJournalEntryYear(val int32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *RevenueRecognitionPosting) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetObligations sets the value of Obligations.
+func (s *RevenueRecognitionPosting) SetObligations(val []RevenueRecognitionObligation) {
+	s.Obligations = val
+}
+
+// A revenue recognition run of a company and a fiscal period (ADR-0068 §9). Amounts are in
+// `currency`, the company's local currency, without tax, and cumulative to the period's last day.
+// Ref: #/components/schemas/RevenueRecognitionRun
+type RevenueRecognitionRun struct {
+	// The run.
+	ID uuid.UUID `json:"id"`
+	// The company run.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The fiscal year run.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The fiscal period run.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The period's last day: the day revenue is recognized to and the entries are dated.
+	PostingDate time.Time `json:"posting_date"`
+	// The company's local currency (ISO 4217), which every amount of the run is in.
+	Currency string `json:"currency"`
+	// The active contracts of the company the run read.
+	ContractCount int32 `json:"contract_count"`
+	// The contracts whose figures moved since their last posting: the journal entries the run posted, one
+	// each.
+	PostingCount int32 `json:"posting_count"`
+	// The revenue recognized to the period's last day of all the contracts read.
+	RecognizedAmount Money `json:"recognized_amount"`
+	// The revenue billed to the period's last day of all the contracts read: their posted billing
+	// documents' net amounts.
+	BilledAmount Money `json:"billed_amount"`
+	// The contract assets after the run: the positions of the contracts read whose revenue recognized
+	// exceeds their revenue billed, added up.
+	ContractAssetAmount Money `json:"contract_asset_amount"`
+	// The contract liabilities after the run: the positions of the contracts read whose revenue billed
+	// exceeds their revenue recognized, added up.
+	ContractLiabilityAmount Money `json:"contract_liability_amount"`
+	// What the run's entries moved revenue by, the postings' `revenue_amount` added up: positive when the
+	// run credited revenue on balance, negative when it debited it, zero for a run that posted nothing. It
+	// is also what the run moved the contract assets less the contract liabilities by. Unlike the other
+	// amounts it is the run's own, not cumulative.
+	RevenueAmount Money `json:"revenue_amount"`
+	// When the run was made.
+	CreatedAt time.Time `json:"created_at"`
+	// Who ran it.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// The run's postings, one per contract that moved, by sales order number; at most 2,000. Given by
+	// `getRevenueRecognitionRun` and by the run's creation; absent in `listRevenueRecognitionRuns`.
+	Postings []RevenueRecognitionPosting `json:"postings"`
+}
+
+// GetID returns the value of ID.
+func (s *RevenueRecognitionRun) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *RevenueRecognitionRun) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *RevenueRecognitionRun) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *RevenueRecognitionRun) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *RevenueRecognitionRun) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *RevenueRecognitionRun) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *RevenueRecognitionRun) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *RevenueRecognitionRun) GetCurrency() string {
+	return s.Currency
+}
+
+// GetContractCount returns the value of ContractCount.
+func (s *RevenueRecognitionRun) GetContractCount() int32 {
+	return s.ContractCount
+}
+
+// GetPostingCount returns the value of PostingCount.
+func (s *RevenueRecognitionRun) GetPostingCount() int32 {
+	return s.PostingCount
+}
+
+// GetRecognizedAmount returns the value of RecognizedAmount.
+func (s *RevenueRecognitionRun) GetRecognizedAmount() Money {
+	return s.RecognizedAmount
+}
+
+// GetBilledAmount returns the value of BilledAmount.
+func (s *RevenueRecognitionRun) GetBilledAmount() Money {
+	return s.BilledAmount
+}
+
+// GetContractAssetAmount returns the value of ContractAssetAmount.
+func (s *RevenueRecognitionRun) GetContractAssetAmount() Money {
+	return s.ContractAssetAmount
+}
+
+// GetContractLiabilityAmount returns the value of ContractLiabilityAmount.
+func (s *RevenueRecognitionRun) GetContractLiabilityAmount() Money {
+	return s.ContractLiabilityAmount
+}
+
+// GetRevenueAmount returns the value of RevenueAmount.
+func (s *RevenueRecognitionRun) GetRevenueAmount() Money {
+	return s.RevenueAmount
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *RevenueRecognitionRun) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *RevenueRecognitionRun) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetPostings returns the value of Postings.
+func (s *RevenueRecognitionRun) GetPostings() []RevenueRecognitionPosting {
+	return s.Postings
+}
+
+// SetID sets the value of ID.
+func (s *RevenueRecognitionRun) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *RevenueRecognitionRun) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *RevenueRecognitionRun) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *RevenueRecognitionRun) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *RevenueRecognitionRun) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *RevenueRecognitionRun) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *RevenueRecognitionRun) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *RevenueRecognitionRun) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetContractCount sets the value of ContractCount.
+func (s *RevenueRecognitionRun) SetContractCount(val int32) {
+	s.ContractCount = val
+}
+
+// SetPostingCount sets the value of PostingCount.
+func (s *RevenueRecognitionRun) SetPostingCount(val int32) {
+	s.PostingCount = val
+}
+
+// SetRecognizedAmount sets the value of RecognizedAmount.
+func (s *RevenueRecognitionRun) SetRecognizedAmount(val Money) {
+	s.RecognizedAmount = val
+}
+
+// SetBilledAmount sets the value of BilledAmount.
+func (s *RevenueRecognitionRun) SetBilledAmount(val Money) {
+	s.BilledAmount = val
+}
+
+// SetContractAssetAmount sets the value of ContractAssetAmount.
+func (s *RevenueRecognitionRun) SetContractAssetAmount(val Money) {
+	s.ContractAssetAmount = val
+}
+
+// SetContractLiabilityAmount sets the value of ContractLiabilityAmount.
+func (s *RevenueRecognitionRun) SetContractLiabilityAmount(val Money) {
+	s.ContractLiabilityAmount = val
+}
+
+// SetRevenueAmount sets the value of RevenueAmount.
+func (s *RevenueRecognitionRun) SetRevenueAmount(val Money) {
+	s.RevenueAmount = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *RevenueRecognitionRun) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *RevenueRecognitionRun) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetPostings sets the value of Postings.
+func (s *RevenueRecognitionRun) SetPostings(val []RevenueRecognitionPosting) {
+	s.Postings = val
+}
+
+func (*RevenueRecognitionRun) getRevenueRecognitionRunRes() {}
+
+// Run revenue recognition for a company and one of its regular fiscal periods.
+// Ref: #/components/schemas/RevenueRecognitionRunCreate
+type RevenueRecognitionRunCreate struct {
+	// The company to run: one the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year of the company's calendar.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The regular posting period of the fiscal year to run: revenue is brought to what is recognized to
+	// its last day, and the entries are dated that day.
+	FiscalPeriod int32 `json:"fiscal_period"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *RevenueRecognitionRunCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *RevenueRecognitionRunCreate) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *RevenueRecognitionRunCreate) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *RevenueRecognitionRunCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *RevenueRecognitionRunCreate) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *RevenueRecognitionRunCreate) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// RevenueRecognitionRunHeaders wraps RevenueRecognitionRun with response headers.
+type RevenueRecognitionRunHeaders struct {
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           RevenueRecognitionRun
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *RevenueRecognitionRunHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *RevenueRecognitionRunHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *RevenueRecognitionRunHeaders) GetResponse() RevenueRecognitionRun {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *RevenueRecognitionRunHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *RevenueRecognitionRunHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RevenueRecognitionRunHeaders) SetResponse(val RevenueRecognitionRun) {
+	s.Response = val
+}
+
+func (*RevenueRecognitionRunHeaders) createRevenueRecognitionRunRes() {}
+
+// One page of revenue recognition runs.
+// Ref: #/components/schemas/RevenueRecognitionRunPage
+type RevenueRecognitionRunPage struct {
+	// The runs on this page, without their postings.
+	Items []RevenueRecognitionRun `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *RevenueRecognitionRunPage) GetItems() []RevenueRecognitionRun {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *RevenueRecognitionRunPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *RevenueRecognitionRunPage) SetItems(val []RevenueRecognitionRun) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *RevenueRecognitionRunPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*RevenueRecognitionRunPage) listRevenueRecognitionRunsRes() {}
+
+// The recognition schedule of an active revenue contract (ADR-0068 §8), computed at the read. Amounts
+// are in the contract's currency, the company's local currency, without tax. `recognized_amount`,
+// `planned_amount` and `unscheduled_amount` add up to `transaction_price`.
+// Ref: #/components/schemas/RevenueSchedule
+type RevenueSchedule struct {
+	// The revenue contract (`GET /v1/revenue-contracts/{id}`).
+	RevenueContractID uuid.UUID `json:"revenue_contract_id"`
+	// The sales order the contract stands for (`GET /v1/sales-orders/{id}`), whose delivery confirmations
+	// the schedule reads.
+	SalesOrderID uuid.UUID `json:"sales_order_id"`
+	// The sales order's document number.
+	SalesOrderNumber string `json:"sales_order_number"`
+	// The company whose contract it is; the fiscal periods are its calendar's.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The contract's currency (ISO 4217).
+	Currency string `json:"currency"`
+	// The company's date today in its time zone: what the schedule gives days up to and including it is
+	// `recognized_amount`, what it gives later days `planned_amount`.
+	AsOf time.Time `json:"as_of"`
+	// The contract's transaction price, the sum of the obligations' allocated amounts.
+	TransactionPrice Money `json:"transaction_price"`
+	// The obligations' `recognized_amount` added up.
+	RecognizedAmount Money `json:"recognized_amount"`
+	// The obligations' `planned_amount` added up.
+	PlannedAmount Money `json:"planned_amount"`
+	// The obligations' `unscheduled_amount` added up: what waits for a delivery confirmation.
+	UnscheduledAmount Money `json:"unscheduled_amount"`
+	// The contract's performance obligations, by number, each with its fiscal periods.
+	Obligations []RevenueScheduleObligation `json:"obligations"`
+	// The contract's totals per fiscal period, earliest first: the obligations' amounts of the period
+	// added up. Their amounts add up to `transaction_price` less `unscheduled_amount`.
+	Periods []RevenueSchedulePeriod `json:"periods"`
+}
+
+// GetRevenueContractID returns the value of RevenueContractID.
+func (s *RevenueSchedule) GetRevenueContractID() uuid.UUID {
+	return s.RevenueContractID
+}
+
+// GetSalesOrderID returns the value of SalesOrderID.
+func (s *RevenueSchedule) GetSalesOrderID() uuid.UUID {
+	return s.SalesOrderID
+}
+
+// GetSalesOrderNumber returns the value of SalesOrderNumber.
+func (s *RevenueSchedule) GetSalesOrderNumber() string {
+	return s.SalesOrderNumber
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *RevenueSchedule) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *RevenueSchedule) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *RevenueSchedule) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *RevenueSchedule) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *RevenueSchedule) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *RevenueSchedule) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetCurrency returns the value of Currency.
+func (s *RevenueSchedule) GetCurrency() string {
+	return s.Currency
+}
+
+// GetAsOf returns the value of AsOf.
+func (s *RevenueSchedule) GetAsOf() time.Time {
+	return s.AsOf
+}
+
+// GetTransactionPrice returns the value of TransactionPrice.
+func (s *RevenueSchedule) GetTransactionPrice() Money {
+	return s.TransactionPrice
+}
+
+// GetRecognizedAmount returns the value of RecognizedAmount.
+func (s *RevenueSchedule) GetRecognizedAmount() Money {
+	return s.RecognizedAmount
+}
+
+// GetPlannedAmount returns the value of PlannedAmount.
+func (s *RevenueSchedule) GetPlannedAmount() Money {
+	return s.PlannedAmount
+}
+
+// GetUnscheduledAmount returns the value of UnscheduledAmount.
+func (s *RevenueSchedule) GetUnscheduledAmount() Money {
+	return s.UnscheduledAmount
+}
+
+// GetObligations returns the value of Obligations.
+func (s *RevenueSchedule) GetObligations() []RevenueScheduleObligation {
+	return s.Obligations
+}
+
+// GetPeriods returns the value of Periods.
+func (s *RevenueSchedule) GetPeriods() []RevenueSchedulePeriod {
+	return s.Periods
+}
+
+// SetRevenueContractID sets the value of RevenueContractID.
+func (s *RevenueSchedule) SetRevenueContractID(val uuid.UUID) {
+	s.RevenueContractID = val
+}
+
+// SetSalesOrderID sets the value of SalesOrderID.
+func (s *RevenueSchedule) SetSalesOrderID(val uuid.UUID) {
+	s.SalesOrderID = val
+}
+
+// SetSalesOrderNumber sets the value of SalesOrderNumber.
+func (s *RevenueSchedule) SetSalesOrderNumber(val string) {
+	s.SalesOrderNumber = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *RevenueSchedule) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *RevenueSchedule) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *RevenueSchedule) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *RevenueSchedule) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *RevenueSchedule) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *RevenueSchedule) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *RevenueSchedule) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetAsOf sets the value of AsOf.
+func (s *RevenueSchedule) SetAsOf(val time.Time) {
+	s.AsOf = val
+}
+
+// SetTransactionPrice sets the value of TransactionPrice.
+func (s *RevenueSchedule) SetTransactionPrice(val Money) {
+	s.TransactionPrice = val
+}
+
+// SetRecognizedAmount sets the value of RecognizedAmount.
+func (s *RevenueSchedule) SetRecognizedAmount(val Money) {
+	s.RecognizedAmount = val
+}
+
+// SetPlannedAmount sets the value of PlannedAmount.
+func (s *RevenueSchedule) SetPlannedAmount(val Money) {
+	s.PlannedAmount = val
+}
+
+// SetUnscheduledAmount sets the value of UnscheduledAmount.
+func (s *RevenueSchedule) SetUnscheduledAmount(val Money) {
+	s.UnscheduledAmount = val
+}
+
+// SetObligations sets the value of Obligations.
+func (s *RevenueSchedule) SetObligations(val []RevenueScheduleObligation) {
+	s.Obligations = val
+}
+
+// SetPeriods sets the value of Periods.
+func (s *RevenueSchedule) SetPeriods(val []RevenueSchedulePeriod) {
+	s.Periods = val
+}
+
+func (*RevenueSchedule) getRevenueScheduleRes() {}
+
+// One performance obligation in a recognition schedule. `recognized_amount`, `planned_amount` and
+// `unscheduled_amount` add up to `allocated_amount`.
+// Ref: #/components/schemas/RevenueScheduleObligation
+type RevenueScheduleObligation struct {
+	// The obligation's number within the contract.
+	ObligationNo int32 `json:"obligation_no"`
+	// The sales order's item the obligation is for.
+	OrderItemNo int32 `json:"order_item_no"`
+	// The order item's item key; absent when it has none.
+	ItemKey OptString `json:"item_key"`
+	// The order item's description: what was promised.
+	Description string `json:"description"`
+	// When the obligation is satisfied, as the contract fixed it: `point_in_time` (scheduled by the
+	// delivery confirmations, or on `satisfied_on`) or `over_time` (a straight line by days over the
+	// service period). Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Timing string `json:"timing"`
+	// The first day of an `over_time` obligation's service period; absent otherwise.
+	ServiceFrom OptDate `json:"service_from"`
+	// The last day of an `over_time` obligation's service period; absent otherwise.
+	ServiceTo OptDate `json:"service_to"`
+	// The day the contract says a `point_in_time` obligation is satisfied; absent when its delivery
+	// confirmations say it.
+	SatisfiedOn OptDate `json:"satisfied_on"`
+	// The obligation's share of the transaction price: what the schedule spreads.
+	AllocatedAmount Money `json:"allocated_amount"`
+	// What the schedule gives days up to and including `as_of`.
+	RecognizedAmount Money `json:"recognized_amount"`
+	// What the schedule gives days after `as_of`.
+	PlannedAmount Money `json:"planned_amount"`
+	// What is in no period yet: a `point_in_time` obligation's share for the quantity not confirmed as
+	// delivered. Zero for an `over_time` obligation and one with `satisfied_on`.
+	UnscheduledAmount Money `json:"unscheduled_amount"`
+	// The fiscal periods the obligation's amount falls in, earliest first; none for an obligation nothing
+	// of which is delivered. Their amounts add up to `allocated_amount` less `unscheduled_amount`.
+	Periods []RevenueSchedulePeriod `json:"periods"`
+}
+
+// GetObligationNo returns the value of ObligationNo.
+func (s *RevenueScheduleObligation) GetObligationNo() int32 {
+	return s.ObligationNo
+}
+
+// GetOrderItemNo returns the value of OrderItemNo.
+func (s *RevenueScheduleObligation) GetOrderItemNo() int32 {
+	return s.OrderItemNo
+}
+
+// GetItemKey returns the value of ItemKey.
+func (s *RevenueScheduleObligation) GetItemKey() OptString {
+	return s.ItemKey
+}
+
+// GetDescription returns the value of Description.
+func (s *RevenueScheduleObligation) GetDescription() string {
+	return s.Description
+}
+
+// GetTiming returns the value of Timing.
+func (s *RevenueScheduleObligation) GetTiming() string {
+	return s.Timing
+}
+
+// GetServiceFrom returns the value of ServiceFrom.
+func (s *RevenueScheduleObligation) GetServiceFrom() OptDate {
+	return s.ServiceFrom
+}
+
+// GetServiceTo returns the value of ServiceTo.
+func (s *RevenueScheduleObligation) GetServiceTo() OptDate {
+	return s.ServiceTo
+}
+
+// GetSatisfiedOn returns the value of SatisfiedOn.
+func (s *RevenueScheduleObligation) GetSatisfiedOn() OptDate {
+	return s.SatisfiedOn
+}
+
+// GetAllocatedAmount returns the value of AllocatedAmount.
+func (s *RevenueScheduleObligation) GetAllocatedAmount() Money {
+	return s.AllocatedAmount
+}
+
+// GetRecognizedAmount returns the value of RecognizedAmount.
+func (s *RevenueScheduleObligation) GetRecognizedAmount() Money {
+	return s.RecognizedAmount
+}
+
+// GetPlannedAmount returns the value of PlannedAmount.
+func (s *RevenueScheduleObligation) GetPlannedAmount() Money {
+	return s.PlannedAmount
+}
+
+// GetUnscheduledAmount returns the value of UnscheduledAmount.
+func (s *RevenueScheduleObligation) GetUnscheduledAmount() Money {
+	return s.UnscheduledAmount
+}
+
+// GetPeriods returns the value of Periods.
+func (s *RevenueScheduleObligation) GetPeriods() []RevenueSchedulePeriod {
+	return s.Periods
+}
+
+// SetObligationNo sets the value of ObligationNo.
+func (s *RevenueScheduleObligation) SetObligationNo(val int32) {
+	s.ObligationNo = val
+}
+
+// SetOrderItemNo sets the value of OrderItemNo.
+func (s *RevenueScheduleObligation) SetOrderItemNo(val int32) {
+	s.OrderItemNo = val
+}
+
+// SetItemKey sets the value of ItemKey.
+func (s *RevenueScheduleObligation) SetItemKey(val OptString) {
+	s.ItemKey = val
+}
+
+// SetDescription sets the value of Description.
+func (s *RevenueScheduleObligation) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetTiming sets the value of Timing.
+func (s *RevenueScheduleObligation) SetTiming(val string) {
+	s.Timing = val
+}
+
+// SetServiceFrom sets the value of ServiceFrom.
+func (s *RevenueScheduleObligation) SetServiceFrom(val OptDate) {
+	s.ServiceFrom = val
+}
+
+// SetServiceTo sets the value of ServiceTo.
+func (s *RevenueScheduleObligation) SetServiceTo(val OptDate) {
+	s.ServiceTo = val
+}
+
+// SetSatisfiedOn sets the value of SatisfiedOn.
+func (s *RevenueScheduleObligation) SetSatisfiedOn(val OptDate) {
+	s.SatisfiedOn = val
+}
+
+// SetAllocatedAmount sets the value of AllocatedAmount.
+func (s *RevenueScheduleObligation) SetAllocatedAmount(val Money) {
+	s.AllocatedAmount = val
+}
+
+// SetRecognizedAmount sets the value of RecognizedAmount.
+func (s *RevenueScheduleObligation) SetRecognizedAmount(val Money) {
+	s.RecognizedAmount = val
+}
+
+// SetPlannedAmount sets the value of PlannedAmount.
+func (s *RevenueScheduleObligation) SetPlannedAmount(val Money) {
+	s.PlannedAmount = val
+}
+
+// SetUnscheduledAmount sets the value of UnscheduledAmount.
+func (s *RevenueScheduleObligation) SetUnscheduledAmount(val Money) {
+	s.UnscheduledAmount = val
+}
+
+// SetPeriods sets the value of Periods.
+func (s *RevenueScheduleObligation) SetPeriods(val []RevenueSchedulePeriod) {
+	s.Periods = val
+}
+
+// What a recognition schedule gives one fiscal period of the company. `recognized_amount` and
+// `planned_amount` add up to `amount`.
+// Ref: #/components/schemas/RevenueSchedulePeriod
+type RevenueSchedulePeriod struct {
+	// The fiscal year of the company's calendar.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The regular posting period within the fiscal year.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The fiscal period's first day.
+	PeriodStart time.Time `json:"period_start"`
+	// The fiscal period's last day.
+	PeriodEnd time.Time `json:"period_end"`
+	// The revenue the schedule gives the period.
+	Amount Money `json:"amount"`
+	// The part of `amount` on days up to and including `as_of`.
+	RecognizedAmount Money `json:"recognized_amount"`
+	// The part of `amount` on days after `as_of`.
+	PlannedAmount Money `json:"planned_amount"`
+	// On an `over_time` obligation's period: the days of the service period that lie in the fiscal period,
+	// which give its share. Absent otherwise.
+	Days OptInt32 `json:"days"`
+	// On a period of a `point_in_time` obligation scheduled by its deliveries: the quantity confirmed as
+	// delivered in the period, in the order item's unit. Absent otherwise.
+	DeliveredQuantity OptQuantity `json:"delivered_quantity"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *RevenueSchedulePeriod) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *RevenueSchedulePeriod) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetPeriodStart returns the value of PeriodStart.
+func (s *RevenueSchedulePeriod) GetPeriodStart() time.Time {
+	return s.PeriodStart
+}
+
+// GetPeriodEnd returns the value of PeriodEnd.
+func (s *RevenueSchedulePeriod) GetPeriodEnd() time.Time {
+	return s.PeriodEnd
+}
+
+// GetAmount returns the value of Amount.
+func (s *RevenueSchedulePeriod) GetAmount() Money {
+	return s.Amount
+}
+
+// GetRecognizedAmount returns the value of RecognizedAmount.
+func (s *RevenueSchedulePeriod) GetRecognizedAmount() Money {
+	return s.RecognizedAmount
+}
+
+// GetPlannedAmount returns the value of PlannedAmount.
+func (s *RevenueSchedulePeriod) GetPlannedAmount() Money {
+	return s.PlannedAmount
+}
+
+// GetDays returns the value of Days.
+func (s *RevenueSchedulePeriod) GetDays() OptInt32 {
+	return s.Days
+}
+
+// GetDeliveredQuantity returns the value of DeliveredQuantity.
+func (s *RevenueSchedulePeriod) GetDeliveredQuantity() OptQuantity {
+	return s.DeliveredQuantity
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *RevenueSchedulePeriod) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *RevenueSchedulePeriod) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetPeriodStart sets the value of PeriodStart.
+func (s *RevenueSchedulePeriod) SetPeriodStart(val time.Time) {
+	s.PeriodStart = val
+}
+
+// SetPeriodEnd sets the value of PeriodEnd.
+func (s *RevenueSchedulePeriod) SetPeriodEnd(val time.Time) {
+	s.PeriodEnd = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *RevenueSchedulePeriod) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetRecognizedAmount sets the value of RecognizedAmount.
+func (s *RevenueSchedulePeriod) SetRecognizedAmount(val Money) {
+	s.RecognizedAmount = val
+}
+
+// SetPlannedAmount sets the value of PlannedAmount.
+func (s *RevenueSchedulePeriod) SetPlannedAmount(val Money) {
+	s.PlannedAmount = val
+}
+
+// SetDays sets the value of Days.
+func (s *RevenueSchedulePeriod) SetDays(val OptInt32) {
+	s.Days = val
+}
+
+// SetDeliveredQuantity sets the value of DeliveredQuantity.
+func (s *RevenueSchedulePeriod) SetDeliveredQuantity(val OptQuantity) {
+	s.DeliveredQuantity = val
 }
 
 type ReverseAssetAcquisitionBadRequest Problem
@@ -81739,6 +84624,7 @@ func (*ServiceUnavailableHeaders) closeInternalOrderRes()                    {}
 func (*ServiceUnavailableHeaders) closePurchaseOrderRes()                    {}
 func (*ServiceUnavailableHeaders) completeCloseTaskRes()                     {}
 func (*ServiceUnavailableHeaders) completeYearCloseTaskRes()                 {}
+func (*ServiceUnavailableHeaders) copyPlanCategoryRes()                      {}
 func (*ServiceUnavailableHeaders) createAllocationCycleRes()                 {}
 func (*ServiceUnavailableHeaders) createAssetAcquisitionRes()                {}
 func (*ServiceUnavailableHeaders) createAssetRes()                           {}
@@ -81789,6 +84675,7 @@ func (*ServiceUnavailableHeaders) createYearCloseRes()                       {}
 func (*ServiceUnavailableHeaders) decideRecommendationRes()                  {}
 func (*ServiceUnavailableHeaders) deleteWebhookSubscriptionRes()             {}
 func (*ServiceUnavailableHeaders) disableConnectorRes()                      {}
+func (*ServiceUnavailableHeaders) drillAnalyticsQueryRes()                   {}
 func (*ServiceUnavailableHeaders) enableConnectorRes()                       {}
 func (*ServiceUnavailableHeaders) endAgentSessionRes()                       {}
 func (*ServiceUnavailableHeaders) endCompanyAccessRes()                      {}
@@ -86860,6 +89747,7 @@ func (*TooManyRequestsHeaders) confirmReturnReceiptRes()                  {}
 func (*TooManyRequestsHeaders) confirmReturnsOrderRes()                   {}
 func (*TooManyRequestsHeaders) confirmSalesDeliveryRes()                  {}
 func (*TooManyRequestsHeaders) confirmSalesOrderRes()                     {}
+func (*TooManyRequestsHeaders) copyPlanCategoryRes()                      {}
 func (*TooManyRequestsHeaders) createAllocationCycleRes()                 {}
 func (*TooManyRequestsHeaders) createAssetAcquisitionRes()                {}
 func (*TooManyRequestsHeaders) createAssetRes()                           {}
@@ -86880,6 +89768,7 @@ func (*TooManyRequestsHeaders) createControlRes()                         {}
 func (*TooManyRequestsHeaders) createControlTestRes()                     {}
 func (*TooManyRequestsHeaders) createCostCenterRes()                      {}
 func (*TooManyRequestsHeaders) createCreditLimitRes()                     {}
+func (*TooManyRequestsHeaders) createCreditMemoRequestRes()               {}
 func (*TooManyRequestsHeaders) createCustomerInvoiceRes()                 {}
 func (*TooManyRequestsHeaders) createDownPaymentRequestRes()              {}
 func (*TooManyRequestsHeaders) createDunningRunRes()                      {}
@@ -86907,6 +89796,7 @@ func (*TooManyRequestsHeaders) createRegressionSuiteRes()                 {}
 func (*TooManyRequestsHeaders) createRequisitionRes()                     {}
 func (*TooManyRequestsHeaders) createReturnsOrderRes()                    {}
 func (*TooManyRequestsHeaders) createRevenueContractRes()                 {}
+func (*TooManyRequestsHeaders) createRevenueRecognitionRunRes()           {}
 func (*TooManyRequestsHeaders) createRfqRes()                             {}
 func (*TooManyRequestsHeaders) createRoleAssignmentRes()                  {}
 func (*TooManyRequestsHeaders) createRoleRes()                            {}
@@ -86922,10 +89812,12 @@ func (*TooManyRequestsHeaders) createVarianceCommentRes()                 {}
 func (*TooManyRequestsHeaders) createWebhookSubscriptionRes()             {}
 func (*TooManyRequestsHeaders) createYearCloseRes()                       {}
 func (*TooManyRequestsHeaders) decideRecommendationRes()                  {}
+func (*TooManyRequestsHeaders) declineCreditMemoRequestRes()              {}
 func (*TooManyRequestsHeaders) declineQuotationRes()                      {}
 func (*TooManyRequestsHeaders) deleteWebhookSubscriptionRes()             {}
 func (*TooManyRequestsHeaders) disableConnectorRes()                      {}
 func (*TooManyRequestsHeaders) discardConsolidationRunRes()               {}
+func (*TooManyRequestsHeaders) drillAnalyticsQueryRes()                   {}
 func (*TooManyRequestsHeaders) enableConnectorRes()                       {}
 func (*TooManyRequestsHeaders) endAgentSessionRes()                       {}
 func (*TooManyRequestsHeaders) endCompanyAccessRes()                      {}
@@ -86985,6 +89877,7 @@ func (*TooManyRequestsHeaders) getControlRes()                            {}
 func (*TooManyRequestsHeaders) getCostCenterRes()                         {}
 func (*TooManyRequestsHeaders) getCreditExposureRes()                     {}
 func (*TooManyRequestsHeaders) getCreditLimitRes()                        {}
+func (*TooManyRequestsHeaders) getCreditMemoRequestRes()                  {}
 func (*TooManyRequestsHeaders) getCurrentPrincipalRes()                   {}
 func (*TooManyRequestsHeaders) getCustomerInvoiceRes()                    {}
 func (*TooManyRequestsHeaders) getDepreciationRunRes()                    {}
@@ -87010,6 +89903,7 @@ func (*TooManyRequestsHeaders) getLegalEntityRes()                        {}
 func (*TooManyRequestsHeaders) getLegalEntityTodayRes()                   {}
 func (*TooManyRequestsHeaders) getLiquidityForecastRes()                  {}
 func (*TooManyRequestsHeaders) getLiquidityForecastVarianceRes()          {}
+func (*TooManyRequestsHeaders) getMarginReportRes()                       {}
 func (*TooManyRequestsHeaders) getMatchResultRes()                        {}
 func (*TooManyRequestsHeaders) getMemoRecordRes()                         {}
 func (*TooManyRequestsHeaders) getMigrationRunRes()                       {}
@@ -87034,6 +89928,8 @@ func (*TooManyRequestsHeaders) getRequisitionRes()                        {}
 func (*TooManyRequestsHeaders) getReturnsOrderRes()                       {}
 func (*TooManyRequestsHeaders) getRevaluationRunRes()                     {}
 func (*TooManyRequestsHeaders) getRevenueContractRes()                    {}
+func (*TooManyRequestsHeaders) getRevenueRecognitionRunRes()              {}
+func (*TooManyRequestsHeaders) getRevenueScheduleRes()                    {}
 func (*TooManyRequestsHeaders) getRfqComparisonRes()                      {}
 func (*TooManyRequestsHeaders) getRfqRes()                                {}
 func (*TooManyRequestsHeaders) getRoleAssignmentRes()                     {}
@@ -87106,6 +90002,7 @@ func (*TooManyRequestsHeaders) listCostCenterPlanActualRes()              {}
 func (*TooManyRequestsHeaders) listCostCentersRes()                       {}
 func (*TooManyRequestsHeaders) listCountryPacksRes()                      {}
 func (*TooManyRequestsHeaders) listCreditLimitsRes()                      {}
+func (*TooManyRequestsHeaders) listCreditMemoRequestsRes()                {}
 func (*TooManyRequestsHeaders) listCustomerInvoicesRes()                  {}
 func (*TooManyRequestsHeaders) listDepreciationRunsRes()                  {}
 func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()               {}
@@ -87167,6 +90064,7 @@ func (*TooManyRequestsHeaders) listReturnReceiptsRes()                    {}
 func (*TooManyRequestsHeaders) listReturnsOrdersRes()                     {}
 func (*TooManyRequestsHeaders) listRevaluationRunsRes()                   {}
 func (*TooManyRequestsHeaders) listRevenueContractsRes()                  {}
+func (*TooManyRequestsHeaders) listRevenueRecognitionRunsRes()            {}
 func (*TooManyRequestsHeaders) listRfqsRes()                              {}
 func (*TooManyRequestsHeaders) listRoleAssignmentsRes()                   {}
 func (*TooManyRequestsHeaders) listRolePermissionsRes()                   {}
@@ -87206,6 +90104,7 @@ func (*TooManyRequestsHeaders) pingWebhookSubscriptionRes()               {}
 func (*TooManyRequestsHeaders) placeInHierarchyRes()                      {}
 func (*TooManyRequestsHeaders) postBankStatementLineRes()                 {}
 func (*TooManyRequestsHeaders) postBillingDocumentRes()                   {}
+func (*TooManyRequestsHeaders) postCreditMemoRequestRes()                 {}
 func (*TooManyRequestsHeaders) postCustomerInvoiceRes()                   {}
 func (*TooManyRequestsHeaders) postGoodsReceiptRes()                      {}
 func (*TooManyRequestsHeaders) postJournalEntryRes()                      {}
@@ -87236,6 +90135,7 @@ func (*TooManyRequestsHeaders) rejectMemoRecordProposalRes()              {}
 func (*TooManyRequestsHeaders) rejectPaymentRunRes()                      {}
 func (*TooManyRequestsHeaders) rejectVarianceCommentRes()                 {}
 func (*TooManyRequestsHeaders) releaseContractRes()                       {}
+func (*TooManyRequestsHeaders) releaseCreditMemoRequestRes()              {}
 func (*TooManyRequestsHeaders) releaseInternalOrderRes()                  {}
 func (*TooManyRequestsHeaders) releasePaymentRunRes()                     {}
 func (*TooManyRequestsHeaders) releasePurchaseOrderRes()                  {}
@@ -87667,6 +90567,7 @@ func (*UnauthorizedHeaders) confirmReturnReceiptRes()                  {}
 func (*UnauthorizedHeaders) confirmReturnsOrderRes()                   {}
 func (*UnauthorizedHeaders) confirmSalesDeliveryRes()                  {}
 func (*UnauthorizedHeaders) confirmSalesOrderRes()                     {}
+func (*UnauthorizedHeaders) copyPlanCategoryRes()                      {}
 func (*UnauthorizedHeaders) createAllocationCycleRes()                 {}
 func (*UnauthorizedHeaders) createAssetAcquisitionRes()                {}
 func (*UnauthorizedHeaders) createAssetRes()                           {}
@@ -87687,6 +90588,7 @@ func (*UnauthorizedHeaders) createControlRes()                         {}
 func (*UnauthorizedHeaders) createControlTestRes()                     {}
 func (*UnauthorizedHeaders) createCostCenterRes()                      {}
 func (*UnauthorizedHeaders) createCreditLimitRes()                     {}
+func (*UnauthorizedHeaders) createCreditMemoRequestRes()               {}
 func (*UnauthorizedHeaders) createCustomerInvoiceRes()                 {}
 func (*UnauthorizedHeaders) createDownPaymentRequestRes()              {}
 func (*UnauthorizedHeaders) createDunningRunRes()                      {}
@@ -87714,6 +90616,7 @@ func (*UnauthorizedHeaders) createRegressionSuiteRes()                 {}
 func (*UnauthorizedHeaders) createRequisitionRes()                     {}
 func (*UnauthorizedHeaders) createReturnsOrderRes()                    {}
 func (*UnauthorizedHeaders) createRevenueContractRes()                 {}
+func (*UnauthorizedHeaders) createRevenueRecognitionRunRes()           {}
 func (*UnauthorizedHeaders) createRfqRes()                             {}
 func (*UnauthorizedHeaders) createRoleAssignmentRes()                  {}
 func (*UnauthorizedHeaders) createRoleRes()                            {}
@@ -87729,10 +90632,12 @@ func (*UnauthorizedHeaders) createVarianceCommentRes()                 {}
 func (*UnauthorizedHeaders) createWebhookSubscriptionRes()             {}
 func (*UnauthorizedHeaders) createYearCloseRes()                       {}
 func (*UnauthorizedHeaders) decideRecommendationRes()                  {}
+func (*UnauthorizedHeaders) declineCreditMemoRequestRes()              {}
 func (*UnauthorizedHeaders) declineQuotationRes()                      {}
 func (*UnauthorizedHeaders) deleteWebhookSubscriptionRes()             {}
 func (*UnauthorizedHeaders) disableConnectorRes()                      {}
 func (*UnauthorizedHeaders) discardConsolidationRunRes()               {}
+func (*UnauthorizedHeaders) drillAnalyticsQueryRes()                   {}
 func (*UnauthorizedHeaders) enableConnectorRes()                       {}
 func (*UnauthorizedHeaders) endAgentSessionRes()                       {}
 func (*UnauthorizedHeaders) endCompanyAccessRes()                      {}
@@ -87792,6 +90697,7 @@ func (*UnauthorizedHeaders) getControlRes()                            {}
 func (*UnauthorizedHeaders) getCostCenterRes()                         {}
 func (*UnauthorizedHeaders) getCreditExposureRes()                     {}
 func (*UnauthorizedHeaders) getCreditLimitRes()                        {}
+func (*UnauthorizedHeaders) getCreditMemoRequestRes()                  {}
 func (*UnauthorizedHeaders) getCurrentPrincipalRes()                   {}
 func (*UnauthorizedHeaders) getCustomerInvoiceRes()                    {}
 func (*UnauthorizedHeaders) getDepreciationRunRes()                    {}
@@ -87817,6 +90723,7 @@ func (*UnauthorizedHeaders) getLegalEntityRes()                        {}
 func (*UnauthorizedHeaders) getLegalEntityTodayRes()                   {}
 func (*UnauthorizedHeaders) getLiquidityForecastRes()                  {}
 func (*UnauthorizedHeaders) getLiquidityForecastVarianceRes()          {}
+func (*UnauthorizedHeaders) getMarginReportRes()                       {}
 func (*UnauthorizedHeaders) getMatchResultRes()                        {}
 func (*UnauthorizedHeaders) getMemoRecordRes()                         {}
 func (*UnauthorizedHeaders) getMigrationRunRes()                       {}
@@ -87841,6 +90748,8 @@ func (*UnauthorizedHeaders) getRequisitionRes()                        {}
 func (*UnauthorizedHeaders) getReturnsOrderRes()                       {}
 func (*UnauthorizedHeaders) getRevaluationRunRes()                     {}
 func (*UnauthorizedHeaders) getRevenueContractRes()                    {}
+func (*UnauthorizedHeaders) getRevenueRecognitionRunRes()              {}
+func (*UnauthorizedHeaders) getRevenueScheduleRes()                    {}
 func (*UnauthorizedHeaders) getRfqComparisonRes()                      {}
 func (*UnauthorizedHeaders) getRfqRes()                                {}
 func (*UnauthorizedHeaders) getRoleAssignmentRes()                     {}
@@ -87913,6 +90822,7 @@ func (*UnauthorizedHeaders) listCostCenterPlanActualRes()              {}
 func (*UnauthorizedHeaders) listCostCentersRes()                       {}
 func (*UnauthorizedHeaders) listCountryPacksRes()                      {}
 func (*UnauthorizedHeaders) listCreditLimitsRes()                      {}
+func (*UnauthorizedHeaders) listCreditMemoRequestsRes()                {}
 func (*UnauthorizedHeaders) listCustomerInvoicesRes()                  {}
 func (*UnauthorizedHeaders) listDepreciationRunsRes()                  {}
 func (*UnauthorizedHeaders) listDownPaymentRequestsRes()               {}
@@ -87974,6 +90884,7 @@ func (*UnauthorizedHeaders) listReturnReceiptsRes()                    {}
 func (*UnauthorizedHeaders) listReturnsOrdersRes()                     {}
 func (*UnauthorizedHeaders) listRevaluationRunsRes()                   {}
 func (*UnauthorizedHeaders) listRevenueContractsRes()                  {}
+func (*UnauthorizedHeaders) listRevenueRecognitionRunsRes()            {}
 func (*UnauthorizedHeaders) listRfqsRes()                              {}
 func (*UnauthorizedHeaders) listRoleAssignmentsRes()                   {}
 func (*UnauthorizedHeaders) listRolePermissionsRes()                   {}
@@ -88013,6 +90924,7 @@ func (*UnauthorizedHeaders) pingWebhookSubscriptionRes()               {}
 func (*UnauthorizedHeaders) placeInHierarchyRes()                      {}
 func (*UnauthorizedHeaders) postBankStatementLineRes()                 {}
 func (*UnauthorizedHeaders) postBillingDocumentRes()                   {}
+func (*UnauthorizedHeaders) postCreditMemoRequestRes()                 {}
 func (*UnauthorizedHeaders) postCustomerInvoiceRes()                   {}
 func (*UnauthorizedHeaders) postGoodsReceiptRes()                      {}
 func (*UnauthorizedHeaders) postJournalEntryRes()                      {}
@@ -88043,6 +90955,7 @@ func (*UnauthorizedHeaders) rejectMemoRecordProposalRes()              {}
 func (*UnauthorizedHeaders) rejectPaymentRunRes()                      {}
 func (*UnauthorizedHeaders) rejectVarianceCommentRes()                 {}
 func (*UnauthorizedHeaders) releaseContractRes()                       {}
+func (*UnauthorizedHeaders) releaseCreditMemoRequestRes()              {}
 func (*UnauthorizedHeaders) releaseInternalOrderRes()                  {}
 func (*UnauthorizedHeaders) releasePaymentRunRes()                     {}
 func (*UnauthorizedHeaders) releasePurchaseOrderRes()                  {}

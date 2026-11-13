@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 
@@ -19,7 +20,9 @@ import (
 // the calculator's result over the items that carry a code (coded, in
 // item order: res.Lines[j] is item coded[j]'s) and the codes as the ledger
 // read them on the date, whose components name the accounts their tax
-// posts to.
+// posts to. For a credit memo entered with its tax (given) the components'
+// tax in res.Lines is the item's given tax shared out (shareGiven), which
+// the tax lines add up.
 type calculated struct {
 	coded []int
 	res   tax.Result
@@ -150,6 +153,45 @@ func jurisdiction(i int, it Item, code ledger.TaxCode) error {
 	case ledger.JurisdictionNotAccepted:
 		return problem.Invalid("receivables.tax_jurisdiction_not_levied", field, "Tax code "+code.Code+" does not levy jurisdiction "+
 			*it.TaxJurisdiction+": it levies "+strings.Join(c.Subdivisions, ", ")+".")
+	}
+	return nil
+}
+
+// given says whether the invoice's items bear the tax they were entered
+// with rather than what their codes give at posting: a credit memo
+// entered from a source document (givenTax; sales' credit memo request,
+// T85d), whose taxes are shares of what the credited invoice bore.
+func given(v Invoice) bool { return v.Kind == KindCreditMemo && v.SourceDocumentID != nil }
+
+// shareGiven makes the document's tax per code and component the items'
+// taxes as entered (given): each coded item's tax is shared out among
+// its code's components as the calculator splits that item's tax
+// (money.Allocate), and taxGroups adds the shares up per component. A code
+// that gives no tax at all on the invoice date for an item entered with
+// tax is refused, 409 receivables.tax_changed, as a changed rate is.
+func (c *calculated) shareGiven(v Invoice) error {
+	for j, i := range c.coded {
+		parts := c.res.Lines[j].Components
+		var total int64
+		for _, p := range parts {
+			total += int64(p.Tax) // each part is below the item's amount, and an item's tax adds up in range (itemTax)
+		}
+		it := v.Items[i]
+		if total == 0 {
+			if it.Tax != 0 {
+				return problem.Conflict("receivables.tax_changed", fmt.Sprintf("Item %d's tax code %s gives no tax on the invoice date; "+
+					"the credit memo was entered with %s %s.", it.ItemNo, *it.TaxCode, it.Tax.Plain(v.Exponent), v.Currency))
+			}
+			continue
+		}
+		exact := make([]*big.Rat, len(parts))
+		for k, p := range parts {
+			exact[k] = new(big.Rat).Mul(big.NewRat(int64(p.Tax), total), new(big.Rat).SetInt64(int64(it.Tax)))
+		}
+		shares, _ := money.Allocate(exact) // the shares add up to the item's tax, which is in range
+		for k := range parts {
+			parts[k].Tax = shares[k] // taxGroups adds the lines' components up per code, jurisdiction and component
+		}
 	}
 	return nil
 }

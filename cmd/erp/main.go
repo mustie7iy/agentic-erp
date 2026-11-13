@@ -10,7 +10,7 @@
 //	erp migrate -connector ID -legal-entities ID,... -year 2026 [-rehearsal]
 //	erp invoices [-agent]          match parked invoices, post clean ones
 //	erp capture -legal-entity ID -file F   capture an invoice document (large ones through an upload)
-//	erp agent invoices|config|migration|test|reconcile|cash-variance|credit-score|access-roles
+//	erp agent invoices|config|migration|test|reconcile|cash-variance|credit-score|access-roles|access-sod|access-review
 //	erp metrics | query | ask | report
 //	erp gen-mock-sap | config generate | config validate
 //	erp tenants list|get|create|suspend|resume|offboard   (operators: the control plane)
@@ -156,6 +156,8 @@ agents (ERP_AGENT_TOKEN; models through the cell's gateway, ERP_AGENT_MODEL an a
                  | tax-draft -registration CODE -period YYYY-MM-DD
                  | credit-score -company CODE -customer ID
                  | access-roles -role CODE -period FROM..TO
+                 | access-sod -role CODE [-add PERMISSION,...]
+                 | access-review -period FROM..TO
 
 agent evaluations (ADR-0039; live, on demand: they spend model money):
   eval run -suite evals/<agent>/suite.yaml [-repeats 3] [-max-cost 5.00] [-out evals/results]

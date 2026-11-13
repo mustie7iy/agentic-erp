@@ -34,6 +34,9 @@ const BillingRange = "billing_document"
 type BillingItem struct {
 	Item
 	OrderItemNo int32 `json:"order_item_no"`
+	// Credited is the net amount the posted credit memo requests credited
+	// of the item (T85d).
+	Credited money.Minor `json:"credited_amount"`
 }
 
 // BillingDocument is a row of sales.billing_document with its items: what
@@ -89,7 +92,10 @@ const billingSelect = `SELECT b.id, b.document_number, b.legal_entity_id, b.cust
 		b.journal_entry_year, b.journal_entry_id,
 		(SELECT json_agg(json_build_object('item_no', i.item_no, 'item_key', t.item_key, 'description', t.description,
 			'quantity', trim_scale(i.quantity)::text, 'unit', t.uom_code, 'unit_price', t.unit_price, 'price_unit', t.price_unit,
-			'price_source', t.price_source, 'conditions', t.conditions, 'net_amount', i.net_amount, 'account_id', t.account_id, 'tax_code', t.tax_code, 'order_item_no', i.order_item_no) ORDER BY i.item_no)
+			'price_source', t.price_source, 'conditions', t.conditions, 'net_amount', i.net_amount, 'account_id', t.account_id, 'tax_code', t.tax_code, 'order_item_no', i.order_item_no,
+			'credited_amount', (SELECT coalesce(sum(c.net_amount), 0) FROM sales.credit_memo_request_item c JOIN sales.credit_memo_request r
+				ON r.tenant_id = c.tenant_id AND r.id = c.request_id
+				WHERE c.tenant_id = i.tenant_id AND c.billing_document_id = i.billing_document_id AND c.billing_item_no = i.item_no AND r.status = 'posted')) ORDER BY i.item_no)
 		 FROM sales.billing_document_item i JOIN sales.sales_order_item t ON t.tenant_id = i.tenant_id AND t.sales_order_id = i.sales_order_id
 			AND t.item_no = i.order_item_no
 		 WHERE i.tenant_id = b.tenant_id AND i.billing_document_id = b.id),

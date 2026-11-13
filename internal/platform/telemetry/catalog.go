@@ -14,7 +14,7 @@ import (
 // company, principal or document id would make the series grow with the
 // business, so per-tenant figures stay in the database.
 var Labels = map[string]int{
-	"operation":  576, // operationIds of the contracts, and "unmatched": 525 in batch 71, which crossed 512; 640 breaks MaxSeries
+	"operation":  768, // operationIds of the contracts, and "unmatched": 538 in batch 72, which leaves 230 of headroom (ADR-0043 As built)
 	"code":       32,  // HTTP status codes the API returns
 	"class":      8,   // api.Classes
 	"context":    32,  // outbox.Contexts (17 with assets and closing, batch 47)
@@ -35,7 +35,7 @@ var Labels = map[string]int{
 // MaxSeries is the most series one process may expose when every label
 // takes all its values: the ceiling that keeps a cell's Prometheus small
 // whatever its tenants do (ADR-0043).
-const MaxSeries = 50_000
+const MaxSeries = 60_000
 
 // family is what the catalog knows of a registered metric.
 type family struct {

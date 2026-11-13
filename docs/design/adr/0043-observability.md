@@ -49,7 +49,7 @@ which would make a cell's series grow with its customers. T54 closes this.
   `telemetry.Metrics`, which records it. `Metrics.Check` holds them to the
   catalog: names and help pass promlint, every label name is in
   `telemetry.Labels`, and the worst case (every label at its ceiling,
-  histograms with every bucket) stays under `telemetry.MaxSeries` (50,000
+  histograms with every bucket) stays under `telemetry.MaxSeries` (60,000
   series per process). The cell's test runs it over every metric the
   server registers and checks that the operation, class and context
   enumerations fit their ceilings. It runs in the existing test suite, not
@@ -244,7 +244,19 @@ traces, and CPU and memory saturation.
   (cmd/erp-server) caught it in the batch's integration, no lane alone
   having crossed it. Decided by default: the ceiling is 576, the
   smallest round step that holds the contracts and keeps the catalog's
-  worst case under `MaxSeries` (640 does not: 50,587 series). About fifty
-  operations more reach it again; then either `MaxSeries` or the labels
-  an operation's metrics carry are this ADR's to revisit, which is the
-  product owner's (listed in batch 71's digest).
+  worst case under `MaxSeries` (640 does not: 50,587 series). Week 3
+  was to add more operations than that left, so batch 72 decides the
+  next step at once (below).
+
+## As built: the operation label's ceiling and MaxSeries (batch 72)
+
+- Decided by default (listed in batch 72's digest): the
+  `operation` label's ceiling is 768 and `MaxSeries` 60,000, so the
+  ceiling is not re-decided at every batch of week 3. The contracts hold
+  538 operation values (516 operations of the API, 21 of the control
+  plane and "unmatched"): 230 of headroom. The catalog's worst case at
+  768, computed by `TestMetricsCatalog`'s `Check` and not estimated, is
+  56,872 series, so 60,000 is the smallest multiple of 5,000 that holds
+  it. Beyond 768 values, or past 75,000 series, the labels an
+  operation's metrics carry are this ADR's to revisit, a cost question
+  for the product owner.

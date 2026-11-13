@@ -701,6 +701,35 @@ type Invoker interface {
 	//
 	// POST /v1/sales-orders/{id}:confirm
 	ConfirmSalesOrder(ctx context.Context, params ConfirmSalesOrderParams) (ConfirmSalesOrderRes, error)
+	// CopyPlanCategory invokes copyPlanCategory operation.
+	//
+	// Copies the current plan lines of the category, one legal entity and one fiscal year into another
+	// plan category as a new version, scaled by a percentage (ADR-0050 §8, As built T93a): each line goes
+	// to the same cost center or profit center, account and period, its amount multiplied by `percentage`
+	// / 100 and rounded half away from zero to the legal entity's minor unit; a quantity is copied as it
+	// is. The copy is one plan batch of the target (`copied_from_plan_category_id`, `copy_percentage`),
+	// whose lines `GET /v1/plan-lines?plan_batch_id=` lists and the plan against actual reports read under
+	// the target category. The category copied is not changed. A target that already has current lines of
+	// the legal entity and year is refused (409 `controlling.plan_copy_target_planned`) unless `replace`
+	// is true: the copy then replaces the target's whole plan of the legal entity and year, every
+	// center's, marking its current lines replaced (never deleted). Refused as a batch into the target is:
+	// a locked target (409 `controlling.plan_category_locked`); a line that names a center, account or
+	// period a plan of the legal entity's year may no longer name (422 `controlling.plan_batch_invalid`,
+	// `source_lines[<plan line id>].field`, at most 100); a cost center's line, copied or replaced, in a
+	// period the center is locked for planning in (422 `controlling.cost_center_plan_locked`:
+	// `source_lines[<plan line id>].cost_center_id` for a line copied or for the first line copied to a
+	// center whose current line would be replaced, `replaced_cost_centers[<cost center id>]` for a center
+	// of the target's plan the copy has no line of). Also refused (422 `controlling.plan_copy_invalid`,
+	// naming the field): the target the category itself, a percentage that is not above 0 and at most 1000
+	// with up to four decimals, a legal entity and year the category has no current lines of, more than
+	// 50,000 lines, and an amount that does not fit after scaling. An unknown target, or a legal entity
+	// the caller cannot act in, is 422 `request.reference_not_found`. `If-Match` names the version of the
+	// category copied, as the caller read it (412 `request.version_mismatch`; a lock or unlock moves it, a
+	// batch does not); the copy does not change it. A repeat with the same `Idempotency-Key` answers the
+	// same batch. Audited and published as PlanBatchApplied, as a batch is. Agents may not copy a plan.
+	//
+	// POST /v1/plan-categories/{id}:copy
+	CopyPlanCategory(ctx context.Context, request *PlanCategoryCopy, params CopyPlanCategoryParams) (CopyPlanCategoryRes, error)
 	// CreateAllocationCycle invokes createAllocationCycle operation.
 	//
 	// Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver
@@ -1125,6 +1154,43 @@ type Invoker interface {
 	//
 	// POST /v1/credit-limits
 	CreateCreditLimit(ctx context.Context, request *CustomerCreditLimitCreate, params CreateCreditLimitParams) (CreateCreditLimitRes, error)
+	// CreateCreditMemoRequest invokes createCreditMemoRequest operation.
+	//
+	// Creates a credit memo request (ADR-0067, As built T85c): what is to be credited to the customer of a
+	// posted billing document's items. The billing document is one of a company the caller may act in (422
+	// `request.reference_not_found` naming `billing_document_id`) and is posted (409
+	// `sales.billing_document_not_posted`). The request has one of two bases, never both and never neither
+	// (422 `sales.credit_memo_request_basis`). With `returns_order_id` it credits a returns order's
+	// received quantities: the returns order is one of that billing document (422
+	// `request.reference_not_found` naming `returns_order_id` for one the caller cannot read,
+	// `sales.returns_order_of_other_document` for another document's); each of its items takes what was
+	// received of it and not yet requested by a request that is not rejected, at the billed amount of that
+	// quantity in full, with no charge taken off: the billing item's amount × the quantity requested of
+	// it so far, this request included, ÷ its billed quantity, rounded half away from zero, less what the
+	// earlier requests for quantities took, so the requests for an item's whole billed quantity add up to
+	// its billed amount to the minor unit, the last taking the remainder. A quantity whose amount would
+	// round to zero is left for a later request; a returns order with nothing received that is not yet
+	// requested, or only such quantities, is refused (422 `sales.nothing_to_credit` naming
+	// `returns_order_id`). With `items` it credits an amount per billing item, each named once (422
+	// `sales.unknown_billing_item` naming `items[i].billing_item_no`, `sales.item_repeated`), net and more
+	// than zero in the billing document's currency (422 `sales.currency_mismatch` naming
+	// `items[i].net_amount.currency`, `sales.amount_not_positive` naming `items[i].net_amount.amount`),
+	// and `reason` says why (required with `items`, 422 `request.validation_failed` naming `reason`; never
+	// white space alone). Per billing item, the requests that are not rejected never ask for more than the
+	// item's billed amount: one that would is refused naming the item, what it billed and what the other
+	// requests ask for (422 `sales.exceeds_billed_amount`, naming `items[i].net_amount.amount`, or
+	// `returns_order_id` for a request for a returns order). The billing document's sales order is read
+	// under a row lock, so two requests against one order's billing documents are judged one after the
+	// other and no amount or quantity is requested twice. The request is created `open`, dated the
+	// company's date today in its time zone, with a document number from the company's
+	// `credit_memo_request` number range of that date's fiscal year. Amounts are net: the tax is the
+	// customer credit memo's, calculated when the request is posted. Nothing is posted, the customer's
+	// open items and credit exposure do not change, and no revenue contract is touched. Audited and
+	// published as CreditMemoRequestChanged. A retry with the same `Idempotency-Key` answers the request
+	// created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/credit-memo-requests
+	CreateCreditMemoRequest(ctx context.Context, request *CreditMemoRequestCreate, params CreateCreditMemoRequestParams) (CreateCreditMemoRequestRes, error)
 	// CreateCustomerInvoice invokes createCustomerInvoice operation.
 	//
 	// Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of
@@ -1550,6 +1616,49 @@ type Invoker interface {
 	//
 	// POST /v1/revenue-contracts
 	CreateRevenueContract(ctx context.Context, request *RevenueContractCreate, params CreateRevenueContractParams) (CreateRevenueContractRes, error)
+	// CreateRevenueRecognitionRun invokes createRevenueRecognitionRun operation.
+	//
+	// Runs revenue recognition for a company and one of its regular fiscal periods and posts it (ADR-0068
+	// §9, T81d), in the request's transaction: either the whole run is posted or nothing. The system does
+	// the arithmetic only; every judgement is the person's, on the contract. For each `active` revenue
+	// contract of the company the run reads the recognition schedule to the period's last day
+	// (`getRevenueSchedule`: a point-in-time obligation by its order item's delivery confirmations or the
+	// day named on it, an over-time obligation on a straight line by days, whole fiscal periods) and the
+	// order item's posted billing to that day (the net amounts of the billing documents posted on or
+	// before it, without tax). Billing credited each item's revenue account with what was billed; per
+	// obligation the run's entry moves that account by the revenue recognized to the period's end less the
+	// revenue billed to it, less what earlier runs posted for the obligation: a credit when more is
+	// recognized than billed and posted so far, a debit when less. The contract's position is the sum of
+	// its obligations' recognized less billed amounts: the entry takes the position the last run left off
+	// its account and puts the new one on the company's contract asset account
+	// (`account_determination.contract_asset`) when revenue recognized exceeds revenue billed, a debit, or
+	// on its contract liability account (`account_determination.contract_liability`) when revenue billed
+	// exceeds revenue recognized, a credit, so a contract shows one of the two and never both; the posted
+	// invoice stays the receivable, and output tax is not touched: it is reported at the invoice date. The
+	// amounts are cumulative, so a delivery or a billing document dated into a period already run is
+	// caught up by the next run, and a contract whose figures did not move since its last posting posts
+	// nothing. Each contract that moved posts one balanced journal entry (document type `SA`,
+	// `source_context` `revenue`, dated the period's last day, the sales order's number as its reference)
+	// to every ledger the company keeps. One run per company and period: a second is refused (409
+	// `revenue.recognition_run_exists`), and a retry with the same `Idempotency-Key` answers the run as
+	// the first answered it. A company's first run is for any open period; each later run is for a later
+	// period than its last (409 `revenue.recognition_period_not_later`): a run is not reversed or repeated
+	// in the first version. `legal_entity_id` is a company the caller may act in (422
+	// `request.reference_not_found`); `fiscal_period` is a regular posting period of `fiscal_year` in the
+	// company's calendar (422 `ledger.no_fiscal_period` for a year that is not set up, 422
+	// `revenue.period_not_regular`); the company has both accounts (422 `revenue.no_contract_accounts`);
+	// the period is open in every ledger the company keeps (409 `ledger.period_not_open`), also when
+	// nothing is to post; the company has at most 2,000 active contracts (422
+	// `revenue.recognition_run_too_large`: larger runs are not supported yet). A day a contract's schedule
+	// needs a fiscal period for that lies in no fiscal year set up is refused naming the contract's order
+	// and the obligation (422 `revenue.no_fiscal_period`). What the ledger refuses of an entry refuses the
+	// run (for example an obligation's revenue account that is no longer postable). The answer is the run
+	// with its totals, what its entries moved revenue by on balance (`revenue_amount`) and its postings,
+	// one per contract that moved, each naming its journal entry. Audited, and published as
+	// RevenueRecognized. Human-only (`x-agent: false`).
+	//
+	// POST /v1/revenue-recognition-runs
+	CreateRevenueRecognitionRun(ctx context.Context, request *RevenueRecognitionRunCreate, params CreateRevenueRecognitionRunParams) (CreateRevenueRecognitionRunRes, error)
 	// CreateRfq invokes createRfq operation.
 	//
 	// Creates a draft RFQ of a legal entity (ADR-0069 §1-§2): the currency quotations are given in, the
@@ -1754,6 +1863,20 @@ type Invoker interface {
 	//
 	// POST /v1/recommendations/{id}:decide
 	DecideRecommendation(ctx context.Context, request *RecommendationDecide, params DecideRecommendationParams) (DecideRecommendationRes, error)
+	// DeclineCreditMemoRequest invokes declineCreditMemoRequest operation.
+	//
+	// Rejects an `open` credit memo request with a reason (ADR-0067, As built T85c; `:decline`, as
+	// `:reject` is kept for approval requests, 04 §4.9), at the version the caller read (`If-Match`): the
+	// request is read under a row lock and moves to `rejected` once. One that is not open is refused (409
+	// `sales.invalid_status`); a reason of white space alone is refused (422 `request.validation_failed`
+	// naming `reason`). Rejecting takes the permission that approves. A rejected request no longer counts
+	// against its billing items' amounts nor against the returns order's received quantities, which
+	// another request may take. Nothing is posted. Audited, with the reason, and published as
+	// CreditMemoRequestChanged. A retry with the same `Idempotency-Key` answers the rejected request.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/credit-memo-requests/{id}:decline
+	DeclineCreditMemoRequest(ctx context.Context, request *CreditMemoRequestReject, params DeclineCreditMemoRequestParams) (DeclineCreditMemoRequestRes, error)
 	// DeclineQuotation invokes declineQuotation operation.
 	//
 	// Records that the customer rejected an `open` quotation (ADR-0067 §2, T78a), at the version the
@@ -1791,6 +1914,30 @@ type Invoker interface {
 	//
 	// POST /v1/consolidation-runs/{id}:discard
 	DiscardConsolidationRun(ctx context.Context, params DiscardConsolidationRunParams) (DiscardConsolidationRunRes, error)
+	// DrillAnalyticsQuery invokes drillAnalyticsQuery operation.
+	//
+	// Drill-through (T94b, ADR-0044 As built T94b): the documents that make up one measure of one row of a
+	// query's result, a page at a time. The request names the query as `runAnalyticsQuery` takes it, the
+	// measure drilled (the query's only one when omitted) and the row by its value of each dimension of
+	// the query's `by` (the cells the result wrote, `""` for a blank). The answer is the row's figure as
+	// the query answers it (`total`) and the documents behind it, each with its kind, id, number, company,
+	// its part of the figure in the figure's currency and the path that reads it: journal entries for the
+	// general ledger's metrics, purchase orders, supplier invoices (the invoices' gross for
+	// `invoice_value`, their items' net for the spend metrics), sales orders and billing documents. For a
+	// sum, the documents' amounts add up to the figure; for a count (`purchase_order_count`,
+	// `invoice_count`, `billing_document_count`) the documents are what is counted, each with the amount
+	// of its lines the metric reads. A derived metric (a difference, ratio or complement) is 422
+	// `analytics.invalid_query` naming the metrics to drill into instead, and so are the cash metrics,
+	// whose documents are not listed. The query is checked and scoped as `runAnalyticsQuery` checks it
+	// (the same permissions, company access and currency guard), and each document's number is read as the
+	// caller from the document's own read (`getJournalEntry`, `getPurchaseOrder`, `getSupplierInvoice`,
+	// `getSalesOrder`, `getBillingDocument`), so a figure the caller may see never lists a document they
+	// may not read: such a read's refusal refuses the page with its problem. Pages are ordered by document
+	// id and currency, and stay stable while documents are added; a page token is valid only for the same
+	// request. Changes nothing: agents of any autonomy level may run it.
+	//
+	// POST /v1/analytics-documents
+	DrillAnalyticsQuery(ctx context.Context, request *AnalyticsDrill, params DrillAnalyticsQueryParams) (DrillAnalyticsQueryRes, error)
 	// EnableConnector invokes enableConnector operation.
 	//
 	// Allows the connector to exchange messages again. Requires status `disabled`.
@@ -2598,6 +2745,19 @@ type Invoker interface {
 	//
 	// GET /v1/credit-limits/{id}
 	GetCreditLimit(ctx context.Context, params GetCreditLimitParams) (GetCreditLimitRes, error)
+	// GetCreditMemoRequest invokes getCreditMemoRequest operation.
+	//
+	// One credit memo request (ADR-0067, As built T85c) with its company's code and name, its customer's
+	// number and name, the billing document and the sales order it is against by id and number, the
+	// returns order it credits by id and number when it is for one, its date, its reason, its status with
+	// the reason of a rejection, its net value in the billing document's currency and its items, each
+	// naming the billing document's item and the sales order's item, with what the billing item billed,
+	// the quantity credited when the request is for a returns order, the amount credited and the revenue
+	// account and output tax code the credit memo will post with. A request of a company the caller cannot
+	// act in is not found (404).
+	//
+	// GET /v1/credit-memo-requests/{id}
+	GetCreditMemoRequest(ctx context.Context, params GetCreditMemoRequestParams) (GetCreditMemoRequestRes, error)
 	// GetCurrentPrincipal invokes getCurrentPrincipal operation.
 	//
 	// The caller's own principal (ADR-0052 G2): who they are, the companies they may act in, the
@@ -2950,6 +3110,28 @@ type Invoker interface {
 	//
 	// GET /v1/liquidity-forecast-variance
 	GetLiquidityForecastVariance(ctx context.Context, params GetLiquidityForecastVarianceParams) (GetLiquidityForecastVarianceRes, error)
+	// GetMarginReport invokes getMarginReport operation.
+	//
+	// The margin report of one legal entity over a range of periods of a fiscal year (ADR-0075 §1-§4),
+	// from the general ledger's leading ledger, in the legal entity's local currency, exact at the moment
+	// of the read: per profit center the revenue (the credits less the debits on the accounts of type
+	// `revenue`), the cost of sales (the debits less the credits on the accounts the configuration names
+	// for the legal entity's chart, `controlling.margin_report[].cost_of_sales_accounts`) and the margin,
+	// the revenue less the cost of sales. Cost of sales is what the ledger holds: a person posts it by
+	// journal entry, and nothing is derived from stock. Rows are by the profit center's code; a profit
+	// center with neither revenue nor cost of sales in the periods has no row. The lines that carry no
+	// profit center are one last row, `unassigned`, present when their revenue or cost of sales is not
+	// zero, so the rows of every page add up to `totals`, the legal entity's revenue, cost of sales and
+	// margin in the periods, given on every page. `cost_of_sales_accounts` are the accounts of the chart
+	// counted as cost of sales; when the configuration names none for the chart, `cost_of_sales_named` is
+	// false and the cost of sales is zero, so the margin is the revenue. A legal entity that does not
+	// exist or that the caller cannot act in is answered as missing (422 `request.reference_not_found` on
+	// `legal_entity_id`). The figures are ledger amounts, so besides `controlling.margin.read` the caller
+	// needs `ledger.entry.read`, as for the trial balance (`x-also-permissions`; 403
+	// `identity.permission_missing` otherwise).
+	//
+	// GET /v1/margin-report
+	GetMarginReport(ctx context.Context, params GetMarginReportParams) (GetMarginReportRes, error)
 	// GetMatchResult invokes getMatchResult operation.
 	//
 	// Returns one three-way match evaluation.
@@ -3148,13 +3330,61 @@ type Invoker interface {
 	// One revenue contract (ADR-0068 §3, T81a) with its company's code and name, its customer's number
 	// and name, the sales order it stands for by id and number, its transaction price (the order's net
 	// value, without tax) and its performance obligations, each with the order item it is for, its timing,
-	// an over-time obligation's service period, its stand-alone selling price and, once the contract is
-	// `active`, its allocated amount. `created_by` is the person who asked for it, or the system's
-	// principal when the order's confirmation created it. One of a company the caller may not act in is
-	// not found (404), as one that does not exist.
+	// an over-time obligation's service period, the day a point-in-time obligation is satisfied when a
+	// person set one (`satisfied_on`), its stand-alone selling price and, once the contract is `active`,
+	// its allocated amount. `created_by` is the person who asked for it, or the system's principal when
+	// the order's confirmation created it. One of a company the caller may not act in is not found (404),
+	// as one that does not exist.
 	//
 	// GET /v1/revenue-contracts/{id}
 	GetRevenueContract(ctx context.Context, params GetRevenueContractParams) (GetRevenueContractRes, error)
+	// GetRevenueRecognitionRun invokes getRevenueRecognitionRun operation.
+	//
+	// One revenue recognition run (ADR-0068 §9, T81d) with its company's code and name, its fiscal period
+	// and posting date, the number of active contracts it read and of contracts it posted, the company's
+	// totals to the period's end over the contracts it read (revenue recognized, revenue billed, contract
+	// assets, contract liabilities), what its entries moved revenue by (`revenue_amount`) and its
+	// `postings`, one per contract that moved, by sales order number: the contract's order and customer,
+	// its cumulative amounts, its position as a contract asset or a contract liability, what the entry
+	// moved revenue by, its journal entry, and per obligation the revenue account and the amounts. One of
+	// a company the caller may not act in is not found (404), as one that does not exist.
+	//
+	// GET /v1/revenue-recognition-runs/{id}
+	GetRevenueRecognitionRun(ctx context.Context, params GetRevenueRecognitionRunParams) (GetRevenueRecognitionRunRes, error)
+	// GetRevenueSchedule invokes getRevenueSchedule operation.
+	//
+	// The recognition schedule of an `active` revenue contract (ADR-0068 §8, T81c): per performance
+	// obligation and fiscal period of the company, the revenue the obligation's allocated amount gives the
+	// period. Nothing is stored: the schedule is computed at the read from the obligations as the contract
+	// fixed them and from the delivery confirmations of the contract's sales order as they are now, so it
+	// moves with each delivery. The system does the arithmetic only; when an obligation is satisfied is
+	// the person's judgement on the contract. A `point_in_time` obligation's amount falls in the fiscal
+	// periods of its order item's delivery confirmations, in proportion to the quantity delivered: after
+	// each delivery the amount scheduled so far is the allocated amount × the quantity delivered so far
+	// ÷ the quantity ordered, rounded to the minor unit, and the delivery takes what that adds, so the
+	// delivery that completes the item takes the remainder and the amounts add up to the allocated amount
+	// exactly; what is not delivered yet is `unscheduled_amount`, in no period. The delivery confirmation
+	// is the default evidence that the obligation is satisfied; an obligation whose contract names another
+	// day (`satisfied_on`) has its whole allocated amount in that day's fiscal period, whatever was
+	// delivered. An `over_time` obligation's amount is spread on a straight line by days over its service
+	// period, both days included: each fiscal period takes the allocated amount × its days of the service
+	// period ÷ the service period's days, rounded so that the periods' amounts add up to the allocated
+	// amount exactly, a minor unit left going to the largest remainder, the earlier period first. Each
+	// amount is split at `as_of`, the company's date today in its time zone: `recognized_amount` is what
+	// falls on days up to and including `as_of` (a delivery or `satisfied_on` on or before it; of an
+	// over-time period under way, the period's amount × its service days so far ÷ its service days),
+	// `planned_amount` what falls after it. Recognized here is what the schedule gives to that day, not
+	// what is posted: the recognition runs post it (`GET /v1/revenue-recognition-runs`). Per obligation
+	// and for the contract, `recognized_amount`, `planned_amount` and `unscheduled_amount` add up to the
+	// allocated amount and to the transaction price; `periods` on the contract are the obligations'
+	// periods added up. A contract that is still a `draft` has no allocated amounts and is refused (409
+	// `revenue.invalid_status`). A day the schedule needs a fiscal period for, a delivery's,
+	// `satisfied_on` or a day of a service period, that lies in no fiscal year set up for the company is
+	// refused naming the obligation (422 `revenue.no_fiscal_period`). A contract of a company the caller
+	// may not act in is not found (404).
+	//
+	// GET /v1/revenue-contracts/{id}/schedule
+	GetRevenueSchedule(ctx context.Context, params GetRevenueScheduleParams) (GetRevenueScheduleRes, error)
 	// GetRfq invokes getRfq operation.
 	//
 	// Returns one RFQ with its items and the suppliers invited. An RFQ of a legal entity the caller cannot
@@ -3885,6 +4115,17 @@ type Invoker interface {
 	//
 	// GET /v1/credit-limits
 	ListCreditLimits(ctx context.Context, params ListCreditLimitsParams) (ListCreditLimitsRes, error)
+	// ListCreditMemoRequests invokes listCreditMemoRequests operation.
+	//
+	// The credit memo requests of the companies the caller may act in (ADR-0067, As built T85c), each as
+	// `getCreditMemoRequest` gives it: with its company's code and name, its customer's number and name,
+	// the billing document, the sales order and the returns order it is for by id and number, its net
+	// value and its items. Filters: `legal_entity_id`, `customer_id`, `billing_document_id`,
+	// `sales_order_id`, `returns_order_id`, `status`, `document_number` (exact). Sortable by
+	// `request_date` (default) and `document_number`; cursor paging.
+	//
+	// GET /v1/credit-memo-requests
+	ListCreditMemoRequests(ctx context.Context, params ListCreditMemoRequestsParams) (ListCreditMemoRequestsRes, error)
 	// ListCustomerInvoices invokes listCustomerInvoices operation.
 	//
 	// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a) and the credit
@@ -4501,6 +4742,15 @@ type Invoker interface {
 	//
 	// GET /v1/revenue-contracts
 	ListRevenueContracts(ctx context.Context, params ListRevenueContractsParams) (ListRevenueContractsRes, error)
+	// ListRevenueRecognitionRuns invokes listRevenueRecognitionRuns operation.
+	//
+	// The revenue recognition runs of the companies the caller may act in (ADR-0068 §9, T81d), latest
+	// posting date first, each with its company's code and name, its fiscal period, its counts, its totals
+	// and what it moved revenue by, without its postings, which `getRevenueRecognitionRun` gives. Filtered
+	// by company, fiscal year and fiscal period. Sortable by: `posting_date`.
+	//
+	// GET /v1/revenue-recognition-runs
+	ListRevenueRecognitionRuns(ctx context.Context, params ListRevenueRecognitionRunsParams) (ListRevenueRecognitionRunsRes, error)
 	// ListRfqs invokes listRfqs operation.
 	//
 	// Requests for quotation (RFQs, ADR-0069) of the legal entities the caller may act in, each with its
@@ -4983,6 +5233,52 @@ type Invoker interface {
 	//
 	// POST /v1/billing-documents/{id}:post
 	PostBillingDocument(ctx context.Context, request OptBillingDocumentPost, params PostBillingDocumentParams) (PostBillingDocumentRes, error)
+	// PostCreditMemoRequest invokes postCreditMemoRequest operation.
+	//
+	// Posts an `approved` credit memo request, once (ADR-0067, As built T85d), at the version the caller
+	// read (`If-Match`): a customer credit memo is entered in accounts receivable and posted, in the same
+	// transaction as the request's change, so either all of it happens or none. The credit memo (`kind`
+	// `credit_memo`) has the billing document's company, customer and currency, names the billing
+	// document's customer invoice as the invoice it credits (`reference_invoice_id`) and the request as
+	// its source (`source_document_id`, `source_document_number`), and has the request's items one for
+	// one, each with the billing item's description, revenue account and output tax code and the request
+	// item's net amount. Its tax is what the billed invoice's item bore, shared out: of each billing item,
+	// the credits posted so far, this one included, bear the share of the item's tax that their net
+	// amounts are of the item's, shared out with money.Allocate, less what the earlier credits bore, so
+	// the credits of an item's whole billed amount give back its tax to the minor unit; the ledger holds
+	// that tax to the code's rate on the credit memo's date within a minor unit per line (422
+	// `ledger.output_tax_mismatch` when the rate changed since billing). Its date, which is its tax date,
+	// and its posting date are the request's `posting_date`, else today, the company's date in its time
+	// zone, in an open period (409 `ledger.period_not_open`). Without a payment term of its own it keeps
+	// the invoice's term from the invoice's date (ADR-0063 §7). Accounts receivable posts the entry
+	// (document type `DG`, `source_context` `receivables`): it credits the customer's reconciliation
+	// account with the credit memo's gross, the customer's open credit item (`GET /v1/open-items`), and
+	// debits each item's revenue account with its amount and output tax per code. The credit reduces what
+	// the customer owes, and so its credit exposure; it clears against the invoice by the ledger's
+	// clearing or nets when an incoming payment is applied. The credit memos naming the invoice may not
+	// together exceed its gross (422 `receivables.credit_exceeds_invoice`, under the invoice's row lock).
+	// The request becomes `posted` and names its `posting_date`, its `customer_invoice_id` and
+	// `customer_invoice_number` and the credit memo's `journal_entry_id`, `journal_entry_year` and
+	// `journal_entry_number`; the billing document's items show the amount credited (`credited_amount`).
+	// An audit record and CreditMemoRequestPosted are written with it, beside the credit memo's own
+	// (CustomerInvoiceChanged, CustomerInvoicePosted). The request's row is read under a lock, then its
+	// billing document's sales order's, under which the credits of one order are counted: of two requests
+	// to post one request, one posts it and the other meets another version (412). One that is not
+	// `approved` is refused (409 `sales.invalid_status`); a retry with the same `Idempotency-Key` answers
+	// the posted request. What accounts receivable or the ledger refuses leaves the request `approved` and
+	// nothing posted, and is answered with their code, the request's number leading the detail and the
+	// request's own fields named: a customer that is not active, no longer a customer or blocked for
+	// posting (422 `receivables.customer_not_usable`, `customer_id`); an item's account that can no longer
+	// be posted (422 `receivables.account_not_postable`, `items[i].account_id`); a tax code that is no
+	// longer an output tax code of the company with a rate on the date (422
+	// `receivables.unknown_tax_code`, `items[i].tax_code`); the credit above what is left of the invoice's
+	// gross (`net_amount`); a company without the `customer_invoice` or `journal_dg` number range (422
+	// `config.no_number_range`). Revenue contracts are not touched. A posted request is not reversed or
+	// cancelled in the first version. Posting takes the billing clerk's permission, `sales.billing.post`;
+	// no permission of accounts receivable is needed. Human-only (`x-agent: false`).
+	//
+	// POST /v1/credit-memo-requests/{id}:post
+	PostCreditMemoRequest(ctx context.Context, request OptCreditMemoRequestPost, params PostCreditMemoRequestParams) (PostCreditMemoRequestRes, error)
 	// PostCustomerInvoice invokes postCustomerInvoice operation.
 	//
 	// Posts a draft customer invoice to the ledger, once (ADR-0063 §5, T75b): it debits the customer's
@@ -5512,6 +5808,21 @@ type Invoker interface {
 	//
 	// POST /v1/contracts/{id}:release
 	ReleaseContract(ctx context.Context, params ReleaseContractParams) (ReleaseContractRes, error)
+	// ReleaseCreditMemoRequest invokes releaseCreditMemoRequest operation.
+	//
+	// Approves an `open` credit memo request (ADR-0067, As built T85c), releasing it to be posted, at the
+	// version the caller read (`If-Match`): the request is read under a row lock and moves to `approved`
+	// once. One that is not open is refused (409 `sales.invalid_status`). Approving is by this one
+	// permission, whatever the amount, and nothing sets the approver apart from the person who created the
+	// request (product owner 2026-11-12); the tenant's own segregation-of-duties rules apply as on every
+	// operation. Nothing is posted: an approved request is posted as a customer credit memo by a later
+	// operation. Audited and published as CreditMemoRequestChanged. A retry with the same
+	// `Idempotency-Key` answers the approved request. Human-only (`x-agent: false`). The action is
+	// `:release`, not `:approve`, which is kept for approval requests (04 §4.9): no approval request is
+	// made for a credit memo request.
+	//
+	// POST /v1/credit-memo-requests/{id}:release
+	ReleaseCreditMemoRequest(ctx context.Context, params ReleaseCreditMemoRequestParams) (ReleaseCreditMemoRequestRes, error)
 	// ReleaseInternalOrder invokes releaseInternalOrder operation.
 	//
 	// Releases a `created` internal order for posting (ADR-0064 §1), at the version the caller read
@@ -6523,12 +6834,15 @@ type Invoker interface {
 	// has both days of its service period (422 `revenue.service_period_required` naming the day missing),
 	// `service_from` not after `service_to` (422 `revenue.invalid_service_period`), and a `point_in_time`
 	// obligation has none (422 `revenue.service_period_not_allowed`: send the dates as null when setting
-	// it back); a stand-alone selling price is in the contract's currency (422
-	// `revenue.currency_mismatch`) and more than zero (422 `revenue.price_not_positive`). The contract is
-	// read under a row lock; one that is `active` is fixed and refused (409 `revenue.invalid_status`).
-	// Nothing is allocated before the contract is activated. The contract's `version` moves. Audited, and
-	// published as RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract as
-	// the first answered it. Human-only (`x-agent: false`).
+	// it back); a `point_in_time` obligation may name the day it is satisfied (`satisfied_on`, T81c) when
+	// that is not its delivery confirmations, an `over_time` obligation may not (422
+	// `revenue.satisfied_on_not_allowed`: send it as null when setting the timing to `over_time`); a
+	// stand-alone selling price is in the contract's currency (422 `revenue.currency_mismatch`) and more
+	// than zero (422 `revenue.price_not_positive`). The contract is read under a row lock; one that is
+	// `active` is fixed and refused (409 `revenue.invalid_status`). Nothing is allocated before the
+	// contract is activated. The contract's `version` moves. Audited, and published as
+	// RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract as the first
+	// answered it. Human-only (`x-agent: false`).
 	//
 	// PATCH /v1/revenue-contracts/{id}
 	UpdateRevenueContract(ctx context.Context, request *RevenueContractUpdate, params UpdateRevenueContractParams) (UpdateRevenueContractRes, error)
@@ -14730,6 +15044,189 @@ func (c *Client) sendConfirmSalesOrder(ctx context.Context, params ConfirmSalesO
 	return result, nil
 }
 
+// CopyPlanCategory invokes copyPlanCategory operation.
+//
+// Copies the current plan lines of the category, one legal entity and one fiscal year into another
+// plan category as a new version, scaled by a percentage (ADR-0050 §8, As built T93a): each line goes
+// to the same cost center or profit center, account and period, its amount multiplied by `percentage`
+// / 100 and rounded half away from zero to the legal entity's minor unit; a quantity is copied as it
+// is. The copy is one plan batch of the target (`copied_from_plan_category_id`, `copy_percentage`),
+// whose lines `GET /v1/plan-lines?plan_batch_id=` lists and the plan against actual reports read under
+// the target category. The category copied is not changed. A target that already has current lines of
+// the legal entity and year is refused (409 `controlling.plan_copy_target_planned`) unless `replace`
+// is true: the copy then replaces the target's whole plan of the legal entity and year, every
+// center's, marking its current lines replaced (never deleted). Refused as a batch into the target is:
+// a locked target (409 `controlling.plan_category_locked`); a line that names a center, account or
+// period a plan of the legal entity's year may no longer name (422 `controlling.plan_batch_invalid`,
+// `source_lines[<plan line id>].field`, at most 100); a cost center's line, copied or replaced, in a
+// period the center is locked for planning in (422 `controlling.cost_center_plan_locked`:
+// `source_lines[<plan line id>].cost_center_id` for a line copied or for the first line copied to a
+// center whose current line would be replaced, `replaced_cost_centers[<cost center id>]` for a center
+// of the target's plan the copy has no line of). Also refused (422 `controlling.plan_copy_invalid`,
+// naming the field): the target the category itself, a percentage that is not above 0 and at most 1000
+// with up to four decimals, a legal entity and year the category has no current lines of, more than
+// 50,000 lines, and an amount that does not fit after scaling. An unknown target, or a legal entity
+// the caller cannot act in, is 422 `request.reference_not_found`. `If-Match` names the version of the
+// category copied, as the caller read it (412 `request.version_mismatch`; a lock or unlock moves it, a
+// batch does not); the copy does not change it. A repeat with the same `Idempotency-Key` answers the
+// same batch. Audited and published as PlanBatchApplied, as a batch is. Agents may not copy a plan.
+//
+// POST /v1/plan-categories/{id}:copy
+func (c *Client) CopyPlanCategory(ctx context.Context, request *PlanCategoryCopy, params CopyPlanCategoryParams) (CopyPlanCategoryRes, error) {
+	res, err := c.sendCopyPlanCategory(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCopyPlanCategory(ctx context.Context, request *PlanCategoryCopy, params CopyPlanCategoryParams) (res CopyPlanCategoryRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("copyPlanCategory"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/plan-categories/{id}:copy"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CopyPlanCategoryOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/plan-categories/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":copy"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCopyPlanCategoryRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CopyPlanCategoryOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCopyPlanCategoryResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreateAllocationCycle invokes createAllocationCycle operation.
 //
 // Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver
@@ -17684,6 +18181,167 @@ func (c *Client) sendCreateCreditLimit(ctx context.Context, request *CustomerCre
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateCreditLimitResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateCreditMemoRequest invokes createCreditMemoRequest operation.
+//
+// Creates a credit memo request (ADR-0067, As built T85c): what is to be credited to the customer of a
+// posted billing document's items. The billing document is one of a company the caller may act in (422
+// `request.reference_not_found` naming `billing_document_id`) and is posted (409
+// `sales.billing_document_not_posted`). The request has one of two bases, never both and never neither
+// (422 `sales.credit_memo_request_basis`). With `returns_order_id` it credits a returns order's
+// received quantities: the returns order is one of that billing document (422
+// `request.reference_not_found` naming `returns_order_id` for one the caller cannot read,
+// `sales.returns_order_of_other_document` for another document's); each of its items takes what was
+// received of it and not yet requested by a request that is not rejected, at the billed amount of that
+// quantity in full, with no charge taken off: the billing item's amount × the quantity requested of
+// it so far, this request included, ÷ its billed quantity, rounded half away from zero, less what the
+// earlier requests for quantities took, so the requests for an item's whole billed quantity add up to
+// its billed amount to the minor unit, the last taking the remainder. A quantity whose amount would
+// round to zero is left for a later request; a returns order with nothing received that is not yet
+// requested, or only such quantities, is refused (422 `sales.nothing_to_credit` naming
+// `returns_order_id`). With `items` it credits an amount per billing item, each named once (422
+// `sales.unknown_billing_item` naming `items[i].billing_item_no`, `sales.item_repeated`), net and more
+// than zero in the billing document's currency (422 `sales.currency_mismatch` naming
+// `items[i].net_amount.currency`, `sales.amount_not_positive` naming `items[i].net_amount.amount`),
+// and `reason` says why (required with `items`, 422 `request.validation_failed` naming `reason`; never
+// white space alone). Per billing item, the requests that are not rejected never ask for more than the
+// item's billed amount: one that would is refused naming the item, what it billed and what the other
+// requests ask for (422 `sales.exceeds_billed_amount`, naming `items[i].net_amount.amount`, or
+// `returns_order_id` for a request for a returns order). The billing document's sales order is read
+// under a row lock, so two requests against one order's billing documents are judged one after the
+// other and no amount or quantity is requested twice. The request is created `open`, dated the
+// company's date today in its time zone, with a document number from the company's
+// `credit_memo_request` number range of that date's fiscal year. Amounts are net: the tax is the
+// customer credit memo's, calculated when the request is posted. Nothing is posted, the customer's
+// open items and credit exposure do not change, and no revenue contract is touched. Audited and
+// published as CreditMemoRequestChanged. A retry with the same `Idempotency-Key` answers the request
+// created. Human-only (`x-agent: false`).
+//
+// POST /v1/credit-memo-requests
+func (c *Client) CreateCreditMemoRequest(ctx context.Context, request *CreditMemoRequestCreate, params CreateCreditMemoRequestParams) (CreateCreditMemoRequestRes, error) {
+	res, err := c.sendCreateCreditMemoRequest(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateCreditMemoRequest(ctx context.Context, request *CreditMemoRequestCreate, params CreateCreditMemoRequestParams) (res CreateCreditMemoRequestRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createCreditMemoRequest"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/credit-memo-requests"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateCreditMemoRequestOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/credit-memo-requests"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateCreditMemoRequestRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateCreditMemoRequestOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateCreditMemoRequestResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -21502,6 +22160,173 @@ func (c *Client) sendCreateRevenueContract(ctx context.Context, request *Revenue
 	return result, nil
 }
 
+// CreateRevenueRecognitionRun invokes createRevenueRecognitionRun operation.
+//
+// Runs revenue recognition for a company and one of its regular fiscal periods and posts it (ADR-0068
+// §9, T81d), in the request's transaction: either the whole run is posted or nothing. The system does
+// the arithmetic only; every judgement is the person's, on the contract. For each `active` revenue
+// contract of the company the run reads the recognition schedule to the period's last day
+// (`getRevenueSchedule`: a point-in-time obligation by its order item's delivery confirmations or the
+// day named on it, an over-time obligation on a straight line by days, whole fiscal periods) and the
+// order item's posted billing to that day (the net amounts of the billing documents posted on or
+// before it, without tax). Billing credited each item's revenue account with what was billed; per
+// obligation the run's entry moves that account by the revenue recognized to the period's end less the
+// revenue billed to it, less what earlier runs posted for the obligation: a credit when more is
+// recognized than billed and posted so far, a debit when less. The contract's position is the sum of
+// its obligations' recognized less billed amounts: the entry takes the position the last run left off
+// its account and puts the new one on the company's contract asset account
+// (`account_determination.contract_asset`) when revenue recognized exceeds revenue billed, a debit, or
+// on its contract liability account (`account_determination.contract_liability`) when revenue billed
+// exceeds revenue recognized, a credit, so a contract shows one of the two and never both; the posted
+// invoice stays the receivable, and output tax is not touched: it is reported at the invoice date. The
+// amounts are cumulative, so a delivery or a billing document dated into a period already run is
+// caught up by the next run, and a contract whose figures did not move since its last posting posts
+// nothing. Each contract that moved posts one balanced journal entry (document type `SA`,
+// `source_context` `revenue`, dated the period's last day, the sales order's number as its reference)
+// to every ledger the company keeps. One run per company and period: a second is refused (409
+// `revenue.recognition_run_exists`), and a retry with the same `Idempotency-Key` answers the run as
+// the first answered it. A company's first run is for any open period; each later run is for a later
+// period than its last (409 `revenue.recognition_period_not_later`): a run is not reversed or repeated
+// in the first version. `legal_entity_id` is a company the caller may act in (422
+// `request.reference_not_found`); `fiscal_period` is a regular posting period of `fiscal_year` in the
+// company's calendar (422 `ledger.no_fiscal_period` for a year that is not set up, 422
+// `revenue.period_not_regular`); the company has both accounts (422 `revenue.no_contract_accounts`);
+// the period is open in every ledger the company keeps (409 `ledger.period_not_open`), also when
+// nothing is to post; the company has at most 2,000 active contracts (422
+// `revenue.recognition_run_too_large`: larger runs are not supported yet). A day a contract's schedule
+// needs a fiscal period for that lies in no fiscal year set up is refused naming the contract's order
+// and the obligation (422 `revenue.no_fiscal_period`). What the ledger refuses of an entry refuses the
+// run (for example an obligation's revenue account that is no longer postable). The answer is the run
+// with its totals, what its entries moved revenue by on balance (`revenue_amount`) and its postings,
+// one per contract that moved, each naming its journal entry. Audited, and published as
+// RevenueRecognized. Human-only (`x-agent: false`).
+//
+// POST /v1/revenue-recognition-runs
+func (c *Client) CreateRevenueRecognitionRun(ctx context.Context, request *RevenueRecognitionRunCreate, params CreateRevenueRecognitionRunParams) (CreateRevenueRecognitionRunRes, error) {
+	res, err := c.sendCreateRevenueRecognitionRun(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateRevenueRecognitionRun(ctx context.Context, request *RevenueRecognitionRunCreate, params CreateRevenueRecognitionRunParams) (res CreateRevenueRecognitionRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createRevenueRecognitionRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/revenue-recognition-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateRevenueRecognitionRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/revenue-recognition-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateRevenueRecognitionRunRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateRevenueRecognitionRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateRevenueRecognitionRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreateRfq invokes createRfq operation.
 //
 // Creates a draft RFQ of a legal entity (ADR-0069 §1-§2): the currency quotations are given in, the
@@ -23634,6 +24459,174 @@ func (c *Client) sendDecideRecommendation(ctx context.Context, request *Recommen
 	return result, nil
 }
 
+// DeclineCreditMemoRequest invokes declineCreditMemoRequest operation.
+//
+// Rejects an `open` credit memo request with a reason (ADR-0067, As built T85c; `:decline`, as
+// `:reject` is kept for approval requests, 04 §4.9), at the version the caller read (`If-Match`): the
+// request is read under a row lock and moves to `rejected` once. One that is not open is refused (409
+// `sales.invalid_status`); a reason of white space alone is refused (422 `request.validation_failed`
+// naming `reason`). Rejecting takes the permission that approves. A rejected request no longer counts
+// against its billing items' amounts nor against the returns order's received quantities, which
+// another request may take. Nothing is posted. Audited, with the reason, and published as
+// CreditMemoRequestChanged. A retry with the same `Idempotency-Key` answers the rejected request.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/credit-memo-requests/{id}:decline
+func (c *Client) DeclineCreditMemoRequest(ctx context.Context, request *CreditMemoRequestReject, params DeclineCreditMemoRequestParams) (DeclineCreditMemoRequestRes, error) {
+	res, err := c.sendDeclineCreditMemoRequest(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendDeclineCreditMemoRequest(ctx context.Context, request *CreditMemoRequestReject, params DeclineCreditMemoRequestParams) (res DeclineCreditMemoRequestRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("declineCreditMemoRequest"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/credit-memo-requests/{id}:decline"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, DeclineCreditMemoRequestOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/credit-memo-requests/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":decline"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeDeclineCreditMemoRequestRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, DeclineCreditMemoRequestOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeDeclineCreditMemoRequestResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // DeclineQuotation invokes declineQuotation operation.
 //
 // Records that the customer rejected an `open` quotation (ADR-0067 §2, T78a), at the version the
@@ -24271,6 +25264,192 @@ func (c *Client) sendDiscardConsolidationRun(ctx context.Context, params Discard
 
 	stage = "DecodeResponse"
 	result, err := decodeDiscardConsolidationRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// DrillAnalyticsQuery invokes drillAnalyticsQuery operation.
+//
+// Drill-through (T94b, ADR-0044 As built T94b): the documents that make up one measure of one row of a
+// query's result, a page at a time. The request names the query as `runAnalyticsQuery` takes it, the
+// measure drilled (the query's only one when omitted) and the row by its value of each dimension of
+// the query's `by` (the cells the result wrote, `""` for a blank). The answer is the row's figure as
+// the query answers it (`total`) and the documents behind it, each with its kind, id, number, company,
+// its part of the figure in the figure's currency and the path that reads it: journal entries for the
+// general ledger's metrics, purchase orders, supplier invoices (the invoices' gross for
+// `invoice_value`, their items' net for the spend metrics), sales orders and billing documents. For a
+// sum, the documents' amounts add up to the figure; for a count (`purchase_order_count`,
+// `invoice_count`, `billing_document_count`) the documents are what is counted, each with the amount
+// of its lines the metric reads. A derived metric (a difference, ratio or complement) is 422
+// `analytics.invalid_query` naming the metrics to drill into instead, and so are the cash metrics,
+// whose documents are not listed. The query is checked and scoped as `runAnalyticsQuery` checks it
+// (the same permissions, company access and currency guard), and each document's number is read as the
+// caller from the document's own read (`getJournalEntry`, `getPurchaseOrder`, `getSupplierInvoice`,
+// `getSalesOrder`, `getBillingDocument`), so a figure the caller may see never lists a document they
+// may not read: such a read's refusal refuses the page with its problem. Pages are ordered by document
+// id and currency, and stay stable while documents are added; a page token is valid only for the same
+// request. Changes nothing: agents of any autonomy level may run it.
+//
+// POST /v1/analytics-documents
+func (c *Client) DrillAnalyticsQuery(ctx context.Context, request *AnalyticsDrill, params DrillAnalyticsQueryParams) (DrillAnalyticsQueryRes, error) {
+	res, err := c.sendDrillAnalyticsQuery(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendDrillAnalyticsQuery(ctx context.Context, request *AnalyticsDrill, params DrillAnalyticsQueryParams) (res DrillAnalyticsQueryRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("drillAnalyticsQuery"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/analytics-documents"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, DrillAnalyticsQueryOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/analytics-documents"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeDrillAnalyticsQueryRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, DrillAnalyticsQueryOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeDrillAnalyticsQueryResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -33382,6 +34561,144 @@ func (c *Client) sendGetCreditLimit(ctx context.Context, params GetCreditLimitPa
 	return result, nil
 }
 
+// GetCreditMemoRequest invokes getCreditMemoRequest operation.
+//
+// One credit memo request (ADR-0067, As built T85c) with its company's code and name, its customer's
+// number and name, the billing document and the sales order it is against by id and number, the
+// returns order it credits by id and number when it is for one, its date, its reason, its status with
+// the reason of a rejection, its net value in the billing document's currency and its items, each
+// naming the billing document's item and the sales order's item, with what the billing item billed,
+// the quantity credited when the request is for a returns order, the amount credited and the revenue
+// account and output tax code the credit memo will post with. A request of a company the caller cannot
+// act in is not found (404).
+//
+// GET /v1/credit-memo-requests/{id}
+func (c *Client) GetCreditMemoRequest(ctx context.Context, params GetCreditMemoRequestParams) (GetCreditMemoRequestRes, error) {
+	res, err := c.sendGetCreditMemoRequest(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetCreditMemoRequest(ctx context.Context, params GetCreditMemoRequestParams) (res GetCreditMemoRequestRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCreditMemoRequest"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/credit-memo-requests/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCreditMemoRequestOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/credit-memo-requests/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCreditMemoRequestOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCreditMemoRequestResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetCurrentPrincipal invokes getCurrentPrincipal operation.
 //
 // The caller's own principal (ADR-0052 G2): who they are, the companies they may act in, the
@@ -37095,6 +38412,235 @@ func (c *Client) sendGetLiquidityForecastVariance(ctx context.Context, params Ge
 	return result, nil
 }
 
+// GetMarginReport invokes getMarginReport operation.
+//
+// The margin report of one legal entity over a range of periods of a fiscal year (ADR-0075 §1-§4),
+// from the general ledger's leading ledger, in the legal entity's local currency, exact at the moment
+// of the read: per profit center the revenue (the credits less the debits on the accounts of type
+// `revenue`), the cost of sales (the debits less the credits on the accounts the configuration names
+// for the legal entity's chart, `controlling.margin_report[].cost_of_sales_accounts`) and the margin,
+// the revenue less the cost of sales. Cost of sales is what the ledger holds: a person posts it by
+// journal entry, and nothing is derived from stock. Rows are by the profit center's code; a profit
+// center with neither revenue nor cost of sales in the periods has no row. The lines that carry no
+// profit center are one last row, `unassigned`, present when their revenue or cost of sales is not
+// zero, so the rows of every page add up to `totals`, the legal entity's revenue, cost of sales and
+// margin in the periods, given on every page. `cost_of_sales_accounts` are the accounts of the chart
+// counted as cost of sales; when the configuration names none for the chart, `cost_of_sales_named` is
+// false and the cost of sales is zero, so the margin is the revenue. A legal entity that does not
+// exist or that the caller cannot act in is answered as missing (422 `request.reference_not_found` on
+// `legal_entity_id`). The figures are ledger amounts, so besides `controlling.margin.read` the caller
+// needs `ledger.entry.read`, as for the trial balance (`x-also-permissions`; 403
+// `identity.permission_missing` otherwise).
+//
+// GET /v1/margin-report
+func (c *Client) GetMarginReport(ctx context.Context, params GetMarginReportParams) (GetMarginReportRes, error) {
+	res, err := c.sendGetMarginReport(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetMarginReport(ctx context.Context, params GetMarginReportParams) (res GetMarginReportRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getMarginReport"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/margin-report"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetMarginReportOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/margin-report"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.Int32ToString(params.FiscalYear))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period_from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period_from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriodFrom.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period_to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period_to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriodTo.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetMarginReportOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetMarginReportResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetMatchResult invokes getMatchResult operation.
 //
 // Returns one three-way match evaluation.
@@ -40369,10 +41915,11 @@ func (c *Client) sendGetRevaluationRun(ctx context.Context, params GetRevaluatio
 // One revenue contract (ADR-0068 §3, T81a) with its company's code and name, its customer's number
 // and name, the sales order it stands for by id and number, its transaction price (the order's net
 // value, without tax) and its performance obligations, each with the order item it is for, its timing,
-// an over-time obligation's service period, its stand-alone selling price and, once the contract is
-// `active`, its allocated amount. `created_by` is the person who asked for it, or the system's
-// principal when the order's confirmation created it. One of a company the caller may not act in is
-// not found (404), as one that does not exist.
+// an over-time obligation's service period, the day a point-in-time obligation is satisfied when a
+// person set one (`satisfied_on`), its stand-alone selling price and, once the contract is `active`,
+// its allocated amount. `created_by` is the person who asked for it, or the system's principal when
+// the order's confirmation created it. One of a company the caller may not act in is not found (404),
+// as one that does not exist.
 //
 // GET /v1/revenue-contracts/{id}
 func (c *Client) GetRevenueContract(ctx context.Context, params GetRevenueContractParams) (GetRevenueContractRes, error) {
@@ -40494,6 +42041,304 @@ func (c *Client) sendGetRevenueContract(ctx context.Context, params GetRevenueCo
 
 	stage = "DecodeResponse"
 	result, err := decodeGetRevenueContractResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetRevenueRecognitionRun invokes getRevenueRecognitionRun operation.
+//
+// One revenue recognition run (ADR-0068 §9, T81d) with its company's code and name, its fiscal period
+// and posting date, the number of active contracts it read and of contracts it posted, the company's
+// totals to the period's end over the contracts it read (revenue recognized, revenue billed, contract
+// assets, contract liabilities), what its entries moved revenue by (`revenue_amount`) and its
+// `postings`, one per contract that moved, by sales order number: the contract's order and customer,
+// its cumulative amounts, its position as a contract asset or a contract liability, what the entry
+// moved revenue by, its journal entry, and per obligation the revenue account and the amounts. One of
+// a company the caller may not act in is not found (404), as one that does not exist.
+//
+// GET /v1/revenue-recognition-runs/{id}
+func (c *Client) GetRevenueRecognitionRun(ctx context.Context, params GetRevenueRecognitionRunParams) (GetRevenueRecognitionRunRes, error) {
+	res, err := c.sendGetRevenueRecognitionRun(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetRevenueRecognitionRun(ctx context.Context, params GetRevenueRecognitionRunParams) (res GetRevenueRecognitionRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getRevenueRecognitionRun"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/revenue-recognition-runs/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetRevenueRecognitionRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/revenue-recognition-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetRevenueRecognitionRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetRevenueRecognitionRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetRevenueSchedule invokes getRevenueSchedule operation.
+//
+// The recognition schedule of an `active` revenue contract (ADR-0068 §8, T81c): per performance
+// obligation and fiscal period of the company, the revenue the obligation's allocated amount gives the
+// period. Nothing is stored: the schedule is computed at the read from the obligations as the contract
+// fixed them and from the delivery confirmations of the contract's sales order as they are now, so it
+// moves with each delivery. The system does the arithmetic only; when an obligation is satisfied is
+// the person's judgement on the contract. A `point_in_time` obligation's amount falls in the fiscal
+// periods of its order item's delivery confirmations, in proportion to the quantity delivered: after
+// each delivery the amount scheduled so far is the allocated amount × the quantity delivered so far
+// ÷ the quantity ordered, rounded to the minor unit, and the delivery takes what that adds, so the
+// delivery that completes the item takes the remainder and the amounts add up to the allocated amount
+// exactly; what is not delivered yet is `unscheduled_amount`, in no period. The delivery confirmation
+// is the default evidence that the obligation is satisfied; an obligation whose contract names another
+// day (`satisfied_on`) has its whole allocated amount in that day's fiscal period, whatever was
+// delivered. An `over_time` obligation's amount is spread on a straight line by days over its service
+// period, both days included: each fiscal period takes the allocated amount × its days of the service
+// period ÷ the service period's days, rounded so that the periods' amounts add up to the allocated
+// amount exactly, a minor unit left going to the largest remainder, the earlier period first. Each
+// amount is split at `as_of`, the company's date today in its time zone: `recognized_amount` is what
+// falls on days up to and including `as_of` (a delivery or `satisfied_on` on or before it; of an
+// over-time period under way, the period's amount × its service days so far ÷ its service days),
+// `planned_amount` what falls after it. Recognized here is what the schedule gives to that day, not
+// what is posted: the recognition runs post it (`GET /v1/revenue-recognition-runs`). Per obligation
+// and for the contract, `recognized_amount`, `planned_amount` and `unscheduled_amount` add up to the
+// allocated amount and to the transaction price; `periods` on the contract are the obligations'
+// periods added up. A contract that is still a `draft` has no allocated amounts and is refused (409
+// `revenue.invalid_status`). A day the schedule needs a fiscal period for, a delivery's,
+// `satisfied_on` or a day of a service period, that lies in no fiscal year set up for the company is
+// refused naming the obligation (422 `revenue.no_fiscal_period`). A contract of a company the caller
+// may not act in is not found (404).
+//
+// GET /v1/revenue-contracts/{id}/schedule
+func (c *Client) GetRevenueSchedule(ctx context.Context, params GetRevenueScheduleParams) (GetRevenueScheduleRes, error) {
+	res, err := c.sendGetRevenueSchedule(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetRevenueSchedule(ctx context.Context, params GetRevenueScheduleParams) (res GetRevenueScheduleRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getRevenueSchedule"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/revenue-contracts/{id}/schedule"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetRevenueScheduleOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/revenue-contracts/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/schedule"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetRevenueScheduleOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetRevenueScheduleResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -55415,6 +57260,298 @@ func (c *Client) sendListCreditLimits(ctx context.Context, params ListCreditLimi
 	return result, nil
 }
 
+// ListCreditMemoRequests invokes listCreditMemoRequests operation.
+//
+// The credit memo requests of the companies the caller may act in (ADR-0067, As built T85c), each as
+// `getCreditMemoRequest` gives it: with its company's code and name, its customer's number and name,
+// the billing document, the sales order and the returns order it is for by id and number, its net
+// value and its items. Filters: `legal_entity_id`, `customer_id`, `billing_document_id`,
+// `sales_order_id`, `returns_order_id`, `status`, `document_number` (exact). Sortable by
+// `request_date` (default) and `document_number`; cursor paging.
+//
+// GET /v1/credit-memo-requests
+func (c *Client) ListCreditMemoRequests(ctx context.Context, params ListCreditMemoRequestsParams) (ListCreditMemoRequestsRes, error) {
+	res, err := c.sendListCreditMemoRequests(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListCreditMemoRequests(ctx context.Context, params ListCreditMemoRequestsParams) (res ListCreditMemoRequestsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCreditMemoRequests"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/credit-memo-requests"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListCreditMemoRequestsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/credit-memo-requests"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "billing_document_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "billing_document_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.BillingDocumentID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "sales_order_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "sales_order_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.SalesOrderID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "returns_order_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "returns_order_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.ReturnsOrderID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "document_number" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "document_number",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.DocumentNumber.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListCreditMemoRequestsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListCreditMemoRequestsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListCustomerInvoices invokes listCustomerInvoices operation.
 //
 // The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a) and the credit
@@ -70251,6 +72388,228 @@ func (c *Client) sendListRevenueContracts(ctx context.Context, params ListRevenu
 	return result, nil
 }
 
+// ListRevenueRecognitionRuns invokes listRevenueRecognitionRuns operation.
+//
+// The revenue recognition runs of the companies the caller may act in (ADR-0068 §9, T81d), latest
+// posting date first, each with its company's code and name, its fiscal period, its counts, its totals
+// and what it moved revenue by, without its postings, which `getRevenueRecognitionRun` gives. Filtered
+// by company, fiscal year and fiscal period. Sortable by: `posting_date`.
+//
+// GET /v1/revenue-recognition-runs
+func (c *Client) ListRevenueRecognitionRuns(ctx context.Context, params ListRevenueRecognitionRunsParams) (ListRevenueRecognitionRunsRes, error) {
+	res, err := c.sendListRevenueRecognitionRuns(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListRevenueRecognitionRuns(ctx context.Context, params ListRevenueRecognitionRunsParams) (res ListRevenueRecognitionRunsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listRevenueRecognitionRuns"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/revenue-recognition-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListRevenueRecognitionRunsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/revenue-recognition-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalYear.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriod.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListRevenueRecognitionRunsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListRevenueRecognitionRunsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListRfqs invokes listRfqs operation.
 //
 // Requests for quotation (RFQs, ADR-0069) of the legal entities the caller may act in, each with its
@@ -78170,6 +80529,206 @@ func (c *Client) sendPostBillingDocument(ctx context.Context, request OptBilling
 	return result, nil
 }
 
+// PostCreditMemoRequest invokes postCreditMemoRequest operation.
+//
+// Posts an `approved` credit memo request, once (ADR-0067, As built T85d), at the version the caller
+// read (`If-Match`): a customer credit memo is entered in accounts receivable and posted, in the same
+// transaction as the request's change, so either all of it happens or none. The credit memo (`kind`
+// `credit_memo`) has the billing document's company, customer and currency, names the billing
+// document's customer invoice as the invoice it credits (`reference_invoice_id`) and the request as
+// its source (`source_document_id`, `source_document_number`), and has the request's items one for
+// one, each with the billing item's description, revenue account and output tax code and the request
+// item's net amount. Its tax is what the billed invoice's item bore, shared out: of each billing item,
+// the credits posted so far, this one included, bear the share of the item's tax that their net
+// amounts are of the item's, shared out with money.Allocate, less what the earlier credits bore, so
+// the credits of an item's whole billed amount give back its tax to the minor unit; the ledger holds
+// that tax to the code's rate on the credit memo's date within a minor unit per line (422
+// `ledger.output_tax_mismatch` when the rate changed since billing). Its date, which is its tax date,
+// and its posting date are the request's `posting_date`, else today, the company's date in its time
+// zone, in an open period (409 `ledger.period_not_open`). Without a payment term of its own it keeps
+// the invoice's term from the invoice's date (ADR-0063 §7). Accounts receivable posts the entry
+// (document type `DG`, `source_context` `receivables`): it credits the customer's reconciliation
+// account with the credit memo's gross, the customer's open credit item (`GET /v1/open-items`), and
+// debits each item's revenue account with its amount and output tax per code. The credit reduces what
+// the customer owes, and so its credit exposure; it clears against the invoice by the ledger's
+// clearing or nets when an incoming payment is applied. The credit memos naming the invoice may not
+// together exceed its gross (422 `receivables.credit_exceeds_invoice`, under the invoice's row lock).
+// The request becomes `posted` and names its `posting_date`, its `customer_invoice_id` and
+// `customer_invoice_number` and the credit memo's `journal_entry_id`, `journal_entry_year` and
+// `journal_entry_number`; the billing document's items show the amount credited (`credited_amount`).
+// An audit record and CreditMemoRequestPosted are written with it, beside the credit memo's own
+// (CustomerInvoiceChanged, CustomerInvoicePosted). The request's row is read under a lock, then its
+// billing document's sales order's, under which the credits of one order are counted: of two requests
+// to post one request, one posts it and the other meets another version (412). One that is not
+// `approved` is refused (409 `sales.invalid_status`); a retry with the same `Idempotency-Key` answers
+// the posted request. What accounts receivable or the ledger refuses leaves the request `approved` and
+// nothing posted, and is answered with their code, the request's number leading the detail and the
+// request's own fields named: a customer that is not active, no longer a customer or blocked for
+// posting (422 `receivables.customer_not_usable`, `customer_id`); an item's account that can no longer
+// be posted (422 `receivables.account_not_postable`, `items[i].account_id`); a tax code that is no
+// longer an output tax code of the company with a rate on the date (422
+// `receivables.unknown_tax_code`, `items[i].tax_code`); the credit above what is left of the invoice's
+// gross (`net_amount`); a company without the `customer_invoice` or `journal_dg` number range (422
+// `config.no_number_range`). Revenue contracts are not touched. A posted request is not reversed or
+// cancelled in the first version. Posting takes the billing clerk's permission, `sales.billing.post`;
+// no permission of accounts receivable is needed. Human-only (`x-agent: false`).
+//
+// POST /v1/credit-memo-requests/{id}:post
+func (c *Client) PostCreditMemoRequest(ctx context.Context, request OptCreditMemoRequestPost, params PostCreditMemoRequestParams) (PostCreditMemoRequestRes, error) {
+	res, err := c.sendPostCreditMemoRequest(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendPostCreditMemoRequest(ctx context.Context, request OptCreditMemoRequestPost, params PostCreditMemoRequestParams) (res PostCreditMemoRequestRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("postCreditMemoRequest"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/credit-memo-requests/{id}:post"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, PostCreditMemoRequestOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/credit-memo-requests/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":post"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodePostCreditMemoRequestRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, PostCreditMemoRequestOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodePostCreditMemoRequestResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // PostCustomerInvoice invokes postCustomerInvoice operation.
 //
 // Posts a draft customer invoice to the ledger, once (ADR-0063 §5, T75b): it debits the customer's
@@ -83070,6 +85629,172 @@ func (c *Client) sendReleaseContract(ctx context.Context, params ReleaseContract
 
 	stage = "DecodeResponse"
 	result, err := decodeReleaseContractResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ReleaseCreditMemoRequest invokes releaseCreditMemoRequest operation.
+//
+// Approves an `open` credit memo request (ADR-0067, As built T85c), releasing it to be posted, at the
+// version the caller read (`If-Match`): the request is read under a row lock and moves to `approved`
+// once. One that is not open is refused (409 `sales.invalid_status`). Approving is by this one
+// permission, whatever the amount, and nothing sets the approver apart from the person who created the
+// request (product owner 2026-11-12); the tenant's own segregation-of-duties rules apply as on every
+// operation. Nothing is posted: an approved request is posted as a customer credit memo by a later
+// operation. Audited and published as CreditMemoRequestChanged. A retry with the same
+// `Idempotency-Key` answers the approved request. Human-only (`x-agent: false`). The action is
+// `:release`, not `:approve`, which is kept for approval requests (04 §4.9): no approval request is
+// made for a credit memo request.
+//
+// POST /v1/credit-memo-requests/{id}:release
+func (c *Client) ReleaseCreditMemoRequest(ctx context.Context, params ReleaseCreditMemoRequestParams) (ReleaseCreditMemoRequestRes, error) {
+	res, err := c.sendReleaseCreditMemoRequest(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendReleaseCreditMemoRequest(ctx context.Context, params ReleaseCreditMemoRequestParams) (res ReleaseCreditMemoRequestRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("releaseCreditMemoRequest"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/credit-memo-requests/{id}:release"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ReleaseCreditMemoRequestOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/credit-memo-requests/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":release"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ReleaseCreditMemoRequestOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeReleaseCreditMemoRequestResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -94630,12 +97355,15 @@ func (c *Client) sendUpdateRequisition(ctx context.Context, request *Requisition
 // has both days of its service period (422 `revenue.service_period_required` naming the day missing),
 // `service_from` not after `service_to` (422 `revenue.invalid_service_period`), and a `point_in_time`
 // obligation has none (422 `revenue.service_period_not_allowed`: send the dates as null when setting
-// it back); a stand-alone selling price is in the contract's currency (422
-// `revenue.currency_mismatch`) and more than zero (422 `revenue.price_not_positive`). The contract is
-// read under a row lock; one that is `active` is fixed and refused (409 `revenue.invalid_status`).
-// Nothing is allocated before the contract is activated. The contract's `version` moves. Audited, and
-// published as RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract as
-// the first answered it. Human-only (`x-agent: false`).
+// it back); a `point_in_time` obligation may name the day it is satisfied (`satisfied_on`, T81c) when
+// that is not its delivery confirmations, an `over_time` obligation may not (422
+// `revenue.satisfied_on_not_allowed`: send it as null when setting the timing to `over_time`); a
+// stand-alone selling price is in the contract's currency (422 `revenue.currency_mismatch`) and more
+// than zero (422 `revenue.price_not_positive`). The contract is read under a row lock; one that is
+// `active` is fixed and refused (409 `revenue.invalid_status`). Nothing is allocated before the
+// contract is activated. The contract's `version` moves. Audited, and published as
+// RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract as the first
+// answered it. Human-only (`x-agent: false`).
 //
 // PATCH /v1/revenue-contracts/{id}
 func (c *Client) UpdateRevenueContract(ctx context.Context, request *RevenueContractUpdate, params UpdateRevenueContractParams) (UpdateRevenueContractRes, error) {

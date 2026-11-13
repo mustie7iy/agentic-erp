@@ -1186,7 +1186,9 @@ stays once activated (configuration validation, `ledger.Setup.Check`); order
 items that named it before stay as they are, and posting them is refused;
 and for down payments (T46, ADR-0037) `down_payment`, the alternative
 reconciliation account of special G/L items: an asset that is a vendor
-reconciliation account, fixed once determined),
+reconciliation account, fixed once determined; and for revenue
+recognition runs (T81d, ADR-0068 §9) `contract_asset`, an asset, and
+`contract_liability`, a liability, neither a reconciliation account),
 the tax codes (T61a, ADR-0049 §3; migration 000124): `tax_code_definition`
 (direction, never changed; kind; UN/CEFACT category), `tax_component` (one
 per tax a code levies: jurisdiction, account key, never changed;
@@ -3556,7 +3558,10 @@ take entries whose `source_context` is `controlling`). Migration 000283
 adds allocation cycles, their receivers and runs and the permissions
 `controlling.allocation.read`, `.write` and `.run`. Migration 000284 adds
 the cycle's kind `assessment` with its assessment account, and in the
-ledger the secondary cost element and its two rules (§3.7).
+ledger the secondary cost element and its two rules (§3.7). Migration
+000308 adds the permission `controlling.margin.read` of the margin report
+(ADR-0075, T92b), which has no table. Migration 000309 adds the origin of
+a plan batch written by a copy of another category's plan (T93a).
 
 ```mermaid
 erDiagram
@@ -3574,7 +3579,9 @@ erDiagram
     text batch_key "once per category, company and year"
     text digest "sha-256 of its lines"
     int line_count
-    int replaced_count }
+    int replaced_count
+    uuid copied_from_category_id "a copy's source category, else null"
+    numeric copy_percentage "a copy's percentage, else null" }
   plan_line { uuid id PK
     uuid batch_id FK
     uuid category_id
@@ -3639,7 +3646,7 @@ erDiagram
 | Table | Purpose |
 |---|---|
 | `controlling.plan_category` | A plan category (SAP's category for planning): code (`^[0-9A-Z_]{1,10}$`, unique), name, and `locked`; locked and unlocked by a person (`controlling.plan.lock`) with the caller's version, read FOR UPDATE; never deleted |
-| `controlling.plan_batch` | A batch applied, insert-only: its key once per category, company and year (`plan_batch_key_once`) and the digest of its lines, so the same batch again is recognised and changes nothing and the key with other lines is refused; at least one line; refused on a locked category (`plan_category_open`) |
+| `controlling.plan_batch` | A batch applied, insert-only: its key once per category, company and year (`plan_batch_key_once`) and the digest of its lines, so the same batch again is recognised and changes nothing and the key with other lines is refused; at least one line; refused on a locked category (`plan_category_open`). A batch written by a copy of another category's plan (`POST /v1/plan-categories/{id}:copy`, T93a, migration 000309; ADR-0050 §8 As built) names the category copied from and the percentage its amounts were multiplied by, both or neither (`plan_batch_copy_origin`): the percentage above 0 and at most 1000 (`plan_batch_copy_percentage`), the category an existing one (`plan_batch_copied_from`) and another than the batch's (`plan_batch_copy_other_category`); its key is generated (`copy-<id>`), and it replaces the target's whole plan of the company and year. A category that changes is held `FOR NO KEY UPDATE` (T93a), so the foreign key's check of the category copied from never waits for a batch, a copy or a lock of it |
 | `controlling.plan_line` | A line of a batch: one center (`plan_line_one_center`), a period 1-16, a P&L account, the amount in the company's local currency, an optional positive quantity with its unit (`plan_line_quantity_unit`); of its batch's category, company and year (foreign key). Never deleted: a later batch of the same category, company and year naming its center sets `replaced_by_batch_id` once (`plan_line_replaced_once`, `plan_line_replaced_later`), so the plan is the lines not replaced, one per category, company, year, center, account and period (`plan_line_once`, a partial unique index), and every earlier plan stays readable. Nothing is written or replaced on a locked category (`plan_category_open`, the category read FOR SHARE). A batch that would write or replace a cost center's line in a period sharing a day with a period of the center whose `ledger.cost_center_period.lock_plan` is set is refused (T56g2; checked in the service through the ledger's port, the centers held FOR KEY SHARE; no trigger reads across the context boundary) |
 | `controlling.internal_order` | An internal order (ADR-0064 §1, T60a): a cost object of one company with a code unique in it (`^[0-9A-Z_-]{1,12}$`, `internal_order_code_once`), a name, a responsible cost center (the ledger's; no foreign key crosses the schema: checked through `ledger.AssignmentBalances.CostCenterRefs` to be an active cost center of the company) and a status, `created` then `released` (`controlling.order.release`, read FOR UPDATE with the caller's version). It starts as `created`, keeps its company and code and stays released (`internal_order_lifecycle`, a trigger); never deleted. Journal lines name it (`ledger.journal_line.internal_order_id`, §3.7, T60b) without a foreign key: the ledger asks `controlling.CostObjects` (its port `ledger.CostObjects`) for the orders a posting names, which holds them `FOR SHARE`; the order's actual costs are those lines, read through `ledger.AssignmentBalances.OrderActuals` and stored nowhere else |
 | `controlling.order_budget` | An order's budget (ADR-0064 §3, T60c): at most one row per order (the primary key; `order_budget_order`, a foreign key to the order), one overall amount of zero or more (`order_budget_not_negative`) in minor units of the order's company's local currency, which a company keeps (000045). An order without a row has no budget. Replaced with the version its reader saw (`controlling.order.budget`; the order read FOR UPDATE, the version one more with every change, `platform.touch`), each change audited with the amounts before and after; never deleted. Nothing is refused for a budget: `GET /v1/internal-orders/{id}/budget` compares it with the order's balance in the leading ledger over every year (`ledger.AssignmentBalances.OrderBalance`) |
@@ -3657,6 +3664,22 @@ over the periods asked for and merged with the leading ledger's actuals,
 which the ledger reads as its cost center (or profit center) report does
 (§3.7, exact at the read; by profit center on profit and loss accounts
 only, the segments summed).
+
+The margin report (`GET /v1/margin-report`, ADR-0075, T92b) stores
+nothing either: per profit center of a company, over a range of periods
+of a fiscal year, the revenue (credits less debits on the accounts of type
+`revenue`), the cost of sales (debits less credits on the accounts the
+configuration names for the company's chart,
+`controlling.margin_report[].cost_of_sales_accounts`, single accounts or
+ranges of expense accounts; tier 2) and their difference, in the company's
+local currency, with the lines that carry no profit center as one
+`unassigned` row and the company's totals, which the rows add up to. The
+ledger reads all of it in one statement
+(`ledger.AssignmentBalances.Margin`): the company's balances as the trial
+balance reads them (`ledger.period_balance`) and the profit centers' as
+the profit center report does (`ledger.assignment_balance`), each with
+the lines of entries not yet projected, so the figures are of one
+database state and exact at the read.
 
 ## 3.20 Tax filing (`tax`)
 
@@ -4599,7 +4622,9 @@ records an item without a price is priced from, T80b (migration
 T85a (migration 000306) the returns order for a posted billing
 document's items, which moves no stock either and posts nothing, and
 T85b (migration 000307) the receipt of its quantities, a confirmation
-as the delivery's is.
+as the delivery's is, and T85c (migration 000313) the credit memo
+request, which T85d (migration 000314) posts as a customer credit
+memo.
 There is no material
 master (§3.16's shared `material` joins the items when it is built): an
 item names what is sold by a description and an optional free-text
@@ -4727,6 +4752,29 @@ erDiagram
     int item_no PK "the returns order's item"
     uuid returns_order_id "the receipt's returns order"
     numeric quantity "above zero"
+  }
+  billing_document ||--o{ credit_memo_request : "is credited by"
+  returns_order |o--o{ credit_memo_request : "is credited by"
+  credit_memo_request ||--|{ credit_memo_request_item : "has"
+  billing_document_item ||--o{ credit_memo_request_item : "is credited by"
+  credit_memo_request { uuid id PK
+    text document_number "credit_memo_request range, unique per company"
+    uuid billing_document_id "a posted billing document"
+    uuid sales_order_id "the billing document's order"
+    uuid returns_order_id "optional: a returns order of that document"
+    date request_date "the company's date when created"
+    text reason "required without a returns order"
+    text status "open, approved, rejected, posted"
+    text rejection_reason "only when rejected"
+    uuid customer_invoice_id "receivables: the credit memo, once posted (T85d)"
+    int version
+  }
+  credit_memo_request_item { uuid request_id PK
+    int item_no PK
+    int billing_item_no "once per request"
+    uuid returns_order_id "the request's"
+    numeric quantity "with a returns order only"
+    bigint net_amount "above zero, minor units"
   }
   price { uuid id PK
     uuid legal_entity_id "tenancy"
@@ -4911,6 +4959,42 @@ erDiagram
   (`return_receipt_item_received`, a trigger running as the table's
   owner), so that quantity is the sum of the item's receipts and never
   above what is returned (`returns_order_item_received`). Insert-only.
+- `sales.credit_memo_request` (T85c, migration 000313; ADR-0067, As
+  built T85c): what is asked to be credited of a posted billing
+  document's items (`credit_memo_request_document_posted`, a trigger:
+  of its company and customer; `credit_memo_request_billing_document_fkey`
+  with that document's sales order), for a returns order of that
+  document (`credit_memo_request_returns_order_fkey`) or by amount with a
+  reason (`credit_memo_request_basis`; the reason at most 500
+  characters, not white space alone); numbered once per company
+  (`credit_memo_request_number_once`); created `open`
+  (`credit_memo_request_created_open`) and approved or rejected once
+  (`credit_memo_request_decided_once`, a trigger that holds for the
+  table's owner too, with a column grant of `status`,
+  `rejection_reason`, `version` and `updated_by`; no delete); a
+  rejection with its reason and only a rejection
+  (`credit_memo_request_rejection`). Its currency is its billing
+  document's. Indexes for the list: by date, customer, billing document,
+  sales order and returns order. T85d (migration 000314) adds the
+  status `posted` with `posting_date`, `customer_invoice_id`,
+  `customer_invoice_number`, `journal_entry_year` and `journal_entry_id`,
+  all of them once posted and none before (`credit_memo_request_posted`),
+  a credit memo one request's (`credit_memo_request_invoice_once`), and
+  the change rule admits an approved request posted once.
+- `sales.credit_memo_request_item`: an amount above zero in minor units
+  (`credit_memo_request_item_amount_positive`) credited of an item of
+  the request's own billing document (`credit_memo_request_item_request_fkey`,
+  `credit_memo_request_item_billing_item_fkey`), a billing item at most
+  once per request (`credit_memo_request_item_once`); with a returns
+  order exactly when its request has one, then of that returns order's
+  item of the billing item (`credit_memo_request_item_returns_item_fkey`)
+  with a quantity above zero, else without a quantity
+  (`credit_memo_request_item_quantity`, and the trigger
+  `credit_memo_request_item_amounts`: the item names its request's
+  returns order; the requests of the billing document not rejected never
+  ask for more of an item than it billed, nor credit more of a returns
+  order's item than was received). Insert-only
+  (`platform.forbid_mutation`).
 - `sales.price` (T80a, migration 000294; ADR-0067 §10): the net price of
   an item key (`price_item_key_check`) in a company, for every customer
   (`customer_id` null) or for one, above zero (`price_positive`) per a
@@ -4959,8 +5043,9 @@ erDiagram
 ## 3.30 Revenue recognition (`revenue`)
 
 ADR-0068, T81a-T81d. A leaf: it reads the sales context's orders (§3.29,
-`sales.Orders`), the partner context's names and tenancy through its
-ports and keeps no foreign key out of its schema (02 §2.1). T81a
+`sales.Orders`), the partner context's names, tenancy, the ledger's
+fiscal calendar and the configuration (a company's time zone) through
+its ports and keeps no foreign key out of its schema (02 §2.1). T81a
 (migration 000298) builds the schema with its outbox and inbox and the
 revenue contract: the contract with a customer that one confirmed sales
 order stands for, with one performance obligation per order item. The
@@ -4968,7 +5053,14 @@ inbox is in use: the context consumes the sales context's
 `SalesOrderChanged` and creates a confirmed order's contract, once
 (ADR-0068 §4). T81b (migration 000299) lets a person set a draft's
 obligations and activate the contract, which allocates its transaction
-price to them and fixes it. Nothing is posted before T81d.
+price to them and fixes it. T81c (migration 000310) adds the day a
+person says a point-in-time obligation is satisfied on, and the
+recognition schedule, which has no table: it is computed on read from
+the obligations and the order's delivery confirmations (ADR-0068 §8).
+T81d (migrations 000311 and 000312) adds the recognition run with its
+postings, which posts through the ledger's port with `source_context`
+`revenue` (the journal's source contexts gain it), and the account
+determination keys `contract_asset` and `contract_liability` (§3.7).
 
 ```mermaid
 erDiagram
@@ -4991,8 +5083,37 @@ erDiagram
     text timing "point_in_time, over_time"
     date service_from "over_time alone"
     date service_to "not before service_from"
+    date satisfied_on "point_in_time alone: a person's day, else the deliveries"
     bigint standalone_selling_price "above 0"
     bigint allocated_amount "set at activation; the shares are the transaction price" }
+  recognition_run ||--o{ recognition_posting : "posted"
+  contract ||--o{ recognition_posting : "per run"
+  recognition_posting ||--|{ recognition_posting_obligation : "has"
+  recognition_run { uuid id PK
+    uuid legal_entity_id "tenancy; one run per company and period"
+    smallint fiscal_year
+    smallint fiscal_period
+    date posting_date "the period's last day; later than the company's last run"
+    char currency
+    int contract_count "active contracts read"
+    int posting_count "contracts that moved"
+    bigint recognized_amount "cumulative, the contracts read"
+    bigint billed_amount
+    bigint contract_asset_amount
+    bigint contract_liability_amount
+    bigint revenue_amount "what the run's entries moved revenue by" }
+  recognition_posting { uuid run_id PK
+    uuid contract_id PK
+    uuid id "the entry's source document"
+    bigint recognized_amount "cumulative to the posting date"
+    bigint billed_amount
+    bigint revenue_amount "what the entry moved revenue by"
+    uuid journal_entry_id "ledger" }
+  recognition_posting_obligation { int obligation_no PK
+    uuid account_id "ledger: the order item's revenue account"
+    bigint recognized_amount
+    bigint billed_amount
+    bigint revenue_amount }
 ```
 
 - `revenue.contract`: one per sales order
@@ -5022,21 +5143,53 @@ erDiagram
   judgement, and start as point in time and the item's net value
   (ADR-0068 §2). An over-time obligation has a service period, from not
   after to, and a point-in-time obligation none
-  (`performance_obligation_service_period`); `allocated_amount` is not
+  (`performance_obligation_service_period`); a point-in-time obligation
+  may name the day it is satisfied on, an over-time obligation may not
+  (`performance_obligation_satisfied_on`, T81c): absent, the order
+  item's delivery confirmations say when; `allocated_amount` is not
   negative (`performance_obligation_allocated_check`); the application
   leaves it absent until it activates the contract (the database holds
   the activation to the amounts, not a draft to their absence). An obligation is written and changed only
   while its contract is a draft
   (`performance_obligation_fixed_once_active`, which locks the
   contract's row, so a change and the activation wait for one another).
-  The application may set its timing, service period, stand-alone
-  selling price and allocated amount alone, and deletes nothing.
+  The application may set its timing, service period, the day it is
+  satisfied on, stand-alone selling price and allocated amount alone,
+  and deletes nothing.
+- `revenue.recognition_run` (T81d): one per company and fiscal period
+  (`recognition_run_once`), each for a later period than the company's
+  last (`recognition_run_in_order`, a trigger that holds the company's
+  runs by an advisory lock, the one the application takes before it
+  reads what the runs so far posted); `posting_date` is the period's
+  last day; the amounts are the company's totals to that day over the
+  active contracts read, none negative, the contract assets less the
+  contract liabilities being what was recognized less what was billed
+  (`recognition_run_positions_check`); `posting_count` is at most
+  `contract_count` (`recognition_run_posting_count_check`);
+  `revenue_amount` is what the run's entries moved revenue by, signed,
+  the one amount that is the run's own, and zero for a run that posted
+  nothing (`recognition_run_revenue_check`). Written once: the application neither changes nor deletes a run.
+- `revenue.recognition_posting`: what a run posted for one contract, at
+  most once per run (its primary key): the contract's cumulative
+  revenue recognized and billed to the run's posting date, what the
+  entry moved its revenue by, and the entry (the ledger's, by id, year
+  and number; `id` is the entry's source document,
+  `recognition_posting_id_once`). The contract's position is recognized
+  less billed: a contract asset when positive, a contract liability
+  when negative. Written once.
+- `revenue.recognition_posting_obligation`: per obligation of the
+  posting's contract its cumulative revenue recognized and billed, what
+  the entry moved its revenue account by, and that account, the order
+  item's. A contract's last posting holds every obligation, and the
+  next run posts the change of recognized less billed since. Written
+  once.
 - `revenue.outbox`, `revenue.inbox`: the context's events
-  (`RevenueContractChanged`), and the events its consumer
+  (`RevenueContractChanged`, `RevenueRecognized`), and the events its consumer
   `revenue-contracts` has read (the sales context's
   `SalesOrderChanged`), each recorded in the transaction of what the
   reading did.
-- Permissions `revenue.contract.read`, `.write` and `.activate`.
+- Permissions `revenue.contract.read`, `.write` and `.activate`, and
+  `revenue.recognition.run`.
 
 ## 3.31 Governance, risk and compliance (`grc`)
 

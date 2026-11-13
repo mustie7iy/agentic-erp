@@ -270,7 +270,7 @@ func TestCatalog(t *testing.T) {
 		}, "erp_backlog_total: non-counter metrics should not have \"_total\" suffix"},
 		"series ceiling": {func(m *Metrics) {
 			m.counterVec("erp_by_everything_total", "Too many series.", "operation", "event", "code")
-		}, "over the ceiling of 50000"},
+		}, "over the ceiling of 60000"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			m := NewMetrics()

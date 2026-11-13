@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
@@ -59,7 +60,7 @@ func contractAPI(c Contract, refs references) gen.RevenueContract {
 	for i, o := range c.Obligations {
 		out.Obligations[i] = gen.PerformanceObligation{ObligationNo: o.No, OrderItemNo: o.OrderItemNo, ItemKey: apitypes.OptString(o.ItemKey),
 			Description: o.Description, NetAmount: apitypes.Money(o.Net, c.Currency, c.Exponent), Timing: o.Timing,
-			ServiceFrom: apitypes.OptDate(o.ServiceFrom), ServiceTo: apitypes.OptDate(o.ServiceTo),
+			ServiceFrom: apitypes.OptDate(o.ServiceFrom), ServiceTo: apitypes.OptDate(o.ServiceTo), SatisfiedOn: apitypes.OptDate(o.SatisfiedOn),
 			StandaloneSellingPrice: apitypes.Money(o.StandalonePrice, c.Currency, c.Exponent)}
 		if o.Allocated != nil {
 			out.Obligations[i].AllocatedAmount = gen.NewOptMoney(apitypes.Money(*o.Allocated, c.Currency, c.Exponent))
@@ -108,7 +109,8 @@ func (e *Endpoints) GetRevenueContract(ctx context.Context, params gen.GetRevenu
 func (e *Endpoints) UpdateRevenueContract(ctx context.Context, req *gen.RevenueContractUpdate, params gen.UpdateRevenueContractParams) (gen.UpdateRevenueContractRes, error) {
 	changes := make([]ObligationChange, len(req.Obligations))
 	for i, o := range req.Obligations {
-		changes[i] = ObligationChange{No: o.ObligationNo, Timing: apitypes.Ptr[string](o.Timing), ServiceFrom: apitypes.OptNilDate(o.ServiceFrom), ServiceTo: apitypes.OptNilDate(o.ServiceTo)}
+		changes[i] = ObligationChange{No: o.ObligationNo, Timing: apitypes.Ptr[string](o.Timing), ServiceFrom: apitypes.OptNilDate(o.ServiceFrom), ServiceTo: apitypes.OptNilDate(o.ServiceTo),
+			SatisfiedOn: apitypes.OptNilDate(o.SatisfiedOn)}
 		if price, ok := o.StandaloneSellingPrice.Get(); ok {
 			changes[i].Price = &Amount{Value: price.Amount, Currency: price.Currency}
 		}
@@ -174,4 +176,49 @@ func (e *Endpoints) ListRevenueContracts(ctx context.Context, params gen.ListRev
 		return nil, err
 	}
 	return &gen.RevenueContractPage{Items: items, NextPageToken: next}, nil
+}
+
+// periodsAPI are a schedule's periods as the API gives them; unit is the
+// unit of the quantities delivered.
+func periodsAPI(periods []PeriodAmount, unit, currency string, exp int) []gen.RevenueSchedulePeriod {
+	out := make([]gen.RevenueSchedulePeriod, len(periods))
+	for i, p := range periods {
+		out[i] = gen.RevenueSchedulePeriod{FiscalYear: int32(p.Period.FiscalYear), FiscalPeriod: int32(p.Period.Number), PeriodStart: p.Period.Start,
+			PeriodEnd: p.Period.End, Amount: apitypes.Money(p.Amount, currency, exp), RecognizedAmount: apitypes.Money(p.Recognized, currency, exp),
+			PlannedAmount: apitypes.Money(p.Amount-p.Recognized, currency, exp)}
+		if p.Days > 0 {
+			out[i].Days = gen.NewOptInt32(p.Days)
+		}
+		if p.Delivered != nil {
+			out[i].DeliveredQuantity = gen.NewOptQuantity(gen.Quantity{Value: money.PlainQuantity(p.Delivered), Unit: unit})
+		}
+	}
+	return out
+}
+
+// GetRevenueSchedule implements GET /v1/revenue-contracts/{id}/schedule.
+func (e *Endpoints) GetRevenueSchedule(ctx context.Context, params gen.GetRevenueScheduleParams) (gen.GetRevenueScheduleRes, error) {
+	s, err := e.GetSchedule(ctx, params.ID)
+	if err != nil {
+		return nil, err
+	}
+	refs, err := e.references(ctx, []Contract{s.Contract})
+	if err != nil {
+		return nil, err
+	}
+	c := s.Contract
+	le, customer := refs.companies[c.LegalEntityID], refs.customers[c.CustomerID]
+	amount := func(m money.Minor) gen.Money { return apitypes.Money(m, c.Currency, c.Exponent) }
+	out := &gen.RevenueSchedule{RevenueContractID: c.ID, SalesOrderID: c.SalesOrderID, SalesOrderNumber: c.SalesOrderNumber, LegalEntityID: c.LegalEntityID,
+		CompanyCode: le.Code, CompanyName: le.Name, CustomerID: c.CustomerID, CustomerNumber: customer.Number, CustomerName: customer.Name,
+		Currency: c.Currency, AsOf: s.AsOf, TransactionPrice: amount(c.TransactionPrice), RecognizedAmount: amount(s.Recognized),
+		PlannedAmount: amount(s.Planned), UnscheduledAmount: amount(s.Unscheduled), Obligations: make([]gen.RevenueScheduleObligation, len(s.Obligations)),
+		Periods: periodsAPI(s.Periods, "", c.Currency, c.Exponent)}
+	for i, o := range s.Obligations {
+		out.Obligations[i] = gen.RevenueScheduleObligation{ObligationNo: o.No, OrderItemNo: o.OrderItemNo, ItemKey: apitypes.OptString(o.ItemKey),
+			Description: o.Description, Timing: o.Timing, ServiceFrom: apitypes.OptDate(o.ServiceFrom), ServiceTo: apitypes.OptDate(o.ServiceTo),
+			SatisfiedOn: apitypes.OptDate(o.SatisfiedOn), AllocatedAmount: amount(*o.Allocated), RecognizedAmount: amount(o.Recognized),
+			PlannedAmount: amount(o.Planned), UnscheduledAmount: amount(o.Unscheduled), Periods: periodsAPI(o.Periods, o.Unit, c.Currency, c.Exponent)}
+	}
+	return out, nil
 }

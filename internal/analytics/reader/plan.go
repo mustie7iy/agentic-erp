@@ -19,6 +19,7 @@ type compiled struct {
 	through  string   // the latest date of the fact in the views
 	datasets []string // the fact dataset, then each dataset it joins or derives from
 	sum      bool
+	document bool // a documents plan: each row names its document
 }
 
 // planner resolves a plan's names against the contract.
@@ -58,6 +59,9 @@ func compile(contract map[string]*datasets.Dataset, scope Scope, p Plan) (compil
 	for _, j := range fact.Joins {
 		pl.joins[j.Dataset] = contract[j.Dataset]
 	}
+	if err := checkPage(p); err != nil {
+		return compiled{}, err
+	}
 	measure, err := pl.measure(p.Aggregate)
 	if err != nil {
 		return compiled{}, err
@@ -70,7 +74,51 @@ func compile(contract map[string]*datasets.Dataset, scope Scope, p Plan) (compil
 	if err != nil {
 		return compiled{}, err
 	}
+	if p.Aggregate == "documents" {
+		return pl.documents(p, measure, groups, where), nil
+	}
 	return pl.build(p, measure, groups, where), nil
+}
+
+// maxDocuments is the most rows a documents plan asks for: a page of the
+// API's largest size and one to tell whether more follow.
+const maxDocuments = 501
+
+// checkPage refuses a documents plan without a page's bounds, and paging
+// on any other.
+func checkPage(p Plan) error {
+	if p.Aggregate != "documents" {
+		if p.After != nil || p.Limit != 0 {
+			return refused("a %s plan is not paged", p.Aggregate)
+		}
+		return nil
+	}
+	if p.Limit < 1 || p.Limit > maxDocuments || (p.After != nil && (len(p.After) != 2 || p.After[0] == "")) {
+		return refused("a documents plan takes a limit of 1 to %d and after a document and currency", maxDocuments)
+	}
+	return nil
+}
+
+// documents is a documents plan's SQL: the amount summed per document and
+// currency, besides the plan's breakdown, in page order, after the
+// cursor, at most the limit (a checked integer, written as a literal).
+func (pl *planner) documents(p Plan, measure string, groups []string, where string) compiled {
+	c := pl.build(Plan{Dataset: p.Dataset, Aggregate: "sum"}, measure, nil, "")
+	id, cur := text(ident(pl.fact.Dataset, pl.fact.WithRole("id")[0].Name)), ident(pl.fact.Dataset, "currency")
+	if p.After != nil {
+		after := id + " > " + pl.arg(p.After[0]) + " OR (" + id + " = " + pl.arg(p.After[0]) + " AND " + cur + " > " + pl.arg(p.After[1]) + ")"
+		if where == "" {
+			where = " WHERE (" + after + ")"
+		} else {
+			where += " AND (" + after + ")"
+		}
+	}
+	keys := append(append(slices.Clone(groups), id, cur), ident(pl.fact.Dataset, "exponent"))
+	order := append([]string{id, cur}, groups...)
+	c.sql = "SELECT " + strings.Join(append(keys, measure), ", ") + " FROM " + pgx.Identifier{pl.fact.Dataset}.Sanitize() + pl.joinSQL() + where +
+		" GROUP BY " + strings.Join(keys, ", ") + " ORDER BY " + strings.Join(order, ", ") + " LIMIT " + strconv.Itoa(p.Limit)
+	c.args, c.document = pl.args, true
+	return c
 }
 
 // build assembles the compiled plan.
@@ -103,7 +151,7 @@ func (pl *planner) build(p Plan, measure string, groups []string, where string) 
 // measure is the aggregate's SQL.
 func (pl *planner) measure(aggregate string) (string, error) {
 	switch aggregate {
-	case "sum":
+	case "sum", "documents":
 		return "SUM(" + ident(pl.fact.Dataset, pl.fact.WithRole("amount")[0].Name) + ")", nil
 	case "count_distinct":
 		return "COUNT(DISTINCT " + ident(pl.fact.Dataset, pl.fact.WithRole("id")[0].Name) + ")", nil

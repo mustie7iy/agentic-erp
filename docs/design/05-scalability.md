@@ -220,7 +220,7 @@ outcome, agent kind, model alias, currency), never a tenant, company,
 principal or document id, so a cell's series count depends on the code,
 not on its customers. Per-tenant figures stay in the database. A catalog
 test holds every metric the server registers to that rule: promlint names,
-labels from an allow-list, and at most 50,000 series per process with
+labels from an allow-list, and at most 60,000 series per process with
 every label at its ceiling.
 
 Latency objectives (01 §1.3) are evaluated per class: every operation is

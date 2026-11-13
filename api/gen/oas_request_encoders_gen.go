@@ -504,6 +504,20 @@ func encodeConfirmSalesDeliveryRequest(
 	return nil
 }
 
+func encodeCopyPlanCategoryRequest(
+	req *PlanCategoryCopy,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateAllocationCycleRequest(
 	req *AllocationCycleCreate,
 	r *http.Request,
@@ -772,6 +786,20 @@ func encodeCreateCostCenterRequest(
 
 func encodeCreateCreditLimitRequest(
 	req *CustomerCreditLimitCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateCreditMemoRequestRequest(
+	req *CreditMemoRequestCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -1162,6 +1190,20 @@ func encodeCreateRevenueContractRequest(
 	return nil
 }
 
+func encodeCreateRevenueRecognitionRunRequest(
+	req *RevenueRecognitionRunCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateRfqRequest(
 	req *RfqCreate,
 	r *http.Request,
@@ -1372,8 +1414,36 @@ func encodeDecideRecommendationRequest(
 	return nil
 }
 
+func encodeDeclineCreditMemoRequestRequest(
+	req *CreditMemoRequestReject,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeDisableConnectorRequest(
 	req *ReasonInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeDrillAnalyticsQueryRequest(
+	req *AnalyticsDrill,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -1731,6 +1801,26 @@ func encodePostBankStatementLineRequest(
 
 func encodePostBillingDocumentRequest(
 	req OptBillingDocumentPost,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	if !req.Set {
+		// Keep request with empty body if value is not set.
+		return nil
+	}
+	e := new(jx.Encoder)
+	{
+		if req.Set {
+			req.Encode(e)
+		}
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodePostCreditMemoRequestRequest(
+	req OptCreditMemoRequestPost,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"

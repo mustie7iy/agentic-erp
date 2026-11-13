@@ -155,3 +155,45 @@ func TestLockedPlanDoesNotMove(t *testing.T) {
 	failsWith(t, f.try(t, planLineSQL, f.tenant, f.later, f.open, f.entity, 2, f.cc, nil, f.account, nil, nil, f.actor), "is locked")
 	failsWith(t, f.try(t, `UPDATE controlling.plan_line SET replaced_by_batch_id = $2 WHERE id = $1`, f.line, f.later), "is locked")
 }
+
+// TestPlanBatchCopyRules (T93a, migration 000309; ADR-0050 §8 As built
+// T93a): a batch written by a copy names the category copied from and the
+// percentage, both or neither; the percentage is above 0 and at most
+// 1000; the category copied from exists and is another than the batch's.
+func TestPlanBatchCopyRules(t *testing.T) {
+	need(t)
+	f := newPlan(t)
+	const copySQL = `INSERT INTO controlling.plan_batch (tenant_id, id, category_id, legal_entity_id, fiscal_year, batch_key, digest, line_count,
+		replaced_count, created_by, copied_from_category_id, copy_percentage) VALUES ($1, gen_random_uuid(), $2, $3, 2027, $4, repeat('a', 64), 1, 0, $5, $6, $7)`
+	for name, c := range map[string]struct {
+		from       any
+		percentage any
+		want       string
+	}{
+		"a category copied from without a percentage": {f.locked, nil, "plan_batch_copy_origin"},
+		"a percentage without a category copied from": {nil, "105", "plan_batch_copy_origin"},
+		"a percentage of zero":                        {f.locked, "0", "plan_batch_copy_percentage"},
+		"a percentage above 1000":                     {f.locked, "1000.0001", "plan_batch_copy_percentage"},
+		"a category copied into itself":               {f.open, "105", "plan_batch_copy_other_category"},
+		"an unknown category copied from":             {id(), "105", "plan_batch_copied_from"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			failsWith(t, f.try(t, copySQL, f.tenant, f.open, f.entity, "c1", f.actor, c.from, c.percentage), c.want)
+		})
+	}
+	t.Run("a copy of a locked category at the largest percentage, and an uploaded batch", func(t *testing.T) {
+		mustApp(t, f.tenant, func(tx pgx.Tx) error {
+			if err := exec(tx, copySQL, f.tenant, f.open, f.entity, "c1", f.actor, f.locked, "1000"); err != nil {
+				return err
+			}
+			return exec(tx, copySQL, f.tenant, f.open, f.entity, "c2", f.actor, nil, nil)
+		})
+		var kept string
+		mustApp(t, f.tenant, func(tx pgx.Tx) error {
+			return tx.QueryRow(t.Context(), `SELECT copy_percentage::text FROM controlling.plan_batch WHERE batch_key = 'c1'`).Scan(&kept)
+		})
+		if kept != "1000.0000" {
+			t.Errorf("the percentage kept: got %s, want 1000.0000", kept)
+		}
+	})
+}

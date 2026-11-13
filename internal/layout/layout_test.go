@@ -122,7 +122,7 @@ var allowed = map[string][]string{
 	"provisioning":            {"config", "configuration", "identity", "tenancy"},
 	"receivables":             {"config", "ledger", "partner", "tenancy"},                // as payables reads them (ADR-0063 §1)
 	"sales":                   {"config", "ledger", "partner", "receivables", "tenancy"}, // as receivables reads them; receivables itself for billing, which posts through it (ADR-0067 §1, §9)
-	"revenue":                 {"partner", "sales", "tenancy"},                           // a leaf (ADR-0068 §1): the sales context's orders (sales.Orders), partners' names and tenancy through its ports
+	"revenue":                 {"config", "ledger", "partner", "sales", "tenancy"},       // a leaf (ADR-0068 §1): the sales context's orders (sales.Orders), partners' names, tenancy, the ledger's calendar and the configuration through its ports
 	"reconagent":              {"apitools", "llm"},
 	"recommend":               {"apitools", "llm"}, // the recommending agents' one pattern (ADR-0072): every such agent imports it, and it no agent
 	"cashagent":               {"apitools", "llm"},

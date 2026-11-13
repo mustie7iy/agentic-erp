@@ -2801,21 +2801,21 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Recognition schedules",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The revenue accountant reads an active contract's recognition schedule: per obligation and fiscal period the revenue recognized so far and planned, a point-in-time obligation by its delivery confirmations and an over-time one on a straight line by days (GET /v1/revenue-contracts/{id}/schedule)",
-        "r": "T81c · docs/design/plan-breadth-week2.md §T81c",
+        "r": "T81c · docs/design/plan-breadth-week2.md §T81c · db/migrations/000310 · performance_obligation.satisfied_on · GET /v1/revenue-contracts/{id}/schedule · internal/revenue/schedule.go · ledger.Calendar · money.Allocate · walkthrough step_revenue_schedule · ADR-0068 §8 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The revenue accountant runs revenue recognition for a company and a period: per active contract revenue is brought to what is recognized to the period's end, and the contract's position, revenue recognized less revenue billed, stands as one contract asset or one contract liability (POST /v1/revenue-recognition-runs)",
-        "r": "T81d · docs/design/plan-breadth-week2.md §T81d",
+        "r": "T81d · docs/design/plan-breadth-week2.md §T81d · db/migrations/000311, 000312 · revenue.recognition_run, recognition_posting, recognition_posting_obligation · POST, GET /v1/revenue-recognition-runs · revenue.recognition.run · account_determination.contract_asset, contract_liability · RevenueRecognized · internal/revenue/run.go · walkthrough step_revenue_schedule · ADR-0068 §9 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -3588,13 +3588,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Margin reporting",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A controller reads the margin report of a company and a period from the general ledger: per profit center the revenue, the cost of sales on the accounts the configuration names, and the margin (GET /v1/margin-report)",
-        "r": "T92b · docs/design/plan-breadth-week3.md §T92b",
+        "r": "T92b · docs/design/plan-breadth-week3.md §T92b · ADR-0075 · migration 000308 (controlling.margin.read) · config controlling.margin_report (config.MarginChart, AccountRange, Config.CostOfSalesAccounts, validator.marginReport, tier 2) · ledger.AssignmentBalances.Margin · controlling.Endpoints.GetMarginReport · TestMarginReport, TestMarginReportPages, TestMarginReportWithoutNamedAccounts, TestMarginReportRefusals, TestMarginReportIsExactOrFails, TestPlanDatabaseFailures, TestMarginReportValid, TestMarginReportRules, TestMarginReportTier, TestMarginReadPermission, TestMarginReportBudget · walkthrough step_margin · 03-data-model §3.19 · 04-api-design",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -3637,13 +3637,13 @@
     "ph": 9,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Planning versions",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A controller copies a plan category's lines of a fiscal year into another plan category as a new version, scaled by a percentage, and reads it in the plan and actual reports (POST /v1/plan-categories/{id}:copy)",
-        "r": "T93a · docs/design/plan-breadth-week3.md §T93a",
+        "r": "T93a · docs/design/plan-breadth-week3.md §T93a · ADR-0050 §8 (As built, Planning versions) · migration 000309 (plan_batch.copied_from_category_id, copy_percentage) · controlling.Endpoints.CopyPlanCategory (plancopy.go), replacePlan, planCenters · PlanBatch copied_from_plan_category_id, _code, copy_percentage · PlanBatchApplied copied_from_plan_category_id, copy_percentage · TestPlanCopy, TestPlanCopyReplaces, TestPlanCopyRefusals, TestPlanCopyOfAPlanItCannotTake, TestPlanCopyAndLockedCostCenters, TestPlanLockWaitsForACopy, TestPlanDatabaseFailures, TestPlanBatchCopyRules · walkthrough step_plan_version · 03-data-model §3.19 · 04-api-design",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -4985,20 +4985,20 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first; 2026-11-12, returns in week 3) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Credit memo requests",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A sales administrator creates a credit memo request against a posted billing document, for a returns order's received quantities or for an amount per item with a reason, and a sales manager approves or rejects it (POST /v1/credit-memo-requests, :approve, :reject)",
-        "r": "T85c · docs/design/plan-breadth-week3.md §T85c",
+        "r": "T85c · docs/design/plan-breadth-week3.md §T85c · db/migrations/000313 · sales.credit_memo_request, credit_memo_request_item · POST /v1/credit-memo-requests · GET /v1/credit-memo-requests · GET /v1/credit-memo-requests/{id} · POST /v1/credit-memo-requests/{id}:release (approve) · :decline (reject) · CreditMemoRequestChanged · sales.credit_memo_request.read, .write, .approve · walkthrough step_credit_memo_request · ADR-0067 As built",
         "src": "po:2026-11-12 · design:03 §3.16",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The billing clerk posts an approved credit memo request: a customer credit memo naming the billing document's invoice is entered and posted in receivables in the same transaction and clears against it (POST /v1/credit-memo-requests/{id}:post)",
-        "r": "T85d · docs/design/plan-breadth-week3.md §T85d",
+        "r": "T85d · docs/design/plan-breadth-week3.md §T85d · db/migrations/000314 · credit_memo_request posted columns · POST /v1/credit-memo-requests/{id}:post · CreditMemoRequestPosted · BillingDocumentItem.credited_amount · sales.Orders ItemCredit · receivables ItemInput.Tax · walkthrough step_credit_memo_posting · ADR-0067 and ADR-0063 As built",
         "src": "po:2026-11-12 · design:03 §3.16",
         "c": []
        },
@@ -6597,13 +6597,13 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Follow-up questions in the same analysis",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An analyst asks a follow-up question in the same analysis: the analytics agent answers it with the earlier questions, queries and results in context, and the saved report keeps the whole exchange (erp ask -continue)",
-        "r": "T94a · docs/design/plan-breadth-week3.md §T94a",
+        "r": "T94a · docs/design/plan-breadth-week3.md §T94a · ADR-0044 (As built, Follow-up questions in the same analysis) · analytics.Agent.Continue, Report.Exchange, Turn (followup.go), Session.Rerun · erp ask -continue · evals/analytics follow-up cases · TestContinue, TestEarlierExchangeIsData, TestRerunKeepsTheExchange, TestAskContinue, TestEvalSuites · walkthrough step_follow_up",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -6618,13 +6618,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T59"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Drill-through to documents",
       "c": [
        {
-        "s": "T",
-        "t": "An analyst drills from a row of a query's result to the documents behind it: the journal entries, purchase orders or supplier invoices that make up the figure, paged, with the caller's company access (POST /v1/analytics-queries:documents)",
-        "r": "T94b · docs/design/plan-breadth-week3.md §T94b",
+        "s": "D",
+        "t": "An analyst drills from a row of a query's result to the documents behind it: the journal entries, purchase orders or supplier invoices that make up the figure, paged, with the caller's company access (POST /v1/analytics-documents)",
+        "r": "T94b · docs/design/plan-breadth-week3.md §T94b · ADR-0044 (As built, Drill-through to documents) · drillAnalyticsQuery (endpoint/drill.go) · analytics.RowQuery, DocumentsOf, PageOf, Source.Numbers, Remote.Documents (drill.go, remote.go) · store.Source.Documents, DocumentPlan (store/drill.go) · reader documents aggregate (wire.Plan After, Limit; wire.Row Document) · erp query -documents · TestRowQuery, TestDocumentsOf, TestPageOf, TestNumbers, TestRemoteDocuments, reader.TestDocuments, TestDocumentsFromTheStore, TestDocumentsFailures, TestParity documents, TestDrillThroughBudget, TestDrillThrough, TestDrillFailures, TestQueryDocuments · walkthrough step_drill_through",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -10388,13 +10388,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T67 · also the phase 1 GRC item \"Access agent: least-privilege roles from usage\" (triage, PO 2026-10-21)"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "SoD analysis on every role change",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The access agent analyses a role as it stands or with permissions to be added: which segregation-of-duties rules its holders would break and how to avoid it, as a recommendation on the role (erp agent access-sod)",
-        "r": "T106b · docs/design/plan-breadth-week3.md §T106b",
+        "r": "T106b · docs/design/plan-breadth-week3.md §T106b · internal/accessagent Analyse · agent type access · erp agent access-sod · evals/access version 2 · walkthrough step_access_sod · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -10409,13 +10409,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T67"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Access review preparation",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The access agent prepares an access review: per principal its roles, when each was last used, permissions never used and segregation-of-duties conflicts, with a recommendation to keep or remove each role, for the reviewer to decide (erp agent access-review)",
-        "r": "T106c · docs/design/plan-breadth-week3.md §T106c",
+        "r": "T106c · docs/design/plan-breadth-week3.md §T106c · internal/accessagent Prepare · agent type access · erp agent access-review · evals/access version 3 · walkthrough step_access_review · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
