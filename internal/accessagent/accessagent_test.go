@@ -44,6 +44,7 @@ type fakeAPI struct {
 	refuse string
 	made   int
 	stray  bool // the assignments name a role the roles do not
+	twice  bool // the assignments name Ruth's of the clerks' role twice
 }
 
 var permissions = map[string]string{
@@ -88,12 +89,18 @@ func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				all = append(all, strings.ReplaceAll(assignments[r], `{"principal_id"`, `{"role_id": "`+r+`", "principal_id"`))
 			}
 		}
+		if a.twice {
+			all = append(all, `{"role_id": "`+clerks+`", "principal_id": "`+ruth+`", "valid_from": "2026-05-01"}`)
+		}
 		if a.stray {
 			all = append(all, `{"role_id": "ghost", "principal_id": "`+ruth+`", "valid_from": "2026-01-01"}`)
 		}
 		answer(200, `{"items": [`+strings.Join(all, ", ")+`]}`)
 	case path == "/v1/role-assignments":
 		answer(200, `{"items": [`+assignments[q.Get("role_id")]+`]}`)
+	case path == "/v1/principals":
+		answer(200, `{"items": [{"id": "`+ruth+`", "kind": "human", "display_name": "Ruth", "status": "active"},
+			{"id": "`+left+`", "kind": "service", "display_name": "", "status": "active"}, {"id": "`+joins+`", "kind": "human", "display_name": "Jo", "status": "blocked"}]}`)
 	case path == "/v1/sod-rules":
 		answer(200, `{"items": [{"id": "s2", "permission_a": "tax.return.file", "permission_b": "tax.return.prepare", "description": "Preparer apart from filer",
 			"valid_from": "2026-01-01"}, {"id": "s1", "permission_a": "credit.limit.write", "permission_b": "tax.return.prepare", "description": "Credit apart from tax",
@@ -443,12 +450,13 @@ func june() time.Time { return time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC) }
 // TestAnalyseWords: the analysis of ar_clerk on the fake API, whose rule
 // pairs the credit limits' change with the tax returns' preparation:
 // Ruth holds both through the role now, and the colleague who joins in
-// July will; the one who left does not. A principal the agent cannot name
-// is named by its id. A content with a number the run did not read is
+// July will; the one who left does not. Each is named by name and id. A content with a number the run did not read is
 // refused before the API; the one with the line given is recorded.
 func TestAnalyseWords(t *testing.T) {
 	a := &fakeAPI{}
-	const line = "Rule credit.limit.write / tax.return.prepare: " + ruth + ", " + joins
+	// Jo, who joins, is blocked: identity's check at a grant counts a
+	// blocked principal's roles as it counts anyone's.
+	const line = "Rule credit.limit.write / tax.return.prepare: Ruth (" + ruth + "), Jo (" + joins + ")"
 	model := llmtest.New(t,
 		llmtest.ToolFn("createRecommendation", rec(clerks, "sod_conflict", line+"\nThey would break it 4242 times.")),
 		llmtest.ToolFn("createRecommendation", rec(clerks, "sod_conflict", line+"\nRule credit.limit.write / tax.return.file: "+ruth)),
@@ -491,6 +499,71 @@ func TestAnalyseRefusals(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			res, err := (&accessagent.Agent{LLM: model.Runner(), API: c.api, Now: june}).Analyse(context.Background(), c.role, []string{"tax.return.file"})
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("got %v, want an error with %q", err, c.want)
+			}
+			if res.Session != "" {
+				t.Errorf("a session: got %s, want none", res.Session)
+			}
+		})
+	}
+}
+
+// TestPrepareOnTheFake: the access review of the second quarter on the
+// fake API: Ruth, assigned the clerks' role twice, holds it once on the
+// period's last day beside the credit managers'; the colleague who left
+// holds no role and is kept, named by its id; the one blocked is not
+// reviewed.
+func TestPrepareOnTheFake(t *testing.T) {
+	a := &fakeAPI{twice: true}
+	model := llmtest.New(t,
+		llmtest.ToolFn("createRecommendation", reviewed(left, false, false)),
+		llmtest.ToolFn("createRecommendation", reviewed(ruth, false, false)),
+		llmtest.Final("Prepared."))
+	res, err := (&accessagent.Agent{LLM: model.Runner(), API: client(t, a), Now: june}).Prepare(context.Background(), second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Recommendations) != 2 || res.Refused != 0 {
+		t.Errorf("recommendations: got %v and %d refused, want two and none refused", res.Recommendations, res.Refused)
+	}
+	prompt := strings.ReplaceAll(model.Requests[0], `\n`, "\n")
+	for _, want := range []string{
+		"2 principals to recommend on",
+		"Principal " + left + ", a service:\n- no role on the period's last day\nKind for " + left + ": keep_roles\nLine for " + left + ": Access review 2026-04-01..2026-06-30: keep: no role",
+		"Principal Ruth (" + ruth + "), a human:\n- role ar_clerk: used",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt: got %s, want it to contain %q", prompt, want)
+		}
+	}
+	if got := strings.Count(prompt, "- role ar_clerk:"); got != 1 {
+		t.Errorf("Ruth's clerks' role in the prompt: got %d, want once", got)
+	}
+}
+
+// TestPrepareRefusals: a period that is none, the roles, the agent
+// itself, the recommendations made, a role's grants or the audit trail
+// refused, and a period with more events than a run reads stop the
+// review before a session starts.
+func TestPrepareRefusals(t *testing.T) {
+	model := llmtest.New(t)
+	for name, c := range map[string]struct {
+		fake   *fakeAPI
+		period accessagent.Period
+		events int
+		want   string
+	}{
+		"a period that is none":        {&fakeAPI{}, accessagent.Period{From: "2026-04-02", To: "2026-04-01"}, 0, "a period is two dates"},
+		"the rules refused":            {&fakeAPI{refuse: "/sod-rules"}, second, 0, "the segregation-of-duties rules: "},
+		"the agent itself refused":     {&fakeAPI{refuse: "/me"}, second, 0, "the agent itself: "},
+		"the recommendations refused":  {&fakeAPI{refuse: "/recommendations"}, second, 0, "the recommendations made: "},
+		"the grants refused":           {&fakeAPI{refuse: "/permissions"}, second, 0, "the permissions of role "},
+		"the audit trail refused":      {&fakeAPI{refuse: "/audit-events"}, second, 0, "the audit events: "},
+		"more events than a run reads": {&fakeAPI{}, second, 1, "choose a shorter one"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			res, err := (&accessagent.Agent{LLM: model.Runner(), API: client(t, c.fake), MaxEvents: c.events, Now: june}).Prepare(context.Background(), c.period)
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Errorf("got %v, want an error with %q", err, c.want)
 			}

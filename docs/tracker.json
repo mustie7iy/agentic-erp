@@ -10360,13 +10360,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T67"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Access review preparation",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The access agent prepares an access review: per principal its roles, when each was last used, permissions never used and segregation-of-duties conflicts, with a recommendation to keep or remove each role, for the reviewer to decide (erp agent access-review)",
-        "r": "T106c · docs/design/plan-breadth-week3.md §T106c",
+        "r": "T106c · docs/design/plan-breadth-week3.md §T106c · internal/accessagent Prepare · agent type access · erp agent access-review · evals/access version 3 · walkthrough step_access_review · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

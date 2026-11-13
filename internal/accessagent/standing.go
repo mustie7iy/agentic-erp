@@ -70,6 +70,7 @@ type principal struct {
 	ID          string `json:"id"`
 	Kind        string `json:"kind"`
 	DisplayName string `json:"display_name"`
+	Status      string `json:"status"`
 }
 
 // standing is the tenant's access as a run read it: the roles by id, the

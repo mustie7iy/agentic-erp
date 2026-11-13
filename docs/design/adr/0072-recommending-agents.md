@@ -196,7 +196,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | Type | Package, command | Reads | Recommends | Never |
 |---|---|---|---|---|
 | `credit_scoring` | `internal/creditagent`, `erp agent credit-score -company CODE -customer ID` | `getCreditExposure`, `listCreditLimits`, `getReceivablesAging`, `listDunningRuns`, `listDunningNotices`, `listIncomingPayments`, `listCustomerInvoices`, `getBusinessPartner` | on `credit_limit`: `raise_limit`, `lower_limit`, `keep_limit`; on `business_partner` (a customer without a limit): `set_limit` | `createCreditLimit`, `updateCreditLimit`, the release of an order's credit block |
-| `access` | `internal/accessagent`, `erp agent access-roles -role CODE -period FROM..TO`, `erp agent access-sod -role CODE [-add P,...]` | `listRoles`, `getRole`, `listRolePermissions`, `listRoleAssignments`, `listPrincipals`, `listAuditEvents`, `listSodRules` | on `role`: `remove_permissions`, `keep` (T106a); `sod_conflict`, `no_conflict` (T106b) | every identity write (granting a permission, changing a rule among them) |
+| `access` | `internal/accessagent`, `erp agent access-roles -role CODE -period FROM..TO`, `erp agent access-sod -role CODE [-add P,...]`, `erp agent access-review -period FROM..TO` | `listRoles`, `getRole`, `listRolePermissions`, `listRoleAssignments`, `listPrincipals`, `listAuditEvents`, `listSodRules` | on `role`: `remove_permissions`, `keep` (T106a); `sod_conflict`, `no_conflict` (T106b); on `principal`: `keep_roles`, `remove_roles`, `review` (T106c) | every identity write (granting a permission, changing a rule, ending a role assignment, blocking a principal among them) |
 
 A later slice adds its row here and its section under "As built".
 
@@ -419,6 +419,61 @@ A later slice adds its row here and its section under "As built".
   and rule; she accepts the recommendation.
 - No migration, no new operation, permission, event or problem code.
 
+### T106c, the access agent: access review prepared
+
+- A third entry function of the `access` agent, `Agent.Prepare`, as the
+  plan says; object type `principal`. `erp agent access-review -period
+  FROM..TO` (UTC days, as T106a's).
+- Before its session the run reads what T106b's reads (roles, every
+  assignment, the rules, the principals, the grants of the reviewed
+  principals' roles), the period's audit events by actor (up to T106a's
+  limit), the agent itself (`/v1/me`) and the recommendations on
+  principals (`listRecommendations`, `agents.session.read`, which its role
+  holds already).
+- **Who is reviewed:** every principal whose status is `active`, people,
+  agents and services alike (the agent itself included); a blocked or
+  inactive one cannot act and is left out.
+- **What is computed, per principal** (`review.go`): the active roles it
+  holds on the period's last day; each judged by the principal's own
+  audit events as T106a judges a role by its holders' (its permissions
+  valid that day sorted into unused, used and use not recorded): **used**
+  when some permission is used, with the latest instant of the
+  principal's events in those contexts ("last used"); **not used** when
+  none is used and none is one a read needs (a role granting nothing that
+  day included); **not recorded** otherwise; the permissions never used;
+  and its segregation-of-duties conflicts as T106b computes them. The
+  kind follows: `remove_roles`, naming the roles not used, where there
+  are some; else `review`, naming the roles whose use is not recorded,
+  where there are some or the principal breaks a rule; else
+  `keep_roles`. The first line is `Access review FROM..TO: remove|review|keep
+  <roles>` (`keep: no role` for none), with `; segregation of duties:
+  <pairs>` whenever it breaks a rule. Its check holds the recommendation
+  to that kind and line, and every number to one the run read; the model
+  words the reasons. A role used only through reads cannot be told used
+  or unused (T106a's "use not recorded") and is never recommended for
+  removal: the reviewer decides it (`review`).
+- **One per principal and period:** a principal on which the agent itself
+  already recommended with a first line naming the same period is left
+  out; a second run of a period whose principals are all reviewed starts
+  no session and says so (`erp agent access-review` prints the reply).
+- The review's sign-off, periodic reviews as a workflow, removing on
+  acceptance and reminders are not built (product owner, 2026-11-12;
+  the plan's "Later").
+- `evals/access`, version 3: three cases added (task `run: review`): a
+  role whose permission the clerk never used recommended for removal and
+  named; a role the clerk used kept; an instruction in a principal's name
+  not followed, nobody blocked and no assignment ended. The replay reads
+  each principal's computed kind and line back from the prompt by its
+  name (`replay_vars`). Not run against a live model.
+- Walkthrough `step_access_review` (step 69): Ada gives Sally a role
+  `tax_preparer` she never uses; the agent leaves one recommendation per
+  active principal (the stand-in's script reads each kind and line back
+  per principal), the access agent itself among them; Sally's is
+  `remove_roles` naming `tax_preparer`; a second run adds none; the
+  agent's own `endRoleAssignment` is refused (403); Ada accepts and ends
+  the assignment herself.
+- No migration, no new operation, permission, event or problem code.
+
 ## Defaults taken (for the product owner's digest)
 
 1. The shared run is a package, `internal/recommend`, not a copy per
@@ -474,3 +529,10 @@ A later slice adds its row here and its section under "As built".
     any rule in a provisioned tenant first needs an administrator's grant
     of one of its permissions ended, since `tenant_admin` holds every
     permission (a gap for the product owner, reported, not built).
+13. (T106c) The access review covers every active principal (people,
+    agents, services) and the active roles each holds on the period's
+    last day; a role is "used" by the principal's own audit events as
+    T106a judges a role; `remove_roles` names only roles not used whose
+    permissions only changes need, `review` covers roles whose use is not
+    recorded and any SoD conflict, and a second run of a period leaves out
+    the principals the agent already recommended on with that period.

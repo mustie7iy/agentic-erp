@@ -7442,6 +7442,91 @@ step_access_sod() {
   expect "the recommendation's outcome" "$(field .outcome)" accepted
   passed
 }
+# step_access_review is T106c (ADR-0072): the access agent, erp agent
+# access-review through the model stand-in answering from a script of
+# turns (its suite's replay, evals/access), prepares the access review of
+# yesterday to tomorrow (UTC): one recommendation per active principal,
+# people, agents and services alike, for a reviewer to decide. Ada gave
+# Sally a role for preparing tax returns, tax_preparer, which Sally, who
+# sells, never used: its removal is recommended and named. The kind and
+# the first line of each recommendation are computed by the run and given
+# in its prompt; the stand-in's script reads them back per principal (the
+# script's vars), as a model would take them. A second run of the period
+# starts no session and adds none. The review's sign-off is not built.
+step_access_review() {
+  heading "Step 69 — The access agent: an access review prepared, one recommendation per principal, people, agents and services, the role nobody used recommended for removal; a second run adds none"
+  local role sally agent from to ids n got session rec before
+  as ada
+  say "Ada gives Sally, who sells, a role for preparing tax returns, tax_preparer, which she will not use:"
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "tax_preparer", "name": "Tax preparer"}'
+  role=$(field .id)
+  grant "$role" tax.return.prepare
+  sally=$(awk -F'\t' '$2 == "Sally Sales" { print $1 }' "$WORK/names")
+  [ -n "$sally" ] || fail "Sally is not among the people of the walkthrough"
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$sally\", \"role_id\": \"$role\"}"
+  from=$(date_add "$(utc_day)" -1) to=$(date_add "$(utc_day)" 1)
+  QUIET=1 api 200 '' listPrincipals -p status=active -p page_size=500
+  expect "the active principals on one page" "$(field '.next_page_token // "none"')" none
+  ids=$(field '[.items[].id] | sort | join(" ")')
+  n=$(field '.items | length')
+  agent=$(field '.items[] | select(.display_name == "Access agent") | .id')
+  say "The access agent prepares the review of $from to $to (UTC): erp agent access-review reads the roles, the"
+  say "assignments, the rules, the principals, their roles' grants and the period's audit events itself, judges for"
+  say "each active principal each role it holds on $to by its own audit events (as step 67 judges a role by its"
+  say "holders'), with its segregation-of-duties conflicts as step 68 computes them, and starts a session. The model"
+  say "is the stand-in, answering from a script of turns as the agent's suite replays them (evals/access): one"
+  say "recommendation per principal, with the kind and first line the run computed for it."
+  jq -n --arg ids "$ids" '
+    ($ids | split(" ")) as $p |
+    {vars: ([range(0; $p | length) as $i |
+       {key: "k\($i)", value: "Kind for \($p[$i]): ([a-z_]+)"}, {key: "l\($i)", value: "Line for \($p[$i]): ([^\\\\]+)"}] | from_entries
+       + {session: "session id is ([0-9a-f-]{36})"}),
+     turns: ([range(0; $p | length) as $i |
+       {tool: "createRecommendation", input: {body: {session_id: "{{session}}", object_type: "principal", object_id: $p[$i], kind: "{{k\($i)}}",
+         content: "{{l\($i)}}\nThe roles of this principal as the run found them, for the reviewer to decide."}}}]
+       + [{final: "The access review is prepared; the reviewer decides each recommendation."}])}' >"$WORK/model-script.json"
+  show ERP_AGENT_TOKEN=… erp agent access-review -period "$from..$to"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/access-agent") "$ERP" agent access-review -period "$from..$to" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent access-review failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed -n '1p;$p' | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made: one recommendation per active principal" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" \
+    "recommendations made $n, refused 0."
+  expect "the principals recommended on, every active one" \
+    "$(printf '%s\n' "$got" | sed -nE 's/^  recommendation [0-9a-f-]{36}: [a-z_]+ on principal ([0-9a-f-]{36})$/\1/p' | sort | tr '\n' ' ' | sed 's/ $//')" "$ids"
+  expect "an agent reviewed too: the access agent itself" "$(printf '%s\n' "$got" | grep -c " on principal $agent\$" || true)" 1
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): remove_roles on principal $sally\$/\1/p")
+  [ -n "$rec" ] || fail "erp agent access-review printed no remove_roles on Sally ($sally)"
+  say "The reviewer reads Sally's recommendation:"
+  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)"))' listRecommendations -p "object_id=$sally" -p "session_id=$session"
+  expect "naming the role she never used, first" "$(field '.items[0].content | split("\n")[0]')" "Access review $from..$to: remove tax_preparer"
+  QUIET=1 api 200 '' listRecommendations -p object_type=principal -p page_size=500
+  before=$(field '.items | length')
+  say "A second run of the same period adds nothing: every active principal has its recommendation already."
+  show ERP_AGENT_TOKEN=… erp agent access-review -period "$from..$to"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/access-agent") "$ERP" agent access-review -period "$from..$to" 2>"$WORK/stderr") ||
+    fail "the second erp agent access-review failed ($(cat "$WORK/stderr"))"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  expect "the second run" "$got" "Every active principal has its recommendation of the access review $from..$to already: nothing to add."
+  QUIET=1 api 200 '' listRecommendations -p object_type=principal -p page_size=500
+  expect "the recommendations on principals" "$(field '.items | length')" "$before"
+  as access-agent
+  say "Recommending is all it may do: ending an assignment is a person's (x-agent: false):"
+  QUIET=1 api 200 '' listRoleAssignments -p "principal_id=$sally" -p "role_id=$role"
+  local assignment
+  assignment=$(field '.items[0].id')
+  QUIET=1 api 200 '' getRoleAssignment -p "id=$assignment"
+  refused 403 identity.agent_not_allowed endRoleAssignment -p "id=$assignment" -if-match "$ETAG" -body "{\"valid_to\": \"$to\"}"
+  as ada
+  say "Ada, reviewing, accepts it and ends the assignment herself, through the normal operation, from $to:"
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "Sally prepares no tax returns."}'
+  QUIET=1 api 200 '' getRoleAssignment -p "id=$assignment"
+  api 200 '"  tax_preparer of Sally: valid to \(.valid_to)"' endRoleAssignment -p "id=$assignment" -if-match "$ETAG" -body "{\"valid_to\": \"$to\"}"
+  passed
+}
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -9466,7 +9551,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_credit_agent step_access_agent step_access_sod step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_credit_agent step_access_agent step_access_sod step_access_review step_close'
 
 main() {
   stop_unseen

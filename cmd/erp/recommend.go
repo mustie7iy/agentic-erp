@@ -21,10 +21,17 @@ import (
 // recommended prints what a recommending agent's run did: its session,
 // each recommendation the API recorded and the model's reply. They are
 // printed even when the run failed afterwards: its recommendations wait
-// for a person either way.
+// for a person either way. A run that had nothing to do and started no
+// session prints its reply alone.
 func recommended(command string, res recommend.Result, runErr error) error {
-	if res.Session == "" {
+	if res.Session == "" && (runErr != nil || res.Reply == "") {
 		return runErr
+	}
+	if res.Session == "" {
+		// A run with nothing to do starts no session and says why.
+		w := printer()
+		fmt.Fprintln(w, res.Reply)
+		return errs.Wrapf(w.Flush(), "%s: print", command)
 	}
 	w := printer()
 	fmt.Fprintf(w, "Session %s: recommendations made %d, refused %d.\n", res.Session, len(res.Recommendations), res.Refused)
@@ -127,10 +134,32 @@ func agentAccessSod(ctx context.Context, args []string) error {
 	return recommended("agent access-sod", res, runErr)
 }
 
+// agentAccessReview has the access agent prepare the access review of a
+// period (ADR-0072, T106c): one recommendation per active principal, for
+// a reviewer to decide; a second run of the period adds none.
+func agentAccessReview(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("agent access-review", flag.ContinueOnError)
+	period := fs.String("period", "", "the period, FROM..TO (YYYY-MM-DD..YYYY-MM-DD, UTC days)")
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	from, to, ok := strings.Cut(*period, "..")
+	if !ok {
+		return errors.New("agent access-review: want -period FROM..TO")
+	}
+	c, err := client("ERP_AGENT_TOKEN")
+	if err != nil {
+		return err
+	}
+	res, runErr := (&accessagent.Agent{LLM: newRunner(c), API: c}).Prepare(ctx, accessagent.Period{From: from, To: to})
+	return recommended("agent access-review", res, runErr)
+}
+
 // accessEval has the access agent run on the task as its command does:
 // with the task's run sod, the role's segregation-of-duties analysis
-// (erp agent access-sod, the task's add a comma-separated list), and
-// otherwise the review of its role over its period (erp agent
+// (erp agent access-sod, the task's add a comma-separated list), with
+// run review the access review of its period (erp agent access-review),
+// and otherwise the review of its role over its period (erp agent
 // access-roles); what it recommended is the checks' to judge, and its
 // reply theirs too.
 func accessEval(ctx context.Context, env eval.Env) error {
@@ -139,14 +168,21 @@ func accessEval(ctx context.Context, env eval.Env) error {
 		res recommend.Result
 		err error
 	)
-	if run, _ := env.Task["run"].(string); run == "sod" { // a task without a run is the review of a role's use
+	switch run, _ := env.Task["run"].(string); run { // a task without a run is the review of a role's use
+	case "sod":
 		t, terr := tasked(env, "role")
 		if terr != nil {
 			return terr
 		}
 		add, _ := env.Task["add"].(string) // no add: the role as it stands
 		res, err = a.Analyse(ctx, t["role"], strings.Split(add, ","))
-	} else {
+	case "review":
+		t, terr := tasked(env, "from", "to")
+		if terr != nil {
+			return terr
+		}
+		res, err = a.Prepare(ctx, accessagent.Period{From: t["from"], To: t["to"]})
+	default:
 		t, terr := tasked(env, "role", "from", "to")
 		if terr != nil {
 			return terr

@@ -22,6 +22,12 @@
 // grant computes it (sod_conflict, naming each rule and who would break
 // it, or no_conflict); the model words how to avoid it.
 //
+// Prepare (T106c): an access review of a period, one recommendation per
+// active principal (keep_roles, remove_roles naming the roles it never
+// used, or review), each role judged by the principal's own audit events
+// as Review judges a role by its holders', with its conflicts as Analyse
+// computes them; a second run of the period adds none.
+//
 // Its checks hold each recommendation to what the run computed.
 // It makes no identity write: those are no tools of its (Never), and its
 // role holds identity and audit reads only where a tenant's administrator

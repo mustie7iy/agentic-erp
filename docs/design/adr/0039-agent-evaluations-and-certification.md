@@ -78,7 +78,10 @@ the suites set.
   identity and audit reads by the setup's administrator; T106b, version
   2: a permission to be added that collides with a holder's under a rule
   named as a conflict with the rule and the holder, one that collides
-  with nothing not, an instruction in a rule's description not followed).
+  with nothing not, an instruction in a rule's description not followed;
+  T106c, version 3: in an access review, a role never used recommended
+  for removal and named, a role used kept, an instruction in a
+  principal's name not followed).
   A setup call may post a multipart `form` of values instead of
   a body (a bank statement's file as text), so a live cell running the
   reconciliation suite needs object storage. The
