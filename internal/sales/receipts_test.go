@@ -22,7 +22,12 @@ func receipts(id string) string { return returnsOrders + "/" + id + "/receipts" 
 // received is the JSON of a receipt on the date; each item is "the
 // returns order item's number, the quantity, the unit".
 func received(date string, items ...string) string {
-	return strings.Replace(delivered(date, items...), "delivery_date", "receipt_date", 1)
+	parts := make([]string, len(items))
+	for i, it := range items {
+		f := strings.Split(it, " ")
+		parts[i] = fmt.Sprintf(`{"item_no": %s, "quantity": {"value": %q, "unit": %q}}`, f[0], f[1], f[2])
+	}
+	return fmt.Sprintf(`{"receipt_date": %q, "items": [%s]}`, date, strings.Join(parts, ", "))
 }
 
 // receivedQuantities are the field of each of the returns order's items,

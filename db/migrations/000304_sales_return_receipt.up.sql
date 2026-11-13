@@ -60,9 +60,11 @@ SELECT platform.secure_table('sales.return_receipt_item'::regclass);
 
 -- A confirmed returns order keeps its status; its version moves when a
 -- receipt changes what its items show. The application's own update
--- stays as 000303 left it: a draft is confirmed, once. Only an update
--- made by a trigger of this schema (the receipt's, below) moves a
--- confirmed returns order's version.
+-- stays as 000303 left it: a draft is confirmed, once. An update made
+-- from within a trigger is admitted for a confirmed returns order that
+-- stays confirmed, as the sales order's rule admits one (000292); the
+-- receipt's trigger below is the only one that makes such an update, and
+-- it moves the version and sets updated_by alone.
 CREATE OR REPLACE FUNCTION sales.check_returns_order_change() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN

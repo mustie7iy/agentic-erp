@@ -1246,7 +1246,8 @@ that returned quantities arrived, as T78c's is for a delivery.
   order item's `received_quantity` and move the returns order's
   `version` once per receipt and set its `updated_by`; the returns
   order's change rule (`sales.check_returns_order_change`) admits a
-  confirmed returns order's version moved from a trigger alone, and for
+  confirmed returns order changed from within a trigger alone, which
+  the receipt's trigger is the only one to do, moving the version; for
   the application confirming stays its one update. Schema tests in
   `db/sales_returns_test.go` (`TestReturnReceiptRules`).
 - `POST /v1/returns-orders/{id}/receipts` (201, idempotent by

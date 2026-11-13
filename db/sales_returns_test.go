@@ -379,6 +379,17 @@ func TestReturnReceiptRules(t *testing.T) {
 		{"a receipt changed by the tables' owner", func(tx pgx.Tx, s scene) error {
 			return all(tx, with(s, step(`SET LOCAL ROLE erp_owner`), step(`UPDATE sales.return_receipt SET receipt_date = '2026-03-23'`))...)
 		}, "is insert-only"},
+		{"a receipt deleted by the tables' owner", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(`SET LOCAL ROLE erp_owner`), step(`DELETE FROM sales.return_receipt`))...)
+		}, "is insert-only"},
+		{"a receipt's item changed by the tables' owner", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.receipt, s.returns, 1, "1"), step(`SET LOCAL ROLE erp_owner`),
+				step(`UPDATE sales.return_receipt_item SET quantity = 2`))...)
+		}, "is insert-only"},
+		{"a receipt's item deleted by the tables' owner", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.receipt, s.returns, 1, "1"), step(`SET LOCAL ROLE erp_owner`),
+				step(`DELETE FROM sales.return_receipt_item`))...)
+		}, "is insert-only"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
