@@ -20,7 +20,9 @@ import (
 // the calculator's result over the items that carry a code (coded, in
 // item order: res.Lines[j] is item coded[j]'s) and the codes as the ledger
 // read them on the date, whose components name the accounts their tax
-// posts to.
+// posts to. For a credit memo entered with its tax (given) the components'
+// tax in res.Lines is the item's given tax shared out (shareGiven), which
+// the tax lines add up.
 type calculated struct {
 	coded []int
 	res   tax.Result

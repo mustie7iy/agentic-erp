@@ -126,6 +126,16 @@ func TestCreditMemoWithGivenTax(t *testing.T) {
 			t.Errorf("the memo's output tax lines: got %s, want 230000 A1 82 (minor units)", lines)
 		}
 	})
+	t.Run("a given total other than the calculated one posts as given", func(t *testing.T) {
+		// A1 gives 0.63 on 3.33 and 0.19 on 1.00 (0.82); 0.63 and 0.20 are given, 0.83 in all, which the tax lines must add up.
+		_, lines, err := enter(memo("CR1B", item("3.33", a1, tax(63)), item("1.00", a1, tax(20))), true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if lines != "230000 A1 83" {
+			t.Errorf("the memo's output tax lines: got %s, want 230000 A1 83 (minor units)", lines)
+		}
+	})
 	t.Run("a code that gives no tax", func(t *testing.T) {
 		_, _, err := enter(memo("CR2", item("1.00", a0, tax(1))), true)
 		if p := problem.From(err); p.Code != "receivables.tax_changed" {
