@@ -214,13 +214,17 @@ func (d *drafting) create(in map[string]any) error {
 	return d.within(b["proposed"])
 }
 
-// update admits a change of the run's draft whose proposal, when it
-// changes it, still changes only what the recommendation named.
+// update admits a change of the run's draft that keeps it on the active
+// version and whose proposal, when it changes it, still changes only what
+// the recommendation named.
 func (d *drafting) update(in map[string]any) error {
 	if d.draft == "" || in["id"] != d.draft {
 		return ErrNotTheDraft
 	}
 	b, _ := in["body"].(map[string]any) // no body: the API refuses it
+	if base, ok := b["base_version"]; ok && fmt.Sprint(base) != fmt.Sprint(d.base) {
+		return fmt.Errorf("%w: %d", ErrBase, d.base)
+	}
 	if proposed, ok := b["proposed"]; ok {
 		return d.within(proposed)
 	}

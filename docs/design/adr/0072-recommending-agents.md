@@ -482,8 +482,8 @@ A later slice adds its row here and its section under "As built".
   other configuration write, `submitChangeRequest`,
   `withdrawChangeRequest`, `activateChangeRequest` among them, and the
   decisions on an approval and on a recommendation.
-- Its guards: one draft per run, based on the active version
-  (`ErrBase`); a proposal, on create or update, that is a configuration,
+- Its guards: one draft per run, based on the active version and kept
+  on it by an update (`ErrBase`); a proposal, on create or update, that is a configuration,
   changes something and changes only settings at or under the paths the
   recommendation named (`config.Diff` against the active version,
   `ErrOutside`); an update or simulation only of the run's draft
@@ -540,8 +540,8 @@ A later slice adds its row here and its section under "As built".
   uses too): a version the agent may not read stops it before a session.
 - Its tools: the reads `listConfigVersions`, `getConfigVersion`,
   `getSchema`, `getCurrentPrincipal`; `findOperations`, the contract's
-  search (`apitools.Contract`): the operations whose id, summary or
-  description hold every word asked, or those named by id, at most 20,
+  search (`apitools.Contract`): the operations whose id or summary hold
+  every word asked, or those named by id, at most 20,
   with their method, path, summary, description, permission, problem
   codes and whether only a person may call them; and `reply`, the answer.
   The last two are local tools (`apitools.Local`): answered by the

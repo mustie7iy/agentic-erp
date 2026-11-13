@@ -186,6 +186,7 @@ func TestDraft(t *testing.T) {
 		simulate(version),
 		simulate(draftID),
 		update(draftID, map[string]any{"proposed": outside}),
+		update(draftID, map[string]any{"base_version": 2}),
 		update(draftID, map[string]any{"title": "V0 at 2.5 percent from 1 July 2099"}),
 		on("ready_to_submit", ready),
 		simulate(draftID),

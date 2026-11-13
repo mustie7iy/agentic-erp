@@ -56,8 +56,9 @@ type Described struct {
 }
 
 // Contract is the tool that reads the contract to an agent (T108a): given
-// words, the operations whose id or summary hold every one of them, and given operation ids, those operations; at most 20, in the
-// order of their ids, each with its method, path, summary, description,
+// words, the operations whose id or summary hold every one of them, and
+// given operation ids, those operations; at most 20, in the order of
+// their ids, each with its method, path, summary, description,
 // permission and problem codes. It reads the contract compiled into the
 // binary, closed operations included: a person may call those.
 func Contract(session *Session) *Tool {
