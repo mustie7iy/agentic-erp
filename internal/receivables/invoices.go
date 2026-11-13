@@ -33,6 +33,13 @@ type ItemInput struct {
 	// emirate, AE-DU), with a code that levies its lines' subdivision.
 	TaxJurisdiction              *string
 	CostCenterID, ProfitCenterID *uuid.UUID
+	// Tax is the item's tax as a context that enters a credit memo in
+	// process gives it (sales' credit memo request, T85d): its share of
+	// the tax the credited invoice's item bore, so a document credited in
+	// parts gives back exactly the tax it bore (ADR-0063, As built T85d).
+	// nil: calculated from the item's tax code (§4). The API's request
+	// cannot set it.
+	Tax *money.Minor
 }
 
 // Input is a customer invoice as a client sends it.
@@ -216,6 +223,9 @@ func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, in Input) (checked,
 	if err := e.outputTax(ctx, c.le, in.Currency, in.InvoiceDate, c.items); err != nil {
 		return checked{}, err
 	}
+	if err := givenTax(in, c.items); err != nil {
+		return checked{}, err
+	}
 	return c, c.total()
 }
 
@@ -332,6 +342,29 @@ func (e *Endpoints) assignments(ctx context.Context, in Input, c checked) error 
 	// The ledger's refusal names the items' own fields (items[i].…).
 	if err := e.Accounts.CheckAssignments(ctx, c.le.ID, date, items, true); err != nil {
 		return fmt.Errorf("receivables: check the items' assignments: %w", err)
+	}
+	return nil
+}
+
+// givenTax sets the tax of each item whose tax its input gives
+// (ItemInput.Tax), in place of what its code gives. Only a credit memo
+// entered from a source document and naming the invoice it credits gives
+// a tax (sales' credit memo request, T85d): its items' taxes are shares
+// of the tax that invoice bore. The tax is zero or more, and zero on an
+// item without a tax code. Anything else is a caller's error, not a
+// client's: the API's request cannot give a tax.
+func givenTax(in Input, items []Item) error {
+	for i, it := range in.Items {
+		if it.Tax == nil {
+			continue
+		}
+		if in.Source == nil || in.Kind != KindCreditMemo || in.ReferenceInvoiceID == nil {
+			return fmt.Errorf("receivables: item %d gives its tax, which only a credit memo entered from a source document for an invoice does", i+1)
+		}
+		if *it.Tax < 0 || it.TaxCode == nil && *it.Tax != 0 {
+			return fmt.Errorf("receivables: item %d gives a tax of %d minor units, which its tax code cannot bear", i+1, *it.Tax)
+		}
+		items[i].Tax = *it.Tax
 	}
 	return nil
 }

@@ -199,11 +199,20 @@ func (e *Endpoints) invoiceTerms(ctx context.Context, v Invoice, customer partne
 // it was when the invoice was entered, on the invoice date; when the
 // codes no longer give the tax entered (a rate recorded or withdrawn for
 // the date since), the invoice is refused, 409 receivables.tax_changed: a
-// draft is not changed in the first version, so it is entered again.
+// draft is not changed in the first version, so it is entered again. A
+// credit memo entered from a source document posts the tax it was entered
+// with, shared out among the components (given, shareGiven); the ledger
+// holds it to its codes' rates within a minor unit per line (ADR-0049 §7).
 func (e *Endpoints) taxLines(ctx context.Context, le tenancy.Entity, v Invoice) ([]ledger.PostingLine, error) {
 	c, err := e.calculate(ctx, le, v.Currency, v.InvoiceDate, v.Items)
 	if err != nil {
 		return nil, err
+	}
+	if given(v) {
+		if err := c.shareGiven(v); err != nil {
+			return nil, err
+		}
+		return c.lines(v)
 	}
 	for j, i := range c.coded {
 		tax, err := c.itemTax(j)
@@ -216,6 +225,12 @@ func (e *Endpoints) taxLines(ctx context.Context, le tenancy.Entity, v Invoice) 
 				v.Items[i].Tax.Plain(v.Exponent)))
 		}
 	}
+	return c.lines(v)
+}
+
+// lines are the output tax lines of the calculated tax, per code and
+// component with tax, in the calculator's order.
+func (c calculated) lines(v Invoice) ([]ledger.PostingLine, error) {
 	var lines []ledger.PostingLine
 	for _, g := range taxGroups(c, v.Items) {
 		if g.tax == 0 { // a zero-rated or exempt code: its base carries the code, and no tax posts

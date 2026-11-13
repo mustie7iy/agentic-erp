@@ -1345,6 +1345,46 @@ func (UnimplementedHandler) CreateCreditLimit(ctx context.Context, req *Customer
 	return r, ht.ErrNotImplemented
 }
 
+// CreateCreditMemoRequest implements createCreditMemoRequest operation.
+//
+// Creates a credit memo request (ADR-0067, As built T85c): what is to be credited to the customer of a
+// posted billing document's items. The billing document is one of a company the caller may act in (422
+// `request.reference_not_found` naming `billing_document_id`) and is posted (409
+// `sales.billing_document_not_posted`). The request has one of two bases, never both and never neither
+// (422 `sales.credit_memo_request_basis`). With `returns_order_id` it credits a returns order's
+// received quantities: the returns order is one of that billing document (422
+// `request.reference_not_found` naming `returns_order_id` for one the caller cannot read,
+// `sales.returns_order_of_other_document` for another document's); each of its items takes what was
+// received of it and not yet requested by a request that is not rejected, at the billed amount of that
+// quantity in full, with no charge taken off: the billing item's amount × the quantity requested of
+// it so far, this request included, ÷ its billed quantity, rounded half away from zero, less what the
+// earlier requests for quantities took, so the requests for an item's whole billed quantity add up to
+// its billed amount to the minor unit, the last taking the remainder. A quantity whose amount would
+// round to zero is left for a later request; a returns order with nothing received that is not yet
+// requested, or only such quantities, is refused (422 `sales.nothing_to_credit` naming
+// `returns_order_id`). With `items` it credits an amount per billing item, each named once (422
+// `sales.unknown_billing_item` naming `items[i].billing_item_no`, `sales.item_repeated`), net and more
+// than zero in the billing document's currency (422 `sales.currency_mismatch` naming
+// `items[i].net_amount.currency`, `sales.amount_not_positive` naming `items[i].net_amount.amount`),
+// and `reason` says why (required with `items`, 422 `request.validation_failed` naming `reason`; never
+// white space alone). Per billing item, the requests that are not rejected never ask for more than the
+// item's billed amount: one that would is refused naming the item, what it billed and what the other
+// requests ask for (422 `sales.exceeds_billed_amount`, naming `items[i].net_amount.amount`, or
+// `returns_order_id` for a request for a returns order). The billing document's sales order is read
+// under a row lock, so two requests against one order's billing documents are judged one after the
+// other and no amount or quantity is requested twice. The request is created `open`, dated the
+// company's date today in its time zone, with a document number from the company's
+// `credit_memo_request` number range of that date's fiscal year. Amounts are net: the tax is the
+// customer credit memo's, calculated when the request is posted. Nothing is posted, the customer's
+// open items and credit exposure do not change, and no revenue contract is touched. Audited and
+// published as CreditMemoRequestChanged. A retry with the same `Idempotency-Key` answers the request
+// created. Human-only (`x-agent: false`).
+//
+// POST /v1/credit-memo-requests
+func (UnimplementedHandler) CreateCreditMemoRequest(ctx context.Context, req *CreditMemoRequestCreate, params CreateCreditMemoRequestParams) (r CreateCreditMemoRequestRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateCustomerInvoice implements createCustomerInvoice operation.
 //
 // Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of
@@ -2143,6 +2183,23 @@ func (UnimplementedHandler) CreateYearClose(ctx context.Context, req *YearCloseC
 //
 // POST /v1/recommendations/{id}:decide
 func (UnimplementedHandler) DecideRecommendation(ctx context.Context, req *RecommendationDecide, params DecideRecommendationParams) (r DecideRecommendationRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// DeclineCreditMemoRequest implements declineCreditMemoRequest operation.
+//
+// Rejects an `open` credit memo request with a reason (ADR-0067, As built T85c; `:decline`, as
+// `:reject` is kept for approval requests, 04 §4.9), at the version the caller read (`If-Match`): the
+// request is read under a row lock and moves to `rejected` once. One that is not open is refused (409
+// `sales.invalid_status`); a reason of white space alone is refused (422 `request.validation_failed`
+// naming `reason`). Rejecting takes the permission that approves. A rejected request no longer counts
+// against its billing items' amounts nor against the returns order's received quantities, which
+// another request may take. Nothing is posted. Audited, with the reason, and published as
+// CreditMemoRequestChanged. A retry with the same `Idempotency-Key` answers the rejected request.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/credit-memo-requests/{id}:decline
+func (UnimplementedHandler) DeclineCreditMemoRequest(ctx context.Context, req *CreditMemoRequestReject, params DeclineCreditMemoRequestParams) (r DeclineCreditMemoRequestRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3203,6 +3260,22 @@ func (UnimplementedHandler) GetCreditExposure(ctx context.Context, params GetCre
 //
 // GET /v1/credit-limits/{id}
 func (UnimplementedHandler) GetCreditLimit(ctx context.Context, params GetCreditLimitParams) (r GetCreditLimitRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetCreditMemoRequest implements getCreditMemoRequest operation.
+//
+// One credit memo request (ADR-0067, As built T85c) with its company's code and name, its customer's
+// number and name, the billing document and the sales order it is against by id and number, the
+// returns order it credits by id and number when it is for one, its date, its reason, its status with
+// the reason of a rejection, its net value in the billing document's currency and its items, each
+// naming the billing document's item and the sales order's item, with what the billing item billed,
+// the quantity credited when the request is for a returns order, the amount credited and the revenue
+// account and output tax code the credit memo will post with. A request of a company the caller cannot
+// act in is not found (404).
+//
+// GET /v1/credit-memo-requests/{id}
+func (UnimplementedHandler) GetCreditMemoRequest(ctx context.Context, params GetCreditMemoRequestParams) (r GetCreditMemoRequestRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -4935,6 +5008,20 @@ func (UnimplementedHandler) ListCreditLimits(ctx context.Context, params ListCre
 	return r, ht.ErrNotImplemented
 }
 
+// ListCreditMemoRequests implements listCreditMemoRequests operation.
+//
+// The credit memo requests of the companies the caller may act in (ADR-0067, As built T85c), each as
+// `getCreditMemoRequest` gives it: with its company's code and name, its customer's number and name,
+// the billing document, the sales order and the returns order it is for by id and number, its net
+// value and its items. Filters: `legal_entity_id`, `customer_id`, `billing_document_id`,
+// `sales_order_id`, `returns_order_id`, `status`, `document_number` (exact). Sortable by
+// `request_date` (default) and `document_number`; cursor paging.
+//
+// GET /v1/credit-memo-requests
+func (UnimplementedHandler) ListCreditMemoRequests(ctx context.Context, params ListCreditMemoRequestsParams) (r ListCreditMemoRequestsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListCustomerInvoices implements listCustomerInvoices operation.
 //
 // The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a) and the credit
@@ -6345,6 +6432,55 @@ func (UnimplementedHandler) PostBillingDocument(ctx context.Context, req OptBill
 	return r, ht.ErrNotImplemented
 }
 
+// PostCreditMemoRequest implements postCreditMemoRequest operation.
+//
+// Posts an `approved` credit memo request, once (ADR-0067, As built T85d), at the version the caller
+// read (`If-Match`): a customer credit memo is entered in accounts receivable and posted, in the same
+// transaction as the request's change, so either all of it happens or none. The credit memo (`kind`
+// `credit_memo`) has the billing document's company, customer and currency, names the billing
+// document's customer invoice as the invoice it credits (`reference_invoice_id`) and the request as
+// its source (`source_document_id`, `source_document_number`), and has the request's items one for
+// one, each with the billing item's description, revenue account and output tax code and the request
+// item's net amount. Its tax is what the billed invoice's item bore, shared out: of each billing item,
+// the credits posted so far, this one included, bear the share of the item's tax that their net
+// amounts are of the item's, shared out with money.Allocate, less what the earlier credits bore, so
+// the credits of an item's whole billed amount give back its tax to the minor unit; the ledger holds
+// that tax to the code's rate on the credit memo's date within a minor unit per line (422
+// `ledger.output_tax_mismatch` when the rate changed since billing). Its date, which is its tax date,
+// and its posting date are the request's `posting_date`, else today, the company's date in its time
+// zone, in an open period (409 `ledger.period_not_open`). Without a payment term of its own it keeps
+// the invoice's term from the invoice's date (ADR-0063 §7). Accounts receivable posts the entry
+// (document type `DG`, `source_context` `receivables`): it credits the customer's reconciliation
+// account with the credit memo's gross, the customer's open credit item (`GET /v1/open-items`), and
+// debits each item's revenue account with its amount and output tax per code. The credit reduces what
+// the customer owes, and so its credit exposure; it clears against the invoice by the ledger's
+// clearing or nets when an incoming payment is applied. The credit memos naming the invoice may not
+// together exceed its gross (422 `receivables.credit_exceeds_invoice`, under the invoice's row lock).
+// The request becomes `posted` and names its `posting_date`, its `customer_invoice_id` and
+// `customer_invoice_number` and the credit memo's `journal_entry_id`, `journal_entry_year` and
+// `journal_entry_number`; the billing document's items show the amount credited (`credited_amount`).
+// An audit record and CreditMemoRequestPosted are written with it, beside the credit memo's own
+// (CustomerInvoiceChanged, CustomerInvoicePosted). The request's row is read under a lock, then its
+// billing document's sales order's, under which the credits of one order are counted: of two requests
+// to post one request, one posts it and the other meets another version (412). One that is not
+// `approved` is refused (409 `sales.invalid_status`); a retry with the same `Idempotency-Key` answers
+// the posted request. What accounts receivable or the ledger refuses leaves the request `approved` and
+// nothing posted, and is answered with their code, the request's number leading the detail and the
+// request's own fields named: a customer that is not active, no longer a customer or blocked for
+// posting (422 `receivables.customer_not_usable`, `customer_id`); an item's account that can no longer
+// be posted (422 `receivables.account_not_postable`, `items[i].account_id`); a tax code that is no
+// longer an output tax code of the company with a rate on the date (422
+// `receivables.unknown_tax_code`, `items[i].tax_code`); the credit above what is left of the invoice's
+// gross (`net_amount`); a company without the `customer_invoice` or `journal_dg` number range (422
+// `config.no_number_range`). Revenue contracts are not touched. A posted request is not reversed or
+// cancelled in the first version. Posting takes the billing clerk's permission, `sales.billing.post`;
+// no permission of accounts receivable is needed. Human-only (`x-agent: false`).
+//
+// POST /v1/credit-memo-requests/{id}:post
+func (UnimplementedHandler) PostCreditMemoRequest(ctx context.Context, req OptCreditMemoRequestPost, params PostCreditMemoRequestParams) (r PostCreditMemoRequestRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // PostCustomerInvoice implements postCustomerInvoice operation.
 //
 // Posts a draft customer invoice to the ledger, once (ADR-0063 §5, T75b): it debits the customer's
@@ -6961,6 +7097,24 @@ func (UnimplementedHandler) RejectVarianceComment(ctx context.Context, req *Reas
 //
 // POST /v1/contracts/{id}:release
 func (UnimplementedHandler) ReleaseContract(ctx context.Context, params ReleaseContractParams) (r ReleaseContractRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ReleaseCreditMemoRequest implements releaseCreditMemoRequest operation.
+//
+// Approves an `open` credit memo request (ADR-0067, As built T85c), releasing it to be posted, at the
+// version the caller read (`If-Match`): the request is read under a row lock and moves to `approved`
+// once. One that is not open is refused (409 `sales.invalid_status`). Approving is by this one
+// permission, whatever the amount, and nothing sets the approver apart from the person who created the
+// request (product owner 2026-11-12); the tenant's own segregation-of-duties rules apply as on every
+// operation. Nothing is posted: an approved request is posted as a customer credit memo by a later
+// operation. Audited and published as CreditMemoRequestChanged. A retry with the same
+// `Idempotency-Key` answers the approved request. Human-only (`x-agent: false`). The action is
+// `:release`, not `:approve`, which is kept for approval requests (04 §4.9): no approval request is
+// made for a credit memo request.
+//
+// POST /v1/credit-memo-requests/{id}:release
+func (UnimplementedHandler) ReleaseCreditMemoRequest(ctx context.Context, params ReleaseCreditMemoRequestParams) (r ReleaseCreditMemoRequestRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

@@ -15054,6 +15054,9 @@ type BillingDocumentItem struct {
 	TaxCode OptString `json:"tax_code"`
 	// The number of the sales order's item this item bills.
 	OrderItemNo int32 `json:"order_item_no"`
+	// The net amount credited of the item by the credit memo requests posted against it
+	// (`postCreditMemoRequest`): at most `net_amount`; zero when none is posted.
+	CreditedAmount Money `json:"credited_amount"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -15126,6 +15129,11 @@ func (s *BillingDocumentItem) GetOrderItemNo() int32 {
 	return s.OrderItemNo
 }
 
+// GetCreditedAmount returns the value of CreditedAmount.
+func (s *BillingDocumentItem) GetCreditedAmount() Money {
+	return s.CreditedAmount
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *BillingDocumentItem) SetItemNo(val int32) {
 	s.ItemNo = val
@@ -15194,6 +15202,11 @@ func (s *BillingDocumentItem) SetTaxCode(val OptString) {
 // SetOrderItemNo sets the value of OrderItemNo.
 func (s *BillingDocumentItem) SetOrderItemNo(val int32) {
 	s.OrderItemNo = val
+}
+
+// SetCreditedAmount sets the value of CreditedAmount.
+func (s *BillingDocumentItem) SetCreditedAmount(val Money) {
+	s.CreditedAmount = val
 }
 
 // One page of billing documents.
@@ -24677,6 +24690,7 @@ func (*ConflictHeaders) createControlRes()                         {}
 func (*ConflictHeaders) createControlTestRes()                     {}
 func (*ConflictHeaders) createCostCenterRes()                      {}
 func (*ConflictHeaders) createCreditLimitRes()                     {}
+func (*ConflictHeaders) createCreditMemoRequestRes()               {}
 func (*ConflictHeaders) createCustomerInvoiceRes()                 {}
 func (*ConflictHeaders) createDownPaymentRequestRes()              {}
 func (*ConflictHeaders) createDunningRunRes()                      {}
@@ -24719,6 +24733,7 @@ func (*ConflictHeaders) createVarianceCommentRes()                 {}
 func (*ConflictHeaders) createWebhookSubscriptionRes()             {}
 func (*ConflictHeaders) createYearCloseRes()                       {}
 func (*ConflictHeaders) decideRecommendationRes()                  {}
+func (*ConflictHeaders) declineCreditMemoRequestRes()              {}
 func (*ConflictHeaders) declineQuotationRes()                      {}
 func (*ConflictHeaders) deleteWebhookSubscriptionRes()             {}
 func (*ConflictHeaders) disableConnectorRes()                      {}
@@ -24786,6 +24801,7 @@ func (*ConflictHeaders) pingWebhookSubscriptionRes()               {}
 func (*ConflictHeaders) placeInHierarchyRes()                      {}
 func (*ConflictHeaders) postBankStatementLineRes()                 {}
 func (*ConflictHeaders) postBillingDocumentRes()                   {}
+func (*ConflictHeaders) postCreditMemoRequestRes()                 {}
 func (*ConflictHeaders) postCustomerInvoiceRes()                   {}
 func (*ConflictHeaders) postGoodsReceiptRes()                      {}
 func (*ConflictHeaders) postJournalEntryRes()                      {}
@@ -24816,6 +24832,7 @@ func (*ConflictHeaders) rejectMemoRecordProposalRes()              {}
 func (*ConflictHeaders) rejectPaymentRunRes()                      {}
 func (*ConflictHeaders) rejectVarianceCommentRes()                 {}
 func (*ConflictHeaders) releaseContractRes()                       {}
+func (*ConflictHeaders) releaseCreditMemoRequestRes()              {}
 func (*ConflictHeaders) releaseInternalOrderRes()                  {}
 func (*ConflictHeaders) releasePaymentRunRes()                     {}
 func (*ConflictHeaders) releasePurchaseOrderRes()                  {}
@@ -31512,6 +31529,22 @@ type CreateCreditLimitUnprocessableEntity Problem
 
 func (*CreateCreditLimitUnprocessableEntity) createCreditLimitRes() {}
 
+type CreateCreditMemoRequestBadRequest Problem
+
+func (*CreateCreditMemoRequestBadRequest) createCreditMemoRequestRes() {}
+
+type CreateCreditMemoRequestForbidden Problem
+
+func (*CreateCreditMemoRequestForbidden) createCreditMemoRequestRes() {}
+
+type CreateCreditMemoRequestPreconditionRequired Problem
+
+func (*CreateCreditMemoRequestPreconditionRequired) createCreditMemoRequestRes() {}
+
+type CreateCreditMemoRequestUnprocessableEntity Problem
+
+func (*CreateCreditMemoRequestUnprocessableEntity) createCreditMemoRequestRes() {}
+
 type CreateCustomerInvoiceBadRequest Problem
 
 func (*CreateCustomerInvoiceBadRequest) createCustomerInvoiceRes() {}
@@ -32653,6 +32686,769 @@ func (s *CreditLimit) SetCredited(val Money) {
 // SetAttempted sets the value of Attempted.
 func (s *CreditLimit) SetAttempted(val Money) {
 	s.Attempted = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/CreditMemoRequest
+type CreditMemoRequest struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The document number, from the company's `credit_memo_request` number range.
+	DocumentNumber string `json:"document_number"`
+	// The company that credits: the billing document's.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer (`GET /v1/business-partners/{id}`): the billing document's.
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The posted billing document whose items are credited (`GET /v1/billing-documents/{id}`).
+	BillingDocumentID uuid.UUID `json:"billing_document_id"`
+	// The billing document's document number.
+	BillingDocumentNumber string `json:"billing_document_number"`
+	// The sales order the billing document billed (`GET /v1/sales-orders/{id}`).
+	SalesOrderID uuid.UUID `json:"sales_order_id"`
+	// The sales order's document number.
+	SalesOrderNumber string `json:"sales_order_number"`
+	// The returns order whose received quantities the request credits (`GET /v1/returns-orders/{id}`).
+	// Absent on a request by amount.
+	ReturnsOrderID OptUUID `json:"returns_order_id"`
+	// The returns order's document number. Absent on a request by amount.
+	ReturnsOrderNumber OptString `json:"returns_order_number"`
+	// The day the request was created: the company's date in its time zone.
+	RequestDate time.Time `json:"request_date"`
+	// Why the customer is credited; absent when none was given with a returns order.
+	Reason OptString `json:"reason"`
+	// `open`: created, not decided; `approved`: approved, once (`:release`); `rejected`: rejected, once
+	// (`:decline`), with `rejection_reason`; `posted`: an approved request posted as a customer credit
+	// memo (`:post`). Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Status string `json:"status"`
+	// Why the request was rejected. Absent unless it is `rejected`.
+	RejectionReason OptString `json:"rejection_reason"`
+	// The date the request posted on, its credit memo's date and posting date. Absent until posted.
+	PostingDate OptDate `json:"posting_date"`
+	// The customer credit memo the request posted as (`GET /v1/customer-invoices/{id}`): it shows the tax,
+	// the gross amount and the invoice it credits. Absent until posted.
+	CustomerInvoiceID OptUUID `json:"customer_invoice_id"`
+	// The credit memo's document number. Absent until posted.
+	CustomerInvoiceNumber OptString `json:"customer_invoice_number"`
+	// The journal entry the credit memo posted (`GET /v1/journal-entries/{id}`). Absent until posted.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The entry's fiscal year. Absent until posted.
+	JournalEntryYear OptInt32 `json:"journal_entry_year"`
+	// The entry's document number. Absent until posted.
+	JournalEntryNumber OptString `json:"journal_entry_number"`
+	// The request's currency (ISO 4217), the billing document's.
+	Currency string `json:"currency"`
+	// The sum of the items' amounts.
+	NetAmount Money `json:"net_amount"`
+	// The items, by item number.
+	Items []CreditMemoRequestItem `json:"items"`
+}
+
+// GetID returns the value of ID.
+func (s *CreditMemoRequest) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *CreditMemoRequest) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *CreditMemoRequest) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *CreditMemoRequest) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *CreditMemoRequest) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *CreditMemoRequest) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *CreditMemoRequest) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CreditMemoRequest) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CreditMemoRequest) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *CreditMemoRequest) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *CreditMemoRequest) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *CreditMemoRequest) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *CreditMemoRequest) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetBillingDocumentID returns the value of BillingDocumentID.
+func (s *CreditMemoRequest) GetBillingDocumentID() uuid.UUID {
+	return s.BillingDocumentID
+}
+
+// GetBillingDocumentNumber returns the value of BillingDocumentNumber.
+func (s *CreditMemoRequest) GetBillingDocumentNumber() string {
+	return s.BillingDocumentNumber
+}
+
+// GetSalesOrderID returns the value of SalesOrderID.
+func (s *CreditMemoRequest) GetSalesOrderID() uuid.UUID {
+	return s.SalesOrderID
+}
+
+// GetSalesOrderNumber returns the value of SalesOrderNumber.
+func (s *CreditMemoRequest) GetSalesOrderNumber() string {
+	return s.SalesOrderNumber
+}
+
+// GetReturnsOrderID returns the value of ReturnsOrderID.
+func (s *CreditMemoRequest) GetReturnsOrderID() OptUUID {
+	return s.ReturnsOrderID
+}
+
+// GetReturnsOrderNumber returns the value of ReturnsOrderNumber.
+func (s *CreditMemoRequest) GetReturnsOrderNumber() OptString {
+	return s.ReturnsOrderNumber
+}
+
+// GetRequestDate returns the value of RequestDate.
+func (s *CreditMemoRequest) GetRequestDate() time.Time {
+	return s.RequestDate
+}
+
+// GetReason returns the value of Reason.
+func (s *CreditMemoRequest) GetReason() OptString {
+	return s.Reason
+}
+
+// GetStatus returns the value of Status.
+func (s *CreditMemoRequest) GetStatus() string {
+	return s.Status
+}
+
+// GetRejectionReason returns the value of RejectionReason.
+func (s *CreditMemoRequest) GetRejectionReason() OptString {
+	return s.RejectionReason
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *CreditMemoRequest) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetCustomerInvoiceID returns the value of CustomerInvoiceID.
+func (s *CreditMemoRequest) GetCustomerInvoiceID() OptUUID {
+	return s.CustomerInvoiceID
+}
+
+// GetCustomerInvoiceNumber returns the value of CustomerInvoiceNumber.
+func (s *CreditMemoRequest) GetCustomerInvoiceNumber() OptString {
+	return s.CustomerInvoiceNumber
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *CreditMemoRequest) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *CreditMemoRequest) GetJournalEntryYear() OptInt32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *CreditMemoRequest) GetJournalEntryNumber() OptString {
+	return s.JournalEntryNumber
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CreditMemoRequest) GetCurrency() string {
+	return s.Currency
+}
+
+// GetNetAmount returns the value of NetAmount.
+func (s *CreditMemoRequest) GetNetAmount() Money {
+	return s.NetAmount
+}
+
+// GetItems returns the value of Items.
+func (s *CreditMemoRequest) GetItems() []CreditMemoRequestItem {
+	return s.Items
+}
+
+// SetID sets the value of ID.
+func (s *CreditMemoRequest) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *CreditMemoRequest) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *CreditMemoRequest) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *CreditMemoRequest) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *CreditMemoRequest) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *CreditMemoRequest) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *CreditMemoRequest) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CreditMemoRequest) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CreditMemoRequest) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *CreditMemoRequest) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *CreditMemoRequest) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *CreditMemoRequest) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *CreditMemoRequest) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetBillingDocumentID sets the value of BillingDocumentID.
+func (s *CreditMemoRequest) SetBillingDocumentID(val uuid.UUID) {
+	s.BillingDocumentID = val
+}
+
+// SetBillingDocumentNumber sets the value of BillingDocumentNumber.
+func (s *CreditMemoRequest) SetBillingDocumentNumber(val string) {
+	s.BillingDocumentNumber = val
+}
+
+// SetSalesOrderID sets the value of SalesOrderID.
+func (s *CreditMemoRequest) SetSalesOrderID(val uuid.UUID) {
+	s.SalesOrderID = val
+}
+
+// SetSalesOrderNumber sets the value of SalesOrderNumber.
+func (s *CreditMemoRequest) SetSalesOrderNumber(val string) {
+	s.SalesOrderNumber = val
+}
+
+// SetReturnsOrderID sets the value of ReturnsOrderID.
+func (s *CreditMemoRequest) SetReturnsOrderID(val OptUUID) {
+	s.ReturnsOrderID = val
+}
+
+// SetReturnsOrderNumber sets the value of ReturnsOrderNumber.
+func (s *CreditMemoRequest) SetReturnsOrderNumber(val OptString) {
+	s.ReturnsOrderNumber = val
+}
+
+// SetRequestDate sets the value of RequestDate.
+func (s *CreditMemoRequest) SetRequestDate(val time.Time) {
+	s.RequestDate = val
+}
+
+// SetReason sets the value of Reason.
+func (s *CreditMemoRequest) SetReason(val OptString) {
+	s.Reason = val
+}
+
+// SetStatus sets the value of Status.
+func (s *CreditMemoRequest) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetRejectionReason sets the value of RejectionReason.
+func (s *CreditMemoRequest) SetRejectionReason(val OptString) {
+	s.RejectionReason = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *CreditMemoRequest) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetCustomerInvoiceID sets the value of CustomerInvoiceID.
+func (s *CreditMemoRequest) SetCustomerInvoiceID(val OptUUID) {
+	s.CustomerInvoiceID = val
+}
+
+// SetCustomerInvoiceNumber sets the value of CustomerInvoiceNumber.
+func (s *CreditMemoRequest) SetCustomerInvoiceNumber(val OptString) {
+	s.CustomerInvoiceNumber = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *CreditMemoRequest) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *CreditMemoRequest) SetJournalEntryYear(val OptInt32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *CreditMemoRequest) SetJournalEntryNumber(val OptString) {
+	s.JournalEntryNumber = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CreditMemoRequest) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetNetAmount sets the value of NetAmount.
+func (s *CreditMemoRequest) SetNetAmount(val Money) {
+	s.NetAmount = val
+}
+
+// SetItems sets the value of Items.
+func (s *CreditMemoRequest) SetItems(val []CreditMemoRequestItem) {
+	s.Items = val
+}
+
+// Create a credit memo request against a posted billing document: either for a returns order's
+// received quantities (`returns_order_id`) or as an amount per billing item (`items`, with `reason`),
+// never both. It is created `open`, dated the company's date today.
+// Ref: #/components/schemas/CreditMemoRequestCreate
+type CreditMemoRequestCreate struct {
+	// The posted billing document whose items are credited: one of a company the caller may act in.
+	BillingDocumentID uuid.UUID `json:"billing_document_id"`
+	// A returns order of that billing document: the request credits what was received of its items and is
+	// not yet requested, at the billed amount of those quantities. Not with `items`.
+	ReturnsOrderID OptUUID `json:"returns_order_id"`
+	// Why the customer is credited. Required with `items`; optional with `returns_order_id`, the returns
+	// order carrying its own reason.
+	Reason OptString `json:"reason"`
+	// The amounts credited of the billing document's items, each item at most once, numbered in this order
+	// from 1. Not with `returns_order_id`.
+	Items []CreditMemoRequestItemCreate `json:"items"`
+}
+
+// GetBillingDocumentID returns the value of BillingDocumentID.
+func (s *CreditMemoRequestCreate) GetBillingDocumentID() uuid.UUID {
+	return s.BillingDocumentID
+}
+
+// GetReturnsOrderID returns the value of ReturnsOrderID.
+func (s *CreditMemoRequestCreate) GetReturnsOrderID() OptUUID {
+	return s.ReturnsOrderID
+}
+
+// GetReason returns the value of Reason.
+func (s *CreditMemoRequestCreate) GetReason() OptString {
+	return s.Reason
+}
+
+// GetItems returns the value of Items.
+func (s *CreditMemoRequestCreate) GetItems() []CreditMemoRequestItemCreate {
+	return s.Items
+}
+
+// SetBillingDocumentID sets the value of BillingDocumentID.
+func (s *CreditMemoRequestCreate) SetBillingDocumentID(val uuid.UUID) {
+	s.BillingDocumentID = val
+}
+
+// SetReturnsOrderID sets the value of ReturnsOrderID.
+func (s *CreditMemoRequestCreate) SetReturnsOrderID(val OptUUID) {
+	s.ReturnsOrderID = val
+}
+
+// SetReason sets the value of Reason.
+func (s *CreditMemoRequestCreate) SetReason(val OptString) {
+	s.Reason = val
+}
+
+// SetItems sets the value of Items.
+func (s *CreditMemoRequestCreate) SetItems(val []CreditMemoRequestItemCreate) {
+	s.Items = val
+}
+
+// CreditMemoRequestHeaders wraps CreditMemoRequest with response headers.
+type CreditMemoRequestHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           CreditMemoRequest
+}
+
+// GetETag returns the value of ETag.
+func (s *CreditMemoRequestHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CreditMemoRequestHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *CreditMemoRequestHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *CreditMemoRequestHeaders) GetResponse() CreditMemoRequest {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CreditMemoRequestHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CreditMemoRequestHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *CreditMemoRequestHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CreditMemoRequestHeaders) SetResponse(val CreditMemoRequest) {
+	s.Response = val
+}
+
+func (*CreditMemoRequestHeaders) createCreditMemoRequestRes() {}
+
+// An item of a credit memo request (ADR-0067, As built T85c): what is credited of one item of the
+// billing document. Amounts are net, in the request's `currency`.
+// Ref: #/components/schemas/CreditMemoRequestItem
+type CreditMemoRequestItem struct {
+	// The item's number within the request, from 1.
+	ItemNo int32 `json:"item_no"`
+	// The number of the billing document's item it credits.
+	BillingItemNo int32 `json:"billing_item_no"`
+	// The number of the sales order's item that billing document item billed.
+	OrderItemNo int32 `json:"order_item_no"`
+	// The sales order item's item key; absent when it has none.
+	ItemKey OptString `json:"item_key"`
+	// The sales order item's description.
+	Description string `json:"description"`
+	// The quantity credited, of what the request's returns order received, in the item's unit. Absent on a
+	// request by amount.
+	Quantity OptQuantity `json:"quantity"`
+	// The quantity the billing document's item billed, in the item's unit.
+	BilledQuantity Quantity `json:"billed_quantity"`
+	// The net amount the billing document's item billed: what the requests against it that are not
+	// rejected may ask for together.
+	BilledAmount Money `json:"billed_amount"`
+	// The net amount credited. For a quantity: the billed amount of that quantity, in full.
+	NetAmount Money `json:"net_amount"`
+	// The revenue account the billing item posted to, which the credit memo debits.
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name, as it is now.
+	AccountName string `json:"account_name"`
+	// The billing item's output tax code, which the credit memo's tax is calculated with; absent when the
+	// item has none.
+	TaxCode OptString `json:"tax_code"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *CreditMemoRequestItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetBillingItemNo returns the value of BillingItemNo.
+func (s *CreditMemoRequestItem) GetBillingItemNo() int32 {
+	return s.BillingItemNo
+}
+
+// GetOrderItemNo returns the value of OrderItemNo.
+func (s *CreditMemoRequestItem) GetOrderItemNo() int32 {
+	return s.OrderItemNo
+}
+
+// GetItemKey returns the value of ItemKey.
+func (s *CreditMemoRequestItem) GetItemKey() OptString {
+	return s.ItemKey
+}
+
+// GetDescription returns the value of Description.
+func (s *CreditMemoRequestItem) GetDescription() string {
+	return s.Description
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *CreditMemoRequestItem) GetQuantity() OptQuantity {
+	return s.Quantity
+}
+
+// GetBilledQuantity returns the value of BilledQuantity.
+func (s *CreditMemoRequestItem) GetBilledQuantity() Quantity {
+	return s.BilledQuantity
+}
+
+// GetBilledAmount returns the value of BilledAmount.
+func (s *CreditMemoRequestItem) GetBilledAmount() Money {
+	return s.BilledAmount
+}
+
+// GetNetAmount returns the value of NetAmount.
+func (s *CreditMemoRequestItem) GetNetAmount() Money {
+	return s.NetAmount
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *CreditMemoRequestItem) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *CreditMemoRequestItem) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *CreditMemoRequestItem) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *CreditMemoRequestItem) GetTaxCode() OptString {
+	return s.TaxCode
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *CreditMemoRequestItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetBillingItemNo sets the value of BillingItemNo.
+func (s *CreditMemoRequestItem) SetBillingItemNo(val int32) {
+	s.BillingItemNo = val
+}
+
+// SetOrderItemNo sets the value of OrderItemNo.
+func (s *CreditMemoRequestItem) SetOrderItemNo(val int32) {
+	s.OrderItemNo = val
+}
+
+// SetItemKey sets the value of ItemKey.
+func (s *CreditMemoRequestItem) SetItemKey(val OptString) {
+	s.ItemKey = val
+}
+
+// SetDescription sets the value of Description.
+func (s *CreditMemoRequestItem) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *CreditMemoRequestItem) SetQuantity(val OptQuantity) {
+	s.Quantity = val
+}
+
+// SetBilledQuantity sets the value of BilledQuantity.
+func (s *CreditMemoRequestItem) SetBilledQuantity(val Quantity) {
+	s.BilledQuantity = val
+}
+
+// SetBilledAmount sets the value of BilledAmount.
+func (s *CreditMemoRequestItem) SetBilledAmount(val Money) {
+	s.BilledAmount = val
+}
+
+// SetNetAmount sets the value of NetAmount.
+func (s *CreditMemoRequestItem) SetNetAmount(val Money) {
+	s.NetAmount = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *CreditMemoRequestItem) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *CreditMemoRequestItem) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *CreditMemoRequestItem) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *CreditMemoRequestItem) SetTaxCode(val OptString) {
+	s.TaxCode = val
+}
+
+// An amount credited of one item of the billing document.
+// Ref: #/components/schemas/CreditMemoRequestItemCreate
+type CreditMemoRequestItemCreate struct {
+	// The billing document item's number (`BillingDocument.items[].item_no`).
+	BillingItemNo int32 `json:"billing_item_no"`
+	// The net amount credited: more than zero, in the billing document's currency, at most the item's
+	// billed amount less what the document's other requests that are not rejected ask for.
+	NetAmount Money `json:"net_amount"`
+}
+
+// GetBillingItemNo returns the value of BillingItemNo.
+func (s *CreditMemoRequestItemCreate) GetBillingItemNo() int32 {
+	return s.BillingItemNo
+}
+
+// GetNetAmount returns the value of NetAmount.
+func (s *CreditMemoRequestItemCreate) GetNetAmount() Money {
+	return s.NetAmount
+}
+
+// SetBillingItemNo sets the value of BillingItemNo.
+func (s *CreditMemoRequestItemCreate) SetBillingItemNo(val int32) {
+	s.BillingItemNo = val
+}
+
+// SetNetAmount sets the value of NetAmount.
+func (s *CreditMemoRequestItemCreate) SetNetAmount(val Money) {
+	s.NetAmount = val
+}
+
+// One page of credit memo requests.
+// Ref: #/components/schemas/CreditMemoRequestPage
+type CreditMemoRequestPage struct {
+	// The credit memo requests on this page.
+	Items []CreditMemoRequest `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *CreditMemoRequestPage) GetItems() []CreditMemoRequest {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CreditMemoRequestPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *CreditMemoRequestPage) SetItems(val []CreditMemoRequest) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CreditMemoRequestPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CreditMemoRequestPage) listCreditMemoRequestsRes() {}
+
+// Options for posting a credit memo request.
+// Ref: #/components/schemas/CreditMemoRequestPost
+type CreditMemoRequestPost struct {
+	// The date and posting date of the customer credit memo the request posts as; absent: today, the
+	// company's date in its time zone (`companies[].time_zone`).
+	PostingDate OptDate `json:"posting_date"`
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *CreditMemoRequestPost) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *CreditMemoRequestPost) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// Reject a credit memo request.
+// Ref: #/components/schemas/CreditMemoRequestReject
+type CreditMemoRequestReject struct {
+	// Why the request is rejected; never white space alone.
+	Reason string `json:"reason"`
+}
+
+// GetReason returns the value of Reason.
+func (s *CreditMemoRequestReject) GetReason() string {
+	return s.Reason
+}
+
+// SetReason sets the value of Reason.
+func (s *CreditMemoRequestReject) SetReason(val string) {
+	s.Reason = val
 }
 
 // The caller (getCurrentPrincipal): advisory, as the API decides every call.
@@ -34358,6 +35154,71 @@ func (s *DecisionInput) GetComment() OptString {
 func (s *DecisionInput) SetComment(val OptString) {
 	s.Comment = val
 }
+
+type DeclineCreditMemoRequestBadRequest Problem
+
+func (*DeclineCreditMemoRequestBadRequest) declineCreditMemoRequestRes() {}
+
+type DeclineCreditMemoRequestForbidden Problem
+
+func (*DeclineCreditMemoRequestForbidden) declineCreditMemoRequestRes() {}
+
+type DeclineCreditMemoRequestNotFound Problem
+
+func (*DeclineCreditMemoRequestNotFound) declineCreditMemoRequestRes() {}
+
+// DeclineCreditMemoRequestOKHeaders wraps CreditMemoRequest with response headers.
+type DeclineCreditMemoRequestOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           CreditMemoRequest
+}
+
+// GetETag returns the value of ETag.
+func (s *DeclineCreditMemoRequestOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *DeclineCreditMemoRequestOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *DeclineCreditMemoRequestOKHeaders) GetResponse() CreditMemoRequest {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *DeclineCreditMemoRequestOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *DeclineCreditMemoRequestOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *DeclineCreditMemoRequestOKHeaders) SetResponse(val CreditMemoRequest) {
+	s.Response = val
+}
+
+func (*DeclineCreditMemoRequestOKHeaders) declineCreditMemoRequestRes() {}
+func (*DeclineCreditMemoRequestOKHeaders) postCreditMemoRequestRes()    {}
+func (*DeclineCreditMemoRequestOKHeaders) releaseCreditMemoRequestRes() {}
+
+type DeclineCreditMemoRequestPreconditionFailed Problem
+
+func (*DeclineCreditMemoRequestPreconditionFailed) declineCreditMemoRequestRes() {}
+
+type DeclineCreditMemoRequestPreconditionRequired Problem
+
+func (*DeclineCreditMemoRequestPreconditionRequired) declineCreditMemoRequestRes() {}
+
+type DeclineCreditMemoRequestUnprocessableEntity Problem
+
+func (*DeclineCreditMemoRequestUnprocessableEntity) declineCreditMemoRequestRes() {}
 
 type DeclineQuotationBadRequest Problem
 
@@ -41313,6 +42174,46 @@ func (s *GetCreditLimitOKHeaders) SetResponse(val CustomerCreditLimit) {
 }
 
 func (*GetCreditLimitOKHeaders) getCreditLimitRes() {}
+
+type GetCreditMemoRequestBadRequest Problem
+
+func (*GetCreditMemoRequestBadRequest) getCreditMemoRequestRes() {}
+
+type GetCreditMemoRequestForbidden Problem
+
+func (*GetCreditMemoRequestForbidden) getCreditMemoRequestRes() {}
+
+type GetCreditMemoRequestNotFound Problem
+
+func (*GetCreditMemoRequestNotFound) getCreditMemoRequestRes() {}
+
+// GetCreditMemoRequestOKHeaders wraps CreditMemoRequest with response headers.
+type GetCreditMemoRequestOKHeaders struct {
+	ETag     OptString
+	Response CreditMemoRequest
+}
+
+// GetETag returns the value of ETag.
+func (s *GetCreditMemoRequestOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetCreditMemoRequestOKHeaders) GetResponse() CreditMemoRequest {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetCreditMemoRequestOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetCreditMemoRequestOKHeaders) SetResponse(val CreditMemoRequest) {
+	s.Response = val
+}
+
+func (*GetCreditMemoRequestOKHeaders) getCreditMemoRequestRes() {}
 
 type GetCurrentPrincipalBadRequest Problem
 
@@ -53077,6 +53978,14 @@ type ListCreditLimitsForbidden Problem
 
 func (*ListCreditLimitsForbidden) listCreditLimitsRes() {}
 
+type ListCreditMemoRequestsBadRequest Problem
+
+func (*ListCreditMemoRequestsBadRequest) listCreditMemoRequestsRes() {}
+
+type ListCreditMemoRequestsForbidden Problem
+
+func (*ListCreditMemoRequestsForbidden) listCreditMemoRequestsRes() {}
+
 type ListCustomerInvoicesBadRequest Problem
 
 func (*ListCustomerInvoicesBadRequest) listCustomerInvoicesRes() {}
@@ -60158,6 +61067,52 @@ func (o OptCreditLimit) Get() (v CreditLimit, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptCreditLimit) Or(d CreditLimit) CreditLimit {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptCreditMemoRequestPost returns new OptCreditMemoRequestPost with value set to v.
+func NewOptCreditMemoRequestPost(v CreditMemoRequestPost) OptCreditMemoRequestPost {
+	return OptCreditMemoRequestPost{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptCreditMemoRequestPost is optional CreditMemoRequestPost.
+type OptCreditMemoRequestPost struct {
+	Value CreditMemoRequestPost
+	Set   bool
+}
+
+// IsSet returns true if OptCreditMemoRequestPost was set.
+func (o OptCreditMemoRequestPost) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptCreditMemoRequestPost) Reset() {
+	var v CreditMemoRequestPost
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptCreditMemoRequestPost) SetTo(v CreditMemoRequestPost) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptCreditMemoRequestPost) Get() (v CreditMemoRequestPost, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptCreditMemoRequestPost) Or(d CreditMemoRequestPost) CreditMemoRequestPost {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -68966,6 +69921,30 @@ type PostBillingDocumentUnprocessableEntity Problem
 
 func (*PostBillingDocumentUnprocessableEntity) postBillingDocumentRes() {}
 
+type PostCreditMemoRequestBadRequest Problem
+
+func (*PostCreditMemoRequestBadRequest) postCreditMemoRequestRes() {}
+
+type PostCreditMemoRequestForbidden Problem
+
+func (*PostCreditMemoRequestForbidden) postCreditMemoRequestRes() {}
+
+type PostCreditMemoRequestNotFound Problem
+
+func (*PostCreditMemoRequestNotFound) postCreditMemoRequestRes() {}
+
+type PostCreditMemoRequestPreconditionFailed Problem
+
+func (*PostCreditMemoRequestPreconditionFailed) postCreditMemoRequestRes() {}
+
+type PostCreditMemoRequestPreconditionRequired Problem
+
+func (*PostCreditMemoRequestPreconditionRequired) postCreditMemoRequestRes() {}
+
+type PostCreditMemoRequestUnprocessableEntity Problem
+
+func (*PostCreditMemoRequestUnprocessableEntity) postCreditMemoRequestRes() {}
+
 type PostCustomerInvoiceBadRequest Problem
 
 func (*PostCustomerInvoiceBadRequest) postCustomerInvoiceRes() {}
@@ -74242,6 +75221,26 @@ func (*ReleaseContractPreconditionRequired) releaseContractRes() {}
 type ReleaseContractUnprocessableEntity Problem
 
 func (*ReleaseContractUnprocessableEntity) releaseContractRes() {}
+
+type ReleaseCreditMemoRequestBadRequest Problem
+
+func (*ReleaseCreditMemoRequestBadRequest) releaseCreditMemoRequestRes() {}
+
+type ReleaseCreditMemoRequestForbidden Problem
+
+func (*ReleaseCreditMemoRequestForbidden) releaseCreditMemoRequestRes() {}
+
+type ReleaseCreditMemoRequestNotFound Problem
+
+func (*ReleaseCreditMemoRequestNotFound) releaseCreditMemoRequestRes() {}
+
+type ReleaseCreditMemoRequestPreconditionFailed Problem
+
+func (*ReleaseCreditMemoRequestPreconditionFailed) releaseCreditMemoRequestRes() {}
+
+type ReleaseCreditMemoRequestPreconditionRequired Problem
+
+func (*ReleaseCreditMemoRequestPreconditionRequired) releaseCreditMemoRequestRes() {}
 
 type ReleaseInternalOrderBadRequest Problem
 
@@ -88769,6 +89768,7 @@ func (*TooManyRequestsHeaders) createControlRes()                         {}
 func (*TooManyRequestsHeaders) createControlTestRes()                     {}
 func (*TooManyRequestsHeaders) createCostCenterRes()                      {}
 func (*TooManyRequestsHeaders) createCreditLimitRes()                     {}
+func (*TooManyRequestsHeaders) createCreditMemoRequestRes()               {}
 func (*TooManyRequestsHeaders) createCustomerInvoiceRes()                 {}
 func (*TooManyRequestsHeaders) createDownPaymentRequestRes()              {}
 func (*TooManyRequestsHeaders) createDunningRunRes()                      {}
@@ -88812,6 +89812,7 @@ func (*TooManyRequestsHeaders) createVarianceCommentRes()                 {}
 func (*TooManyRequestsHeaders) createWebhookSubscriptionRes()             {}
 func (*TooManyRequestsHeaders) createYearCloseRes()                       {}
 func (*TooManyRequestsHeaders) decideRecommendationRes()                  {}
+func (*TooManyRequestsHeaders) declineCreditMemoRequestRes()              {}
 func (*TooManyRequestsHeaders) declineQuotationRes()                      {}
 func (*TooManyRequestsHeaders) deleteWebhookSubscriptionRes()             {}
 func (*TooManyRequestsHeaders) disableConnectorRes()                      {}
@@ -88876,6 +89877,7 @@ func (*TooManyRequestsHeaders) getControlRes()                            {}
 func (*TooManyRequestsHeaders) getCostCenterRes()                         {}
 func (*TooManyRequestsHeaders) getCreditExposureRes()                     {}
 func (*TooManyRequestsHeaders) getCreditLimitRes()                        {}
+func (*TooManyRequestsHeaders) getCreditMemoRequestRes()                  {}
 func (*TooManyRequestsHeaders) getCurrentPrincipalRes()                   {}
 func (*TooManyRequestsHeaders) getCustomerInvoiceRes()                    {}
 func (*TooManyRequestsHeaders) getDepreciationRunRes()                    {}
@@ -89000,6 +90002,7 @@ func (*TooManyRequestsHeaders) listCostCenterPlanActualRes()              {}
 func (*TooManyRequestsHeaders) listCostCentersRes()                       {}
 func (*TooManyRequestsHeaders) listCountryPacksRes()                      {}
 func (*TooManyRequestsHeaders) listCreditLimitsRes()                      {}
+func (*TooManyRequestsHeaders) listCreditMemoRequestsRes()                {}
 func (*TooManyRequestsHeaders) listCustomerInvoicesRes()                  {}
 func (*TooManyRequestsHeaders) listDepreciationRunsRes()                  {}
 func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()               {}
@@ -89101,6 +90104,7 @@ func (*TooManyRequestsHeaders) pingWebhookSubscriptionRes()               {}
 func (*TooManyRequestsHeaders) placeInHierarchyRes()                      {}
 func (*TooManyRequestsHeaders) postBankStatementLineRes()                 {}
 func (*TooManyRequestsHeaders) postBillingDocumentRes()                   {}
+func (*TooManyRequestsHeaders) postCreditMemoRequestRes()                 {}
 func (*TooManyRequestsHeaders) postCustomerInvoiceRes()                   {}
 func (*TooManyRequestsHeaders) postGoodsReceiptRes()                      {}
 func (*TooManyRequestsHeaders) postJournalEntryRes()                      {}
@@ -89131,6 +90135,7 @@ func (*TooManyRequestsHeaders) rejectMemoRecordProposalRes()              {}
 func (*TooManyRequestsHeaders) rejectPaymentRunRes()                      {}
 func (*TooManyRequestsHeaders) rejectVarianceCommentRes()                 {}
 func (*TooManyRequestsHeaders) releaseContractRes()                       {}
+func (*TooManyRequestsHeaders) releaseCreditMemoRequestRes()              {}
 func (*TooManyRequestsHeaders) releaseInternalOrderRes()                  {}
 func (*TooManyRequestsHeaders) releasePaymentRunRes()                     {}
 func (*TooManyRequestsHeaders) releasePurchaseOrderRes()                  {}
@@ -89583,6 +90588,7 @@ func (*UnauthorizedHeaders) createControlRes()                         {}
 func (*UnauthorizedHeaders) createControlTestRes()                     {}
 func (*UnauthorizedHeaders) createCostCenterRes()                      {}
 func (*UnauthorizedHeaders) createCreditLimitRes()                     {}
+func (*UnauthorizedHeaders) createCreditMemoRequestRes()               {}
 func (*UnauthorizedHeaders) createCustomerInvoiceRes()                 {}
 func (*UnauthorizedHeaders) createDownPaymentRequestRes()              {}
 func (*UnauthorizedHeaders) createDunningRunRes()                      {}
@@ -89626,6 +90632,7 @@ func (*UnauthorizedHeaders) createVarianceCommentRes()                 {}
 func (*UnauthorizedHeaders) createWebhookSubscriptionRes()             {}
 func (*UnauthorizedHeaders) createYearCloseRes()                       {}
 func (*UnauthorizedHeaders) decideRecommendationRes()                  {}
+func (*UnauthorizedHeaders) declineCreditMemoRequestRes()              {}
 func (*UnauthorizedHeaders) declineQuotationRes()                      {}
 func (*UnauthorizedHeaders) deleteWebhookSubscriptionRes()             {}
 func (*UnauthorizedHeaders) disableConnectorRes()                      {}
@@ -89690,6 +90697,7 @@ func (*UnauthorizedHeaders) getControlRes()                            {}
 func (*UnauthorizedHeaders) getCostCenterRes()                         {}
 func (*UnauthorizedHeaders) getCreditExposureRes()                     {}
 func (*UnauthorizedHeaders) getCreditLimitRes()                        {}
+func (*UnauthorizedHeaders) getCreditMemoRequestRes()                  {}
 func (*UnauthorizedHeaders) getCurrentPrincipalRes()                   {}
 func (*UnauthorizedHeaders) getCustomerInvoiceRes()                    {}
 func (*UnauthorizedHeaders) getDepreciationRunRes()                    {}
@@ -89814,6 +90822,7 @@ func (*UnauthorizedHeaders) listCostCenterPlanActualRes()              {}
 func (*UnauthorizedHeaders) listCostCentersRes()                       {}
 func (*UnauthorizedHeaders) listCountryPacksRes()                      {}
 func (*UnauthorizedHeaders) listCreditLimitsRes()                      {}
+func (*UnauthorizedHeaders) listCreditMemoRequestsRes()                {}
 func (*UnauthorizedHeaders) listCustomerInvoicesRes()                  {}
 func (*UnauthorizedHeaders) listDepreciationRunsRes()                  {}
 func (*UnauthorizedHeaders) listDownPaymentRequestsRes()               {}
@@ -89915,6 +90924,7 @@ func (*UnauthorizedHeaders) pingWebhookSubscriptionRes()               {}
 func (*UnauthorizedHeaders) placeInHierarchyRes()                      {}
 func (*UnauthorizedHeaders) postBankStatementLineRes()                 {}
 func (*UnauthorizedHeaders) postBillingDocumentRes()                   {}
+func (*UnauthorizedHeaders) postCreditMemoRequestRes()                 {}
 func (*UnauthorizedHeaders) postCustomerInvoiceRes()                   {}
 func (*UnauthorizedHeaders) postGoodsReceiptRes()                      {}
 func (*UnauthorizedHeaders) postJournalEntryRes()                      {}
@@ -89945,6 +90955,7 @@ func (*UnauthorizedHeaders) rejectMemoRecordProposalRes()              {}
 func (*UnauthorizedHeaders) rejectPaymentRunRes()                      {}
 func (*UnauthorizedHeaders) rejectVarianceCommentRes()                 {}
 func (*UnauthorizedHeaders) releaseContractRes()                       {}
+func (*UnauthorizedHeaders) releaseCreditMemoRequestRes()              {}
 func (*UnauthorizedHeaders) releaseInternalOrderRes()                  {}
 func (*UnauthorizedHeaders) releasePaymentRunRes()                     {}
 func (*UnauthorizedHeaders) releasePurchaseOrderRes()                  {}

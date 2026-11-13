@@ -203,6 +203,18 @@ func TestConsumerSkipsAndRefuses(t *testing.T) {
 			m.Subject = strings.Replace(m.Subject, ".sales_order_changed", ".returns_order_changed", 1)
 			m.Data = []byte(`{"returns_order_id": "` + uuid.NewString() + `", "sales_order_id": "` + order + `", "status": "confirmed", "status_before": "draft"}`)
 		}, "", 0},
+		// A credit memo request's event (T85c): it changes no revenue contract (the accounting specialist's question 4).
+		{"an approved credit memo request", order, func(m *outbox.Message) {
+			m.Header["ce-type"] = "com.example.erp.sales.credit_memo_request_changed.v1"
+			m.Subject = strings.Replace(m.Subject, ".sales_order_changed", ".credit_memo_request_changed", 1)
+			m.Data = []byte(`{"credit_memo_request_id": "` + uuid.NewString() + `", "sales_order_id": "` + order + `", "status": "approved", "status_before": "open"}`)
+		}, "", 0},
+		// A posted credit memo request's event (T85d): it changes no revenue contract either.
+		{"a posted credit memo request", order, func(m *outbox.Message) {
+			m.Header["ce-type"] = "com.example.erp.sales.credit_memo_request_posted.v1"
+			m.Subject = strings.Replace(m.Subject, ".sales_order_changed", ".credit_memo_request_posted", 1)
+			m.Data = []byte(`{"credit_memo_request_id": "` + uuid.NewString() + `", "sales_order_id": "` + order + `", "status": "posted", "status_before": "approved"}`)
+		}, "", 0},
 		{"an order created, not confirmed", draft, func(*outbox.Message) {}, "", 0},
 		{"subject of another form", order, func(m *outbox.Message) { m.Subject = "erp.test." + e.Tenant.ID.String() }, "refused", 0},
 		{"another context's stream", order, func(m *outbox.Message) { m.Subject = strings.Replace(m.Subject, ".sales.", ".payables.", 1) }, "refused", 0},

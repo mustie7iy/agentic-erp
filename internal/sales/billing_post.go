@@ -137,17 +137,25 @@ func (e *Endpoints) invoice(ctx context.Context, b BillingDocument, postingDate 
 }
 
 // asBilling makes a refusal by receivables or the ledger one of the
-// billing document's post: its detail leads with the document, and its
-// field errors name the document's own fields. The invoice's fields are
-// the document's, its items one for one (customer_id, payment_term_code,
-// items[i].account_id, items[i].tax_code), so they stay, but for an
-// item's centers (itemField); the ledger names the entry's lines, which
-// the document does not have, in its fields and its detail ("Line 2"),
-// and those become what the lines are to the document (billingLine). The
-// code stays the refusing context's, which a consumer branches on. The
-// problem is copied, never changed: its maker may keep it. Other errors
-// pass unchanged.
+// billing document's post (asPosting).
 func asBilling(err error, b BillingDocument) error {
+	return asPosting(err, "Billing document "+b.DocumentNumber+" cannot be posted as a customer invoice: ", len(b.Items))
+}
+
+// asPosting makes a refusal by receivables or the ledger one of a sales
+// document posted as a customer invoice or credit memo of so many items,
+// one for one: its detail leads with lead, and its field errors name the
+// document's own fields. The invoice's fields are the document's, its
+// items one for one (customer_id, payment_term_code, items[i].account_id,
+// items[i].tax_code), so they stay, but for an item's centers
+// (itemField) and the invoice's gross_amount, which a credit memo's limit
+// names and the document shows as its net_amount; the ledger names the
+// entry's lines, which the document does not have, in its fields and its
+// detail ("Line 2"), and those become what the lines are to the document
+// (billingLine). The code stays the refusing context's, which a consumer
+// branches on. The problem is copied, never changed: its maker may keep
+// it. Other errors pass unchanged.
+func asPosting(err error, lead string, items int) error {
 	var p *problem.Problem
 	if !errors.As(err, &p) {
 		return err
@@ -164,12 +172,12 @@ func asBilling(err error, b BillingDocument) error {
 		}
 		_, rest, _ := strings.Cut(f.Field, "]") // what of the line was refused: ".account_id", or nothing
 		var name string
-		f.Field, name = billingLine(line, len(b.Items), rest)
+		f.Field, name = billingLine(line, items, rest)
 		if rest, ok := strings.CutPrefix(detail, fmt.Sprintf("Line %d", line+1)); ok {
 			detail = name + rest
 		}
 	}
-	refused.Detail = "Billing document " + b.DocumentNumber + " cannot be posted as a customer invoice: " + detail
+	refused.Detail = lead + detail
 	return &refused
 }
 
@@ -190,10 +198,15 @@ func billingLine(k, items int, rest string) (field, name string) {
 	return "items", "The output tax on the items"
 }
 
-// itemField is the billing document's field for a field of the invoice:
+// itemField is the sales document's field for a field of the invoice:
 // the same, but for an item's cost center or profit center, which a
-// billing document's item does not carry: its account asked for one.
+// sales document's item does not carry: its account asked for one; and
+// for the gross amount a credit memo's limit names, which a credit memo
+// request shows as its net_amount, the tax being the credit memo's.
 func itemField(field string) string {
+	if field == "gross_amount" {
+		return "net_amount"
+	}
 	for _, center := range []string{".cost_center_id", ".profit_center_id"} {
 		if item, ok := strings.CutSuffix(field, center); ok && strings.HasPrefix(item, "items[") {
 			return item + ".account_id"
