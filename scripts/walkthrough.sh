@@ -7703,6 +7703,7 @@ step_returns() {
   api 200 '"returns order \(.document_number): \(.status), version \(.version)"' confirmReturnsOrder -p "id=$returns" -if-match "$tag"
   expect "the confirmed returns order" "$(field '"\(.document_number) \(.status) \(.version)"')" "$number confirmed 2"
   refused 412 request.version_mismatch confirmReturnsOrder -p "id=$returns" -if-match "$tag"
+  QUIET=1 api 200 '' getReturnsOrder -p "id=$returns"
   refused 409 sales.invalid_status confirmReturnsOrder -p "id=$returns" -if-match "$ETAG"
   say "It is the billing document's one returns order:"
   api 200 '.items[] | "  \(.document_number) \(.customer_name): \(.status), billing document \(.billing_document_number), reason \(.reason)"' \
