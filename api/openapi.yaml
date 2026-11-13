@@ -29215,6 +29215,7 @@ components:
             - close
             - cash_forecast
             - tax
+            - credit_scoring
           maxLength: 50
         model:
           type: string

@@ -105,6 +105,25 @@ func List[T any](ctx context.Context, c *Client, path string, query url.Values) 
 	}
 }
 
+// LegalEntity is the id of the company with the code, among the legal
+// entities the caller may read: an agent's run is given its company by
+// code, and finds no company it may not read.
+func LegalEntity(ctx context.Context, c *Client, code string) (string, error) {
+	les, err := List[struct {
+		ID   string `json:"id"`
+		Code string `json:"code"`
+	}](ctx, c, "/v1/legal-entities", nil)
+	if err != nil {
+		return "", err
+	}
+	for _, le := range les {
+		if le.Code == code {
+			return le.ID, nil
+		}
+	}
+	return "", fmt.Errorf("apitools: no company %s that the caller may read", code)
+}
+
 // Multipart is a request body sent as a multipart form, one part per
 // field, in the order of their names: an upload whose file the contract
 // takes as a string of bytes, such as a bank statement.

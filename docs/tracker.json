@@ -2843,13 +2843,13 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Credit scoring agent",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The credit scoring agent reads a customer's exposure, limit, aging, dunning history and payments and recommends a credit limit with its reasons for a credit manager to decide; it never changes a limit (erp agent credit-score); the ADR of the recommending agents",
-        "r": "T105a · docs/design/plan-breadth-week3.md §T105a",
+        "r": "T105a · docs/design/plan-breadth-week3.md §T105a · internal/recommend · internal/creditagent · agent type credit_scoring · erp agent credit-score · evals/credit_scoring · walkthrough step_credit_agent · no migration · ADR-0072 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

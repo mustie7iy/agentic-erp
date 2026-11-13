@@ -350,3 +350,23 @@ func TestForm(t *testing.T) {
 		t.Error("an unreachable server: got no error")
 	}
 }
+
+// TestLegalEntity: a company is found by its code among the legal entities
+// the caller may read; one it may not read, or one the list does not
+// have, is none, and a list that cannot be read fails.
+func TestLegalEntity(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"items": [{"id": "le-1000", "code": "1000"}, {"id": "le-3000", "code": "3000"}]}`)) // a test's answer
+	}))
+	t.Cleanup(srv.Close)
+	c := &apitools.Client{BaseURL: srv.URL, Token: "t"}
+	if got, err := apitools.LegalEntity(context.Background(), c, "3000"); err != nil || got != "le-3000" {
+		t.Errorf("company 3000: got %q, %v, want le-3000", got, err)
+	}
+	if _, err := apitools.LegalEntity(context.Background(), c, "9999"); err == nil || !strings.Contains(err.Error(), "no company 9999") {
+		t.Errorf("a company not in the list: got %v, want it named as none", err)
+	}
+	if _, err := apitools.LegalEntity(context.Background(), &apitools.Client{BaseURL: "http://127.0.0.1:1", Token: "t"}, "3000"); err == nil {
+		t.Error("an unreachable server: got no error")
+	}
+}
