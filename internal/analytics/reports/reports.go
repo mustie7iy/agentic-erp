@@ -1,13 +1,15 @@
 // Package reports keeps analysts' saved reports in erp-server (ADR-0076;
 // 03-data-model §3.23): a report's dashboard specification and the
 // semantic queries behind it, saved under its title through the API and
-// run again on current data. A report is its owner's, read and run by
-// them alone (ADR-0076 §2); a run executes each query as the caller,
+// run again on current data. A report is its owner's, changed and shared
+// by them alone, and read and run by them and the people they share it
+// with (ADR-0076 §2, §7); a run executes each query as the caller,
 // through the semantic layer's endpoint (ADR-0044), so it reads what the
 // caller may read now. Removing a report keeps it (04 §4.3: no DELETE).
 //
-// The package is part of the analytics context. It reads principals'
-// names through its People port, by types of its own.
+// The package is part of the analytics context. It reads principals,
+// roles and companies through its People, Grantees and Companies ports,
+// by types of its own.
 package reports
 
 import (
@@ -23,6 +25,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -42,6 +45,28 @@ type People interface {
 	Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
 }
 
+// Grantees reads whom a report may be shared with and through which roles
+// a person reads it (identity context): principals' kinds (human, agent,
+// service), the roles a principal holds today and roles by id; an id the
+// tenant has none of is absent.
+type Grantees interface {
+	Kinds(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
+	RolesHeld(ctx context.Context, principal uuid.UUID) ([]uuid.UUID, error)
+	Roles(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Role, error)
+}
+
+// Role is a role a report is shared with.
+type Role struct {
+	Code, Name string
+	Active     bool
+}
+
+// Companies names the companies a company access reaches (tenancy
+// context): their codes, in order, every company's for access to all.
+type Companies interface {
+	Codes(ctx context.Context, access authz.Access) ([]string, error)
+}
+
 // Configs reads the active configuration (the configuration context's
 // Settings): the companies whose time zones date scheduled runs.
 type Configs interface {
@@ -50,10 +75,12 @@ type Configs interface {
 
 // Endpoints implements the saved reports' part of the generated API.
 type Endpoints struct {
-	Pages   *pagination.Codec
-	Queries Queries
-	People  People
-	Configs Configs
+	Pages     *pagination.Codec
+	Queries   Queries
+	People    People
+	Grantees  Grantees
+	Companies Companies
+	Configs   Configs
 	// Objects keeps scheduled runs' results (ADR-0016); nil: reports are
 	// not scheduled and kept runs not read (503).
 	Objects blobstore.Store
@@ -66,6 +93,12 @@ const (
 	Removed = "removed"
 )
 
+// A reader's access to a report (ADR-0076 §7).
+const (
+	Owner  = "owner"
+	Viewer = "viewer"
+)
+
 // Report is a row of analytics.report.
 type Report struct {
 	ID        uuid.UUID
@@ -76,6 +109,7 @@ type Report struct {
 	OwnerID   uuid.UUID
 	Status    string
 	Schedule  *Schedule // nil: none
+	Access    string    // the reader's: Owner or Viewer
 	Version   int32
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -109,7 +143,7 @@ func (s Schedule) On(day time.Time) bool {
 }
 
 const reportSelect = `SELECT id, title, coalesce(question, ''), spec, queries, owner_id, status, version, created_at, updated_at,
-	schedule_frequency, schedule_company, schedule_weekday, schedule_day, scheduled_from FROM analytics.report`
+	schedule_frequency, schedule_company, schedule_weekday, schedule_day, scheduled_from FROM analytics.report r`
 
 func scanReport(row pgx.Row) (Report, error) {
 	var (
@@ -137,23 +171,36 @@ func scanReport(row pgx.Row) (Report, error) {
 	return r, nil
 }
 
-// report reads one of the owner's reports, locked for a change when
-// forUpdate (FOR NO KEY UPDATE: a run being kept references the row,
-// taking FOR KEY SHARE, which this lock lets through); another's is not
-// found, as one that does not exist.
-func report(ctx context.Context, tx pgx.Tx, owner, id uuid.UUID, forUpdate bool) (Report, error) {
-	q := reportSelect + ` WHERE id = $1 AND owner_id = $2`
+// report reads a report the reader reads, their own or one shared with
+// them, locked for a change when forUpdate (FOR NO KEY UPDATE: a run
+// being kept or a share being made references the row, taking FOR KEY
+// SHARE, which this lock lets through); another's is not found, as one
+// that does not exist.
+func report(ctx context.Context, tx pgx.Tx, v reader, id uuid.UUID, forUpdate bool) (Report, error) {
+	q := reportSelect + ` WHERE id = $4 AND ` + readable
 	if forUpdate {
 		q += ` FOR NO KEY UPDATE`
 	}
-	r, err := scanReport(tx.QueryRow(ctx, q, id, owner))
+	r, err := scanReport(tx.QueryRow(ctx, q, append(v.args(), id)...))
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return Report{}, problem.NotFoundOf("report")
 	case err != nil:
 		return Report{}, fmt.Errorf("analytics: read report %s: %w", id, err)
 	}
+	r.Access = v.access(r)
 	return r, nil
+}
+
+// owned reads a report the reader reads as report does, and refuses one
+// they read as a viewer: a viewer does not change or share it (403
+// analytics.report_not_owner).
+func owned(ctx context.Context, tx pgx.Tx, v reader, id uuid.UUID, forUpdate bool) (Report, error) {
+	r, err := report(ctx, tx, v, id, forUpdate)
+	if err == nil && r.Access != Owner {
+		return Report{}, problem.Forbidden("analytics.report_not_owner", "Report "+r.Title+" is shared with you to read and run; its owner alone changes and shares it.")
+	}
+	return r, err
 }
 
 // errRemoved refuses running or removing a removed report.

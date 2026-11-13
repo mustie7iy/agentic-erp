@@ -72,7 +72,7 @@ func (e *Endpoints) names(ctx context.Context, reports []Report) (map[uuid.UUID]
 func toAPI(r Report, names map[uuid.UUID]string) gen.Report {
 	out := gen.Report{ID: r.ID, Version: r.Version, CreatedAt: r.CreatedAt, CreatedBy: r.OwnerID, UpdatedAt: r.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(r.OwnerID), Title: r.Title, Spec: specToAPI(r.Spec), Queries: queriesToAPI(r.Queries),
-		OwnerID: r.OwnerID, OwnerName: names[r.OwnerID], Status: r.Status}
+		OwnerID: r.OwnerID, OwnerName: names[r.OwnerID], Status: r.Status, Access: r.Access}
 	if r.Question != "" {
 		out.Question = gen.NewOptString(r.Question)
 	}
@@ -107,7 +107,7 @@ func (e *Endpoints) CreateReport(ctx context.Context, req *gen.ReportCreate, _ g
 
 // GetReport implements GET /v1/reports/{id}.
 func (e *Endpoints) GetReport(ctx context.Context, params gen.GetReportParams) (gen.GetReportRes, error) {
-	r, err := Get(ctx, params.ID)
+	r, err := e.Get(ctx, params.ID)
 	out, tag, err := e.one(ctx, r, err)
 	if err != nil {
 		return nil, err
@@ -117,7 +117,7 @@ func (e *Endpoints) GetReport(ctx context.Context, params gen.GetReportParams) (
 
 // RemoveReport implements POST /v1/reports/{id}:remove.
 func (e *Endpoints) RemoveReport(ctx context.Context, params gen.RemoveReportParams) (gen.RemoveReportRes, error) {
-	r, err := Remove(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	r, err := e.Remove(ctx, params.ID, etag.IfMatch(params.IfMatch))
 	out, tag, err := e.one(ctx, r, err)
 	if err != nil {
 		return nil, err
@@ -127,7 +127,7 @@ func (e *Endpoints) RemoveReport(ctx context.Context, params gen.RemoveReportPar
 
 // ListReports implements GET /v1/reports.
 func (e *Endpoints) ListReports(ctx context.Context, params gen.ListReportsParams) (gen.ListReportsRes, error) {
-	reports, ks, err := e.List(ctx, params.Status.Value, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
+	reports, ks, err := e.List(ctx, params.Status.Value, apitypes.Ptr[bool](params.Shared), apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +169,7 @@ func (e *Endpoints) ScheduleReport(ctx context.Context, req *gen.ReportScheduleS
 
 // UnscheduleReport implements POST /v1/reports/{id}:unschedule.
 func (e *Endpoints) UnscheduleReport(ctx context.Context, params gen.UnscheduleReportParams) (gen.UnscheduleReportRes, error) {
-	r, err := Unschedule(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	r, err := e.Unschedule(ctx, params.ID, etag.IfMatch(params.IfMatch))
 	out, tag, err := e.one(ctx, r, err)
 	if err != nil {
 		return nil, err

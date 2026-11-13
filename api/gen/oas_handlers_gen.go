@@ -19849,6 +19849,226 @@ func (s *Server) handleCreateReportRequest(args [0]string, argsEscaped bool, w h
 	}
 }
 
+// handleCreateReportShareRequest handles createReportShare operation.
+//
+// Shares one of the caller's active reports with a person (`principal_id`) or a role (`role_id`), one
+// of the two (ADR-0076 §7, T95c). A viewer reads and runs the report, and reads its kept runs, but
+// does not change or share it; each run of theirs is computed with their own company access and
+// dataset permissions, and a kept run is read only by a viewer whose company access covers every
+// company it covered. A role's share reaches the people who hold the role on the day they read. A
+// share reaches people alone: a share with an agent or a service principal is refused (422
+// `analytics.report_share_not_person`), and an agent holding a shared role reads nothing through it.
+// The person is a principal of the tenant other than the owner (422 `request.reference_not_found`
+// naming `principal_id` for an unknown one, `analytics.report_share_owner` for the owner); the role is
+// an active role of the tenant (422 `request.reference_not_found` naming `role_id`). A report is
+// shared with a person or a role once at a time (409 `analytics.report_share_exists`); a removed
+// report is not shared (409 `analytics.report_removed`), nor one shared with the caller (403
+// `analytics.report_not_owner`). An audit record is written with it. A retry with the same
+// `Idempotency-Key` answers the share made. Human-only: sharing grants access, as identity
+// administration does.
+//
+// POST /v1/reports/{id}/shares
+func (s *Server) handleCreateReportShareRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createReportShare"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/reports/{id}/shares"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CreateReportShareOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CreateReportShareOperation,
+			ID:   "createReportShare",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CreateReportShareOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCreateReportShareParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCreateReportShareRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CreateReportShareRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CreateReportShareOperation,
+			OperationSummary: "Share a saved report",
+			OperationID:      "createReportShare",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *ReportShareCreate
+			Params   = CreateReportShareParams
+			Response = CreateReportShareRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCreateReportShareParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CreateReportShare(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CreateReportShare(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCreateReportShareResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCreateRequisitionRequest handles createRequisition operation.
 //
 // Creates a draft requisition. An item may be taken from the company's catalog by `catalog_item_id`
@@ -25267,6 +25487,210 @@ func (s *Server) handleEndCurrentSessionRequest(args [0]string, argsEscaped bool
 	}
 
 	if err := encodeEndCurrentSessionResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleEndReportShareRequest handles endReportShare operation.
+//
+// Ends a share of one of the caller's reports (ADR-0076 §7, T95c), once (409
+// `analytics.report_share_ended` for an ended one), at the share's version (`If-Match`): from that
+// moment the viewer, or the role's holders, neither read nor run the report nor read its kept runs.
+// There is no `DELETE` in the API (04 §4.3): an ended share is kept and listed with `status=ended`. A
+// report shared with the caller is 403 `analytics.report_not_owner`. An audit record is written with
+// it. Human-only.
+//
+// POST /v1/reports/{id}/shares/{share_id}:end
+func (s *Server) handleEndReportShareRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("endReportShare"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/reports/{id}/shares/{share_id}:end"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), EndReportShareOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: EndReportShareOperation,
+			ID:   "endReportShare",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, EndReportShareOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeEndReportShareParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response EndReportShareRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    EndReportShareOperation,
+			OperationSummary: "End a saved report's share",
+			OperationID:      "endReportShare",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "share_id",
+					In:   "path",
+				}: params.ShareID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = EndReportShareParams
+			Response = EndReportShareRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackEndReportShareParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.EndReportShare(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.EndReportShare(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeEndReportShareResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -45026,8 +45450,9 @@ func (s *Server) handleGetRegressionSuiteRequest(args [1]string, argsEscaped boo
 
 // handleGetReportRequest handles getReport operation.
 //
-// One of the caller's saved reports (ADR-0076 §2, T95a), with its specification and queries as saved;
-// another's is not found (404).
+// A saved report the caller reads (ADR-0076 §2, §7; T95a, T95c), with its specification and queries
+// as saved: their own, or one shared with them (`access` `viewer`); another's report not shared with
+// them is not found (404).
 //
 // GET /v1/reports/{id}
 func (s *Server) handleGetReportRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -45214,16 +45639,19 @@ func (s *Server) handleGetReportRequest(args [1]string, argsEscaped bool, w http
 
 // handleGetReportRunRequest handles getReportRun operation.
 //
-// One kept run of one of the caller's reports (ADR-0076 §6, T95b): as JSON (`format=json`, the
-// default) the run with its specification and every query's result as the run kept them, read back
-// from object storage, whose bytes are compared with the SHA-256 recorded (409
-// `analytics.report_run_changed` when they differ); as CSV (`format=csv`) one result, a header row of
-// its columns' names then a row per result row, each measure an exact decimal and a money measure
-// followed by its currency's column (`<name>_currency`), a measure that cannot be computed empty, the
-// result named by `query_id` (422 `analytics.unknown_query` when the run has no such result, or when
-// the run has several and none is named). A failed run has no results (409
-// `analytics.report_run_failed` for its CSV); a format the contract does not list is 422
-// `request.validation_failed`; 503 while the server has no object storage.
+// One kept run of a report the caller reads, their own or one shared with them (ADR-0076 §6-§7;
+// T95b, T95c), when the caller's company access today covers every company the run covered (403
+// `analytics.report_run_companies` otherwise, and for a run kept before T95c, which names no
+// companies, to all but its report's owner): as JSON (`format=json`, the default) the run with its
+// specification and every query's result as the run kept them, read back from object storage, whose
+// bytes are compared with the SHA-256 recorded (409 `analytics.report_run_changed` when they differ);
+// as CSV (`format=csv`) one result, a header row of its columns' names then a row per result row, each
+// measure an exact decimal and a money measure followed by its currency's column (`<name>_currency`),
+// a measure that cannot be computed empty, the result named by `query_id` (422
+// `analytics.unknown_query` when the run has no such result, or when the run has several and none is
+// named). A failed run has no results (409 `analytics.report_run_failed` for its CSV); a format the
+// contract does not list is 422 `request.validation_failed`; 503 while the server has no object
+// storage.
 //
 // GET /v1/report-runs/{id}
 func (s *Server) handleGetReportRunRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -45359,7 +45787,7 @@ func (s *Server) handleGetReportRunRequest(args [1]string, argsEscaped bool, w h
 		mreq := middleware.Request{
 			Context:          ctx,
 			OperationName:    GetReportRunOperation,
-			OperationSummary: "Get a kept run of your report",
+			OperationSummary: "Get a kept run of a report you read",
 			OperationID:      "getReportRun",
 			Body:             nil,
 			RawBody:          rawBody,
@@ -73278,10 +73706,13 @@ func (s *Server) handleListRegressionSuitesRequest(args [0]string, argsEscaped b
 
 // handleListReportRunsRequest handles listReportRuns operation.
 //
-// The runs the worker kept of the caller's scheduled reports (ADR-0076 §5-§6, T95b), each with its
-// report's title, its day, its outcome and, for a failed one, the problem that failed it; without
-// results, which `getReportRun` gives. Another's report's runs are neither listed nor found. Filtered
-// by report and status. Sortable by: `run_date` (default, the latest first).
+// The runs the worker kept of the scheduled reports the caller reads (ADR-0076 §5-§7; T95b, T95c),
+// their own and those shared with them, each with its report's title, its day, its outcome, the
+// companies it covered and, for a failed one, the problem that failed it; without results, which
+// `getReportRun` gives. Only the runs whose companies the caller's company access covers today are
+// listed; a run kept before T95c, which names no companies, is its report owner's alone. Another's
+// report's runs that are not shared with the caller are neither listed nor found. Filtered by report
+// and status. Sortable by: `run_date` (default, the latest first).
 //
 // GET /v1/report-runs
 func (s *Server) handleListReportRunsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -73417,7 +73848,7 @@ func (s *Server) handleListReportRunsRequest(args [0]string, argsEscaped bool, w
 		mreq := middleware.Request{
 			Context:          ctx,
 			OperationName:    ListReportRunsOperation,
-			OperationSummary: "List the kept runs of your reports",
+			OperationSummary: "List the kept runs of the reports you read",
 			OperationID:      "listReportRuns",
 			Body:             nil,
 			RawBody:          rawBody,
@@ -73482,11 +73913,221 @@ func (s *Server) handleListReportRunsRequest(args [0]string, argsEscaped bool, w
 	}
 }
 
+// handleListReportSharesRequest handles listReportShares operation.
+//
+// The shares of one of the caller's reports (ADR-0076 §7, T95c), the earliest first, each with the
+// person's name or the role's code and name; filtered by status (`active`, `ended`; every status when
+// omitted). A report's shares are its owner's to read: a report shared with the caller is 403
+// `analytics.report_not_owner`, another's not shared with them 404. Sortable by: `created_at`
+// (default).
+//
+// GET /v1/reports/{id}/shares
+func (s *Server) handleListReportSharesRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listReportShares"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/reports/{id}/shares"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListReportSharesOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListReportSharesOperation,
+			ID:   "listReportShares",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListReportSharesOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListReportSharesParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListReportSharesRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListReportSharesOperation,
+			OperationSummary: "List a saved report's shares",
+			OperationID:      "listReportShares",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "status",
+					In:   "query",
+				}: params.Status,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListReportSharesParams
+			Response = ListReportSharesRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListReportSharesParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListReportShares(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListReportShares(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListReportSharesResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleListReportsRequest handles listReports operation.
 //
-// The caller's own saved reports (ADR-0076 §2, T95a): a report is read by the person or agent who
-// saved it alone; another's is neither listed nor found. Filtered by status (`active`, `removed`);
-// every status when omitted. Sortable by: `title` (default).
+// The saved reports the caller reads (ADR-0076 §2, §7; T95a, T95c): their own and those shared with
+// them, directly or through a role they hold today (`access` says which); another's report not shared
+// with them is neither listed nor found. Shares reach people alone: an agent lists its own reports.
+// Filtered by status (`active`, `removed`; every status when omitted) and by `shared` (`true`: the
+// reports shared with the caller; `false`: their own; both when omitted). Sortable by: `title`
+// (default).
 //
 // GET /v1/reports
 func (s *Server) handleListReportsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -73622,7 +74263,7 @@ func (s *Server) handleListReportsRequest(args [0]string, argsEscaped bool, w ht
 		mreq := middleware.Request{
 			Context:          ctx,
 			OperationName:    ListReportsOperation,
-			OperationSummary: "List your saved reports",
+			OperationSummary: "List the saved reports you read",
 			OperationID:      "listReports",
 			Body:             nil,
 			RawBody:          rawBody,
@@ -73631,6 +74272,10 @@ func (s *Server) handleListReportsRequest(args [0]string, argsEscaped bool, w ht
 					Name: "status",
 					In:   "query",
 				}: params.Status,
+				{
+					Name: "shared",
+					In:   "query",
+				}: params.Shared,
 				{
 					Name: "page_size",
 					In:   "query",
@@ -91064,7 +91709,8 @@ func (s *Server) handleRemoveHierarchyNodeRequest(args [2]string, argsEscaped bo
 // Removes one of the caller's active reports (status `removed`), once (409 `analytics.report_removed`
 // for a removed one), at the version read (`If-Match`). There is no `DELETE` in the API (04 §4.3): a
 // removed report is kept and still read, is listed with `status=removed` or without a status filter,
-// changes no more and is not run. An audit record is written with it.
+// changes no more and is not run. A report shared with the caller is theirs to read and run, not to
+// change (403 `analytics.report_not_owner`). An audit record is written with it.
 //
 // POST /v1/reports/{id}:remove
 func (s *Server) handleRemoveReportRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -96025,17 +96671,18 @@ func (s *Server) handleRunBalanceCarryForwardRequest(args [0]string, argsEscaped
 
 // handleRunReportRequest handles runReport operation.
 //
-// Runs one of the caller's active reports again on current data (ADR-0076 §2, T95a) and answers its
-// specification with every query's result: each query is run as the caller, with the caller's company
-// access and dataset permissions now, as `runAnalyticsQuery` runs it (a query it refuses refuses the
-// run with its problem), under the active configuration version's metric definitions. Each result's
-// `query_id` is the id it has in this run, which the specification answered names. Commentary whose
-// figures the new results no longer support is left out of the specification answered, with an
-// assumption saying so, as `erp report` does. A query naming a metric the semantic model no longer has
-// is 422 `analytics.report_metric_removed` naming it; a specification the results no longer support is
-// 422 `analytics.invalid_report`. A removed report is not run (409 `analytics.report_removed`).
-// `If-Match` is the report's ETag, which a run does not change. Nothing is kept: a run changes
-// nothing, so agents of any autonomy level may run it.
+// Runs an active report the caller reads, their own or one shared with them, again on current data
+// (ADR-0076 §2, §7; T95a, T95c) and answers its specification with every query's result: each query
+// is run as the caller, with the caller's company access and dataset permissions now, as
+// `runAnalyticsQuery` runs it (a query it refuses refuses the run with its problem), under the active
+// configuration version's metric definitions. Each result's `query_id` is the id it has in this run,
+// which the specification answered names. Commentary whose figures the new results no longer support
+// is left out of the specification answered, with an assumption saying so, as `erp report` does. A
+// query naming a metric the semantic model no longer has is 422 `analytics.report_metric_removed`
+// naming it; a specification the results no longer support is 422 `analytics.invalid_report`. A
+// removed report is not run (409 `analytics.report_removed`). `If-Match` is the report's ETag, which a
+// run does not change. Nothing is kept: a run changes nothing, so agents of any autonomy level may run
+// it.
 //
 // POST /v1/reports/{id}:run
 func (s *Server) handleRunReportRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -96240,7 +96887,8 @@ func (s *Server) handleRunReportRequest(args [1]string, argsEscaped bool, w http
 // day the schedule is set (`from`, the company's date then); the worker runs it as the report's owner,
 // with the owner's access that day, and keeps it with its results (`listReportRuns`); a day the worker
 // did not run on is not made up. Without object storage, where runs are kept, it is 503. A removed
-// report is not scheduled (409 `analytics.report_removed`). An audit record is written with it.
+// report is not scheduled (409 `analytics.report_removed`), nor one shared with the caller (403
+// `analytics.report_not_owner`). An audit record is written with it.
 //
 // POST /v1/reports/{id}:schedule
 func (s *Server) handleScheduleReportRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -100442,7 +101090,8 @@ func (s *Server) handleUnlockPlanCategoryRequest(args [1]string, argsEscaped boo
 //
 // Ends the schedule of one of the caller's reports (ADR-0076 §4, T95b), at the version read
 // (`If-Match`): no run is due after it; the runs kept stay. A report without a schedule is 409
-// `analytics.report_not_scheduled`. An audit record is written with it.
+// `analytics.report_not_scheduled`; one shared with the caller is 403 `analytics.report_not_owner`. An
+// audit record is written with it.
 //
 // POST /v1/reports/{id}:unschedule
 func (s *Server) handleUnscheduleReportRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

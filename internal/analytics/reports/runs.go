@@ -145,7 +145,7 @@ func (s *Scheduler) runReport(ctx context.Context, sc scheduled) (bool, error) {
 // due keeps the report's run for the company's date today when one is
 // due and none is kept, as its owner p (in ctx, with tx).
 func (s *Scheduler) due(ctx context.Context, tx pgx.Tx, p reqctx.Principal, sc scheduled) (bool, error) {
-	r, err := report(ctx, tx, p.ID, sc.report, false)
+	r, err := report(ctx, tx, owner(p.ID), sc.report, false)
 	// Removed or unscheduled since it was found: a removed report has no
 	// schedule (report_removed_unscheduled).
 	if err != nil || r.Schedule == nil {
@@ -180,6 +180,10 @@ type keptRun struct {
 	ObjectKey   string
 	SHA256      []byte
 	DataThrough string
+	// Companies are the codes of the companies a success covered, the
+	// owner's company access when it ran (ADR-0076 §7); none for a
+	// failure.
+	Companies []string
 	// FailureCode and FailureDetail are the problem that failed the run;
 	// "" for a success.
 	FailureCode, FailureDetail string
@@ -192,6 +196,12 @@ type keptRun struct {
 func (s *Scheduler) execute(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run *keptRun) error {
 	if err := s.mayRun(ctx, tx, p); err != nil {
 		return failed(run, err)
+	}
+	// The companies the queries cover, read in the same transaction as
+	// they run (endpoint's principal reads the owner's access too).
+	companies, err := s.Reports.companies(ctx)
+	if err != nil {
+		return err
 	}
 	sess, out, results, err := s.Reports.rerun(reqctx.WithActing(ctx, p), run.Report.Spec, run.Report.Queries)
 	if err != nil {
@@ -208,7 +218,7 @@ func (s *Scheduler) execute(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	if err := s.Reports.Objects.Put(ctx, key, body, blobstore.PutOptions{ContentType: "application/json"}); err != nil {
 		return fmt.Errorf("analytics: keep run %s of report %s: %w", run.ID, run.Report.ID, err)
 	}
-	run.ObjectKey, run.SHA256, run.DataThrough = key, sum[:], res.DataThrough
+	run.ObjectKey, run.SHA256, run.DataThrough, run.Companies = key, sum[:], res.DataThrough, companies
 	return nil
 }
 
@@ -257,6 +267,10 @@ const maxDetail = 2000
 func keep(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run keptRun) error {
 	status, code, detail, sum, through := Succeeded, (*string)(nil), (*string)(nil), (*string)(nil), (*string)(nil)
 	var key *string
+	companies := run.Companies
+	if companies == nil { // a failure covered none
+		companies = []string{}
+	}
 	if run.FailureCode != "" {
 		status = Failed
 		code, detail = &run.FailureCode, &run.FailureDetail
@@ -265,8 +279,8 @@ func keep(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run keptRun) error
 		key, sum, through = &run.ObjectKey, &h, &run.DataThrough
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO analytics.report_run (tenant_id, id, report_id, run_date, status, run_as, object_key, sha256, data_through,
-			failure_code, failure_detail) VALUES ($1, $2, $3, $4, $5, $6, $7, decode($8, 'hex'), $9, $10, $11)`,
-		p.TenantID, run.ID, run.Report.ID, run.Date, status, run.RunAs, key, sum, through, code, detail); err != nil {
+			failure_code, failure_detail, companies) VALUES ($1, $2, $3, $4, $5, $6, $7, decode($8, 'hex'), $9, $10, $11, $12)`,
+		p.TenantID, run.ID, run.Report.ID, run.Date, status, run.RunAs, key, sum, through, code, detail, companies); err != nil {
 		return fmt.Errorf("analytics: keep run %s of report %s: %w", run.ID, run.Report.ID, err)
 	}
 	date := run.Date.Format("2006-01-02")

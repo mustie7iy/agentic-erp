@@ -24452,6 +24452,7 @@ func (*ConflictHeaders) createPurchaseOrderRes()                   {}
 func (*ConflictHeaders) createQuotationRes()                       {}
 func (*ConflictHeaders) createRecommendationRes()                  {}
 func (*ConflictHeaders) createReportRes()                          {}
+func (*ConflictHeaders) createReportShareRes()                     {}
 func (*ConflictHeaders) createRequisitionRes()                     {}
 func (*ConflictHeaders) createReturnsOrderRes()                    {}
 func (*ConflictHeaders) createRevenueContractRes()                 {}
@@ -24477,6 +24478,7 @@ func (*ConflictHeaders) discardConsolidationRunRes()               {}
 func (*ConflictHeaders) enableConnectorRes()                       {}
 func (*ConflictHeaders) endAgentSessionRes()                       {}
 func (*ConflictHeaders) endCompanyAccessRes()                      {}
+func (*ConflictHeaders) endReportShareRes()                        {}
 func (*ConflictHeaders) endRoleAssignmentRes()                     {}
 func (*ConflictHeaders) endRolePermissionRes()                     {}
 func (*ConflictHeaders) endSodRuleRes()                            {}
@@ -31742,6 +31744,26 @@ type CreateReportPreconditionRequired Problem
 
 func (*CreateReportPreconditionRequired) createReportRes() {}
 
+type CreateReportShareBadRequest Problem
+
+func (*CreateReportShareBadRequest) createReportShareRes() {}
+
+type CreateReportShareForbidden Problem
+
+func (*CreateReportShareForbidden) createReportShareRes() {}
+
+type CreateReportShareNotFound Problem
+
+func (*CreateReportShareNotFound) createReportShareRes() {}
+
+type CreateReportSharePreconditionRequired Problem
+
+func (*CreateReportSharePreconditionRequired) createReportShareRes() {}
+
+type CreateReportShareUnprocessableEntity Problem
+
+func (*CreateReportShareUnprocessableEntity) createReportShareRes() {}
+
 type CreateReportUnprocessableEntity Problem
 
 func (*CreateReportUnprocessableEntity) createReportRes() {}
@@ -37077,6 +37099,26 @@ func (s *EndInput) GetValidTo() time.Time {
 func (s *EndInput) SetValidTo(val time.Time) {
 	s.ValidTo = val
 }
+
+type EndReportShareBadRequest Problem
+
+func (*EndReportShareBadRequest) endReportShareRes() {}
+
+type EndReportShareForbidden Problem
+
+func (*EndReportShareForbidden) endReportShareRes() {}
+
+type EndReportShareNotFound Problem
+
+func (*EndReportShareNotFound) endReportShareRes() {}
+
+type EndReportSharePreconditionFailed Problem
+
+func (*EndReportSharePreconditionFailed) endReportShareRes() {}
+
+type EndReportSharePreconditionRequired Problem
+
+func (*EndReportSharePreconditionRequired) endReportShareRes() {}
 
 type EndRoleAssignmentBadRequest Problem
 
@@ -53346,6 +53388,18 @@ func (*ListReportRunsBadRequest) listReportRunsRes() {}
 type ListReportRunsForbidden Problem
 
 func (*ListReportRunsForbidden) listReportRunsRes() {}
+
+type ListReportSharesBadRequest Problem
+
+func (*ListReportSharesBadRequest) listReportSharesRes() {}
+
+type ListReportSharesForbidden Problem
+
+func (*ListReportSharesForbidden) listReportSharesRes() {}
+
+type ListReportSharesNotFound Problem
+
+func (*ListReportSharesNotFound) listReportSharesRes() {}
 
 type ListReportsBadRequest Problem
 
@@ -74232,7 +74286,8 @@ type Report struct {
 	Spec ReportSpec `json:"spec"`
 	// The report's queries by the id the specification names them by.
 	Queries ReportQueries `json:"queries"`
-	// The person or agent who saved the report and alone reads and runs it (`GET /v1/principals/{id}`).
+	// The person or agent who saved the report, who alone changes and shares it
+	// (`GET /v1/principals/{id}`).
 	OwnerID uuid.UUID `json:"owner_id"`
 	// The owner's name, as it is now.
 	OwnerName string `json:"owner_name"`
@@ -74241,6 +74296,10 @@ type Report struct {
 	Status string `json:"status"`
 	// The report's schedule (`scheduleReport`); absent while it has none.
 	Schedule OptReportSchedule `json:"schedule"`
+	// The caller's access to it: `owner`, or `viewer` of a report shared with them, which they read and
+	// run but do not change or share (ADR-0076 §7). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Access string `json:"access"`
 }
 
 // GetID returns the value of ID.
@@ -74313,6 +74372,11 @@ func (s *Report) GetSchedule() OptReportSchedule {
 	return s.Schedule
 }
 
+// GetAccess returns the value of Access.
+func (s *Report) GetAccess() string {
+	return s.Access
+}
+
 // SetID sets the value of ID.
 func (s *Report) SetID(val uuid.UUID) {
 	s.ID = val
@@ -74381,6 +74445,11 @@ func (s *Report) SetStatus(val string) {
 // SetSchedule sets the value of Schedule.
 func (s *Report) SetSchedule(val OptReportSchedule) {
 	s.Schedule = val
+}
+
+// SetAccess sets the value of Access.
+func (s *Report) SetAccess(val string) {
+	s.Access = val
 }
 
 type ReportBankFileStatusBadRequest Problem
@@ -74939,6 +75008,10 @@ type ReportRun struct {
 	// For a succeeded run: the latest posting or document date in its results' data (YYYY-MM-DD); empty
 	// when they read none.
 	DataThrough OptString `json:"data_through"`
+	// The codes of the companies the run covered, its owner's company access when it ran, by code: a
+	// reader's company access must cover each (ADR-0076 §7). Empty for a failed run, which kept no
+	// results; absent for a run kept before T95c, which its report's owner alone reads.
+	Companies []string `json:"companies"`
 	// When the run was kept (UTC).
 	CreatedAt time.Time `json:"created_at"`
 	// From `getReportRun`, for a succeeded run: the specification as answered, naming the results below.
@@ -74995,6 +75068,11 @@ func (s *ReportRun) GetSHA256() OptString {
 // GetDataThrough returns the value of DataThrough.
 func (s *ReportRun) GetDataThrough() OptString {
 	return s.DataThrough
+}
+
+// GetCompanies returns the value of Companies.
+func (s *ReportRun) GetCompanies() []string {
+	return s.Companies
 }
 
 // GetCreatedAt returns the value of CreatedAt.
@@ -75060,6 +75138,11 @@ func (s *ReportRun) SetSHA256(val OptString) {
 // SetDataThrough sets the value of DataThrough.
 func (s *ReportRun) SetDataThrough(val OptString) {
 	s.DataThrough = val
+}
+
+// SetCompanies sets the value of Companies.
+func (s *ReportRun) SetCompanies(val []string) {
+	s.Companies = val
 }
 
 // SetCreatedAt sets the value of CreatedAt.
@@ -75258,6 +75341,280 @@ func (s *ReportScheduleSet) SetWeekday(val OptInt32) {
 func (s *ReportScheduleSet) SetDayOfMonth(val OptInt32) {
 	s.DayOfMonth = val
 }
+
+// Merged schema.
+// Ref: #/components/schemas/ReportShare
+type ReportShare struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The report (`GET /v1/reports/{id}`).
+	ReportID uuid.UUID `json:"report_id"`
+	// The report's title.
+	ReportTitle string `json:"report_title"`
+	// For a share with a person: the person.
+	PrincipalID OptUUID `json:"principal_id"`
+	// For a share with a person: their name, as it is now.
+	PrincipalName OptString `json:"principal_name"`
+	// For a share with a role: the role.
+	RoleID OptUUID `json:"role_id"`
+	// For a share with a role: its code.
+	RoleCode OptString `json:"role_code"`
+	// For a share with a role: its name, as it is now.
+	RoleName OptString `json:"role_name"`
+	// `active`, or `ended` for good (`endReportShare`). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+}
+
+// GetID returns the value of ID.
+func (s *ReportShare) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *ReportShare) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ReportShare) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *ReportShare) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *ReportShare) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *ReportShare) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetReportID returns the value of ReportID.
+func (s *ReportShare) GetReportID() uuid.UUID {
+	return s.ReportID
+}
+
+// GetReportTitle returns the value of ReportTitle.
+func (s *ReportShare) GetReportTitle() string {
+	return s.ReportTitle
+}
+
+// GetPrincipalID returns the value of PrincipalID.
+func (s *ReportShare) GetPrincipalID() OptUUID {
+	return s.PrincipalID
+}
+
+// GetPrincipalName returns the value of PrincipalName.
+func (s *ReportShare) GetPrincipalName() OptString {
+	return s.PrincipalName
+}
+
+// GetRoleID returns the value of RoleID.
+func (s *ReportShare) GetRoleID() OptUUID {
+	return s.RoleID
+}
+
+// GetRoleCode returns the value of RoleCode.
+func (s *ReportShare) GetRoleCode() OptString {
+	return s.RoleCode
+}
+
+// GetRoleName returns the value of RoleName.
+func (s *ReportShare) GetRoleName() OptString {
+	return s.RoleName
+}
+
+// GetStatus returns the value of Status.
+func (s *ReportShare) GetStatus() string {
+	return s.Status
+}
+
+// SetID sets the value of ID.
+func (s *ReportShare) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *ReportShare) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ReportShare) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *ReportShare) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *ReportShare) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *ReportShare) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetReportID sets the value of ReportID.
+func (s *ReportShare) SetReportID(val uuid.UUID) {
+	s.ReportID = val
+}
+
+// SetReportTitle sets the value of ReportTitle.
+func (s *ReportShare) SetReportTitle(val string) {
+	s.ReportTitle = val
+}
+
+// SetPrincipalID sets the value of PrincipalID.
+func (s *ReportShare) SetPrincipalID(val OptUUID) {
+	s.PrincipalID = val
+}
+
+// SetPrincipalName sets the value of PrincipalName.
+func (s *ReportShare) SetPrincipalName(val OptString) {
+	s.PrincipalName = val
+}
+
+// SetRoleID sets the value of RoleID.
+func (s *ReportShare) SetRoleID(val OptUUID) {
+	s.RoleID = val
+}
+
+// SetRoleCode sets the value of RoleCode.
+func (s *ReportShare) SetRoleCode(val OptString) {
+	s.RoleCode = val
+}
+
+// SetRoleName sets the value of RoleName.
+func (s *ReportShare) SetRoleName(val OptString) {
+	s.RoleName = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ReportShare) SetStatus(val string) {
+	s.Status = val
+}
+
+// Whom a report is shared with: a person or a role, one of the two.
+// Ref: #/components/schemas/ReportShareCreate
+type ReportShareCreate struct {
+	// The person (`GET /v1/principals/{id}`).
+	PrincipalID OptUUID `json:"principal_id"`
+	// The role (`GET /v1/roles/{id}`): its holders on the day they read.
+	RoleID OptUUID `json:"role_id"`
+}
+
+// GetPrincipalID returns the value of PrincipalID.
+func (s *ReportShareCreate) GetPrincipalID() OptUUID {
+	return s.PrincipalID
+}
+
+// GetRoleID returns the value of RoleID.
+func (s *ReportShareCreate) GetRoleID() OptUUID {
+	return s.RoleID
+}
+
+// SetPrincipalID sets the value of PrincipalID.
+func (s *ReportShareCreate) SetPrincipalID(val OptUUID) {
+	s.PrincipalID = val
+}
+
+// SetRoleID sets the value of RoleID.
+func (s *ReportShareCreate) SetRoleID(val OptUUID) {
+	s.RoleID = val
+}
+
+// ReportShareHeaders wraps ReportShare with response headers.
+type ReportShareHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           ReportShare
+}
+
+// GetETag returns the value of ETag.
+func (s *ReportShareHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ReportShareHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ReportShareHeaders) GetResponse() ReportShare {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ReportShareHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ReportShareHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ReportShareHeaders) SetResponse(val ReportShare) {
+	s.Response = val
+}
+
+func (*ReportShareHeaders) createReportShareRes() {}
+func (*ReportShareHeaders) endReportShareRes()    {}
+
+// One page of a report's shares.
+// Ref: #/components/schemas/ReportSharePage
+type ReportSharePage struct {
+	// The shares on this page.
+	Items []ReportShare `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ReportSharePage) GetItems() []ReportShare {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ReportSharePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ReportSharePage) SetItems(val []ReportShare) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ReportSharePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ReportSharePage) listReportSharesRes() {}
 
 // A report's dashboard specification, as the analytics agent writes it: it holds no figure of its own;
 // its tiles, charts and tables name the queries whose results they show, and its commentary cites only
@@ -88638,6 +88995,7 @@ func (*TooManyRequestsHeaders) createQuotationRes()                       {}
 func (*TooManyRequestsHeaders) createRecommendationRes()                  {}
 func (*TooManyRequestsHeaders) createRegressionSuiteRes()                 {}
 func (*TooManyRequestsHeaders) createReportRes()                          {}
+func (*TooManyRequestsHeaders) createReportShareRes()                     {}
 func (*TooManyRequestsHeaders) createRequisitionRes()                     {}
 func (*TooManyRequestsHeaders) createReturnsOrderRes()                    {}
 func (*TooManyRequestsHeaders) createRevenueContractRes()                 {}
@@ -88664,6 +89022,7 @@ func (*TooManyRequestsHeaders) enableConnectorRes()                       {}
 func (*TooManyRequestsHeaders) endAgentSessionRes()                       {}
 func (*TooManyRequestsHeaders) endCompanyAccessRes()                      {}
 func (*TooManyRequestsHeaders) endCurrentSessionRes()                     {}
+func (*TooManyRequestsHeaders) endReportShareRes()                        {}
 func (*TooManyRequestsHeaders) endRoleAssignmentRes()                     {}
 func (*TooManyRequestsHeaders) endRolePermissionRes()                     {}
 func (*TooManyRequestsHeaders) endSodRuleRes()                            {}
@@ -88899,6 +89258,7 @@ func (*TooManyRequestsHeaders) listQuotationsRes()                        {}
 func (*TooManyRequestsHeaders) listRecommendationsRes()                   {}
 func (*TooManyRequestsHeaders) listRegressionSuitesRes()                  {}
 func (*TooManyRequestsHeaders) listReportRunsRes()                        {}
+func (*TooManyRequestsHeaders) listReportSharesRes()                      {}
 func (*TooManyRequestsHeaders) listReportsRes()                           {}
 func (*TooManyRequestsHeaders) listRequisitionsRes()                      {}
 func (*TooManyRequestsHeaders) listReturnReceiptsRes()                    {}
@@ -89454,6 +89814,7 @@ func (*UnauthorizedHeaders) createQuotationRes()                       {}
 func (*UnauthorizedHeaders) createRecommendationRes()                  {}
 func (*UnauthorizedHeaders) createRegressionSuiteRes()                 {}
 func (*UnauthorizedHeaders) createReportRes()                          {}
+func (*UnauthorizedHeaders) createReportShareRes()                     {}
 func (*UnauthorizedHeaders) createRequisitionRes()                     {}
 func (*UnauthorizedHeaders) createReturnsOrderRes()                    {}
 func (*UnauthorizedHeaders) createRevenueContractRes()                 {}
@@ -89480,6 +89841,7 @@ func (*UnauthorizedHeaders) enableConnectorRes()                       {}
 func (*UnauthorizedHeaders) endAgentSessionRes()                       {}
 func (*UnauthorizedHeaders) endCompanyAccessRes()                      {}
 func (*UnauthorizedHeaders) endCurrentSessionRes()                     {}
+func (*UnauthorizedHeaders) endReportShareRes()                        {}
 func (*UnauthorizedHeaders) endRoleAssignmentRes()                     {}
 func (*UnauthorizedHeaders) endRolePermissionRes()                     {}
 func (*UnauthorizedHeaders) endSodRuleRes()                            {}
@@ -89715,6 +90077,7 @@ func (*UnauthorizedHeaders) listQuotationsRes()                        {}
 func (*UnauthorizedHeaders) listRecommendationsRes()                   {}
 func (*UnauthorizedHeaders) listRegressionSuitesRes()                  {}
 func (*UnauthorizedHeaders) listReportRunsRes()                        {}
+func (*UnauthorizedHeaders) listReportSharesRes()                      {}
 func (*UnauthorizedHeaders) listReportsRes()                           {}
 func (*UnauthorizedHeaders) listRequisitionsRes()                      {}
 func (*UnauthorizedHeaders) listReturnReceiptsRes()                    {}

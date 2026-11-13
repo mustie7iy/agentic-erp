@@ -18,7 +18,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
-	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 // Run is a row of analytics.report_run with its report's title.
@@ -35,29 +34,53 @@ type Run struct {
 	FailureCode   *string
 	FailureDetail *string
 	CreatedAt     time.Time
+	// Companies are the codes of the companies the run covered; nil for a
+	// run kept before T95c, which named none.
+	Companies []string
+	// Covered says whether the reader's company access covers them (the
+	// report's owner alone reads a run that named none).
+	Covered bool
 }
 
-// runSelect reads the runs of the owner ($1)'s reports, each with its
-// report's title; the join is inside, so the keyset's id is the run's.
-const runSelect = `SELECT id, report_id, title, run_date, status, run_as, object_key, sha256, data_through, failure_code, failure_detail, created_at
+// runSelect reads the runs of the reports the reader ($1 to $3, as
+// readable) reads, each with its report's title and whether the reader's
+// companies ($4) cover the run's; the join is inside, so the keyset's id
+// is the run's.
+const runSelect = `SELECT id, report_id, title, run_date, status, run_as, object_key, sha256, data_through, failure_code, failure_detail, created_at,
+		companies, covered
 	FROM (SELECT rr.id, rr.report_id, r.title, rr.run_date, rr.status, rr.run_as, rr.object_key, rr.sha256, rr.data_through,
-			rr.failure_code, rr.failure_detail, rr.created_at, r.owner_id
-		FROM analytics.report_run rr JOIN analytics.report r ON r.tenant_id = rr.tenant_id AND r.id = rr.report_id) runs
-	WHERE owner_id = $1`
+			rr.failure_code, rr.failure_detail, rr.created_at, rr.companies, coalesce(rr.companies <@ $4::text[], r.owner_id = $1) AS covered
+		FROM analytics.report_run rr JOIN analytics.report r ON r.tenant_id = rr.tenant_id AND r.id = rr.report_id WHERE ` + readable + `) runs
+	WHERE true`
 
 func scanRun(row pgx.Row) (Run, error) {
 	var r Run
 	err := row.Scan(&r.ID, &r.ReportID, &r.ReportTitle, &r.Date, &r.Status, &r.RunAs, &r.ObjectKey, &r.SHA256, &r.DataThrough,
-		&r.FailureCode, &r.FailureDetail, &r.CreatedAt)
+		&r.FailureCode, &r.FailureDetail, &r.CreatedAt, &r.Companies, &r.Covered)
 	return r, errs.Wrapf(err, "scan report run")
+}
+
+// runsRequest is the request's transaction and the arguments runSelect
+// reads the caller by: as a reader, and the companies they may read now.
+func (e *Endpoints) runsRequest(ctx context.Context) (pgx.Tx, []any, error) {
+	tx, _, v, err := e.request(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	companies, err := e.companies(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return tx, append(v.args(), companies), nil
 }
 
 var runSort = pagination.Sort{Default: "run_date", DefaultDesc: true, Fields: []pagination.Field{{Name: "run_date", Column: "run_date", Type: "date"}}}
 
-// Runs lists a page of the runs of the caller's reports, the latest day
-// first, filtered by report and status.
+// Runs lists a page of the runs of the reports the caller reads whose
+// companies their access covers, the latest day first, filtered by report
+// and status.
 func (e *Endpoints) Runs(ctx context.Context, report *uuid.UUID, status string, page pagination.Request) ([]Run, *pagination.Keyset, error) {
-	tx, p, err := reqctx.Request(ctx)
+	tx, args, err := e.runsRequest(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -65,7 +88,7 @@ func (e *Endpoints) Runs(ctx context.Context, report *uuid.UUID, status string, 
 	if err != nil {
 		return nil, nil, fmt.Errorf("analytics: page of report runs: %w", err)
 	}
-	q, args := ks.SQL(runSelect+` AND ($2::uuid IS NULL OR report_id = $2) AND ($3 = '' OR status = $3)`, []any{p.ID, report, status})
+	q, args := ks.SQL(runSelect+` AND covered AND ($5::uuid IS NULL OR report_id = $5) AND ($6 = '' OR status = $6)`, append(args, report, status))
 	rows, _ := tx.Query(ctx, q, args...)
 	runs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Run, error) { return scanRun(r) })
 	if err != nil {
@@ -74,18 +97,23 @@ func (e *Endpoints) Runs(ctx context.Context, report *uuid.UUID, status string, 
 	return runs, ks, nil
 }
 
-// GetRun is a run of one of the caller's reports.
-func GetRun(ctx context.Context, id uuid.UUID) (Run, error) {
-	tx, p, err := reqctx.Request(ctx)
+// GetRun is a run of a report the caller reads, refused (403
+// analytics.report_run_companies) unless their company access covers
+// every company it covered (ADR-0076 §7).
+func (e *Endpoints) GetRun(ctx context.Context, id uuid.UUID) (Run, error) {
+	tx, args, err := e.runsRequest(ctx)
 	if err != nil {
 		return Run{}, err
 	}
-	r, err := scanRun(tx.QueryRow(ctx, runSelect+` AND id = $2`, p.ID, id))
+	r, err := scanRun(tx.QueryRow(ctx, runSelect+` AND id = $5`, append(args, id)...))
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return Run{}, problem.NotFoundOf("report run")
 	case err != nil:
 		return Run{}, fmt.Errorf("analytics: read report run %s: %w", id, err)
+	case !r.Covered:
+		return Run{}, problem.Forbidden("analytics.report_run_companies",
+			"The run covered companies your company access does not, or was kept before runs named their companies; run the report to see your companies' figures.")
 	}
 	return r, nil
 }
@@ -114,7 +142,7 @@ func (e *Endpoints) results(ctx context.Context, r Run) (gen.ReportResults, erro
 // runToAPI is a run as the API lists it, with the name of whom it ran as.
 func runToAPI(r Run, names map[uuid.UUID]string) gen.ReportRun {
 	out := gen.ReportRun{ID: r.ID, ReportID: r.ReportID, ReportTitle: r.ReportTitle, RunDate: r.Date, Status: r.Status, RunAs: r.RunAs,
-		RunAsName: names[r.RunAs], CreatedAt: r.CreatedAt}
+		RunAsName: names[r.RunAs], CreatedAt: r.CreatedAt, Companies: r.Companies}
 	if r.FailureCode != nil {
 		out.Failure = gen.NewOptReportRunFailure(gen.ReportRunFailure{Code: *r.FailureCode, Detail: *r.FailureDetail})
 	}
@@ -153,7 +181,7 @@ func (e *Endpoints) ListReportRuns(ctx context.Context, params gen.ListReportRun
 // results, or one result as CSV; a format the contract does not list is
 // 422 request.validation_failed.
 func (e *Endpoints) GetReportRun(ctx context.Context, params gen.GetReportRunParams) (gen.GetReportRunRes, error) {
-	r, err := GetRun(ctx, params.ID)
+	r, err := e.GetRun(ctx, params.ID)
 	if err != nil {
 		return nil, err
 	}

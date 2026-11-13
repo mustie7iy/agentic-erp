@@ -1488,6 +1488,26 @@ type Handler interface {
 	//
 	// POST /v1/reports
 	CreateReport(ctx context.Context, req *ReportCreate, params CreateReportParams) (CreateReportRes, error)
+	// CreateReportShare implements createReportShare operation.
+	//
+	// Shares one of the caller's active reports with a person (`principal_id`) or a role (`role_id`), one
+	// of the two (ADR-0076 §7, T95c). A viewer reads and runs the report, and reads its kept runs, but
+	// does not change or share it; each run of theirs is computed with their own company access and
+	// dataset permissions, and a kept run is read only by a viewer whose company access covers every
+	// company it covered. A role's share reaches the people who hold the role on the day they read. A
+	// share reaches people alone: a share with an agent or a service principal is refused (422
+	// `analytics.report_share_not_person`), and an agent holding a shared role reads nothing through it.
+	// The person is a principal of the tenant other than the owner (422 `request.reference_not_found`
+	// naming `principal_id` for an unknown one, `analytics.report_share_owner` for the owner); the role is
+	// an active role of the tenant (422 `request.reference_not_found` naming `role_id`). A report is
+	// shared with a person or a role once at a time (409 `analytics.report_share_exists`); a removed
+	// report is not shared (409 `analytics.report_removed`), nor one shared with the caller (403
+	// `analytics.report_not_owner`). An audit record is written with it. A retry with the same
+	// `Idempotency-Key` answers the share made. Human-only: sharing grants access, as identity
+	// administration does.
+	//
+	// POST /v1/reports/{id}/shares
+	CreateReportShare(ctx context.Context, req *ReportShareCreate, params CreateReportShareParams) (CreateReportShareRes, error)
 	// CreateRequisition implements createRequisition operation.
 	//
 	// Creates a draft requisition. An item may be taken from the company's catalog by `catalog_item_id`
@@ -1821,6 +1841,17 @@ type Handler interface {
 	//
 	// POST /v1/sessions/current:end
 	EndCurrentSession(ctx context.Context, params EndCurrentSessionParams) (EndCurrentSessionRes, error)
+	// EndReportShare implements endReportShare operation.
+	//
+	// Ends a share of one of the caller's reports (ADR-0076 §7, T95c), once (409
+	// `analytics.report_share_ended` for an ended one), at the share's version (`If-Match`): from that
+	// moment the viewer, or the role's holders, neither read nor run the report nor read its kept runs.
+	// There is no `DELETE` in the API (04 §4.3): an ended share is kept and listed with `status=ended`. A
+	// report shared with the caller is 403 `analytics.report_not_owner`. An audit record is written with
+	// it. Human-only.
+	//
+	// POST /v1/reports/{id}/shares/{share_id}:end
+	EndReportShare(ctx context.Context, params EndReportShareParams) (EndReportShareRes, error)
 	// EndRoleAssignment implements endRoleAssignment operation.
 	//
 	// Ends the assignment. Sets `valid_to` (never into the past, only brought forward); nothing is
@@ -3116,23 +3147,27 @@ type Handler interface {
 	GetRegressionSuite(ctx context.Context, params GetRegressionSuiteParams) (GetRegressionSuiteRes, error)
 	// GetReport implements getReport operation.
 	//
-	// One of the caller's saved reports (ADR-0076 §2, T95a), with its specification and queries as saved;
-	// another's is not found (404).
+	// A saved report the caller reads (ADR-0076 §2, §7; T95a, T95c), with its specification and queries
+	// as saved: their own, or one shared with them (`access` `viewer`); another's report not shared with
+	// them is not found (404).
 	//
 	// GET /v1/reports/{id}
 	GetReport(ctx context.Context, params GetReportParams) (GetReportRes, error)
 	// GetReportRun implements getReportRun operation.
 	//
-	// One kept run of one of the caller's reports (ADR-0076 §6, T95b): as JSON (`format=json`, the
-	// default) the run with its specification and every query's result as the run kept them, read back
-	// from object storage, whose bytes are compared with the SHA-256 recorded (409
-	// `analytics.report_run_changed` when they differ); as CSV (`format=csv`) one result, a header row of
-	// its columns' names then a row per result row, each measure an exact decimal and a money measure
-	// followed by its currency's column (`<name>_currency`), a measure that cannot be computed empty, the
-	// result named by `query_id` (422 `analytics.unknown_query` when the run has no such result, or when
-	// the run has several and none is named). A failed run has no results (409
-	// `analytics.report_run_failed` for its CSV); a format the contract does not list is 422
-	// `request.validation_failed`; 503 while the server has no object storage.
+	// One kept run of a report the caller reads, their own or one shared with them (ADR-0076 §6-§7;
+	// T95b, T95c), when the caller's company access today covers every company the run covered (403
+	// `analytics.report_run_companies` otherwise, and for a run kept before T95c, which names no
+	// companies, to all but its report's owner): as JSON (`format=json`, the default) the run with its
+	// specification and every query's result as the run kept them, read back from object storage, whose
+	// bytes are compared with the SHA-256 recorded (409 `analytics.report_run_changed` when they differ);
+	// as CSV (`format=csv`) one result, a header row of its columns' names then a row per result row, each
+	// measure an exact decimal and a money measure followed by its currency's column (`<name>_currency`),
+	// a measure that cannot be computed empty, the result named by `query_id` (422
+	// `analytics.unknown_query` when the run has no such result, or when the run has several and none is
+	// named). A failed run has no results (409 `analytics.report_run_failed` for its CSV); a format the
+	// contract does not list is 422 `request.validation_failed`; 503 while the server has no object
+	// storage.
 	//
 	// GET /v1/report-runs/{id}
 	GetReportRun(ctx context.Context, params GetReportRunParams) (GetReportRunRes, error)
@@ -4473,18 +4508,34 @@ type Handler interface {
 	ListRegressionSuites(ctx context.Context, params ListRegressionSuitesParams) (ListRegressionSuitesRes, error)
 	// ListReportRuns implements listReportRuns operation.
 	//
-	// The runs the worker kept of the caller's scheduled reports (ADR-0076 §5-§6, T95b), each with its
-	// report's title, its day, its outcome and, for a failed one, the problem that failed it; without
-	// results, which `getReportRun` gives. Another's report's runs are neither listed nor found. Filtered
-	// by report and status. Sortable by: `run_date` (default, the latest first).
+	// The runs the worker kept of the scheduled reports the caller reads (ADR-0076 §5-§7; T95b, T95c),
+	// their own and those shared with them, each with its report's title, its day, its outcome, the
+	// companies it covered and, for a failed one, the problem that failed it; without results, which
+	// `getReportRun` gives. Only the runs whose companies the caller's company access covers today are
+	// listed; a run kept before T95c, which names no companies, is its report owner's alone. Another's
+	// report's runs that are not shared with the caller are neither listed nor found. Filtered by report
+	// and status. Sortable by: `run_date` (default, the latest first).
 	//
 	// GET /v1/report-runs
 	ListReportRuns(ctx context.Context, params ListReportRunsParams) (ListReportRunsRes, error)
+	// ListReportShares implements listReportShares operation.
+	//
+	// The shares of one of the caller's reports (ADR-0076 §7, T95c), the earliest first, each with the
+	// person's name or the role's code and name; filtered by status (`active`, `ended`; every status when
+	// omitted). A report's shares are its owner's to read: a report shared with the caller is 403
+	// `analytics.report_not_owner`, another's not shared with them 404. Sortable by: `created_at`
+	// (default).
+	//
+	// GET /v1/reports/{id}/shares
+	ListReportShares(ctx context.Context, params ListReportSharesParams) (ListReportSharesRes, error)
 	// ListReports implements listReports operation.
 	//
-	// The caller's own saved reports (ADR-0076 §2, T95a): a report is read by the person or agent who
-	// saved it alone; another's is neither listed nor found. Filtered by status (`active`, `removed`);
-	// every status when omitted. Sortable by: `title` (default).
+	// The saved reports the caller reads (ADR-0076 §2, §7; T95a, T95c): their own and those shared with
+	// them, directly or through a role they hold today (`access` says which); another's report not shared
+	// with them is neither listed nor found. Shares reach people alone: an agent lists its own reports.
+	// Filtered by status (`active`, `removed`; every status when omitted) and by `shared` (`true`: the
+	// reports shared with the caller; `false`: their own; both when omitted). Sortable by: `title`
+	// (default).
 	//
 	// GET /v1/reports
 	ListReports(ctx context.Context, params ListReportsParams) (ListReportsRes, error)
@@ -5667,7 +5718,8 @@ type Handler interface {
 	// Removes one of the caller's active reports (status `removed`), once (409 `analytics.report_removed`
 	// for a removed one), at the version read (`If-Match`). There is no `DELETE` in the API (04 §4.3): a
 	// removed report is kept and still read, is listed with `status=removed` or without a status filter,
-	// changes no more and is not run. An audit record is written with it.
+	// changes no more and is not run. A report shared with the caller is theirs to read and run, not to
+	// change (403 `analytics.report_not_owner`). An audit record is written with it.
 	//
 	// POST /v1/reports/{id}:remove
 	RemoveReport(ctx context.Context, params RemoveReportParams) (RemoveReportRes, error)
@@ -6030,17 +6082,18 @@ type Handler interface {
 	RunBalanceCarryForward(ctx context.Context, req *BalanceCarryForwardRequest, params RunBalanceCarryForwardParams) (RunBalanceCarryForwardRes, error)
 	// RunReport implements runReport operation.
 	//
-	// Runs one of the caller's active reports again on current data (ADR-0076 §2, T95a) and answers its
-	// specification with every query's result: each query is run as the caller, with the caller's company
-	// access and dataset permissions now, as `runAnalyticsQuery` runs it (a query it refuses refuses the
-	// run with its problem), under the active configuration version's metric definitions. Each result's
-	// `query_id` is the id it has in this run, which the specification answered names. Commentary whose
-	// figures the new results no longer support is left out of the specification answered, with an
-	// assumption saying so, as `erp report` does. A query naming a metric the semantic model no longer has
-	// is 422 `analytics.report_metric_removed` naming it; a specification the results no longer support is
-	// 422 `analytics.invalid_report`. A removed report is not run (409 `analytics.report_removed`).
-	// `If-Match` is the report's ETag, which a run does not change. Nothing is kept: a run changes
-	// nothing, so agents of any autonomy level may run it.
+	// Runs an active report the caller reads, their own or one shared with them, again on current data
+	// (ADR-0076 §2, §7; T95a, T95c) and answers its specification with every query's result: each query
+	// is run as the caller, with the caller's company access and dataset permissions now, as
+	// `runAnalyticsQuery` runs it (a query it refuses refuses the run with its problem), under the active
+	// configuration version's metric definitions. Each result's `query_id` is the id it has in this run,
+	// which the specification answered names. Commentary whose figures the new results no longer support
+	// is left out of the specification answered, with an assumption saying so, as `erp report` does. A
+	// query naming a metric the semantic model no longer has is 422 `analytics.report_metric_removed`
+	// naming it; a specification the results no longer support is 422 `analytics.invalid_report`. A
+	// removed report is not run (409 `analytics.report_removed`). `If-Match` is the report's ETag, which a
+	// run does not change. Nothing is kept: a run changes nothing, so agents of any autonomy level may run
+	// it.
 	//
 	// POST /v1/reports/{id}:run
 	RunReport(ctx context.Context, params RunReportParams) (RunReportRes, error)
@@ -6056,7 +6109,8 @@ type Handler interface {
 	// day the schedule is set (`from`, the company's date then); the worker runs it as the report's owner,
 	// with the owner's access that day, and keeps it with its results (`listReportRuns`); a day the worker
 	// did not run on is not made up. Without object storage, where runs are kept, it is 503. A removed
-	// report is not scheduled (409 `analytics.report_removed`). An audit record is written with it.
+	// report is not scheduled (409 `analytics.report_removed`), nor one shared with the caller (403
+	// `analytics.report_not_owner`). An audit record is written with it.
 	//
 	// POST /v1/reports/{id}:schedule
 	ScheduleReport(ctx context.Context, req *ReportScheduleSet, params ScheduleReportParams) (ScheduleReportRes, error)
@@ -6348,7 +6402,8 @@ type Handler interface {
 	//
 	// Ends the schedule of one of the caller's reports (ADR-0076 §4, T95b), at the version read
 	// (`If-Match`): no run is due after it; the runs kept stay. A report without a schedule is 409
-	// `analytics.report_not_scheduled`. An audit record is written with it.
+	// `analytics.report_not_scheduled`; one shared with the caller is 403 `analytics.report_not_owner`. An
+	// audit record is written with it.
 	//
 	// POST /v1/reports/{id}:unschedule
 	UnscheduleReport(ctx context.Context, params UnscheduleReportParams) (UnscheduleReportRes, error)

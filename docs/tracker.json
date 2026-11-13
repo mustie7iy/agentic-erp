@@ -6681,13 +6681,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T63"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Sharing with per-viewer access",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The owner shares a saved report with people or roles; each viewer runs it with their own company access, and a kept run is read only by a viewer whose access covers its companies (POST /v1/reports/{id}/shares)",
-        "r": "T95c · docs/design/plan-breadth-week3.md §T95c",
+        "r": "T95c · docs/design/plan-breadth-week3.md §T95c · db/migrations/000310 · analytics.report_share, analytics.report_run.companies · POST /v1/reports/{id}/shares · GET /v1/reports/{id}/shares · POST /v1/reports/{id}/shares/{share_id}:end (no DELETE, 04 §4.3) · listReports shared · walkthrough step_saved_report · ADR-0076 §7 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

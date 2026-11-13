@@ -1,6 +1,6 @@
 # ADR-0076: Report delivery
 
-**Status:** accepted (T95a, T95b, 2026-11-13; decided by default under ADR-0053 d;
+**Status:** accepted (T95a, T95b, T95c, 2026-11-13; decided by default under ADR-0053 d;
 `go-reviewer` had no blocking finding on the step's last commit). It decides
 how saved analytics reports are kept, run, scheduled and delivered, for the
 slices T95a to T95d (`docs/design/plan-breadth-week3.md`, Lane B), each of
@@ -168,6 +168,33 @@ answers a run with its specification and results, or one result as CSV
 one). The recipients of a run are the report's owner until sharing
 (T95c).
 
+### 7. Sharing (T95c)
+
+The owner shares a report with a person or a role
+(`POST /v1/reports/{id}/shares`); a role's share reaches the people who
+hold the role on the day they read. A share reaches people alone: a share
+with an agent or a service principal is refused, and an agent holding a
+shared role reads nothing through it.
+
+- A viewer reads and runs the report and reads its kept runs; they do not
+  change, schedule, remove or share it (403 `analytics.report_not_owner`),
+  nor list its shares. A run by a viewer is §2's run as the viewer: their
+  company access and dataset permissions, never the owner's.
+- A kept run names the companies it covered: the owner's company access
+  when it ran, by code (all the tenant's companies for access to all); a
+  failed run covered none. A run is listed to, and read by, a reader
+  whose company access today covers every one of them (403
+  `analytics.report_run_companies` otherwise), its owner included; a run
+  kept before T95c names none and is its owner's alone.
+- There is no `DELETE` (04 §4.3): `POST
+  /v1/reports/{id}/shares/{share_id}:end` ends a share once, at the
+  share's version, and from that moment it reaches no one; an ended share
+  is kept. A report is shared with one person or role once at a time
+  (`report_share_once`).
+- Sharing and ending a share are human-only: they grant access, as
+  identity administration does. Each is audited
+  (`analytics.report_share.create`, `.end`); a share has no event.
+
 ## Alternatives
 
 - Keep reports as files the CLI writes (as before): nothing a schedule,
@@ -202,6 +229,10 @@ one). The recipients of a run are the report's owner until sharing
    day from 1 to 28; runs are dated in a company's time zone the schedule
    names; missed days are not made up.
 5. Scheduled runs are kept in object storage, and only they.
+6. Shares reach people alone, through a person or a role held on the day
+   of reading; a viewer reads and runs but does not change or share; a
+   kept run is read by whoever's company access covers the companies it
+   names, its owner included; sharing is human-only.
 
 ## As built
 
@@ -269,3 +300,37 @@ one). The recipients of a run are the report's owner until sharing
   built: a scheduled run reads the API in-process as the report's owner,
   with no token, and is refused once the owner is no longer active (src
   po:2026-11-13).
+
+### T95c Report shared, each viewer with their own access (migration 000310)
+
+- Migration 000310: `analytics.report_share` as §7 describes it
+  (`report_share_grantee`, `report_share_once`, the trigger
+  `report_share_ended_fixed`, an update grant of the status, version and
+  `updated_by` alone, optimistic locking by `platform.touch`), and
+  `analytics.report_run.companies` (`report_run_companies_check`). Schema
+  tests in `db/reports_test.go`.
+- `internal/analytics/reports`: `CreateShare`, `EndShare` and `Shares`
+  with the handlers of `POST /v1/reports/{id}/shares`,
+  `POST /v1/reports/{id}/shares/{share_id}:end` (no `DELETE`, 04 §4.3)
+  and `GET /v1/reports/{id}/shares`; reads go through `readable` (the
+  owner, or a person with an active share to them or a role they hold
+  today); `access` (`owner`, `viewer`) on a report; `shared` among
+  `listReports`' filters; `companies` on a run. The ports `Grantees`
+  (principals' kinds, roles held and roles, on `identity.People` and
+  `identity.Directory`, whose `Roles` is new) and `Companies` (the codes
+  an access reaches, on `tenancy.Directory.Entities`), wired by
+  `app.Reports`.
+- Locks: a share is made under the report's row lock (`FOR NO KEY
+  UPDATE`), so two shares of one report serialize and the second is
+  refused by `report_share_once`; ending a share locks the share's row
+  alone, so it never waits for a change of the report
+  (`TestShareLocks`).
+- Walkthrough `step_saved_report` (step 78) extended: Carla shares her
+  scheduled report and one of every company's revenue with Vera, who may
+  act in Maple alone; Vera's run shows Maple's rows only, Carla's kept
+  run over every company is neither listed nor read by her (403), she may
+  not remove or share the report, a share with an agent is refused, and
+  once Carla ends the share Vera no longer finds the report.
+- Decided by default while building: §7 and default 6 above;
+  `:schedule` checks the caller owns the report before it answers 503
+  without object storage.

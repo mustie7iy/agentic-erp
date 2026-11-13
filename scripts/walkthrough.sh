@@ -7825,14 +7825,16 @@ step_control_matrix() {
   passed
 }
 
-# step_saved_report is T95a and T95b (ADR-0076): Carla saves the revenue
-# question of step 14 as a report of her own through the API, runs it again
-# once a sale is posted and sees the new figure; the CLI saves and runs it
-# too; a daily schedule is set, the worker's round runs it once, and the
-# run is listed and read as CSV.
+# step_saved_report is T95a, T95b and T95c (ADR-0076): Carla saves the
+# revenue question of step 14 as a report of her own through the API, runs
+# it again once a sale is posted and sees the new figure; the CLI saves and
+# runs it too; a daily schedule is set, the worker's round runs it once,
+# and the run is listed and read as CSV; she shares her reports with Vera,
+# who may act in Maple alone: Vera's run shows Maple's rows only, and the
+# kept run over every company is refused to her.
 step_saved_report() {
-  heading "Step 78 — A saved report: Carla's revenue by company saved through the API, run again after a sale is posted, showing the new figure, and run daily by the worker"
-  local rep tag before after other ran spec query passed_runs
+  heading "Step 78 — A saved report: Carla's revenue by company saved through the API, run again after a sale is posted, showing the new figure, run daily by the worker, and shared with Vera, who sees her own companies alone"
+  local rep tag before after other ran spec query passed_runs vera wide wide_tag share share_tag agent
   as carla
   query="{\"revenue\": {\"measures\": [\"revenue\"], \"by\": [\"company\"], \"where\": [{\"dim\": \"company\", \"op\": \"in\", \"values\": [\"$CC\"]}]}}"
   spec="{\"title\": \"Revenue by company\", \"question\": \"What is our revenue by company?\", \"tiles\": [{\"label\": \"Revenue $CC\", \"query_id\": \"revenue\", \"measure\": \"revenue\", \"where\": {\"company\": \"$CC\"}}], \"tables\": [{\"title\": \"Revenue by company\", \"query_id\": \"revenue\"}]}"
@@ -7910,6 +7912,49 @@ step_saved_report() {
   expect "the run's CSV" "$(sed -n 2p "$WORK/last.json")" "$CC,$after,CAD"
   passed_runs=$(grep -c . "$WORK/last.json" || true)
   expect "the CSV's lines" "$passed_runs" 2
+  say "Carla shares her reports with Vera in reporting, who may act in $CC alone (ADR-0076 §7, T95c): Vera reads and runs"
+  say "them with her own company access and permissions, never Carla's, and neither changes nor shares them."
+  as ada
+  QUIET=1 api 201 '' createPrincipal -body '{"kind": "human", "external_subject": "vera", "display_name": "Vera Viewer", "all_companies": false}'
+  vera=$(field .id)
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$vera\", \"role_id\": \"$(role finance_staff)\"}"
+  QUIET=1 api 201 '' createCompanyAccess -body "{\"principal_id\": \"$vera\", \"legal_entity_id\": \"$LE\"}"
+  token vera "Vera Viewer"
+  printf '%s\tVera Viewer\n' "$vera" >>"$WORK/names"
+  as carla
+  say "Carla saves the revenue of every company she may read as a second report and runs it:"
+  api 201 '"report \(.title): \(.access), \(.status)"' createReport -body \
+    '{"spec": {"title": "Revenue of every company", "tables": [{"title": "Revenue by company", "query_id": "revenue"}]}, "queries": {"revenue": {"measures": ["revenue"], "by": ["company"], "order_by": "company"}}}'
+  wide=$(field .id) wide_tag=$ETAG
+  api 200 '(.results[] | .rows[] | "  Carla sees \(.[0].value): revenue \(.[1].value) \(.[1].currency)")' runReport -p "id=$wide" -if-match "$wide_tag"
+  api 201 '"shared \(.report_title) with \(.principal_name): \(.status)"' createReportShare -p "id=$wide" -body "{\"principal_id\": \"$vera\"}"
+  api 201 '"shared \(.report_title) with \(.principal_name): \(.status)"' createReportShare -p "id=$rep" -body "{\"principal_id\": \"$vera\"}"
+  share=$(field .id) share_tag=$ETAG
+  say "A report is shared with people: a share with an agent is refused."
+  QUIET=1 api 200 '' listPrincipals -p kind=agent
+  agent=$(field '.items[0].id')
+  refused 422 analytics.report_share_not_person createReportShare -p "id=$wide" -body "{\"principal_id\": \"$agent\"}"
+  as vera
+  say "Vera lists the reports shared with her and runs Carla's second one: it shows $CC's revenue alone."
+  api 200 '.items[] | "  \(.title): \(.access), owned by \(.owner_name)"' listReports -p shared=true
+  expect "the reports shared with Vera" "$(field '[.items[] | .access] | join(" ")')" "viewer viewer"
+  api 200 '(.results[] | .rows[] | "  Vera sees \(.[0].value): revenue \(.[1].value) \(.[1].currency)")' runReport -p "id=$wide" -if-match "$wide_tag"
+  expect "the companies of Vera's run" "$(field '[.results[0].rows[][0].value] | unique | join(" ")')" "$CC"
+  say "Carla's kept run covered every company she may read, so it is neither listed to Vera nor read by her:"
+  QUIET=1 api 200 '' listReportRuns -p "report_id=$rep"
+  expect "the runs listed to Vera" "$(field '.items | length')" 0
+  refused 403 analytics.report_run_companies getReportRun -p "id=$run"
+  say "She reads and runs Carla's reports, but does not change or share them:"
+  refused 403 analytics.report_not_owner removeReport -p "id=$wide" -if-match "$wide_tag"
+  refused 403 analytics.report_not_owner createReportShare -p "id=$wide" -body "{\"principal_id\": \"$vera\"}"
+  as carla
+  api 200 '.items[] | "  run for \(.run_date): \(.status), covering companies \(.companies | join(", "))"' listReportRuns -p "report_id=$rep"
+  expect "the run's companies include $CC" "$(field "[.items[0].companies[] | select(. == \"$CC\")] | length")" 1
+  say "Carla ends the share of her scheduled report; at once Vera no longer finds it:"
+  api 200 '"share with \(.principal_name): \(.status), version \(.version)"' endReportShare -p "id=$rep" -p "share_id=$share" -if-match "$share_tag"
+  as vera
+  refused 404 request.not_found getReport -p "id=$rep"
+  as carla
   say "Removed, a report is kept but no longer run:"
   QUIET=1 api 200 '' getReport -p "id=$other"
   api 200 '"report \(.title): \(.status), version \(.version)"' removeReport -p "id=$other" -if-match "$ETAG"

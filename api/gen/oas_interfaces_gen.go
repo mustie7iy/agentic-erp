@@ -373,6 +373,10 @@ type CreateReportRes interface {
 	createReportRes()
 }
 
+type CreateReportShareRes interface {
+	createReportShareRes()
+}
+
 type CreateRequisitionRes interface {
 	createRequisitionRes()
 }
@@ -475,6 +479,10 @@ type EndCompanyAccessRes interface {
 
 type EndCurrentSessionRes interface {
 	endCurrentSessionRes()
+}
+
+type EndReportShareRes interface {
+	endReportShareRes()
 }
 
 type EndRoleAssignmentRes interface {
@@ -1415,6 +1423,10 @@ type ListRegressionSuitesRes interface {
 
 type ListReportRunsRes interface {
 	listReportRunsRes()
+}
+
+type ListReportSharesRes interface {
+	listReportSharesRes()
 }
 
 type ListReportsRes interface {

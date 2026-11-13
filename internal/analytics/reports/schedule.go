@@ -11,7 +11,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
-	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 // frequencies are how often a report may run (ADR-0076 §4).
@@ -53,16 +52,16 @@ func errNoObjects() error {
 // replaces its schedule, with the caller's version of it (ADR-0076 §4):
 // its runs are due from the company's date today.
 func (e *Endpoints) SetSchedule(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, in ScheduleSet) (Report, error) {
-	tx, p, err := reqctx.Request(ctx)
+	tx, _, v, err := e.request(ctx)
+	if err != nil {
+		return Report{}, err
+	}
+	r, err := locked(ctx, tx, v, id, ifMatch)
 	if err != nil {
 		return Report{}, err
 	}
 	if e.Objects == nil {
 		return Report{}, errNoObjects()
-	}
-	r, err := locked(ctx, tx, p.ID, id, ifMatch)
-	if err != nil {
-		return Report{}, err
 	}
 	if err := in.check(); err != nil {
 		return Report{}, err
@@ -79,7 +78,7 @@ func (e *Endpoints) SetSchedule(ctx context.Context, id uuid.UUID, ifMatch func(
 		r.ID, in.Frequency, in.Company, in.Weekday, in.DayOfMonth, day.Date); err != nil {
 		return Report{}, fmt.Errorf("analytics: schedule report %s: %w", id, err)
 	}
-	after, err := report(ctx, tx, p.ID, id, false)
+	after, err := report(ctx, tx, v, id, false)
 	if err != nil {
 		return Report{}, err
 	}
@@ -89,12 +88,12 @@ func (e *Endpoints) SetSchedule(ctx context.Context, id uuid.UUID, ifMatch func(
 
 // Unschedule ends the schedule of one of the caller's reports, with the
 // caller's version of it; the runs kept stay.
-func Unschedule(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (Report, error) {
-	tx, p, err := reqctx.Request(ctx)
+func (e *Endpoints) Unschedule(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (Report, error) {
+	tx, _, v, err := e.request(ctx)
 	if err != nil {
 		return Report{}, err
 	}
-	r, err := locked(ctx, tx, p.ID, id, ifMatch)
+	r, err := locked(ctx, tx, v, id, ifMatch)
 	if err != nil {
 		return Report{}, err
 	}
@@ -105,17 +104,17 @@ func Unschedule(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (R
 			schedule_day = NULL, scheduled_from = NULL, version = version + 1 WHERE id = $1`, id); err != nil {
 		return Report{}, fmt.Errorf("analytics: unschedule report %s: %w", id, err)
 	}
-	after, err := report(ctx, tx, p.ID, id, false)
+	after, err := report(ctx, tx, v, id, false)
 	if err != nil {
 		return Report{}, err
 	}
 	return after, record(ctx, "unschedule", after, map[string]any{"title": after.Title})
 }
 
-// locked reads one of the owner's active reports locked for a change and
-// compares the caller's version.
-func locked(ctx context.Context, tx pgx.Tx, owner, id uuid.UUID, ifMatch func(int32) error) (Report, error) {
-	r, err := report(ctx, tx, owner, id, true)
+// locked reads one of the reader's own active reports locked for a
+// change and compares the caller's version.
+func locked(ctx context.Context, tx pgx.Tx, v reader, id uuid.UUID, ifMatch func(int32) error) (Report, error) {
+	r, err := owned(ctx, tx, v, id, true)
 	if err != nil {
 		return Report{}, err
 	}

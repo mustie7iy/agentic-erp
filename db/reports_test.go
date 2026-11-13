@@ -279,3 +279,128 @@ func TestReportRunImmutable(t *testing.T) {
 		}
 	}
 }
+
+// TestReportShareRules (T95c, migration 000310; ADR-0076 §7): a share is
+// of a report of the tenant, with a person or a role and not both, in a
+// known status from version 1; one active share per report and person or
+// role, a new one once it ended; a change ends it with the next version
+// and nothing else of it; an ended share is fixed; none is deleted.
+func TestReportShareRules(t *testing.T) {
+	need(t)
+	const report = `INSERT INTO analytics.report (tenant_id, id, title, spec, queries, owner_id) VALUES ($1, $2, 'R', '{}', '{}', $1)`
+	const share = `INSERT INTO analytics.report_share (tenant_id, id, report_id, principal_id, role_id, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $1, $1)`
+	type scene struct{ tenant, report, share, person uuid.UUID }
+	with := func(s scene) stmt { return step(share, s.tenant, s.share, s.report, s.person, nil) }
+	end := func(s scene) stmt {
+		return step(`UPDATE analytics.report_share SET status = 'ended', version = version + 1, updated_by = $2 WHERE id = $1`, s.share, s.tenant)
+	}
+	cases := []struct {
+		name string
+		run  func(s scene) []stmt
+		want string // empty: allowed
+	}{
+		{"with a person", func(s scene) []stmt { return []stmt{with(s)} }, ""},
+		{"with a role", func(s scene) []stmt { return []stmt{step(share, s.tenant, s.share, s.report, nil, id())} }, ""},
+		{"with neither", func(s scene) []stmt { return []stmt{step(share, s.tenant, s.share, s.report, nil, nil)} }, "report_share_grantee"},
+		{"with both", func(s scene) []stmt { return []stmt{step(share, s.tenant, s.share, s.report, s.person, id())} }, "report_share_grantee"},
+		{"of no report", func(s scene) []stmt { return []stmt{step(share, s.tenant, s.share, id(), s.person, nil)} }, "report_share_report_fkey"},
+		{"twice at once", func(s scene) []stmt {
+			return []stmt{with(s), step(share, s.tenant, id(), s.report, s.person, nil)}
+		}, "report_share_once"},
+		{"again once ended", func(s scene) []stmt {
+			return []stmt{with(s), end(s), step(share, s.tenant, id(), s.report, s.person, nil)}
+		}, ""},
+		{"an unknown status", func(s scene) []stmt {
+			return []stmt{with(s), step(`UPDATE analytics.report_share SET status = 'paused', version = version + 1 WHERE id = $1`, s.share)}
+		}, "report_share_status_check"},
+		{"made at version 0", func(s scene) []stmt {
+			return []stmt{step(`INSERT INTO analytics.report_share (tenant_id, id, report_id, principal_id, version, created_by, updated_by) VALUES ($1, $2, $3, $4, 0, $1, $1)`,
+				s.tenant, s.share, s.report, s.person)}
+		}, "report_share_version_check"},
+		{"ended without the next version", func(s scene) []stmt {
+			return []stmt{with(s), step(`UPDATE analytics.report_share SET status = 'ended' WHERE id = $1`, s.share)}
+		}, "optimistic lock"},
+		{"the person changed", func(s scene) []stmt {
+			return []stmt{with(s), step(`UPDATE analytics.report_share SET principal_id = gen_random_uuid(), version = version + 1 WHERE id = $1`, s.share)}
+		}, "permission denied"},
+		{"an ended share made active again", func(s scene) []stmt {
+			return []stmt{with(s), end(s), step(`UPDATE analytics.report_share SET status = 'active', version = version + 1 WHERE id = $1`, s.share)}
+		}, "report_share_ended_fixed"},
+		{"a share deleted", func(s scene) []stmt { return []stmt{with(s), step(`DELETE FROM analytics.report_share`)} }, "permission denied"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), report: id(), share: id(), person: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error {
+				return all(tx, append([]stmt{step(report, s.tenant, s.report)}, c.run(s)...)...)
+			})
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestReportShareEndedFixed (T95c, migration 000310): an ended share
+// stays as it is for the owner of the table too, whom no grant holds
+// back.
+func TestReportShareEndedFixed(t *testing.T) {
+	need(t)
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	tenant, report, share := id(), id(), id()
+	if err := all(tx, step(`INSERT INTO analytics.report (tenant_id, id, title, spec, queries, owner_id) VALUES ($1, $2, 'R', '{}', '{}', $1)`, tenant, report),
+		step(`INSERT INTO analytics.report_share (tenant_id, id, report_id, principal_id, status, created_by, updated_by) VALUES ($1, $2, $3, $1, 'ended', $1, $1)`,
+			tenant, share, report)); err != nil {
+		t.Fatal(err)
+	}
+	_, err = tx.Exec(ctx, `UPDATE analytics.report_share SET principal_id = gen_random_uuid(), version = version + 1 WHERE id = $1`, share)
+	failsWith(t, err, "report_share_ended_fixed")
+}
+
+// TestReportRunCompanies (T95c, migration 000310; ADR-0076 §7): a run
+// names the codes of the companies it covered, none of them null and at
+// most 10,000; a run kept before names none.
+func TestReportRunCompanies(t *testing.T) {
+	need(t)
+	const report = `INSERT INTO analytics.report (tenant_id, id, title, spec, queries, owner_id) VALUES ($1, $2, 'R', '{}', '{}', $1)`
+	const run = `INSERT INTO analytics.report_run (tenant_id, id, report_id, run_date, status, run_as, failure_code, failure_detail, companies)
+		VALUES ($1, $2, $3, '2026-11-13', 'failed', $1, 'x.refused', 'Refused.', $4)`
+	many := make([]string, 10001)
+	for i := range many {
+		many[i] = "c"
+	}
+	for name, c := range map[string]struct {
+		companies any
+		want      string // empty: allowed
+	}{
+		"two companies":          {[]string{"1000", "2000"}, ""},
+		"none":                   {[]string{}, ""},
+		"not named":              {nil, ""},
+		"a null company":         {[]*string{nil}, "report_run_companies_check"},
+		"10,001 companies":       {many, "report_run_companies_check"},
+		"10,000 companies named": {many[1:], ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tenant, rep := id(), id()
+			err := asApp(t, tenant, func(tx pgx.Tx) error {
+				return all(tx, step(report, tenant, rep), step(run, tenant, id(), rep, c.companies))
+			})
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}

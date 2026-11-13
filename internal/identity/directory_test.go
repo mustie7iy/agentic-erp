@@ -48,12 +48,20 @@ func TestDirectory(t *testing.T) {
 		if len(roles) != 1 || roles[0] != role {
 			t.Errorf("roles held: got %v, want [%s]", roles, role)
 		}
+		named, err := d.Roles(ctx, []uuid.UUID{role, uuid.New()})
+		if err != nil {
+			t.Errorf("roles: %v", err)
+		}
+		if got := fmt.Sprint(named); got != fmt.Sprintf("map[%s:{all all active}]", role) {
+			t.Errorf("roles: got %s, want the role alone", got)
+		}
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for name, call := range map[string]func(ctx context.Context) error{
+		"roles": func(ctx context.Context) error { _, err := d.Roles(ctx, []uuid.UUID{uuid.New()}); return err },
 		"role":  func(ctx context.Context) error { _, _, err := d.RoleByCode(ctx, "all"); return err },
 		"holds": func(ctx context.Context) error { _, err := d.HoldsRole(ctx, ten.Human.ID, uuid.New()); return err },
 		"held":  func(ctx context.Context) error { _, err := d.RolesHeld(ctx, ten.Human.ID); return err },
