@@ -7275,7 +7275,7 @@ step_margin() {
   cr=$(field .id)
   api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
   expect "the change's tier" "$(field .tier)" 2
-  expect "the change" "$(field '[.items[].path] | join(" ")')" "controlling.margin_report[$CC].chart controlling.margin_report[$CC].cost_of_sales_accounts[0].from"
+  expect "the change" "$(field '[.items[].path] | join(" ")')" "controlling.margin_report[$CC]"
   request=$(field .workflow_request_id)
   approve priya "$request" "The cost of sales accounts, as agreed with the controller"
   as ada
@@ -7313,6 +7313,64 @@ step_margin() {
   say "Rita holds neither the margin report's permission nor the ledger's entry read:"
   refused 403 identity.permission_missing getMarginReport -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
   as carla
+  passed
+}
+# step_plan_version is T93a (ADR-0050 §8, As built T93a): Carla enters
+# Maple's budget for two cost centers as a plan batch of the category
+# PLAN (the story had no plan yet) and copies it into a new category, FC,
+# at 105 percent: a planning version. The copy is one plan batch of FC
+# naming its origin; each amount is scaled and rounded half away from
+# zero; PLAN is unchanged; a second copy into FC is refused unless it says
+# to replace; the cost center plan against actual report reads FC.
+step_plan_version() {
+  heading "Step 69 — A planning version: a budget entered for two cost centers and copied into a forecast category at 105 percent, each amount scaled and rounded; the budget unchanged; the plan against actual report reads the forecast"
+  local plan fc tag admin sales account month batch
+  local lines='[.items[] | "\(.cost_center_id) \(.fiscal_period) \(.amount.amount) \(.amount.currency)"] | sort | join("; ")'
+  month=$((10#${TODAY:5:2}))
+  as carla
+  accounts
+  account=$(account 6000)
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  admin=$(field '.items[0].id')
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1300
+  sales=$(field '.items[0].id')
+  say "Carla creates two plan categories (ADR-0050 §8): PLAN for the budget and FC for a forecast."
+  api 201 '"plan category \(.code) \(.name): \(if .locked then "locked" else "open" end)"' createPlanCategory -body "{\"code\": \"PLAN\", \"name\": \"Budget $YEAR\"}"
+  plan=$(field .id)
+  tag=$ETAG
+  api 201 '"plan category \(.code) \(.name): \(if .locked then "locked" else "open" end)"' createPlanCategory -body "{\"code\": \"FC\", \"name\": \"Forecast $YEAR\"}"
+  fc=$(field .id)
+  say "She uploads this month's budget of office expenses for the cost centers CC-1100 and CC-1300 as one plan batch:"
+  api 200 '"plan batch \(.batch_key): \(.line_count) lines written, \(.replaced_count) replaced"' applyPlanBatch \
+    -body "{\"plan_category_id\": \"$plan\", \"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"batch_key\": \"budget-$YEAR\", \"lines\": [
+      {\"cost_center_id\": \"$admin\", \"account_id\": \"$account\", \"fiscal_period\": $month, \"amount\": {\"amount\": \"1000.00\", \"currency\": \"CAD\"}},
+      {\"cost_center_id\": \"$sales\", \"account_id\": \"$account\", \"fiscal_period\": $month, \"amount\": {\"amount\": \"333.33\", \"currency\": \"CAD\"}}]}"
+  expect "the budget's lines" "$(field .line_count)" 2
+  say "The forecast starts as the budget plus five percent. Carla copies PLAN's plan of $YEAR into FC at 105 percent"
+  say "(T93a): every line to the same cost center, account and period, its amount scaled and rounded half away from"
+  say "zero to the cent. The copy is one plan batch of FC that names where it came from:"
+  api 200 '"plan batch \(.batch_key) of FC: \(.line_count) lines copied from \(.copied_from_plan_category_code) at \(.copy_percentage) percent, \(.replaced_count) replaced"' \
+    copyPlanCategory -p "id=$plan" -if-match "$tag" -body "{\"target_plan_category_id\": \"$fc\", \"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"percentage\": \"105\"}"
+  batch=$(field .id)
+  expect "the copy" "$(field '"\(.plan_category_id) \(.line_count) \(.replaced_count) \(.copied_from_plan_category_id) \(.copied_from_plan_category_code) \(.copy_percentage)"')" \
+    "$fc 2 0 $plan PLAN 105"
+  api 200 '.items[] | "  FC period \(.fiscal_period): \(.amount.amount) \(.amount.currency)"' listPlanLines -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "plan_batch_id=$batch"
+  # 1000.00 at 105 percent is 1050.00; 333.33 is 349.9965, rounded to 350.00.
+  expect "the forecast's lines, scaled and rounded" "$(field "$lines")" \
+    "$(printf '%s\n' "$admin $month 1050.00 CAD" "$sales $month 350.00 CAD" | sort | paste -sd';' - | sed 's/;/; /g')"
+  QUIET=1 api 200 '' listPlanLines -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "plan_category_id=$plan"
+  expect "the budget's lines, unchanged" "$(field "$lines")" \
+    "$(printf '%s\n' "$admin $month 1000.00 CAD" "$sales $month 333.33 CAD" | sort | paste -sd';' - | sed 's/;/; /g')"
+  say "FC has a plan of $YEAR now. A second copy into it is refused unless it says to replace that plan:"
+  refused 409 controlling.plan_copy_target_planned copyPlanCategory -p "id=$plan" -if-match "$tag" \
+    -body "{\"target_plan_category_id\": \"$fc\", \"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"percentage\": \"110\"}"
+  say "The cost center plan against actual report reads the forecast as it reads any category:"
+  api 200 '.items[] | select(.account_id == "'"$account"'") | "  cost center \(.cost_center_id | if . == "'"$admin"'" then "CC-1100" else "CC-1300" end): plan \(.plan.amount), actual \(.actual.amount), variance \(.variance.amount) \(.variance.currency)"' \
+    listCostCenterPlanActual -p "plan_category_id=$fc" -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "fiscal_period_from=$month" -p "fiscal_period_to=$month" -p page_size=200
+  expect "the report's plan, the forecast's" \
+    "$(field '[.items[] | select(.account_id == "'"$account"'" and (.cost_center_id == "'"$admin"'" or .cost_center_id == "'"$sales"'")) | "\(.cost_center_id) \(.plan.amount)"] | sort | join("; ")')" \
+    "$(printf '%s\n' "$admin 1050.00" "$sales 350.00" | sort | paste -sd';' - | sed 's/;/; /g')"
+  say "FC plans 1050.00 CAD for CC-1100 and 350.00 CAD for CC-1300, copied from PLAN at 105 percent."
   passed
 }
 # step_close is the financial close (ADR-0058), the story's last step: it
@@ -9339,7 +9397,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_sales_analytics step_spend step_margin step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_sales_analytics step_spend step_margin step_plan_version step_close'
 
 main() {
   stop_unseen

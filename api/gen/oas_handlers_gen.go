@@ -9094,6 +9094,239 @@ func (s *Server) handleConfirmSalesOrderRequest(args [1]string, argsEscaped bool
 	}
 }
 
+// handleCopyPlanCategoryRequest handles copyPlanCategory operation.
+//
+// Copies the current plan lines of the category, one legal entity and one fiscal year into another
+// plan category as a new version, scaled by a percentage (ADR-0050 §8, As built T93a): each line goes
+// to the same cost center or profit center, account and period, its amount multiplied by `percentage`
+// / 100 and rounded half away from zero to the legal entity's minor unit; a quantity is copied as it
+// is. The copy is one plan batch of the target (`copied_from_plan_category_id`, `copy_percentage`),
+// whose lines `GET /v1/plan-lines?plan_batch_id=` lists and the plan against actual reports read under
+// the target category. The category copied is not changed. A target that already has current lines of
+// the legal entity and year is refused (409 `controlling.plan_copy_target_planned`) unless `replace`
+// is true: the copy then replaces the target's whole plan of the legal entity and year, every
+// center's, marking its current lines replaced (never deleted). Refused as a batch into the target is:
+// a locked target (409 `controlling.plan_category_locked`); a line that names a center, account or
+// period a plan of the legal entity's year may no longer name (422 `controlling.plan_batch_invalid`,
+// `source_lines[<plan line id>].field`, at most 100); a cost center's line, copied or replaced, in a
+// period the center is locked for planning in (422 `controlling.cost_center_plan_locked`:
+// `source_lines[<plan line id>].cost_center_id` for a line copied or for the first line copied to a
+// center whose current line would be replaced, `replace` for a center the copy has no line of). Also
+// refused (422 `controlling.plan_copy_invalid`, naming the field): the target the category itself, a
+// percentage that is not above 0 and at most 1000 with up to four decimals, a legal entity and year
+// the category has no current lines of, more than 50,000 lines, and an amount that does not fit after
+// scaling. An unknown target, or a legal entity the caller cannot act in, is 422
+// `request.reference_not_found`. `If-Match` names the version of the category copied, as the caller
+// read it (412 `request.version_mismatch`; a lock or unlock moves it, a batch does not); the copy does
+// not change it. A repeat with the same `Idempotency-Key` answers the same batch. Audited and
+// published as PlanBatchApplied, as a batch is. Agents may not copy a plan.
+//
+// POST /v1/plan-categories/{id}:copy
+func (s *Server) handleCopyPlanCategoryRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("copyPlanCategory"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/plan-categories/{id}:copy"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CopyPlanCategoryOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CopyPlanCategoryOperation,
+			ID:   "copyPlanCategory",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CopyPlanCategoryOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCopyPlanCategoryParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCopyPlanCategoryRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CopyPlanCategoryRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CopyPlanCategoryOperation,
+			OperationSummary: "Copy a plan category's plan into another category",
+			OperationID:      "copyPlanCategory",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *PlanCategoryCopy
+			Params   = CopyPlanCategoryParams
+			Response = CopyPlanCategoryRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCopyPlanCategoryParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CopyPlanCategory(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CopyPlanCategory(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCopyPlanCategoryResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCreateAllocationCycleRequest handles createAllocationCycle operation.
 //
 // Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver

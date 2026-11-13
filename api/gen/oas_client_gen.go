@@ -569,6 +569,35 @@ type Invoker interface {
 	//
 	// POST /v1/sales-orders/{id}:confirm
 	ConfirmSalesOrder(ctx context.Context, params ConfirmSalesOrderParams) (ConfirmSalesOrderRes, error)
+	// CopyPlanCategory invokes copyPlanCategory operation.
+	//
+	// Copies the current plan lines of the category, one legal entity and one fiscal year into another
+	// plan category as a new version, scaled by a percentage (ADR-0050 §8, As built T93a): each line goes
+	// to the same cost center or profit center, account and period, its amount multiplied by `percentage`
+	// / 100 and rounded half away from zero to the legal entity's minor unit; a quantity is copied as it
+	// is. The copy is one plan batch of the target (`copied_from_plan_category_id`, `copy_percentage`),
+	// whose lines `GET /v1/plan-lines?plan_batch_id=` lists and the plan against actual reports read under
+	// the target category. The category copied is not changed. A target that already has current lines of
+	// the legal entity and year is refused (409 `controlling.plan_copy_target_planned`) unless `replace`
+	// is true: the copy then replaces the target's whole plan of the legal entity and year, every
+	// center's, marking its current lines replaced (never deleted). Refused as a batch into the target is:
+	// a locked target (409 `controlling.plan_category_locked`); a line that names a center, account or
+	// period a plan of the legal entity's year may no longer name (422 `controlling.plan_batch_invalid`,
+	// `source_lines[<plan line id>].field`, at most 100); a cost center's line, copied or replaced, in a
+	// period the center is locked for planning in (422 `controlling.cost_center_plan_locked`:
+	// `source_lines[<plan line id>].cost_center_id` for a line copied or for the first line copied to a
+	// center whose current line would be replaced, `replace` for a center the copy has no line of). Also
+	// refused (422 `controlling.plan_copy_invalid`, naming the field): the target the category itself, a
+	// percentage that is not above 0 and at most 1000 with up to four decimals, a legal entity and year
+	// the category has no current lines of, more than 50,000 lines, and an amount that does not fit after
+	// scaling. An unknown target, or a legal entity the caller cannot act in, is 422
+	// `request.reference_not_found`. `If-Match` names the version of the category copied, as the caller
+	// read it (412 `request.version_mismatch`; a lock or unlock moves it, a batch does not); the copy does
+	// not change it. A repeat with the same `Idempotency-Key` answers the same batch. Audited and
+	// published as PlanBatchApplied, as a batch is. Agents may not copy a plan.
+	//
+	// POST /v1/plan-categories/{id}:copy
+	CopyPlanCategory(ctx context.Context, request *PlanCategoryCopy, params CopyPlanCategoryParams) (CopyPlanCategoryRes, error)
 	// CreateAllocationCycle invokes createAllocationCycle operation.
 	//
 	// Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver
@@ -13293,6 +13322,189 @@ func (c *Client) sendConfirmSalesOrder(ctx context.Context, params ConfirmSalesO
 
 	stage = "DecodeResponse"
 	result, err := decodeConfirmSalesOrderResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CopyPlanCategory invokes copyPlanCategory operation.
+//
+// Copies the current plan lines of the category, one legal entity and one fiscal year into another
+// plan category as a new version, scaled by a percentage (ADR-0050 §8, As built T93a): each line goes
+// to the same cost center or profit center, account and period, its amount multiplied by `percentage`
+// / 100 and rounded half away from zero to the legal entity's minor unit; a quantity is copied as it
+// is. The copy is one plan batch of the target (`copied_from_plan_category_id`, `copy_percentage`),
+// whose lines `GET /v1/plan-lines?plan_batch_id=` lists and the plan against actual reports read under
+// the target category. The category copied is not changed. A target that already has current lines of
+// the legal entity and year is refused (409 `controlling.plan_copy_target_planned`) unless `replace`
+// is true: the copy then replaces the target's whole plan of the legal entity and year, every
+// center's, marking its current lines replaced (never deleted). Refused as a batch into the target is:
+// a locked target (409 `controlling.plan_category_locked`); a line that names a center, account or
+// period a plan of the legal entity's year may no longer name (422 `controlling.plan_batch_invalid`,
+// `source_lines[<plan line id>].field`, at most 100); a cost center's line, copied or replaced, in a
+// period the center is locked for planning in (422 `controlling.cost_center_plan_locked`:
+// `source_lines[<plan line id>].cost_center_id` for a line copied or for the first line copied to a
+// center whose current line would be replaced, `replace` for a center the copy has no line of). Also
+// refused (422 `controlling.plan_copy_invalid`, naming the field): the target the category itself, a
+// percentage that is not above 0 and at most 1000 with up to four decimals, a legal entity and year
+// the category has no current lines of, more than 50,000 lines, and an amount that does not fit after
+// scaling. An unknown target, or a legal entity the caller cannot act in, is 422
+// `request.reference_not_found`. `If-Match` names the version of the category copied, as the caller
+// read it (412 `request.version_mismatch`; a lock or unlock moves it, a batch does not); the copy does
+// not change it. A repeat with the same `Idempotency-Key` answers the same batch. Audited and
+// published as PlanBatchApplied, as a batch is. Agents may not copy a plan.
+//
+// POST /v1/plan-categories/{id}:copy
+func (c *Client) CopyPlanCategory(ctx context.Context, request *PlanCategoryCopy, params CopyPlanCategoryParams) (CopyPlanCategoryRes, error) {
+	res, err := c.sendCopyPlanCategory(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCopyPlanCategory(ctx context.Context, request *PlanCategoryCopy, params CopyPlanCategoryParams) (res CopyPlanCategoryRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("copyPlanCategory"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/plan-categories/{id}:copy"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CopyPlanCategoryOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/plan-categories/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":copy"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCopyPlanCategoryRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CopyPlanCategoryOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCopyPlanCategoryResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

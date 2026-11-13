@@ -24079,6 +24079,7 @@ func (*ConflictHeaders) completeYearCloseTaskRes()                 {}
 func (*ConflictHeaders) confirmDunningRunRes()                     {}
 func (*ConflictHeaders) confirmSalesDeliveryRes()                  {}
 func (*ConflictHeaders) confirmSalesOrderRes()                     {}
+func (*ConflictHeaders) copyPlanCategoryRes()                      {}
 func (*ConflictHeaders) createAllocationCycleRes()                 {}
 func (*ConflictHeaders) createAssetAcquisitionRes()                {}
 func (*ConflictHeaders) createAssetRes()                           {}
@@ -27850,6 +27851,30 @@ func (s *ContractUpdate) SetTargetValue(val OptMoney) {
 func (s *ContractUpdate) SetItems(val []ContractItem) {
 	s.Items = val
 }
+
+type CopyPlanCategoryBadRequest Problem
+
+func (*CopyPlanCategoryBadRequest) copyPlanCategoryRes() {}
+
+type CopyPlanCategoryForbidden Problem
+
+func (*CopyPlanCategoryForbidden) copyPlanCategoryRes() {}
+
+type CopyPlanCategoryNotFound Problem
+
+func (*CopyPlanCategoryNotFound) copyPlanCategoryRes() {}
+
+type CopyPlanCategoryPreconditionFailed Problem
+
+func (*CopyPlanCategoryPreconditionFailed) copyPlanCategoryRes() {}
+
+type CopyPlanCategoryPreconditionRequired Problem
+
+func (*CopyPlanCategoryPreconditionRequired) copyPlanCategoryRes() {}
+
+type CopyPlanCategoryUnprocessableEntity Problem
+
+func (*CopyPlanCategoryUnprocessableEntity) copyPlanCategoryRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/CostCenter
@@ -65345,6 +65370,13 @@ type PlanBatch struct {
 	ReplacedCount int32 `json:"replaced_count"`
 	// Whether the batch key had already been applied with these lines, so nothing changed.
 	Replayed bool `json:"replayed"`
+	// The plan category the batch's lines were copied from (`POST /v1/plan-categories/{id}:copy`); absent
+	// on an uploaded batch.
+	CopiedFromPlanCategoryID OptUUID `json:"copied_from_plan_category_id"`
+	// The code of the category copied from; absent on an uploaded batch.
+	CopiedFromPlanCategoryCode OptString `json:"copied_from_plan_category_code"`
+	// The percentage the copied amounts were multiplied by; absent on an uploaded batch.
+	CopyPercentage OptString `json:"copy_percentage"`
 	// When the batch was applied (UTC).
 	CreatedAt time.Time `json:"created_at"`
 	// Principal that applied the batch.
@@ -65389,6 +65421,21 @@ func (s *PlanBatch) GetReplacedCount() int32 {
 // GetReplayed returns the value of Replayed.
 func (s *PlanBatch) GetReplayed() bool {
 	return s.Replayed
+}
+
+// GetCopiedFromPlanCategoryID returns the value of CopiedFromPlanCategoryID.
+func (s *PlanBatch) GetCopiedFromPlanCategoryID() OptUUID {
+	return s.CopiedFromPlanCategoryID
+}
+
+// GetCopiedFromPlanCategoryCode returns the value of CopiedFromPlanCategoryCode.
+func (s *PlanBatch) GetCopiedFromPlanCategoryCode() OptString {
+	return s.CopiedFromPlanCategoryCode
+}
+
+// GetCopyPercentage returns the value of CopyPercentage.
+func (s *PlanBatch) GetCopyPercentage() OptString {
+	return s.CopyPercentage
 }
 
 // GetCreatedAt returns the value of CreatedAt.
@@ -65439,6 +65486,21 @@ func (s *PlanBatch) SetReplacedCount(val int32) {
 // SetReplayed sets the value of Replayed.
 func (s *PlanBatch) SetReplayed(val bool) {
 	s.Replayed = val
+}
+
+// SetCopiedFromPlanCategoryID sets the value of CopiedFromPlanCategoryID.
+func (s *PlanBatch) SetCopiedFromPlanCategoryID(val OptUUID) {
+	s.CopiedFromPlanCategoryID = val
+}
+
+// SetCopiedFromPlanCategoryCode sets the value of CopiedFromPlanCategoryCode.
+func (s *PlanBatch) SetCopiedFromPlanCategoryCode(val OptString) {
+	s.CopiedFromPlanCategoryCode = val
+}
+
+// SetCopyPercentage sets the value of CopyPercentage.
+func (s *PlanBatch) SetCopyPercentage(val OptString) {
+	s.CopyPercentage = val
 }
 
 // SetCreatedAt sets the value of CreatedAt.
@@ -65544,7 +65606,8 @@ func (s *PlanBatchHeaders) SetResponse(val PlanBatch) {
 	s.Response = val
 }
 
-func (*PlanBatchHeaders) applyPlanBatchRes() {}
+func (*PlanBatchHeaders) applyPlanBatchRes()   {}
+func (*PlanBatchHeaders) copyPlanCategoryRes() {}
 
 // A line of a plan batch: the amount planned on a cost center or a profit center (exactly one) and an
 // account in a period.
@@ -65735,6 +65798,74 @@ func (s *PlanCategory) SetName(val string) {
 // SetLocked sets the value of Locked.
 func (s *PlanCategory) SetLocked(val bool) {
 	s.Locked = val
+}
+
+// A copy of a plan category's plan of one legal entity and fiscal year into another category, scaled
+// by a percentage.
+// Ref: #/components/schemas/PlanCategoryCopy
+type PlanCategoryCopy struct {
+	// The plan category the copy is written into: another one than the category copied, and open.
+	TargetPlanCategoryID uuid.UUID `json:"target_plan_category_id"`
+	// The legal entity whose plan is copied; a copy is one legal entity's, as a plan batch is.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year whose plan is copied, into the same year of the target.
+	FiscalYear int32 `json:"fiscal_year"`
+	// What each amount is multiplied by, in percent: above 0 and at most 1000, with up to four decimals;
+	// `100` copies the amounts as they are, `105` adds five percent.
+	Percentage string `json:"percentage"`
+	// Whether the copy may replace the target's current plan of the legal entity and year (all of it,
+	// every center's); false: a target that has one is refused.
+	Replace OptBool `json:"replace"`
+}
+
+// GetTargetPlanCategoryID returns the value of TargetPlanCategoryID.
+func (s *PlanCategoryCopy) GetTargetPlanCategoryID() uuid.UUID {
+	return s.TargetPlanCategoryID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *PlanCategoryCopy) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *PlanCategoryCopy) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPercentage returns the value of Percentage.
+func (s *PlanCategoryCopy) GetPercentage() string {
+	return s.Percentage
+}
+
+// GetReplace returns the value of Replace.
+func (s *PlanCategoryCopy) GetReplace() OptBool {
+	return s.Replace
+}
+
+// SetTargetPlanCategoryID sets the value of TargetPlanCategoryID.
+func (s *PlanCategoryCopy) SetTargetPlanCategoryID(val uuid.UUID) {
+	s.TargetPlanCategoryID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *PlanCategoryCopy) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *PlanCategoryCopy) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPercentage sets the value of Percentage.
+func (s *PlanCategoryCopy) SetPercentage(val string) {
+	s.Percentage = val
+}
+
+// SetReplace sets the value of Replace.
+func (s *PlanCategoryCopy) SetReplace(val OptBool) {
+	s.Replace = val
 }
 
 // A new plan category.
@@ -77392,6 +77523,7 @@ func (*ServiceUnavailableHeaders) closeInternalOrderRes()                    {}
 func (*ServiceUnavailableHeaders) closePurchaseOrderRes()                    {}
 func (*ServiceUnavailableHeaders) completeCloseTaskRes()                     {}
 func (*ServiceUnavailableHeaders) completeYearCloseTaskRes()                 {}
+func (*ServiceUnavailableHeaders) copyPlanCategoryRes()                      {}
 func (*ServiceUnavailableHeaders) createAllocationCycleRes()                 {}
 func (*ServiceUnavailableHeaders) createAssetAcquisitionRes()                {}
 func (*ServiceUnavailableHeaders) createAssetRes()                           {}
@@ -82440,6 +82572,7 @@ func (*TooManyRequestsHeaders) completeYearCloseTaskRes()                 {}
 func (*TooManyRequestsHeaders) confirmDunningRunRes()                     {}
 func (*TooManyRequestsHeaders) confirmSalesDeliveryRes()                  {}
 func (*TooManyRequestsHeaders) confirmSalesOrderRes()                     {}
+func (*TooManyRequestsHeaders) copyPlanCategoryRes()                      {}
 func (*TooManyRequestsHeaders) createAllocationCycleRes()                 {}
 func (*TooManyRequestsHeaders) createAssetAcquisitionRes()                {}
 func (*TooManyRequestsHeaders) createAssetRes()                           {}
@@ -83220,6 +83353,7 @@ func (*UnauthorizedHeaders) completeYearCloseTaskRes()                 {}
 func (*UnauthorizedHeaders) confirmDunningRunRes()                     {}
 func (*UnauthorizedHeaders) confirmSalesDeliveryRes()                  {}
 func (*UnauthorizedHeaders) confirmSalesOrderRes()                     {}
+func (*UnauthorizedHeaders) copyPlanCategoryRes()                      {}
 func (*UnauthorizedHeaders) createAllocationCycleRes()                 {}
 func (*UnauthorizedHeaders) createAssetAcquisitionRes()                {}
 func (*UnauthorizedHeaders) createAssetRes()                           {}

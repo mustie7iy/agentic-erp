@@ -49,6 +49,7 @@ const (
 	ConfirmDunningRunOperation                     OperationName = "ConfirmDunningRun"
 	ConfirmSalesDeliveryOperation                  OperationName = "ConfirmSalesDelivery"
 	ConfirmSalesOrderOperation                     OperationName = "ConfirmSalesOrder"
+	CopyPlanCategoryOperation                      OperationName = "CopyPlanCategory"
 	CreateAllocationCycleOperation                 OperationName = "CreateAllocationCycle"
 	CreateAssetOperation                           OperationName = "CreateAsset"
 	CreateAssetAcquisitionOperation                OperationName = "CreateAssetAcquisition"

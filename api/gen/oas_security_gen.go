@@ -95,6 +95,7 @@ var operationRolesOidc = map[string][]string{
 	ConfirmDunningRunOperation:                     []string{},
 	ConfirmSalesDeliveryOperation:                  []string{},
 	ConfirmSalesOrderOperation:                     []string{},
+	CopyPlanCategoryOperation:                      []string{},
 	CreateAllocationCycleOperation:                 []string{},
 	CreateAssetOperation:                           []string{},
 	CreateAssetAcquisitionOperation:                []string{},

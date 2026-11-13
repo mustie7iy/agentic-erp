@@ -173,6 +173,10 @@ type ConfirmSalesOrderRes interface {
 	confirmSalesOrderRes()
 }
 
+type CopyPlanCategoryRes interface {
+	copyPlanCategoryRes()
+}
+
 type CreateAllocationCycleRes interface {
 	createAllocationCycleRes()
 }

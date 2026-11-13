@@ -3386,7 +3386,11 @@ components:
         §8: the plan of the category, legal entity and fiscal year on the
         centers named is now the batch's lines (`GET /v1/plan-lines` with
         `plan_batch_id`). A batch key applied again with the same lines
-        changes nothing and is not published again. Subject is the plan
+        changes nothing and is not published again. Emitted too when a
+        category's plan is copied into another (`plan-categories/{id}:copy`,
+        T93a): the batch is the target's, names the category copied from
+        and the percentage, and its centers are those of the lines copied
+        and those of the target's plan it replaced. Subject is the plan
         batch id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
@@ -5295,6 +5299,8 @@ components:
         replaced_count: {type: integer, description: "The earlier lines of its centers it marked replaced (kept, never deleted)."}
         cost_center_ids: {type: array, items: {$ref: '#/components/schemas/Uuid'}, description: The cost centers whose plan the batch replaced.}
         profit_center_ids: {type: array, items: {$ref: '#/components/schemas/Uuid'}, description: The profit centers whose plan the batch replaced.}
+        copied_from_plan_category_id: {$ref: '#/components/schemas/Uuid', description: 'The plan category the batch''s lines were copied from (T93a). Absent on an uploaded batch.'}
+        copy_percentage: {type: string, description: 'The percentage the copied amounts were multiplied by, a decimal. Absent on an uploaded batch.'}
     InternalOrderChangedV1:
       type: object
       required: [internal_order_id, legal_entity_id, code, name, responsible_cost_center_id, responsible_cost_center_code, status, change]

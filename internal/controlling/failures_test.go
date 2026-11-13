@@ -28,6 +28,9 @@ func TestPlanDatabaseFailures(t *testing.T) {
 	open := uuid.MustParse(c.category(t, "OPEN"))
 	locked := uuid.MustParse(c.category(t, "LOCKED"))
 	c.Must(200, "POST", "/v1/plan-categories/"+locked.String()+":lock", "", `"1"`)
+	// A category with a plan of a cost center, for a copy to replace.
+	copied := uuid.MustParse(c.category(t, "COPIED"))
+	c.batch(t, copied.String(), "old", line(c.c.Locked, c.office, 1, "1.00"))
 	amount := gen.Money{Amount: "1.00", Currency: "EUR"}
 	newBatch := func(key string) *gen.PlanBatchCreate {
 		return &gen.PlanBatchCreate{PlanCategoryID: open, LegalEntityID: c.DE, FiscalYear: 2026, BatchKey: key, Lines: []gen.PlanBatchLine{
@@ -244,6 +247,11 @@ func TestPlanDatabaseFailures(t *testing.T) {
 		},
 		"apply a batch": func(ctx context.Context) error {
 			_, err := h.ApplyPlanBatch(ctx, newBatch("new"), gen.ApplyPlanBatchParams{})
+			return err
+		},
+		"copy a category's plan over another's": func(ctx context.Context) error {
+			_, err := h.CopyPlanCategory(ctx, &gen.PlanCategoryCopy{TargetPlanCategoryID: copied, LegalEntityID: c.DE, FiscalYear: 2026, Percentage: "105",
+				Replace: gen.NewOptBool(true)}, gen.CopyPlanCategoryParams{ID: cat, IfMatch: `"1"`})
 			return err
 		},
 		"replay a batch": func(ctx context.Context) error {

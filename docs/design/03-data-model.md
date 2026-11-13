@@ -3501,7 +3501,8 @@ adds allocation cycles, their receivers and runs and the permissions
 the cycle's kind `assessment` with its assessment account, and in the
 ledger the secondary cost element and its two rules (§3.7). Migration
 000296 adds the permission `controlling.margin.read` of the margin report
-(ADR-0075, T92b), which has no table.
+(ADR-0075, T92b), which has no table. Migration 000297 adds the origin of
+a plan batch written by a copy of another category's plan (T93a).
 
 ```mermaid
 erDiagram
@@ -3519,7 +3520,9 @@ erDiagram
     text batch_key "once per category, company and year"
     text digest "sha-256 of its lines"
     int line_count
-    int replaced_count }
+    int replaced_count
+    uuid copied_from_category_id "a copy's source category, else null"
+    numeric copy_percentage "a copy's percentage, else null" }
   plan_line { uuid id PK
     uuid batch_id FK
     uuid category_id
@@ -3584,7 +3587,7 @@ erDiagram
 | Table | Purpose |
 |---|---|
 | `controlling.plan_category` | A plan category (SAP's category for planning): code (`^[0-9A-Z_]{1,10}$`, unique), name, and `locked`; locked and unlocked by a person (`controlling.plan.lock`) with the caller's version, read FOR UPDATE; never deleted |
-| `controlling.plan_batch` | A batch applied, insert-only: its key once per category, company and year (`plan_batch_key_once`) and the digest of its lines, so the same batch again is recognised and changes nothing and the key with other lines is refused; at least one line; refused on a locked category (`plan_category_open`) |
+| `controlling.plan_batch` | A batch applied, insert-only: its key once per category, company and year (`plan_batch_key_once`) and the digest of its lines, so the same batch again is recognised and changes nothing and the key with other lines is refused; at least one line; refused on a locked category (`plan_category_open`). A batch written by a copy of another category's plan (`POST /v1/plan-categories/{id}:copy`, T93a, migration 000297; ADR-0050 §8 As built) names the category copied from and the percentage its amounts were multiplied by, both or neither (`plan_batch_copy_origin`): the percentage above 0 and at most 1000 (`plan_batch_copy_percentage`), the category an existing one (`plan_batch_copied_from`) and another than the batch's (`plan_batch_copy_other_category`); its key is generated (`copy-<id>`), and it replaces the target's whole plan of the company and year |
 | `controlling.plan_line` | A line of a batch: one center (`plan_line_one_center`), a period 1-16, a P&L account, the amount in the company's local currency, an optional positive quantity with its unit (`plan_line_quantity_unit`); of its batch's category, company and year (foreign key). Never deleted: a later batch of the same category, company and year naming its center sets `replaced_by_batch_id` once (`plan_line_replaced_once`, `plan_line_replaced_later`), so the plan is the lines not replaced, one per category, company, year, center, account and period (`plan_line_once`, a partial unique index), and every earlier plan stays readable. Nothing is written or replaced on a locked category (`plan_category_open`, the category read FOR SHARE). A batch that would write or replace a cost center's line in a period sharing a day with a period of the center whose `ledger.cost_center_period.lock_plan` is set is refused (T56g2; checked in the service through the ledger's port, the centers held FOR KEY SHARE; no trigger reads across the context boundary) |
 | `controlling.internal_order` | An internal order (ADR-0064 §1, T60a): a cost object of one company with a code unique in it (`^[0-9A-Z_-]{1,12}$`, `internal_order_code_once`), a name, a responsible cost center (the ledger's; no foreign key crosses the schema: checked through `ledger.AssignmentBalances.CostCenterRefs` to be an active cost center of the company) and a status, `created` then `released` (`controlling.order.release`, read FOR UPDATE with the caller's version). It starts as `created`, keeps its company and code and stays released (`internal_order_lifecycle`, a trigger); never deleted. Journal lines name it (`ledger.journal_line.internal_order_id`, §3.7, T60b) without a foreign key: the ledger asks `controlling.CostObjects` (its port `ledger.CostObjects`) for the orders a posting names, which holds them `FOR SHARE`; the order's actual costs are those lines, read through `ledger.AssignmentBalances.OrderActuals` and stored nowhere else |
 | `controlling.order_budget` | An order's budget (ADR-0064 §3, T60c): at most one row per order (the primary key; `order_budget_order`, a foreign key to the order), one overall amount of zero or more (`order_budget_not_negative`) in minor units of the order's company's local currency, which a company keeps (000045). An order without a row has no budget. Replaced with the version its reader saw (`controlling.order.budget`; the order read FOR UPDATE, the version one more with every change, `platform.touch`), each change audited with the amounts before and after; never deleted. Nothing is refused for a budget: `GET /v1/internal-orders/{id}/budget` compares it with the order's balance in the leading ledger over every year (`ledger.AssignmentBalances.OrderBalance`) |
