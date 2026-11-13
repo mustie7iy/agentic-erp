@@ -6,140 +6,175 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-
-	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 )
 
-// Figures are the amounts the run's reads returned (ADR-0072 §4): what a
-// recommendation may state. An amount is kept as the API wrote it,
-// without its sign: a Money's amount (the text under the key amount), and
-// a number with a decimal fraction wherever it stands in an answer (a
-// rate, a percentage). A text a person typed is no figure, whatever it
-// looks like, and neither is a value the request itself supplied, which
-// an answer may echo: the model could otherwise have any amount it made
-// up returned to it.
+// Figures are what the run's reads returned that a recommendation may
+// state (ADR-0072 §4). The check does not try to tell which numbers of a
+// text are amounts: every number a content writes must be one the run
+// read. A number with a decimal fraction must be an amount: a Money's
+// amount (the text under the key amount) or a number with a fraction
+// wherever it stands in an answer (a rate, a percentage). A whole number
+// must be written somewhere in an answer or in the run's prompt (a count,
+// a day of a date, a document number), or be a whole amount. A value the
+// read's own input supplied as a number is not read, though the answer
+// gives it back: the model could otherwise have any amount it made up
+// returned to it. Numbers are kept as written, without their sign.
 type Figures struct {
 	amounts map[string]bool
+	numbers map[string]bool
 }
 
-// decimal is a plain decimal as the API writes amounts.
-var decimal = regexp.MustCompile(`^-?\d+(\.\d+)?$`)
+func newFigures(prompt string) *Figures {
+	f := &Figures{amounts: map[string]bool{}, numbers: map[string]bool{}}
+	for _, n := range Numbers(prompt) {
+		f.numbers[n] = true
+	}
+	return f
+}
 
-// unsigned is a decimal without its sign, as figures are kept and
-// compared.
-func unsigned(s string) string { return strings.TrimPrefix(s, "-") }
+var (
+	// decimal is a plain decimal as the API writes amounts.
+	decimal = regexp.MustCompile(`^-?\d+(\.\d+)?$`)
+	// fraction is a number written with a decimal fraction.
+	fraction = regexp.MustCompile(`^\d+\.\d+$`)
+	// identifier is a UUID: its digits are no numbers.
+	identifier = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
+	// written is a number as a text writes it: digits, with separators
+	// and a fraction between them, wherever they stand.
+	written = regexp.MustCompile(`\d(?:[\d.,]*\d)?`)
+	// grouped is a number written with thousands separators.
+	grouped = regexp.MustCompile(`^\d{1,3}(?:,\d{3})+(?:\.\d+)?$`)
+)
 
-// plain is a decimal as it is compared with what an input supplied:
-// unsigned and without the zeros that end its fraction, so that an amount
-// asked about as 1617.1 is known again when the answer writes 1617.10.
+// Numbers are the numbers a text writes, in its order: every run of
+// digits, with the separators and the fraction between them, whatever
+// stands beside it (a currency, a letter, a sign), thousands separators
+// taken out. The digits of a UUID are no numbers. A number written in
+// words is not seen.
+func Numbers(text string) []string {
+	var out []string
+	for _, n := range written.FindAllString(identifier.ReplaceAllString(text, " "), -1) {
+		if grouped.MatchString(n) {
+			n = strings.ReplaceAll(n, ",", "")
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+// input is what a read's input supplied as numbers: the values that are
+// decimals, as written, and those with a fraction also without the zeros
+// that end it, so that an amount asked about as 1617.1 is known again
+// when the answer writes 1617.10.
+type input struct {
+	exact, plain map[string]bool
+}
+
+// plain is a decimal without its sign and without the zeros that end its
+// fraction.
 func plain(s string) string {
-	s = unsigned(s)
+	s = strings.TrimPrefix(s, "-")
 	if strings.Contains(s, ".") {
 		s = strings.TrimSuffix(strings.TrimRight(s, "0"), ".")
 	}
 	return s
 }
 
-// leaves are the texts and numbers of a decoded JSON value, plain: what
-// a call's input supplied.
-func leaves(v any, into map[string]bool) {
-	switch x := v.(type) {
-	case map[string]any:
-		for _, child := range x {
-			leaves(child, into)
-		}
-	case []any:
-		for _, child := range x {
-			leaves(child, into)
-		}
-	case json.Number:
-		into[plain(x.String())] = true
-	case string:
-		into[plain(x)] = true
-	}
-}
-
-// supplied are the values a call's input supplied. The input is the
+// supplied are the numbers a call's input supplied. The input is the
 // model's JSON, decoded by the tool with numbers as floats, so it is read
 // again here with its numbers as written.
-func supplied(input map[string]any) map[string]bool {
-	out := map[string]bool{}
-	raw, _ := json.Marshal(input) // decoded from JSON, so it encodes again
+func supplied(in map[string]any) input {
+	out := input{exact: map[string]bool{}, plain: map[string]bool{}}
+	raw, _ := json.Marshal(in) // decoded from JSON, so it encodes again
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	var v any
 	_ = dec.Decode(&v) // its own encoding: it decodes
-	leaves(v, out)
+	out.leaves(v)
 	return out
 }
 
-// add keeps the amounts of an answer's body but those the call's input
-// supplied; a body that is not JSON holds none.
-func (f *Figures) add(body []byte, supplied map[string]bool) {
+func (in input) leaves(v any) {
+	switch x := v.(type) {
+	case map[string]any:
+		for _, child := range x {
+			in.leaves(child)
+		}
+	case []any:
+		for _, child := range x {
+			in.leaves(child)
+		}
+	case json.Number:
+		in.keep(x.String())
+	case string:
+		in.keep(x)
+	}
+}
+
+func (in input) keep(s string) {
+	if !decimal.MatchString(s) {
+		return
+	}
+	in.exact[strings.TrimPrefix(s, "-")] = true
+	if strings.Contains(s, ".") {
+		in.plain[plain(s)] = true
+	}
+}
+
+// has reports whether the input supplied the number.
+func (in input) has(n string) bool { return in.exact[n] || in.plain[plain(n)] }
+
+// add keeps what an answer's body returned but what the call's input
+// supplied; a body that is not JSON returned nothing.
+func (f *Figures) add(body []byte, in input) {
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.UseNumber()
 	var v any
 	if dec.Decode(&v) == nil {
-		f.walk("", v, supplied)
+		f.walk("", v, in)
 	}
 }
 
-func (f *Figures) walk(key string, v any, supplied map[string]bool) {
+func (f *Figures) walk(key string, v any, in input) {
 	switch x := v.(type) {
 	case map[string]any:
 		for k, child := range x {
-			f.walk(k, child, supplied)
+			f.walk(k, child, in)
 		}
 	case []any:
 		for _, child := range x {
-			f.walk(key, child, supplied)
+			f.walk(key, child, in)
 		}
 	case json.Number:
-		if s := unsigned(x.String()); strings.Contains(s, ".") && decimal.MatchString(s) && !supplied[plain(s)] {
-			f.amounts[s] = true
-		}
+		f.keep(x.String(), true, in)
 	case string:
-		if s := unsigned(x); key == "amount" && decimal.MatchString(s) && !supplied[plain(s)] {
-			f.amounts[s] = true
+		f.keep(x, key == "amount" && decimal.MatchString(x), in)
+	}
+}
+
+// keep keeps the numbers a value writes, and the value as an amount when
+// it is one.
+func (f *Figures) keep(value string, amount bool, in input) {
+	for _, n := range Numbers(value) {
+		if in.has(n) {
+			continue
+		}
+		f.numbers[n] = true
+		if amount {
+			f.amounts[n] = true
 		}
 	}
 }
 
-// stated finds the numbers of a text with what marks them as money: a
-// currency code or one of the signs $ € £ ¥ ₹ before or after, with a
-// space or without, or a currency's name after. A number is written with
-// thousands separators or without.
-var stated = regexp.MustCompile(`(?:\b([A-Z]{3}) ?|([$€£¥₹]) ?|\b)(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?(?: ?([A-Z]{3})\b| ?([$€£¥₹])| (dollars?|euros?|pounds?|dirhams?|yen|rupees?)\b)?`)
-
-// Amounts are the amounts a text states, without thousands separators, in
-// the order it states them: a number with a decimal fraction or with
-// thousands separators, and a whole number beside a currency code ("CAD
-// 500", "500JPY") or a currency sign ("$500", "500 €"), or before a
-// currency's name ("500 dollars"). Other whole numbers (counts, days,
-// years, document numbers) are not amounts.
-func Amounts(text string) []string {
-	var out []string
-	for _, m := range stated.FindAllStringSubmatch(text, -1) {
-		if m[4] != "" || strings.Contains(m[3], ",") || m[2] != "" || m[6] != "" || m[7] != "" || isCurrency(m[1]) || isCurrency(m[5]) {
-			out = append(out, strings.ReplaceAll(m[3], ",", "")+m[4])
-		}
-	}
-	return out
-}
-
-func isCurrency(code string) bool {
-	_, ok := currency.SeededExponent(code)
-	return ok
-}
-
-// Unread are the amounts the text states that no read of the run
-// returned, each once, in the text's order: a figure the agent computed,
-// rounded or made up.
+// Unread are the numbers the text writes that the run did not read, each
+// once, in the text's order: a figure the agent computed, rounded or
+// made up, and a count it made itself, which it writes in words.
 func (f *Figures) Unread(text string) []string {
 	var out []string
-	for _, a := range Amounts(text) {
-		if !f.amounts[a] && !slices.Contains(out, a) {
-			out = append(out, a)
+	for _, n := range Numbers(text) {
+		read := f.amounts[n] || !fraction.MatchString(n) && f.numbers[n]
+		if !read && !slices.Contains(out, n) {
+			out = append(out, n)
 		}
 	}
 	return out

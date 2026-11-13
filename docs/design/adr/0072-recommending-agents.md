@@ -111,26 +111,40 @@ segregation-of-duties rule.
 ### 4. Figures are the API's
 
 An agent gives no score and computes no amount (plan default 13): it
-recommends with the API's figures. `recommend.Figures` keeps the amounts
-the run's reads returned: a Money's `amount`, and a number with a decimal
-fraction wherever it stands in an answer (a rate, a percentage). Two
-things are no figure, whatever they look like: a text a person typed (a
-reference of "900000.00"), and a value the read's own input supplied,
-which an answer may give back (`getCreditExposure` returns the amount it
-was asked to check): the model could otherwise have any amount it made up
-returned to it. `Figures.Unread` names the amounts a text states that no
-read returned. In a text an amount is a number with a decimal fraction or
-with thousands separators, and a whole number beside a currency code or
-one of the signs $ € £ ¥ ₹ (before or after, with a space or without) or
-before a currency's name (dollars, euros, pounds, dirhams, yen, rupees);
-a value an input supplied is known again whatever zeros end its
-fraction; counts, days, dates and document numbers are not amounts, and an
-amount spelled in words is not seen: the check is a floor under the
+recommends with the API's figures. The pattern does not try to tell which
+numbers of a recommendation are amounts: three review rounds showed that
+recognising an amount by what stands beside it (a currency code, a sign,
+a name) always misses a way of writing one. Instead **every number a
+content writes must be one the run read** (`recommend.Figures`,
+`Figures.Unread`):
+
+- a number in a text is any run of digits with the separators and the
+  fraction between them, whatever stands beside it; thousands separators
+  are taken out, and the digits of a UUID are no numbers
+  (`recommend.Numbers`);
+- a number with a decimal fraction must be an **amount** a read
+  returned: a Money's `amount`, or a number with a fraction wherever it
+  stands in an answer (a rate, a percentage). A text a person typed is
+  no amount, whatever it looks like (a reference of "900000.00");
+- a whole number must be written somewhere in an answer of the run's
+  reads or in the run's prompt (a count, a day of a date, a document or
+  customer number), or be a whole amount (a currency without minor
+  units);
+- a value the read's own input supplied as a number is not read, though
+  the answer gives it back (`getCreditExposure` returns the amount it was
+  asked to check): the model could otherwise have any amount it made up
+  returned to it. It is known again whatever zeros end its fraction.
+
+So a figure the agent computed, rounded or made up is refused in
+whatever form it is written with digits, and so is a count the agent made
+itself, which the prompt tells it to write in words. What the check does
+not see is a number spelled in words, and a small whole number that
+happens to stand somewhere in what the run read: it is a floor under the
 prompt's rule, not a reading of the text. An agent whose recommendation
-states amounts holds its content to
-them in its `Check`, as the API holds the forecast agent's citations to
-the variance's documents (ADR-0051 §13): here the check is the run's,
-since no slice adds an endpoint.
+states amounts holds its content to the figures in its `Check`, as the
+API holds the forecast agent's citations to the variance's documents
+(ADR-0051 §13): here the check is the run's, since no slice adds an
+endpoint.
 
 ### 5. Never the operation it recommends
 
@@ -184,10 +198,11 @@ A later slice adds its row here and its section under "As built".
 - A recommendation is free text for a person. An agent's `Check` can hold
   it to a form (a first line, a leading amount) where a rule needs one;
   what it means beyond that is the person's to read.
-- The figures check is on what a run read through its tools. A figure the
-  agent's code read before the session does not count: the model reads it
-  again with a tool, so the session's tool calls show where each figure
-  came from.
+- The figures check is on what a run read through its tools. An amount
+  the agent's code read before the session does not count: the model
+  reads it again with a tool, so the session's tool calls show where each
+  amount came from. It fails closed: a sentence with a number the run did
+  not read is refused, and the model writes it again.
 - Certification (ADR-0039) of these types on a live model is open; until
   it is run, the replays prove the code and the suites, not a model's
   judgment.
@@ -207,10 +222,11 @@ A later slice adds its row here and its section under "As built".
   `business_partner`, kind `set_limit`).
 - Its check (`creditagent.review.check`): the content starts with `Limit
   <amount> <currency>`, the limit recommended in the company's currency;
-  every amount in the content, that one included, is one a read of the
-  run returned, whatever that read was about (the check does not tell the
-  customer's own figures from others the run read), written without
-  thousands separators at the start; the
+  every number in the content is one the run read (§4), so every amount,
+  that one included, is one a read of the run returned, whatever that
+  read was about (the check does not tell the customer's own figures
+  from others the run read), written without thousands separators at the
+  start; the
   limit recommended is above the limit in place for `raise_limit`, below
   it for `lower_limit` and equal to it for `keep_limit`; a content that
   gives a score, the word with a number right after it, is refused, which
@@ -240,8 +256,9 @@ A later slice adds its row here and its section under "As built".
    agent (`CLAUDE.md`: no copied helpers); `apitools.LegalEntity` likewise.
 2. An agent of the pattern has no tool but reads (`GET`) and
    `createRecommendation`, refused at run time otherwise.
-3. Every amount in a recommendation that states amounts is one a read of
-   the run returned, **the recommended limit included**: the credit
+3. Every number in a recommendation that states amounts is one the run
+   read, and so every amount is one a read of the run returned, **the
+   recommended limit included**: the credit
    scoring agent recommends a limit that is an amount it read (the prompt
    asks for the customer's exposure, its limit, an amount overdue or
    paid), never one it computed. The check holds "a read returned it",

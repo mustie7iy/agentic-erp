@@ -6,9 +6,9 @@
 // for a credit manager to decide: on the customer's credit limit, to
 // raise, lower or keep it, or, for a customer without one, on the
 // customer, to set one. The content starts with the limit it recommends,
-// and every amount it states, that limit included, is one a read of the
-// run returned (recommend.Figures), whatever the read was about: the
-// agent computes no figure and gives no score.
+// and every number it writes, that limit included, is one the run read
+// (recommend.Figures: an amount a read returned, whatever the read was
+// about): the agent computes no figure and gives no score.
 // A customer whose posted invoices and payments the run did not read gets
 // keep_limit or nothing. It never sets or changes a limit and releases no
 // order's credit block: those are no tools of its (Never), and the API
@@ -75,7 +75,7 @@ keep_limit otherwise. For a customer without a limit, on the customer: set_limit
 recommend and its currency ("Limit 2500.00 CAD"), for keep_limit the limit as it is, and then gives the reasons: the limit
 now, the exposure, the overdue amount and what the dunning notices and payments show. The limit you recommend, like every
 amount you state, is an amount a tool returned, written exactly as returned (the exposure, the limit now, an amount overdue
-or paid): you compute no amount, no percentage and no score. A customer whose invoices and payments you did not find has no
+or paid): you compute no amount, no percentage and no score, and a count you made yourself is written in words. A customer whose invoices and payments you did not find has no
 history: for it, recommend keep_limit, or nothing when it has no limit, and say that it has no history.`
 
 // Agent reviews a customer's credit limit.
@@ -110,9 +110,9 @@ var (
 	// recommended, or whose limit does not fit its kind: above the limit
 	// now to raise it, below it to lower it, the limit now to keep it.
 	ErrNoLimit = errors.New(`creditagent: the content starts with "Limit", the limit recommended as a tool returned that amount, and the company's currency ("Limit 2500.00 CAD"): above the limit now for raise_limit, below it for lower_limit, the limit now for keep_limit`)
-	// ErrUnread refuses a content stating an amount no read of the run
-	// returned.
-	ErrUnread = errors.New("creditagent: every amount in the content is one a tool returned, written as returned")
+	// ErrUnread refuses a content writing a number the run did not read:
+	// an amount no read returned.
+	ErrUnread = errors.New("creditagent: every number in the content is one a tool returned or the run was given, written as returned; a count of your own is written in words")
 	// ErrNoHistory refuses a new limit for a customer whose invoices and
 	// payments the run did not read.
 	ErrNoHistory = errors.New("creditagent: a customer whose invoices and payments the run has not read gets keep_limit or no recommendation")
@@ -223,8 +223,8 @@ func (r *review) read(resp apitools.Response) {
 var score = regexp.MustCompile(`(?i)\bscor(e|es|ed)\b(\s+(of|is|at))?[\s:=]*\d`)
 
 // check is the agent's rule on a recommendation the pattern admits
-// (ADR-0072, T105a): it gives no score, every amount it states is one a
-// read returned, the first of them being the limit recommended, in the
+// (ADR-0072, T105a): it gives no score, every number it writes is one the
+// run read, the first of them being the limit recommended, in the
 // company's currency and fitting the kind, and a limit other than the one
 // in place needs the customer's history read.
 func (r *review) check(p recommend.Proposed, f *recommend.Figures) error {
@@ -234,7 +234,7 @@ func (r *review) check(p recommend.Proposed, f *recommend.Figures) error {
 	if unread := f.Unread(p.Content); len(unread) > 0 {
 		return fmt.Errorf("%w: not %s", ErrUnread, strings.Join(unread, ", "))
 	}
-	stated := recommend.Amounts(p.Content)
+	stated := recommend.Numbers(p.Content)
 	if len(stated) == 0 || !strings.HasPrefix(p.Content, "Limit "+stated[0]+" "+r.e.Currency) {
 		return ErrNoLimit
 	}

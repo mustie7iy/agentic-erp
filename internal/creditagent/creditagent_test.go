@@ -140,8 +140,9 @@ var (
 
 // TestScore: the agent reviews the limit of customer 100042 in company
 // 3000 in one session and recommends on it once. Its check refuses, and
-// counts, a content that gives a score, states an amount no read
-// returned, does not start with the limit recommended in the company's
+// counts, a content that gives a score, writes a number the run did not
+// read (an amount, in whatever form, or a count of the agent's own), does
+// not start with the limit recommended in the company's
 // currency, or whose limit does not fit its kind; nothing refused
 // reaches the API.
 func TestScore(t *testing.T) {
@@ -149,6 +150,7 @@ func TestScore(t *testing.T) {
 	model := llmtest.New(t, exposureRead, invoicesRead, paymentsRead,
 		llmtest.ToolFn("createRecommendation", rec("lower_limit", "Limit 1470.00 CAD: the customer scores 3 of 10.")),
 		llmtest.ToolFn("createRecommendation", rec("lower_limit", "Limit 1500.00 CAD: a round amount above the exposure of 1470.00 CAD.")),
+		llmtest.ToolFn("createRecommendation", rec("lower_limit", "Limit 1470.00 CAD: it owes that and about $1600, on 3 invoices.")),
 		llmtest.ToolFn("createRecommendation", rec("lower_limit", "Limit 9000.00 CAD: above the limit of 2470.00, so no lower limit.")),
 		llmtest.ToolFn("createRecommendation", rec("lower_limit", "Lower the limit to 1470.00 CAD.")),
 		llmtest.ToolFn("createRecommendation", rec("lower_limit", "Limit 1470.00 USD.")),
@@ -157,7 +159,7 @@ func TestScore(t *testing.T) {
 		llmtest.ToolFn("createRecommendation", rec("raise_limit", "Limit 2470.00 CAD.")),
 		llmtest.ToolFn("createRecommendation", rec("keep_limit", "Limit 1470.00 CAD.")),
 		llmtest.ToolFn("createRecommendation", rec("set_limit", "Limit 1470.00 CAD.")),
-		llmtest.ToolFn("createRecommendation", rec("lower_limit", "Limit 1470.00 CAD: the exposure, against a limit of 2,470.00 CAD with 1000.00 CAD available; its one invoice is 3000.00 CAD. It is given no score. 1 invoice, 0 payments.")),
+		llmtest.ToolFn("createRecommendation", rec("lower_limit", "Limit 1470.00 CAD: the exposure, against a limit of 2,470.00 CAD with 1000.00 CAD available; its one invoice is 3000.00 CAD. It is given no score: one invoice, no payments.")),
 		llmtest.Final("Recommended lowering the limit to the exposure."))
 	now := func() time.Time { return time.Date(2026, 11, 12, 23, 30, 0, 0, time.FixedZone("EST", -5*3600)) }
 	res, err := (&creditagent.Agent{LLM: model.Runner(), API: client(t, a), Now: now}).Score(context.Background(), "3000", customer)
@@ -168,8 +170,8 @@ func TestScore(t *testing.T) {
 	if !slices.Equal(res.Recommendations, want) {
 		t.Errorf("recommendations: got %v, want %v", res.Recommendations, want)
 	}
-	if res.Refused != 10 {
-		t.Errorf("refused: got %d, want 10: the check's nine and the pattern's one (set_limit on a limit)", res.Refused)
+	if res.Refused != 11 {
+		t.Errorf("refused: got %d, want 11: the check's ten and the pattern's one (set_limit on a limit)", res.Refused)
 	}
 	if got := len(a.sent("recommendations")); got != 1 {
 		t.Errorf("recommendations sent: got %d, want 1: the check keeps the others from the API", got)
@@ -186,8 +188,10 @@ func TestScore(t *testing.T) {
 			t.Errorf("the model was not told %q", want)
 		}
 	}
-	if !strings.Contains(refusals, "not 1500.00") {
-		t.Error("the refusal of an unread amount: want the amount named")
+	for _, want := range []string{"not 1500.00", "not 1600, 3"} {
+		if !strings.Contains(refusals, want) {
+			t.Errorf("the refusal of numbers the run did not read: want %q", want)
+		}
 	}
 }
 

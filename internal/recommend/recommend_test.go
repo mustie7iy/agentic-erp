@@ -123,9 +123,9 @@ func rec(fields map[string]any) func(string) any {
 	}
 }
 
-// errUnread is the test agent's check: a content may state only amounts
+// errUnread is the test agent's check: a content may write only numbers
 // the run read.
-var errUnread = errors.New("an amount no read returned")
+var errUnread = errors.New("a number the run did not read")
 
 func figuresRead(p recommend.Proposed, f *recommend.Figures) error {
 	if unread := f.Unread(p.Content); len(unread) > 0 {
@@ -139,9 +139,12 @@ func figuresRead(p recommend.Proposed, f *recommend.Figures) error {
 // in another session, on an object the run was not given, under another
 // object type than the object's, of a kind not listed for it, without a
 // body or with a field that is no text, and a second one on an object;
-// the task's check refuses one stating an amount no read returned: a
+// the task's check refuses one writing a number the run did not read: a
 // refused read's, one the read's own input supplied and the answer gave
-// back, and a text a person typed that looks like one; the API's own
+// back, a text a person typed that looks like an amount, a rounded
+// amount beside a currency sign and a count of the model's own; a whole
+// number an answer or the prompt writes (a count, a customer number) is
+// read; the API's own
 // refusal is counted. Nothing the guard refuses reaches the API.
 func TestRun(t *testing.T) {
 	a := &fakeAPI{}
@@ -161,8 +164,9 @@ func TestRun(t *testing.T) {
 		llmtest.ToolFn("createRecommendation", rec(map[string]any{"content": "Limit 5000.00 CAD; 99.99 was refused, 1,480.00 is not the exposure, nor is 1,480.00."})),
 		llmtest.ToolFn("createRecommendation", rec(map[string]any{"content": "Limit 5000.00 CAD: 1617.01 CAD was the amount asked about and 0.75 the share, both the request's own."})),
 		llmtest.ToolFn("createRecommendation", rec(map[string]any{"content": "Limit 5000.00 CAD: 777.77 is a reference somebody typed."})),
+		llmtest.ToolFn("createRecommendation", rec(map[string]any{"content": "Limit 5000.00 CAD: about $1500 on 3 invoices, 1470 rounded, 5000 without its cents."})),
 		llmtest.ToolFn("createRecommendation", rec(map[string]any{"content": "Limit 5000.00 CAD: refuse it."})),
-		llmtest.ToolFn("createRecommendation", rec(map[string]any{"content": "Limit CAD 5,000.00, exposure 1470.00 over 2 items at 1.25, JPY 900 and 30.50."})),
+		llmtest.ToolFn("createRecommendation", rec(map[string]any{"content": "Limit CAD 5,000.00, exposure 1470.00 over 2 items of customer 100042 at 1.25, JPY 900 and 30.50."})),
 		llmtest.ToolFn("createRecommendation", rec(nil)),
 		llmtest.ToolFn("createRecommendation", rec(map[string]any{"object_type": "business_partner", "object_id": partner, "kind": "set_limit", "content": "Set it."})),
 		llmtest.Final("Recommended on the limit and the customer."))
@@ -179,8 +183,8 @@ func TestRun(t *testing.T) {
 	if !slices.Equal(res.Recommendations, want) {
 		t.Errorf("recommendations: got %v, want %v", res.Recommendations, want)
 	}
-	if res.Refused != 12 {
-		t.Errorf("refused: got %d, want 12: the API's one, the guard's seven and the check's four", res.Refused)
+	if res.Refused != 13 {
+		t.Errorf("refused: got %d, want 13: the API's one, the guard's seven and the check's five", res.Refused)
 	}
 	if res.Session != session {
 		t.Errorf("session: got %s, want %s", res.Session, session)
@@ -215,12 +219,13 @@ func TestRun(t *testing.T) {
 			t.Errorf("the model was not told %q", want)
 		}
 	}
-	for _, want := range []string{"an amount no read returned: 1617.01, 0.75", "an amount no read returned: 777.77"} {
+	for _, want := range []string{"a number the run did not read: 1617.01, 0.75", "a number the run did not read: 777.77",
+		"a number the run did not read: 1500, 3, 1470, 5000"} {
 		if !strings.Contains(refusals, want) {
 			t.Errorf("the check's refusal: want %q", want)
 		}
 	}
-	if !strings.Contains(refusals, "an amount no read returned: 99.99, 1480.00") {
+	if !strings.Contains(refusals, "a number the run did not read: 99.99, 1480.00") {
 		t.Errorf("the check's refusal: want the unread amounts named once each, in the text's order")
 	}
 }
@@ -304,26 +309,23 @@ func TestRunRefusals(t *testing.T) {
 	}
 }
 
-// TestAmounts: a text's amounts are its numbers with a decimal fraction
-// and its whole numbers beside a currency code, without thousands
-// separators and signs; counts, days, dates, document numbers and
-// identifiers are not amounts.
-func TestAmounts(t *testing.T) {
+// TestNumbers: a text's numbers are its runs of digits with the
+// separators and the fraction between them, whatever stands beside them,
+// thousands separators taken out; a UUID's digits are none, and a number
+// in words is not seen.
+func TestNumbers(t *testing.T) {
 	for text, want := range map[string]string{
-		"Limit 5000.00 CAD, exposure 1,470.00 CAD.":                            "5000.00 1470.00",
-		"CAD 25,000 against 900 JPY and USD 1,234,567.89":                      "25000 900 1234567.89",
-		"3 notices in 45 days since 2026-11-12; invoice 1900000001":            "",
-		"a credit of -300.00 and 12.5 percent":                                 "300.00 12.5",
-		"it owes about 4,800 and $5000, or 5000CAD, CAD5001 and 5,002 dollars": "4800 5000 5000 5001 5002",
-		"€1200, £7, ¥900 and 40 euros, 3 pounds, 12 dirhams, 9 yen, 1 dollar":  "1200 7 900 40 3 12 9 1",
-		"1,234,567 items and 12,34":                                            "1234567",
-		"€ 500, $ 501, US$ 502, 503 €, 504€, ₹505 and 506 rupees":              "500 501 502 503 504 505 506",
-		"object 01a1aa00-0000-7000-8000-000000000c01, BP100042, 2 NEW items":   "",
-		"the 3 OLD ones, RFQ 12 and 12 RFQ":                                    "",
-		"":                                                                     "",
+		"Limit 5000.00 CAD, exposure 1,470.00 CAD.":                    "5000.00 1470.00",
+		"CAD 25,000 against 900 JPY and USD 1,234,567.89":              "25000 900 1234567.89",
+		"3 notices in 45 days since 2026-11-12; invoice 1900000001":    "3 45 2026 11 12 1900000001",
+		"a credit of -300.00 and 12.5 percent":                         "300.00 12.5",
+		"object 01a1aa00-0000-7000-8000-000000000c01, BP100042, GST34": "100042 34",
+		"$500 $600, €700 €800, 5000CAD CAD5001, 3 CAD 500, pay 2 $9":   "500 600 700 800 5000 5001 3 500 2 9",
+		"1.617,01 EUR, 1,2,3 and version 3.5.1 at 14:03.":              "1.617,01 1,2,3 3.5.1 14 03",
+		"six hundred dollars":                                          "",
 	} {
 		t.Run(text, func(t *testing.T) {
-			if got := strings.Join(recommend.Amounts(text), " "); got != want {
+			if got := strings.Join(recommend.Numbers(text), " "); got != want {
 				t.Errorf("got %q, want %q", got, want)
 			}
 		})
