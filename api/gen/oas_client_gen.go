@@ -5834,8 +5834,27 @@ type Invoker interface {
 	// accuracy is 1 less the weighted absolute percentage error, the cells' absolute variances over their
 	// absolute forecasts, rounded as that report's `variance_percent` first, so one cell's is 100% less
 	// its `variance_percent`, and null where nothing was forecast; actuals adding up to more than an
-	// amount can hold are 422 `cash.amount_too_large`. A tenant without a configuration is 409
-	// `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a
+	// amount can hold are 422 `cash.amount_too_large`. The sales metrics (`order_intake`, `billed_value`,
+	// `billing_document_count`, T91a) are the net amounts of the items of confirmed sales orders by order
+	// date and of posted billing documents by billing date, each in its document's currency and never
+	// converted, by the customer's number (`customer`) and name (`customer_name`), the item key
+	// (`item_key`) and `currency`; a draft order and a billing document not posted are not counted. They
+	// are read as `listSalesOrders` and `listBillingDocuments` list them, so they need `sales.order.read`
+	// and `sales.billing.read` both, and, since they name customers, `partner.supplier.read` as the
+	// vendors' names do. The spend metrics (`spend`, `spend_under_contract`, `spend_off_contract`,
+	// `off_contract_share`, T91b) are the net amounts of the items of posted supplier invoices by posting
+	// date, less those of posted credit memos (a subsequent debit adds, a subsequent credit reduces; a
+	// document parked, on hold, rejected, cancelled or reversed is not counted), each in its document's
+	// currency and never converted, by `vendor` and `vendor_name`, `account` and `account_name`,
+	// `cost_center` (its code), `contract` (the document number of the contract the item's purchase order
+	// was made on) and `currency`; an item on a purchase order has the order item's account and cost
+	// center, and is under contract when the order was made on a contract, while an item on no order, or
+	// on an order made on no contract, is off contract; `off_contract_share` is the part off contract over
+	// spend, null where there is none. They are read as `listSupplierInvoices`, `listPurchaseOrders`,
+	// `listContracts` and `listCostCenters` list them, so they need `payables.invoice.read`,
+	// `procurement.order.read`, `procurement.contract.read` and `ledger.cost_center.read`, with
+	// `partner.supplier.read` and `ledger.account.read` for the names. A tenant without a configuration is
+	// 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a
 	// filter it cannot apply, amounts of two currencies summed) is 422 `analytics.invalid_query`; too many
 	// queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. Changes nothing:
 	// agents of any autonomy level may run it.
@@ -86530,8 +86549,27 @@ func (c *Client) sendRunAllocationCycle(ctx context.Context, request *Allocation
 // accuracy is 1 less the weighted absolute percentage error, the cells' absolute variances over their
 // absolute forecasts, rounded as that report's `variance_percent` first, so one cell's is 100% less
 // its `variance_percent`, and null where nothing was forecast; actuals adding up to more than an
-// amount can hold are 422 `cash.amount_too_large`. A tenant without a configuration is 409
-// `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a
+// amount can hold are 422 `cash.amount_too_large`. The sales metrics (`order_intake`, `billed_value`,
+// `billing_document_count`, T91a) are the net amounts of the items of confirmed sales orders by order
+// date and of posted billing documents by billing date, each in its document's currency and never
+// converted, by the customer's number (`customer`) and name (`customer_name`), the item key
+// (`item_key`) and `currency`; a draft order and a billing document not posted are not counted. They
+// are read as `listSalesOrders` and `listBillingDocuments` list them, so they need `sales.order.read`
+// and `sales.billing.read` both, and, since they name customers, `partner.supplier.read` as the
+// vendors' names do. The spend metrics (`spend`, `spend_under_contract`, `spend_off_contract`,
+// `off_contract_share`, T91b) are the net amounts of the items of posted supplier invoices by posting
+// date, less those of posted credit memos (a subsequent debit adds, a subsequent credit reduces; a
+// document parked, on hold, rejected, cancelled or reversed is not counted), each in its document's
+// currency and never converted, by `vendor` and `vendor_name`, `account` and `account_name`,
+// `cost_center` (its code), `contract` (the document number of the contract the item's purchase order
+// was made on) and `currency`; an item on a purchase order has the order item's account and cost
+// center, and is under contract when the order was made on a contract, while an item on no order, or
+// on an order made on no contract, is off contract; `off_contract_share` is the part off contract over
+// spend, null where there is none. They are read as `listSupplierInvoices`, `listPurchaseOrders`,
+// `listContracts` and `listCostCenters` list them, so they need `payables.invoice.read`,
+// `procurement.order.read`, `procurement.contract.read` and `ledger.cost_center.read`, with
+// `partner.supplier.read` and `ledger.account.read` for the names. A tenant without a configuration is
+// 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a
 // filter it cannot apply, amounts of two currencies summed) is 422 `analytics.invalid_query`; too many
 // queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. Changes nothing:
 // agents of any autonomy level may run it.

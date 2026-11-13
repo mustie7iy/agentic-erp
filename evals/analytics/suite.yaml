@@ -44,6 +44,10 @@ setup:
   - {path: "/v1/roles/{{agent_role}}/permissions", body: {permission_code: ledger.entry.read}, status: 201}
   - {path: "/v1/roles/{{agent_role}}/permissions", body: {permission_code: procurement.order.read}, status: 201}
   - {path: "/v1/roles/{{agent_role}}/permissions", body: {permission_code: payables.invoice.read}, status: 201}
+  - {path: "/v1/roles/{{agent_role}}/permissions", body: {permission_code: procurement.contract.read}, status: 201}
+  - {path: "/v1/roles/{{agent_role}}/permissions", body: {permission_code: ledger.cost_center.read}, status: 201}
+  - {path: "/v1/roles/{{agent_role}}/permissions", body: {permission_code: sales.order.read}, status: 201}
+  - {path: "/v1/roles/{{agent_role}}/permissions", body: {permission_code: sales.billing.read}, status: 201}
   - {path: "/v1/roles/{{agent_role}}/permissions", body: {permission_code: agents.model.invoke}, status: 201}
   - path: /v1/principals
     body: {kind: agent, display_name: Analytics agent, external_subject: eval|analytics, all_companies: false,

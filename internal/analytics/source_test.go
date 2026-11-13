@@ -3,6 +3,7 @@ package analytics
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -55,6 +56,65 @@ func validPages() map[string][]string {
 			map[string]any{"quantity": map[string]any{"value": "2"}, "unit_price": map[string]any{"amount": "5", "currency": "JPY"}, "price_unit": 1, "account_id": "a2"}}})},
 		"/v1/supplier-invoices": {items(map[string]any{"id": "i1", "supplier_id": "p2", "invoice_date": "2026-03-05", "status": "parked",
 			"gross_amount": map[string]any{"amount": "10.00", "currency": "USD"}})},
+		"/v1/contracts":    {`{"items": []}`},
+		"/v1/cost-centers": {`{"items": []}`},
+		"/v1/sales-orders": {items(map[string]any{"id": "s1", "customer_id": "p2", "order_date": "2026-03-03", "items": []any{
+			map[string]any{"item_key": "BRACKET", "net_amount": map[string]any{"amount": "30.00", "currency": "USD"}},
+			map[string]any{"net_amount": map[string]any{"amount": "12.50", "currency": "USD"}}}})},
+		"/v1/billing-documents": {items(map[string]any{"id": "b1", "customer_id": "p2", "billing_date": "2026-03-04", "items": []any{
+			map[string]any{"item_key": "BRACKET", "net_amount": map[string]any{"amount": "20.00", "currency": "USD"}}}})},
+	}
+}
+
+// TestSourceReadsSalesLines: a confirmed order's items and a posted
+// billing document's are facts of sales_lines, each dated its document's
+// date, naming its customer as /v1/business-partners does and its item
+// key; the lists are asked for those statuses alone (T91a).
+func TestSourceReadsSalesLines(t *testing.T) {
+	m, _ := DefaultModel()
+	asked := map[string]string{}
+	api := fakeAPI(t, validPages())
+	api.HTTP = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		asked[r.URL.Path] = r.URL.Query().Get("status") + " of " + r.URL.Query().Get("legal_entity_id")
+		return http.DefaultTransport.RoundTrip(r)
+	})}
+	f, err := Source{API: api, Datasets: []string{"sales_lines"}}.Facts(context.Background(), m, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]string{"/v1/sales-orders": "confirmed of le", "/v1/billing-documents": "posted of le"} {
+		if asked[path] != want {
+			t.Errorf("%s: asked for %q, want %q", path, asked[path], want)
+		}
+	}
+	for _, path := range []string{"/v1/accounts", "/v1/journal-entries", "/v1/purchase-orders", "/v1/supplier-invoices"} {
+		if _, read := asked[path]; read {
+			t.Errorf("%s: read, want only the sales documents' reads", path)
+		}
+	}
+	var got []string
+	for _, l := range f.Tables["sales_lines"] {
+		d := l.Dims
+		got = append(got, strings.Join([]string{l.ID, d["sales_document"], d["company"], d["document_date"], d["fiscal_month"], d["customer"], d["customer_name"],
+			d["item_key"], d["currency"], l.Amount.Plain(2), l.Currency}, " "))
+	}
+	want := []string{"s1 order 1000 2026-03-03 3 BP2 Beta BRACKET USD 30.00 USD", "s1 order 1000 2026-03-03 3 BP2 Beta  USD 12.50 USD",
+		"b1 billing 1000 2026-03-04 3 BP2 Beta BRACKET USD 20.00 USD"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("sales lines:\n got %q\nwant %q", got, want)
+	}
+	if f.DataThrough != "2026-03-04" {
+		t.Errorf("data through: got %s, want 2026-03-04", f.DataThrough)
+	}
+	for metric, want := range map[string]string{"order_intake": "42.50", "billed_value": "20.00", "billing_document_count": "1"} {
+		res, err := Execute(m, f, Principal{}, Query{Measures: []string{metric}, By: []string{"customer_name"}})
+		if err != nil {
+			t.Errorf("%s by customer: got %v, want an answer", metric, err)
+			continue
+		}
+		if got := fmt.Sprint(res.Rows); got != "[[Beta "+want+"]]" {
+			t.Errorf("%s by customer: got %s, want [[Beta %s]]", metric, got, want)
+		}
 	}
 }
 
@@ -181,7 +241,7 @@ func TestSourceReadsSixDecimalQuantities(t *testing.T) {
 func TestSourceErrors(t *testing.T) {
 	m, _ := DefaultModel()
 	for _, path := range []string{"/v1/legal-entities", "/v1/business-partners", "/v1/ledgers", "/v1/accounts", "/v1/open-items", "/v1/journal-entries",
-		"/v1/purchase-orders", "/v1/supplier-invoices"} {
+		"/v1/purchase-orders", "/v1/supplier-invoices", "/v1/contracts", "/v1/cost-centers", "/v1/sales-orders", "/v1/billing-documents"} {
 		t.Run("without "+path, func(t *testing.T) {
 			pages := validPages()
 			delete(pages, path)
@@ -211,6 +271,12 @@ func TestSourceErrors(t *testing.T) {
 		"invoice date": func(p map[string][]string) {
 			p["/v1/supplier-invoices"][0] = strings.Replace(p["/v1/supplier-invoices"][0], "2026-03-05", "x", 1)
 		},
+		"sales order amount": func(p map[string][]string) {
+			p["/v1/sales-orders"][0] = strings.Replace(p["/v1/sales-orders"][0], "12.50", "x", 1)
+		},
+		"billing date": func(p map[string][]string) {
+			p["/v1/billing-documents"][0] = strings.Replace(p["/v1/billing-documents"][0], "2026-03-04", "x", 1)
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			pages := validPages()
@@ -232,7 +298,9 @@ func TestSourcePermissions(t *testing.T) {
 		datasets []string
 		want     string
 	}{
-		"every table":  {nil, "tenancy.org.read partner.supplier.read ledger.account.read ledger.entry.read procurement.order.read payables.invoice.read cash.forecast.read"},
+		"every table":  {nil, "tenancy.org.read partner.supplier.read ledger.account.read ledger.entry.read procurement.order.read payables.invoice.read procurement.contract.read ledger.cost_center.read sales.order.read sales.billing.read cash.forecast.read"},
+		"spend":        {[]string{"spend_lines"}, "tenancy.org.read partner.supplier.read ledger.account.read payables.invoice.read procurement.order.read procurement.contract.read ledger.cost_center.read"},
+		"sales":        {[]string{"sales_lines"}, "tenancy.org.read partner.supplier.read sales.order.read sales.billing.read"},
 		"cash actuals": {[]string{"cash_actuals"}, "tenancy.org.read cash.forecast.read"},
 		"journal":      {[]string{"gl_lines"}, "tenancy.org.read partner.supplier.read ledger.account.read ledger.entry.read"},
 		"orders":       {[]string{"po_lines"}, "tenancy.org.read partner.supplier.read ledger.account.read procurement.order.read"},

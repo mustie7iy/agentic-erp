@@ -277,11 +277,12 @@ func TestSchedulersClaimOnce(t *testing.T) {
 // statement imported, a line matched or posted) or of the configuration's
 // (derivation rules, house banks) marks its tenant due, since either
 // changes the cash actuals, and so does one of the cash context's (a
-// snapshot taken changes the forecast, T53j2); a context whose events
+// snapshot taken changes the forecast, T53j2) or of the sales context's (an
+// order confirmed changes the sales lines, T91a); a context whose events
 // change no dataset marks none.
 func TestMarksTheCashChanged(t *testing.T) {
 	c := newScheduled(t)
-	for schema, want := range map[string]int{"cash": 1, "payments": 1, "config": 1, "identity": 0} {
+	for schema, want := range map[string]int{"cash": 1, "payments": 1, "config": 1, "sales": 1, "identity": 0} {
 		t.Run(schema, func(t *testing.T) {
 			pgtest.Exec(t, `DELETE FROM analytics.extract_due WHERE tenant_id = $1`, c.Tenant.ID)
 			c.mark(t, schema)

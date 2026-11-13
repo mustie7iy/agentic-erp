@@ -1,0 +1,31 @@
+# Dataset contract (ADR-0044). Additive changes only (a new nullable
+# column); a removed, renamed or retyped column or a changed grain is a new
+# version under ../v2. Columns are what the extractor writes to Parquet;
+# internal/analytics/datasets_test.go checks them against semantic.yaml.
+dataset: spend_lines
+version: 1
+kind: fact
+grain: One row per item of a posted supplier invoice, credit memo or subsequent debit or credit, dated its posting date; amount_minor is the item's net amount in the document's currency, negative on a credit memo and a subsequent credit. A document parked, on hold, rejected, cancelled or reversed has no row.
+# An invoice is posted and reversed after it is entered, and an account, a
+# cost center or a contract is renamed, so each extract is a snapshot of
+# the tenant's items.
+load: snapshot
+date: posting_date
+joins:
+  - {dataset: accounts, on: [company, account]}
+  - {dataset: partners, on: [vendor]}
+columns:
+  - {name: tenant_id, type: uuid, role: tenant}
+  - {name: invoice_id, type: uuid, role: id}
+  - {name: item_no, type: int32, role: key}
+  - {name: company, type: string, role: dimension}
+  - {name: posting_date, type: date, role: date}
+  - {name: vendor, type: string, role: dimension}
+  - {name: account, type: string, role: dimension, nullable: true}
+  - {name: cost_center, type: string, role: dimension, nullable: true}
+  - {name: purchase_order, type: string, role: key, nullable: true}
+  - {name: contract, type: string, role: dimension, nullable: true}
+  - {name: on_contract, type: bool, role: dimension}
+  - {name: amount_minor, type: int64, role: amount}
+  - {name: currency, type: string, role: currency}
+  - {name: exponent, type: int32, role: exponent}

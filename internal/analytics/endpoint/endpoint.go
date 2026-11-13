@@ -217,7 +217,10 @@ func (e *Endpoints) datasets(ctx context.Context, m *analytics.Model, q analytic
 		if !perms[f.Permission] {
 			return nil, problem.Forbidden("identity.permission_missing", "This query reads "+f.Dataset+", which requires the permission "+f.Permission+".")
 		}
-		out = append(out, f.Dataset)
+		// A dataset read with two permissions is named once for each.
+		if !slices.Contains(out, f.Dataset) {
+			out = append(out, f.Dataset)
+		}
 		read = append(read, f.Permission)
 	}
 	// A permission held but barred by a segregation-of-duties rule refuses
