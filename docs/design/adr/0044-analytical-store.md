@@ -1171,10 +1171,10 @@ Decisions:
   for, `as_of` and the configuration version, so a token of another
   request is 400 `request.invalid_page_token`; a document posted since
   falls in its place by id.
-- *The step in the walkthrough is a new one,* step 70
+- *The step in the walkthrough is a new one,* step 80
   (`step_drill_through`, before the close), where the plan names step 14
   extended: each slice of the lane adds a step of its own before the
-  close (coordinator), and by step 70 the month's revenue holds the
+  close (coordinator), and by step 80 the month's revenue holds the
   story's billing as well as step 14's entries.
 - *Budget.* `TestDrillThroughBudget`: the drill of spend of one supplier
   over the year and of one month a page of 50 at a time over 100,000
@@ -1189,7 +1189,7 @@ Decisions:
   `TestDocumentsFailures`, `TestParity` ("documents"),
   `TestDrillThroughBudget`; `endpoint.TestDrillThrough`,
   `TestDrillFailures`; `erp`'s `TestQueryDocuments`; the walkthrough's
-  step 70 (`step_drill_through`).
+  step 80 (`step_drill_through`).
 
 **Follow-up questions in the same analysis (T94a,
 `plan-breadth-week3.md`; decided by default).** A report keeps its
@@ -1239,8 +1239,8 @@ API is T95a). Decisions:
   against its reference, and the reply counts the turns and queries.
   The replay variable `latest` is a request's last query id, the
   follow-up's own.
-- *Walkthrough.* Step 71 (`step_follow_up`), a new step before the close
-  where the plan names step 14 extended, as T94b's step 70 is (each
+- *Walkthrough.* Step 81 (`step_follow_up`), a new step before the close
+  where the plan names step 14 extended, as T94b's step 80 is (each
   slice of the lane adds a step of its own; `erp ask` needs the model
   stand-in and an agent principal, which step 14 has neither of): an
   analytics agent principal answers Carla's question and her follow-up
@@ -1250,7 +1250,7 @@ API is T95a). Decisions:
   both queries.
 - *Evidence.* `analytics.TestContinue`, `TestEarlierExchangeIsData`,
   `TestRerunKeepsTheExchange`; `erp`'s `TestAskContinue`,
-  `TestEvalSuites` (analytics); the walkthrough's step 71.
+  `TestEvalSuites` (analytics); the walkthrough's step 81.
 
 **Steps.** T55a this ADR and the dataset contract; T55b the snapshot
 migration, extractor and Parquet writer for journal lines; T55c the other

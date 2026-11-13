@@ -1122,7 +1122,7 @@ As built in T56g (migration 000164):
   - *The event's centers* are those of the lines copied and those of the
     target's plan the copy replaced, in the plan's key order.
   The plan against actual reports read the target as any category.
-  Walkthrough step 69 (`step_plan_version`). Not built (the plan's
+  Walkthrough step 79 (`step_plan_version`). Not built (the plan's
   "Later"): planning on accounts without a center, top-down distribution,
   quantities and drivers scaled, approval of a version, comparison of two
   versions, rolling forecasts, loads from a planning tool.

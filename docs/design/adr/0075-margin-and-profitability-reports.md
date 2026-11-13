@@ -263,7 +263,7 @@ configuration, not shipped).
   entries still queued, in pages of 50: median 0.60 s, p95 0.74 s at
   scale 1 and median 0.56 s, p95 0.61 s at scale 2 on a development
   machine under load (2026-11-12), against 3 s.
-- **Walkthrough** step 68 (`step_margin`): the report without named
+- **Walkthrough** step 78 (`step_margin`): the report without named
   accounts says so; account 5000 named through a governed tier 2 change;
   the revenue equals the trial balance's revenue accounts; a cost of
   sales of CAD 700.00 posted by journal entry on a cost center of PC-MTL
