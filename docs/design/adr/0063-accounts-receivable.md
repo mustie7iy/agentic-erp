@@ -200,7 +200,9 @@ webhook events (2026-11-05).
 open items (`ledger.OpenItems.Receivable`) with the bucket logic of
 `ledger/aging.go`, exported, not copied; no table. It gives a company's
 open customer items on a key date per customer and in total, not yet due
-and in buckets of days overdue, in the company's local currency; a credit
+and in buckets of days overdue by its net due date (an item posted
+without payment terms is due on its document date, product owner
+2026-11-12), in the company's local currency; a credit
 item reduces its customer's bucket and total; the totals are the open
 items of the company's customer reconciliation accounts. It ages the
 items open now, not those open on the key date (aging as at a past date
@@ -353,7 +355,8 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   (nil without), its special G/L indicator, its entry's number and
   reference and the document that posted it; `NetDueDate()` and
   `DaysOverdue(on)` give its due date and days overdue, none without
-  terms. Cleared lines and lines of a reversed entry or a reversal are
+  terms (since 2026-11-12 the document date without terms: As built,
+  Items without payment terms). Cleared lines and lines of a reversed entry or a reversal are
   left out; company access is the caller's to check. T75e, T76a, T76c
   and T77a read it.
 - Refusals at posting: a customer that is not active, no longer a
@@ -493,7 +496,8 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   (`items`: id, number, name, items, amount, buckets). Every bucket is
   given in a fixed order, an empty one with no items and 0: `not_due`,
   each `overdue` bucket with `days_from` and `days_to` (the last without
-  `days_to`), `no_due_date`. Every amount is a `Money` in the company's
+  `days_to`), `no_due_date` (always empty since 2026-11-12: As built,
+  Items without payment terms). Every amount is a `Money` in the company's
   currency.
 - **The items** are `ledger.OpenItems.Receivable`'s, read once per
   request for the company (or the one customer): open lines on customer
@@ -509,7 +513,8 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   for this): `ledger.AgingDays` (the default and the ascending check that
   `listOpenItems` makes of `aging_days`), `ledger.AgingBucket` (an item's
   bucket from `ReceivableItem.DaysOverdue`: without terms it has no due
-  date; due on the key date or later it is not due; else the bucket
+  date (since 2026-11-12 it is due on its document date: As built, Items
+  without payment terms); due on the key date or later it is not due; else the bucket
   holding its days) and `ledger.AgingRange` (a bucket's name and days,
   which `listOpenItems`' own aging now reads too). The list's aging counts
   in SQL (`agingSelect`); `TestAgingBucketAsTheList` (ledger) holds
@@ -518,7 +523,8 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   report's totals, bucket by bucket, to `GET /v1/open-items` of the
   receivables account and to that account's open lines. So an item without
   terms, and an item due on the key date, are treated as `listOpenItems`'
-  aging treats them.
+  aging treats them (an item without terms no longer, since 2026-11-12:
+  As built, Items without payment terms).
 - **Paging.** One row per customer with open items, by customer id (the
   order the ledger reads them in), in cursor pages (`page_size`, at most
   500); the token is signed for the company, key date, days and customer
@@ -715,3 +721,39 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   statement, direct debits, refunds. Credit memos are T75d; the netting
   of a customer's credit items is built and tested here with credits
   posted through the ledger's port.
+
+### Items without payment terms (po:2026-11-12, no migration)
+
+- **Rule** (product owner 2026-11-12): a customer open item posted
+  without payment terms (a manual or migrated entry's) is due on its
+  document date, so it is not due on that date and overdue from the day
+  after. It replaces what T75b and T75e built, where such an item had no
+  due date.
+- **One place.** `ledger.ReceivableItem.NetDueDate()` returns the terms'
+  net due date or, without terms, the document date; `DaysOverdue(on)`
+  counts from it. Both lost their `ok` result: every reader of customer
+  items (the AR aging here, dunning and the collection worklist in
+  ADR-0065) asks the item and none looks at `Terms` for a due date. The
+  credit exposure (T77a) does not read due dates and is unchanged.
+- **The AR aging** puts an item without terms in `not_due` or in the
+  overdue bucket of its days past its document date. A credit without
+  terms ages the same way, negative in its bucket, as a credit with
+  terms always did. Since every item now has a due date, the report's
+  `no_due_date` bucket is always empty. Decided by default: it is still
+  given and stays in `ReceivablesAgingBucket`'s open enumeration, because
+  taking a value out of a response is a breaking change (`cmd/enumcompat`,
+  `api/breaking-accepted.txt`) that this fix does not need; dropping it is
+  the product owner's to ask for.
+- **Not changed:** `GET /v1/open-items` (its `due_date_to` filter, its
+  `payment_terms` and its aging in SQL, `agingSelect`) shows an item
+  without terms, a customer's too, without a due date: it lists supplier
+  and customer items as posted and shares no code path with the readers
+  above. The report and the list therefore differ for a customer item
+  without terms, and only there: `TestAgingTotalsAreTheOpenItems` holds
+  the two together bucket by bucket with that one item moved, and
+  `TestAgingBucketAsTheList` holds `ledger.AgingBucket` to the list and
+  shows the reader's document-date ageing beside it. Supplier items
+  (`PayableItem`, due by the supplier's current terms without their own)
+  are unchanged.
+- **Walkthrough.** No expectation of steps 53 to 58 changed: none of
+  their customer items is posted without terms (full run, 59 steps).

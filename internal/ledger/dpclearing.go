@@ -65,6 +65,9 @@ func (p Postings) ClearDownPayments(ctx context.Context, in DownPaymentClearing)
 	if err != nil {
 		return Entry{}, err
 	}
+	if err := notBeforeItems(items, in.PostingDate, "posting_date"); err != nil {
+		return Entry{}, err
+	}
 	if err := e.checkAccounts(ctx, tx, le.ID, lines, false); err != nil {
 		return Entry{}, err
 	}

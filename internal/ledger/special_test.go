@@ -407,6 +407,23 @@ func TestClearDownPayments(t *testing.T) {
 		_, err := postings().ClearDownPayments(ctx, c2)
 		return err
 	}
+	// A clearing is not dated before its down payments, posted on 1 March
+	// (TestClearingDate has the other paths).
+	t.Run("dated before the down payments", func(t *testing.T) {
+		c2 := in
+		c2.Items, c2.Terms = []ledger.ItemRef{{FiscalYear: shared.FiscalYear, EntryID: shared.ID, LineNo: 1}, {FiscalYear: shared.FiscalYear, EntryID: shared.ID, LineNo: 2}}, nil
+		dated := func(day string) error {
+			c2.PostingDate = date(day)
+			return apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+				_, err := postings().ClearDownPayments(ctx, c2)
+				return err
+			})
+		}
+		refusedBefore(t, dated("2026-02-28"), "posting_date", "2026-03-01")
+		if err := dated("2026-03-01"); err != nil {
+			t.Errorf("dated on the down payments' posting date: got %v, want them cleared", err)
+		}
+	})
 	if err := call(context.Background()); err == nil {
 		t.Error("outside a unit of work: got nil error, want an error")
 	}

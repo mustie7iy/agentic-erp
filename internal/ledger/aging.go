@@ -19,8 +19,13 @@ import (
 // days, computed as ItemTerms.NetDueDate computes it and never stored
 // (ADR-0051 §1); on a key date it is not due, or overdue by the days past
 // that date, counted into the buckets the caller names. An item without
-// terms has no due date the ledger keeps: its supplier's current terms
-// are the partner context's, which the payment proposal reads for itself.
+// terms has no due date in this list (no_due_date), a supplier's and a
+// customer's alike: a supplier's current terms are the partner context's,
+// which the payment proposal reads for itself, and a customer item
+// without terms is due on its document date for the readers of
+// receivables (ReceivableItem.NetDueDate: the AR aging, dunning and the
+// collection worklist; product owner 2026-11-12), which this list, showing
+// the items as they were posted, does not apply.
 
 // defaultAgingDays are the buckets' last days when the caller names none:
 // not due, 1-30, 31-60, 61-90 and more than 90 days overdue.
@@ -57,12 +62,14 @@ func AgingDays(days []int32) ([]int32, error) {
 }
 
 // AgingBucket is the bucket of an item that is daysOverdue days past its
-// net due date on the key date (ReceivableItem.DaysOverdue), as
-// agingSelect counts the open items' in SQL: -1 for an item without terms
-// (due false), which has no due date; 0 for one not yet due, due on the
+// net due date on the key date, as agingSelect counts the open items' in
+// SQL: -1 for an item without a due date (due false: in the open items'
+// list one posted without terms; a customer item always has one for the
+// AR aging, ReceivableItem.NetDueDate); 0 for one not yet due, due on the
 // key date included; else k, overdue past the k-1 first of the days, so 1
 // is up to days[0] days overdue and len(days)+1 more than the last.
-// TestAgingBucketAsTheList holds the two to each other.
+// TestAgingBucketAsTheList holds the two to each other for items with
+// terms, and shows where they part for a customer item without.
 func AgingBucket(daysOverdue int, due bool, days []int32) int {
 	switch {
 	case !due:

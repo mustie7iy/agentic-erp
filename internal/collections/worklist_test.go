@@ -63,8 +63,8 @@ func TestWorklist(t *testing.T) {
 			t.Errorf("%s: got %v, want %v", f, got[f], want)
 		}
 	}
-	// Northwind owes 100.00, 50.00 and 70.00 overdue, 30.00 due on the key date and 40.00 without terms, less credits of 20.00 and
-	// 10.00; Southwind 200.00 USD overdue, booked at 160.00 EUR; Eastwind's 90.00 is not yet due.
+	// Northwind owes 100.00, 50.00 and 70.00 overdue, 30.00 due on the key date and 40.00 without terms dated it (due that day), less
+	// credits of 20.00 and 10.00; Southwind 200.00 USD overdue, booked at 160.00 EUR; Eastwind's 90.00 is not yet due.
 	const never = "BP70000002 260.00 EUR 220.00 EUR 2026-03-31 0 -; BP70000001 160.00 EUR 160.00 EUR 2026-04-30 0 -"
 	if l := listed(t, got); l != never {
 		t.Errorf("the worklist: got %q, want %q", l, never)
@@ -90,7 +90,7 @@ func TestWorklist(t *testing.T) {
 		var sum, due money.Minor
 		for _, it := range open {
 			sum += it.AmountLC
-			if days, ok := it.DaysOverdue(date(t, keyDate)); ok && days > 0 && it.Amount > 0 {
+			if it.DaysOverdue(date(t, keyDate)) > 0 && it.Amount > 0 {
 				due += it.AmountLC
 			}
 		}
@@ -101,8 +101,10 @@ func TestWorklist(t *testing.T) {
 	for _, c := range []struct{ name, key, list, totals string }{
 		{"before anything is overdue", "2026-03-31", "", "0 0.00 EUR 0.00 EUR"},
 		{"the day after the first due date", "2026-04-01", "BP70000002 260.00 EUR 100.00 EUR 2026-03-31 0 -", "1 260.00 EUR 100.00 EUR"},
-		{"once everything is overdue", "2026-12-31", "BP70000002 260.00 EUR 250.00 EUR 2026-03-31 0 -; BP70000001 160.00 EUR 160.00 EUR 2026-04-30 0 -; " +
-			"BP70000003 90.00 EUR 90.00 EUR 2026-07-15 0 -", "3 510.00 EUR 500.00 EUR"},
+		{"the day after its document date the debit without terms is overdue", "2026-07-01",
+			"BP70000002 260.00 EUR 290.00 EUR 2026-03-31 0 -; BP70000001 160.00 EUR 160.00 EUR 2026-04-30 0 -", "2 420.00 EUR 450.00 EUR"},
+		{"once everything is overdue", "2026-12-31", "BP70000002 260.00 EUR 290.00 EUR 2026-03-31 0 -; BP70000001 160.00 EUR 160.00 EUR 2026-04-30 0 -; " +
+			"BP70000003 90.00 EUR 90.00 EUR 2026-07-15 0 -", "3 510.00 EUR 540.00 EUR"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			got := e.In(t).worklist(t, c.key, "")
@@ -176,8 +178,8 @@ func TestWorklistPages(t *testing.T) {
 					t.Fatalf("more than %d pages of %d", len(want), size)
 				}
 				page := e.In(t).worklist(t, key, query)
-				if tot := totals(t, page); tot != "5 690.00 EUR 680.00 EUR" {
-					t.Errorf("totals on page %d: got %q, want the worklist's: 5 customers, 690.00 EUR open, 680.00 EUR overdue", pages+1, tot)
+				if tot := totals(t, page); tot != "5 690.00 EUR 720.00 EUR" {
+					t.Errorf("totals on page %d: got %q, want the worklist's: 5 customers, 690.00 EUR open, 720.00 EUR overdue", pages+1, tot)
 				}
 				got = append(got, ids(t, page)...)
 				next, more := page["next_page_token"].(string)
@@ -213,15 +215,16 @@ func TestWorklistPages(t *testing.T) {
 		}
 	})
 	t.Run("an amount fell between pages", func(t *testing.T) {
-		// The first page ends at Northwind, 250.00 overdue; Northwind then pays CI-A and owes 150.00, less than Southwind.
+		// The first page ends at Northwind, 290.00 overdue; Northwind then pays CI-A and the debit without terms and owes 150.00
+		// overdue, less than Southwind.
 		first := e.In(t).worklist(t, key, "&page_size=2")
 		if got := ids(t, first); !slices.Equal(got, []string{want[4], want[0]}) {
 			t.Fatalf("the first page: got %v, want %v", got, []string{want[4], want[0]})
 		}
-		payment := e.In(t).post(t, item{customer: e.north, amount: -10000, currency: "EUR", day: "2026-06-28", noTerms: true, ref: "PAYMENT"})[0]
+		payment := e.In(t).post(t, item{customer: e.north, amount: -14000, currency: "EUR", day: "2026-06-28", noTerms: true, ref: "PAYMENT"})[0]
 		e.In(t).Must(201, "POST", "/v1/clearings", fmt.Sprintf(`{"legal_entity_id": %q, "clearing_date": "2026-06-30", "items": [
-			{"fiscal_year": 2026, "journal_entry_id": %q, "line_no": 1}, {"fiscal_year": 2026, "journal_entry_id": %q, "line_no": 1}]}`,
-			e.DE, entries[0].ID, payment.ID), "")
+			{"fiscal_year": 2026, "journal_entry_id": %q, "line_no": 1}, {"fiscal_year": 2026, "journal_entry_id": %q, "line_no": 1},
+			{"fiscal_year": 2026, "journal_entry_id": %q, "line_no": 1}]}`, e.DE, entries[0].ID, entries[4].ID, payment.ID), "")
 		second := e.In(t).worklist(t, key, "&page_size=2&page_token="+apitest.String(t, first, "next_page_token"))
 		if got := ids(t, second); !slices.Equal(got, []string{want[1], want[0]}) {
 			t.Errorf("the second page: got %v, want %v: Southwind, then Northwind again at its new place", got, []string{want[1], want[0]})

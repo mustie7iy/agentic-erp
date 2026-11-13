@@ -122,8 +122,9 @@ func (e env) post(t *testing.T, items ...item) []ledger.Entry {
 // story posts the items the tests' runs read, at the key date 30 June
 // 2026: Northwind's invoice due 31 March (91 days overdue), one due 25
 // June (5 days, the first level's), one due 26 June (4 days, a day short
-// of it), one due on the key date, a debit without terms, a credit without
-// terms and an overdue credit with terms; Southwind's invoice in US
+// of it), one due on the key date, a debit without terms dated the key
+// date (due that day by its document date, so not overdue; PO 2026-11-12),
+// a credit without terms and an overdue credit with terms; Southwind's invoice in US
 // dollars due 30 April (61 days); Eastwind's, not yet due. It returns the
 // entries in that order.
 func (e env) story(t *testing.T) []ledger.Entry {
@@ -133,7 +134,7 @@ func (e env) story(t *testing.T) []ledger.Entry {
 		item{customer: e.north, amount: 5000, currency: "EUR", day: "2026-05-26", ref: "CI-B"},
 		item{customer: e.north, amount: 7000, currency: "EUR", day: "2026-05-27", ref: "CI-C"},
 		item{customer: e.north, amount: 3000, currency: "EUR", day: "2026-05-31", ref: "CI-D"},
-		item{customer: e.north, amount: 4000, currency: "EUR", day: "2026-03-02", noTerms: true, ref: "MANUAL"},
+		item{customer: e.north, amount: 4000, currency: "EUR", day: "2026-06-30", noTerms: true, ref: "MANUAL"},
 		item{customer: e.north, amount: -2000, currency: "EUR", day: "2026-03-03", noTerms: true, ref: "ON-ACCOUNT"},
 		item{customer: e.north, amount: -1000, currency: "EUR", day: "2026-03-04", ref: "CREDIT"},
 		item{customer: e.south, amount: 20000, currency: "USD", day: "2026-03-31", ref: "CI-USD"},
@@ -274,7 +275,7 @@ func TestProposeAndRead(t *testing.T) {
 	}
 	if n := len(objects(t, north, "items")); n != 2 {
 		t.Errorf("Northwind's items: got %d, want 2: the item a day short of the first level, the one due on the key date, "+
-			"the one without terms and the credits are left out", n)
+			"the one without terms, dated the key date, and the credits are left out", n)
 	}
 	if south["customer_number"] != "BP70000001" || south["customer_name"] != "Southwind Ltd" || amount(t, south, "overdue_amount") != "160.00 EUR" {
 		t.Errorf("Southwind's notice: got %v %v with %s, want BP70000001 Southwind Ltd with 160.00 EUR", south["customer_number"],
@@ -307,6 +308,48 @@ func (e env) recorded(t *testing.T, id string) {
 	}
 }
 
+// TestItemsWithoutTerms (PO 2026-11-12): a customer item posted without
+// payment terms is due on its document date. It is not overdue that day
+// and is from the day after, for the worklist; a run proposes it once it
+// is past that date by the first level's days, with the document date as
+// its net due date; a credit without terms is never dunned and reduces
+// nothing overdue.
+func TestItemsWithoutTerms(t *testing.T) {
+	e := setup(t)
+	e.post(t, item{customer: e.north, amount: 4000, currency: "EUR", day: "2026-06-10", noTerms: true, ref: "MANUAL"},
+		item{customer: e.north, amount: -2000, currency: "EUR", day: "2026-03-01", noTerms: true, ref: "ON-ACCOUNT"})
+	for _, c := range []struct{ name, key, want string }{
+		{"on its document date it is not overdue", "2026-06-10", ""},
+		{"the day after it is", "2026-06-11", "BP70000002 20.00 EUR 40.00 EUR 2026-06-10 0 -"},
+	} {
+		t.Run("the worklist: "+c.name, func(t *testing.T) {
+			if l := listed(t, e.In(t).worklist(t, c.key, "")); l != c.want {
+				t.Errorf("the worklist at %s: got %q, want %q", c.key, l, c.want)
+			}
+		})
+	}
+	for _, c := range []struct{ name, key, want string }{
+		{"on its document date", "2026-06-10", ""},
+		{"a day short of the first level's days", "2026-06-14", ""},
+		{"at the first level's days", "2026-06-15", "MANUAL 0->1 due 2026-06-10, 5 days"},
+	} {
+		t.Run("a run "+c.name, func(t *testing.T) {
+			id, _ := e.In(t).start(t, c.key)
+			page, _ := e.In(t).Must(200, "GET", "/v1/dunning-runs/"+id+"/notices", "", "")
+			var got []string
+			for _, n := range objects(t, page, "items") {
+				for _, it := range objects(t, n, "items") {
+					got = append(got, fmt.Sprintf("%v %v->%v due %v, %v days", it["reference"], it["previous_level"], it["level"], it["net_due_date"],
+						it["days_overdue"]))
+				}
+			}
+			if l := strings.Join(got, "; "); l != c.want {
+				t.Errorf("proposed at %s: got %q, want %q", c.key, l, c.want)
+			}
+		})
+	}
+}
+
 // TestKeyDates: what a run proposes follows its key date: before anything
 // is due it proposes no notice, and stores a run without any; an item is
 // first proposed the day it has been overdue for the first level's days.
@@ -321,7 +364,7 @@ func TestKeyDates(t *testing.T) {
 		{"before anything is due", "2026-03-31", 0, 0, "0.00 EUR"},
 		{"four days after the first due date", "2026-04-04", 0, 0, "0.00 EUR"},
 		{"five days after it", "2026-04-05", 1, 1, "100.00 EUR"},
-		{"once everything is overdue", "2026-12-31", 3, 6, "500.00 EUR"},
+		{"once everything is overdue, the debit without terms too", "2026-12-31", 3, 7, "540.00 EUR"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			got, _ := e.In(t).Must(201, "POST", "/v1/dunning-runs", run(e.DE, c.key), "")

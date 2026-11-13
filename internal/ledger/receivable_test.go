@@ -40,15 +40,11 @@ func receivable(t *testing.T, e env, customers ...uuid.UUID) []ledger.Receivable
 }
 
 // shown is the items as the tests compare them: customer, amount, due
-// date ("-" without terms), in the reader's order.
+// date, in the reader's order.
 func shown(items []ledger.ReceivableItem, names map[uuid.UUID]string) string {
 	out := make([]string, len(items))
 	for i, it := range items {
-		due := "-"
-		if d, ok := it.NetDueDate(); ok {
-			due = d.Format("2006-01-02")
-		}
-		out[i] = fmt.Sprintf("%s %d %s", names[it.PartnerID], it.Amount, due)
+		out[i] = fmt.Sprintf("%s %d %s", names[it.PartnerID], it.Amount, it.NetDueDate().Format("2006-01-02"))
 	}
 	return strings.Join(out, "; ")
 }
@@ -56,7 +52,8 @@ func shown(items []ledger.ReceivableItem, names map[uuid.UUID]string) string {
 // TestReceivableItems (T75b): the terms of a posting are kept with its
 // customer open item as with a supplier's, and the reader of customer open
 // items returns each open line on a customer reconciliation account with
-// its customer, amounts, terms and due date, by customer and item: of
+// its customer, amounts, terms and due date (without terms its document
+// date, PO 2026-11-12), by customer and item: of
 // every customer or of those named; cleared items, a reversed entry's and
 // its reversal's, and supplier items are left out.
 func TestReceivableItems(t *testing.T) {
@@ -92,7 +89,7 @@ func TestReceivableItems(t *testing.T) {
 		ref{map[string]any{"fiscal_year": 2026, "id": credit.ID.String()}, 1}), "")
 
 	all := receivable(t, e)
-	if got, want := shown(all, names), "north 10000 2026-03-31; north -2000 -; south 7000 2026-03-31"; got != want {
+	if got, want := shown(all, names), "north 10000 2026-03-31; north -2000 2026-03-05; south 7000 2026-03-31"; got != want {
 		t.Fatalf("every customer's open items: got %s, want %s", got, want)
 	}
 	first := all[0]
@@ -128,22 +125,24 @@ func TestReceivableItems(t *testing.T) {
 		item ledger.ReceivableItem
 		on   string
 		days int
-		ok   bool
 	}{
-		{"before the due date", first, "2026-03-30", 0, true},
-		{"on the due date", first, "2026-03-31", 0, true},
-		{"a day after", first, "2026-04-01", 1, true},
-		{"45 days after", first, "2026-05-15", 45, true},
-		{"a day after, late in the evening east of UTC", first, "2026-04-01T23:30:00+04:00", 1, true},
-		{"an item without terms", all[1], "2026-05-15", 0, false},
+		{"before the due date", first, "2026-03-30", 0},
+		{"on the due date", first, "2026-03-31", 0},
+		{"a day after", first, "2026-04-01", 1},
+		{"45 days after", first, "2026-05-15", 45},
+		{"a day after, late in the evening east of UTC", first, "2026-04-01T23:30:00+04:00", 1},
+		{"an item without terms, before its document date", all[1], "2026-03-04", 0},
+		{"an item without terms, on its document date", all[1], "2026-03-05", 0},
+		{"an item without terms, the day after its document date", all[1], "2026-03-06", 1},
+		{"an item without terms, 71 days after its document date", all[1], "2026-05-15", 71},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			on, err := time.Parse(time.RFC3339, c.on)
 			if err != nil {
 				on = date(c.on)
 			}
-			if days, ok := c.item.DaysOverdue(on); days != c.days || ok != c.ok {
-				t.Errorf("days overdue on %s: got %d (%v), want %d (%v)", c.on, days, ok, c.days, c.ok)
+			if days := c.item.DaysOverdue(on); days != c.days {
+				t.Errorf("days overdue on %s: got %d, want %d", c.on, days, c.days)
 			}
 		})
 	}

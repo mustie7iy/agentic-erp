@@ -149,6 +149,9 @@ func (e *Endpoints) bankLines(ctx context.Context, tx pgx.Tx, in BankPosting, le
 		return bankEntry{}, problem.Unprocessable("ledger.clearing_not_balanced", fmt.Sprintf("The open items on the clearing account total %s, the bank's line %s.",
 			tc.Plain(bank.expTC), in.Amount.Plain(bank.expTC)))
 	}
+	if err := notBeforeItems(items, in.PostingDate, "posting_date"); err != nil {
+		return bankEntry{}, err
+	}
 	fx, err := exchangeDifferenceLines(ctx, le.ID, lc, gc, bank, in.HeaderText)
 	withTradingPartner(fx, sharedTradingPartner(items)) // a difference line takes the items' trading partner (ADR-0059 §4); fx is nil on err
 	return bankEntry{lines: append(append(lines, bankLine), fx...), items: items, bank: bank}, err

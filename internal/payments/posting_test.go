@@ -364,7 +364,8 @@ func TestBankPostingLedgerRefusals(t *testing.T) {
 	postings := ledger.Postings{LegalEntities: tenancy.Directory{}, Numbers: configuration.Numbers{}}
 	post := func(amount money.Minor, entries ...ledger.ItemRef) error {
 		return apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-			_, err := postings.PostBank(ctx, ledger.BankPosting{LegalEntityID: e.DE, DocumentType: "SA", PostingDate: date("2026-04-17"),
+			// Dated the payment's posting date, 18 April: a clearing is not dated before its items.
+			_, err := postings.PostBank(ctx, ledger.BankPosting{LegalEntityID: e.DE, DocumentType: "SA", PostingDate: date("2026-04-18"),
 				Currency: "EUR", BankAccountID: e.Account(t, "2000", "101000"), Amount: amount, ClearingAccountID: clearing, Entries: entries,
 				SourceContext: "payments", SourceDocumentID: uuid.New()})
 			return err

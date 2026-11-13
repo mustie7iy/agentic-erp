@@ -315,7 +315,8 @@ func TestApplyRefusals(t *testing.T) {
 		return postings().Reverse(ctx, entryOf(t, reversed), nil, nil)
 	})
 	out := e.receipt(t, -10000, "2026-03-20").ID // a payment out: a debit on the incoming account
-	pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE tenant_id = $1 AND fiscal_year = 2026 AND period = 2`,
+	// May is closed: a period after the items', since a date before them is refused as such.
+	pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE tenant_id = $1 AND fiscal_year = 2026 AND period = 5`,
 		e.Tenant.ID)
 	for _, c := range []struct {
 		name, body  string
@@ -333,7 +334,8 @@ func TestApplyRefusals(t *testing.T) {
 		{"an entry that is no receipt", e.payment(e.customer, heldEntry, "2026-03-21", invoice), 422, "receivables.receipt_not_open", "receipt_journal_entry_id"},
 		{"a payment out", e.payment(e.customer, out, "2026-03-21", invoice), 422, "receivables.receipt_not_open", "receipt_journal_entry_id"},
 		{"an unknown customer", e.payment(uuid.New(), receipt, "2026-03-21", invoice), 422, "request.reference_not_found", "customer_id"},
-		{"a closed period", e.payment(e.customer, receipt, "2026-02-21", invoice), 409, "ledger.period_not_open", ""},
+		{"a day before the receipt was posted", e.payment(e.customer, receipt, "2026-03-19", invoice), 422, "ledger.clearing_before_item", "posting_date"},
+		{"a closed period", e.payment(e.customer, receipt, "2026-05-21", invoice), 409, "ledger.period_not_open", ""},
 		{"a date without a fiscal year", e.payment(e.customer, receipt, "2019-03-21", invoice), 422, "ledger.no_fiscal_period", ""},
 		{"an item twice", e.payment(e.customer, receipt, "2026-03-21", invoice, invoice), 400, "request.invalid_body", ""},
 		{"no items", e.payment(e.customer, receipt, "2026-03-21"), 400, "request.invalid_body", ""},

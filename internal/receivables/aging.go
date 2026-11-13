@@ -26,7 +26,13 @@ import (
 // overdue. It is computed on read and keeps no table: the items are the
 // ledger's (ledger.OpenItems.Receivable), so a customer item a manual or
 // migrated entry posted counts as an invoice's does, and each item's
-// bucket is the one GET /v1/open-items ages it into (ledger.AgingBucket).
+// bucket is the one GET /v1/open-items ages it into (ledger.AgingBucket),
+// but for an item posted without payment terms: that list shows it
+// without a due date, and here it is due on its document date, as for
+// dunning and the collection worklist (ledger.ReceivableItem.NetDueDate;
+// product owner 2026-11-12), so every item has a due date and the report's
+// last bucket, no_due_date, is always empty: it is still given, since
+// taking a value out of the response would break its consumers.
 
 // The key date's years: the contract's range of fiscal years, so a date
 // no period can hold is refused (422) rather than aged. The bound is not
@@ -62,7 +68,8 @@ func (s *agingSum) add(amount money.Minor) error {
 
 // aged is a customer's open items on the key date, or the report's: all
 // of them, and by bucket in the order the report shows them: not due,
-// each overdue bucket by its days, without a due date.
+// each overdue bucket by its days (ledger.AgingBucket's numbers), and
+// last the bucket without a due date, which nothing falls in.
 type aged struct {
 	customer uuid.UUID
 	total    agingSum
@@ -75,18 +82,14 @@ type aged struct {
 // them, and the customers keep that order. Sums out of range are refused
 // (422 receivables.amount_too_large).
 func age(items []ledger.ReceivableItem, key time.Time, days []int32) ([]aged, aged, error) {
-	slots := len(days) + 3 // not due, an overdue bucket per day and one past the last, no due date
+	slots := len(days) + 3 // not due, an overdue bucket per day and one past the last, no due date (always empty)
 	totals := aged{buckets: make([]agingSum, slots)}
 	var rows []aged
 	for _, it := range items {
 		if len(rows) == 0 || rows[len(rows)-1].customer != it.PartnerID {
 			rows = append(rows, aged{customer: it.PartnerID, buckets: make([]agingSum, slots)})
 		}
-		overdue, due := it.DaysOverdue(key)
-		slot := ledger.AgingBucket(overdue, due, days)
-		if slot < 0 {
-			slot = slots - 1
-		}
+		slot := ledger.AgingBucket(it.DaysOverdue(key), true, days) // a customer item always has a due date
 		row := &rows[len(rows)-1]
 		for _, s := range []*agingSum{&row.total, &row.buckets[slot], &totals.total, &totals.buckets[slot]} {
 			if err := s.add(it.AmountLC); err != nil { // money.Sum's only error is the range

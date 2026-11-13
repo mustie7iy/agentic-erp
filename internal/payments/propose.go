@@ -363,7 +363,11 @@ func exclusion(p partner.Payee, found bool, runDate time.Time, holdDays int) str
 // within a supplier, by the payment method they fix (byMethod), leaving
 // out items reserved by another live run: the items due by the run's
 // due-by date, and those whose cash discount would lapse before it
-// (losesDiscount), each with the terms it was posted with.
+// (losesDiscount), each with the terms it was posted with. An item
+// posted after the run date is left out too, for a later run: its
+// payment posts on the run date, and the ledger clears no item before it
+// was posted (422 ledger.clearing_before_item, ADR-0006 As built), which
+// would otherwise fail the release after the proposal reserved the item.
 func (e *Endpoints) candidates(ctx context.Context, tx pgx.Tx, r Run, requests []DownPayment) ([]candidate, map[uuid.UUID]partner.Payee, error) {
 	open, err := e.OpenItems.Payable(ctx, r.LegalEntityID, r.Currency, r.DueBy)
 	if err != nil {
@@ -389,7 +393,7 @@ func (e *Endpoints) candidates(ctx context.Context, tx pgx.Tx, r Run, requests [
 	var out []candidate
 	for _, it := range open {
 		due := it.DueDate(payees[it.PartnerID].NetDays)
-		if (due.After(r.DueBy) && !it.Terms.LosesDiscount(r.RunDate, r.DueBy)) || reserved[it.ItemRef] {
+		if (due.After(r.DueBy) && !it.Terms.LosesDiscount(r.RunDate, r.DueBy)) || reserved[it.ItemRef] || it.PostingDate.After(r.RunDate) {
 			continue
 		}
 		if len(out) == 0 || out[len(out)-1].supplier != it.PartnerID {

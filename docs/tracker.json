@@ -71,7 +71,7 @@
       "c": []
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "Vendor open-item management",
       "r": "internal/ledger · /v1/open-items",
       "c": [
@@ -83,9 +83,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "No clearing path checks the clearing date against the cleared items' posting dates, so a receipt can be applied, and items cleared or settled, on a date before they were posted: manual clearing, settlement and applying a receipt (found in T75c's review)",
-        "r": "internal/ledger clearing.go createClearing · settle.go Postings.Settle, clearWithEntry · receipt.go Postings.ApplyReceipt",
+        "r": "product owner 2026-11-12 (the rule as recommended) · internal/ledger clearing.go notBeforeItems, called by createClearing, Postings.Settle, ApplyReceipt, PostBank and ClearDownPayments · 422 ledger.clearing_before_item naming the request's date field · a payment run's proposal leaves out items posted after its run date (internal/payments propose.go candidates) · migrated clearings and reversals exempt, no database rule · TestClearingDate, TestClearDownPayments, TestRunLeavesOutItemsPostedAfterItsDate · ADR-0006 As built, Clearing dates",
         "src": "review:T75c",
         "c": []
        },
@@ -2936,6 +2936,13 @@
         "t": "A dunning run's and the collection worklist's key date is bounded (2100-12-31 at the latest, 422 collections.invalid_key_date naming key_date): ledger.ReceivableItem.DaysOverdue counts through a time.Duration, so a key date about 292 years past a due date gave a wrong day count",
         "r": "T76b · internal/collections (LastKeyDate) · ADR-0065 As built, Key date limit · the worklist applies it with T76c",
         "src": "review:T76a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A customer item posted without payment terms (a manual or migrated entry's) is due on its document date: overdue from the day after, proposed by a dunning run, listed as overdue in the collection worklist and aged by that date in the AR aging, whose bucket for items without a due date stays in the response and is always empty; credit items stay undunned",
+        "r": "product owner 2026-11-12 (row 10; ADR-0065 question 2) · ledger.ReceivableItem.NetDueDate and DaysOverdue (internal/ledger/receivable.go), the one place the rule is kept · internal/receivables/aging.go · internal/collections propose.go, worklist.go · TestReceivableItems, TestAgingBucketAsTheList, TestReceivablesAging, TestAgingTotalsAreTheOpenItems, TestItemsWithoutTerms, TestWorklist · GET /v1/open-items and supplier items unchanged · ADR-0063 and ADR-0065 As built, Items without payment terms",
+        "src": "po:2026-11-12",
         "c": []
        },
        {
