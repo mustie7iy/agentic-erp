@@ -18,8 +18,9 @@ import (
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
 // perms are what the tests' person holds: reading the library, recording
-// controls and recording tests.
-var perms = []string{"grc.control.read", "grc.control.write", "grc.control.test"}
+// controls and recording tests, and what the matrix and the links also
+// need: reading access data and the configuration.
+var perms = []string{"grc.control.read", "grc.control.write", "grc.control.test", "identity.access.read", "config.version.read"}
 
 // env is a configured tenant whose person (named "human") is the
 // compliance officer; carla is another active person.
@@ -162,7 +163,7 @@ func TestRecordAndRead(t *testing.T) {
 		t.Fatalf("events: got %d, want 1", len(events))
 	}
 	wantFields(t, events[0], map[string]any{"control_id": id, "code": "PAY-01", "process": "Payments", "owner_id": e.carla.ID.String(),
-		"frequency": "continuous", "nature": "automated", "status": "active", "change": "created", "test": nil, "version": float64(1)})
+		"frequency": "continuous", "nature": "automated", "status": "active", "change": "created", "test": nil, "link": nil, "version": float64(1)})
 }
 
 // TestControlRefusals: what a control may not say is refused naming the

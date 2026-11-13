@@ -12375,7 +12375,9 @@ func (s *Server) handleCreateContractRequest(args [0]string, argsEscaped bool, w
 //
 // Records a control in the tenant's control library (ADR-0078 §2, T98a): its code, its objective, the
 // process it belongs to, the person who owns it, how often it is performed and whether it is performed
-// by a person (`manual`) or by the system (`automated`). It is created `active`. The code is the
+// by a person (`manual`) or by the system (`automated`), and optionally the tenant's own references to
+// a framework it names (`framework_references`: free text, each once and without white space around
+// it, 422 `grc.invalid_framework_reference` naming the entry). It is created `active`. The code is the
 // tenant's own and unique in the library, whatever its case (409 `grc.control_code_taken`); it never
 // changes. The owner is a person of the tenant who is active (422 `request.reference_not_found` naming
 // `owner_id` for an unknown principal, `grc.invalid_owner` for an agent, a service or a person who is
@@ -12575,6 +12577,225 @@ func (s *Server) handleCreateControlRequest(args [0]string, argsEscaped bool, w 
 	}
 
 	if err := encodeCreateControlResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleCreateControlLinkRequest handles createControlLink operation.
+//
+// Links an active control to what enforces it in the product (ADR-0078 §7, T98b): a permission
+// (`kind` `permission` with `permission_code`), a segregation-of-duties rule (`sod_rule` with
+// `sod_rule_id`) or a path of the configuration (`configuration_path` with `configuration_path`,
+// written as a configuration change names a setting, for example `companies[3000].approvals`). Exactly
+// the field of the kind is given (422 `grc.invalid_link`, naming the field). What is linked must be
+// there when the link is made: a permission of the catalog (422 `grc.unknown_permission`), a rule of
+// the tenant, whether or not it is in force yet (422 `request.reference_not_found` naming
+// `sod_rule_id`), a path the active configuration version has a value at (422
+// `grc.configuration_path_without_value`; 409 `config.not_bootstrapped` for a tenant without a
+// configuration). A control has one link to each target (409 `grc.control_link_exists`). A retired
+// control takes no link (409 `grc.control_retired`). The answer is the link as the matrix shows it,
+// with whether it holds. The control's version does not move. An audit record on the control and
+// ControlChanged (`linked`) are written with it. Besides `grc.control.write` the caller needs
+// `identity.access.read` and `config.version.read` (`x-also-permissions`), as for the matrix.
+//
+// POST /v1/controls/{id}/links
+func (s *Server) handleCreateControlLinkRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createControlLink"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/controls/{id}/links"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CreateControlLinkOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CreateControlLinkOperation,
+			ID:   "createControlLink",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CreateControlLinkOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCreateControlLinkParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCreateControlLinkRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CreateControlLinkRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CreateControlLinkOperation,
+			OperationSummary: "Link a control to what enforces it",
+			OperationID:      "createControlLink",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *ControlLinkCreate
+			Params   = CreateControlLinkParams
+			Response = CreateControlLinkRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCreateControlLinkParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CreateControlLink(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CreateControlLink(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCreateControlLinkResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -33227,6 +33448,229 @@ func (s *Server) handleGetControlRequest(args [1]string, argsEscaped bool, w htt
 	}
 
 	if err := encodeGetControlResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetControlMatrixRequest handles getControlMatrix operation.
+//
+// The control matrix (ADR-0078 §8, T98b): the tenant's active controls by code, each with its
+// framework references, its last test and its links to what enforces it in the product, and for each
+// link whether it still holds. A link to a permission holds while the permission is in the platform's
+// permission catalog, which every operation's `x-permission` is taken from; a link to a
+// segregation-of-duties rule holds while the rule is in force on the database's date today (`as_of`):
+// started and not ended; a link to a path of the configuration holds while the tenant's active
+// configuration version has a value there. A link that does not hold is shown with `holds` false and
+// its `broken_reason`; it is never removed for that. Removed links and retired controls are left out.
+// A tenant without a configuration whose controls have configuration path links is answered 409
+// `config.not_bootstrapped`. Filtered by process (the exact text), by one framework reference (the
+// exact text) and by `link_state`: `broken` gives the controls with at least one link that does not
+// hold, `holding` those whose links all hold, `none` those without a link. `totals` count the controls
+// and links the filters select, over every page. The links are judged at the read and nothing is
+// stored: the matrix is computed from one database state (a repeatable-read snapshot). It shows
+// segregation-of-duties rules and whether configuration paths have a value, so besides
+// `grc.control.read` the caller needs `identity.access.read` and `config.version.read`
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Sortable by: `code` (default).
+//
+// GET /v1/control-matrix
+func (s *Server) handleGetControlMatrixRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getControlMatrix"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/control-matrix"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetControlMatrixOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetControlMatrixOperation,
+			ID:   "getControlMatrix",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetControlMatrixOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetControlMatrixParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetControlMatrixRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetControlMatrixOperation,
+			OperationSummary: "Read the control matrix",
+			OperationID:      "getControlMatrix",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "process",
+					In:   "query",
+				}: params.Process,
+				{
+					Name: "framework_reference",
+					In:   "query",
+				}: params.FrameworkReference,
+				{
+					Name: "link_state",
+					In:   "query",
+				}: params.LinkState,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetControlMatrixParams
+			Response = GetControlMatrixRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetControlMatrixParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetControlMatrix(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetControlMatrix(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetControlMatrixResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -85452,6 +85896,213 @@ func (s *Server) handleReleaseSupplierInvoiceRequest(args [1]string, argsEscaped
 	}
 }
 
+// handleRemoveControlLinkRequest handles removeControlLink operation.
+//
+// Removes a link of an active control (ADR-0078 §7, T98b), once (409 `grc.control_link_removed`
+// after), at the link's version (`If-Match`, the ETag `createControlLink` answered and the `version`
+// the matrix shows). Nothing is deleted (04 §4.3): the link is kept as `removed`, is left out of the
+// matrix from then on, and the same target can be linked again. It is a person's or an agent's
+// decision: a link that no longer holds is never removed by the system. A retired control's links stay
+// as they are (409 `grc.control_retired`). A link of another control is not found (404). An audit
+// record on the control and ControlChanged (`unlinked`) are written with it. Besides
+// `grc.control.write` the caller needs `identity.access.read` and `config.version.read`
+// (`x-also-permissions`): the answer is the link as the matrix shows it.
+//
+// POST /v1/controls/{id}/links/{link_id}:remove
+func (s *Server) handleRemoveControlLinkRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("removeControlLink"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/controls/{id}/links/{link_id}:remove"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), RemoveControlLinkOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: RemoveControlLinkOperation,
+			ID:   "removeControlLink",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, RemoveControlLinkOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeRemoveControlLinkParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response RemoveControlLinkRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    RemoveControlLinkOperation,
+			OperationSummary: "Remove a control's link",
+			OperationID:      "removeControlLink",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "link_id",
+					In:   "path",
+				}: params.LinkID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = RemoveControlLinkParams
+			Response = RemoveControlLinkRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackRemoveControlLinkParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.RemoveControlLink(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.RemoveControlLink(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeRemoveControlLinkResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleRemoveHierarchyNodeRequest handles removeHierarchyNode operation.
 //
 // Removes a node without child nodes or centers; the root is not removed (422
@@ -95716,9 +96367,9 @@ func (s *Server) handleUpdateContractRequest(args [1]string, argsEscaped bool, w
 
 // handleUpdateControlRequest handles updateControl operation.
 //
-// Changes an active control's objective, process, owner, frequency or nature at once, with the
-// caller's version of it (`If-Match`; 412 when another change came first). JSON Merge Patch (RFC
-// 7396): absent fields are unchanged. The code does not change. The owner is checked as
+// Changes an active control's objective, process, owner, frequency, nature or framework references at
+// once, with the caller's version of it (`If-Match`; 412 when another change came first). JSON Merge
+// Patch (RFC 7396): absent fields are unchanged. The code does not change. The owner is checked as
 // `createControl` checks it when the change names another, and the texts, the frequency and the nature
 // as it checks them. A change that would leave the control as it is is refused (422
 // `grc.nothing_to_change`), as is a change of a retired control (409 `grc.control_retired`). The

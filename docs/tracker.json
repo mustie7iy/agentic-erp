@@ -9685,13 +9685,13 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "SOX control mapping (ITGCs and application controls)",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The compliance officer links a control to what enforces it in the product (a permission, a segregation-of-duties rule, a path of the configuration) and to the references of a framework the tenant names, and reads the control matrix with whether each link still holds (GET /v1/control-matrix)",
-        "r": "T98b · docs/design/plan-breadth-week3.md §T98b",
+        "r": "T98b · docs/design/plan-breadth-week3.md §T98b · db/migrations/000297 · grc.control_link · framework_references on grc.control · POST /v1/controls/{id}/links · POST /v1/controls/{id}/links/{link_id}:remove (no DELETE, 04 §4.3) · GET /v1/control-matrix · ControlChanged (linked, unlinked) · identity.Catalog · config.Config.Present · TestMatrixBudget · walkthrough step_control_matrix · ADR-0078 §7-§9 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

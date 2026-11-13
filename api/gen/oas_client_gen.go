@@ -906,7 +906,9 @@ type Invoker interface {
 	//
 	// Records a control in the tenant's control library (ADR-0078 §2, T98a): its code, its objective, the
 	// process it belongs to, the person who owns it, how often it is performed and whether it is performed
-	// by a person (`manual`) or by the system (`automated`). It is created `active`. The code is the
+	// by a person (`manual`) or by the system (`automated`), and optionally the tenant's own references to
+	// a framework it names (`framework_references`: free text, each once and without white space around
+	// it, 422 `grc.invalid_framework_reference` naming the entry). It is created `active`. The code is the
 	// tenant's own and unique in the library, whatever its case (409 `grc.control_code_taken`); it never
 	// changes. The owner is a person of the tenant who is active (422 `request.reference_not_found` naming
 	// `owner_id` for an unknown principal, `grc.invalid_owner` for an agent, a service or a person who is
@@ -918,6 +920,25 @@ type Invoker interface {
 	//
 	// POST /v1/controls
 	CreateControl(ctx context.Context, request *ControlCreate, params CreateControlParams) (CreateControlRes, error)
+	// CreateControlLink invokes createControlLink operation.
+	//
+	// Links an active control to what enforces it in the product (ADR-0078 §7, T98b): a permission
+	// (`kind` `permission` with `permission_code`), a segregation-of-duties rule (`sod_rule` with
+	// `sod_rule_id`) or a path of the configuration (`configuration_path` with `configuration_path`,
+	// written as a configuration change names a setting, for example `companies[3000].approvals`). Exactly
+	// the field of the kind is given (422 `grc.invalid_link`, naming the field). What is linked must be
+	// there when the link is made: a permission of the catalog (422 `grc.unknown_permission`), a rule of
+	// the tenant, whether or not it is in force yet (422 `request.reference_not_found` naming
+	// `sod_rule_id`), a path the active configuration version has a value at (422
+	// `grc.configuration_path_without_value`; 409 `config.not_bootstrapped` for a tenant without a
+	// configuration). A control has one link to each target (409 `grc.control_link_exists`). A retired
+	// control takes no link (409 `grc.control_retired`). The answer is the link as the matrix shows it,
+	// with whether it holds. The control's version does not move. An audit record on the control and
+	// ControlChanged (`linked`) are written with it. Besides `grc.control.write` the caller needs
+	// `identity.access.read` and `config.version.read` (`x-also-permissions`), as for the matrix.
+	//
+	// POST /v1/controls/{id}/links
+	CreateControlLink(ctx context.Context, request *ControlLinkCreate, params CreateControlLinkParams) (CreateControlLinkRes, error)
 	// CreateControlTest invokes createControlTest operation.
 	//
 	// Records that an active control was tested (ADR-0078 §3, T98a): the date of the test, its result
@@ -2279,6 +2300,28 @@ type Invoker interface {
 	//
 	// GET /v1/controls/{id}
 	GetControl(ctx context.Context, params GetControlParams) (GetControlRes, error)
+	// GetControlMatrix invokes getControlMatrix operation.
+	//
+	// The control matrix (ADR-0078 §8, T98b): the tenant's active controls by code, each with its
+	// framework references, its last test and its links to what enforces it in the product, and for each
+	// link whether it still holds. A link to a permission holds while the permission is in the platform's
+	// permission catalog, which every operation's `x-permission` is taken from; a link to a
+	// segregation-of-duties rule holds while the rule is in force on the database's date today (`as_of`):
+	// started and not ended; a link to a path of the configuration holds while the tenant's active
+	// configuration version has a value there. A link that does not hold is shown with `holds` false and
+	// its `broken_reason`; it is never removed for that. Removed links and retired controls are left out.
+	// A tenant without a configuration whose controls have configuration path links is answered 409
+	// `config.not_bootstrapped`. Filtered by process (the exact text), by one framework reference (the
+	// exact text) and by `link_state`: `broken` gives the controls with at least one link that does not
+	// hold, `holding` those whose links all hold, `none` those without a link. `totals` count the controls
+	// and links the filters select, over every page. The links are judged at the read and nothing is
+	// stored: the matrix is computed from one database state (a repeatable-read snapshot). It shows
+	// segregation-of-duties rules and whether configuration paths have a value, so besides
+	// `grc.control.read` the caller needs `identity.access.read` and `config.version.read`
+	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Sortable by: `code` (default).
+	//
+	// GET /v1/control-matrix
+	GetControlMatrix(ctx context.Context, params GetControlMatrixParams) (GetControlMatrixRes, error)
 	// GetCostCenter invokes getCostCenter operation.
 	//
 	// Returns one cost center with its active periods.
@@ -5165,6 +5208,20 @@ type Invoker interface {
 	//
 	// POST /v1/supplier-invoices/{id}:release
 	ReleaseSupplierInvoice(ctx context.Context, request OptDecisionInput, params ReleaseSupplierInvoiceParams) (ReleaseSupplierInvoiceRes, error)
+	// RemoveControlLink invokes removeControlLink operation.
+	//
+	// Removes a link of an active control (ADR-0078 §7, T98b), once (409 `grc.control_link_removed`
+	// after), at the link's version (`If-Match`, the ETag `createControlLink` answered and the `version`
+	// the matrix shows). Nothing is deleted (04 §4.3): the link is kept as `removed`, is left out of the
+	// matrix from then on, and the same target can be linked again. It is a person's or an agent's
+	// decision: a link that no longer holds is never removed by the system. A retired control's links stay
+	// as they are (409 `grc.control_retired`). A link of another control is not found (404). An audit
+	// record on the control and ControlChanged (`unlinked`) are written with it. Besides
+	// `grc.control.write` the caller needs `identity.access.read` and `config.version.read`
+	// (`x-also-permissions`): the answer is the link as the matrix shows it.
+	//
+	// POST /v1/controls/{id}/links/{link_id}:remove
+	RemoveControlLink(ctx context.Context, params RemoveControlLinkParams) (RemoveControlLinkRes, error)
 	// RemoveHierarchyNode invokes removeHierarchyNode operation.
 	//
 	// Removes a node without child nodes or centers; the root is not removed (422
@@ -5882,9 +5939,9 @@ type Invoker interface {
 	UpdateContract(ctx context.Context, request *ContractUpdate, params UpdateContractParams) (UpdateContractRes, error)
 	// UpdateControl invokes updateControl operation.
 	//
-	// Changes an active control's objective, process, owner, frequency or nature at once, with the
-	// caller's version of it (`If-Match`; 412 when another change came first). JSON Merge Patch (RFC
-	// 7396): absent fields are unchanged. The code does not change. The owner is checked as
+	// Changes an active control's objective, process, owner, frequency, nature or framework references at
+	// once, with the caller's version of it (`If-Match`; 412 when another change came first). JSON Merge
+	// Patch (RFC 7396): absent fields are unchanged. The code does not change. The owner is checked as
 	// `createControl` checks it when the change names another, and the texts, the frequency and the nature
 	// as it checks them. A change that would leave the control as it is is refused (422
 	// `grc.nothing_to_change`), as is a change of a retired control (409 `grc.control_retired`). The
@@ -15552,7 +15609,9 @@ func (c *Client) sendCreateContract(ctx context.Context, request *ContractCreate
 //
 // Records a control in the tenant's control library (ADR-0078 §2, T98a): its code, its objective, the
 // process it belongs to, the person who owns it, how often it is performed and whether it is performed
-// by a person (`manual`) or by the system (`automated`). It is created `active`. The code is the
+// by a person (`manual`) or by the system (`automated`), and optionally the tenant's own references to
+// a framework it names (`framework_references`: free text, each once and without white space around
+// it, 422 `grc.invalid_framework_reference` naming the entry). It is created `active`. The code is the
 // tenant's own and unique in the library, whatever its case (409 `grc.control_code_taken`); it never
 // changes. The owner is a person of the tenant who is active (422 `request.reference_not_found` naming
 // `owner_id` for an unknown principal, `grc.invalid_owner` for an agent, a service or a person who is
@@ -15681,6 +15740,168 @@ func (c *Client) sendCreateControl(ctx context.Context, request *ControlCreate, 
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateControlResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateControlLink invokes createControlLink operation.
+//
+// Links an active control to what enforces it in the product (ADR-0078 §7, T98b): a permission
+// (`kind` `permission` with `permission_code`), a segregation-of-duties rule (`sod_rule` with
+// `sod_rule_id`) or a path of the configuration (`configuration_path` with `configuration_path`,
+// written as a configuration change names a setting, for example `companies[3000].approvals`). Exactly
+// the field of the kind is given (422 `grc.invalid_link`, naming the field). What is linked must be
+// there when the link is made: a permission of the catalog (422 `grc.unknown_permission`), a rule of
+// the tenant, whether or not it is in force yet (422 `request.reference_not_found` naming
+// `sod_rule_id`), a path the active configuration version has a value at (422
+// `grc.configuration_path_without_value`; 409 `config.not_bootstrapped` for a tenant without a
+// configuration). A control has one link to each target (409 `grc.control_link_exists`). A retired
+// control takes no link (409 `grc.control_retired`). The answer is the link as the matrix shows it,
+// with whether it holds. The control's version does not move. An audit record on the control and
+// ControlChanged (`linked`) are written with it. Besides `grc.control.write` the caller needs
+// `identity.access.read` and `config.version.read` (`x-also-permissions`), as for the matrix.
+//
+// POST /v1/controls/{id}/links
+func (c *Client) CreateControlLink(ctx context.Context, request *ControlLinkCreate, params CreateControlLinkParams) (CreateControlLinkRes, error) {
+	res, err := c.sendCreateControlLink(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateControlLink(ctx context.Context, request *ControlLinkCreate, params CreateControlLinkParams) (res CreateControlLinkRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createControlLink"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/controls/{id}/links"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateControlLinkOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/controls/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/links"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateControlLinkRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateControlLinkOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateControlLinkResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -30641,6 +30862,241 @@ func (c *Client) sendGetControl(ctx context.Context, params GetControlParams) (r
 
 	stage = "DecodeResponse"
 	result, err := decodeGetControlResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetControlMatrix invokes getControlMatrix operation.
+//
+// The control matrix (ADR-0078 §8, T98b): the tenant's active controls by code, each with its
+// framework references, its last test and its links to what enforces it in the product, and for each
+// link whether it still holds. A link to a permission holds while the permission is in the platform's
+// permission catalog, which every operation's `x-permission` is taken from; a link to a
+// segregation-of-duties rule holds while the rule is in force on the database's date today (`as_of`):
+// started and not ended; a link to a path of the configuration holds while the tenant's active
+// configuration version has a value there. A link that does not hold is shown with `holds` false and
+// its `broken_reason`; it is never removed for that. Removed links and retired controls are left out.
+// A tenant without a configuration whose controls have configuration path links is answered 409
+// `config.not_bootstrapped`. Filtered by process (the exact text), by one framework reference (the
+// exact text) and by `link_state`: `broken` gives the controls with at least one link that does not
+// hold, `holding` those whose links all hold, `none` those without a link. `totals` count the controls
+// and links the filters select, over every page. The links are judged at the read and nothing is
+// stored: the matrix is computed from one database state (a repeatable-read snapshot). It shows
+// segregation-of-duties rules and whether configuration paths have a value, so besides
+// `grc.control.read` the caller needs `identity.access.read` and `config.version.read`
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Sortable by: `code` (default).
+//
+// GET /v1/control-matrix
+func (c *Client) GetControlMatrix(ctx context.Context, params GetControlMatrixParams) (GetControlMatrixRes, error) {
+	res, err := c.sendGetControlMatrix(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetControlMatrix(ctx context.Context, params GetControlMatrixParams) (res GetControlMatrixRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getControlMatrix"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/control-matrix"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetControlMatrixOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/control-matrix"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "process" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "process",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Process.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "framework_reference" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "framework_reference",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FrameworkReference.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "link_state" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "link_state",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LinkState.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetControlMatrixOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetControlMatrixResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -79843,6 +80299,190 @@ func (c *Client) sendReleaseSupplierInvoice(ctx context.Context, request OptDeci
 	return result, nil
 }
 
+// RemoveControlLink invokes removeControlLink operation.
+//
+// Removes a link of an active control (ADR-0078 §7, T98b), once (409 `grc.control_link_removed`
+// after), at the link's version (`If-Match`, the ETag `createControlLink` answered and the `version`
+// the matrix shows). Nothing is deleted (04 §4.3): the link is kept as `removed`, is left out of the
+// matrix from then on, and the same target can be linked again. It is a person's or an agent's
+// decision: a link that no longer holds is never removed by the system. A retired control's links stay
+// as they are (409 `grc.control_retired`). A link of another control is not found (404). An audit
+// record on the control and ControlChanged (`unlinked`) are written with it. Besides
+// `grc.control.write` the caller needs `identity.access.read` and `config.version.read`
+// (`x-also-permissions`): the answer is the link as the matrix shows it.
+//
+// POST /v1/controls/{id}/links/{link_id}:remove
+func (c *Client) RemoveControlLink(ctx context.Context, params RemoveControlLinkParams) (RemoveControlLinkRes, error) {
+	res, err := c.sendRemoveControlLink(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendRemoveControlLink(ctx context.Context, params RemoveControlLinkParams) (res RemoveControlLinkRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("removeControlLink"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/controls/{id}/links/{link_id}:remove"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RemoveControlLinkOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/controls/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/links/"
+	{
+		// Encode "link_id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "link_id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.LinkID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":remove"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RemoveControlLinkOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRemoveControlLinkResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // RemoveHierarchyNode invokes removeHierarchyNode operation.
 //
 // Removes a node without child nodes or centers; the root is not removed (422
@@ -87855,9 +88495,9 @@ func (c *Client) sendUpdateContract(ctx context.Context, request *ContractUpdate
 
 // UpdateControl invokes updateControl operation.
 //
-// Changes an active control's objective, process, owner, frequency or nature at once, with the
-// caller's version of it (`If-Match`; 412 when another change came first). JSON Merge Patch (RFC
-// 7396): absent fields are unchanged. The code does not change. The owner is checked as
+// Changes an active control's objective, process, owner, frequency, nature or framework references at
+// once, with the caller's version of it (`If-Match`; 412 when another change came first). JSON Merge
+// Patch (RFC 7396): absent fields are unchanged. The code does not change. The owner is checked as
 // `createControl` checks it when the change names another, and the texts, the frequency and the nature
 // as it checks them. A change that would leave the control as it is is refused (422
 // `grc.nothing_to_change`), as is a change of a retired control (409 `grc.control_retired`). The

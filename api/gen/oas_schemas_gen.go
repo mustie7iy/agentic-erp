@@ -24094,6 +24094,7 @@ func (*ConflictHeaders) createCompanyAccessRes()                   {}
 func (*ConflictHeaders) createConnectorRes()                       {}
 func (*ConflictHeaders) createConsolidationRunRes()                {}
 func (*ConflictHeaders) createContractRes()                        {}
+func (*ConflictHeaders) createControlLinkRes()                     {}
 func (*ConflictHeaders) createControlRes()                         {}
 func (*ConflictHeaders) createControlTestRes()                     {}
 func (*ConflictHeaders) createCostCenterRes()                      {}
@@ -24157,6 +24158,7 @@ func (*ConflictHeaders) getCloseCalendarRes()                      {}
 func (*ConflictHeaders) getConsolidatedStatementRes()              {}
 func (*ConflictHeaders) getConsolidationGroupRes()                 {}
 func (*ConflictHeaders) getConsolidationRunRes()                   {}
+func (*ConflictHeaders) getControlMatrixRes()                      {}
 func (*ConflictHeaders) getEInvoiceContentRes()                    {}
 func (*ConflictHeaders) getLegalEntityTodayRes()                   {}
 func (*ConflictHeaders) getLiquidityForecastVarianceRes()          {}
@@ -24232,6 +24234,7 @@ func (*ConflictHeaders) releaseInternalOrderRes()                  {}
 func (*ConflictHeaders) releasePaymentRunRes()                     {}
 func (*ConflictHeaders) releasePurchaseOrderRes()                  {}
 func (*ConflictHeaders) releaseSupplierInvoiceRes()                {}
+func (*ConflictHeaders) removeControlLinkRes()                     {}
 func (*ConflictHeaders) removeHierarchyNodeRes()                   {}
 func (*ConflictHeaders) renameHierarchyNodeRes()                   {}
 func (*ConflictHeaders) renewContractRes()                         {}
@@ -27888,6 +27891,9 @@ type Control struct {
 	// `active`, or `retired` for good (`retireControl`). Open enumeration: clients must accept and
 	// preserve values not listed here; values may be added within /v1.
 	Status string `json:"status"`
+	// The tenant's own references to a framework it names, in the order it gave them; empty when it gave
+	// none. No framework's text or numbering is shipped.
+	FrameworkReferences []string `json:"framework_references"`
 	// The control's last test: the one with the latest test date, the one recorded last among several of
 	// one date. Absent while the control was never tested.
 	LastTest OptControlTest `json:"last_test"`
@@ -27961,6 +27967,11 @@ func (s *Control) GetNature() string {
 // GetStatus returns the value of Status.
 func (s *Control) GetStatus() string {
 	return s.Status
+}
+
+// GetFrameworkReferences returns the value of FrameworkReferences.
+func (s *Control) GetFrameworkReferences() []string {
+	return s.FrameworkReferences
 }
 
 // GetLastTest returns the value of LastTest.
@@ -28038,6 +28049,11 @@ func (s *Control) SetStatus(val string) {
 	s.Status = val
 }
 
+// SetFrameworkReferences sets the value of FrameworkReferences.
+func (s *Control) SetFrameworkReferences(val []string) {
+	s.FrameworkReferences = val
+}
+
 // SetLastTest sets the value of LastTest.
 func (s *Control) SetLastTest(val OptControlTest) {
 	s.LastTest = val
@@ -28061,6 +28077,9 @@ type ControlCreate struct {
 	// Whether a person performs the control (`manual`) or the system does (`automated`). Open enumeration:
 	// clients must accept and preserve values not listed here; values may be added within /v1.
 	Nature string `json:"nature"`
+	// The tenant's own references to a framework it names, free text without white space around it, each
+	// once, in the order given. None when left out.
+	FrameworkReferences []string `json:"framework_references"`
 }
 
 // GetCode returns the value of Code.
@@ -28093,6 +28112,11 @@ func (s *ControlCreate) GetNature() string {
 	return s.Nature
 }
 
+// GetFrameworkReferences returns the value of FrameworkReferences.
+func (s *ControlCreate) GetFrameworkReferences() []string {
+	return s.FrameworkReferences
+}
+
 // SetCode sets the value of Code.
 func (s *ControlCreate) SetCode(val string) {
 	s.Code = val
@@ -28121,6 +28145,11 @@ func (s *ControlCreate) SetFrequency(val string) {
 // SetNature sets the value of Nature.
 func (s *ControlCreate) SetNature(val string) {
 	s.Nature = val
+}
+
+// SetFrameworkReferences sets the value of FrameworkReferences.
+func (s *ControlCreate) SetFrameworkReferences(val []string) {
+	s.FrameworkReferences = val
 }
 
 // ControlHeaders wraps Control with response headers.
@@ -28172,6 +28201,519 @@ func (s *ControlHeaders) SetResponse(val Control) {
 }
 
 func (*ControlHeaders) createControlRes() {}
+
+// Merged schema.
+// Ref: #/components/schemas/ControlLink
+type ControlLink struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The control (`GET /v1/controls/{id}`).
+	ControlID uuid.UUID `json:"control_id"`
+	// The control's code.
+	ControlCode string `json:"control_code"`
+	// What the control is linked to. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Kind string `json:"kind"`
+	// For `permission`: the permission code.
+	PermissionCode OptString `json:"permission_code"`
+	// For `permission`: what the permission allows, by the catalog; absent when the permission is no
+	// longer in it.
+	PermissionDescription OptString `json:"permission_description"`
+	// For `sod_rule`: the rule (`GET /v1/sod-rules/{id}`).
+	SodRuleID OptUUID `json:"sod_rule_id"`
+	// For `sod_rule`: the rule as it is now.
+	SodRule OptSodRuleSummary `json:"sod_rule"`
+	// For `configuration_path`: the path, as a configuration change names a setting.
+	ConfigurationPath OptString `json:"configuration_path"`
+	// For `configuration_path`: the number of the active configuration version the path was looked up in
+	// (`GET /v1/config-versions`).
+	ConfigurationVersion OptInt32 `json:"configuration_version"`
+	// `active`, or `removed` (`removeControlLink`). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// Whether what the link names is there now: the permission in the catalog, the rule in force today, a
+	// value at the path in the active configuration version.
+	Holds bool `json:"holds"`
+	// Why the link does not hold; absent when it holds. `permission_not_in_catalog`,
+	// `sod_rule_not_started` (its first day is after today), `sod_rule_ended`,
+	// `configuration_path_without_value`. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	BrokenReason OptString `json:"broken_reason"`
+}
+
+// GetID returns the value of ID.
+func (s *ControlLink) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *ControlLink) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ControlLink) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *ControlLink) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *ControlLink) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *ControlLink) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetControlID returns the value of ControlID.
+func (s *ControlLink) GetControlID() uuid.UUID {
+	return s.ControlID
+}
+
+// GetControlCode returns the value of ControlCode.
+func (s *ControlLink) GetControlCode() string {
+	return s.ControlCode
+}
+
+// GetKind returns the value of Kind.
+func (s *ControlLink) GetKind() string {
+	return s.Kind
+}
+
+// GetPermissionCode returns the value of PermissionCode.
+func (s *ControlLink) GetPermissionCode() OptString {
+	return s.PermissionCode
+}
+
+// GetPermissionDescription returns the value of PermissionDescription.
+func (s *ControlLink) GetPermissionDescription() OptString {
+	return s.PermissionDescription
+}
+
+// GetSodRuleID returns the value of SodRuleID.
+func (s *ControlLink) GetSodRuleID() OptUUID {
+	return s.SodRuleID
+}
+
+// GetSodRule returns the value of SodRule.
+func (s *ControlLink) GetSodRule() OptSodRuleSummary {
+	return s.SodRule
+}
+
+// GetConfigurationPath returns the value of ConfigurationPath.
+func (s *ControlLink) GetConfigurationPath() OptString {
+	return s.ConfigurationPath
+}
+
+// GetConfigurationVersion returns the value of ConfigurationVersion.
+func (s *ControlLink) GetConfigurationVersion() OptInt32 {
+	return s.ConfigurationVersion
+}
+
+// GetStatus returns the value of Status.
+func (s *ControlLink) GetStatus() string {
+	return s.Status
+}
+
+// GetHolds returns the value of Holds.
+func (s *ControlLink) GetHolds() bool {
+	return s.Holds
+}
+
+// GetBrokenReason returns the value of BrokenReason.
+func (s *ControlLink) GetBrokenReason() OptString {
+	return s.BrokenReason
+}
+
+// SetID sets the value of ID.
+func (s *ControlLink) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *ControlLink) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ControlLink) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *ControlLink) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *ControlLink) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *ControlLink) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetControlID sets the value of ControlID.
+func (s *ControlLink) SetControlID(val uuid.UUID) {
+	s.ControlID = val
+}
+
+// SetControlCode sets the value of ControlCode.
+func (s *ControlLink) SetControlCode(val string) {
+	s.ControlCode = val
+}
+
+// SetKind sets the value of Kind.
+func (s *ControlLink) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetPermissionCode sets the value of PermissionCode.
+func (s *ControlLink) SetPermissionCode(val OptString) {
+	s.PermissionCode = val
+}
+
+// SetPermissionDescription sets the value of PermissionDescription.
+func (s *ControlLink) SetPermissionDescription(val OptString) {
+	s.PermissionDescription = val
+}
+
+// SetSodRuleID sets the value of SodRuleID.
+func (s *ControlLink) SetSodRuleID(val OptUUID) {
+	s.SodRuleID = val
+}
+
+// SetSodRule sets the value of SodRule.
+func (s *ControlLink) SetSodRule(val OptSodRuleSummary) {
+	s.SodRule = val
+}
+
+// SetConfigurationPath sets the value of ConfigurationPath.
+func (s *ControlLink) SetConfigurationPath(val OptString) {
+	s.ConfigurationPath = val
+}
+
+// SetConfigurationVersion sets the value of ConfigurationVersion.
+func (s *ControlLink) SetConfigurationVersion(val OptInt32) {
+	s.ConfigurationVersion = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ControlLink) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetHolds sets the value of Holds.
+func (s *ControlLink) SetHolds(val bool) {
+	s.Holds = val
+}
+
+// SetBrokenReason sets the value of BrokenReason.
+func (s *ControlLink) SetBrokenReason(val OptString) {
+	s.BrokenReason = val
+}
+
+// Link a control to what enforces it: a permission, a segregation-of-duties rule or a path of the
+// configuration. Exactly the field of `kind` is given.
+// Ref: #/components/schemas/ControlLinkCreate
+type ControlLinkCreate struct {
+	// What the control is linked to. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Kind string `json:"kind"`
+	// For `permission`: a permission code of the platform's catalog, an operation's `x-permission`.
+	PermissionCode OptString `json:"permission_code"`
+	// For `sod_rule`: a segregation-of-duties rule of the tenant (`GET /v1/sod-rules/{id}`).
+	SodRuleID OptUUID `json:"sod_rule_id"`
+	// For `configuration_path`: a path of the configuration as a configuration change names a setting
+	// (`companies[3000].approvals`), without white space around it: a setting, a list item or a section.
+	ConfigurationPath OptString `json:"configuration_path"`
+}
+
+// GetKind returns the value of Kind.
+func (s *ControlLinkCreate) GetKind() string {
+	return s.Kind
+}
+
+// GetPermissionCode returns the value of PermissionCode.
+func (s *ControlLinkCreate) GetPermissionCode() OptString {
+	return s.PermissionCode
+}
+
+// GetSodRuleID returns the value of SodRuleID.
+func (s *ControlLinkCreate) GetSodRuleID() OptUUID {
+	return s.SodRuleID
+}
+
+// GetConfigurationPath returns the value of ConfigurationPath.
+func (s *ControlLinkCreate) GetConfigurationPath() OptString {
+	return s.ConfigurationPath
+}
+
+// SetKind sets the value of Kind.
+func (s *ControlLinkCreate) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetPermissionCode sets the value of PermissionCode.
+func (s *ControlLinkCreate) SetPermissionCode(val OptString) {
+	s.PermissionCode = val
+}
+
+// SetSodRuleID sets the value of SodRuleID.
+func (s *ControlLinkCreate) SetSodRuleID(val OptUUID) {
+	s.SodRuleID = val
+}
+
+// SetConfigurationPath sets the value of ConfigurationPath.
+func (s *ControlLinkCreate) SetConfigurationPath(val OptString) {
+	s.ConfigurationPath = val
+}
+
+// ControlLinkHeaders wraps ControlLink with response headers.
+type ControlLinkHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           ControlLink
+}
+
+// GetETag returns the value of ETag.
+func (s *ControlLinkHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ControlLinkHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ControlLinkHeaders) GetResponse() ControlLink {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ControlLinkHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ControlLinkHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ControlLinkHeaders) SetResponse(val ControlLink) {
+	s.Response = val
+}
+
+func (*ControlLinkHeaders) createControlLinkRes() {}
+func (*ControlLinkHeaders) removeControlLinkRes() {}
+
+// One page of the control matrix (grc, ADR-0078 §8) with its totals.
+// Ref: #/components/schemas/ControlMatrix
+type ControlMatrix struct {
+	// The database's date the links were judged on: a segregation-of-duties rule is in force on it or not.
+	AsOf time.Time `json:"as_of"`
+	// The controls and links the filters select, over every page.
+	Totals ControlMatrixTotals `json:"totals"`
+	// The controls on this page, by code.
+	Items []ControlMatrixRow `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetAsOf returns the value of AsOf.
+func (s *ControlMatrix) GetAsOf() time.Time {
+	return s.AsOf
+}
+
+// GetTotals returns the value of Totals.
+func (s *ControlMatrix) GetTotals() ControlMatrixTotals {
+	return s.Totals
+}
+
+// GetItems returns the value of Items.
+func (s *ControlMatrix) GetItems() []ControlMatrixRow {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ControlMatrix) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetAsOf sets the value of AsOf.
+func (s *ControlMatrix) SetAsOf(val time.Time) {
+	s.AsOf = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *ControlMatrix) SetTotals(val ControlMatrixTotals) {
+	s.Totals = val
+}
+
+// SetItems sets the value of Items.
+func (s *ControlMatrix) SetItems(val []ControlMatrixRow) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ControlMatrix) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ControlMatrix) getControlMatrixRes() {}
+
+// One control of the control matrix: the control with its framework references and last test, and its
+// links with whether each holds.
+// Ref: #/components/schemas/ControlMatrixRow
+type ControlMatrixRow struct {
+	// The control, as `getControl` gives it.
+	Control Control `json:"control"`
+	// `holding` (every link holds, and there is one), `broken` (at least one link does not hold) or `none`
+	// (no link). Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	LinkState string `json:"link_state"`
+	// The control's links, in the order they were made; removed links are left out.
+	Links []ControlLink `json:"links"`
+}
+
+// GetControl returns the value of Control.
+func (s *ControlMatrixRow) GetControl() Control {
+	return s.Control
+}
+
+// GetLinkState returns the value of LinkState.
+func (s *ControlMatrixRow) GetLinkState() string {
+	return s.LinkState
+}
+
+// GetLinks returns the value of Links.
+func (s *ControlMatrixRow) GetLinks() []ControlLink {
+	return s.Links
+}
+
+// SetControl sets the value of Control.
+func (s *ControlMatrixRow) SetControl(val Control) {
+	s.Control = val
+}
+
+// SetLinkState sets the value of LinkState.
+func (s *ControlMatrixRow) SetLinkState(val string) {
+	s.LinkState = val
+}
+
+// SetLinks sets the value of Links.
+func (s *ControlMatrixRow) SetLinks(val []ControlLink) {
+	s.Links = val
+}
+
+// What the matrix's filters select, counted over every page.
+// Ref: #/components/schemas/ControlMatrixTotals
+type ControlMatrixTotals struct {
+	// The controls selected.
+	Controls int32 `json:"controls"`
+	// Those whose links all hold, with at least one link.
+	ControlsHolding int32 `json:"controls_holding"`
+	// Those with at least one link that does not hold.
+	ControlsBroken int32 `json:"controls_broken"`
+	// Those without a link.
+	ControlsWithoutLinks int32 `json:"controls_without_links"`
+	// The links of the controls selected.
+	Links int32 `json:"links"`
+	// The links that hold.
+	LinksHolding int32 `json:"links_holding"`
+	// The links that do not hold.
+	LinksBroken int32 `json:"links_broken"`
+}
+
+// GetControls returns the value of Controls.
+func (s *ControlMatrixTotals) GetControls() int32 {
+	return s.Controls
+}
+
+// GetControlsHolding returns the value of ControlsHolding.
+func (s *ControlMatrixTotals) GetControlsHolding() int32 {
+	return s.ControlsHolding
+}
+
+// GetControlsBroken returns the value of ControlsBroken.
+func (s *ControlMatrixTotals) GetControlsBroken() int32 {
+	return s.ControlsBroken
+}
+
+// GetControlsWithoutLinks returns the value of ControlsWithoutLinks.
+func (s *ControlMatrixTotals) GetControlsWithoutLinks() int32 {
+	return s.ControlsWithoutLinks
+}
+
+// GetLinks returns the value of Links.
+func (s *ControlMatrixTotals) GetLinks() int32 {
+	return s.Links
+}
+
+// GetLinksHolding returns the value of LinksHolding.
+func (s *ControlMatrixTotals) GetLinksHolding() int32 {
+	return s.LinksHolding
+}
+
+// GetLinksBroken returns the value of LinksBroken.
+func (s *ControlMatrixTotals) GetLinksBroken() int32 {
+	return s.LinksBroken
+}
+
+// SetControls sets the value of Controls.
+func (s *ControlMatrixTotals) SetControls(val int32) {
+	s.Controls = val
+}
+
+// SetControlsHolding sets the value of ControlsHolding.
+func (s *ControlMatrixTotals) SetControlsHolding(val int32) {
+	s.ControlsHolding = val
+}
+
+// SetControlsBroken sets the value of ControlsBroken.
+func (s *ControlMatrixTotals) SetControlsBroken(val int32) {
+	s.ControlsBroken = val
+}
+
+// SetControlsWithoutLinks sets the value of ControlsWithoutLinks.
+func (s *ControlMatrixTotals) SetControlsWithoutLinks(val int32) {
+	s.ControlsWithoutLinks = val
+}
+
+// SetLinks sets the value of Links.
+func (s *ControlMatrixTotals) SetLinks(val int32) {
+	s.Links = val
+}
+
+// SetLinksHolding sets the value of LinksHolding.
+func (s *ControlMatrixTotals) SetLinksHolding(val int32) {
+	s.LinksHolding = val
+}
+
+// SetLinksBroken sets the value of LinksBroken.
+func (s *ControlMatrixTotals) SetLinksBroken(val int32) {
+	s.LinksBroken = val
+}
 
 // One page of the control library.
 // Ref: #/components/schemas/ControlPage
@@ -28419,8 +28961,8 @@ func (s *ControlTestPage) SetNextPageToken(val OptString) {
 
 func (*ControlTestPage) listControlTestsRes() {}
 
-// Merge patch of a control: its objective, process, owner, frequency or nature. The code does not
-// change.
+// Merge patch of a control: its objective, process, owner, frequency, nature or framework references.
+// The code does not change.
 // Ref: #/components/schemas/ControlUpdate
 type ControlUpdate struct {
 	// What the control is to achieve.
@@ -28435,6 +28977,9 @@ type ControlUpdate struct {
 	// Whether a person performs the control (`manual`) or the system does (`automated`). Open enumeration:
 	// clients must accept and preserve values not listed here; values may be added within /v1.
 	Nature OptString `json:"nature"`
+	// The tenant's own references to a framework it names, free text without white space around it, each
+	// once, in the order given. The list given replaces the control's; an empty list clears it.
+	FrameworkReferences []string `json:"framework_references"`
 }
 
 // GetObjective returns the value of Objective.
@@ -28462,6 +29007,11 @@ func (s *ControlUpdate) GetNature() OptString {
 	return s.Nature
 }
 
+// GetFrameworkReferences returns the value of FrameworkReferences.
+func (s *ControlUpdate) GetFrameworkReferences() []string {
+	return s.FrameworkReferences
+}
+
 // SetObjective sets the value of Objective.
 func (s *ControlUpdate) SetObjective(val OptString) {
 	s.Objective = val
@@ -28485,6 +29035,11 @@ func (s *ControlUpdate) SetFrequency(val OptString) {
 // SetNature sets the value of Nature.
 func (s *ControlUpdate) SetNature(val OptString) {
 	s.Nature = val
+}
+
+// SetFrameworkReferences sets the value of FrameworkReferences.
+func (s *ControlUpdate) SetFrameworkReferences(val []string) {
+	s.FrameworkReferences = val
 }
 
 // Merged schema.
@@ -30210,6 +30765,26 @@ func (*CreateControlBadRequest) createControlRes() {}
 type CreateControlForbidden Problem
 
 func (*CreateControlForbidden) createControlRes() {}
+
+type CreateControlLinkBadRequest Problem
+
+func (*CreateControlLinkBadRequest) createControlLinkRes() {}
+
+type CreateControlLinkForbidden Problem
+
+func (*CreateControlLinkForbidden) createControlLinkRes() {}
+
+type CreateControlLinkNotFound Problem
+
+func (*CreateControlLinkNotFound) createControlLinkRes() {}
+
+type CreateControlLinkPreconditionRequired Problem
+
+func (*CreateControlLinkPreconditionRequired) createControlLinkRes() {}
+
+type CreateControlLinkUnprocessableEntity Problem
+
+func (*CreateControlLinkUnprocessableEntity) createControlLinkRes() {}
 
 type CreateControlPreconditionRequired Problem
 
@@ -39750,6 +40325,18 @@ func (*GetControlBadRequest) getControlRes() {}
 type GetControlForbidden Problem
 
 func (*GetControlForbidden) getControlRes() {}
+
+type GetControlMatrixBadRequest Problem
+
+func (*GetControlMatrixBadRequest) getControlMatrixRes() {}
+
+type GetControlMatrixForbidden Problem
+
+func (*GetControlMatrixForbidden) getControlMatrixRes() {}
+
+type GetControlMatrixUnprocessableEntity Problem
+
+func (*GetControlMatrixUnprocessableEntity) getControlMatrixRes() {}
 
 type GetControlNotFound Problem
 
@@ -60716,6 +61303,52 @@ func (o OptQuantity) Or(d Quantity) Quantity {
 	return d
 }
 
+// NewOptSodRuleSummary returns new OptSodRuleSummary with value set to v.
+func NewOptSodRuleSummary(v SodRuleSummary) OptSodRuleSummary {
+	return OptSodRuleSummary{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSodRuleSummary is optional SodRuleSummary.
+type OptSodRuleSummary struct {
+	Value SodRuleSummary
+	Set   bool
+}
+
+// IsSet returns true if OptSodRuleSummary was set.
+func (o OptSodRuleSummary) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSodRuleSummary) Reset() {
+	var v SodRuleSummary
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSodRuleSummary) SetTo(v SodRuleSummary) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSodRuleSummary) Get() (v SodRuleSummary, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSodRuleSummary) Or(d SodRuleSummary) SodRuleSummary {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptStatementLinePostInput returns new OptStatementLinePostInput with value set to v.
 func NewOptStatementLinePostInput(v StatementLinePostInput) OptStatementLinePostInput {
 	return OptStatementLinePostInput{
@@ -72000,6 +72633,26 @@ type ReleaseSupplierInvoiceUnprocessableEntity Problem
 
 func (*ReleaseSupplierInvoiceUnprocessableEntity) releaseSupplierInvoiceRes() {}
 
+type RemoveControlLinkBadRequest Problem
+
+func (*RemoveControlLinkBadRequest) removeControlLinkRes() {}
+
+type RemoveControlLinkForbidden Problem
+
+func (*RemoveControlLinkForbidden) removeControlLinkRes() {}
+
+type RemoveControlLinkNotFound Problem
+
+func (*RemoveControlLinkNotFound) removeControlLinkRes() {}
+
+type RemoveControlLinkPreconditionFailed Problem
+
+func (*RemoveControlLinkPreconditionFailed) removeControlLinkRes() {}
+
+type RemoveControlLinkPreconditionRequired Problem
+
+func (*RemoveControlLinkPreconditionRequired) removeControlLinkRes() {}
+
 type RemoveHierarchyNodeBadRequest Problem
 
 func (*RemoveHierarchyNodeBadRequest) removeHierarchyNodeRes() {}
@@ -78535,6 +79188,72 @@ func (s *SodRulePage) SetTotalEstimate(val OptInt64) {
 
 func (*SodRulePage) listSodRulesRes() {}
 
+// A segregation-of-duties rule as a control link shows it: its two permissions, why they conflict and
+// its validity.
+// Ref: #/components/schemas/SodRuleSummary
+type SodRuleSummary struct {
+	// The first permission of the pair.
+	PermissionA string `json:"permission_a"`
+	// The second permission of the pair.
+	PermissionB string `json:"permission_b"`
+	// Why the combination is a conflict.
+	Description string `json:"description"`
+	// The first day the rule is in force.
+	ValidFrom time.Time `json:"valid_from"`
+	// The day the rule ends, exclusive; absent while it has no end.
+	ValidTo OptDate `json:"valid_to"`
+}
+
+// GetPermissionA returns the value of PermissionA.
+func (s *SodRuleSummary) GetPermissionA() string {
+	return s.PermissionA
+}
+
+// GetPermissionB returns the value of PermissionB.
+func (s *SodRuleSummary) GetPermissionB() string {
+	return s.PermissionB
+}
+
+// GetDescription returns the value of Description.
+func (s *SodRuleSummary) GetDescription() string {
+	return s.Description
+}
+
+// GetValidFrom returns the value of ValidFrom.
+func (s *SodRuleSummary) GetValidFrom() time.Time {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *SodRuleSummary) GetValidTo() OptDate {
+	return s.ValidTo
+}
+
+// SetPermissionA sets the value of PermissionA.
+func (s *SodRuleSummary) SetPermissionA(val string) {
+	s.PermissionA = val
+}
+
+// SetPermissionB sets the value of PermissionB.
+func (s *SodRuleSummary) SetPermissionB(val string) {
+	s.PermissionB = val
+}
+
+// SetDescription sets the value of Description.
+func (s *SodRuleSummary) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *SodRuleSummary) SetValidFrom(val time.Time) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *SodRuleSummary) SetValidTo(val OptDate) {
+	s.ValidTo = val
+}
+
 type StartAgentSessionBadRequest Problem
 
 func (*StartAgentSessionBadRequest) startAgentSessionRes() {}
@@ -82978,6 +83697,7 @@ func (*TooManyRequestsHeaders) createCompanyAccessRes()                   {}
 func (*TooManyRequestsHeaders) createConnectorRes()                       {}
 func (*TooManyRequestsHeaders) createConsolidationRunRes()                {}
 func (*TooManyRequestsHeaders) createContractRes()                        {}
+func (*TooManyRequestsHeaders) createControlLinkRes()                     {}
 func (*TooManyRequestsHeaders) createControlRes()                         {}
 func (*TooManyRequestsHeaders) createControlTestRes()                     {}
 func (*TooManyRequestsHeaders) createCostCenterRes()                      {}
@@ -83079,6 +83799,7 @@ func (*TooManyRequestsHeaders) getConsolidatedStatementRes()              {}
 func (*TooManyRequestsHeaders) getConsolidationGroupRes()                 {}
 func (*TooManyRequestsHeaders) getConsolidationRunRes()                   {}
 func (*TooManyRequestsHeaders) getContractRes()                           {}
+func (*TooManyRequestsHeaders) getControlMatrixRes()                      {}
 func (*TooManyRequestsHeaders) getControlRes()                            {}
 func (*TooManyRequestsHeaders) getCostCenterRes()                         {}
 func (*TooManyRequestsHeaders) getCreditExposureRes()                     {}
@@ -83330,6 +84051,7 @@ func (*TooManyRequestsHeaders) releaseInternalOrderRes()                  {}
 func (*TooManyRequestsHeaders) releasePaymentRunRes()                     {}
 func (*TooManyRequestsHeaders) releasePurchaseOrderRes()                  {}
 func (*TooManyRequestsHeaders) releaseSupplierInvoiceRes()                {}
+func (*TooManyRequestsHeaders) removeControlLinkRes()                     {}
 func (*TooManyRequestsHeaders) removeHierarchyNodeRes()                   {}
 func (*TooManyRequestsHeaders) renameHierarchyNodeRes()                   {}
 func (*TooManyRequestsHeaders) renewContractRes()                         {}
@@ -83764,6 +84486,7 @@ func (*UnauthorizedHeaders) createCompanyAccessRes()                   {}
 func (*UnauthorizedHeaders) createConnectorRes()                       {}
 func (*UnauthorizedHeaders) createConsolidationRunRes()                {}
 func (*UnauthorizedHeaders) createContractRes()                        {}
+func (*UnauthorizedHeaders) createControlLinkRes()                     {}
 func (*UnauthorizedHeaders) createControlRes()                         {}
 func (*UnauthorizedHeaders) createControlTestRes()                     {}
 func (*UnauthorizedHeaders) createCostCenterRes()                      {}
@@ -83865,6 +84588,7 @@ func (*UnauthorizedHeaders) getConsolidatedStatementRes()              {}
 func (*UnauthorizedHeaders) getConsolidationGroupRes()                 {}
 func (*UnauthorizedHeaders) getConsolidationRunRes()                   {}
 func (*UnauthorizedHeaders) getContractRes()                           {}
+func (*UnauthorizedHeaders) getControlMatrixRes()                      {}
 func (*UnauthorizedHeaders) getControlRes()                            {}
 func (*UnauthorizedHeaders) getCostCenterRes()                         {}
 func (*UnauthorizedHeaders) getCreditExposureRes()                     {}
@@ -84116,6 +84840,7 @@ func (*UnauthorizedHeaders) releaseInternalOrderRes()                  {}
 func (*UnauthorizedHeaders) releasePaymentRunRes()                     {}
 func (*UnauthorizedHeaders) releasePurchaseOrderRes()                  {}
 func (*UnauthorizedHeaders) releaseSupplierInvoiceRes()                {}
+func (*UnauthorizedHeaders) removeControlLinkRes()                     {}
 func (*UnauthorizedHeaders) removeHierarchyNodeRes()                   {}
 func (*UnauthorizedHeaders) renameHierarchyNodeRes()                   {}
 func (*UnauthorizedHeaders) renewContractRes()                         {}

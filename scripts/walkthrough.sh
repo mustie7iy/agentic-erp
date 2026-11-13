@@ -7181,6 +7181,114 @@ step_controls() {
   passed
 }
 
+# step_control_matrix is T98b (ADR-0078 §7-§9): Olive gives step 66's
+# control Maple's own framework reference and links it to what enforces
+# it: the permission to release payment runs and the setting of the
+# release limit above which a second person approves, both holding; a
+# permission outside the catalog and a path without a value are refused.
+# Maple has no segregation-of-duties rule of its own (the rule that a
+# run's proposer does not release it is built into payments), so Ada
+# makes one, administering access against releasing payment runs: a rule
+# she would break today is refused, she gives up releasing payment runs
+# from tomorrow, and the rule starts tomorrow. Its link is shown as not
+# in force yet. The matrix shows the control with its reference, its last
+# test and its three links, and its totals; a link made by mistake is
+# removed at its version and kept as removed.
+step_control_matrix() {
+  heading "Step 67 — The control matrix: the control linked to the permission, the configuration setting and a segregation-of-duties rule that enforce it, with the tenant's framework reference; the matrix shows which links hold; a link is removed, never deleted"
+  local admin grant tomorrow rule plink clink rlink wrong as_of rule_state links holding broken state
+  [ -n "${CONTROL:-}" ] || fail "step 66's control is not there"
+  as olive
+  QUIET=1 api 200 '' getControl -p "id=$CONTROL"
+  say "Olive gives the control Maple's own reference to its internal control framework. The references are the"
+  say "tenant's free text: no framework's text or numbering is shipped (ADR-0078 §9)."
+  api 200 '"control \(.code): \(.framework_references | join("; ")), version \(.version)"' updateControl -p "id=$CONTROL" -if-match "$ETAG" \
+    -body '{"framework_references": ["Maple ICFR P-4.2 Payment release"]}'
+  expect "the control's references" "$(field '"\(.framework_references | join("; ")) \(.version)"')" "Maple ICFR P-4.2 Payment release 2"
+  say "She links the control to what enforces it in the product. First the permission that releasing a run needs:"
+  api 201 '"link of \(.control_code) to the \(.kind) \(.permission_code) (\(.permission_description)): holds \(.holds)"' createControlLink -p "id=$CONTROL" \
+    -body '{"kind": "permission", "permission_code": "payments.run.release"}'
+  plink=$(field .id)
+  expect "the permission link" "$(field '"\(.control_id) \(.kind) \(.permission_code) \(.permission_description) \(.status) \(.holds)"')" \
+    "$CONTROL permission payments.run.release Release payment runs active true"
+  say "Then the setting of Maple's configuration above which a second person approves a release, written as a"
+  say "configuration change names it:"
+  api 201 '"link of \(.control_code) to the \(.kind) \(.configuration_path), looked up in configuration version \(.configuration_version): holds \(.holds)"' \
+    createControlLink -p "id=$CONTROL" -body "{\"kind\": \"configuration_path\", \"configuration_path\": \"companies[$CC].release_dual_limit\"}"
+  clink=$(field .id)
+  expect "the configuration link" "$(field '"\(.kind) \(.configuration_path) \(.holds) \(.configuration_version > 0)"')" \
+    "configuration_path companies[$CC].release_dual_limit true true"
+  say "What a link names must be there when it is made, and a control has one link to a target:"
+  refused 422 grc.unknown_permission createControlLink -p "id=$CONTROL" -body '{"kind": "permission", "permission_code": "payments.run.vanish"}'
+  refused 422 grc.configuration_path_without_value createControlLink -p "id=$CONTROL" \
+    -body "{\"kind\": \"configuration_path\", \"configuration_path\": \"companies[$CC].release_triple_limit\"}"
+  refused 409 grc.control_link_exists createControlLink -p "id=$CONTROL" -body '{"kind": "permission", "permission_code": "payments.run.release"}'
+  as ada
+  say "Maple has no segregation-of-duties rule of its own yet: that a run's proposer does not release it is built"
+  say "into payments. Ada adds one: whoever administers access does not release payment runs. She holds every"
+  say "permission herself, and a rule someone would break on its first day is refused:"
+  refused 409 identity.sod_conflict createSodRule \
+    -body '{"permission_a": "identity.access.manage", "permission_b": "payments.run.release", "description": "Whoever administers access does not release payment runs."}'
+  tomorrow=$(date_add "$(utc_day)" 1)
+  admin=$(role tenant_admin)
+  QUIET=1 api 200 '' listRolePermissions -p "id=$admin" -p page_size=500
+  grant=$(field '.items[] | select(.permission_code == "payments.run.release") | .id')
+  [ -n "$grant" ] || fail "the administrator's role does not hold payments.run.release"
+  QUIET=1 api 200 '' getRolePermission -p "id=$admin" -p "permission_id=$grant"
+  say "So the administrator's role gives up releasing payment runs from tomorrow, $tomorrow (a grant ends on a later"
+  say "day than it began), and the rule starts that day:"
+  api 200 '"\(.permission_code) of the administrator role: valid until \(.valid_to)"' endRolePermission -p "id=$admin" -p "permission_id=$grant" \
+    -if-match "$ETAG" -body "{\"valid_to\": \"$tomorrow\"}"
+  api 201 '"rule \(.permission_a) / \(.permission_b), valid from \(.valid_from): \(.description)"' createSodRule \
+    -body "{\"permission_a\": \"identity.access.manage\", \"permission_b\": \"payments.run.release\", \"description\": \"Whoever administers access does not release payment runs.\", \"valid_from\": \"$tomorrow\"}"
+  rule=$(field .id)
+  as olive
+  say "Olive links the control to the rule. A rule that is not in force yet can be linked; the link says so:"
+  api 201 '"link of \(.control_code) to the \(.kind) \(.sod_rule.permission_a) / \(.sod_rule.permission_b), valid from \(.sod_rule.valid_from): holds \(.holds)\(if .holds then "" else ", " + .broken_reason end)"' \
+    createControlLink -p "id=$CONTROL" -body "{\"kind\": \"sod_rule\", \"sod_rule_id\": \"$rule\"}"
+  rlink=$(field .id)
+  expect "the rule link" "$(field '"\(.kind) \(.sod_rule_id) \(.sod_rule.permission_a) \(.sod_rule.permission_b) \(.sod_rule.valid_from)"')" \
+    "sod_rule $rule identity.access.manage payments.run.release $tomorrow"
+  say "A link made by mistake is removed at its version. Nothing is deleted: it is kept as removed."
+  api 201 '"link of \(.control_code) to the \(.kind) \(.permission_code): holds \(.holds)"' createControlLink -p "id=$CONTROL" \
+    -body '{"kind": "permission", "permission_code": "payments.file.transmit"}'
+  wrong=$(field .id)
+  api 200 '"link to \(.permission_code): \(.status), version \(.version)"' removeControlLink -p "id=$CONTROL" -p "link_id=$wrong" -if-match "$ETAG"
+  expect "the removed link" "$(field '"\(.id) \(.status) \(.version)"')" "$wrong removed 2"
+  refused 409 grc.control_link_removed removeControlLink -p "id=$CONTROL" -p "link_id=$wrong" -if-match "$ETAG"
+  say "The control matrix: each control with its references, its last test and its links, and whether each link"
+  say "still holds on the database's date. A link that does not hold is shown as broken, never removed:"
+  api 200 '"as of \(.as_of): \(.totals.controls) control(s), \(.totals.links) links, \(.totals.links_holding) holding, \(.totals.links_broken) broken",
+    (.items[] | "  \(.control.code) \(.control.process) [\(.control.framework_references | join("; "))], last test \(.control.last_test.result) on \(.control.last_test.tested_on): links \(.link_state)",
+      (.links[] | "    \(.kind) \(.permission_code // .configuration_path // "\(.sod_rule.permission_a) / \(.sod_rule.permission_b)"): \(if .holds then "holds" else "broken, " + .broken_reason end)"))' \
+    getControlMatrix -p process=Payments
+  as_of=$(field .as_of)
+  # The rule starts tomorrow by the database's date; a run that crosses
+  # UTC's midnight finds it in force already.
+  if [ "$as_of" \< "$tomorrow" ]; then
+    rule_state='false sod_rule_not_started' holding=2 broken=1 state=broken
+  else
+    rule_state='true null' holding=3 broken=0 state=holding
+  fi
+  links="$plink permission true null, $clink configuration_path true null, $rlink sod_rule $rule_state"
+  expect "the control's row" "$(field '.items[] | "\(.control.id) \(.control.code) \(.control.last_test.result) \(.control.framework_references | join("; ")) \(.link_state)"')" \
+    "$CONTROL PAY-01 passed Maple ICFR P-4.2 Payment release $state"
+  expect "the control's links, in the order they were made" "$(field '[.items[0].links[] | "\(.id) \(.kind) \(.holds) \(.broken_reason // null)"] | join(", ")')" "$links"
+  expect "the matrix's totals" \
+    "$(field '.totals | "\(.controls) \(.controls_holding) \(.controls_broken) \(.controls_without_links) \(.links) \(.links_holding) \(.links_broken)"')" \
+    "1 $((broken == 0)) $((broken > 0)) 0 3 $holding $broken"
+  QUIET=1 api 200 '' getControlMatrix -p "link_state=$state" -p "framework_reference=Maple ICFR P-4.2 Payment release"
+  expect "the matrix by link state and framework reference" "$(field '[.items[].control.id] | join(" ")')" "$CONTROL"
+  QUIET=1 api 200 '' getControlMatrix -p link_state=none
+  expect "no control without a link" "$(field '.items | length')" 0
+  QUIET=1 api 200 '' getControl -p "id=$CONTROL"
+  expect "the control's version, which its links did not move" "$(field .version)" 2
+  QUIET=1 api 200 '' listAuditEvents -p object_type=grc.control -p "object_id=$CONTROL" -p page_size=100
+  expect "the control's audit trail" "$(field '[.items[].action] | sort | join(" ")')" \
+    "grc.control.change grc.control.create grc.control.link grc.control.link grc.control.link grc.control.link grc.control.test grc.control.unlink"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -9205,7 +9313,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_controls step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_controls step_control_matrix step_close'
 
 main() {
   stop_unseen

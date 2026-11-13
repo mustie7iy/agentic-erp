@@ -3,6 +3,7 @@ package grc
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -21,6 +22,26 @@ type NewControl struct {
 	OwnerID   uuid.UUID
 	Frequency string
 	Nature    string
+	// FrameworkReferences are the tenant's references to a framework it
+	// names, each once; nil for none.
+	FrameworkReferences []string
+}
+
+// references checks a control's framework references: texts without
+// white space around them, each given once (ADR-0078 §9).
+func references(refs []string) error {
+	seen := map[string]bool{}
+	for i, r := range refs {
+		field := fmt.Sprintf("framework_references[%d]", i)
+		switch {
+		case r == "" || r != strings.TrimSpace(r):
+			return problem.Invalid("grc.invalid_framework_reference", field, "A framework reference is a text without white space around it.")
+		case seen[r]:
+			return problem.Invalid("grc.invalid_framework_reference", field, "A framework reference is given once.")
+		}
+		seen[r] = true
+	}
+	return nil
 }
 
 // texts checks a control's objective and process: texts, the process as
@@ -39,7 +60,7 @@ func texts(objective, process string) error {
 }
 
 // says checks what a control says before it is written: its texts, its
-// frequency and its nature. The owner is checked apart (owner), only
+// frequency, its nature and its framework references. The owner is checked apart (owner), only
 // when it is new.
 func says(in NewControl) error {
 	if err := texts(in.Objective, in.Process); err != nil {
@@ -48,7 +69,10 @@ func says(in NewControl) error {
 	if err := oneOf("frequency", in.Frequency, frequencies); err != nil {
 		return err
 	}
-	return oneOf("nature", in.Nature, natures)
+	if err := oneOf("nature", in.Nature, natures); err != nil {
+		return err
+	}
+	return references(in.FrameworkReferences)
 }
 
 // Record records a control in the tenant's library (ADR-0078 §2,
@@ -67,17 +91,17 @@ func (e *Endpoints) Record(ctx context.Context, in NewControl) (Control, error) 
 		return Control{}, err
 	}
 	id := uuid.Must(uuid.NewV7())
-	if _, err := tx.Exec(ctx, `INSERT INTO grc.control (tenant_id, id, code, objective, process, owner_id, frequency, nature, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
-		p.TenantID, id, in.Code, in.Objective, in.Process, in.OwnerID, in.Frequency, in.Nature, p.ID); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO grc.control (tenant_id, id, code, objective, process, owner_id, frequency, nature,
+			framework_references, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)`,
+		p.TenantID, id, in.Code, in.Objective, in.Process, in.OwnerID, in.Frequency, in.Nature, append([]string{}, in.FrameworkReferences...), p.ID); err != nil {
 		return Control{}, fmt.Errorf("grc: record control %s: %w", in.Code, err)
 	}
 	c, err := control(ctx, tx, id, false)
 	if err != nil {
 		return Control{}, err
 	}
-	return c, changed(ctx, c, "create", "created", map[string]any{"code": c.Code, "process": c.Process, "owner_id": c.OwnerID,
-		"frequency": c.Frequency, "nature": c.Nature}, nil)
+	return c, changed(ctx, c, change{action: "create", name: "created", detail: map[string]any{"code": c.Code, "process": c.Process,
+		"owner_id": c.OwnerID, "frequency": c.Frequency, "nature": c.Nature}})
 }
 
 // ControlChange is a merge patch of a control: nil fields stay.
@@ -87,12 +111,16 @@ type ControlChange struct {
 	OwnerID   *uuid.UUID
 	Frequency *string
 	Nature    *string
+	// FrameworkReferences replaces the control's references as a whole;
+	// an empty list clears them.
+	FrameworkReferences *[]string
 }
 
 // apply is the control after the change and the names of the fields
 // that differ, in the contract's order.
 func (ch ControlChange) apply(c Control) (NewControl, []string) {
-	to := NewControl{Code: c.Code, Objective: c.Objective, Process: c.Process, OwnerID: c.OwnerID, Frequency: c.Frequency, Nature: c.Nature}
+	to := NewControl{Code: c.Code, Objective: c.Objective, Process: c.Process, OwnerID: c.OwnerID, Frequency: c.Frequency, Nature: c.Nature,
+		FrameworkReferences: c.FrameworkReferences}
 	var fields []string
 	set := func(name string, differs bool) {
 		if differs {
@@ -118,6 +146,10 @@ func (ch ControlChange) apply(c Control) (NewControl, []string) {
 	if ch.Nature != nil {
 		set("nature", *ch.Nature != c.Nature)
 		to.Nature = *ch.Nature
+	}
+	if ch.FrameworkReferences != nil {
+		set("framework_references", !slices.Equal(*ch.FrameworkReferences, c.FrameworkReferences))
+		to.FrameworkReferences = append([]string{}, *ch.FrameworkReferences...)
 	}
 	return to, fields
 }
@@ -154,15 +186,15 @@ func (e *Endpoints) Change(ctx context.Context, id uuid.UUID, ifMatch func(int32
 		}
 	}
 	if _, err := tx.Exec(ctx, `UPDATE grc.control SET objective = $2, process = $3, owner_id = $4, frequency = $5, nature = $6,
-			version = version + 1, updated_by = $7 WHERE id = $1 AND status = 'active'`,
-		id, to.Objective, to.Process, to.OwnerID, to.Frequency, to.Nature, p.ID); err != nil {
+			framework_references = $7, version = version + 1, updated_by = $8 WHERE id = $1 AND status = 'active'`,
+		id, to.Objective, to.Process, to.OwnerID, to.Frequency, to.Nature, to.FrameworkReferences, p.ID); err != nil {
 		return Control{}, fmt.Errorf("grc: change control %s: %w", id, err)
 	}
 	after, err := control(ctx, tx, id, false)
 	if err != nil {
 		return Control{}, err
 	}
-	return after, changed(ctx, after, "change", "changed", map[string]any{"code": after.Code, "fields": fields}, nil)
+	return after, changed(ctx, after, change{action: "change", name: "changed", detail: map[string]any{"code": after.Code, "fields": fields}})
 }
 
 // Retire retires an active control for good, once, with the
@@ -190,24 +222,36 @@ func Retire(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (Contr
 	if err != nil {
 		return Control{}, err
 	}
-	return retired, changed(ctx, retired, "retire", "retired", map[string]any{"code": retired.Code}, nil)
+	return retired, changed(ctx, retired, change{action: "retire", name: "retired", detail: map[string]any{"code": retired.Code}})
+}
+
+// change is one change of a control as it is recorded: the last word of
+// its audit action, what the event calls it, the audit detail, and the
+// test or the link it is about, nil for every other change.
+type change struct {
+	action, name string
+	detail       map[string]any
+	test         *Test
+	link         *Link
 }
 
 // changed adds the audit record of a control's change and publishes
 // ControlChanged in the same transaction (ADR-0007, ADR-0011; ADR-0078
-// §5). change is what happened as the event names it; test is the test
-// recorded, nil for every other change. Neither carries a test's note:
-// free text of a person's, which may name people.
-func changed(ctx context.Context, c Control, action, change string, detail map[string]any, test *Test) error {
-	var recorded any
-	if test != nil {
-		recorded = map[string]any{"test_id": test.ID, "tested_on": test.TestedOn.Format("2006-01-02"), "result": test.Result, "tested_by": test.TestedBy}
+// §5). Neither carries a test's note: free text of a person's, which
+// may name people.
+func changed(ctx context.Context, c Control, ch change) error {
+	var test, link any
+	if t := ch.test; t != nil {
+		test = map[string]any{"test_id": t.ID, "tested_on": t.TestedOn.Format("2006-01-02"), "result": t.Result, "tested_by": t.TestedBy}
+	}
+	if l := ch.link; l != nil {
+		link = map[string]any{"link_id": l.ID, "kind": l.Kind, "target": l.Target}
 	}
 	payload := map[string]any{"control_id": c.ID, "code": c.Code, "process": c.Process, "owner_id": c.OwnerID, "frequency": c.Frequency,
-		"nature": c.Nature, "status": c.Status, "change": change, "test": recorded, "version": c.Version}
-	if err := audit.Record(ctx, "grc.control."+action, "grc.control", c.ID, detail,
+		"nature": c.Nature, "status": c.Status, "change": ch.name, "test": test, "link": link, "version": c.Version}
+	if err := audit.Record(ctx, "grc.control."+ch.action, "grc.control", c.ID, ch.detail,
 		outbox.Event{Context: "grc", Name: "control_changed", AggregateType: "grc.control", AggregateID: c.ID, Payload: payload}); err != nil {
-		return fmt.Errorf("grc: record %s of control %s: %w", action, c.ID, err)
+		return fmt.Errorf("grc: record %s of control %s: %w", ch.action, c.ID, err)
 	}
 	return nil
 }

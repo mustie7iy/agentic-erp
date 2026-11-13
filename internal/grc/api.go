@@ -47,7 +47,7 @@ func testToAPI(t Test, people map[uuid.UUID]Person) gen.ControlTest {
 func controlToAPI(c Control, people map[uuid.UUID]Person) gen.Control {
 	out := gen.Control{ID: c.ID, Version: c.Version, CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(c.UpdatedBy), Code: c.Code, Objective: c.Objective, Process: c.Process, OwnerID: c.OwnerID,
-		OwnerName: people[c.OwnerID].Name, Frequency: c.Frequency, Nature: c.Nature, Status: c.Status}
+		OwnerName: people[c.OwnerID].Name, Frequency: c.Frequency, Nature: c.Nature, Status: c.Status, FrameworkReferences: c.FrameworkReferences}
 	if c.LastTest != nil {
 		out.LastTest.SetTo(testToAPI(*c.LastTest, people))
 	}
@@ -69,7 +69,7 @@ func (e *Endpoints) one(ctx context.Context, c Control, err error) (gen.Control,
 // CreateControl implements POST /v1/controls.
 func (e *Endpoints) CreateControl(ctx context.Context, req *gen.ControlCreate, _ gen.CreateControlParams) (gen.CreateControlRes, error) {
 	c, err := e.Record(ctx, NewControl{Code: req.Code, Objective: req.Objective, Process: req.Process, OwnerID: req.OwnerID,
-		Frequency: req.Frequency, Nature: req.Nature})
+		Frequency: req.Frequency, Nature: req.Nature, FrameworkReferences: req.FrameworkReferences})
 	out, tag, err := e.one(ctx, c, err)
 	if err != nil {
 		return nil, err
@@ -89,9 +89,12 @@ func (e *Endpoints) GetControl(ctx context.Context, params gen.GetControlParams)
 
 // UpdateControl implements PATCH /v1/controls/{id}.
 func (e *Endpoints) UpdateControl(ctx context.Context, req *gen.ControlUpdate, params gen.UpdateControlParams) (gen.UpdateControlRes, error) {
-	c, err := e.Change(ctx, params.ID, etag.IfMatch(params.IfMatch), ControlChange{Objective: apitypes.Ptr[string](req.Objective),
-		Process: apitypes.Ptr[string](req.Process), OwnerID: apitypes.Ptr[uuid.UUID](req.OwnerID),
-		Frequency: apitypes.Ptr[string](req.Frequency), Nature: apitypes.Ptr[string](req.Nature)})
+	ch := ControlChange{Objective: apitypes.Ptr[string](req.Objective), Process: apitypes.Ptr[string](req.Process),
+		OwnerID: apitypes.Ptr[uuid.UUID](req.OwnerID), Frequency: apitypes.Ptr[string](req.Frequency), Nature: apitypes.Ptr[string](req.Nature)}
+	if req.FrameworkReferences != nil { // absent from the patch: nil; given, even empty: a list
+		ch.FrameworkReferences = &req.FrameworkReferences
+	}
+	c, err := e.Change(ctx, params.ID, etag.IfMatch(params.IfMatch), ch)
 	out, tag, err := e.one(ctx, c, err)
 	if err != nil {
 		return nil, err

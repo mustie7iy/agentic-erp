@@ -4164,8 +4164,10 @@ components:
       description: |
         Emitted when a control is recorded (`created`), when its objective,
         process, owner, frequency or nature changes (`changed`), when it is
-        retired (`retired`) and when the result of testing it is recorded
-        (`tested`, ADR-0078 §5, T98a). `test` is the test recorded, null
+        retired (`retired`), when the result of testing it is recorded
+        (`tested`, ADR-0078 §5, T98a) and when a link to what enforces it
+        is made or removed (`linked`, `unlinked`, ADR-0078 §7, T98b; `link`
+        is that link, null for every other change). `test` is the test recorded, null
         for every other change; it carries the test's date and result,
         never the note of the evidence. The event names the owner and the
         tester by id, never by name. It is not offered as a webhook event.
@@ -4181,10 +4183,10 @@ components:
       examples:
         - name: created
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000fa1, source: /erp/eu-1/grc, type: com.example.erp.grc.control_changed.v1, subject: 0192a000-0000-7000-8000-000000000fa0, time: '2026-11-25T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {control_id: 0192a000-0000-7000-8000-000000000fa0, code: PAY-01, process: Payments, owner_id: 0192a000-0000-7000-8000-000000000101, frequency: continuous, nature: automated, status: active, change: created, test: null, version: 1}
+          payload: {control_id: 0192a000-0000-7000-8000-000000000fa0, code: PAY-01, process: Payments, owner_id: 0192a000-0000-7000-8000-000000000101, frequency: continuous, nature: automated, status: active, change: created, test: null, link: null, version: 1}
         - name: tested
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000fa2, source: /erp/eu-1/grc, type: com.example.erp.grc.control_changed.v1, subject: 0192a000-0000-7000-8000-000000000fa0, time: '2026-11-25T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {control_id: 0192a000-0000-7000-8000-000000000fa0, code: PAY-01, process: Payments, owner_id: 0192a000-0000-7000-8000-000000000101, frequency: continuous, nature: automated, status: active, change: tested, test: {test_id: 0192a000-0000-7000-8000-000000000fa3, tested_on: '2026-11-25', result: passed, tested_by: 0192a000-0000-7000-8000-000000000101}, version: 1}
+          payload: {control_id: 0192a000-0000-7000-8000-000000000fa0, code: PAY-01, process: Payments, owner_id: 0192a000-0000-7000-8000-000000000101, frequency: continuous, nature: automated, status: active, change: tested, test: {test_id: 0192a000-0000-7000-8000-000000000fa3, tested_on: '2026-11-25', result: passed, tested_by: 0192a000-0000-7000-8000-000000000101}, link: null, version: 1}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -4999,7 +5001,7 @@ components:
         version: {type: integer, description: "The document's version after the change."}
     ControlChangedV1:
       type: object
-      required: [control_id, code, process, owner_id, frequency, nature, status, change, test, version]
+      required: [control_id, code, process, owner_id, frequency, nature, status, change, test, link, version]
       properties:
         control_id: {$ref: '#/components/schemas/Uuid', description: '`grc.control.id`.'}
         code: {type: string, description: "The tenant's code of the control."}
@@ -5008,7 +5010,7 @@ components:
         frequency: {type: string, description: 'How often the control is performed: continuous, daily, weekly, monthly, quarterly, yearly or ad_hoc. Open enumeration.'}
         nature: {type: string, description: 'manual or automated. Open enumeration.'}
         status: {type: string, description: 'active or retired. Open enumeration.'}
-        change: {type: string, description: 'What happened: created, changed, retired or tested. Open enumeration.'}
+        change: {type: string, description: 'What happened: created, changed, retired, tested, linked or unlinked. Open enumeration.'}
         test:
           description: 'The test recorded, when `change` is tested; null otherwise.'
           oneOf:
@@ -5020,7 +5022,17 @@ components:
                 result: {type: string, description: 'passed or failed. Open enumeration.'}
                 tested_by: {$ref: '#/components/schemas/Uuid', description: 'The person who tested: `identity.principal.id`.'}
             - type: 'null'
-        version: {type: integer, description: "The control's version after the change; a test does not move it."}
+        link:
+          description: 'The link made or removed, when `change` is linked or unlinked; null otherwise.'
+          oneOf:
+            - type: object
+              required: [link_id, kind, target]
+              properties:
+                link_id: {$ref: '#/components/schemas/Uuid', description: '`grc.control_link.id`.'}
+                kind: {type: string, description: 'permission, sod_rule or configuration_path. Open enumeration.'}
+                target: {type: string, description: "What the link names: the permission's code, the segregation-of-duties rule's id or the configuration path."}
+            - type: 'null'
+        version: {type: integer, description: "The control's version after the change; a test or a link does not move it."}
     ConsolidationRunChangedV1:
       type: object
       required: [run_id, group_code, fiscal_year, fiscal_period, status, status_before, problem, version]

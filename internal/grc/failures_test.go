@@ -34,6 +34,12 @@ func TestDatabaseFailures(t *testing.T) {
 	id := uuid.MustParse(recorded)
 	e.Must(201, "POST", "/v1/controls/"+recorded+"/tests", testOf(day(t, 0), "passed", "Seen."), "")
 	spare, _ := e.record(t, "PAY-02", "Payments")
+	rule := e.rule(t, "credit.limit.read", "credit.limit.write", -1, nil)
+	e.link(t, recorded, permissionLink(releasePermission))
+	e.link(t, recorded, ruleLink(rule))
+	e.link(t, recorded, pathLink(settingPath))
+	doomed, _ := e.link(t, recorded, pathLink(sectionPath))
+	path, code := itemPath, "payments.file.transmit"
 	calls := map[string]func(ctx context.Context) error{
 		"create": func(ctx context.Context) error {
 			_, err := h.CreateControl(ctx, &gen.ControlCreate{Code: "PAY-09", Objective: "x", Process: "Payments", OwnerID: e.carla.ID,
@@ -62,6 +68,29 @@ func TestDatabaseFailures(t *testing.T) {
 				gen.CreateControlTestParams{ID: id})
 			return err
 		},
+		"link to a permission": func(ctx context.Context) error {
+			_, err := h.CreateControlLink(ctx, &gen.ControlLinkCreate{Kind: "permission", PermissionCode: gen.NewOptString(code)},
+				gen.CreateControlLinkParams{ID: id})
+			return err
+		},
+		"link to a rule": func(ctx context.Context) error {
+			_, err := h.CreateControlLink(ctx, &gen.ControlLinkCreate{Kind: "sod_rule", SodRuleID: gen.NewOptUUID(rule)},
+				gen.CreateControlLinkParams{ID: uuid.MustParse(spare)})
+			return err
+		},
+		"link to a path": func(ctx context.Context) error {
+			_, err := h.CreateControlLink(ctx, &gen.ControlLinkCreate{Kind: "configuration_path", ConfigurationPath: gen.NewOptString(path)},
+				gen.CreateControlLinkParams{ID: id})
+			return err
+		},
+		"remove a link": func(ctx context.Context) error {
+			_, err := h.RemoveControlLink(ctx, gen.RemoveControlLinkParams{ID: id, LinkID: uuid.MustParse(doomed), IfMatch: `"1"`})
+			return err
+		},
+		"matrix": func(ctx context.Context) error {
+			_, err := h.GetControlMatrix(ctx, gen.GetControlMatrixParams{})
+			return err
+		},
 		"tests": func(ctx context.Context) error {
 			_, err := h.ListControlTests(ctx, gen.ListControlTestsParams{ID: id})
 			return err
@@ -80,6 +109,10 @@ func TestDatabaseFailures(t *testing.T) {
 			_, err := h.ListControls(ctx, gen.ListControlsParams{PageSize: gen.NewOptInt32(0)})
 			return err
 		},
+		"matrix page size": func(ctx context.Context) error {
+			_, err := h.GetControlMatrix(ctx, gen.GetControlMatrixParams{PageSize: gen.NewOptInt32(0)})
+			return err
+		},
 		"tests page size": func(ctx context.Context) error {
 			_, err := h.ListControlTests(ctx, gen.ListControlTestsParams{ID: id, PageSize: gen.NewOptInt32(0)})
 			return err
@@ -91,5 +124,20 @@ func TestDatabaseFailures(t *testing.T) {
 				t.Errorf("got %v, want request.invalid_page_size", p)
 			}
 		})
+	}
+}
+
+// TestPortsOutsideRequest: the ports' adapters read only in a
+// request's unit of work.
+func TestPortsOutsideRequest(t *testing.T) {
+	h := endpoints(t)
+	if _, err := h.Access.Permissions(context.Background(), []string{releasePermission}); err == nil {
+		t.Error("permissions outside a unit of work: got no error, want one")
+	}
+	if _, err := h.Access.SodRules(context.Background(), []uuid.UUID{uuid.New()}); err == nil {
+		t.Error("rules outside a unit of work: got no error, want one")
+	}
+	if _, _, err := h.Settings.Present(context.Background(), []string{sectionPath}); err == nil {
+		t.Error("the configuration outside a unit of work: got no error, want one")
 	}
 }

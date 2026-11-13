@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -227,4 +228,173 @@ func TestControlTestImmutable(t *testing.T) {
 		t.Fatal(err)
 	}
 	failsWith(t, exec(tx, `UPDATE grc.control_test SET result = 'failed' WHERE id = $1`, test), "insert-only")
+}
+
+// TestFrameworkReferenceRules (T98b, migration 000297; ADR-0078 §9): a
+// control's framework references are at most 50 texts of 1 to 200
+// characters without white space around them, none twice and none null;
+// a change may replace them.
+func TestFrameworkReferenceRules(t *testing.T) {
+	need(t)
+	const control = `INSERT INTO grc.control (tenant_id, id, code, objective, process, owner_id, frequency, nature, framework_references, created_by, updated_by)
+		VALUES ($1, $2, 'PAY-01', 'x', 'Payments', $1, 'daily', 'manual', $3, $1, $1)`
+	many := make([]string, 51)
+	for i := range many {
+		many[i] = "REF " + strconv.Itoa(i)
+	}
+	cases := []struct {
+		name string
+		refs []*string
+		want string // empty: allowed
+	}{
+		{"none", texts(), ""},
+		{"two references", texts("SOX 404", "ICFR 4.2"), ""},
+		{"fifty references", texts(many[:50]...), ""},
+		{"fifty-one references", texts(many...), "control_framework_references_check"},
+		{"an empty reference", texts("SOX 404", ""), "control_framework_references_check"},
+		{"a reference of 201 characters", texts(strings.Repeat("r", 201)), "control_framework_references_check"},
+		{"a reference with white space around it", texts("SOX 404 "), "control_framework_references_check"},
+		{"a reference twice", texts("SOX 404", "SOX 404"), "control_framework_references_check"},
+		{"a null reference", []*string{nil}, "control_framework_references_check"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tenant := id()
+			err := asApp(t, tenant, func(tx pgx.Tx) error { return exec(tx, control, tenant, id(), c.refs) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+	t.Run("replaced by a change", func(t *testing.T) {
+		tenant, ctl := id(), id()
+		err := asApp(t, tenant, func(tx pgx.Tx) error {
+			return all(tx, step(control, tenant, ctl, texts("SOX 404")),
+				step(`UPDATE grc.control SET framework_references = '{ICFR 4.2}', version = version + 1, updated_by = $1 WHERE id = $2`, tenant, ctl))
+		})
+		if err != nil {
+			t.Fatalf("got %v, want no error", err)
+		}
+	})
+	t.Run("a control recorded without them has none", func(t *testing.T) {
+		tenant := id()
+		var n int
+		err := asApp(t, tenant, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(), `INSERT INTO grc.control (tenant_id, id, code, objective, process, owner_id, frequency, nature, created_by, updated_by)
+				VALUES ($1, $2, 'PAY-01', 'x', 'Payments', $1, 'daily', 'manual', $1, $1) RETURNING cardinality(framework_references)`, tenant, id()).Scan(&n)
+		})
+		if err != nil || n != 0 {
+			t.Errorf("got %d references and %v, want none", n, err)
+		}
+	})
+}
+
+// texts are the texts as a text array's elements.
+func texts(s ...string) []*string {
+	out := make([]*string, len(s))
+	for i := range s {
+		out[i] = &s[i]
+	}
+	return out
+}
+
+// TestControlLinkRules (T98b, migration 000297; ADR-0078 §7): a link is
+// of a control of the tenant, to a permission code, a rule's id or a
+// configuration path in the form of its kind; a control has one active
+// link to a target; removing a link is its only change, once, and no
+// link is deleted. What a link names is another context's: no foreign
+// key holds it.
+func TestControlLinkRules(t *testing.T) {
+	need(t)
+	const control = `INSERT INTO grc.control (tenant_id, id, code, objective, process, owner_id, frequency, nature, created_by, updated_by)
+		VALUES ($1, $2, 'PAY-01', 'x', 'Payments', $1, 'daily', 'manual', $1, $1)`
+	const link = `INSERT INTO grc.control_link (tenant_id, id, control_id, kind, target, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $1, $1)`
+	type scene struct{ tenant, control, link uuid.UUID }
+	record := func(s scene) stmt { return step(control, s.tenant, s.control) }
+	to := func(s scene, kind, target string) stmt { return step(link, s.tenant, s.link, s.control, kind, target) }
+	remove := func(s scene) stmt {
+		return step(`UPDATE grc.control_link SET status = 'removed', version = version + 1, updated_by = $1 WHERE id = $2`, s.tenant, s.link)
+	}
+	cases := []struct {
+		name string
+		run  func(s scene) []stmt
+		want string // empty: allowed
+	}{
+		{"a link to a permission no catalog holds", func(s scene) []stmt { return []stmt{record(s), to(s, "permission", "payments.run.vanish")} }, ""},
+		{"a link to a rule no tenant has", func(s scene) []stmt { return []stmt{record(s), to(s, "sod_rule", id().String())} }, ""},
+		{"a link to a configuration path", func(s scene) []stmt {
+			return []stmt{record(s), to(s, "configuration_path", "companies[3000].release_dual_limit")}
+		}, ""},
+		{"an unknown kind", func(s scene) []stmt { return []stmt{record(s), to(s, "report", "a.b")} }, "control_link_kind_check"},
+		{"a permission that is no code", func(s scene) []stmt { return []stmt{record(s), to(s, "permission", "Payments")} }, "control_link_target_check"},
+		{"a rule that is no id", func(s scene) []stmt { return []stmt{record(s), to(s, "sod_rule", "payments.run.release")} }, "control_link_target_check"},
+		{"an empty path", func(s scene) []stmt { return []stmt{record(s), to(s, "configuration_path", "")} }, "control_link_target_check"},
+		{"a path with white space around it", func(s scene) []stmt {
+			return []stmt{record(s), to(s, "configuration_path", " payments")}
+		}, "control_link_target_check"},
+		{"a path of 501 characters", func(s scene) []stmt {
+			return []stmt{record(s), to(s, "configuration_path", strings.Repeat("p", 501))}
+		}, "control_link_target_check"},
+		{"a link of no control", func(s scene) []stmt { return []stmt{to(s, "permission", "payments.run.release")} }, "control_link_control_fkey"},
+		{"a second link to the target", func(s scene) []stmt {
+			return []stmt{record(s), to(s, "permission", "payments.run.release"),
+				step(link, s.tenant, id(), s.control, "permission", "payments.run.release")}
+		}, "control_link_once"},
+		{"a link to another target", func(s scene) []stmt {
+			return []stmt{record(s), to(s, "permission", "payments.run.release"),
+				step(link, s.tenant, id(), s.control, "permission", "payments.file.transmit")}
+		}, ""},
+		{"removed", func(s scene) []stmt { return []stmt{record(s), to(s, "permission", "payments.run.release"), remove(s)} }, ""},
+		{"linked again after the removal", func(s scene) []stmt {
+			return []stmt{record(s), to(s, "permission", "payments.run.release"), remove(s),
+				step(link, s.tenant, id(), s.control, "permission", "payments.run.release")}
+		}, ""},
+		{"removed without the next version", func(s scene) []stmt {
+			return []stmt{record(s), to(s, "permission", "payments.run.release"),
+				step(`UPDATE grc.control_link SET status = 'removed' WHERE id = $1`, s.link)}
+		}, "optimistic lock"},
+		{"an unknown status", func(s scene) []stmt {
+			return []stmt{record(s), to(s, "permission", "payments.run.release"),
+				step(`UPDATE grc.control_link SET status = 'broken', version = version + 1 WHERE id = $1`, s.link)}
+		}, "control_link_status_check"},
+		{"made at version 0", func(s scene) []stmt {
+			return []stmt{record(s), step(`INSERT INTO grc.control_link (tenant_id, id, control_id, kind, target, version, created_by, updated_by)
+				VALUES ($1, $2, $3, 'permission', 'payments.run.release', 0, $1, $1)`, s.tenant, s.link, s.control)}
+		}, "control_link_version_check"},
+		{"a removed link made active again", func(s scene) []stmt {
+			return []stmt{record(s), to(s, "permission", "payments.run.release"), remove(s),
+				step(`UPDATE grc.control_link SET status = 'active', version = version + 1 WHERE id = $1`, s.link)}
+		}, "control_link_removed_fixed"},
+		{"the target changed", func(s scene) []stmt {
+			return []stmt{record(s), to(s, "permission", "payments.run.release"),
+				step(`UPDATE grc.control_link SET target = 'payments.file.transmit' WHERE id = $1`, s.link)}
+		}, "permission denied"},
+		{"the kind changed", func(s scene) []stmt {
+			return []stmt{record(s), to(s, "permission", "payments.run.release"), step(`UPDATE grc.control_link SET kind = 'sod_rule' WHERE id = $1`, s.link)}
+		}, "permission denied"},
+		{"the control changed", func(s scene) []stmt {
+			return []stmt{record(s), to(s, "permission", "payments.run.release"),
+				step(`UPDATE grc.control_link SET control_id = gen_random_uuid() WHERE id = $1`, s.link)}
+		}, "permission denied"},
+		{"a link deleted", func(s scene) []stmt {
+			return []stmt{record(s), to(s, "permission", "payments.run.release"), step(`DELETE FROM grc.control_link`)}
+		}, "permission denied"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), control: id(), link: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, c.run(s)...) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
 }

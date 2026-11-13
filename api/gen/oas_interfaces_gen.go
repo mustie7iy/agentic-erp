@@ -233,6 +233,10 @@ type CreateContractRes interface {
 	createContractRes()
 }
 
+type CreateControlLinkRes interface {
+	createControlLinkRes()
+}
+
 type CreateControlRes interface {
 	createControlRes()
 }
@@ -635,6 +639,10 @@ type GetConsolidationRunRes interface {
 
 type GetContractRes interface {
 	getContractRes()
+}
+
+type GetControlMatrixRes interface {
+	getControlMatrixRes()
 }
 
 type GetControlRes interface {
@@ -1639,6 +1647,10 @@ type ReleasePurchaseOrderRes interface {
 
 type ReleaseSupplierInvoiceRes interface {
 	releaseSupplierInvoiceRes()
+}
+
+type RemoveControlLinkRes interface {
+	removeControlLinkRes()
 }
 
 type RemoveHierarchyNodeRes interface {

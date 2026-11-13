@@ -56,6 +56,6 @@ func RecordTest(ctx context.Context, controlID uuid.UUID, in NewTest) (Test, err
 		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING created_at`, p.TenantID, t.ID, c.ID, on, t.Result, t.Note, p.ID).Scan(&t.CreatedAt); err != nil {
 		return Test{}, fmt.Errorf("grc: record a test of control %s: %w", controlID, err)
 	}
-	return t, changed(ctx, c, "test", "tested", map[string]any{"code": c.Code, "test_id": t.ID, "tested_on": on.Format("2006-01-02"),
-		"result": t.Result}, &t)
+	return t, changed(ctx, c, change{action: "test", name: "tested", test: &t,
+		detail: map[string]any{"code": c.Code, "test_id": t.ID, "tested_on": on.Format("2006-01-02"), "result": t.Result}})
 }
