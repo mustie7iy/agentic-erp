@@ -600,7 +600,7 @@ each listed for the product owner's digest.
   are read once per request, beside its open items, and matched to the
   items; a case on a customer not listed counts in no total. A disputed item stays
   open and overdue, so `open_amount`, `overdue_amount`, the order and
-  the totals are T76c's; a case whose item was cleared counts no more,
+  T76c's totals are unchanged; a case whose item was cleared counts no more,
   as a cleared item's dunning does not. Amounts that add up past an
   amount's range are refused as the worklist's others are (422
   `collections.amount_too_large`).
