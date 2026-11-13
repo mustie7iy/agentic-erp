@@ -12,8 +12,8 @@ import (
 // state (ADR-0072 §4). The check does not try to tell which numbers of a
 // text are amounts: every number a content writes must be one the run
 // read. A number with a decimal fraction must be an amount: a Money's
-// amount (the text under the key amount) or a number with a fraction
-// wherever it stands in an answer (a rate, a percentage). A whole number
+// amount (the text under the key amount) or a JSON number with a
+// fraction under any key of an answer (a rate, a percentage). A whole number
 // must be written somewhere in an answer or in the run's prompt (a count,
 // a day of a date, a document number). No number the read's own input
 // wrote is read from that read's answer, though the answer gives it

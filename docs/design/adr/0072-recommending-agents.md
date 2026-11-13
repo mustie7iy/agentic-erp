@@ -123,8 +123,8 @@ content writes must be one the run read** (`recommend.Figures`,
   are taken out, and the digits of a UUID are no numbers
   (`recommend.Numbers`);
 - a number with a decimal fraction must be an **amount** a read
-  returned: a Money's `amount`, or a number with a fraction wherever it
-  stands in an answer (a rate, a percentage). A text a person typed is
+  returned: a Money's `amount`, or a JSON number with a fraction under
+  any key of an answer (a rate, a percentage). A text a person typed is
   no amount, whatever it looks like (a reference of "900000.00");
 - a whole number must be written somewhere in an answer of the run's
   reads or in the run's prompt (a count, a day of a date, a document or
@@ -232,7 +232,8 @@ A later slice adds its row here and its section under "As built".
 - Its check (`creditagent.review.check`): the content starts with `Limit
   <amount> <currency>`, the limit recommended in the company's currency;
   that limit is an amount a read of the run returned as money
-  (`Figures.Returned`), whatever that read was about (the check does not
+  (`Figures.Returned`: as written, without its sign), whatever that read
+  was about (the check does not
   tell the customer's own figures from others the run read), written
   without thousands separators; every other number in the content is one
   the run read (§4), so an amount with a fraction is one a read returned,

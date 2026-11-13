@@ -1,7 +1,6 @@
 package recommend_test
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -57,7 +56,7 @@ func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// reference a person typed looks like an amount.
 		answer(200, `{"exposure": {"amount": "1470.00", "currency": "CAD"}, "limit": {"amount": "-5000.00", "currency": "CAD"}, "open_item_count": 2,
 			"rate": 1.25, "yen": {"amount": "900", "currency": "JPY"}, "customer_number": "100042", "reference": "777.77",
-			"amount": {"amount": "`+strings.TrimSuffix(r.URL.Query().Get("amount"), "0")+`", "currency": "CAD"}, "share": `+cmp.Or(r.URL.Query().Get("share"), "null")+`, "aging_days": [`+cmp.Or(r.URL.Query().Get("aging_days"), "30")+`],
+			"amount": {"amount": "`+strings.TrimSuffix(r.URL.Query().Get("amount"), "0")+`", "currency": "CAD"}, 
 			"lines": [{"amount": {"amount": "30.50", "currency": "CAD"}}]}`)
 	case path == "/v1/credit-limits":
 		answer(403, `{"code": "identity.permission_missing", "status": 403, "detail": "needs 99.99"}`)
@@ -152,8 +151,7 @@ func TestRun(t *testing.T) {
 	var exposure, count, typed bool
 	model := llmtest.New(t,
 		llmtest.ToolFn("createRecommendation", rec(nil)),
-		llmtest.Tool("getCreditExposure", map[string]any{"legal_entity_id": other, "customer_id": partner, "amount": "1617.010", "share": 0.75,
-			"include": []any{"limit"}, "aging_days": "30,1600"}),
+		llmtest.Tool("getCreditExposure", map[string]any{"legal_entity_id": other, "customer_id": partner, "amount": "1617.010"}),
 		llmtest.Tool("listCreditLimits", map[string]any{}),
 		llmtest.Tool("getBusinessPartner", map[string]any{"id": partner}),
 		llmtest.ToolFn("createRecommendation", rec(map[string]any{"session_id": other})),
@@ -163,9 +161,9 @@ func TestRun(t *testing.T) {
 		llmtest.ToolFn("createRecommendation", rec(map[string]any{"kind": 7})),
 		llmtest.Tool("createRecommendation", map[string]any{}),
 		llmtest.ToolFn("createRecommendation", rec(map[string]any{"content": "Limit 5000.00 CAD; 99.99 was refused, 1,480.00 is not the exposure, nor is 1,480.00."})),
-		llmtest.ToolFn("createRecommendation", rec(map[string]any{"content": "Limit 5000.00 CAD: 1617.01 CAD was the amount asked about and 0.75 the share, both the request's own."})),
+		llmtest.ToolFn("createRecommendation", rec(map[string]any{"content": "Limit 5000.00 CAD: 1617.01 CAD was the amount asked about, the request's own."})),
 		llmtest.ToolFn("createRecommendation", rec(map[string]any{"content": "Limit 5000.00 CAD: 777.77 is a reference somebody typed."})),
-		llmtest.ToolFn("createRecommendation", rec(map[string]any{"content": "Limit 5000.00 CAD: about $1500 on 3 invoices, 1470 rounded, 5000 without its cents, 1600 from the days asked for."})),
+		llmtest.ToolFn("createRecommendation", rec(map[string]any{"content": "Limit 5000.00 CAD: about $1500 on 3 invoices, 1470 rounded, 5000 without its cents."})),
 		llmtest.ToolFn("createRecommendation", rec(map[string]any{"content": "Limit 5000.00 CAD: refuse it."})),
 		llmtest.ToolFn("createRecommendation", rec(map[string]any{"content": "Limit CAD 5,000.00, exposure 1470.00 over 2 items of customer 100042 at 1.25, JPY 900 and 30.50."})),
 		llmtest.ToolFn("createRecommendation", rec(nil)),
@@ -226,8 +224,8 @@ func TestRun(t *testing.T) {
 			t.Errorf("the model was not told %q", want)
 		}
 	}
-	for _, want := range []string{"a number the run did not read: 1617.01, 0.75", "a number the run did not read: 777.77",
-		"a number the run did not read: 1500, 3, 1470, 5000, 1600"} {
+	for _, want := range []string{"a number the run did not read: 1617.01", "a number the run did not read: 777.77",
+		"a number the run did not read: 1500, 3, 1470, 5000"} {
 		if !strings.Contains(refusals, want) {
 			t.Errorf("the check's refusal: want %q", want)
 		}
