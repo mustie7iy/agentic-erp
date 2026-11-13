@@ -73,8 +73,11 @@ the configuration document, each a `kind` and `years`:
 
 A kind has one rule per company (a second is refused). The list is keyed
 by kind, so a change names `companies[3000].retention[journal_entry].years`.
-A change of the rules is tier 2, operational: it posts nothing and is
-approved by the process owner, as dunning levels are (ADR-0065 §2). The
+A change of the rules is tier 3, with two approvers (the process owner
+and the controller) after the simulation and regression evidence tier 3
+asks for: a rule posts nothing, but it decides which years a later run
+may archive or erase, and an erasure cannot be undone (product owner,
+2026-11-13, security posture; T99a first built tier 2). The
 rules change only through a change request and its approval, as every
 setting does. No rule is shipped or defaulted for any jurisdiction, in
 the product or in a country pack (the product owner's answer to
@@ -141,10 +144,12 @@ record what they build under this section in "As built".
   plan places them in the configuration so that they are versioned,
   approved and compared as every setting is, and a country pack can ship
   them later with their legal source.
-- **Tier 3 for a change of the rules.** Tier 3 is for settings that
-  change what postings carry; a retention rule posts nothing, and a
-  shorter rule only lets a later step act, itself behind its own
-  permission. Tier 2 asks the process owner's approval.
+- **Tier 2 for a change of the rules**, as T99a first built it: a rule
+  posts nothing and a shorter rule only lets a later step act, itself
+  behind its own permission, so the process owner's approval alone was
+  taken to suffice. The product owner chose tier 3 (2026-11-13): a
+  shorter rule leads to erasure, which cannot be undone, so it takes two
+  approvers.
 
 ## Consequences
 
@@ -163,8 +168,8 @@ record what they build under this section in "As built".
    its retention ends, on the company's date.
 2. A year ending on 29 February keeps its documents until 28 February of
    a later year without one.
-3. A change of the retention rules is tier 2, approved by the process
-   owner.
+3. A change of the retention rules is tier 3, with two approvers
+   (product owner, 2026-11-13, replacing tier 2).
 4. A rule's years are 0 to 99 and must be given; zero keeps documents
    until the fiscal year ends.
 5. The status lists every fiscal year set up for the company, past and
@@ -192,9 +197,14 @@ question for the legal specialists before any period is shipped (plan,
   (`db/records_test.go`).
 - Walkthrough `step_retention` (step 79): Rhea, the records
   administrator, reads that Maple has no rule and nothing past
-  retention; Ada sets ten years for journal entries through a tier 2
-  change approved by Priya, and the migrated prior year is kept until
+  retention; Ada sets ten years for journal entries through a tier 3
+  change, replayed and approved by Priya and Carla, and the migrated prior year is kept until
   ten years after its last day; a rule of zero years, activated the same
   way, puts the prior year past retention and leaves the current year
   within it; personal data has no rule, and an unknown kind is refused.
 - Decided by default while building: the defaults 1 to 5 above.
+- Tier 3 (product owner, 2026-11-13, po:2026-11-13): the rule of
+  `internal/config` `diff.go` makes every change of
+  `companies[].retention[]` tier 3, so a change waits for the
+  simulation and regression evidence and two approvers; T99a had built
+  it tier 2 (`TestRetentionTier`, the walkthrough's `retention_rule`).

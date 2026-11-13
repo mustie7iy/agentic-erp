@@ -182,10 +182,11 @@ var tierRules = []struct {
 	// dunning run proposes and at which level (ADR-0065 §2), as payment
 	// terms' days decide what is due.
 	{rx(`^companies\[\*\]\.dunning(\.|$)`), TierOperational},
-	// Retention rules post nothing: they decide which fiscal years of a
-	// kind are past retention, which archiving runs read (ADR-0079 §2),
-	// and are approved by the process owner, as dunning levels are.
-	{rx(`^companies\[\*\]\.retention(\[|$)`), TierOperational},
+	// Retention rules post nothing, but they decide which fiscal years of
+	// a kind are past retention, which archiving and erasure read, and an
+	// erasure cannot be undone: tier 3, with two approvers (ADR-0079 §2,
+	// product owner 2026-11-13).
+	{rx(`^companies\[\*\]\.retention(\[|$)`), TierPostingRelated},
 	// Condition types and the pricing procedure post nothing: they decide
 	// the net value new sales items take (ADR-0067 §11), as payment terms
 	// decide what is due. A type's name is a text.

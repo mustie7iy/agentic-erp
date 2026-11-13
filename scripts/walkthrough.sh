@@ -7888,7 +7888,9 @@ step_risks() {
 
 # retention_rule YEARS TITLE has Ada propose Maple's retention rule for
 # journal entries, YEARS after the fiscal year's end, through a change
-# request: tier 2, approved by the process owner, then activated.
+# request: tier 3, since an erasure cannot be undone (product owner,
+# 2026-11-13): replayed, approved by the process owner and the
+# controller, then activated.
 retention_rule() {
   local years=$1 title=$2 base cr request
   as ada
@@ -7901,9 +7903,16 @@ retention_rule() {
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @retention.json
   cr=$(field .id)
   api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
-  expect "the change's tier" "$(field .tier)" 2
+  expect "the change's tier" "$(field .tier)" 3
+  QUIET=1 api 201 '' createRegressionSuite -body "{\"name\": \"Before $title\", \"window_days\": 366}"
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  wait_op
+  api 200 '.evidence[] | "evidence \(.kind): \(if .passed then "passed" else "FAILED" end), \(.summary)"' getChangeRequest -p "id=$cr"
+  expect "status after the evidence" "$(field .status)" pending_approval
   request=$(field .workflow_request_id)
   approve priya "$request" "The retention of journal entries, as the records administrator asked"
+  approve carla "$request" "Erasure after this period cannot be undone; the period is the company's"
   as ada
   QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
   api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"

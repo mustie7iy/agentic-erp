@@ -125,9 +125,10 @@ func TestRetentionEnds(t *testing.T) {
 	}
 }
 
-// TestRetentionTier: retention rules post nothing, so setting them and a
-// rule's years are tier 2, operational (ADR-0079 §2), each change named
-// by its kind.
+// TestRetentionTier: an erasure cannot be undone, so setting retention
+// rules and a rule's years, to zero included, are tier 3 with two
+// approvers (ADR-0079 §2, product owner 2026-11-13), each change named by
+// its kind.
 func TestRetentionTier(t *testing.T) {
 	longer := withRetention(t)
 	longer.Company("1000").Retention[0].Years = years(11)
@@ -148,8 +149,8 @@ func TestRetentionTier(t *testing.T) {
 			var paths []string
 			for _, d := range diffs {
 				paths = append(paths, d.Path)
-				if d.Tier != TierOperational {
-					t.Errorf("tier of %s: got %v, want %v", d.Path, d.Tier, TierOperational)
+				if d.Tier != TierPostingRelated {
+					t.Errorf("tier of %s: got %v, want %v", d.Path, d.Tier, TierPostingRelated)
 				}
 			}
 			if got := strings.Join(paths, " "); got != tc.wantPaths {
