@@ -5234,4 +5234,16 @@ records.archiving_run  (tenant_id, id, legal_entity_id, document_kind, fiscal_ye
 - The archiver claims a tenant's queued runs by `archiving_run_queued`
   (`FOR UPDATE SKIP LOCKED`); the worker role reads `tenant_id` and `status`
   across tenants to find them. The list reads `archiving_run_by_created`.
-- Permissions `records.retention.read`, `records.archive.run`.
+- The personal data inventory (ADR-0079 §9, T100a) is not a table: it is
+  declared in `internal/records` (`records.Inventory`), each entry a column
+  of another context's table that holds personal data (schema, table,
+  column, category, purpose and, per kind of data subject, the column naming
+  the subject). `TestInventoryCoversTheDatabase` checks every entry against
+  the database and refuses a column of a known personal kind (names,
+  addresses and contacts, bank details, subjects, client addresses) that the
+  inventory does not name or set aside, and a schema with no entry that does
+  not say why (`records.SchemasWithout`). The subject read counts rows of
+  those tables by the subject's column, through RLS in the request's
+  transaction; it reads no value.
+- Permissions `records.retention.read`, `records.archive.run`,
+  `records.privacy.read` (migration 000311).

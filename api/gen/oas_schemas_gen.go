@@ -42457,6 +42457,22 @@ func (s *GetPeriodCloseOKHeaders) SetResponse(val PeriodClose) {
 
 func (*GetPeriodCloseOKHeaders) getPeriodCloseRes() {}
 
+type GetPersonalDataSubjectBadRequest Problem
+
+func (*GetPersonalDataSubjectBadRequest) getPersonalDataSubjectRes() {}
+
+type GetPersonalDataSubjectForbidden Problem
+
+func (*GetPersonalDataSubjectForbidden) getPersonalDataSubjectRes() {}
+
+type GetPersonalDataSubjectNotFound Problem
+
+func (*GetPersonalDataSubjectNotFound) getPersonalDataSubjectRes() {}
+
+type GetPersonalDataSubjectUnprocessableEntity Problem
+
+func (*GetPersonalDataSubjectUnprocessableEntity) getPersonalDataSubjectRes() {}
+
 type GetPlanCategoryBadRequest Problem
 
 func (*GetPlanCategoryBadRequest) getPlanCategoryRes() {}
@@ -67965,6 +67981,240 @@ func (s *PeriodCloseVarianceTotals) SetRowsExplained(val int32) {
 	s.RowsExplained = val
 }
 
+// A column of the database that holds personal data.
+// Ref: #/components/schemas/PersonalDataEntry
+type PersonalDataEntry struct {
+	// The database schema: the context that keeps the data.
+	Schema string `json:"schema"`
+	// The table.
+	Table string `json:"table"`
+	// The column.
+	Column string `json:"column"`
+	// What kind of personal data it is: `name`, `address`, `contact`, `bank_details`, `identifier`,
+	// `network_address` or `free_text`. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Category string `json:"category"`
+	// Why it is kept.
+	Purpose string `json:"purpose"`
+	// The kinds of data subject whose rows can be counted in it (`getPersonalDataSubject`); empty when who
+	// a row concerns cannot be told from it.
+	SubjectKinds []string `json:"subject_kinds"`
+}
+
+// GetSchema returns the value of Schema.
+func (s *PersonalDataEntry) GetSchema() string {
+	return s.Schema
+}
+
+// GetTable returns the value of Table.
+func (s *PersonalDataEntry) GetTable() string {
+	return s.Table
+}
+
+// GetColumn returns the value of Column.
+func (s *PersonalDataEntry) GetColumn() string {
+	return s.Column
+}
+
+// GetCategory returns the value of Category.
+func (s *PersonalDataEntry) GetCategory() string {
+	return s.Category
+}
+
+// GetPurpose returns the value of Purpose.
+func (s *PersonalDataEntry) GetPurpose() string {
+	return s.Purpose
+}
+
+// GetSubjectKinds returns the value of SubjectKinds.
+func (s *PersonalDataEntry) GetSubjectKinds() []string {
+	return s.SubjectKinds
+}
+
+// SetSchema sets the value of Schema.
+func (s *PersonalDataEntry) SetSchema(val string) {
+	s.Schema = val
+}
+
+// SetTable sets the value of Table.
+func (s *PersonalDataEntry) SetTable(val string) {
+	s.Table = val
+}
+
+// SetColumn sets the value of Column.
+func (s *PersonalDataEntry) SetColumn(val string) {
+	s.Column = val
+}
+
+// SetCategory sets the value of Category.
+func (s *PersonalDataEntry) SetCategory(val string) {
+	s.Category = val
+}
+
+// SetPurpose sets the value of Purpose.
+func (s *PersonalDataEntry) SetPurpose(val string) {
+	s.Purpose = val
+}
+
+// SetSubjectKinds sets the value of SubjectKinds.
+func (s *PersonalDataEntry) SetSubjectKinds(val []string) {
+	s.SubjectKinds = val
+}
+
+// The personal data inventory (records, ADR-0079 §9, T100a).
+// Ref: #/components/schemas/PersonalDataInventory
+type PersonalDataInventory struct {
+	// How many entries are listed.
+	Count int32 `json:"count"`
+	// The entries, by schema, table and column.
+	Items []PersonalDataEntry `json:"items"`
+}
+
+// GetCount returns the value of Count.
+func (s *PersonalDataInventory) GetCount() int32 {
+	return s.Count
+}
+
+// GetItems returns the value of Items.
+func (s *PersonalDataInventory) GetItems() []PersonalDataEntry {
+	return s.Items
+}
+
+// SetCount sets the value of Count.
+func (s *PersonalDataInventory) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetItems sets the value of Items.
+func (s *PersonalDataInventory) SetItems(val []PersonalDataEntry) {
+	s.Items = val
+}
+
+func (*PersonalDataInventory) getPersonalDataInventoryRes() {}
+
+// Where one data subject's personal data is held: rows counted per inventory entry (ADR-0079 §10,
+// T100a). It holds no personal data.
+// Ref: #/components/schemas/PersonalDataSubject
+type PersonalDataSubject struct {
+	// The kind of data subject. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	SubjectKind string `json:"subject_kind"`
+	// The business partner or principal.
+	SubjectID uuid.UUID `json:"subject_id"`
+	// The sum of the entries' rows.
+	TotalRows int64 `json:"total_rows"`
+	// Each inventory entry linked to the kind, by schema, table and column, with its count, zero included.
+	Items []PersonalDataSubjectEntry `json:"items"`
+}
+
+// GetSubjectKind returns the value of SubjectKind.
+func (s *PersonalDataSubject) GetSubjectKind() string {
+	return s.SubjectKind
+}
+
+// GetSubjectID returns the value of SubjectID.
+func (s *PersonalDataSubject) GetSubjectID() uuid.UUID {
+	return s.SubjectID
+}
+
+// GetTotalRows returns the value of TotalRows.
+func (s *PersonalDataSubject) GetTotalRows() int64 {
+	return s.TotalRows
+}
+
+// GetItems returns the value of Items.
+func (s *PersonalDataSubject) GetItems() []PersonalDataSubjectEntry {
+	return s.Items
+}
+
+// SetSubjectKind sets the value of SubjectKind.
+func (s *PersonalDataSubject) SetSubjectKind(val string) {
+	s.SubjectKind = val
+}
+
+// SetSubjectID sets the value of SubjectID.
+func (s *PersonalDataSubject) SetSubjectID(val uuid.UUID) {
+	s.SubjectID = val
+}
+
+// SetTotalRows sets the value of TotalRows.
+func (s *PersonalDataSubject) SetTotalRows(val int64) {
+	s.TotalRows = val
+}
+
+// SetItems sets the value of Items.
+func (s *PersonalDataSubject) SetItems(val []PersonalDataSubjectEntry) {
+	s.Items = val
+}
+
+func (*PersonalDataSubject) getPersonalDataSubjectRes() {}
+
+// How many rows of an inventory entry name the subject and hold a value in its column.
+// Ref: #/components/schemas/PersonalDataSubjectEntry
+type PersonalDataSubjectEntry struct {
+	// The database schema.
+	Schema string `json:"schema"`
+	// The table.
+	Table string `json:"table"`
+	// The column.
+	Column string `json:"column"`
+	// The entry's category. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Category string `json:"category"`
+	// The rows that name the subject and hold a value in the column.
+	Rows int64 `json:"rows"`
+}
+
+// GetSchema returns the value of Schema.
+func (s *PersonalDataSubjectEntry) GetSchema() string {
+	return s.Schema
+}
+
+// GetTable returns the value of Table.
+func (s *PersonalDataSubjectEntry) GetTable() string {
+	return s.Table
+}
+
+// GetColumn returns the value of Column.
+func (s *PersonalDataSubjectEntry) GetColumn() string {
+	return s.Column
+}
+
+// GetCategory returns the value of Category.
+func (s *PersonalDataSubjectEntry) GetCategory() string {
+	return s.Category
+}
+
+// GetRows returns the value of Rows.
+func (s *PersonalDataSubjectEntry) GetRows() int64 {
+	return s.Rows
+}
+
+// SetSchema sets the value of Schema.
+func (s *PersonalDataSubjectEntry) SetSchema(val string) {
+	s.Schema = val
+}
+
+// SetTable sets the value of Table.
+func (s *PersonalDataSubjectEntry) SetTable(val string) {
+	s.Table = val
+}
+
+// SetColumn sets the value of Column.
+func (s *PersonalDataSubjectEntry) SetColumn(val string) {
+	s.Column = val
+}
+
+// SetCategory sets the value of Category.
+func (s *PersonalDataSubjectEntry) SetCategory(val string) {
+	s.Category = val
+}
+
+// SetRows sets the value of Rows.
+func (s *PersonalDataSubjectEntry) SetRows(val int64) {
+	s.Rows = val
+}
+
 type PingWebhookSubscriptionBadRequest Problem
 
 func (*PingWebhookSubscriptionBadRequest) pingWebhookSubscriptionRes() {}
@@ -69675,6 +69925,8 @@ func (s *Problem) SetFailingChecks(val []FailingCheck) {
 func (s *Problem) SetCreditLimit(val OptCreditLimit) {
 	s.CreditLimit = val
 }
+
+func (*Problem) getPersonalDataInventoryRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/ProfitCenter
@@ -88615,6 +88867,8 @@ func (*TooManyRequestsHeaders) getParkedJournalEntryRes()                 {}
 func (*TooManyRequestsHeaders) getPartnerChangeRes()                      {}
 func (*TooManyRequestsHeaders) getPaymentRunRes()                         {}
 func (*TooManyRequestsHeaders) getPeriodCloseRes()                        {}
+func (*TooManyRequestsHeaders) getPersonalDataInventoryRes()              {}
+func (*TooManyRequestsHeaders) getPersonalDataSubjectRes()                {}
 func (*TooManyRequestsHeaders) getPlanCategoryRes()                       {}
 func (*TooManyRequestsHeaders) getPrincipalRes()                          {}
 func (*TooManyRequestsHeaders) getProfitCenterRes()                       {}
@@ -89434,6 +89688,8 @@ func (*UnauthorizedHeaders) getParkedJournalEntryRes()                 {}
 func (*UnauthorizedHeaders) getPartnerChangeRes()                      {}
 func (*UnauthorizedHeaders) getPaymentRunRes()                         {}
 func (*UnauthorizedHeaders) getPeriodCloseRes()                        {}
+func (*UnauthorizedHeaders) getPersonalDataInventoryRes()              {}
+func (*UnauthorizedHeaders) getPersonalDataSubjectRes()                {}
 func (*UnauthorizedHeaders) getPlanCategoryRes()                       {}
 func (*UnauthorizedHeaders) getPrincipalRes()                          {}
 func (*UnauthorizedHeaders) getProfitCenterRes()                       {}

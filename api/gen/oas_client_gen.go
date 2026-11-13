@@ -3111,6 +3111,35 @@ type Invoker interface {
 	//
 	// GET /v1/period-closes/{id}
 	GetPeriodClose(ctx context.Context, params GetPeriodCloseParams) (GetPeriodCloseRes, error)
+	// GetPersonalDataInventory invokes getPersonalDataInventory operation.
+	//
+	// The personal data inventory (ADR-0079 §9-§10, T100a): each column of the database that holds
+	// personal data, by schema, table and column, with its category (`name`, `address`, `contact`,
+	// `bank_details`, `identifier`, `network_address`, `free_text`), why it is kept, and the kinds of data
+	// subject (`business_partner`, `principal`) whose rows `getPersonalDataSubject` can count in it. The
+	// inventory is declared with the product, not configured: a test refuses a column of a known personal
+	// kind (names, addresses, bank details, subjects, client addresses) that it does not name, so a new
+	// column of that kind is listed or explicitly set aside before it ships. Free text a person types
+	// (descriptions, comments, references) is not inventoried in the first version. The entries are listed
+	// by schema, table and column, unpaged. It reads no personal data. Human-only (`x-agent: false`).
+	//
+	// GET /v1/personal-data-inventory
+	GetPersonalDataInventory(ctx context.Context) (GetPersonalDataInventoryRes, error)
+	// GetPersonalDataSubject invokes getPersonalDataSubject operation.
+	//
+	// Where data about one data subject is held (ADR-0079 §10, T100a): for a business partner (`kind`
+	// `business_partner`, a `GET /v1/business-partners/{id}`) or a principal (`principal`, a person or
+	// agent of the tenant), each inventory entry whose rows name that kind of subject, with how many rows
+	// of it name the subject and hold a value in the column. Entries without such a link (an output
+	// message's recipient, a bank statement line's text) are not listed: who they concern cannot be told
+	// from the row. It counts rows and returns no personal data itself. The counts are of the whole
+	// tenant, every company's rows, so the caller needs access to all companies (403
+	// `records.all_companies_required`). A subject the tenant does not have is 404; a kind not listed is
+	// 422 `request.validation_failed` naming `kind`. Computed on read from one database state. Human-only
+	// (`x-agent: false`).
+	//
+	// GET /v1/personal-data-inventory/subjects/{kind}/{id}
+	GetPersonalDataSubject(ctx context.Context, params GetPersonalDataSubjectParams) (GetPersonalDataSubjectRes, error)
 	// GetPlanCategory invokes getPlanCategory operation.
 	//
 	// Returns one plan category.
@@ -39488,6 +39517,286 @@ func (c *Client) sendGetPeriodClose(ctx context.Context, params GetPeriodClosePa
 
 	stage = "DecodeResponse"
 	result, err := decodeGetPeriodCloseResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetPersonalDataInventory invokes getPersonalDataInventory operation.
+//
+// The personal data inventory (ADR-0079 §9-§10, T100a): each column of the database that holds
+// personal data, by schema, table and column, with its category (`name`, `address`, `contact`,
+// `bank_details`, `identifier`, `network_address`, `free_text`), why it is kept, and the kinds of data
+// subject (`business_partner`, `principal`) whose rows `getPersonalDataSubject` can count in it. The
+// inventory is declared with the product, not configured: a test refuses a column of a known personal
+// kind (names, addresses, bank details, subjects, client addresses) that it does not name, so a new
+// column of that kind is listed or explicitly set aside before it ships. Free text a person types
+// (descriptions, comments, references) is not inventoried in the first version. The entries are listed
+// by schema, table and column, unpaged. It reads no personal data. Human-only (`x-agent: false`).
+//
+// GET /v1/personal-data-inventory
+func (c *Client) GetPersonalDataInventory(ctx context.Context) (GetPersonalDataInventoryRes, error) {
+	res, err := c.sendGetPersonalDataInventory(ctx)
+	return res, err
+}
+
+func (c *Client) sendGetPersonalDataInventory(ctx context.Context) (res GetPersonalDataInventoryRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getPersonalDataInventory"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/personal-data-inventory"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetPersonalDataInventoryOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/personal-data-inventory"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetPersonalDataInventoryOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetPersonalDataInventoryResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetPersonalDataSubject invokes getPersonalDataSubject operation.
+//
+// Where data about one data subject is held (ADR-0079 §10, T100a): for a business partner (`kind`
+// `business_partner`, a `GET /v1/business-partners/{id}`) or a principal (`principal`, a person or
+// agent of the tenant), each inventory entry whose rows name that kind of subject, with how many rows
+// of it name the subject and hold a value in the column. Entries without such a link (an output
+// message's recipient, a bank statement line's text) are not listed: who they concern cannot be told
+// from the row. It counts rows and returns no personal data itself. The counts are of the whole
+// tenant, every company's rows, so the caller needs access to all companies (403
+// `records.all_companies_required`). A subject the tenant does not have is 404; a kind not listed is
+// 422 `request.validation_failed` naming `kind`. Computed on read from one database state. Human-only
+// (`x-agent: false`).
+//
+// GET /v1/personal-data-inventory/subjects/{kind}/{id}
+func (c *Client) GetPersonalDataSubject(ctx context.Context, params GetPersonalDataSubjectParams) (GetPersonalDataSubjectRes, error) {
+	res, err := c.sendGetPersonalDataSubject(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetPersonalDataSubject(ctx context.Context, params GetPersonalDataSubjectParams) (res GetPersonalDataSubjectRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getPersonalDataSubject"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/personal-data-inventory/subjects/{kind}/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetPersonalDataSubjectOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [4]string
+	pathParts[0] = "/v1/personal-data-inventory/subjects/"
+	{
+		// Encode "kind" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "kind",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Kind))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetPersonalDataSubjectOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetPersonalDataSubjectResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

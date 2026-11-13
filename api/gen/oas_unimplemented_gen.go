@@ -3737,6 +3737,41 @@ func (UnimplementedHandler) GetPeriodClose(ctx context.Context, params GetPeriod
 	return r, ht.ErrNotImplemented
 }
 
+// GetPersonalDataInventory implements getPersonalDataInventory operation.
+//
+// The personal data inventory (ADR-0079 §9-§10, T100a): each column of the database that holds
+// personal data, by schema, table and column, with its category (`name`, `address`, `contact`,
+// `bank_details`, `identifier`, `network_address`, `free_text`), why it is kept, and the kinds of data
+// subject (`business_partner`, `principal`) whose rows `getPersonalDataSubject` can count in it. The
+// inventory is declared with the product, not configured: a test refuses a column of a known personal
+// kind (names, addresses, bank details, subjects, client addresses) that it does not name, so a new
+// column of that kind is listed or explicitly set aside before it ships. Free text a person types
+// (descriptions, comments, references) is not inventoried in the first version. The entries are listed
+// by schema, table and column, unpaged. It reads no personal data. Human-only (`x-agent: false`).
+//
+// GET /v1/personal-data-inventory
+func (UnimplementedHandler) GetPersonalDataInventory(ctx context.Context) (r GetPersonalDataInventoryRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetPersonalDataSubject implements getPersonalDataSubject operation.
+//
+// Where data about one data subject is held (ADR-0079 §10, T100a): for a business partner (`kind`
+// `business_partner`, a `GET /v1/business-partners/{id}`) or a principal (`principal`, a person or
+// agent of the tenant), each inventory entry whose rows name that kind of subject, with how many rows
+// of it name the subject and hold a value in the column. Entries without such a link (an output
+// message's recipient, a bank statement line's text) are not listed: who they concern cannot be told
+// from the row. It counts rows and returns no personal data itself. The counts are of the whole
+// tenant, every company's rows, so the caller needs access to all companies (403
+// `records.all_companies_required`). A subject the tenant does not have is 404; a kind not listed is
+// 422 `request.validation_failed` naming `kind`. Computed on read from one database state. Human-only
+// (`x-agent: false`).
+//
+// GET /v1/personal-data-inventory/subjects/{kind}/{id}
+func (UnimplementedHandler) GetPersonalDataSubject(ctx context.Context, params GetPersonalDataSubjectParams) (r GetPersonalDataSubjectRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetPlanCategory implements getPlanCategory operation.
 //
 // Returns one plan category.

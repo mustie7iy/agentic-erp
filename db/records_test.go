@@ -10,8 +10,9 @@ import (
 )
 
 // TestRecordsPermissions (T99a, migration 000309; ADR-0079 §4; T99b,
-// migration 000310, §8): the permissions to read the retention status
-// and to run archiving are seeded and are no approval permissions.
+// migration 000310, §8; T100a, migration 000311, §10): the permissions
+// to read the retention status, to run archiving and to read the personal
+// data inventory are seeded and are no approval permissions.
 func TestRecordsPermissions(t *testing.T) {
 	need(t)
 	rows, err := testDB.Query(context.Background(), `SELECT code FROM ref.permission WHERE code LIKE 'records.%' AND NOT is_approval ORDER BY code`)
@@ -22,7 +23,7 @@ func TestRecordsPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "records.archive.run records.retention.read"; got != want {
+	if got, want := strings.Join(codes, " "), "records.archive.run records.privacy.read records.retention.read"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }

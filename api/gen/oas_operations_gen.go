@@ -220,6 +220,8 @@ const (
 	GetPartnerChangeOperation                      OperationName = "GetPartnerChange"
 	GetPaymentRunOperation                         OperationName = "GetPaymentRun"
 	GetPeriodCloseOperation                        OperationName = "GetPeriodClose"
+	GetPersonalDataInventoryOperation              OperationName = "GetPersonalDataInventory"
+	GetPersonalDataSubjectOperation                OperationName = "GetPersonalDataSubject"
 	GetPlanCategoryOperation                       OperationName = "GetPlanCategory"
 	GetPrincipalOperation                          OperationName = "GetPrincipal"
 	GetProfitCenterOperation                       OperationName = "GetProfitCenter"

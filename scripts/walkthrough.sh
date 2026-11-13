@@ -8025,6 +8025,39 @@ step_retention() {
   passed
 }
 
+# step_privacy is T100a (ADR-0079 §9-§10): Petra, the privacy officer,
+# reads the personal data inventory, the columns that hold personal data
+# with why each is kept, among them the business partner's name and bank
+# details and the audit trail's client addresses; then, for Tyrell, the
+# supplier migrated in step 3, how many rows of each entry name it. The
+# read counts rows and returns no name, address or account. Closed to
+# agents.
+step_privacy() {
+  heading "Step 80 — The personal data inventory: the columns holding personal data with their purpose, and where the supplier Tyrell's data is held, counted without being shown"
+  local want got
+  as ada
+  say "Ada adds Petra, the privacy officer, to the team:"
+  person petra "Petra Privacy Officer" finance_staff
+  as petra
+  say "The inventory is declared with the product and checked against the database by its tests (ADR-0079 §9):"
+  api 200 '"\(.count) entries", (.items[] | select(.schema == "partner" or .schema == "audit") | "  \(.schema).\(.table).\(.column): \(.category), counted for \(.subject_kinds | join(", "))")' \
+    getPersonalDataInventory
+  for want in "partner.business_partner.name name" "partner.bank_account.account_cipher bank_details" "partner.bank_account.holder_name name" \
+    "audit.audit_event.client_address network_address"; do
+    got=$(field "[.items[] | select(\"\(.schema).\(.table).\(.column)\" == \"${want% *}\") | .category] | first // \"\"")
+    expect "the inventory's ${want% *}" "$got" "${want#* }"
+  done
+  say "Where Tyrell's data is held, row counts per entry, the business partner's own rows and those naming it:"
+  api 200 '"\(.total_rows) rows in all", (.items[] | select(.rows > 0) | "  \(.schema).\(.table).\(.column): \(.rows)")' \
+    getPersonalDataSubject -p kind=business_partner -p "id=$SUPPLIER"
+  expect "Tyrell's name, once" "$(field '[.items[] | select(.table == "business_partner" and .column == "name") | .rows] | first')" 1
+  expect "counts, not data" "$(field '[.items[] | keys | join(",")] | unique | join(" ")')" "category,column,rows,schema,table"
+  QUIET=1 api 200 '' getPersonalDataSubject -p kind=principal -p "id=$(awk -F'\t' '$2 == "Petra Privacy Officer" { print $1 }' "$WORK/names")"
+  expect "Petra's own name, once" "$(field '[.items[] | select(.table == "principal" and .column == "display_name") | .rows] | first')" 1
+  refused 422 request.validation_failed getPersonalDataSubject -p kind=employee -p "id=$SUPPLIER"
+  passed
+}
+
 # step_sales_analytics is T91a (ADR-0044 As built T91a): Anna, a sales
 # analyst, asks the semantic layer for the month's order intake and billed
 # value by customer. Order intake is the confirmed sales orders' items by
@@ -10529,7 +10562,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_risks step_retention step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_risks step_retention step_privacy step_close'
 
 main() {
   stop_unseen

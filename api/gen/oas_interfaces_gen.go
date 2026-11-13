@@ -857,6 +857,14 @@ type GetPeriodCloseRes interface {
 	getPeriodCloseRes()
 }
 
+type GetPersonalDataInventoryRes interface {
+	getPersonalDataInventoryRes()
+}
+
+type GetPersonalDataSubjectRes interface {
+	getPersonalDataSubjectRes()
+}
+
 type GetPlanCategoryRes interface {
 	getPlanCategoryRes()
 }

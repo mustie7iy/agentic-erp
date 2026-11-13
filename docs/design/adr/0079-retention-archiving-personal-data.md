@@ -6,7 +6,7 @@ management context and the slices T99a, T99b and T100a to T100c
 (`docs/design/plan-breadth-week3.md`, Lane C), each of which records what
 it built under "As built". T99a builds §1 to §4; §5 states the security
 posture the product owner gave, which the later slices build to; T99b
-builds §6 to §8.
+builds §6 to §8, T100a §9 and §10.
 
 ## Context
 
@@ -211,6 +211,48 @@ also needs `ledger.entry.read`. Starting a run and reading the file are
 human-only (`x-agent: false`). The retention status gives each year's
 `archived`: whether a completed run holds it.
 
+### 9. The personal data inventory (T100a)
+
+The inventory is a declared list in `internal/records`
+(`records.Inventory`), shipped with the product rather than configured:
+each entry is a column of the database that holds personal data, by
+schema, table and column, with its category (`name`, `address`,
+`contact`, `bank_details`, `identifier`, `network_address`,
+`free_text`), why it is kept, and, per kind of data subject
+(`business_partner`, `principal`), the column of its table that names the
+subject. It covers the business partner's name, address and bank
+details, a principal's name, e-mail and identity at the provider, the
+names of people a document keeps as it was decided (a credit release, a
+year sign-off), the audit trail's client addresses (ADR-0026 keeps
+personal data out of the audit details, not this column), a proposed
+partner change's payload, output messages' recipients and subjects and
+bank statement lines' counterparties. Its tests hold it to the database:
+every entry and link is a column; every column whose name is of a known
+personal kind (names, addresses and contacts, bank details, subjects,
+client addresses) is named by the inventory or set aside with why (an
+account's or a cost center's name, the company's own house bank), so a
+migration adding one fails until it is; every schema has an entry or
+says why it holds none (`records.SchemasWithout`). Free text a person
+types (descriptions, comments, references), event payloads and object
+storage are not inventoried in the first version (plan, "Later").
+
+### 10. Where a subject's data is held
+
+`GET /v1/personal-data-inventory` lists the entries (`records.privacy.read`).
+`GET /v1/personal-data-inventory/subjects/{kind}/{id}` counts, for each
+entry naming the kind of subject, the rows that name the subject and hold
+a value in the column, one statement per table, in the request's
+transaction under RLS. It returns counts, never a value. The counts are
+of every company of the tenant, so the caller needs access to all
+companies (403 `records.all_companies_required`); a subject the tenant
+does not have is 404. Both are closed to agents (`x-agent: false`). The
+records context reads these tables by SQL rather than through ports: the
+inventory is about where data is stored, the columns are its own
+declaration and the identifiers are sanitised; it reads no value and
+writes nothing. The audit trail is counted by actor without an index of
+its own: 200,000 changes of one person read in about 0.1 s
+(`TestPersonalDataSubjectBudget`).
+
 ## Alternatives
 
 - **Retention per document type or per account.** SAP's retention is per
@@ -275,6 +317,17 @@ human-only (`x-agent: false`). The retention status gives each year's
     and the tenant's erasure (ADR-0021) erases them with its other
     objects.
 
+## Defaults chosen in T100a (for the product owner's digest)
+
+11. The inventory is declared with the product and refuses an unnamed
+    column of a known personal kind; free text, event payloads and object
+    storage are outside the first version.
+12. A subject read counts across every company and needs access to all
+    of them; it reads the other contexts' tables by SQL, counts only.
+13. Names a document kept as decided (a credit release, a year
+    sign-off) and the proposed partner changes are inventoried as
+    personal data of the principal or partner they name.
+
 ## Questions
 
 None for the product owner from T99a: questions 2 and 3 of the plan were
@@ -333,3 +386,18 @@ question for the legal specialists before any period is shipped (plan,
 - Decided by default while building: the defaults 6 to 10 above.
 - Security posture (§5, product owner 2026-11-12): archiving deletes
   nothing; the run writes two objects and one row of its own.
+
+### T100a Personal data inventory (migration 000311)
+
+- `internal/records`: `Inventory` and `SchemasWithout` (`inventory.go`),
+  `Subject` and the handlers of `GET /v1/personal-data-inventory` and
+  `GET /v1/personal-data-inventory/subjects/{kind}/{id}`;
+  `TestInventoryCoversTheDatabase`, `TestPersonalDataSubjectBudget`
+  (p95 0.1 s for a principal with 200,000 audit events).
+- Migration 000311: the permission `records.privacy.read`
+  (`db/records_test.go`).
+- Walkthrough `step_privacy` (step 80): Petra, the privacy officer, reads
+  the inventory (the partner's name and bank details, the audit trail's
+  client addresses among it) and Tyrell's rows per entry, counts and no
+  value; her own name is counted once; an unknown kind is refused.
+- Decided by default while building: the defaults 11 to 13 above.
