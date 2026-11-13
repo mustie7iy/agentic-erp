@@ -6,10 +6,12 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics/endpoint"
 	"github.com/mustie7iy/agentic-erp/internal/analytics/watchers"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 )
 
 // Watchers is the analytics context's metric watchers as the API wires
@@ -25,7 +27,11 @@ func Watchers(cfg Config, queries *endpoint.Endpoints) *watchers.Endpoints {
 // store alone: its semantic layer reads no API, so a store that cannot
 // answer leaves a watcher for the next refresh.
 func WatchEvaluator(cfg Config) *watchers.Worker {
-	return &watchers.Worker{Watchers: Watchers(cfg, analyticsEndpoints(cfg, storeOnly{}).Init()), Begin: cfg.Pool.Begin, AppRole: cfg.AppRole,
+	// A tenant no longer active is not evaluated for (ADR-0015 As built).
+	begin := func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+		return database.BeginActive(ctx, cfg.Pool, nil, s)
+	}
+	return &watchers.Worker{Watchers: Watchers(cfg, analyticsEndpoints(cfg, storeOnly{}).Init()), Begin: begin, AppRole: cfg.AppRole,
 		Actors: identity.Actors{}, Now: cfg.Now, Log: cfg.Log}
 }
 

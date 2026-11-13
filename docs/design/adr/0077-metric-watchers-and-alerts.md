@@ -234,3 +234,11 @@ the findings.
   only when the run published a manifest (its data changed); the alert
   list's visibility uses the caller's usable permissions
   (`authz.Effective`), so a segregation-of-duties bar hides an alert too.
+- Review round 1 (T96b): the worker begins its transactions only while
+  the tenant is active (`database.BeginActive`; a suspended tenant ends
+  the round, logged) and requires the operation's own permissions
+  (`analytics.watcher.write`, `analytics.query.run`) of the creator, as
+  the API does at its door. Limit recorded: a month-grain query reads
+  three fiscal years, about 36 rows a series, so a watcher over every
+  company is refused (`analytics.watcher_too_many_series`) beyond about 14
+  company-and-currency series; set it on one company then.

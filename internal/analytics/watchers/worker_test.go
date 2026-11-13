@@ -81,6 +81,16 @@ func TestWorker(t *testing.T) {
 			t.Errorf("no creator: got %v, want the failure", err)
 		}
 	})
+	t.Run("without the operation's permissions", func(t *testing.T) {
+		later := watch(t, e.Client, `{"name": "Later", "metric": "revenue", "grain": "year", "condition": {"kind": "above", "value": "1", "currency": "EUR"}}`)
+		e.Tenant.Revoke(t, "analytics.query.run", e.Tenant.Human)
+		if err := w.Refreshed(ctx, e.Tenant.ID); err != nil {
+			t.Errorf("a creator without analytics.query.run: got %v, want the watcher passed over", err)
+		}
+		if a, _ := e.alerts(t, later); a != 0 {
+			t.Errorf("alerts of a creator without analytics.query.run: got %d, want none", a)
+		}
+	})
 	t.Run("no list", func(t *testing.T) {
 		down := errors.New("down")
 		w := *w
@@ -133,6 +143,14 @@ func TestWorkerFromTheStore(t *testing.T) {
 	pgtest.Exec(t, `INSERT INTO analytics.snapshot (tenant_id, manifest_key, watermark, as_of, checked_at) VALUES ($1, $2, '1'::xid8, now(), now())`,
 		e.Tenant.ID, extract.ManifestKey(e.Tenant.ID, 1, "0123456789abcdef"))
 	cfg.Analytics = storeReader{}
+	e.Tenant.SetStatus(t, "suspended")
+	if err := app.WatchEvaluator(cfg).Refreshed(ctx, e.Tenant.ID); err != nil {
+		t.Fatalf("a suspended tenant: got %v, want the round ended", err)
+	}
+	if a, _ := e.alerts(t, w); a != 0 {
+		t.Fatalf("a suspended tenant: got %d alerts, want none", a)
+	}
+	e.Tenant.SetStatus(t, "active")
 	if err := app.WatchEvaluator(cfg).Refreshed(ctx, e.Tenant.ID); err != nil {
 		t.Fatalf("from the store: %v", err)
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -47,10 +48,15 @@ type due struct{ id, creator uuid.UUID }
 // Refreshed evaluates the tenant's active watchers, in the order of their
 // ids. A refusal of one (its creator no longer active or lacking a
 // permission, its metric's data refused) is logged and the others go on;
-// a failure of the machinery is returned with the others', for the next
-// refresh.
+// a tenant no longer active when its watchers are listed (Begin's
+// *database.TenantInactiveError) ends the round, logged; a failure of the machinery is returned with the
+// others', for the next refresh.
 func (w *Worker) Refreshed(ctx context.Context, tenant uuid.UUID) error {
 	list, err := w.active(ctx, tenant)
+	if inactive(err) {
+		w.log().InfoContext(ctx, "metric watchers not evaluated", "tenant", tenant, "reason", err.Error())
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -58,6 +64,11 @@ func (w *Worker) Refreshed(ctx context.Context, tenant uuid.UUID) error {
 	for _, d := range list {
 		err := uow.Job{Begin: w.Begin, Scope: database.Scope{Role: w.AppRole, TenantID: tenant}, Name: "analytics: evaluate watcher " + d.id.String(),
 			Now: w.Now}.As(ctx, w.creator(d), func(ctx context.Context) error {
+			// The operation's own permissions, which the API checks at its
+			// door (evaluateMetricWatcher's x-permission and x-also-permissions).
+			if err := authz.Require(ctx, "analytics.watcher.write", "analytics.query.run"); err != nil {
+				return err
+			}
 			_, err := w.Watchers.Evaluate(ctx, d.id, func(int32) error { return nil })
 			return err
 		})
@@ -104,6 +115,12 @@ func (w *Worker) creator(d due) func(ctx context.Context, tx pgx.Tx) (reqctx.Pri
 		}
 		return p, true, nil
 	}
+}
+
+// inactive reports whether err is a tenant no longer active.
+func inactive(err error) bool {
+	var e *database.TenantInactiveError
+	return errors.As(err, &e)
 }
 
 func (w *Worker) log() *slog.Logger {

@@ -5399,7 +5399,7 @@ components:
               company: {type: string, description: The company code.}
               currency: {type: [string, 'null'], description: "The figure's currency; null for a count or a ratio."}
               figure: {type: string, description: 'The figure of the period, an exact decimal.'}
-              compared_with: {type: string, description: "The value, or the previous period's figure, it was compared with."}
+              compared_with: {type: string, description: "The value, the previous period's figure, or the average of the previous periods, it was compared with."}
               percent: {type: [string, 'null'], description: 'The change in percent from the base, two decimals; null for above and below.'}
         raised_as: {$ref: '#/components/schemas/Uuid', description: "The watcher's creator the evaluation ran as: `identity.principal.id`."}
     RevenueContractChangedV1:
