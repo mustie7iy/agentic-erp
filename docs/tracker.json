@@ -2969,13 +2969,13 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Dispute cases",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A collections specialist opens a dispute case on a customer's open invoice with a reason and the disputed amount, assigns it to a person, and closes it as accepted or rejected (POST /v1/dispute-cases, :close)",
-        "r": "T86a · docs/design/plan-breadth-week3.md §T86a",
+        "r": "T86a · docs/design/plan-breadth-week3.md §T86a · db/migrations/000308 · collections.dispute_case · POST /v1/dispute-cases · GET /v1/dispute-cases · GET /v1/dispute-cases/{id} · PATCH /v1/dispute-cases/{id} · POST /v1/dispute-cases/{id}:close · DisputeCaseChanged · collections.dispute.read, .write · authz.AssignableTo · walkthrough step_dispute · ADR-0065 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

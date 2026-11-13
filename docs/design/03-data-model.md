@@ -4431,7 +4431,7 @@ erDiagram
 
 ## 3.27 Dunning and collections (`collections`)
 
-ADR-0065, T76a-T76c. A leaf: it reads the ledger's customer open items
+ADR-0065, T76a-T76c, T86a-T86b. A leaf: it reads the ledger's customer open items
 (§3.7, `ledger.OpenItems.Receivable`), the partner context's names,
 tenancy and the configuration through its ports, posts nothing and keeps
 no foreign key out of its schema (02 §2.1). T76a (migration 000273)
@@ -4440,7 +4440,10 @@ proposal of the customer items of a company overdue on a key date, one
 notice per customer. Nothing changes on the items, which stay the
 ledger's. T76b (migration 000277) confirms a run: the run's status
 changes, and each item's level and dunning date are recorded in
-`dunned_item`, which the next run reads.
+`dunned_item`, which the next run reads. T86a (migration 000308) adds
+the dispute case: a customer's dispute of an amount of one of its open
+items, named by its journal line as a notice's item is, worked by a
+person and closed as accepted or rejected; closing posts nothing.
 
 ```mermaid
 erDiagram
@@ -4485,6 +4488,27 @@ erDiagram
     uuid dunning_run_id PK "the confirmed run"
     smallint level "1-9"
     date dunning_date "the run's key date" }
+  dispute_case { uuid id PK
+    uuid legal_entity_id "tenancy"
+    uuid customer_id "partner"
+    text customer_number "when opened"
+    smallint fiscal_year "ledger: the journal line"
+    uuid journal_entry_id
+    int line_no
+    text document_number
+    text reference
+    char currency "the item's"
+    bigint disputed_amount "above 0"
+    char currency_lc "the company's"
+    bigint disputed_amount_lc "its share, as booked"
+    text reason
+    uuid assignee_id "identity: a person"
+    text note
+    text status "open, accepted, rejected"
+    text close_reason
+    timestamptz closed_at
+    uuid closed_by
+    int version }
 ```
 
 - `collections.dunning_run`: the status is `proposed` or `confirmed`
@@ -4529,10 +4553,35 @@ erDiagram
   (`dunned_item_level_check`); insert-only. An item's level is the
   highest among its rows and its last dunning date the latest; an item at
   the highest level gets a row per confirmed run that took it.
+- `collections.dispute_case` (T86a, migration 000308): an open item of
+  the ledger, named by its journal line (`dispute_case_line_no_check`),
+  with its customer's number and its document number
+  (`dispute_case_customer_number_check`,
+  `dispute_case_document_number_check`); `disputed_amount` above zero in
+  the item's currency (`dispute_case_amount_check`) and
+  `disputed_amount_lc`, its share of the item's amount in the company's
+  currency as booked, not negative (`dispute_case_amount_lc_check`), both
+  currencies known (`dispute_case_currency_fkey`,
+  `dispute_case_currency_lc_fkey`); a reason, a note and a close reason
+  of more than white space and at most 500, 2,000 and 500 characters
+  (`dispute_case_reason_check`, `dispute_case_note_check`,
+  `dispute_case_close_reason_check`); `open`, `accepted` or `rejected`
+  (`dispute_case_status_check`), a closed case with its close reason,
+  time and person and an open one with none of them
+  (`dispute_case_closed_check`); version from 1
+  (`dispute_case_version_check`). An item has one open case at a time
+  (the partial unique index `dispute_case_one_open`, which a dunning run
+  and the worklist read the open cases of their items by); the list reads
+  the tenant's cases by `created_at` (`dispute_case_by_created_at`). The
+  application sets the assignee, the note, the status with the close's
+  columns, the version and `updated_by` alone, and deletes none; a closed
+  case is not changed by any role (the trigger
+  `dispute_case_closed_once`).
 - `collections.outbox`, `collections.inbox`: the context's events
-  (`DunningRunChanged`, `DunningNoticeIssued`).
-- Permissions `collections.dunning.read` and `.run`, and
-  `collections.worklist.read` (T76c, migration 000278). The collection
+  (`DunningRunChanged`, `DunningNoticeIssued`, `DisputeCaseChanged`).
+- Permissions `collections.dunning.read` and `.run`,
+  `collections.worklist.read` (T76c, migration 000278), and
+  `collections.dispute.read` and `.write` (T86a, migration 000308). The collection
   worklist has no table: it is computed on read from the ledger's open
   customer items and `dunned_item` (ADR-0065 §9).
 

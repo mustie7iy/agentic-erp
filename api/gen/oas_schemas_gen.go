@@ -22627,6 +22627,30 @@ func (s *CloseCheckWarning) SetCatchUp(val OptMoney) {
 	s.CatchUp = val
 }
 
+type CloseDisputeCaseBadRequest Problem
+
+func (*CloseDisputeCaseBadRequest) closeDisputeCaseRes() {}
+
+type CloseDisputeCaseForbidden Problem
+
+func (*CloseDisputeCaseForbidden) closeDisputeCaseRes() {}
+
+type CloseDisputeCaseNotFound Problem
+
+func (*CloseDisputeCaseNotFound) closeDisputeCaseRes() {}
+
+type CloseDisputeCasePreconditionFailed Problem
+
+func (*CloseDisputeCasePreconditionFailed) closeDisputeCaseRes() {}
+
+type CloseDisputeCasePreconditionRequired Problem
+
+func (*CloseDisputeCasePreconditionRequired) closeDisputeCaseRes() {}
+
+type CloseDisputeCaseUnprocessableEntity Problem
+
+func (*CloseDisputeCaseUnprocessableEntity) closeDisputeCaseRes() {}
+
 type CloseFiscalPeriodBadRequest Problem
 
 func (*CloseFiscalPeriodBadRequest) closeFiscalPeriodRes() {}
@@ -24398,6 +24422,7 @@ func (*ConflictHeaders) captureSupplierInvoiceRes()                {}
 func (*ConflictHeaders) checkCloseTaskRes()                        {}
 func (*ConflictHeaders) checkYearCloseTaskRes()                    {}
 func (*ConflictHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
+func (*ConflictHeaders) closeDisputeCaseRes()                      {}
 func (*ConflictHeaders) closeFiscalPeriodRes()                     {}
 func (*ConflictHeaders) closeInternalOrderRes()                    {}
 func (*ConflictHeaders) closePurchaseOrderRes()                    {}
@@ -24429,6 +24454,7 @@ func (*ConflictHeaders) createControlTestRes()                     {}
 func (*ConflictHeaders) createCostCenterRes()                      {}
 func (*ConflictHeaders) createCreditLimitRes()                     {}
 func (*ConflictHeaders) createCustomerInvoiceRes()                 {}
+func (*ConflictHeaders) createDisputeCaseRes()                     {}
 func (*ConflictHeaders) createDownPaymentRequestRes()              {}
 func (*ConflictHeaders) createDunningRunRes()                      {}
 func (*ConflictHeaders) createEntryTemplateRes()                   {}
@@ -24620,6 +24646,7 @@ func (*ConflictHeaders) updateContractRes()                        {}
 func (*ConflictHeaders) updateControlRes()                         {}
 func (*ConflictHeaders) updateCostCenterRes()                      {}
 func (*ConflictHeaders) updateCreditLimitRes()                     {}
+func (*ConflictHeaders) updateDisputeCaseRes()                     {}
 func (*ConflictHeaders) updateEntryTemplateRes()                   {}
 func (*ConflictHeaders) updateLegalEntityRes()                     {}
 func (*ConflictHeaders) updateMemoRecordRes()                      {}
@@ -31251,6 +31278,22 @@ type CreateCustomerInvoiceUnprocessableEntity Problem
 
 func (*CreateCustomerInvoiceUnprocessableEntity) createCustomerInvoiceRes() {}
 
+type CreateDisputeCaseBadRequest Problem
+
+func (*CreateDisputeCaseBadRequest) createDisputeCaseRes() {}
+
+type CreateDisputeCaseForbidden Problem
+
+func (*CreateDisputeCaseForbidden) createDisputeCaseRes() {}
+
+type CreateDisputeCasePreconditionRequired Problem
+
+func (*CreateDisputeCasePreconditionRequired) createDisputeCaseRes() {}
+
+type CreateDisputeCaseUnprocessableEntity Problem
+
+func (*CreateDisputeCaseUnprocessableEntity) createDisputeCaseRes() {}
+
 type CreateDownPaymentRequestBadRequest Problem
 
 func (*CreateDownPaymentRequestBadRequest) createDownPaymentRequestRes() {}
@@ -35368,6 +35411,596 @@ func (*DiscardConsolidationRunPreconditionFailed) discardConsolidationRunRes() {
 type DiscardConsolidationRunPreconditionRequired Problem
 
 func (*DiscardConsolidationRunPreconditionRequired) discardConsolidationRunRes() {}
+
+// Merged schema.
+// Ref: #/components/schemas/DisputeCase
+type DisputeCase struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The company whose customer item is disputed.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The fiscal year of the item's journal entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry whose line is the disputed item (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The line of the journal entry that is the disputed item.
+	LineNo int32 `json:"line_no"`
+	// The journal entry's document number.
+	DocumentNumber string `json:"document_number"`
+	// The journal entry's reference, a customer invoice's document number for one; absent when it has
+	// none.
+	Reference OptString `json:"reference"`
+	// The amount disputed, in the item's currency.
+	DisputedAmount Money `json:"disputed_amount"`
+	// The same in the company's currency, its share of the item's amount as the item was booked.
+	LocalDisputedAmount Money `json:"local_disputed_amount"`
+	// Why the customer disputes the amount.
+	Reason string `json:"reason"`
+	// The person who works the case; absent when nobody is assigned.
+	AssigneeID OptUUID `json:"assignee_id"`
+	// The assignee's name; absent when `assignee_id` is.
+	AssigneeName OptString `json:"assignee_name"`
+	// The note on the case; absent when it has none.
+	Note OptString `json:"note"`
+	// `open`: the case is being worked, and a dunning run leaves its item out (T86b). `accepted`: closed,
+	// the customer was right; a person credits it. `rejected`: closed, the customer owes the amount. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Status string `json:"status"`
+	// Why the case was closed with its outcome; absent while it is open.
+	CloseReason OptString `json:"close_reason"`
+	// When the case was closed; absent while it is open.
+	ClosedAt OptDateTime `json:"closed_at"`
+	// Who closed the case; absent while it is open.
+	ClosedBy OptUUID `json:"closed_by"`
+	// The name of who closed the case; absent while it is open.
+	ClosedByName OptString `json:"closed_by_name"`
+}
+
+// GetID returns the value of ID.
+func (s *DisputeCase) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *DisputeCase) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *DisputeCase) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *DisputeCase) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *DisputeCase) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *DisputeCase) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *DisputeCase) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *DisputeCase) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *DisputeCase) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *DisputeCase) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *DisputeCase) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *DisputeCase) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *DisputeCase) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DisputeCase) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *DisputeCase) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *DisputeCase) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetReference returns the value of Reference.
+func (s *DisputeCase) GetReference() OptString {
+	return s.Reference
+}
+
+// GetDisputedAmount returns the value of DisputedAmount.
+func (s *DisputeCase) GetDisputedAmount() Money {
+	return s.DisputedAmount
+}
+
+// GetLocalDisputedAmount returns the value of LocalDisputedAmount.
+func (s *DisputeCase) GetLocalDisputedAmount() Money {
+	return s.LocalDisputedAmount
+}
+
+// GetReason returns the value of Reason.
+func (s *DisputeCase) GetReason() string {
+	return s.Reason
+}
+
+// GetAssigneeID returns the value of AssigneeID.
+func (s *DisputeCase) GetAssigneeID() OptUUID {
+	return s.AssigneeID
+}
+
+// GetAssigneeName returns the value of AssigneeName.
+func (s *DisputeCase) GetAssigneeName() OptString {
+	return s.AssigneeName
+}
+
+// GetNote returns the value of Note.
+func (s *DisputeCase) GetNote() OptString {
+	return s.Note
+}
+
+// GetStatus returns the value of Status.
+func (s *DisputeCase) GetStatus() string {
+	return s.Status
+}
+
+// GetCloseReason returns the value of CloseReason.
+func (s *DisputeCase) GetCloseReason() OptString {
+	return s.CloseReason
+}
+
+// GetClosedAt returns the value of ClosedAt.
+func (s *DisputeCase) GetClosedAt() OptDateTime {
+	return s.ClosedAt
+}
+
+// GetClosedBy returns the value of ClosedBy.
+func (s *DisputeCase) GetClosedBy() OptUUID {
+	return s.ClosedBy
+}
+
+// GetClosedByName returns the value of ClosedByName.
+func (s *DisputeCase) GetClosedByName() OptString {
+	return s.ClosedByName
+}
+
+// SetID sets the value of ID.
+func (s *DisputeCase) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *DisputeCase) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *DisputeCase) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *DisputeCase) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *DisputeCase) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *DisputeCase) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *DisputeCase) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *DisputeCase) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *DisputeCase) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *DisputeCase) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *DisputeCase) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *DisputeCase) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *DisputeCase) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DisputeCase) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *DisputeCase) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *DisputeCase) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetReference sets the value of Reference.
+func (s *DisputeCase) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetDisputedAmount sets the value of DisputedAmount.
+func (s *DisputeCase) SetDisputedAmount(val Money) {
+	s.DisputedAmount = val
+}
+
+// SetLocalDisputedAmount sets the value of LocalDisputedAmount.
+func (s *DisputeCase) SetLocalDisputedAmount(val Money) {
+	s.LocalDisputedAmount = val
+}
+
+// SetReason sets the value of Reason.
+func (s *DisputeCase) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetAssigneeID sets the value of AssigneeID.
+func (s *DisputeCase) SetAssigneeID(val OptUUID) {
+	s.AssigneeID = val
+}
+
+// SetAssigneeName sets the value of AssigneeName.
+func (s *DisputeCase) SetAssigneeName(val OptString) {
+	s.AssigneeName = val
+}
+
+// SetNote sets the value of Note.
+func (s *DisputeCase) SetNote(val OptString) {
+	s.Note = val
+}
+
+// SetStatus sets the value of Status.
+func (s *DisputeCase) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetCloseReason sets the value of CloseReason.
+func (s *DisputeCase) SetCloseReason(val OptString) {
+	s.CloseReason = val
+}
+
+// SetClosedAt sets the value of ClosedAt.
+func (s *DisputeCase) SetClosedAt(val OptDateTime) {
+	s.ClosedAt = val
+}
+
+// SetClosedBy sets the value of ClosedBy.
+func (s *DisputeCase) SetClosedBy(val OptUUID) {
+	s.ClosedBy = val
+}
+
+// SetClosedByName sets the value of ClosedByName.
+func (s *DisputeCase) SetClosedByName(val OptString) {
+	s.ClosedByName = val
+}
+
+// The outcome of a dispute case and its reason.
+// Ref: #/components/schemas/DisputeCaseClose
+type DisputeCaseClose struct {
+	// `accepted`: the customer is right about the disputed amount; `rejected`: it owes it. Another value
+	// is refused (422 `collections.unknown_outcome`). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Outcome string `json:"outcome"`
+	// Why the case is closed with this outcome.
+	Reason string `json:"reason"`
+}
+
+// GetOutcome returns the value of Outcome.
+func (s *DisputeCaseClose) GetOutcome() string {
+	return s.Outcome
+}
+
+// GetReason returns the value of Reason.
+func (s *DisputeCaseClose) GetReason() string {
+	return s.Reason
+}
+
+// SetOutcome sets the value of Outcome.
+func (s *DisputeCaseClose) SetOutcome(val string) {
+	s.Outcome = val
+}
+
+// SetReason sets the value of Reason.
+func (s *DisputeCaseClose) SetReason(val string) {
+	s.Reason = val
+}
+
+// Open a dispute case on a customer's open item. It is created `open`.
+// Ref: #/components/schemas/DisputeCaseCreate
+type DisputeCaseCreate struct {
+	// The company whose customer item is disputed: a legal entity the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year of the item's journal entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry whose line is the open item (as `listOpenItems` and a dunning notice's item name
+	// it).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The line of the journal entry that is the open item.
+	LineNo int32 `json:"line_no"`
+	// The amount the customer disputes, in the item's currency: more than zero and at most what it owes on
+	// the item.
+	DisputedAmount Money `json:"disputed_amount"`
+	// Why the customer disputes the amount.
+	Reason string `json:"reason"`
+	// The person who works the case: an active person of the tenant who may act in the company. Absent:
+	// nobody yet.
+	AssigneeID OptUUID `json:"assignee_id"`
+	// A note on the case, for whoever works it.
+	Note OptString `json:"note"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *DisputeCaseCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *DisputeCaseCreate) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DisputeCaseCreate) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *DisputeCaseCreate) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetDisputedAmount returns the value of DisputedAmount.
+func (s *DisputeCaseCreate) GetDisputedAmount() Money {
+	return s.DisputedAmount
+}
+
+// GetReason returns the value of Reason.
+func (s *DisputeCaseCreate) GetReason() string {
+	return s.Reason
+}
+
+// GetAssigneeID returns the value of AssigneeID.
+func (s *DisputeCaseCreate) GetAssigneeID() OptUUID {
+	return s.AssigneeID
+}
+
+// GetNote returns the value of Note.
+func (s *DisputeCaseCreate) GetNote() OptString {
+	return s.Note
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *DisputeCaseCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *DisputeCaseCreate) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DisputeCaseCreate) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *DisputeCaseCreate) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetDisputedAmount sets the value of DisputedAmount.
+func (s *DisputeCaseCreate) SetDisputedAmount(val Money) {
+	s.DisputedAmount = val
+}
+
+// SetReason sets the value of Reason.
+func (s *DisputeCaseCreate) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetAssigneeID sets the value of AssigneeID.
+func (s *DisputeCaseCreate) SetAssigneeID(val OptUUID) {
+	s.AssigneeID = val
+}
+
+// SetNote sets the value of Note.
+func (s *DisputeCaseCreate) SetNote(val OptString) {
+	s.Note = val
+}
+
+// DisputeCaseHeaders wraps DisputeCase with response headers.
+type DisputeCaseHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           DisputeCase
+}
+
+// GetETag returns the value of ETag.
+func (s *DisputeCaseHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *DisputeCaseHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *DisputeCaseHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *DisputeCaseHeaders) GetResponse() DisputeCase {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *DisputeCaseHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *DisputeCaseHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *DisputeCaseHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *DisputeCaseHeaders) SetResponse(val DisputeCase) {
+	s.Response = val
+}
+
+func (*DisputeCaseHeaders) createDisputeCaseRes() {}
+
+// One page of dispute cases.
+// Ref: #/components/schemas/DisputeCasePage
+type DisputeCasePage struct {
+	// The dispute cases on this page.
+	Items []DisputeCase `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *DisputeCasePage) GetItems() []DisputeCase {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *DisputeCasePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *DisputeCasePage) SetItems(val []DisputeCase) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *DisputeCasePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*DisputeCasePage) listDisputeCasesRes() {}
+
+// Merge patch of an open dispute case: its assignee and its note.
+// Ref: #/components/schemas/DisputeCaseUpdate
+type DisputeCaseUpdate struct {
+	// An active person of the tenant who may act in the case's company. Send null to unassign.
+	AssigneeID OptNilUUID `json:"assignee_id"`
+	// The note on the case. Send null to remove it.
+	Note OptNilString `json:"note"`
+}
+
+// GetAssigneeID returns the value of AssigneeID.
+func (s *DisputeCaseUpdate) GetAssigneeID() OptNilUUID {
+	return s.AssigneeID
+}
+
+// GetNote returns the value of Note.
+func (s *DisputeCaseUpdate) GetNote() OptNilString {
+	return s.Note
+}
+
+// SetAssigneeID sets the value of AssigneeID.
+func (s *DisputeCaseUpdate) SetAssigneeID(val OptNilUUID) {
+	s.AssigneeID = val
+}
+
+// SetNote sets the value of Note.
+func (s *DisputeCaseUpdate) SetNote(val OptNilString) {
+	s.Note = val
+}
 
 // A documentary requirement of input tax recovery the invoice may not meet (ADR-0049 §6), from one
 // tier of the company's documentary requirements.
@@ -41064,6 +41697,46 @@ func (*GetDepreciationRunForbidden) getDepreciationRunRes() {}
 type GetDepreciationRunNotFound Problem
 
 func (*GetDepreciationRunNotFound) getDepreciationRunRes() {}
+
+type GetDisputeCaseBadRequest Problem
+
+func (*GetDisputeCaseBadRequest) getDisputeCaseRes() {}
+
+type GetDisputeCaseForbidden Problem
+
+func (*GetDisputeCaseForbidden) getDisputeCaseRes() {}
+
+type GetDisputeCaseNotFound Problem
+
+func (*GetDisputeCaseNotFound) getDisputeCaseRes() {}
+
+// GetDisputeCaseOKHeaders wraps DisputeCase with response headers.
+type GetDisputeCaseOKHeaders struct {
+	ETag     OptString
+	Response DisputeCase
+}
+
+// GetETag returns the value of ETag.
+func (s *GetDisputeCaseOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetDisputeCaseOKHeaders) GetResponse() DisputeCase {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetDisputeCaseOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetDisputeCaseOKHeaders) SetResponse(val DisputeCase) {
+	s.Response = val
+}
+
+func (*GetDisputeCaseOKHeaders) getDisputeCaseRes() {}
 
 type GetDownPaymentRequestBadRequest Problem
 
@@ -52743,6 +53416,14 @@ func (*ListDepreciationRunsBadRequest) listDepreciationRunsRes() {}
 type ListDepreciationRunsForbidden Problem
 
 func (*ListDepreciationRunsForbidden) listDepreciationRunsRes() {}
+
+type ListDisputeCasesBadRequest Problem
+
+func (*ListDisputeCasesBadRequest) listDisputeCasesRes() {}
+
+type ListDisputeCasesForbidden Problem
+
+func (*ListDisputeCasesForbidden) listDisputeCasesRes() {}
 
 type ListDownPaymentRequestsBadRequest Problem
 
@@ -86850,6 +87531,7 @@ func (*TooManyRequestsHeaders) captureSupplierInvoiceRes()                {}
 func (*TooManyRequestsHeaders) checkCloseTaskRes()                        {}
 func (*TooManyRequestsHeaders) checkYearCloseTaskRes()                    {}
 func (*TooManyRequestsHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
+func (*TooManyRequestsHeaders) closeDisputeCaseRes()                      {}
 func (*TooManyRequestsHeaders) closeFiscalPeriodRes()                     {}
 func (*TooManyRequestsHeaders) closeInternalOrderRes()                    {}
 func (*TooManyRequestsHeaders) closePurchaseOrderRes()                    {}
@@ -86881,6 +87563,7 @@ func (*TooManyRequestsHeaders) createControlTestRes()                     {}
 func (*TooManyRequestsHeaders) createCostCenterRes()                      {}
 func (*TooManyRequestsHeaders) createCreditLimitRes()                     {}
 func (*TooManyRequestsHeaders) createCustomerInvoiceRes()                 {}
+func (*TooManyRequestsHeaders) createDisputeCaseRes()                     {}
 func (*TooManyRequestsHeaders) createDownPaymentRequestRes()              {}
 func (*TooManyRequestsHeaders) createDunningRunRes()                      {}
 func (*TooManyRequestsHeaders) createEntryTemplateRes()                   {}
@@ -86988,6 +87671,7 @@ func (*TooManyRequestsHeaders) getCreditLimitRes()                        {}
 func (*TooManyRequestsHeaders) getCurrentPrincipalRes()                   {}
 func (*TooManyRequestsHeaders) getCustomerInvoiceRes()                    {}
 func (*TooManyRequestsHeaders) getDepreciationRunRes()                    {}
+func (*TooManyRequestsHeaders) getDisputeCaseRes()                        {}
 func (*TooManyRequestsHeaders) getDownPaymentRequestRes()                 {}
 func (*TooManyRequestsHeaders) getDunningRunRes()                         {}
 func (*TooManyRequestsHeaders) getEInvoiceContentRes()                    {}
@@ -87108,6 +87792,7 @@ func (*TooManyRequestsHeaders) listCountryPacksRes()                      {}
 func (*TooManyRequestsHeaders) listCreditLimitsRes()                      {}
 func (*TooManyRequestsHeaders) listCustomerInvoicesRes()                  {}
 func (*TooManyRequestsHeaders) listDepreciationRunsRes()                  {}
+func (*TooManyRequestsHeaders) listDisputeCasesRes()                      {}
 func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()               {}
 func (*TooManyRequestsHeaders) listDunningNoticesRes()                    {}
 func (*TooManyRequestsHeaders) listDunningRunsRes()                       {}
@@ -87293,6 +87978,7 @@ func (*TooManyRequestsHeaders) updateContractRes()                        {}
 func (*TooManyRequestsHeaders) updateControlRes()                         {}
 func (*TooManyRequestsHeaders) updateCostCenterRes()                      {}
 func (*TooManyRequestsHeaders) updateCreditLimitRes()                     {}
+func (*TooManyRequestsHeaders) updateDisputeCaseRes()                     {}
 func (*TooManyRequestsHeaders) updateEntryTemplateRes()                   {}
 func (*TooManyRequestsHeaders) updateInternalOrderBudgetRes()             {}
 func (*TooManyRequestsHeaders) updateInternalOrderSettlementRuleRes()     {}
@@ -87657,6 +88343,7 @@ func (*UnauthorizedHeaders) captureSupplierInvoiceRes()                {}
 func (*UnauthorizedHeaders) checkCloseTaskRes()                        {}
 func (*UnauthorizedHeaders) checkYearCloseTaskRes()                    {}
 func (*UnauthorizedHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
+func (*UnauthorizedHeaders) closeDisputeCaseRes()                      {}
 func (*UnauthorizedHeaders) closeFiscalPeriodRes()                     {}
 func (*UnauthorizedHeaders) closeInternalOrderRes()                    {}
 func (*UnauthorizedHeaders) closePurchaseOrderRes()                    {}
@@ -87688,6 +88375,7 @@ func (*UnauthorizedHeaders) createControlTestRes()                     {}
 func (*UnauthorizedHeaders) createCostCenterRes()                      {}
 func (*UnauthorizedHeaders) createCreditLimitRes()                     {}
 func (*UnauthorizedHeaders) createCustomerInvoiceRes()                 {}
+func (*UnauthorizedHeaders) createDisputeCaseRes()                     {}
 func (*UnauthorizedHeaders) createDownPaymentRequestRes()              {}
 func (*UnauthorizedHeaders) createDunningRunRes()                      {}
 func (*UnauthorizedHeaders) createEntryTemplateRes()                   {}
@@ -87795,6 +88483,7 @@ func (*UnauthorizedHeaders) getCreditLimitRes()                        {}
 func (*UnauthorizedHeaders) getCurrentPrincipalRes()                   {}
 func (*UnauthorizedHeaders) getCustomerInvoiceRes()                    {}
 func (*UnauthorizedHeaders) getDepreciationRunRes()                    {}
+func (*UnauthorizedHeaders) getDisputeCaseRes()                        {}
 func (*UnauthorizedHeaders) getDownPaymentRequestRes()                 {}
 func (*UnauthorizedHeaders) getDunningRunRes()                         {}
 func (*UnauthorizedHeaders) getEInvoiceContentRes()                    {}
@@ -87915,6 +88604,7 @@ func (*UnauthorizedHeaders) listCountryPacksRes()                      {}
 func (*UnauthorizedHeaders) listCreditLimitsRes()                      {}
 func (*UnauthorizedHeaders) listCustomerInvoicesRes()                  {}
 func (*UnauthorizedHeaders) listDepreciationRunsRes()                  {}
+func (*UnauthorizedHeaders) listDisputeCasesRes()                      {}
 func (*UnauthorizedHeaders) listDownPaymentRequestsRes()               {}
 func (*UnauthorizedHeaders) listDunningNoticesRes()                    {}
 func (*UnauthorizedHeaders) listDunningRunsRes()                       {}
@@ -88100,6 +88790,7 @@ func (*UnauthorizedHeaders) updateContractRes()                        {}
 func (*UnauthorizedHeaders) updateControlRes()                         {}
 func (*UnauthorizedHeaders) updateCostCenterRes()                      {}
 func (*UnauthorizedHeaders) updateCreditLimitRes()                     {}
+func (*UnauthorizedHeaders) updateDisputeCaseRes()                     {}
 func (*UnauthorizedHeaders) updateEntryTemplateRes()                   {}
 func (*UnauthorizedHeaders) updateInternalOrderBudgetRes()             {}
 func (*UnauthorizedHeaders) updateInternalOrderSettlementRuleRes()     {}
@@ -88772,6 +89463,70 @@ func (*UpdateCreditLimitPreconditionRequired) updateCreditLimitRes() {}
 type UpdateCreditLimitUnprocessableEntity Problem
 
 func (*UpdateCreditLimitUnprocessableEntity) updateCreditLimitRes() {}
+
+type UpdateDisputeCaseBadRequest Problem
+
+func (*UpdateDisputeCaseBadRequest) updateDisputeCaseRes() {}
+
+type UpdateDisputeCaseForbidden Problem
+
+func (*UpdateDisputeCaseForbidden) updateDisputeCaseRes() {}
+
+type UpdateDisputeCaseNotFound Problem
+
+func (*UpdateDisputeCaseNotFound) updateDisputeCaseRes() {}
+
+// UpdateDisputeCaseOKHeaders wraps DisputeCase with response headers.
+type UpdateDisputeCaseOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           DisputeCase
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateDisputeCaseOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateDisputeCaseOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateDisputeCaseOKHeaders) GetResponse() DisputeCase {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateDisputeCaseOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateDisputeCaseOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateDisputeCaseOKHeaders) SetResponse(val DisputeCase) {
+	s.Response = val
+}
+
+func (*UpdateDisputeCaseOKHeaders) closeDisputeCaseRes()  {}
+func (*UpdateDisputeCaseOKHeaders) updateDisputeCaseRes() {}
+
+type UpdateDisputeCasePreconditionFailed Problem
+
+func (*UpdateDisputeCasePreconditionFailed) updateDisputeCaseRes() {}
+
+type UpdateDisputeCasePreconditionRequired Problem
+
+func (*UpdateDisputeCasePreconditionRequired) updateDisputeCaseRes() {}
+
+type UpdateDisputeCaseUnprocessableEntity Problem
+
+func (*UpdateDisputeCaseUnprocessableEntity) updateDisputeCaseRes() {}
 
 type UpdateEntryTemplateBadRequest Problem
 

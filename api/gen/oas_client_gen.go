@@ -533,6 +533,20 @@ type Invoker interface {
 	//
 	// POST /v1/supplier-invoices/{id}:clearDownPayments
 	ClearSupplierInvoiceDownPayments(ctx context.Context, request *DownPaymentClearingInput, params ClearSupplierInvoiceDownPaymentsParams) (ClearSupplierInvoiceDownPaymentsRes, error)
+	// CloseDisputeCase invokes closeDisputeCase operation.
+	//
+	// Closes an `open` dispute case once (ADR-0065 As built, T86a), at the version the caller read
+	// (`If-Match`): `outcome` `accepted` (the customer is right) or `rejected` (it owes the amount;
+	// another value is 422 `collections.unknown_outcome` naming `outcome`), with the reason, a text of
+	// more than white space (422 `request.validation_failed`). The case is read under a row lock and moves
+	// to its outcome; one that is not open is refused (409 `collections.dispute_closed`). A case whose
+	// item was cleared meanwhile is closed as any other. Closing posts nothing: an accepted case is
+	// credited by a person, with a credit memo request or a customer credit memo. Once the case is closed
+	// the item is dunned again (T86b). Audited, and published as DisputeCaseChanged (`closed`). A retry
+	// with the same `Idempotency-Key` answers the closed case. Human-only (`x-agent: false`).
+	//
+	// POST /v1/dispute-cases/{id}:close
+	CloseDisputeCase(ctx context.Context, request *DisputeCaseClose, params CloseDisputeCaseParams) (CloseDisputeCaseRes, error)
 	// CloseFiscalPeriod invokes closeFiscalPeriod operation.
 	//
 	// Closes the period for postings. Requires status `open`.
@@ -1161,6 +1175,30 @@ type Invoker interface {
 	//
 	// POST /v1/customer-invoices
 	CreateCustomerInvoice(ctx context.Context, request *CustomerInvoiceCreate, params CreateCustomerInvoiceParams) (CreateCustomerInvoiceRes, error)
+	// CreateDisputeCase invokes createDisputeCase operation.
+	//
+	// Opens a dispute case (ADR-0065 As built, T86a): the customer disputes an amount of one of its open
+	// items, an invoice, for a reason. The item is named by its journal line (`fiscal_year`,
+	// `journal_entry_id`, `line_no`, as a dunning notice's item names it) and must be an open item on a
+	// customer reconciliation account of the company in the leading ledger, one the customer owes (422
+	// `collections.item_not_open` naming `journal_entry_id`). The company is one the caller may act in
+	// (422 `request.reference_not_found` naming `legal_entity_id`). `disputed_amount` is in the item's
+	// currency (422 `collections.currency_mismatch` naming `disputed_amount.currency`), more than zero and
+	// at most the item's open amount (422 `collections.invalid_disputed_amount` naming
+	// `disputed_amount.amount`); the case also keeps its share of the item's amount in the company's
+	// currency, as the item was booked (`local_disputed_amount`, the item's local amount × the disputed
+	// amount ÷ its amount, rounded half away from zero). An item has one open case at a time: a second is
+	// refused, whether it comes after the first or races it (409 `collections.dispute_exists`). An
+	// assignee, if named, is an active person of the tenant who may act in the company (422
+	// `collections.assignee_invalid` naming `assignee_id`). `reason` and `note` are texts of more than
+	// white space (422 `request.validation_failed` naming the field). The case is created `open`. Opening
+	// a case posts nothing and changes nothing on the item; a dunning run leaves the item out while the
+	// case is open (T86b). Audited, and published as DisputeCaseChanged (`opened`), naming the customer by
+	// id and number. A retry with the same `Idempotency-Key` answers the case opened. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/dispute-cases
+	CreateDisputeCase(ctx context.Context, request *DisputeCaseCreate, params CreateDisputeCaseParams) (CreateDisputeCaseRes, error)
 	// CreateDownPaymentRequest invokes createDownPaymentRequest operation.
 	//
 	// Requests a down payment to a supplier (SAP F-47, special G/L F): a payables document, not a ledger
@@ -2630,6 +2668,17 @@ type Invoker interface {
 	//
 	// GET /v1/depreciation-runs/{id}
 	GetDepreciationRun(ctx context.Context, params GetDepreciationRunParams) (GetDepreciationRunRes, error)
+	// GetDisputeCase invokes getDisputeCase operation.
+	//
+	// One dispute case (ADR-0065 As built, T86a) with its company's code and name, its customer's number
+	// and name, the open item it disputes by journal line, document number and reference, the disputed
+	// amount in the item's currency and in the company's, its reason, its assignee and note, its status
+	// and, once closed, its outcome's reason and who closed it when. A case stays as it is when its item
+	// is cleared meanwhile: a person closes it. One of a company the caller may not act in is not found
+	// (404), as one that does not exist.
+	//
+	// GET /v1/dispute-cases/{id}
+	GetDisputeCase(ctx context.Context, params GetDisputeCaseParams) (GetDisputeCaseRes, error)
 	// GetDownPaymentRequest invokes getDownPaymentRequest operation.
 	//
 	// Returns one down payment request.
@@ -3904,6 +3953,16 @@ type Invoker interface {
 	//
 	// GET /v1/depreciation-runs
 	ListDepreciationRuns(ctx context.Context, params ListDepreciationRunsParams) (ListDepreciationRunsRes, error)
+	// ListDisputeCases invokes listDisputeCases operation.
+	//
+	// The dispute cases of the companies the caller may act in (ADR-0065 As built, T86a), each as
+	// `getDisputeCase` gives it: with its company's code and name, its customer's number and name, the
+	// open item it disputes, the disputed amount, its reason, its assignee's name and its outcome.
+	// Filtered by company, customer, status and assignee. Sortable by: `created_at` (default, the latest
+	// first).
+	//
+	// GET /v1/dispute-cases
+	ListDisputeCases(ctx context.Context, params ListDisputeCasesParams) (ListDisputeCasesRes, error)
 	// ListDownPaymentRequests invokes listDownPaymentRequests operation.
 	//
 	// Down payment requests (SAP F-47, ADR-0037). Sortable by: `due_date`.
@@ -6384,6 +6443,20 @@ type Invoker interface {
 	//
 	// PATCH /v1/credit-limits/{id}
 	UpdateCreditLimit(ctx context.Context, request *CustomerCreditLimitUpdate, params UpdateCreditLimitParams) (UpdateCreditLimitRes, error)
+	// UpdateDisputeCase invokes updateDisputeCase operation.
+	//
+	// Changes an open dispute case's assignee or note, with the caller's version of it (`If-Match`; 412
+	// when another change came first): JSON Merge Patch (RFC 7396) of `assignee_id` and `note`, each set
+	// or cleared (null); a note is a text of more than white space (422 `request.validation_failed` naming
+	// `note`). The assignee is an active person of the tenant who may act in the case's company (422
+	// `collections.assignee_invalid` naming `assignee_id`). A patch that would leave the case as it is is
+	// refused (422 `collections.nothing_to_change`). A closed case is not changed (409
+	// `collections.dispute_closed`). The company, customer, item, amounts and reason of a case do not
+	// change. Audited, and published as DisputeCaseChanged (`updated`). A case of a company the caller may
+	// not act in is not found (404). Human-only (`x-agent: false`).
+	//
+	// PATCH /v1/dispute-cases/{id}
+	UpdateDisputeCase(ctx context.Context, request *DisputeCaseUpdate, params UpdateDisputeCaseParams) (UpdateDisputeCaseRes, error)
 	// UpdateEntryTemplate invokes updateEntryTemplate operation.
 	//
 	// Changes an active entry template (409 `ledger.template_retired` otherwise; `EntryTemplateChanged`).
@@ -13024,6 +13097,174 @@ func (c *Client) sendClearSupplierInvoiceDownPayments(ctx context.Context, reque
 	return result, nil
 }
 
+// CloseDisputeCase invokes closeDisputeCase operation.
+//
+// Closes an `open` dispute case once (ADR-0065 As built, T86a), at the version the caller read
+// (`If-Match`): `outcome` `accepted` (the customer is right) or `rejected` (it owes the amount;
+// another value is 422 `collections.unknown_outcome` naming `outcome`), with the reason, a text of
+// more than white space (422 `request.validation_failed`). The case is read under a row lock and moves
+// to its outcome; one that is not open is refused (409 `collections.dispute_closed`). A case whose
+// item was cleared meanwhile is closed as any other. Closing posts nothing: an accepted case is
+// credited by a person, with a credit memo request or a customer credit memo. Once the case is closed
+// the item is dunned again (T86b). Audited, and published as DisputeCaseChanged (`closed`). A retry
+// with the same `Idempotency-Key` answers the closed case. Human-only (`x-agent: false`).
+//
+// POST /v1/dispute-cases/{id}:close
+func (c *Client) CloseDisputeCase(ctx context.Context, request *DisputeCaseClose, params CloseDisputeCaseParams) (CloseDisputeCaseRes, error) {
+	res, err := c.sendCloseDisputeCase(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCloseDisputeCase(ctx context.Context, request *DisputeCaseClose, params CloseDisputeCaseParams) (res CloseDisputeCaseRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("closeDisputeCase"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/dispute-cases/{id}:close"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CloseDisputeCaseOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/dispute-cases/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":close"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCloseDisputeCaseRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CloseDisputeCaseOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCloseDisputeCaseResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CloseFiscalPeriod invokes closeFiscalPeriod operation.
 //
 // Closes the period for postings. Requires status `open`.
@@ -17844,6 +18085,154 @@ func (c *Client) sendCreateCustomerInvoice(ctx context.Context, request *Custome
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateCustomerInvoiceResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateDisputeCase invokes createDisputeCase operation.
+//
+// Opens a dispute case (ADR-0065 As built, T86a): the customer disputes an amount of one of its open
+// items, an invoice, for a reason. The item is named by its journal line (`fiscal_year`,
+// `journal_entry_id`, `line_no`, as a dunning notice's item names it) and must be an open item on a
+// customer reconciliation account of the company in the leading ledger, one the customer owes (422
+// `collections.item_not_open` naming `journal_entry_id`). The company is one the caller may act in
+// (422 `request.reference_not_found` naming `legal_entity_id`). `disputed_amount` is in the item's
+// currency (422 `collections.currency_mismatch` naming `disputed_amount.currency`), more than zero and
+// at most the item's open amount (422 `collections.invalid_disputed_amount` naming
+// `disputed_amount.amount`); the case also keeps its share of the item's amount in the company's
+// currency, as the item was booked (`local_disputed_amount`, the item's local amount × the disputed
+// amount ÷ its amount, rounded half away from zero). An item has one open case at a time: a second is
+// refused, whether it comes after the first or races it (409 `collections.dispute_exists`). An
+// assignee, if named, is an active person of the tenant who may act in the company (422
+// `collections.assignee_invalid` naming `assignee_id`). `reason` and `note` are texts of more than
+// white space (422 `request.validation_failed` naming the field). The case is created `open`. Opening
+// a case posts nothing and changes nothing on the item; a dunning run leaves the item out while the
+// case is open (T86b). Audited, and published as DisputeCaseChanged (`opened`), naming the customer by
+// id and number. A retry with the same `Idempotency-Key` answers the case opened. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/dispute-cases
+func (c *Client) CreateDisputeCase(ctx context.Context, request *DisputeCaseCreate, params CreateDisputeCaseParams) (CreateDisputeCaseRes, error) {
+	res, err := c.sendCreateDisputeCase(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateDisputeCase(ctx context.Context, request *DisputeCaseCreate, params CreateDisputeCaseParams) (res CreateDisputeCaseRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createDisputeCase"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/dispute-cases"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateDisputeCaseOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/dispute-cases"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateDisputeCaseRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateDisputeCaseOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateDisputeCaseResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -33764,6 +34153,142 @@ func (c *Client) sendGetDepreciationRun(ctx context.Context, params GetDepreciat
 
 	stage = "DecodeResponse"
 	result, err := decodeGetDepreciationRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetDisputeCase invokes getDisputeCase operation.
+//
+// One dispute case (ADR-0065 As built, T86a) with its company's code and name, its customer's number
+// and name, the open item it disputes by journal line, document number and reference, the disputed
+// amount in the item's currency and in the company's, its reason, its assignee and note, its status
+// and, once closed, its outcome's reason and who closed it when. A case stays as it is when its item
+// is cleared meanwhile: a person closes it. One of a company the caller may not act in is not found
+// (404), as one that does not exist.
+//
+// GET /v1/dispute-cases/{id}
+func (c *Client) GetDisputeCase(ctx context.Context, params GetDisputeCaseParams) (GetDisputeCaseRes, error) {
+	res, err := c.sendGetDisputeCase(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetDisputeCase(ctx context.Context, params GetDisputeCaseParams) (res GetDisputeCaseRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getDisputeCase"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/dispute-cases/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetDisputeCaseOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/dispute-cases/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetDisputeCaseOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetDisputeCaseResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -55955,6 +56480,246 @@ func (c *Client) sendListDepreciationRuns(ctx context.Context, params ListDeprec
 
 	stage = "DecodeResponse"
 	result, err := decodeListDepreciationRunsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListDisputeCases invokes listDisputeCases operation.
+//
+// The dispute cases of the companies the caller may act in (ADR-0065 As built, T86a), each as
+// `getDisputeCase` gives it: with its company's code and name, its customer's number and name, the
+// open item it disputes, the disputed amount, its reason, its assignee's name and its outcome.
+// Filtered by company, customer, status and assignee. Sortable by: `created_at` (default, the latest
+// first).
+//
+// GET /v1/dispute-cases
+func (c *Client) ListDisputeCases(ctx context.Context, params ListDisputeCasesParams) (ListDisputeCasesRes, error) {
+	res, err := c.sendListDisputeCases(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListDisputeCases(ctx context.Context, params ListDisputeCasesParams) (res ListDisputeCasesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listDisputeCases"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/dispute-cases"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListDisputeCasesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/dispute-cases"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "assignee_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "assignee_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.AssigneeID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListDisputeCasesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListDisputeCasesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -92627,6 +93392,173 @@ func (c *Client) sendUpdateCreditLimit(ctx context.Context, request *CustomerCre
 
 	stage = "DecodeResponse"
 	result, err := decodeUpdateCreditLimitResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UpdateDisputeCase invokes updateDisputeCase operation.
+//
+// Changes an open dispute case's assignee or note, with the caller's version of it (`If-Match`; 412
+// when another change came first): JSON Merge Patch (RFC 7396) of `assignee_id` and `note`, each set
+// or cleared (null); a note is a text of more than white space (422 `request.validation_failed` naming
+// `note`). The assignee is an active person of the tenant who may act in the case's company (422
+// `collections.assignee_invalid` naming `assignee_id`). A patch that would leave the case as it is is
+// refused (422 `collections.nothing_to_change`). A closed case is not changed (409
+// `collections.dispute_closed`). The company, customer, item, amounts and reason of a case do not
+// change. Audited, and published as DisputeCaseChanged (`updated`). A case of a company the caller may
+// not act in is not found (404). Human-only (`x-agent: false`).
+//
+// PATCH /v1/dispute-cases/{id}
+func (c *Client) UpdateDisputeCase(ctx context.Context, request *DisputeCaseUpdate, params UpdateDisputeCaseParams) (UpdateDisputeCaseRes, error) {
+	res, err := c.sendUpdateDisputeCase(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUpdateDisputeCase(ctx context.Context, request *DisputeCaseUpdate, params UpdateDisputeCaseParams) (res UpdateDisputeCaseRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updateDisputeCase"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.URLTemplateKey.String("/v1/dispute-cases/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UpdateDisputeCaseOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/dispute-cases/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUpdateDisputeCaseRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UpdateDisputeCaseOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUpdateDisputeCaseResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

@@ -153,6 +153,10 @@ type ClearSupplierInvoiceDownPaymentsRes interface {
 	clearSupplierInvoiceDownPaymentsRes()
 }
 
+type CloseDisputeCaseRes interface {
+	closeDisputeCaseRes()
+}
+
 type CloseFiscalPeriodRes interface {
 	closeFiscalPeriodRes()
 }
@@ -275,6 +279,10 @@ type CreateCreditLimitRes interface {
 
 type CreateCustomerInvoiceRes interface {
 	createCustomerInvoiceRes()
+}
+
+type CreateDisputeCaseRes interface {
+	createDisputeCaseRes()
 }
 
 type CreateDownPaymentRequestRes interface {
@@ -703,6 +711,10 @@ type GetCustomerInvoiceRes interface {
 
 type GetDepreciationRunRes interface {
 	getDepreciationRunRes()
+}
+
+type GetDisputeCaseRes interface {
+	getDisputeCaseRes()
 }
 
 type GetDownPaymentRequestRes interface {
@@ -1183,6 +1195,10 @@ type ListCustomerInvoicesRes interface {
 
 type ListDepreciationRunsRes interface {
 	listDepreciationRunsRes()
+}
+
+type ListDisputeCasesRes interface {
+	listDisputeCasesRes()
 }
 
 type ListDownPaymentRequestsRes interface {
@@ -1923,6 +1939,10 @@ type UpdateCostCenterRes interface {
 
 type UpdateCreditLimitRes interface {
 	updateCreditLimitRes()
+}
+
+type UpdateDisputeCaseRes interface {
+	updateDisputeCaseRes()
 }
 
 type UpdateEntryTemplateRes interface {

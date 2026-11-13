@@ -436,6 +436,20 @@ func encodeClearSupplierInvoiceDownPaymentsRequest(
 	return nil
 }
 
+func encodeCloseDisputeCaseRequest(
+	req *DisputeCaseClose,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCompleteCloseTaskRequest(
 	req OptCloseTaskComplete,
 	r *http.Request,
@@ -786,6 +800,20 @@ func encodeCreateCreditLimitRequest(
 
 func encodeCreateCustomerInvoiceRequest(
 	req *CustomerInvoiceCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateDisputeCaseRequest(
+	req *DisputeCaseCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -2673,6 +2701,20 @@ func encodeUpdateCostCenterRequest(
 
 func encodeUpdateCreditLimitRequest(
 	req *CustomerCreditLimitUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateDisputeCaseRequest(
+	req *DisputeCaseUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

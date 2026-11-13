@@ -435,12 +435,13 @@ channels:
   collections:
     address: 'erp.{cell}.collections.{tenant}.{event}'
     title: Dunning and collections events
-    description: Dunning runs and the notices of confirmed runs (ADR-0065 §6).
+    description: Dunning runs, the notices of confirmed runs and dispute cases (ADR-0065 §6, As built T86a).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       DunningRunChanged: {$ref: '#/components/messages/DunningRunChanged'}
       DunningNoticeIssued: {$ref: '#/components/messages/DunningNoticeIssued'}
+      DisputeCaseChanged: {$ref: '#/components/messages/DisputeCaseChanged'}
   sales:
     address: 'erp.{cell}.sales.{tenant}.{event}'
     title: Sales events
@@ -761,6 +762,7 @@ operations:
     messages:
       - $ref: '#/channels/collections/messages/DunningRunChanged'
       - $ref: '#/channels/collections/messages/DunningNoticeIssued'
+      - $ref: '#/channels/collections/messages/DisputeCaseChanged'
   publishSalesEvents:
     action: send
     title: Sales publishes
@@ -4066,6 +4068,31 @@ components:
         - name: issued
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f04, source: /erp/eu-1/collections, type: com.example.erp.collections.dunning_notice_issued.v1, subject: 0192a000-0000-7000-8000-000000000f32, time: '2026-12-31T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {dunning_notice_id: 0192a000-0000-7000-8000-000000000f32, dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, dunning_date: '2026-12-31', level: 1, item_count: 1, overdue_amount: {amount: '1050.00', currency: CAD}}
+    DisputeCaseChanged:
+      name: DisputeCaseChanged
+      title: Dispute case changed
+      summary: A dispute case was opened, assigned or noted on, or closed.
+      description: |
+        Emitted at each change of a dispute case (ADR-0065 As built,
+        T86a): when it is opened (`opened`, status `open`, status_before
+        null), when its assignee or note changes (`updated`) and when it
+        is closed (`closed`, status `accepted` or `rejected`,
+        status_before `open`). It names the customer by id and number,
+        never by name, and carries no free text (the reason and the note
+        are read with `GET /v1/dispute-cases/{id}`, at `version` or
+        later). Not offered as a webhook event. Subject is the dispute
+        case id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.collections.dispute_case_changed.v1}
+      payload: {$ref: '#/components/schemas/DisputeCaseChangedV1'}
+      examples:
+        - name: opened
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f05, source: /erp/eu-1/collections, type: com.example.erp.collections.dispute_case_changed.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-12-31T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {dispute_case_id: 0192a000-0000-7000-8000-000000000f41, change: opened, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, fiscal_year: 2026, journal_entry_id: 0192a000-0000-7000-8000-000000000f51, line_no: 1, document_number: '1800000007', disputed_amount: {amount: '150.00', currency: CAD}, assignee_id: 0192a000-0000-7000-8000-000000000101, status: open, status_before: null, version: 1}
     CreditLimitChanged:
       name: CreditLimitChanged
       x-webhook: true
@@ -5153,6 +5180,25 @@ components:
         level: {type: integer, description: "The notice's dunning level, 1 to 9: the highest among its items."}
         item_count: {type: integer, description: "The customer's overdue items in the notice."}
         overdue_amount: {$ref: '#/components/schemas/Money', description: "The items' amounts in the company's currency, as they were booked."}
+    DisputeCaseChangedV1:
+      type: object
+      required: [dispute_case_id, change, legal_entity_id, legal_entity_code, customer_id, customer_number, fiscal_year, journal_entry_id, line_no, document_number, disputed_amount, assignee_id, status, status_before, version]
+      properties:
+        dispute_case_id: {$ref: '#/components/schemas/Uuid', description: '`collections.dispute_case.id`.'}
+        change: {type: string, description: 'What changed. Open enum: opened, updated (the assignee or the note), closed.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company whose customer item is disputed.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        fiscal_year: {type: integer, description: "The fiscal year of the item's journal entry."}
+        journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'The journal entry whose line is the disputed item.'}
+        line_no: {type: integer, description: 'The line of the journal entry that is the disputed item.'}
+        document_number: {type: string, description: "The journal entry's document number."}
+        disputed_amount: {$ref: '#/components/schemas/Money', description: "The amount disputed, in the item's currency."}
+        assignee_id: {type: [string, 'null'], format: uuid, description: 'The person who works the case after the change; null when nobody is assigned.'}
+        status: {type: string, description: "The case's status after the change. Open enum: open, accepted, rejected."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was opened.'}
+        version: {type: integer, description: "The case's version after the change."}
     CreditLimitChangedV1:
       type: object
       required: [credit_limit_id, legal_entity_id, legal_entity_code, customer_id, customer_number, limit, limit_before, version]

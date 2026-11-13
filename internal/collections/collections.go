@@ -7,11 +7,14 @@
 // publishes one event per customer (ADR-0065 §8, T76b). The collection
 // worklist, a company's customers with overdue items, is computed on read
 // from the same open items and the recorded levels and stores nothing
-// (ADR-0065 §9, T76c).
+// (ADR-0065 §9, T76c). A dispute case is a customer's dispute of an
+// amount of one of its open items, worked by a person and closed as
+// accepted or rejected; closing posts nothing (ADR-0065 As built, T86a).
 //
 // The context is a leaf (ADR-0065 §1): it reads the ledger's customer
-// open items, the partner context's names, tenancy and the configuration
-// through the ports below, posts nothing, and no context imports it.
+// open items, the partner context's names, the identity context's people,
+// tenancy and the configuration through the ports below, posts nothing,
+// and no context imports it.
 package collections
 
 import (
@@ -89,6 +92,12 @@ type Settings interface {
 	Document(ctx context.Context) (*config.Config, int32, error)
 }
 
+// People names principals (identity context): a dispute case's assignee
+// and who closed it. An id the tenant has no principal of is absent.
+type People interface {
+	PersonNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
+}
+
 // Endpoints implements the collections part of the generated API.
 type Endpoints struct {
 	Pages         *pagination.Codec
@@ -96,6 +105,7 @@ type Endpoints struct {
 	OpenItems     OpenItems
 	Partners      Partners
 	Settings      Settings
+	People        People
 	// MaxItems is the most overdue items one run proposes; 0: MaxRunItems.
 	MaxItems int
 }

@@ -354,6 +354,47 @@ func Visible(err error, access Access, legalEntity uuid.UUID, notFound error, fo
 	return errs.Wrapf(err, format, args...)
 }
 
+// Assignability is whether a principal may be handed work of a company,
+// and if not, which rule keeps it from it.
+type Assignability int
+
+// Assignable: the principal may be assigned the work. NotActivePerson: it
+// is an agent, a service, blocked, deprovisioned or not the tenant's.
+// NoCompanyAccess: it is an active person who may not act in the company.
+const (
+	Assignable Assignability = iota
+	NotActivePerson
+	NoCompanyAccess
+)
+
+// AssignableTo judges a principal as the assignee of work of a company,
+// read in the request's transaction: work is people's, so an active
+// person of the tenant who may act in the company, or one would be
+// handed work they cannot see (a close task, ADR-0058 §6 and the product
+// owner, 2026-11-04; a dispute case, ADR-0065 As built T86a).
+func AssignableTo(ctx context.Context, principal, legalEntity uuid.UUID) (Assignability, error) {
+	tx, ok := reqctx.TxFrom(ctx)
+	if !ok {
+		return 0, errOutsideRequest
+	}
+	var person bool
+	err := tx.QueryRow(ctx, `SELECT kind = 'human' AND status = 'active' FROM identity.principal WHERE id = $1`, principal).Scan(&person)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !person) {
+		return NotActivePerson, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("authz: principal %s: %w", principal, err)
+	}
+	access, err := CompaniesOf(ctx, principal)
+	if err != nil {
+		return 0, err
+	}
+	if !access.Allows(legalEntity) {
+		return NoCompanyAccess, nil
+	}
+	return Assignable, nil
+}
+
 // Companies returns the principal's legal entity access. Contexts filter
 // every read and write of company-scoped resources with it, and answer 404
 // for resources outside it, so ids cannot be probed (04-api-design §4.9).

@@ -631,6 +631,23 @@ func (UnimplementedHandler) ClearSupplierInvoiceDownPayments(ctx context.Context
 	return r, ht.ErrNotImplemented
 }
 
+// CloseDisputeCase implements closeDisputeCase operation.
+//
+// Closes an `open` dispute case once (ADR-0065 As built, T86a), at the version the caller read
+// (`If-Match`): `outcome` `accepted` (the customer is right) or `rejected` (it owes the amount;
+// another value is 422 `collections.unknown_outcome` naming `outcome`), with the reason, a text of
+// more than white space (422 `request.validation_failed`). The case is read under a row lock and moves
+// to its outcome; one that is not open is refused (409 `collections.dispute_closed`). A case whose
+// item was cleared meanwhile is closed as any other. Closing posts nothing: an accepted case is
+// credited by a person, with a credit memo request or a customer credit memo. Once the case is closed
+// the item is dunned again (T86b). Audited, and published as DisputeCaseChanged (`closed`). A retry
+// with the same `Idempotency-Key` answers the closed case. Human-only (`x-agent: false`).
+//
+// POST /v1/dispute-cases/{id}:close
+func (UnimplementedHandler) CloseDisputeCase(ctx context.Context, req *DisputeCaseClose, params CloseDisputeCaseParams) (r CloseDisputeCaseRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CloseFiscalPeriod implements closeFiscalPeriod operation.
 //
 // Closes the period for postings. Requires status `open`.
@@ -1349,6 +1366,33 @@ func (UnimplementedHandler) CreateCreditLimit(ctx context.Context, req *Customer
 //
 // POST /v1/customer-invoices
 func (UnimplementedHandler) CreateCustomerInvoice(ctx context.Context, req *CustomerInvoiceCreate, params CreateCustomerInvoiceParams) (r CreateCustomerInvoiceRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateDisputeCase implements createDisputeCase operation.
+//
+// Opens a dispute case (ADR-0065 As built, T86a): the customer disputes an amount of one of its open
+// items, an invoice, for a reason. The item is named by its journal line (`fiscal_year`,
+// `journal_entry_id`, `line_no`, as a dunning notice's item names it) and must be an open item on a
+// customer reconciliation account of the company in the leading ledger, one the customer owes (422
+// `collections.item_not_open` naming `journal_entry_id`). The company is one the caller may act in
+// (422 `request.reference_not_found` naming `legal_entity_id`). `disputed_amount` is in the item's
+// currency (422 `collections.currency_mismatch` naming `disputed_amount.currency`), more than zero and
+// at most the item's open amount (422 `collections.invalid_disputed_amount` naming
+// `disputed_amount.amount`); the case also keeps its share of the item's amount in the company's
+// currency, as the item was booked (`local_disputed_amount`, the item's local amount × the disputed
+// amount ÷ its amount, rounded half away from zero). An item has one open case at a time: a second is
+// refused, whether it comes after the first or races it (409 `collections.dispute_exists`). An
+// assignee, if named, is an active person of the tenant who may act in the company (422
+// `collections.assignee_invalid` naming `assignee_id`). `reason` and `note` are texts of more than
+// white space (422 `request.validation_failed` naming the field). The case is created `open`. Opening
+// a case posts nothing and changes nothing on the item; a dunning run leaves the item out while the
+// case is open (T86b). Audited, and published as DisputeCaseChanged (`opened`), naming the customer by
+// id and number. A retry with the same `Idempotency-Key` answers the case opened. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/dispute-cases
+func (UnimplementedHandler) CreateDisputeCase(ctx context.Context, req *DisputeCaseCreate, params CreateDisputeCaseParams) (r CreateDisputeCaseRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3142,6 +3186,20 @@ func (UnimplementedHandler) GetDepreciationRun(ctx context.Context, params GetDe
 	return r, ht.ErrNotImplemented
 }
 
+// GetDisputeCase implements getDisputeCase operation.
+//
+// One dispute case (ADR-0065 As built, T86a) with its company's code and name, its customer's number
+// and name, the open item it disputes by journal line, document number and reference, the disputed
+// amount in the item's currency and in the company's, its reason, its assignee and note, its status
+// and, once closed, its outcome's reason and who closed it when. A case stays as it is when its item
+// is cleared meanwhile: a person closes it. One of a company the caller may not act in is not found
+// (404), as one that does not exist.
+//
+// GET /v1/dispute-cases/{id}
+func (UnimplementedHandler) GetDisputeCase(ctx context.Context, params GetDisputeCaseParams) (r GetDisputeCaseRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetDownPaymentRequest implements getDownPaymentRequest operation.
 //
 // Returns one down payment request.
@@ -4773,6 +4831,19 @@ func (UnimplementedHandler) ListCustomerInvoices(ctx context.Context, params Lis
 //
 // GET /v1/depreciation-runs
 func (UnimplementedHandler) ListDepreciationRuns(ctx context.Context, params ListDepreciationRunsParams) (r ListDepreciationRunsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListDisputeCases implements listDisputeCases operation.
+//
+// The dispute cases of the companies the caller may act in (ADR-0065 As built, T86a), each as
+// `getDisputeCase` gives it: with its company's code and name, its customer's number and name, the
+// open item it disputes, the disputed amount, its reason, its assignee's name and its outcome.
+// Filtered by company, customer, status and assignee. Sortable by: `created_at` (default, the latest
+// first).
+//
+// GET /v1/dispute-cases
+func (UnimplementedHandler) ListDisputeCases(ctx context.Context, params ListDisputeCasesParams) (r ListDisputeCasesRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -7808,6 +7879,23 @@ func (UnimplementedHandler) UpdateCostCenter(ctx context.Context, req *CenterTex
 //
 // PATCH /v1/credit-limits/{id}
 func (UnimplementedHandler) UpdateCreditLimit(ctx context.Context, req *CustomerCreditLimitUpdate, params UpdateCreditLimitParams) (r UpdateCreditLimitRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateDisputeCase implements updateDisputeCase operation.
+//
+// Changes an open dispute case's assignee or note, with the caller's version of it (`If-Match`; 412
+// when another change came first): JSON Merge Patch (RFC 7396) of `assignee_id` and `note`, each set
+// or cleared (null); a note is a text of more than white space (422 `request.validation_failed` naming
+// `note`). The assignee is an active person of the tenant who may act in the case's company (422
+// `collections.assignee_invalid` naming `assignee_id`). A patch that would leave the case as it is is
+// refused (422 `collections.nothing_to_change`). A closed case is not changed (409
+// `collections.dispute_closed`). The company, customer, item, amounts and reason of a case do not
+// change. Audited, and published as DisputeCaseChanged (`updated`). A case of a company the caller may
+// not act in is not found (404). Human-only (`x-agent: false`).
+//
+// PATCH /v1/dispute-cases/{id}
+func (UnimplementedHandler) UpdateDisputeCase(ctx context.Context, req *DisputeCaseUpdate, params UpdateDisputeCaseParams) (r UpdateDisputeCaseRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

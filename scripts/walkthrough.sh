@@ -6546,6 +6546,7 @@ step_dunning() {
   expect "the confirmed run" "$(field '"\(.id) \(.status) \(.version)"')" "$run confirmed 2"
   # What step_collections reads back: the customer dunned, when, and for how much.
   DUNNED_CUSTOMER=$customer DUNNING_KEY=$key DUNNING_DUE=$due DUNNED_AMOUNT=$(field '"\(.overdue_amount.amount) \(.overdue_amount.currency)"')
+  DUNNED_ENTRY=$entry # step_dispute disputes it
   say "A run is confirmed once: confirming it again records and publishes nothing."
   refused 409 collections.invalid_status confirmDunningRun -p "id=$run" -if-match "$ETAG"
   say "The colleague's proposal still says Northwind's items were never dunned. It is stale, and a new run is started instead:"
@@ -8302,6 +8303,50 @@ step_return_receipt() {
     "$(field '"\(.version) " + ([.items[] | "\(.delivered_quantity.value) \(.billed_quantity.value) \(.returned_quantity.value)"] | join(", "))')" "$sold"
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
   expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  passed
+}
+
+# step_dispute is T86a (ADR-0065 As built): Northwind disputes part of
+# the invoice step_dunning dunned, overdue since. Ruth opens a dispute
+# case on its open item for CAD 150.00 with the reason; a second case on
+# the item and more than it owes are refused; she assigns the case to
+# herself with a note and reads it back, as the dispute cases of the
+# customer list it. The open item is unchanged: a case posts nothing.
+step_dispute() {
+  heading "Step 78 — Dispute cases: a case opened on a customer's overdue invoice for part of its amount, with the reason; a second case on the invoice and more than it owes refused; the case assigned to a person and read back; the open item unchanged"
+  local customer=$DUNNED_CUSTOMER entry=$DUNNED_ENTRY item line year body ruth id tag before
+  [ -n "$entry" ] || fail "the invoice step 57 dunned is not there"
+  as ruth
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  item=$(field "[.items[] | select(.journal_entry_id == \"$entry\")][0]")
+  [ "$item" != null ] || fail "the invoice step 57 dunned is not open any more"
+  line=$(jq -r .line_no <<<"$item") year=$(jq -r .fiscal_year <<<"$item")
+  before=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
+  say "Northwind writes that the spindle bearing of the invoice step 57 dunned was priced CAD 150.00 above the"
+  say "quotation, and pays nothing until that is settled. Ruth opens a dispute case on the invoice's open item, named"
+  say "by its journal line, for the disputed part (ADR-0065 As built, T86a):"
+  body="{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $year, \"journal_entry_id\": \"$entry\", \"line_no\": $line,
+    \"disputed_amount\": {\"amount\": \"150.00\", \"currency\": \"CAD\"}, \"reason\": \"Bearing priced above the quotation\"}"
+  api 201 '"dispute case of \(.customer_number) \(.customer_name) in \(.company_code): \(.status), entry \(.document_number) (\(.reference)), \(.disputed_amount.amount) \(.disputed_amount.currency) disputed (\(.local_disputed_amount.amount) \(.local_disputed_amount.currency)): \(.reason)"' \
+    createDisputeCase -body "$body"
+  id=$(field .id) tag=$ETAG
+  expect "the case" "$(field '"\(.status) \(.customer_id) \(.journal_entry_id) \(.disputed_amount.amount) \(.local_disputed_amount.amount) \(.version)"')" \
+    "open $customer $entry 150.00 150.00 1"
+  say "An invoice has one open case at a time, and no more is disputed than the customer owes on it:"
+  refused 409 collections.dispute_exists createDisputeCase -body "$body"
+  refused 422 collections.invalid_disputed_amount createDisputeCase -body "${body/150.00/999999.00}"
+  ruth=$(awk -F'\t' '$2 == "Ruth Receivables" { print $1 }' "$WORK/names")
+  say "Ruth takes the case herself and notes what she does next. Only an active person who may act in Maple is assigned:"
+  api 200 '"case \(.status), assigned to \(.assignee_name), note: \(.note), version \(.version)"' \
+    updateDisputeCase -p "id=$id" -if-match "$tag" -body "{\"assignee_id\": \"$ruth\", \"note\": \"Asked sales for the quotation\"}"
+  expect "assigned" "$(field '"\(.assignee_id) \(.assignee_name) \(.version)"')" "$ruth Ruth Receivables 2"
+  QUIET=1 api 200 '' getDisputeCase -p "id=$id"
+  expect "read back" "$(field '"\(.status) \(.assignee_name) \(.note)"')" "open Ruth Receivables Asked sales for the quotation"
+  QUIET=1 api 200 '' listDisputeCases -p "customer_id=$customer" -p status=open
+  expect "Northwind's open cases" "$(field '[.items[].id] | join(" ")')" "$id"
+  say "The case posts nothing: Northwind's open items are as they were."
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$before"
   passed
 }
 
@@ -10329,7 +10374,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_dispute step_close'
 
 main() {
   stop_unseen

@@ -520,6 +520,64 @@ func TestCompaniesOf(t *testing.T) {
 	}
 }
 
+// TestAssignableTo: work of a company is assigned to an active person of
+// the tenant who may act in it; an agent, a service and an unknown
+// principal are no active person, and a person without the company's
+// access is told apart from them. Each failing read is an error, as is a
+// call outside a request.
+func TestAssignableTo(t *testing.T) {
+	ten := pgtest.NewTenant(t)
+	le := uuid.New()
+	pgtest.Exec(t, `INSERT INTO identity.company_access (tenant_id, id, principal_id, legal_entity_id, valid_from, created_by)
+		VALUES ($1, gen_random_uuid(), $2, $3, current_date, $2)`, ten.ID, ten.Human.ID, le)
+	for _, c := range []struct {
+		name      string
+		principal uuid.UUID
+		company   uuid.UUID
+		want      authz.Assignability
+	}{
+		{"a person of the company", ten.Human.ID, le, authz.Assignable},
+		{"a person without the company's access", ten.Human.ID, uuid.New(), authz.NoCompanyAccess},
+		{"an agent", ten.Agent.ID, le, authz.NotActivePerson},
+		{"a service", ten.Service.ID, le, authz.NotActivePerson},
+		{"an unknown principal", uuid.New(), le, authz.NotActivePerson},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			as(t, ten, ten.Human, func(ctx context.Context) {
+				if got, err := authz.AssignableTo(ctx, c.principal, c.company); err != nil || got != c.want {
+					t.Errorf("got %v, %v; want %v, nil", got, err, c.want)
+				}
+			})
+		})
+	}
+	t.Run("a blocked person", func(t *testing.T) {
+		blocked := uuid.Must(uuid.NewV7())
+		pgtest.Exec(t, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, status, all_companies,
+			created_by, updated_by) VALUES ($1, $2, 'human', $3, 'blocked-person', 'Blocked Person', 'blocked', true, $4, $4)`,
+			ten.ID, blocked, pgtest.Issuer(t), ten.Human.ID)
+		as(t, ten, ten.Human, func(ctx context.Context) {
+			if got, err := authz.AssignableTo(ctx, blocked, le); err != nil || got != authz.NotActivePerson {
+				t.Errorf("got %v, %v; want %v, nil", got, err, authz.NotActivePerson)
+			}
+		})
+	})
+	for n := 1; n <= 2; n++ {
+		t.Run(fmt.Sprintf("read %d failing", n), func(t *testing.T) {
+			err := pgtest.Pool(t).InTx(context.Background(), database.Scope{Role: "erp_app", TenantID: ten.ID, ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
+				ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, &pgtest.FailingTx{Tx: tx, FailAt: n}), reqctx.Principal{ID: ten.Human.ID, Kind: "human", TenantID: ten.ID})
+				_, err := authz.AssignableTo(ctx, ten.Human.ID, le)
+				return err
+			})
+			if !errors.Is(err, pgtest.ErrInjected) {
+				t.Errorf("got %v, want %v", err, pgtest.ErrInjected)
+			}
+		})
+	}
+	if _, err := authz.AssignableTo(context.Background(), ten.Human.ID, le); err == nil {
+		t.Error("outside a request: got no error, want one")
+	}
+}
+
 // TestVisible: a missing row and a row in a company outside the caller's
 // access are the same notFound; other read errors are wrapped with context;
 // an accessible row is no error.
