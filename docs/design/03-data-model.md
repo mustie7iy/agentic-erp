@@ -1181,7 +1181,9 @@ stays once activated (configuration validation, `ledger.Setup.Check`); order
 items that named it before stay as they are, and posting them is refused;
 and for down payments (T46, ADR-0037) `down_payment`, the alternative
 reconciliation account of special G/L items: an asset that is a vendor
-reconciliation account, fixed once determined),
+reconciliation account, fixed once determined; and for revenue
+recognition runs (T81d, ADR-0068 §9) `contract_asset`, an asset, and
+`contract_liability`, a liability, neither a reconciliation account),
 the tax codes (T61a, ADR-0049 §3; migration 000124): `tax_code_definition`
 (direction, never changed; kind; UN/CEFACT category), `tax_component` (one
 per tax a code levies: jurisdiction, account key, never changed;
@@ -4837,7 +4839,10 @@ price to them and fixes it. T81c (migration 000303) adds the day a
 person says a point-in-time obligation is satisfied on, and the
 recognition schedule, which has no table: it is computed on read from
 the obligations and the order's delivery confirmations (ADR-0068 §8).
-Nothing is posted before T81d.
+T81d (migrations 000304 and 000305) adds the recognition run with its
+postings, which posts through the ledger's port with `source_context`
+`revenue` (the journal's source contexts gain it), and the account
+determination keys `contract_asset` and `contract_liability` (§3.7).
 
 ```mermaid
 erDiagram
@@ -4863,6 +4868,33 @@ erDiagram
     date satisfied_on "point_in_time alone: a person's day, else the deliveries"
     bigint standalone_selling_price "above 0"
     bigint allocated_amount "set at activation; the shares are the transaction price" }
+  recognition_run ||--o{ recognition_posting : "posted"
+  contract ||--o{ recognition_posting : "per run"
+  recognition_posting ||--|{ recognition_posting_obligation : "has"
+  recognition_run { uuid id PK
+    uuid legal_entity_id "tenancy; one run per company and period"
+    smallint fiscal_year
+    smallint fiscal_period
+    date posting_date "the period's last day; later than the company's last run"
+    char currency
+    int contract_count "active contracts read"
+    int posting_count "contracts that moved"
+    bigint recognized_amount "cumulative, the contracts read"
+    bigint billed_amount
+    bigint contract_asset_amount
+    bigint contract_liability_amount }
+  recognition_posting { uuid run_id PK
+    uuid contract_id PK
+    uuid id "the entry's source document"
+    bigint recognized_amount "cumulative to the posting date"
+    bigint billed_amount
+    bigint revenue_amount "what the entry moved revenue by"
+    uuid journal_entry_id "ledger" }
+  recognition_posting_obligation { int obligation_no PK
+    uuid account_id "ledger: the order item's revenue account"
+    bigint recognized_amount
+    bigint billed_amount
+    bigint revenue_amount }
 ```
 
 - `revenue.contract`: one per sales order
@@ -4905,9 +4937,35 @@ erDiagram
   The application may set its timing, service period, the day it is
   satisfied on, stand-alone selling price and allocated amount alone,
   and deletes nothing.
+- `revenue.recognition_run` (T81d): one per company and fiscal period
+  (`recognition_run_once`), each for a later period than the company's
+  last (`recognition_run_in_order`, a trigger that holds the company's
+  runs by an advisory lock, the one the application takes before it
+  reads what the runs so far posted); `posting_date` is the period's
+  last day; the amounts are the company's totals to that day over the
+  active contracts read, none negative, the contract assets less the
+  contract liabilities being what was recognized less what was billed
+  (`recognition_run_positions_check`); `posting_count` is at most
+  `contract_count` (`recognition_run_posting_count_check`). Written
+  once: the application neither changes nor deletes a run.
+- `revenue.recognition_posting`: what a run posted for one contract, at
+  most once per run (its primary key): the contract's cumulative
+  revenue recognized and billed to the run's posting date, what the
+  entry moved its revenue by, and the entry (the ledger's, by id, year
+  and number; `id` is the entry's source document,
+  `recognition_posting_id_once`). The contract's position is recognized
+  less billed: a contract asset when positive, a contract liability
+  when negative. Written once.
+- `revenue.recognition_posting_obligation`: per obligation of the
+  posting's contract its cumulative revenue recognized and billed, what
+  the entry moved its revenue account by, and that account, the order
+  item's. A contract's last posting holds every obligation, and the
+  next run posts the change of recognized less billed since. Written
+  once.
 - `revenue.outbox`, `revenue.inbox`: the context's events
-  (`RevenueContractChanged`), and the events its consumer
+  (`RevenueContractChanged`, `RevenueRecognized`), and the events its consumer
   `revenue-contracts` has read (the sales context's
   `SalesOrderChanged`), each recorded in the transaction of what the
   reading did.
-- Permissions `revenue.contract.read`, `.write` and `.activate`.
+- Permissions `revenue.contract.read`, `.write` and `.activate`, and
+  `revenue.recognition.run`.

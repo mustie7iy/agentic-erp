@@ -3,6 +3,7 @@ package revenue
 import (
 	"context"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/sales"
 )
 
@@ -113,5 +115,21 @@ func TestDeliveriesAddUp(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestRunTotals: a run's totals are its contracts' amounts added up;
+// sums beyond what an amount holds are refused, not wrapped around.
+func TestRunTotals(t *testing.T) {
+	run, err := totalled(Run{}, []money.Minor{100, 250}, []money.Minor{40, 300}, []money.Minor{60, 0}, []money.Minor{0, 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Recognized != 350 || run.Billed != 340 || run.Asset != 60 || run.Liability != 50 {
+		t.Errorf("totals: got recognized %d, billed %d, asset %d, liability %d, want 350, 340, 60, 50", run.Recognized, run.Billed, run.Asset, run.Liability)
+	}
+	_, err = totalled(Run{}, []money.Minor{math.MaxInt64, 1}, nil, nil, nil)
+	if p := problem.From(err); p.Code != "revenue.amount_too_large" {
+		t.Errorf("sums beyond an amount: got %v, want revenue.amount_too_large", p)
 	}
 }

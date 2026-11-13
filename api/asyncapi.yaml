@@ -458,11 +458,12 @@ channels:
   revenue:
     address: 'erp.{cell}.revenue.{tenant}.{event}'
     title: Revenue recognition events
-    description: Revenue contracts (ADR-0068 §5).
+    description: Revenue contracts and recognition runs (ADR-0068 §5).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       RevenueContractChanged: {$ref: '#/components/messages/RevenueContractChanged'}
+      RevenueRecognized: {$ref: '#/components/messages/RevenueRecognized'}
   credit:
     address: 'erp.{cell}.credit.{tenant}.{event}'
     title: Credit management events
@@ -769,6 +770,7 @@ operations:
     channel: {$ref: '#/channels/revenue'}
     messages:
       - $ref: '#/channels/revenue/messages/RevenueContractChanged'
+      - $ref: '#/channels/revenue/messages/RevenueRecognized'
   publishCreditEvents:
     action: send
     title: Credit management publishes
@@ -4329,6 +4331,35 @@ components:
         - name: activated
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001102, source: /erp/eu-1/revenue, type: com.example.erp.revenue.revenue_contract_changed.v1, subject: 0192a000-0000-7000-8000-000000001111, time: '2026-11-20T11:30:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {revenue_contract_id: 0192a000-0000-7000-8000-000000001111, sales_order_id: 0192a000-0000-7000-8000-000000001021, sales_order_number: SO100002, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, transaction_price: {amount: '2700.00', currency: CAD}, obligation_count: 2, status: active, status_before: draft, version: 3}
+    RevenueRecognized:
+      name: RevenueRecognized
+      title: Revenue recognized
+      summary: Revenue recognition was run for a company and a fiscal period.
+      description: |
+        Emitted by `POST /v1/revenue-recognition-runs` (ADR-0068 §9, T81d),
+        once per run: the company and the fiscal period run, the period's
+        last day, to which revenue was recognized and on which the entries
+        are dated, the number of active contracts read and of contracts
+        posted, and the company's totals to that day over the contracts
+        read: revenue recognized, revenue billed, contract assets and
+        contract liabilities. Each contract posted has a journal entry of
+        its own, published by the ledger as JournalEntryPosted with
+        `source_context` `revenue`; `GET /v1/revenue-recognition-runs/{id}`
+        returns the run with its postings. A run that finds nothing to post
+        is emitted too, with `posting_count` 0. Not offered to webhooks
+        until a consumer asks (product owner, 2026-11-12). Subject is the
+        run id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.revenue.revenue_recognized.v1}
+      payload: {$ref: '#/components/schemas/RevenueRecognizedV1'}
+      examples:
+        - name: run
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001201, source: /erp/eu-1/revenue, type: com.example.erp.revenue.revenue_recognized.v1, subject: 0192a000-0000-7000-8000-000000001211, time: '2026-12-02T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {revenue_recognition_run_id: 0192a000-0000-7000-8000-000000001211, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', fiscal_year: 2026, fiscal_period: 11, posting_date: '2026-11-30', contract_count: 3, posting_count: 2, recognized_amount: {amount: '8085.28', currency: CAD}, billed_amount: {amount: '4437.53', currency: CAD}, contract_asset_amount: {amount: '5000.00', currency: CAD}, contract_liability_amount: {amount: '1352.25', currency: CAD}}
     BillingDocumentPosted:
       name: BillingDocumentPosted
       x-webhook: true
@@ -5214,6 +5245,22 @@ components:
         status: {type: string, description: "The contract's status after the change. Open enum: draft, active."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created, and `draft` again when a draft''s obligations were changed.'}
         version: {type: integer, description: "The contract's version after the change."}
+    RevenueRecognizedV1:
+      type: object
+      required: [revenue_recognition_run_id, legal_entity_id, legal_entity_code, fiscal_year, fiscal_period, posting_date, contract_count, posting_count, recognized_amount, billed_amount, contract_asset_amount, contract_liability_amount]
+      properties:
+        revenue_recognition_run_id: {$ref: '#/components/schemas/Uuid', description: '`revenue.recognition_run.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company run.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        fiscal_year: {type: integer, description: The fiscal year run.}
+        fiscal_period: {type: integer, description: The fiscal period run.}
+        posting_date: {$ref: '#/components/schemas/Date', description: "The period's last day: the day revenue was recognized to and the entries are dated."}
+        contract_count: {type: integer, description: The active revenue contracts of the company the run read.}
+        posting_count: {type: integer, description: 'The contracts that moved: the journal entries the run posted, one each.'}
+        recognized_amount: {$ref: '#/components/schemas/Money', description: "The revenue recognized to the posting date of the contracts read, in the company's local currency."}
+        billed_amount: {$ref: '#/components/schemas/Money', description: 'The revenue billed to the posting date of the contracts read, without tax.'}
+        contract_asset_amount: {$ref: '#/components/schemas/Money', description: 'The contract assets after the run: the positions of the contracts whose revenue recognized exceeds their revenue billed.'}
+        contract_liability_amount: {$ref: '#/components/schemas/Money', description: 'The contract liabilities after the run: the positions of the contracts whose revenue billed exceeds their revenue recognized.'}
     BillingDocumentPostedV1:
       type: object
       required: [billing_document_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, sales_order_id, sales_order_number, billing_date, posting_date, net_amount, tax_amount, gross_amount, customer_invoice_id, customer_invoice_number, journal_entry_id, journal_entry_year, journal_entry_number, status, status_before, version]

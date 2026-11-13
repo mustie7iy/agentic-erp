@@ -1420,6 +1420,48 @@ type Invoker interface {
 	//
 	// POST /v1/revenue-contracts
 	CreateRevenueContract(ctx context.Context, request *RevenueContractCreate, params CreateRevenueContractParams) (CreateRevenueContractRes, error)
+	// CreateRevenueRecognitionRun invokes createRevenueRecognitionRun operation.
+	//
+	// Runs revenue recognition for a company and one of its regular fiscal periods and posts it (ADR-0068
+	// §9, T81d), in the request's transaction: either the whole run is posted or nothing. The system does
+	// the arithmetic only; every judgement is the person's, on the contract. For each `active` revenue
+	// contract of the company the run reads the recognition schedule to the period's last day
+	// (`getRevenueSchedule`: a point-in-time obligation by its order item's delivery confirmations or the
+	// day named on it, an over-time obligation on a straight line by days, whole fiscal periods) and the
+	// order item's posted billing to that day (the net amounts of the billing documents posted on or
+	// before it, without tax). Billing credited each item's revenue account with what was billed; per
+	// obligation the run's entry moves that account by the revenue recognized to the period's end less the
+	// revenue billed to it, less what earlier runs posted for the obligation: a credit when more is
+	// recognized than billed and posted so far, a debit when less. The contract's position is the sum of
+	// its obligations' recognized less billed amounts: the entry takes the position the last run left off
+	// its account and puts the new one on the company's contract asset account
+	// (`account_determination.contract_asset`) when revenue recognized exceeds revenue billed, a debit, or
+	// on its contract liability account (`account_determination.contract_liability`) when revenue billed
+	// exceeds revenue recognized, a credit, so a contract shows one of the two and never both; the posted
+	// invoice stays the receivable, and output tax is not touched: it is reported at the invoice date. The
+	// amounts are cumulative, so a delivery or a billing document dated into a period already run is
+	// caught up by the next run, and a contract whose figures did not move since its last posting posts
+	// nothing. Each contract that moved posts one balanced journal entry (document type `SA`,
+	// `source_context` `revenue`, dated the period's last day, the sales order's number as its reference)
+	// to every ledger the company keeps. One run per company and period: a second is refused (409
+	// `revenue.recognition_run_exists`), and a retry with the same `Idempotency-Key` answers the run as
+	// the first answered it. A company's first run is for any open period; each later run is for a later
+	// period than its last (409 `revenue.recognition_period_not_later`): a run is not reversed or repeated
+	// in the first version. `legal_entity_id` is a company the caller may act in (422
+	// `request.reference_not_found`); `fiscal_period` is a regular posting period of `fiscal_year` in the
+	// company's calendar (422 `ledger.no_fiscal_period` for a year that is not set up, 422
+	// `revenue.period_not_regular`); the company has both accounts (422 `revenue.no_contract_accounts`);
+	// the period is open in every ledger the company keeps (409 `ledger.period_not_open`), also when
+	// nothing is to post; the company has at most 2,000 active contracts (422
+	// `revenue.recognition_run_too_large`: larger runs are not supported yet). A day a contract's schedule
+	// needs a fiscal period for that lies in no fiscal year set up is refused naming the contract's order
+	// and the obligation (422 `revenue.no_fiscal_period`). What the ledger refuses of an entry refuses the
+	// run (for example an obligation's revenue account that is no longer postable). The answer is the run
+	// with its totals and its postings, one per contract that moved, each naming its journal entry.
+	// Audited, and published as RevenueRecognized. Human-only (`x-agent: false`).
+	//
+	// POST /v1/revenue-recognition-runs
+	CreateRevenueRecognitionRun(ctx context.Context, request *RevenueRecognitionRunCreate, params CreateRevenueRecognitionRunParams) (CreateRevenueRecognitionRunRes, error)
 	// CreateRfq invokes createRfq operation.
 	//
 	// Creates a draft RFQ of a legal entity (ADR-0069 §1-§2): the currency quotations are given in, the
@@ -2981,6 +3023,19 @@ type Invoker interface {
 	//
 	// GET /v1/revenue-contracts/{id}
 	GetRevenueContract(ctx context.Context, params GetRevenueContractParams) (GetRevenueContractRes, error)
+	// GetRevenueRecognitionRun invokes getRevenueRecognitionRun operation.
+	//
+	// One revenue recognition run (ADR-0068 §9, T81d) with its company's code and name, its fiscal period
+	// and posting date, the number of active contracts it read and of contracts it posted, the company's
+	// totals to the period's end over the contracts it read (revenue recognized, revenue billed, contract
+	// assets, contract liabilities) and its `postings`, one per contract that moved, by sales order
+	// number: the contract's order and customer, its cumulative amounts, its position as a contract asset
+	// or a contract liability, what the entry moved revenue by, its journal entry, and per obligation the
+	// revenue account and the amounts. One of a company the caller may not act in is not found (404), as
+	// one that does not exist.
+	//
+	// GET /v1/revenue-recognition-runs/{id}
+	GetRevenueRecognitionRun(ctx context.Context, params GetRevenueRecognitionRunParams) (GetRevenueRecognitionRunRes, error)
 	// GetRevenueSchedule invokes getRevenueSchedule operation.
 	//
 	// The recognition schedule of an `active` revenue contract (ADR-0068 §8, T81c): per performance
@@ -4320,6 +4375,15 @@ type Invoker interface {
 	//
 	// GET /v1/revenue-contracts
 	ListRevenueContracts(ctx context.Context, params ListRevenueContractsParams) (ListRevenueContractsRes, error)
+	// ListRevenueRecognitionRuns invokes listRevenueRecognitionRuns operation.
+	//
+	// The revenue recognition runs of the companies the caller may act in (ADR-0068 §9, T81d), latest
+	// posting date first, each with its company's code and name, its fiscal period, its counts and its
+	// totals, without its postings, which `getRevenueRecognitionRun` gives. Filtered by company, fiscal
+	// year and fiscal period. Sortable by: `posting_date`.
+	//
+	// GET /v1/revenue-recognition-runs
+	ListRevenueRecognitionRuns(ctx context.Context, params ListRevenueRecognitionRunsParams) (ListRevenueRecognitionRunsRes, error)
 	// ListRfqs invokes listRfqs operation.
 	//
 	// Requests for quotation (RFQs, ADR-0069) of the legal entities the caller may act in, each with its
@@ -20297,6 +20361,172 @@ func (c *Client) sendCreateRevenueContract(ctx context.Context, request *Revenue
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateRevenueContractResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateRevenueRecognitionRun invokes createRevenueRecognitionRun operation.
+//
+// Runs revenue recognition for a company and one of its regular fiscal periods and posts it (ADR-0068
+// §9, T81d), in the request's transaction: either the whole run is posted or nothing. The system does
+// the arithmetic only; every judgement is the person's, on the contract. For each `active` revenue
+// contract of the company the run reads the recognition schedule to the period's last day
+// (`getRevenueSchedule`: a point-in-time obligation by its order item's delivery confirmations or the
+// day named on it, an over-time obligation on a straight line by days, whole fiscal periods) and the
+// order item's posted billing to that day (the net amounts of the billing documents posted on or
+// before it, without tax). Billing credited each item's revenue account with what was billed; per
+// obligation the run's entry moves that account by the revenue recognized to the period's end less the
+// revenue billed to it, less what earlier runs posted for the obligation: a credit when more is
+// recognized than billed and posted so far, a debit when less. The contract's position is the sum of
+// its obligations' recognized less billed amounts: the entry takes the position the last run left off
+// its account and puts the new one on the company's contract asset account
+// (`account_determination.contract_asset`) when revenue recognized exceeds revenue billed, a debit, or
+// on its contract liability account (`account_determination.contract_liability`) when revenue billed
+// exceeds revenue recognized, a credit, so a contract shows one of the two and never both; the posted
+// invoice stays the receivable, and output tax is not touched: it is reported at the invoice date. The
+// amounts are cumulative, so a delivery or a billing document dated into a period already run is
+// caught up by the next run, and a contract whose figures did not move since its last posting posts
+// nothing. Each contract that moved posts one balanced journal entry (document type `SA`,
+// `source_context` `revenue`, dated the period's last day, the sales order's number as its reference)
+// to every ledger the company keeps. One run per company and period: a second is refused (409
+// `revenue.recognition_run_exists`), and a retry with the same `Idempotency-Key` answers the run as
+// the first answered it. A company's first run is for any open period; each later run is for a later
+// period than its last (409 `revenue.recognition_period_not_later`): a run is not reversed or repeated
+// in the first version. `legal_entity_id` is a company the caller may act in (422
+// `request.reference_not_found`); `fiscal_period` is a regular posting period of `fiscal_year` in the
+// company's calendar (422 `ledger.no_fiscal_period` for a year that is not set up, 422
+// `revenue.period_not_regular`); the company has both accounts (422 `revenue.no_contract_accounts`);
+// the period is open in every ledger the company keeps (409 `ledger.period_not_open`), also when
+// nothing is to post; the company has at most 2,000 active contracts (422
+// `revenue.recognition_run_too_large`: larger runs are not supported yet). A day a contract's schedule
+// needs a fiscal period for that lies in no fiscal year set up is refused naming the contract's order
+// and the obligation (422 `revenue.no_fiscal_period`). What the ledger refuses of an entry refuses the
+// run (for example an obligation's revenue account that is no longer postable). The answer is the run
+// with its totals and its postings, one per contract that moved, each naming its journal entry.
+// Audited, and published as RevenueRecognized. Human-only (`x-agent: false`).
+//
+// POST /v1/revenue-recognition-runs
+func (c *Client) CreateRevenueRecognitionRun(ctx context.Context, request *RevenueRecognitionRunCreate, params CreateRevenueRecognitionRunParams) (CreateRevenueRecognitionRunRes, error) {
+	res, err := c.sendCreateRevenueRecognitionRun(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateRevenueRecognitionRun(ctx context.Context, request *RevenueRecognitionRunCreate, params CreateRevenueRecognitionRunParams) (res CreateRevenueRecognitionRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createRevenueRecognitionRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/revenue-recognition-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateRevenueRecognitionRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/revenue-recognition-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateRevenueRecognitionRunRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateRevenueRecognitionRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateRevenueRecognitionRunResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -38789,6 +39019,144 @@ func (c *Client) sendGetRevenueContract(ctx context.Context, params GetRevenueCo
 
 	stage = "DecodeResponse"
 	result, err := decodeGetRevenueContractResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetRevenueRecognitionRun invokes getRevenueRecognitionRun operation.
+//
+// One revenue recognition run (ADR-0068 §9, T81d) with its company's code and name, its fiscal period
+// and posting date, the number of active contracts it read and of contracts it posted, the company's
+// totals to the period's end over the contracts it read (revenue recognized, revenue billed, contract
+// assets, contract liabilities) and its `postings`, one per contract that moved, by sales order
+// number: the contract's order and customer, its cumulative amounts, its position as a contract asset
+// or a contract liability, what the entry moved revenue by, its journal entry, and per obligation the
+// revenue account and the amounts. One of a company the caller may not act in is not found (404), as
+// one that does not exist.
+//
+// GET /v1/revenue-recognition-runs/{id}
+func (c *Client) GetRevenueRecognitionRun(ctx context.Context, params GetRevenueRecognitionRunParams) (GetRevenueRecognitionRunRes, error) {
+	res, err := c.sendGetRevenueRecognitionRun(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetRevenueRecognitionRun(ctx context.Context, params GetRevenueRecognitionRunParams) (res GetRevenueRecognitionRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getRevenueRecognitionRun"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/revenue-recognition-runs/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetRevenueRecognitionRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/revenue-recognition-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetRevenueRecognitionRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetRevenueRecognitionRunResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -67785,6 +68153,228 @@ func (c *Client) sendListRevenueContracts(ctx context.Context, params ListRevenu
 
 	stage = "DecodeResponse"
 	result, err := decodeListRevenueContractsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListRevenueRecognitionRuns invokes listRevenueRecognitionRuns operation.
+//
+// The revenue recognition runs of the companies the caller may act in (ADR-0068 §9, T81d), latest
+// posting date first, each with its company's code and name, its fiscal period, its counts and its
+// totals, without its postings, which `getRevenueRecognitionRun` gives. Filtered by company, fiscal
+// year and fiscal period. Sortable by: `posting_date`.
+//
+// GET /v1/revenue-recognition-runs
+func (c *Client) ListRevenueRecognitionRuns(ctx context.Context, params ListRevenueRecognitionRunsParams) (ListRevenueRecognitionRunsRes, error) {
+	res, err := c.sendListRevenueRecognitionRuns(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListRevenueRecognitionRuns(ctx context.Context, params ListRevenueRecognitionRunsParams) (res ListRevenueRecognitionRunsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listRevenueRecognitionRuns"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/revenue-recognition-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListRevenueRecognitionRunsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/revenue-recognition-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalYear.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriod.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListRevenueRecognitionRunsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListRevenueRecognitionRunsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

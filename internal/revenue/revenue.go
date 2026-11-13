@@ -21,12 +21,15 @@
 //
 // An active contract's recognition schedule is computed on read from its
 // obligations and its order's delivery confirmations (schedule.go;
-// ADR-0068 §8).
+// ADR-0068 §8). The recognition run brings a company's active contracts
+// to their positions at a fiscal period's end and posts them (run.go;
+// ADR-0068 §9).
 //
 // The context is a leaf (ADR-0068 §1; ADR-0051 §2): it reads the sales
 // context's orders, the partner context's names, tenancy, the ledger's
-// calendar and the configuration through the ports below, posts nothing
-// yet, and no context imports it.
+// calendar and accounts and the configuration through the ports below,
+// posts through the ledger's port with source_context revenue, and no
+// context imports it.
 //
 // What the context takes IFRS 15 to say is ADR-0068 §2's six statements,
 // each from memory and not yet confirmed by the accounting specialist.
@@ -90,6 +93,20 @@ type Settings interface {
 	Document(ctx context.Context) (*config.Config, int32, error)
 }
 
+// Postings posts journal entries and says whether a day can be posted on
+// (ledger context): what the recognition run posts through.
+type Postings interface {
+	Post(ctx context.Context, in ledger.Posting) (ledger.Entry, error)
+	Postable(ctx context.Context, legalEntity uuid.UUID, date time.Time) error
+}
+
+// Accounts gives the account automatic postings use for a key in a
+// company, and accounts' numbers by id (ledger context).
+type Accounts interface {
+	Determination(ctx context.Context, legalEntity uuid.UUID, key string) (uuid.UUID, bool, error)
+	AccountNumbers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
+}
+
 // Endpoints implements the revenue part of the generated API.
 type Endpoints struct {
 	Pages         *pagination.Codec
@@ -98,6 +115,11 @@ type Endpoints struct {
 	Partners      Partners
 	Calendar      Calendar
 	Settings      Settings
+	Postings      Postings
+	Accounts      Accounts
+	// MaxContracts is the most active contracts one recognition run
+	// reads; 0: MaxRunContracts.
+	MaxContracts int
 	// Now is the clock a schedule's day is told by, in the company's time
 	// zone; nil: the wall clock.
 	Now func() time.Time

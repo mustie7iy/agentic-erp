@@ -357,6 +357,10 @@ type CreateRevenueContractRes interface {
 	createRevenueContractRes()
 }
 
+type CreateRevenueRecognitionRunRes interface {
+	createRevenueRecognitionRunRes()
+}
+
 type CreateRfqRes interface {
 	createRfqRes()
 }
@@ -851,6 +855,10 @@ type GetRevaluationRunRes interface {
 
 type GetRevenueContractRes interface {
 	getRevenueContractRes()
+}
+
+type GetRevenueRecognitionRunRes interface {
+	getRevenueRecognitionRunRes()
 }
 
 type GetRevenueScheduleRes interface {
@@ -1371,6 +1379,10 @@ type ListRevaluationRunsRes interface {
 
 type ListRevenueContractsRes interface {
 	listRevenueContractsRes()
+}
+
+type ListRevenueRecognitionRunsRes interface {
+	listRevenueRecognitionRunsRes()
 }
 
 type ListRfqsRes interface {

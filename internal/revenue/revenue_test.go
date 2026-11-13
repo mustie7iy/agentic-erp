@@ -22,17 +22,22 @@ import (
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
-var perms = []string{"sales.order.read", "sales.order.write", "sales.order.confirm", "sales.delivery.confirm", "revenue.contract.read", "revenue.contract.write",
-	"revenue.contract.activate"}
+var perms = []string{"sales.order.read", "sales.order.write", "sales.order.confirm", "sales.delivery.confirm", "sales.billing.read", "sales.billing.write",
+	"sales.billing.post", "credit.limit.write", "ledger.period.read", "ledger.period.manage", "revenue.contract.read", "revenue.contract.write",
+	"revenue.contract.activate", "revenue.recognition.run"}
 
 const contracts = "/v1/revenue-contracts"
 
 // env is a configured tenant whose company 2000 (EUR) has the customer
 // reconciliation account 120000 and a customer set up on it with the
-// payment term NT30, so sales orders can be created and confirmed there.
+// payment term NT30, so sales orders can be created, confirmed and billed
+// there; a second revenue account, 410000, for services; and the contract
+// asset account 125000 and the contract liability account 245000 in its
+// account determination, which company 1000 does not have.
 type env struct {
 	fixture.Env
 	account  uuid.UUID // revenue account 400000 of company 2000
+	service  uuid.UUID // revenue account 410000 of company 2000
 	customer uuid.UUID
 }
 
@@ -40,9 +45,17 @@ func setup(t *testing.T) env {
 	t.Helper()
 	f := fixture.NewWith(t, nil, func(doc *config.Config) {
 		de := doc.Company("2000")
-		de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "120000", Name: "Trade receivables", Type: config.Asset, CustomerReconciliation: true})
+		de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "120000", Name: "Trade receivables", Type: config.Asset, CustomerReconciliation: true},
+			config.Account{Number: "125000", Name: "Contract assets", Type: config.Asset},
+			config.Account{Number: "245000", Name: "Contract liabilities", Type: config.Liability},
+			config.Account{Number: "410000", Name: "Service revenue", Type: config.Revenue})
+		de.AccountDetermination.ContractAsset, de.AccountDetermination.ContractLiability = "125000", "245000"
+		// The entries customer invoices post draw their numbers from journal_dr (T79b).
+		for _, y := range fixture.Years() {
+			doc.NumberRanges = append(doc.NumberRanges, config.NumberRange{Company: "2000", DocumentType: "journal_dr", FiscalYear: y, First: 100000, Last: 999999})
+		}
 	}, perms...)
-	e := env{Env: f, account: f.Account(t, "2000", "400000"), customer: uuid.Must(uuid.NewV7())}
+	e := env{Env: f, account: f.Account(t, "2000", "400000"), service: f.Account(t, "2000", "410000"), customer: uuid.Must(uuid.NewV7())}
 	pgtest.Exec(t, `INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, country_code, status, created_by, updated_by)
 		VALUES ($1, $2, 'BP70000001', 'organization', 'Northwind Traders', 'DE', 'active', $3, $3)`, e.Tenant.ID, e.customer, e.Tenant.Human.ID)
 	pgtest.Exec(t, `INSERT INTO partner.partner_role (tenant_id, partner_id, role, created_by) VALUES ($1, $2, 'customer', $3)`,

@@ -28,6 +28,9 @@ func TestDatabaseFailures(t *testing.T) {
 	e.activated(t, active)
 	e.delivered(t, delivered, 1, "50", "2026-01-15")
 	scheduled := uuid.MustParse(active)
+	// A run that posted, and a delivery since, so the next run reads what the first posted and posts again.
+	ran := uuid.MustParse(e.ran(t, 1)["id"].(string))
+	e.delivered(t, delivered, 1, "70", "2026-02-15")
 	calls := map[string]func(ctx context.Context) error{
 		"create": func(ctx context.Context) error {
 			_, err := h.CreateRevenueContract(ctx, &gen.RevenueContractCreate{SalesOrderID: uuid.MustParse(order)}, gen.CreateRevenueContractParams{})
@@ -53,6 +56,19 @@ func TestDatabaseFailures(t *testing.T) {
 			_, err := h.GetRevenueSchedule(ctx, gen.GetRevenueScheduleParams{ID: scheduled})
 			return err
 		},
+		"run": func(ctx context.Context) error {
+			_, err := h.CreateRevenueRecognitionRun(ctx, &gen.RevenueRecognitionRunCreate{LegalEntityID: e.DE, FiscalYear: 2026, FiscalPeriod: 2},
+				gen.CreateRevenueRecognitionRunParams{})
+			return err
+		},
+		"get run": func(ctx context.Context) error {
+			_, err := h.GetRevenueRecognitionRun(ctx, gen.GetRevenueRecognitionRunParams{ID: ran})
+			return err
+		},
+		"list runs": func(ctx context.Context) error {
+			_, err := h.ListRevenueRecognitionRuns(ctx, gen.ListRevenueRecognitionRunsParams{})
+			return err
+		},
 		"list": func(ctx context.Context) error {
 			_, err := h.ListRevenueContracts(ctx, gen.ListRevenueContractsParams{})
 			return err
@@ -66,6 +82,15 @@ func TestDatabaseFailures(t *testing.T) {
 			apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
 		})
 	}
+	t.Run("list runs page size", func(t *testing.T) {
+		err := e.inRequest(t, func(ctx context.Context) error {
+			_, err := h.ListRevenueRecognitionRuns(ctx, gen.ListRevenueRecognitionRunsParams{PageSize: gen.NewOptInt32(0)})
+			return err
+		})
+		if p := problem.From(err); p.Code != "request.invalid_page_size" {
+			t.Errorf("got %v, want request.invalid_page_size", p)
+		}
+	})
 	t.Run("list page size", func(t *testing.T) {
 		err := e.inRequest(t, func(ctx context.Context) error {
 			_, err := h.ListRevenueContracts(ctx, gen.ListRevenueContractsParams{PageSize: gen.NewOptInt32(0)})

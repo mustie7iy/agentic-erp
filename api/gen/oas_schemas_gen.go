@@ -24366,6 +24366,7 @@ func (*ConflictHeaders) createQuotationRes()                       {}
 func (*ConflictHeaders) createRecommendationRes()                  {}
 func (*ConflictHeaders) createRequisitionRes()                     {}
 func (*ConflictHeaders) createRevenueContractRes()                 {}
+func (*ConflictHeaders) createRevenueRecognitionRunRes()           {}
 func (*ConflictHeaders) createRfqRes()                             {}
 func (*ConflictHeaders) createRoleAssignmentRes()                  {}
 func (*ConflictHeaders) createRoleRes()                            {}
@@ -30423,6 +30424,22 @@ func (*CreateRevenueContractPreconditionRequired) createRevenueContractRes() {}
 type CreateRevenueContractUnprocessableEntity Problem
 
 func (*CreateRevenueContractUnprocessableEntity) createRevenueContractRes() {}
+
+type CreateRevenueRecognitionRunBadRequest Problem
+
+func (*CreateRevenueRecognitionRunBadRequest) createRevenueRecognitionRunRes() {}
+
+type CreateRevenueRecognitionRunForbidden Problem
+
+func (*CreateRevenueRecognitionRunForbidden) createRevenueRecognitionRunRes() {}
+
+type CreateRevenueRecognitionRunPreconditionRequired Problem
+
+func (*CreateRevenueRecognitionRunPreconditionRequired) createRevenueRecognitionRunRes() {}
+
+type CreateRevenueRecognitionRunUnprocessableEntity Problem
+
+func (*CreateRevenueRecognitionRunUnprocessableEntity) createRevenueRecognitionRunRes() {}
 
 type CreateRfqBadRequest Problem
 
@@ -41008,6 +41025,18 @@ func (s *GetRevenueContractOKHeaders) SetResponse(val RevenueContract) {
 }
 
 func (*GetRevenueContractOKHeaders) getRevenueContractRes() {}
+
+type GetRevenueRecognitionRunBadRequest Problem
+
+func (*GetRevenueRecognitionRunBadRequest) getRevenueRecognitionRunRes() {}
+
+type GetRevenueRecognitionRunForbidden Problem
+
+func (*GetRevenueRecognitionRunForbidden) getRevenueRecognitionRunRes() {}
+
+type GetRevenueRecognitionRunNotFound Problem
+
+func (*GetRevenueRecognitionRunNotFound) getRevenueRecognitionRunRes() {}
 
 type GetRevenueScheduleBadRequest Problem
 
@@ -51793,6 +51822,14 @@ func (*ListRevenueContractsBadRequest) listRevenueContractsRes() {}
 type ListRevenueContractsForbidden Problem
 
 func (*ListRevenueContractsForbidden) listRevenueContractsRes() {}
+
+type ListRevenueRecognitionRunsBadRequest Problem
+
+func (*ListRevenueRecognitionRunsBadRequest) listRevenueRecognitionRunsRes() {}
+
+type ListRevenueRecognitionRunsForbidden Problem
+
+func (*ListRevenueRecognitionRunsForbidden) listRevenueRecognitionRunsRes() {}
 
 type ListRfqsBadRequest Problem
 
@@ -74436,6 +74473,619 @@ func (s *RevenueContractUpdate) SetObligations(val []PerformanceObligationUpdate
 	s.Obligations = val
 }
 
+// One performance obligation in a revenue recognition posting.
+// Ref: #/components/schemas/RevenueRecognitionObligation
+type RevenueRecognitionObligation struct {
+	// The obligation's number within the contract.
+	ObligationNo int32 `json:"obligation_no"`
+	// The order item's description: what was promised.
+	Description string `json:"description"`
+	// The order item's revenue account, which billing credits and the run moves (`GET /v1/accounts/{id}`).
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The obligation's revenue recognized to the period's last day, by the contract's schedule.
+	RecognizedAmount Money `json:"recognized_amount"`
+	// The obligation's revenue billed to the period's last day: the net amounts of its order item in
+	// billing documents posted on or before it.
+	BilledAmount Money `json:"billed_amount"`
+	// What the entry moved the obligation's revenue account by: `recognized_amount` less `billed_amount`,
+	// less what earlier runs posted for the obligation. Positive: a credit; negative: a debit; zero: no
+	// line.
+	RevenueAmount Money `json:"revenue_amount"`
+}
+
+// GetObligationNo returns the value of ObligationNo.
+func (s *RevenueRecognitionObligation) GetObligationNo() int32 {
+	return s.ObligationNo
+}
+
+// GetDescription returns the value of Description.
+func (s *RevenueRecognitionObligation) GetDescription() string {
+	return s.Description
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *RevenueRecognitionObligation) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *RevenueRecognitionObligation) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetRecognizedAmount returns the value of RecognizedAmount.
+func (s *RevenueRecognitionObligation) GetRecognizedAmount() Money {
+	return s.RecognizedAmount
+}
+
+// GetBilledAmount returns the value of BilledAmount.
+func (s *RevenueRecognitionObligation) GetBilledAmount() Money {
+	return s.BilledAmount
+}
+
+// GetRevenueAmount returns the value of RevenueAmount.
+func (s *RevenueRecognitionObligation) GetRevenueAmount() Money {
+	return s.RevenueAmount
+}
+
+// SetObligationNo sets the value of ObligationNo.
+func (s *RevenueRecognitionObligation) SetObligationNo(val int32) {
+	s.ObligationNo = val
+}
+
+// SetDescription sets the value of Description.
+func (s *RevenueRecognitionObligation) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *RevenueRecognitionObligation) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *RevenueRecognitionObligation) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetRecognizedAmount sets the value of RecognizedAmount.
+func (s *RevenueRecognitionObligation) SetRecognizedAmount(val Money) {
+	s.RecognizedAmount = val
+}
+
+// SetBilledAmount sets the value of BilledAmount.
+func (s *RevenueRecognitionObligation) SetBilledAmount(val Money) {
+	s.BilledAmount = val
+}
+
+// SetRevenueAmount sets the value of RevenueAmount.
+func (s *RevenueRecognitionObligation) SetRevenueAmount(val Money) {
+	s.RevenueAmount = val
+}
+
+// What a revenue recognition run posted for one revenue contract: the contract's cumulative amounts to
+// the period's last day, its position and its journal entry. `recognized_amount` less `billed_amount`
+// is `contract_asset_amount` when it is positive and `contract_liability_amount` when it is negative;
+// the other is zero.
+// Ref: #/components/schemas/RevenueRecognitionPosting
+type RevenueRecognitionPosting struct {
+	// The revenue contract (`GET /v1/revenue-contracts/{id}`).
+	RevenueContractID uuid.UUID `json:"revenue_contract_id"`
+	// The contract's sales order (`GET /v1/sales-orders/{id}`).
+	SalesOrderID uuid.UUID `json:"sales_order_id"`
+	// The sales order's document number: the entry's reference.
+	SalesOrderNumber string `json:"sales_order_number"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The contract's revenue recognized to the period's last day: its obligations' added up.
+	RecognizedAmount Money `json:"recognized_amount"`
+	// The contract's revenue billed to the period's last day: its obligations' added up.
+	BilledAmount Money `json:"billed_amount"`
+	// The contract's position after the run when revenue recognized exceeds revenue billed, on the
+	// contract asset account; zero otherwise.
+	ContractAssetAmount Money `json:"contract_asset_amount"`
+	// The contract's position after the run when revenue billed exceeds revenue recognized, on the
+	// contract liability account; zero otherwise.
+	ContractLiabilityAmount Money `json:"contract_liability_amount"`
+	// What the entry moved the contract's revenue by, its obligations' added up: positive when it credited
+	// revenue, negative when it debited it.
+	RevenueAmount Money `json:"revenue_amount"`
+	// The journal entry the run posted for the contract (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The entry's fiscal year.
+	JournalEntryYear int32 `json:"journal_entry_year"`
+	// The entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// The contract's performance obligations, by number, each with its cumulative amounts and what the
+	// entry moved its revenue account by.
+	Obligations []RevenueRecognitionObligation `json:"obligations"`
+}
+
+// GetRevenueContractID returns the value of RevenueContractID.
+func (s *RevenueRecognitionPosting) GetRevenueContractID() uuid.UUID {
+	return s.RevenueContractID
+}
+
+// GetSalesOrderID returns the value of SalesOrderID.
+func (s *RevenueRecognitionPosting) GetSalesOrderID() uuid.UUID {
+	return s.SalesOrderID
+}
+
+// GetSalesOrderNumber returns the value of SalesOrderNumber.
+func (s *RevenueRecognitionPosting) GetSalesOrderNumber() string {
+	return s.SalesOrderNumber
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *RevenueRecognitionPosting) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *RevenueRecognitionPosting) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *RevenueRecognitionPosting) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetRecognizedAmount returns the value of RecognizedAmount.
+func (s *RevenueRecognitionPosting) GetRecognizedAmount() Money {
+	return s.RecognizedAmount
+}
+
+// GetBilledAmount returns the value of BilledAmount.
+func (s *RevenueRecognitionPosting) GetBilledAmount() Money {
+	return s.BilledAmount
+}
+
+// GetContractAssetAmount returns the value of ContractAssetAmount.
+func (s *RevenueRecognitionPosting) GetContractAssetAmount() Money {
+	return s.ContractAssetAmount
+}
+
+// GetContractLiabilityAmount returns the value of ContractLiabilityAmount.
+func (s *RevenueRecognitionPosting) GetContractLiabilityAmount() Money {
+	return s.ContractLiabilityAmount
+}
+
+// GetRevenueAmount returns the value of RevenueAmount.
+func (s *RevenueRecognitionPosting) GetRevenueAmount() Money {
+	return s.RevenueAmount
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *RevenueRecognitionPosting) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *RevenueRecognitionPosting) GetJournalEntryYear() int32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *RevenueRecognitionPosting) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetObligations returns the value of Obligations.
+func (s *RevenueRecognitionPosting) GetObligations() []RevenueRecognitionObligation {
+	return s.Obligations
+}
+
+// SetRevenueContractID sets the value of RevenueContractID.
+func (s *RevenueRecognitionPosting) SetRevenueContractID(val uuid.UUID) {
+	s.RevenueContractID = val
+}
+
+// SetSalesOrderID sets the value of SalesOrderID.
+func (s *RevenueRecognitionPosting) SetSalesOrderID(val uuid.UUID) {
+	s.SalesOrderID = val
+}
+
+// SetSalesOrderNumber sets the value of SalesOrderNumber.
+func (s *RevenueRecognitionPosting) SetSalesOrderNumber(val string) {
+	s.SalesOrderNumber = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *RevenueRecognitionPosting) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *RevenueRecognitionPosting) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *RevenueRecognitionPosting) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetRecognizedAmount sets the value of RecognizedAmount.
+func (s *RevenueRecognitionPosting) SetRecognizedAmount(val Money) {
+	s.RecognizedAmount = val
+}
+
+// SetBilledAmount sets the value of BilledAmount.
+func (s *RevenueRecognitionPosting) SetBilledAmount(val Money) {
+	s.BilledAmount = val
+}
+
+// SetContractAssetAmount sets the value of ContractAssetAmount.
+func (s *RevenueRecognitionPosting) SetContractAssetAmount(val Money) {
+	s.ContractAssetAmount = val
+}
+
+// SetContractLiabilityAmount sets the value of ContractLiabilityAmount.
+func (s *RevenueRecognitionPosting) SetContractLiabilityAmount(val Money) {
+	s.ContractLiabilityAmount = val
+}
+
+// SetRevenueAmount sets the value of RevenueAmount.
+func (s *RevenueRecognitionPosting) SetRevenueAmount(val Money) {
+	s.RevenueAmount = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *RevenueRecognitionPosting) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *RevenueRecognitionPosting) SetJournalEntryYear(val int32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *RevenueRecognitionPosting) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetObligations sets the value of Obligations.
+func (s *RevenueRecognitionPosting) SetObligations(val []RevenueRecognitionObligation) {
+	s.Obligations = val
+}
+
+// A revenue recognition run of a company and a fiscal period (ADR-0068 §9). Amounts are in
+// `currency`, the company's local currency, without tax, and cumulative to the period's last day.
+// Ref: #/components/schemas/RevenueRecognitionRun
+type RevenueRecognitionRun struct {
+	// The run.
+	ID uuid.UUID `json:"id"`
+	// The company run.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The fiscal year run.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The fiscal period run.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The period's last day: the day revenue is recognized to and the entries are dated.
+	PostingDate time.Time `json:"posting_date"`
+	// The company's local currency (ISO 4217), which every amount of the run is in.
+	Currency string `json:"currency"`
+	// The active contracts of the company the run read.
+	ContractCount int32 `json:"contract_count"`
+	// The contracts whose figures moved since their last posting: the journal entries the run posted, one
+	// each.
+	PostingCount int32 `json:"posting_count"`
+	// The revenue recognized to the period's last day of all the contracts read.
+	RecognizedAmount Money `json:"recognized_amount"`
+	// The revenue billed to the period's last day of all the contracts read: their posted billing
+	// documents' net amounts.
+	BilledAmount Money `json:"billed_amount"`
+	// The contract assets after the run: the positions of the contracts read whose revenue recognized
+	// exceeds their revenue billed, added up.
+	ContractAssetAmount Money `json:"contract_asset_amount"`
+	// The contract liabilities after the run: the positions of the contracts read whose revenue billed
+	// exceeds their revenue recognized, added up.
+	ContractLiabilityAmount Money `json:"contract_liability_amount"`
+	// When the run was made.
+	CreatedAt time.Time `json:"created_at"`
+	// Who ran it.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// The run's postings, one per contract that moved, by sales order number; at most 2,000. Given by
+	// `getRevenueRecognitionRun` and by the run's creation; absent in `listRevenueRecognitionRuns`.
+	Postings []RevenueRecognitionPosting `json:"postings"`
+}
+
+// GetID returns the value of ID.
+func (s *RevenueRecognitionRun) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *RevenueRecognitionRun) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *RevenueRecognitionRun) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *RevenueRecognitionRun) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *RevenueRecognitionRun) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *RevenueRecognitionRun) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *RevenueRecognitionRun) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *RevenueRecognitionRun) GetCurrency() string {
+	return s.Currency
+}
+
+// GetContractCount returns the value of ContractCount.
+func (s *RevenueRecognitionRun) GetContractCount() int32 {
+	return s.ContractCount
+}
+
+// GetPostingCount returns the value of PostingCount.
+func (s *RevenueRecognitionRun) GetPostingCount() int32 {
+	return s.PostingCount
+}
+
+// GetRecognizedAmount returns the value of RecognizedAmount.
+func (s *RevenueRecognitionRun) GetRecognizedAmount() Money {
+	return s.RecognizedAmount
+}
+
+// GetBilledAmount returns the value of BilledAmount.
+func (s *RevenueRecognitionRun) GetBilledAmount() Money {
+	return s.BilledAmount
+}
+
+// GetContractAssetAmount returns the value of ContractAssetAmount.
+func (s *RevenueRecognitionRun) GetContractAssetAmount() Money {
+	return s.ContractAssetAmount
+}
+
+// GetContractLiabilityAmount returns the value of ContractLiabilityAmount.
+func (s *RevenueRecognitionRun) GetContractLiabilityAmount() Money {
+	return s.ContractLiabilityAmount
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *RevenueRecognitionRun) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *RevenueRecognitionRun) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetPostings returns the value of Postings.
+func (s *RevenueRecognitionRun) GetPostings() []RevenueRecognitionPosting {
+	return s.Postings
+}
+
+// SetID sets the value of ID.
+func (s *RevenueRecognitionRun) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *RevenueRecognitionRun) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *RevenueRecognitionRun) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *RevenueRecognitionRun) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *RevenueRecognitionRun) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *RevenueRecognitionRun) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *RevenueRecognitionRun) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *RevenueRecognitionRun) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetContractCount sets the value of ContractCount.
+func (s *RevenueRecognitionRun) SetContractCount(val int32) {
+	s.ContractCount = val
+}
+
+// SetPostingCount sets the value of PostingCount.
+func (s *RevenueRecognitionRun) SetPostingCount(val int32) {
+	s.PostingCount = val
+}
+
+// SetRecognizedAmount sets the value of RecognizedAmount.
+func (s *RevenueRecognitionRun) SetRecognizedAmount(val Money) {
+	s.RecognizedAmount = val
+}
+
+// SetBilledAmount sets the value of BilledAmount.
+func (s *RevenueRecognitionRun) SetBilledAmount(val Money) {
+	s.BilledAmount = val
+}
+
+// SetContractAssetAmount sets the value of ContractAssetAmount.
+func (s *RevenueRecognitionRun) SetContractAssetAmount(val Money) {
+	s.ContractAssetAmount = val
+}
+
+// SetContractLiabilityAmount sets the value of ContractLiabilityAmount.
+func (s *RevenueRecognitionRun) SetContractLiabilityAmount(val Money) {
+	s.ContractLiabilityAmount = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *RevenueRecognitionRun) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *RevenueRecognitionRun) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetPostings sets the value of Postings.
+func (s *RevenueRecognitionRun) SetPostings(val []RevenueRecognitionPosting) {
+	s.Postings = val
+}
+
+func (*RevenueRecognitionRun) getRevenueRecognitionRunRes() {}
+
+// Run revenue recognition for a company and one of its regular fiscal periods.
+// Ref: #/components/schemas/RevenueRecognitionRunCreate
+type RevenueRecognitionRunCreate struct {
+	// The company to run: one the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year of the company's calendar.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The regular posting period of the fiscal year to run: revenue is brought to what is recognized to
+	// its last day, and the entries are dated that day.
+	FiscalPeriod int32 `json:"fiscal_period"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *RevenueRecognitionRunCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *RevenueRecognitionRunCreate) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *RevenueRecognitionRunCreate) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *RevenueRecognitionRunCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *RevenueRecognitionRunCreate) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *RevenueRecognitionRunCreate) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// RevenueRecognitionRunHeaders wraps RevenueRecognitionRun with response headers.
+type RevenueRecognitionRunHeaders struct {
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           RevenueRecognitionRun
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *RevenueRecognitionRunHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *RevenueRecognitionRunHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *RevenueRecognitionRunHeaders) GetResponse() RevenueRecognitionRun {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *RevenueRecognitionRunHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *RevenueRecognitionRunHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RevenueRecognitionRunHeaders) SetResponse(val RevenueRecognitionRun) {
+	s.Response = val
+}
+
+func (*RevenueRecognitionRunHeaders) createRevenueRecognitionRunRes() {}
+
+// One page of revenue recognition runs.
+// Ref: #/components/schemas/RevenueRecognitionRunPage
+type RevenueRecognitionRunPage struct {
+	// The runs on this page, without their postings.
+	Items []RevenueRecognitionRun `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *RevenueRecognitionRunPage) GetItems() []RevenueRecognitionRun {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *RevenueRecognitionRunPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *RevenueRecognitionRunPage) SetItems(val []RevenueRecognitionRun) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *RevenueRecognitionRunPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*RevenueRecognitionRunPage) listRevenueRecognitionRunsRes() {}
+
 // The recognition schedule of an active revenue contract (ADR-0068 §8), computed at the read. Amounts
 // are in the contract's currency, the company's local currency, without tax. `recognized_amount`,
 // `planned_amount` and `unscheduled_amount` add up to `transaction_price`.
@@ -84879,6 +85529,7 @@ func (*TooManyRequestsHeaders) createRecommendationRes()                  {}
 func (*TooManyRequestsHeaders) createRegressionSuiteRes()                 {}
 func (*TooManyRequestsHeaders) createRequisitionRes()                     {}
 func (*TooManyRequestsHeaders) createRevenueContractRes()                 {}
+func (*TooManyRequestsHeaders) createRevenueRecognitionRunRes()           {}
 func (*TooManyRequestsHeaders) createRfqRes()                             {}
 func (*TooManyRequestsHeaders) createRoleAssignmentRes()                  {}
 func (*TooManyRequestsHeaders) createRoleRes()                            {}
@@ -85003,6 +85654,7 @@ func (*TooManyRequestsHeaders) getRegressionSuiteRes()                    {}
 func (*TooManyRequestsHeaders) getRequisitionRes()                        {}
 func (*TooManyRequestsHeaders) getRevaluationRunRes()                     {}
 func (*TooManyRequestsHeaders) getRevenueContractRes()                    {}
+func (*TooManyRequestsHeaders) getRevenueRecognitionRunRes()              {}
 func (*TooManyRequestsHeaders) getRevenueScheduleRes()                    {}
 func (*TooManyRequestsHeaders) getRfqComparisonRes()                      {}
 func (*TooManyRequestsHeaders) getRfqRes()                                {}
@@ -85133,6 +85785,7 @@ func (*TooManyRequestsHeaders) listRegressionSuitesRes()                  {}
 func (*TooManyRequestsHeaders) listRequisitionsRes()                      {}
 func (*TooManyRequestsHeaders) listRevaluationRunsRes()                   {}
 func (*TooManyRequestsHeaders) listRevenueContractsRes()                  {}
+func (*TooManyRequestsHeaders) listRevenueRecognitionRunsRes()            {}
 func (*TooManyRequestsHeaders) listRfqsRes()                              {}
 func (*TooManyRequestsHeaders) listRoleAssignmentsRes()                   {}
 func (*TooManyRequestsHeaders) listRolePermissionsRes()                   {}
@@ -85671,6 +86324,7 @@ func (*UnauthorizedHeaders) createRecommendationRes()                  {}
 func (*UnauthorizedHeaders) createRegressionSuiteRes()                 {}
 func (*UnauthorizedHeaders) createRequisitionRes()                     {}
 func (*UnauthorizedHeaders) createRevenueContractRes()                 {}
+func (*UnauthorizedHeaders) createRevenueRecognitionRunRes()           {}
 func (*UnauthorizedHeaders) createRfqRes()                             {}
 func (*UnauthorizedHeaders) createRoleAssignmentRes()                  {}
 func (*UnauthorizedHeaders) createRoleRes()                            {}
@@ -85795,6 +86449,7 @@ func (*UnauthorizedHeaders) getRegressionSuiteRes()                    {}
 func (*UnauthorizedHeaders) getRequisitionRes()                        {}
 func (*UnauthorizedHeaders) getRevaluationRunRes()                     {}
 func (*UnauthorizedHeaders) getRevenueContractRes()                    {}
+func (*UnauthorizedHeaders) getRevenueRecognitionRunRes()              {}
 func (*UnauthorizedHeaders) getRevenueScheduleRes()                    {}
 func (*UnauthorizedHeaders) getRfqComparisonRes()                      {}
 func (*UnauthorizedHeaders) getRfqRes()                                {}
@@ -85925,6 +86580,7 @@ func (*UnauthorizedHeaders) listRegressionSuitesRes()                  {}
 func (*UnauthorizedHeaders) listRequisitionsRes()                      {}
 func (*UnauthorizedHeaders) listRevaluationRunsRes()                   {}
 func (*UnauthorizedHeaders) listRevenueContractsRes()                  {}
+func (*UnauthorizedHeaders) listRevenueRecognitionRunsRes()            {}
 func (*UnauthorizedHeaders) listRfqsRes()                              {}
 func (*UnauthorizedHeaders) listRoleAssignmentsRes()                   {}
 func (*UnauthorizedHeaders) listRolePermissionsRes()                   {}

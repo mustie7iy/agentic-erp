@@ -22,7 +22,7 @@ func TestRevenuePermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "revenue.contract.activate revenue.contract.read revenue.contract.write"; got != want {
+	if got, want := strings.Join(codes, " "), "revenue.contract.activate revenue.contract.read revenue.contract.write revenue.recognition.run"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }
@@ -364,4 +364,126 @@ func TestRevenueInbox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a second record left as it is: got %v, want no error", err)
 	}
+}
+
+// TestRevenueRecognitionRules (T81d, migrations 000304 and 000305;
+// ADR-0068 §9): one run per company and period, each for a later period
+// than the company's last; a run's positions are what it recognized less
+// what it billed; a posting is of a run and a contract, once, and its
+// obligations are the contract's; runs and postings are written once;
+// the two account determination keys and the journal's source context
+// are taken, their checks validated; the revert is refused while a run
+// exists.
+func TestRevenueRecognitionRules(t *testing.T) {
+	need(t)
+	const run = `INSERT INTO revenue.recognition_run (tenant_id, id, legal_entity_id, fiscal_year, fiscal_period, posting_date, currency, contract_count,
+		posting_count, recognized_amount, billed_amount, contract_asset_amount, contract_liability_amount, created_by)
+		VALUES ($1, $2, $3, 2026, $4, $5, 'EUR', $6, $7, $8, $9, $10, $11, $1)`
+	const contract = `INSERT INTO revenue.contract (tenant_id, id, legal_entity_id, customer_id, sales_order_id, sales_order_number, currency,
+		transaction_price, status, created_by, updated_by) VALUES ($1, $2, $3, gen_random_uuid(), gen_random_uuid(), 'SO1', 'EUR', 100, 'draft', $1, $1)`
+	const obligation = `INSERT INTO revenue.performance_obligation (tenant_id, contract_id, obligation_no, order_item_no, description, net_amount,
+		timing, standalone_selling_price) VALUES ($1, $2, 1, 1, 'Bracket', 100, 'point_in_time', 100)`
+	const posting = `INSERT INTO revenue.recognition_posting (tenant_id, run_id, contract_id, id, recognized_amount, billed_amount, revenue_amount,
+		journal_entry_id, journal_entry_year, document_number) VALUES ($1, $2, $3, gen_random_uuid(), 100, 0, 100, gen_random_uuid(), 2026, '100001')`
+	const figures = `INSERT INTO revenue.recognition_posting_obligation (tenant_id, run_id, contract_id, obligation_no, account_id, recognized_amount,
+		billed_amount, revenue_amount) VALUES ($1, $2, $3, $4, gen_random_uuid(), 100, 0, 100)`
+	type scene struct{ tenant, le, run, doc uuid.UUID }
+	february := func(s scene) stmt { return step(run, s.tenant, s.run, s.le, 2, "2026-02-28", 1, 1, 100, 0, 100, 0) }
+	other := func(s scene, period int, day string) stmt {
+		return step(run, s.tenant, id(), s.le, period, day, 0, 0, 0, 0, 0, 0)
+	}
+	posted := func(s scene, more ...stmt) []stmt {
+		return append([]stmt{february(s), step(contract, s.tenant, s.doc, s.le), step(obligation, s.tenant, s.doc), step(posting, s.tenant, s.run, s.doc),
+			step(figures, s.tenant, s.run, s.doc, 1)}, more...)
+	}
+	cases := []struct {
+		name string
+		run  func(s scene) []stmt
+		want string // empty: allowed
+	}{
+		{"a run with a posting and its obligation", func(s scene) []stmt { return posted(s) }, ""},
+		{"a later period's run", func(s scene) []stmt { return []stmt{february(s), other(s, 3, "2026-03-31")} }, ""},
+		{"another company's run for an earlier period", func(s scene) []stmt {
+			return []stmt{february(s), step(run, s.tenant, id(), id(), 1, "2026-01-31", 0, 0, 0, 0, 0, 0)}
+		}, ""},
+		{"a second run of the period", func(s scene) []stmt { return []stmt{february(s), other(s, 2, "2026-02-28")} }, "recognition_run_once"},
+		{"a run for an earlier period", func(s scene) []stmt { return []stmt{february(s), other(s, 1, "2026-01-31")} }, "the company has a run for this day or a later one"},
+		{"positions that are not recognized less billed", func(s scene) []stmt {
+			return []stmt{step(run, s.tenant, s.run, s.le, 2, "2026-02-28", 1, 1, 100, 0, 90, 0)}
+		}, "recognition_run_positions_check"},
+		{"more postings than contracts", func(s scene) []stmt {
+			return []stmt{step(run, s.tenant, s.run, s.le, 2, "2026-02-28", 1, 2, 0, 0, 0, 0)}
+		}, "recognition_run_posting_count_check"},
+		{"a negative contract asset", func(s scene) []stmt {
+			return []stmt{step(run, s.tenant, s.run, s.le, 2, "2026-02-28", 1, 1, 0, 0, -10, -10)}
+		}, "recognition_run_asset_check"},
+		{"a contract posted twice in a run", func(s scene) []stmt { return posted(s, step(posting, s.tenant, s.run, s.doc)) }, "recognition_posting_pkey"},
+		{"a posting of no run", func(s scene) []stmt {
+			return []stmt{step(contract, s.tenant, s.doc, s.le), step(posting, s.tenant, s.run, s.doc)}
+		}, "recognition_posting_tenant_id_run_id_fkey"},
+		{"an obligation the contract does not have", func(s scene) []stmt { return posted(s, step(figures, s.tenant, s.run, s.doc, 2)) },
+			"recognition_posting_obligatio_tenant_id_contract_id_obliga_fkey"},
+		{"a run changed", func(s scene) []stmt {
+			return []stmt{february(s), step(`UPDATE revenue.recognition_run SET posting_count = 0`)}
+		}, "permission denied"},
+		{"a run deleted", func(s scene) []stmt { return []stmt{february(s), step(`DELETE FROM revenue.recognition_run`)} }, "permission denied"},
+		{"a posting changed", func(s scene) []stmt {
+			return posted(s, step(`UPDATE revenue.recognition_posting SET revenue_amount = 0`))
+		}, "permission denied"},
+		{"a posting's obligation deleted", func(s scene) []stmt { return posted(s, step(`DELETE FROM revenue.recognition_posting_obligation`)) },
+			"permission denied"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), le: id(), run: id(), doc: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, c.run(s)...) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+	t.Run("the widened checks are validated", func(t *testing.T) {
+		var tables, checked int
+		var keys bool
+		if err := testDB.QueryRow(t.Context(), `SELECT (SELECT count(*) + 1 FROM pg_inherits WHERE inhparent = 'ledger.journal_entry'::regclass),
+				(SELECT count(*) FROM pg_constraint WHERE conname = 'journal_entry_source_context_check' AND convalidated
+					AND pg_get_constraintdef(oid) LIKE '%''revenue''%'),
+				(SELECT convalidated AND pg_get_constraintdef(oid) LIKE '%''contract_asset''%' AND pg_get_constraintdef(oid) LIKE '%''contract_liability''%'
+					FROM pg_constraint WHERE conname = 'account_determination_key_check')`).Scan(&tables, &checked, &keys); err != nil {
+			t.Fatal(err)
+		}
+		if checked != tables {
+			t.Errorf("validated source context checks that take revenue: got %d, want %d (the table and its partitions)", checked, tables)
+		}
+		if !keys {
+			t.Error("account_determination_key_check: got it unvalidated or without the two keys, want it validated with contract_asset and contract_liability")
+		}
+	})
+	t.Run("the revert", func(t *testing.T) {
+		down := ""
+		for _, m := range Migrations() {
+			if strings.HasSuffix(m.Name, "_revenue_recognition") && !strings.Contains(m.Name, "validate") {
+				down = m.Down
+			}
+		}
+		if down == "" {
+			t.Fatal("got no migration named …_revenue_recognition in db/migrations, want the one the test is about")
+		}
+		ctx := context.Background()
+		tx, err := testDB.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		tenant := id()
+		if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, tenant.String()),
+			step(run, tenant, id(), id(), 2, "2026-02-28", 0, 0, 0, 0, 0, 0)); err != nil {
+			t.Fatal(err)
+		}
+		failsWith(t, exec(tx, down), "reverting would lose what later runs take off")
+	})
 }

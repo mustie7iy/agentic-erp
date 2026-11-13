@@ -1671,6 +1671,51 @@ func (UnimplementedHandler) CreateRevenueContract(ctx context.Context, req *Reve
 	return r, ht.ErrNotImplemented
 }
 
+// CreateRevenueRecognitionRun implements createRevenueRecognitionRun operation.
+//
+// Runs revenue recognition for a company and one of its regular fiscal periods and posts it (ADR-0068
+// §9, T81d), in the request's transaction: either the whole run is posted or nothing. The system does
+// the arithmetic only; every judgement is the person's, on the contract. For each `active` revenue
+// contract of the company the run reads the recognition schedule to the period's last day
+// (`getRevenueSchedule`: a point-in-time obligation by its order item's delivery confirmations or the
+// day named on it, an over-time obligation on a straight line by days, whole fiscal periods) and the
+// order item's posted billing to that day (the net amounts of the billing documents posted on or
+// before it, without tax). Billing credited each item's revenue account with what was billed; per
+// obligation the run's entry moves that account by the revenue recognized to the period's end less the
+// revenue billed to it, less what earlier runs posted for the obligation: a credit when more is
+// recognized than billed and posted so far, a debit when less. The contract's position is the sum of
+// its obligations' recognized less billed amounts: the entry takes the position the last run left off
+// its account and puts the new one on the company's contract asset account
+// (`account_determination.contract_asset`) when revenue recognized exceeds revenue billed, a debit, or
+// on its contract liability account (`account_determination.contract_liability`) when revenue billed
+// exceeds revenue recognized, a credit, so a contract shows one of the two and never both; the posted
+// invoice stays the receivable, and output tax is not touched: it is reported at the invoice date. The
+// amounts are cumulative, so a delivery or a billing document dated into a period already run is
+// caught up by the next run, and a contract whose figures did not move since its last posting posts
+// nothing. Each contract that moved posts one balanced journal entry (document type `SA`,
+// `source_context` `revenue`, dated the period's last day, the sales order's number as its reference)
+// to every ledger the company keeps. One run per company and period: a second is refused (409
+// `revenue.recognition_run_exists`), and a retry with the same `Idempotency-Key` answers the run as
+// the first answered it. A company's first run is for any open period; each later run is for a later
+// period than its last (409 `revenue.recognition_period_not_later`): a run is not reversed or repeated
+// in the first version. `legal_entity_id` is a company the caller may act in (422
+// `request.reference_not_found`); `fiscal_period` is a regular posting period of `fiscal_year` in the
+// company's calendar (422 `ledger.no_fiscal_period` for a year that is not set up, 422
+// `revenue.period_not_regular`); the company has both accounts (422 `revenue.no_contract_accounts`);
+// the period is open in every ledger the company keeps (409 `ledger.period_not_open`), also when
+// nothing is to post; the company has at most 2,000 active contracts (422
+// `revenue.recognition_run_too_large`: larger runs are not supported yet). A day a contract's schedule
+// needs a fiscal period for that lies in no fiscal year set up is refused naming the contract's order
+// and the obligation (422 `revenue.no_fiscal_period`). What the ledger refuses of an entry refuses the
+// run (for example an obligation's revenue account that is no longer postable). The answer is the run
+// with its totals and its postings, one per contract that moved, each naming its journal entry.
+// Audited, and published as RevenueRecognized. Human-only (`x-agent: false`).
+//
+// POST /v1/revenue-recognition-runs
+func (UnimplementedHandler) CreateRevenueRecognitionRun(ctx context.Context, req *RevenueRecognitionRunCreate, params CreateRevenueRecognitionRunParams) (r CreateRevenueRecognitionRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateRfq implements createRfq operation.
 //
 // Creates a draft RFQ of a legal entity (ADR-0069 §1-§2): the currency quotations are given in, the
@@ -3604,6 +3649,22 @@ func (UnimplementedHandler) GetRevenueContract(ctx context.Context, params GetRe
 	return r, ht.ErrNotImplemented
 }
 
+// GetRevenueRecognitionRun implements getRevenueRecognitionRun operation.
+//
+// One revenue recognition run (ADR-0068 §9, T81d) with its company's code and name, its fiscal period
+// and posting date, the number of active contracts it read and of contracts it posted, the company's
+// totals to the period's end over the contracts it read (revenue recognized, revenue billed, contract
+// assets, contract liabilities) and its `postings`, one per contract that moved, by sales order
+// number: the contract's order and customer, its cumulative amounts, its position as a contract asset
+// or a contract liability, what the entry moved revenue by, its journal entry, and per obligation the
+// revenue account and the amounts. One of a company the caller may not act in is not found (404), as
+// one that does not exist.
+//
+// GET /v1/revenue-recognition-runs/{id}
+func (UnimplementedHandler) GetRevenueRecognitionRun(ctx context.Context, params GetRevenueRecognitionRunParams) (r GetRevenueRecognitionRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetRevenueSchedule implements getRevenueSchedule operation.
 //
 // The recognition schedule of an `active` revenue contract (ADR-0068 §8, T81c): per performance
@@ -5330,6 +5391,18 @@ func (UnimplementedHandler) ListRevaluationRuns(ctx context.Context, params List
 //
 // GET /v1/revenue-contracts
 func (UnimplementedHandler) ListRevenueContracts(ctx context.Context, params ListRevenueContractsParams) (r ListRevenueContractsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListRevenueRecognitionRuns implements listRevenueRecognitionRuns operation.
+//
+// The revenue recognition runs of the companies the caller may act in (ADR-0068 §9, T81d), latest
+// posting date first, each with its company's code and name, its fiscal period, its counts and its
+// totals, without its postings, which `getRevenueRecognitionRun` gives. Filtered by company, fiscal
+// year and fiscal period. Sortable by: `posting_date`.
+//
+// GET /v1/revenue-recognition-runs
+func (UnimplementedHandler) ListRevenueRecognitionRuns(ctx context.Context, params ListRevenueRecognitionRunsParams) (r ListRevenueRecognitionRunsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

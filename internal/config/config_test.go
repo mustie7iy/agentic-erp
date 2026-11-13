@@ -213,6 +213,8 @@ func TestValidationRules(t *testing.T) {
 		{"down payment account unknown", func(c *Config) { c.Companies[0].AccountDetermination.DownPayment = "159000" }, "companies[1000].account_determination.down_payment"},
 		{"down payment account not reconciliation", func(c *Config) { c.Companies[0].AccountDetermination.DownPayment = "100000" }, "companies[1000].account_determination.down_payment"},
 		{"down payment account a liability", func(c *Config) { c.Companies[0].AccountDetermination.DownPayment = "211000" }, "companies[1000].account_determination.down_payment"},
+		{"contract asset account a liability", func(c *Config) { c.Companies[0].AccountDetermination.ContractAsset = "211000" }, "companies[1000].account_determination.contract_asset"},
+		{"contract liability account an asset", func(c *Config) { c.Companies[0].AccountDetermination.ContractLiability = "100000" }, "companies[1000].account_determination.contract_liability"},
 		{"asset reconciliation account not for down payments", func(c *Config) {
 			c.Companies[0].ChartOfAccounts = append(c.Companies[0].ChartOfAccounts, Account{Number: "159000", Name: "Advances", Type: Asset, VendorReconciliation: true})
 		}, "companies[1000].chart_of_accounts[159000]"},

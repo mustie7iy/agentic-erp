@@ -7439,7 +7439,8 @@ step_revenue_contract() {
 # not hold): Sally is refused, Ruth releases it, once, and the delivery
 # is confirmed. Throughout, the exposure shows Northwind's confirmed
 # orders not yet billed, gross, beside its open items; a blocked order
-# counts only once it is released. The amounts follow from the exposure
+# counts only once it is released. CREDIT_ORDER is the released order,
+# delivered and not billed, for later steps. The amounts follow from the exposure
 # read, so the step holds whatever earlier steps left open. Of the earlier
 # orders, step 63's no longer counts, since step 64 posted its billing
 # document as a customer invoice (T79b), which Northwind paid; step 67's
@@ -7538,7 +7539,13 @@ step_credit_block() {
   QUIET=1 api 200 '' listAuditEvents -p object_type=sales.sales_order -p "object_id=$large"
   expect "the order's audit trail" "$(field '[.items[].action] | sort | join(" ")')" \
     "sales.sales_order.confirm sales.sales_order.create sales.sales_order.release_credit_block"
+  CREDIT_ORDER=$large
   passed
+}
+
+# from_cents N writes N minor units as an amount with two decimals.
+from_cents() {
+  awk -v c="$1" 'BEGIN { printf "%.2f", c / 100 }'
 }
 
 # schedule_line_body DATE QUANTITY UNIT is the request for a schedule line
@@ -7654,10 +7661,23 @@ step_scheduling_agreement() {
 # brackets as delivered today, and the schedule has their allocated
 # amount in today's fiscal period, recognized. The amounts follow from
 # the year's days, so the step holds in any year and on any day.
+# T81d (ADR-0068 §9): Ada adds a contract asset and a contract liability
+# account to Maple's account determination. The support is confirmed as
+# made available and Ruth bills the order in full and posts it; Nora
+# activates the contract of step 68's released order, delivered and not
+# billed. Nora runs revenue recognition for today's fiscal period: the
+# first contract, billed ahead of what is recognized, stands as a
+# contract liability, its revenue brought down to the brackets' allocated
+# amount and the support's share of the year's days to the period's end;
+# the second, delivered and not billed, is accrued as a contract asset
+# against revenue; step 63's contract, recognized as it was billed, posts
+# nothing. Each entry balances; a second run of the period is refused.
 step_revenue_schedule() {
-  heading "Step 70 — Recognition schedule: an active revenue contract's revenue per obligation and fiscal period, computed on read; goods in the period of their delivery confirmation, a service on a straight line by days over its service period, the shares adding up to the allocated amount"
+  heading "Step 70 — Recognition schedule and run: an active revenue contract's revenue per obligation and fiscal period, computed on read; goods in the period of their delivery confirmation, a service on a straight line by days over its service period, the shares adding up to the allocated amount; the recognition run posts each contract's position, a contract liability for what is billed ahead and a contract asset for what is delivered and not billed"
   local order=$REVENUE_ORDER contract=$REVENUE_CONTRACT day year yeardays show
+  local base period support doc accrued run first second liability entry lines
   [ -n "$order" ] && [ -n "$contract" ] || fail "step 67's order and revenue contract are not there"
+  [ -n "$CREDIT_ORDER" ] || fail "step 68's released order is not there"
   day=$(company_day)
   year=${day:0:4}
   yeardays=$(jq -rn --arg y "$year" '($y | tonumber) as $n | if ($n % 4 == 0 and $n % 100 != 0) or $n % 400 == 0 then 366 else 365 end')
@@ -7708,6 +7728,99 @@ step_revenue_schedule() {
   QUIET=1 api 200 '' listRevenueContracts -p "legal_entity_id=$LE" -p status=draft
   [ "$(field '.items | length')" -gt 0 ] || fail "no draft revenue contract to show"
   refused 409 revenue.invalid_status getRevenueSchedule -p "id=$(field '.items[0].id')"
+  as ada
+  say "The recognition run (T81d, ADR-0068 §9) posts each contract's position: revenue recognized less revenue billed is a"
+  say "contract asset when it is positive and a contract liability when it is negative, never both. Maple's chart has"
+  say "neither account, so Ada proposes 1260 and 2460 and names them in the account determination, a governed change:"
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Contract asset and contract liability accounts\", rationale: \"Revenue recognition runs of the pilot company (T81d)\", base_version: $base,
+    proposed: (.items[0].document | (.companies[] | select(.code == \"$CC\")) |= ((any(.chart_of_accounts[]; .group_account)) as \$group
+      | .chart_of_accounts += [{number: \"1260\", name: \"Contract assets\", type: \"asset\"} + (if \$group then {group_account: \"G1000\"} else {} end),
+          {number: \"2460\", name: \"Contract liabilities\", type: \"liability\"} + (if \$group then {group_account: \"G2000\"} else {} end)]
+      | .account_determination += {contract_asset: \"1260\", contract_liability: \"2460\"}))}" "$WORK/last.json" >"$WORK/contract-accounts.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @contract-accounts.json
+  governed "$(field .id)" "the contract accounts"
+  accounts
+  as sally
+  say "The support is made available to Northwind today; Sally confirms it (T78c), so the whole order is delivered:"
+  api 201 '"delivery \(.delivery_no) of sales order \(.sales_order_number) on \(.delivery_date): " + ([.items[] | "item \(.item_no) \(.quantity.value) \(.quantity.unit)"] | join(", "))' \
+    confirmSalesDelivery -p "id=$order" -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 2, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  as ruth
+  say "Ruth bills the order in full, at the order's prices, and posts the billing document (T79b): 1500.00 for the"
+  say "brackets and 1200.00 for the year of support are credited to 4000 Sales, with the GST on top."
+  QUIET=1 api 201 '' createBillingDocument -body "{\"sales_order_id\": \"$order\"}"
+  doc=$(field .id)
+  api 200 '"billing document \(.document_number): \(.status) on \(.posting_date), net \(.net_amount.amount) \(.net_amount.currency), posted as customer invoice \(.customer_invoice_number)"' \
+    postBillingDocument -p "id=$doc" -if-match "$ETAG"
+  expect "the order billed in full" "$(field '"\(.status) \(.net_amount.amount)"')" "posted 2700.00"
+  as nora
+  say "Step 68's released order, 500 brackets M10 for 5000.00, is delivered and not billed. Its contract was created"
+  say "when the order was confirmed; Nora activates it as it stands, one obligation at a point in time:"
+  QUIET=1 api 200 '' listRevenueContracts -p "sales_order_id=$CREDIT_ORDER"
+  expect "the revenue contracts of step 68's released order" "$(field '[.items[].status] | join(" ")')" draft
+  accrued=$(field '.items[0].id')
+  QUIET=1 api 200 '' getRevenueContract -p "id=$accrued"
+  api 200 '"revenue contract of sales order \(.sales_order_number): \(.status), transaction price \(.transaction_price.amount) \(.transaction_price.currency)"' \
+    activateRevenueContract -p "id=$accrued" -if-match "$ETAG"
+  expect "the active contract" "$(field '"\(.status) \(.obligations[0].allocated_amount.amount)"')" "active 5000.00"
+  say "What the run will recognize for step 67's contract is its schedule to the last day of today's fiscal period:"
+  say "the brackets' 1446.43, delivered, and the support's periods up to and including this one."
+  QUIET=1 api 200 '' getRevenueSchedule -p "id=$contract"
+  period=$(field ".periods[] | select(.period_start <= \"$day\" and \"$day\" <= .period_end) | .fiscal_period")
+  support=$(field "[.obligations[1].periods[] | select(.period_start <= \"$day\") | .amount.amount | sub(\"\\\\.\"; \"\") | tonumber] | add")
+  say "  the support to the end of period $period: $(from_cents "$support") of 1253.57"
+  liability=$((270000 - 144643 - support))
+  say "Nora runs revenue recognition for Maple and period $period of $year. The run reads every active contract: for each"
+  say "obligation, the revenue recognized to the period's last day less the revenue billed to it, less what earlier runs"
+  say "posted. Billing credited 4000 Sales with 2700.00 for step 67's order; recognized are 1446.43 and $(from_cents "$support"), so the"
+  say "entry debits Sales with the difference per obligation and credits the contract liability with $(from_cents "$liability"): what"
+  say "Northwind was billed for support still to come. Step 68's order is recognized, 5000.00, and not billed: the entry"
+  say "credits Sales and debits the contract asset, the accrual of what is delivered and not billed. Step 63's order"
+  say "was billed as it was delivered, so its contract posts nothing. Output tax is untouched: it was reported with"
+  say "the invoice."
+  api 201 '"revenue recognition run of \(.company_code) \(.company_name) for \(.fiscal_year)/\(.fiscal_period), posted \(.posting_date): \(.contract_count) contracts read, \(.posting_count) posted; recognized \(.recognized_amount.amount), billed \(.billed_amount.amount), contract assets \(.contract_asset_amount.amount), contract liabilities \(.contract_liability_amount.amount) \(.currency)", (.postings[] | "  sales order \(.sales_order_number) \(.customer_number) \(.customer_name): recognized \(.recognized_amount.amount), billed \(.billed_amount.amount), contract asset \(.contract_asset_amount.amount), contract liability \(.contract_liability_amount.amount), revenue moved by \(.revenue_amount.amount), journal entry \(.journal_entry_number)", (.obligations[] | "    obligation \(.obligation_no) \(.description) on \(.account_number): recognized \(.recognized_amount.amount) - billed \(.billed_amount.amount), revenue moved by \(.revenue_amount.amount)"))' \
+    createRevenueRecognitionRun -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $year, \"fiscal_period\": $period}"
+  run=$(field .id)
+  cp "$WORK/last.json" "$WORK/recognition-run.json"
+  expect "the run's period, contracts read and posted" "$(field '"\(.fiscal_year)/\(.fiscal_period) \(.contract_count) \(.posting_count) \(.currency)"')" "$year/$period 3 2 CAD"
+  expect "the run's contract assets and liabilities" "$(field '"\(.contract_asset_amount.amount) \(.contract_liability_amount.amount)"')" "5000.00 $(from_cents "$liability")"
+  expect "recognized less billed, the assets less the liabilities, in cents" \
+    "$(field '[.recognized_amount.amount, .billed_amount.amount] | map(sub("\\."; "") | tonumber) | .[0] - .[1]')" "$((500000 - liability))"
+  first=$(field ".postings[] | select(.sales_order_id == \"$order\") | \"\(.recognized_amount.amount) \(.billed_amount.amount) \(.contract_asset_amount.amount) \(.contract_liability_amount.amount) \(.revenue_amount.amount)\"")
+  expect "step 67's contract: billed ahead, a contract liability, never both" "$first" \
+    "$(from_cents $((144643 + support))) 2700.00 0.00 $(from_cents "$liability") $(from_cents $((-liability)))"
+  expect "its obligations: the brackets at their allocated amount, the support at its days' share" \
+    "$(field ".postings[] | select(.sales_order_id == \"$order\") | [.obligations[] | \"\(.account_number) \(.recognized_amount.amount) \(.billed_amount.amount) \(.revenue_amount.amount)\"] | join(\", \")")" \
+    "4000 1446.43 1500.00 -53.57, 4000 $(from_cents "$support") 1200.00 $(from_cents $((support - 120000)))"
+  second=$(field ".postings[] | select(.sales_order_id == \"$CREDIT_ORDER\") | \"\(.recognized_amount.amount) \(.billed_amount.amount) \(.contract_asset_amount.amount) \(.contract_liability_amount.amount) \(.revenue_amount.amount)\"")
+  expect "step 68's contract: delivered and not billed, accrued as a contract asset" "$second" "5000.00 0.00 5000.00 0.00 5000.00"
+  say "Each contract posted one journal entry, dated the period's last day, to every ledger Maple keeps. The accrual:"
+  entry=$(jq -r --arg o "$CREDIT_ORDER" '.postings[] | select(.sales_order_id == $o) | .journal_entry_id' "$WORK/recognition-run.json")
+  api 200 '"journal entry \(.document_number), \(.document_type), source \(.source_context), posted \(.posting_date), reference \(.reference)", (.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' \
+    getJournalEntry -p "id=$entry"
+  expect "the accrual's source and type" "$(field '"\(.source_context) \(.document_type)"')" "revenue SA"
+  lines=$(field '[.lines[] | "\(.account_id) \(.amount.amount)"] | join(", ")')
+  expect "the accrual: Sales credited, the contract asset debited" "$lines" "$(account 4000) -5000.00, $(account 1260) 5000.00"
+  say "And the entry of step 67's contract, billed ahead:"
+  entry=$(jq -r --arg o "$order" '.postings[] | select(.sales_order_id == $o) | .journal_entry_id' "$WORK/recognition-run.json")
+  api 200 '"journal entry \(.document_number), \(.document_type), source \(.source_context), posted \(.posting_date), reference \(.reference)", (.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' \
+    getJournalEntry -p "id=$entry"
+  expect "the entry balances, in cents" "$(field '[.lines[].amount.amount | sub("\\."; "") | tonumber] | add')" 0
+  expect "Sales debited per obligation" "$(field "[.lines[] | select(.account_id == \"$(account 4000)\") | .amount.amount] | join(\" \")")" \
+    "53.57 $(from_cents $((120000 - support)))"
+  if [ "$liability" -gt 0 ]; then
+    expect "the contract liability credited with the rest of what was billed" \
+      "$(field "[.lines[] | select(.account_id == \"$(account 2460)\") | .amount.amount] | join(\" \")")" "$(from_cents $((-liability)))"
+  fi
+  say "The run is read back with its postings, and listed. One run per company and period: a second is refused, and"
+  say "the next run, for a later period, posts only what moved since."
+  QUIET=1 api 200 '' getRevenueRecognitionRun -p "id=$run"
+  expect "the run read back" "$(field '"\(.id) \(.posting_count) \(.postings | length)"')" "$run 2 2"
+  api 200 '.items[] | "  \(.company_code) \(.fiscal_year)/\(.fiscal_period), posted \(.posting_date): \(.posting_count) of \(.contract_count) contracts posted"' \
+    listRevenueRecognitionRuns -p "legal_entity_id=$LE"
+  expect "Maple's runs" "$(field '[.items[].id] | join(" ")')" "$run"
+  refused 409 revenue.recognition_run_exists createRevenueRecognitionRun -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $year, \"fiscal_period\": $period}"
   passed
 }
 # step_close is the financial close (ADR-0058), the story's last step: it
