@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
@@ -21,10 +22,7 @@ import (
 // DeliveryItemInput is a quantity delivered of one item of the order, as
 // a client sends it: the order item's number and a plain decimal string
 // in the order item's unit.
-type DeliveryItemInput struct {
-	ItemNo         int32
-	Quantity, Unit string
-}
+type DeliveryItemInput = ItemQuantity
 
 // DeliveryInput is a delivery confirmation as a client sends it.
 type DeliveryInput struct {
@@ -149,15 +147,26 @@ func (e *Endpoints) ConfirmDelivery(ctx context.Context, orderID uuid.UUID, in D
 	return d, recordDelivery(ctx, d, after, le, names[o.CustomerID].Number)
 }
 
+// afterToday says whether the date is after the company's date today in
+// its time zone, with that day and the zone it is told in for the
+// refusal: what a person confirms as delivered or received has happened.
+func (e *Endpoints) afterToday(ctx context.Context, company string, date time.Time) (config.CompanyDay, bool, error) {
+	day, err := e.today(ctx, company)
+	if err != nil {
+		return config.CompanyDay{}, false, err
+	}
+	return day, date.After(day.Date), nil
+}
+
 // notAfterToday refuses a delivery dated after the company's date today
 // in its time zone (422 sales.delivery_date_in_future naming
-// delivery_date): what is confirmed has happened.
+// delivery_date).
 func (e *Endpoints) notAfterToday(ctx context.Context, company string, date time.Time) error {
-	day, err := e.today(ctx, company)
+	day, after, err := e.afterToday(ctx, company, date)
 	if err != nil {
 		return err
 	}
-	if date.After(day.Date) {
+	if after {
 		return problem.Invalid("sales.delivery_date_in_future", "delivery_date", "A delivery is confirmed on or after the day it was made: "+
 			date.Format(time.DateOnly)+" is after "+day.Date.Format(time.DateOnly)+", the company's date in "+day.Zone.String()+".")
 	}
@@ -165,62 +174,50 @@ func (e *Endpoints) notAfterToday(ctx context.Context, company string, date time
 }
 
 // deliverable checks a delivery's items against the order's, read under
-// its lock: each names an item of the order, once, with a quantity more
-// than zero in the item's unit that is at most the item's open quantity,
-// what was ordered less what is delivered. Every refusal names the
-// request's own field, and the last the item with what is open of it.
+// its lock (taking): each names an item of the order, once, with a
+// quantity more than zero in the item's unit that is at most the item's
+// open quantity, what was ordered less what is delivered. Every refusal
+// names the request's own field, and the last the item with what is open
+// of it.
 func deliverable(o Order, in []DeliveryItemInput) error {
-	if len(in) == 0 {
-		return problem.Invalid("sales.items_required", "items", "A delivery has at least one item.")
-	}
 	ordered := make(map[int32]OrderItem, len(o.Items))
 	for _, it := range o.Items {
 		ordered[it.ItemNo] = it
 	}
-	named := make(map[int32]bool, len(in))
-	for i, it := range in {
-		field := fmt.Sprintf("items[%d]", i)
-		oi, ok := ordered[it.ItemNo]
-		switch {
-		case !ok:
-			return problem.Invalid("sales.unknown_order_item", field+".item_no", fmt.Sprintf("Sales order %s has no item %d.", o.DocumentNumber, it.ItemNo))
-		case named[it.ItemNo]:
-			return problem.Invalid("sales.item_repeated", field+".item_no", fmt.Sprintf("Item %d is named more than once; a delivery names an order item once.", it.ItemNo))
-		case money.PositiveQuantity(it.Quantity) != nil:
-			return problem.Invalid("sales.invalid_quantity", field+".quantity.value", fmt.Sprintf(
-				"A quantity is a plain decimal more than zero of at most %d integer digits and %d decimals.", money.QuantityIntDigits, money.QuantityDecimals))
-		case it.Unit != oi.Unit:
-			return problem.Invalid("sales.unit_mismatch", field+".quantity.unit",
-				fmt.Sprintf("Item %d of sales order %s is in %s; its delivery is confirmed in that unit.", it.ItemNo, o.DocumentNumber, oi.Unit))
-		}
-		named[it.ItemNo] = true
-		open := new(big.Rat).Sub(money.ParseRat(oi.Quantity), money.ParseRat(oi.Delivered))
-		if money.ParseRat(it.Quantity).Cmp(open) > 0 {
-			return problem.Invalid("sales.exceeds_open_quantity", field+".quantity.value", fmt.Sprintf(
-				"Item %d of sales order %s has %s %s open for delivery (%s ordered, %s delivered); %s is more.",
-				it.ItemNo, o.DocumentNumber, money.PlainQuantity(open), oi.Unit, oi.Quantity, oi.Delivered, it.Quantity))
-		}
+	short, err := taking{document: "A delivery", noField: "item_no",
+		find: func(no int32) (string, *big.Rat, bool) {
+			it, ok := ordered[no]
+			if !ok {
+				return "", nil, false
+			}
+			return it.Unit, new(big.Rat).Sub(money.ParseRat(it.Quantity), money.ParseRat(it.Delivered)), true
+		},
+		otherUnit: func(no int32, unit string) string {
+			return fmt.Sprintf("Item %d of sales order %s is in %s; its delivery is confirmed in that unit.", no, o.DocumentNumber, unit)
+		}}.check(in)
+	switch {
+	case err != nil || short == nil:
+		return err
+	case short.open == nil:
+		return problem.Invalid("sales.unknown_order_item", short.noField, fmt.Sprintf("Sales order %s has no item %d.", o.DocumentNumber, short.no))
 	}
-	return nil
+	it := ordered[short.no]
+	return problem.Invalid("sales.exceeds_open_quantity", short.quantityField, fmt.Sprintf(
+		"Item %d of sales order %s has %s %s open for delivery (%s ordered, %s delivered); %s is more.",
+		short.no, o.DocumentNumber, money.PlainQuantity(short.open), it.Unit, it.Quantity, it.Delivered, short.quantity))
 }
+
+// deliveries are the tables a delivery is written to.
+var deliveries = confirmation{table: "delivery", document: "sales_order_id", number: "delivery_no", date: "delivery_date",
+	items: "delivery_item", parent: "delivery_id", item: "order_item_no"}
 
 // insertDelivery writes the delivery with its items and returns it as it
 // reads. Its number is the next within the order, which the caller holds
 // locked.
 func insertDelivery(ctx context.Context, tx pgx.Tx, p reqctx.Principal, orderID uuid.UUID, in DeliveryInput) (Delivery, error) {
-	id := uuid.Must(uuid.NewV7())
-	if _, err := tx.Exec(ctx, `INSERT INTO sales.delivery (tenant_id, id, sales_order_id, delivery_no, delivery_date, created_by)
-		SELECT $1, $2, $3, coalesce(max(delivery_no), 0) + 1, $4, $5 FROM sales.delivery WHERE sales_order_id = $3`,
-		p.TenantID, id, orderID, in.Date, p.ID); err != nil {
-		return Delivery{}, fmt.Errorf("sales: insert a delivery of sales order %s: %w", orderID, err)
-	}
-	nos, quantities := make([]int32, len(in.Items)), make([]string, len(in.Items))
-	for i, it := range in.Items {
-		nos[i], quantities[i] = it.ItemNo, it.Quantity
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO sales.delivery_item (tenant_id, delivery_id, sales_order_id, order_item_no, quantity)
-		SELECT $1, $2, $3, n, q::numeric FROM unnest($4::int[], $5::text[]) AS x(n, q)`, p.TenantID, id, orderID, nos, quantities); err != nil {
-		return Delivery{}, fmt.Errorf("sales: write items of delivery %s: %w", id, err)
+	id, err := deliveries.insert(ctx, tx, p, orderID, in.Date, in.Items)
+	if err != nil {
+		return Delivery{}, err
 	}
 	d, err := scanDelivery(tx.QueryRow(ctx, deliverySelect+` WHERE d.id = $1`, id))
 	if err != nil {

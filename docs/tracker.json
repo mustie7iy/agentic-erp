@@ -4957,20 +4957,20 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Returns orders",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A sales administrator creates a returns order for quantities of a posted billing document's items, with a reason, and confirms it; the order's items show what was billed and what is being returned (POST /v1/returns-orders, :confirm)",
-        "r": "T85a · docs/design/plan-breadth-week3.md §T85a",
+        "r": "T85a · docs/design/plan-breadth-week3.md §T85a · db/migrations/000306 · sales.returns_order, returns_order_item · sales_order_item.returned_quantity · POST /v1/returns-orders · GET /v1/returns-orders · GET /v1/returns-orders/{id} · POST /v1/returns-orders/{id}:confirm · ReturnsOrderChanged · sales.return.read, .write, .confirm · walkthrough step_returns · ADR-0067 As built",
         "src": "po:2026-11-12 · design:03 §3.16",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The sales administrator confirms that returned quantities arrived on a date; the returns order shows what was received and what is still expected; a confirmation in the sales context, no stock and no posting (POST /v1/returns-orders/{id}/receipts)",
-        "r": "T85b · docs/design/plan-breadth-week3.md §T85b",
+        "r": "T85b · docs/design/plan-breadth-week3.md §T85b · db/migrations/000307 · sales.return_receipt, return_receipt_item · returns_order_item.received_quantity · POST /v1/returns-orders/{id}/receipts · GET /v1/returns-orders/{id}/receipts · ReturnReceived · sales.return.receive · walkthrough step_return_receipt · ADR-0067 As built",
         "src": "po:2026-11-12 · design:03 §3.16",
         "c": []
        },

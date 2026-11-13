@@ -1610,7 +1610,8 @@ PILOT_SETTINGS='
     {"company": "@CC@", "document_type": "journal_dg", "fiscal_year": @YEAR@, "first": 1600000000, "last": 1699999999},
     {"company": "@CC@", "document_type": "quotation", "fiscal_year": @YEAR@, "prefix": "QT", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "sales_order", "fiscal_year": @YEAR@, "prefix": "SO", "first": 1, "last": 999999},
-    {"company": "@CC@", "document_type": "billing_document", "fiscal_year": @YEAR@, "prefix": "BD", "first": 1, "last": 999999}]'
+    {"company": "@CC@", "document_type": "billing_document", "fiscal_year": @YEAR@, "prefix": "BD", "first": 1, "last": 999999},
+    {"company": "@CC@", "document_type": "returns_order", "fiscal_year": @YEAR@, "prefix": "RO", "first": 1, "last": 999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -8170,6 +8171,150 @@ step_access_agent() {
   expect "the grant ended" "$(field '.valid_to != null')" true
   passed
 }
+# step_returns is T85a (ADR-0067, As built T85a): Northwind sends back 20
+# of the 120 brackets step_billing billed. Sally, the sales
+# administrator, creates a returns order for the posted billing document
+# with the reason; its item shows what was billed and what is returned,
+# and the sales order shows the quantity returned at a new version, its
+# delivered and billed quantities as they were. More than can still be
+# returned is refused naming the item. She confirms it, once. Nothing is
+# posted: Northwind's open items and its credit exposure are as they were
+# (the credit for a return is a credit memo request's). It keeps the
+# returns order (RETURNS_ORDER).
+step_returns() {
+  heading "Step 70 — Returns orders: a returns order for part of a posted billing document's quantity created with its reason, its item showing what was billed and what is returned; more than was billed refused; confirmed once; nothing posted"
+  local customer=$CUSTOMER order=$SALES_ORDER doc=$BILLING_DOCUMENT before version open exposure returns number tag
+  [ -n "$doc" ] && [ -n "$order" ] || fail "the sales order of step 63 and the billing document of step 64 are not there"
+  as sally
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
+  QUIET=1 api 200 '' getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  exposure=$(field '"\(.open_items.amount) \(.open_order_count) \(.open_orders.amount) \(.exposure.amount)"')
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  version=$(field .version)
+  expect "nothing returned of the order yet" "$(field '[.items[].returned_quantity.value] | join(" ")')" "0 0"
+  say "Northwind finds 20 of the 120 brackets of step 63's order out of tolerance and sends them back. Sally creates a"
+  say "returns order for the billing document step 64 posted (ADR-0067, As built T85a): the reason, and the quantity"
+  say "returned of the billing document's item. It is dated Maple's today and carries no amounts:"
+  before=$(company_day)
+  api 201 '"returns order \(.document_number) of \(.customer_number) \(.customer_name), \(.company_code) \(.company_name): \(.status), dated \(.returns_date), for billing document \(.billing_document_number) of sales order \(.sales_order_number), reason \(.reason): \(.reason_text)", (.items[] | "  item \(.item_no) (billing item \(.billing_item_no), order item \(.order_item_no)) \(.item_key // "-") \(.description): billed \(.billed_quantity.value) \(.billed_quantity.unit), returned \(.quantity.value) \(.quantity.unit)")' \
+    createReturnsOrder -body "{\"billing_document_id\": \"$doc\", \"reason\": \"defective\", \"reason_text\": \"Threads out of tolerance\", \"items\": [{\"billing_item_no\": 1, \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}}]}"
+  returns=$(field .id)
+  number=$(field .document_number)
+  tag=$ETAG
+  expect "the returns order's status and version" "$(field '"\(.status) \(.version)"')" "draft 1"
+  expect_today "the returns date, Maple's today" "$(field .returns_date)" "$before"
+  expect "the returns order's billing document, sales order, customer and reason" \
+    "$(field '"\(.billing_document_id) \(.sales_order_id) \(.customer_id) \(.customer_name) \(.reason)"')" "$doc $order $customer Northwind Traders defective"
+  expect "the item: what was billed and what is returned" \
+    "$(field '[.items[] | "\(.billing_item_no) \(.order_item_no) \(.item_key): \(.billed_quantity.value) \(.billed_quantity.unit) billed, \(.quantity.value) \(.quantity.unit) returned"] | join(", ")')" \
+    "1 1 BRACKET-M8: 120 EA billed, 20 EA returned"
+  say "The sales order shows 20 returned of its first item; its delivered and billed quantities are as they were, and"
+  say "its version moved:"
+  api 200 '"sales order \(.document_number): \(.status), version \(.version)", (.items[] | "  item \(.item_no) \(.description): ordered \(.quantity.value) \(.quantity.unit), delivered \(.delivered_quantity.value), billed \(.billed_quantity.value), returned \(.returned_quantity.value)")' \
+    getSalesOrder -p "id=$order"
+  expect "each item's ordered, delivered, billed and returned quantity" \
+    "$(field '[.items[] | "\(.quantity.value) \(.delivered_quantity.value) \(.billed_quantity.value) \(.returned_quantity.value)"] | join(", ")')" \
+    "120 120 120 20, 2.5 2.5 2.5 0"
+  expect "the order's version" "$(field .version)" "$((version + 1))"
+  say "100 brackets of the billing document can still be returned. A second returns order for 101 is refused naming"
+  say "the item, though this one is still a draft: a returns order takes its quantity when it is created."
+  refused 422 sales.exceeds_returnable_quantity createReturnsOrder \
+    -body "{\"billing_document_id\": \"$doc\", \"reason\": \"not_wanted\", \"items\": [{\"billing_item_no\": 1, \"quantity\": {\"value\": \"101\", \"unit\": \"EA\"}}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].quantity.value"
+  say "A reason the contract does not know is refused too:"
+  refused 422 sales.unknown_return_reason createReturnsOrder \
+    -body "{\"billing_document_id\": \"$doc\", \"reason\": \"bored\", \"items\": [{\"billing_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  expect "the field refused" "$(field '.errors[0].field')" reason
+  say "Sally confirms the returns order at the version she read. It is confirmed once:"
+  api 200 '"returns order \(.document_number): \(.status), version \(.version)"' confirmReturnsOrder -p "id=$returns" -if-match "$tag"
+  expect "the confirmed returns order" "$(field '"\(.document_number) \(.status) \(.version)"')" "$number confirmed 2"
+  refused 412 request.version_mismatch confirmReturnsOrder -p "id=$returns" -if-match "$tag"
+  QUIET=1 api 200 '' getReturnsOrder -p "id=$returns"
+  refused 409 sales.invalid_status confirmReturnsOrder -p "id=$returns" -if-match "$ETAG"
+  say "It is the billing document's one returns order:"
+  api 200 '.items[] | "  \(.document_number) \(.customer_name): \(.status), billing document \(.billing_document_number), reason \(.reason)"' \
+    listReturnsOrders -p "billing_document_id=$doc"
+  expect "the billing document's returns orders" "$(field '[.items[] | "\(.document_number) \(.status)"] | join(" ")')" "$number confirmed"
+  say "A returns order posts nothing and moves no stock. Northwind's open items and its credit exposure are as they"
+  say "were: what is credited for the return is a credit memo request's, which comes next."
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  QUIET=1 api 200 '' getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "the customer's open items, open orders and exposure" \
+    "$(field '"\(.open_items.amount) \(.open_order_count) \(.open_orders.amount) \(.exposure.amount)"')" "$exposure"
+  QUIET=1 api 200 '' listAuditEvents -p object_type=sales.returns_order -p "object_id=$returns"
+  expect "the returns order's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "sales.returns_order.confirm sales.returns_order.create"
+  RETURNS_ORDER=$returns
+  passed
+}
+
+# step_return_receipt is T85b (ADR-0067, As built T85b): the 20 brackets
+# of step_returns' returns order arrive in two parcels. Sally confirms 15
+# as received today: the returns order shows 15 received and 5 still
+# expected at a new version. More than is still expected and a date
+# after today are refused naming their fields. A second receipt brings
+# the last 5 and the returns order reads as fully received; a further
+# receipt is refused. It is a confirmation in the sales context, as a
+# delivery's is: the sales order's delivered, billed and returned
+# quantities and its version stay, nothing is posted and no stock moves.
+step_return_receipt() {
+  heading "Step 71 — Return receipts: returned quantities confirmed as received on a date against the confirmed returns order, up to what is still expected; the returns order showing what is received and what is still expected, then fully received; the sales order unchanged; nothing posted"
+  local customer=$CUSTOMER order=$SALES_ORDER returns=$RETURNS_ORDER day number sold open
+  [ -n "$returns" ] || fail "step 70's returns order is not there"
+  as sally
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  sold=$(field '"\(.version) " + ([.items[] | "\(.delivered_quantity.value) \(.billed_quantity.value) \(.returned_quantity.value)"] | join(", "))')
+  QUIET=1 api 200 '' getReturnsOrder -p "id=$returns"
+  number=$(field .document_number)
+  expect "the returns order before a receipt: returned, received and still expected" \
+    "$(field '"\(.status) \(.version) " + ([.items[] | "\(.quantity.value) \(.received_quantity.value) \(.open_quantity.value)"] | join(", "))')" "confirmed 2 20 0 20"
+  day=$(company_day)
+  say "A first parcel with 15 of the 20 brackets arrives. Sally confirms them as received today (ADR-0067, As built"
+  say "T85b). Like a delivery confirmation, it is a confirmation in the sales context: no stock moves, nothing is posted."
+  api 201 '"receipt \(.receipt_no) of returns order \(.returns_order_number) on \(.receipt_date): " + ([.items[] | "item \(.item_no) \(.item_key // "-") \(.description) \(.quantity.value) \(.quantity.unit)"] | join(", "))' \
+    confirmReturnReceipt -p "id=$returns" -body "{\"receipt_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"15\", \"unit\": \"EA\"}}]}"
+  expect "the first receipt" "$(field '"\(.receipt_no) \(.returns_order_id) \(.returns_order_number) \(.receipt_date)"')" "1 $returns $number $day"
+  expect "the receipt's item" "$(field '[.items[] | "\(.item_no) \(.billing_item_no) \(.item_key) \(.quantity.value) \(.quantity.unit)"] | join(", ")')" "1 1 BRACKET-M8 15 EA"
+  say "The returns order shows 15 received and 5 still expected; its version moved:"
+  api 200 '"returns order \(.document_number): \(.status), version \(.version)", (.items[] | "  item \(.item_no) \(.description): returned \(.quantity.value) \(.quantity.unit), received \(.received_quantity.value), still expected \(.open_quantity.value)")' \
+    getReturnsOrder -p "id=$returns"
+  expect "returned, received and still expected after the first receipt" \
+    "$(field '"\(.status) \(.version) " + ([.items[] | "\(.quantity.value) \(.received_quantity.value) \(.open_quantity.value)"] | join(", "))')" "confirmed 3 20 15 5"
+  say "Six more is more than the 5 still expected, and a receipt is not dated after today; both are refused naming"
+  say "their fields:"
+  refused 422 sales.exceeds_open_quantity confirmReturnReceipt -p "id=$returns" \
+    -body "{\"receipt_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"6\", \"unit\": \"EA\"}}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].quantity.value"
+  refused 422 sales.receipt_date_in_future confirmReturnReceipt -p "id=$returns" \
+    -body "{\"receipt_date\": \"2099-12-31\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"5\", \"unit\": \"EA\"}}]}"
+  expect "the field refused" "$(field '.errors[0].field')" receipt_date
+  say "The second parcel brings the last 5. The returns order reads as fully received:"
+  api 201 '"receipt \(.receipt_no) of returns order \(.returns_order_number) on \(.receipt_date): " + ([.items[] | "item \(.item_no) \(.quantity.value) \(.quantity.unit)"] | join(", "))' \
+    confirmReturnReceipt -p "id=$returns" -body "{\"receipt_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"5\", \"unit\": \"EA\"}}]}"
+  expect "the second receipt's number" "$(field .receipt_no)" 2
+  api 200 '"returns order \(.document_number): \(.status), version \(.version)", (.items[] | "  item \(.item_no) \(.description): returned \(.quantity.value) \(.quantity.unit), received \(.received_quantity.value), still expected \(.open_quantity.value)")' \
+    getReturnsOrder -p "id=$returns"
+  expect "returned, received and still expected after the second receipt" \
+    "$(field '"\(.status) \(.version) " + ([.items[] | "\(.quantity.value) \(.received_quantity.value) \(.open_quantity.value)"] | join(", "))')" "confirmed 4 20 20 0"
+  say "Nothing is still expected, so a further receipt is refused:"
+  refused 422 sales.exceeds_open_quantity confirmReturnReceipt -p "id=$returns" \
+    -body "{\"receipt_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  api 200 '.items[] | "  receipt \(.receipt_no) on \(.receipt_date): " + ([.items[] | "item \(.item_no) \(.quantity.value) \(.quantity.unit)"] | join(", "))' \
+    listReturnReceipts -p "id=$returns"
+  expect "the returns order's receipts" "$(field '[.items[] | "\(.receipt_no): \(.items[0].quantity.value)"] | join(", ")')" "1: 15, 2: 5"
+  say "The sales order's delivered, billed and returned quantities and its version are as they were, and so are"
+  say "Northwind's open items: a receipt posts nothing."
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  expect "the sales order's version and its items' delivered, billed and returned quantities" \
+    "$(field '"\(.version) " + ([.items[] | "\(.delivered_quantity.value) \(.billed_quantity.value) \(.returned_quantity.value)"] | join(", "))')" "$sold"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -10194,7 +10339,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_controls step_control_matrix step_sales_analytics step_spend step_credit_agent step_access_agent step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_controls step_control_matrix step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_close'
 
 main() {
   stop_unseen

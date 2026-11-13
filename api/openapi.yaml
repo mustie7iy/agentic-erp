@@ -60,7 +60,7 @@ tags:
   - name: collections
     description: "Dunning and collections (ADR-0065): dunning runs and their notices, and the collection worklist."
   - name: sales
-    description: "Sales (ADR-0067): quotations, sales orders, the confirmations of their deliveries, billing documents and sales prices."
+    description: "Sales (ADR-0067): quotations, sales orders, the confirmations of their deliveries, billing documents, returns orders, the confirmations of their receipts and sales prices."
   - name: revenue
     description: "Revenue recognition (ADR-0068): revenue contracts and their performance obligations."
   - name: credit
@@ -18406,7 +18406,7 @@ paths:
       tags:
         - sales
       summary: List sales orders
-      description: "The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the quotation it came from, its net value, its credit block and its items with their ordered, delivered and billed quantities. Filtered by company, customer, status, credit block, document number and quotation. Sortable by: `order_date`, `document_number`."
+      description: "The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the quotation it came from, its net value, its credit block and its items with their ordered, delivered, billed and returned quantities. Filtered by company, customer, status, credit block, document number and quotation. Sortable by: `order_date`, `document_number`."
       x-permission: sales.order.read
       x-problem-codes:
         - request.invalid_order_by
@@ -18565,7 +18565,7 @@ paths:
       tags:
         - sales
       summary: Get a sales order
-      description: "One sales order (ADR-0067 §5, T78b) with its company's code and name, its customer's number and name, the quotation it was created from by id and number, its payment term, its net value, its credit block (with who released it and when, once it is released) and its items, each with its ordered, delivered and billed quantities, its unit price, its net value and its revenue account's number and name. One of a company the caller may not act in is not found (404), as one that does not exist."
+      description: "One sales order (ADR-0067 §5, T78b) with its company's code and name, its customer's number and name, the quotation it was created from by id and number, its payment term, its net value, its credit block (with who released it and when, once it is released) and its items, each with its ordered, delivered, billed and returned quantities, its unit price, its net value and its revenue account's number and name. One of a company the caller may not act in is not found (404), as one that does not exist."
       x-permission: sales.order.read
       x-problem-codes: []
       parameters:
@@ -19498,6 +19498,314 @@ paths:
           $ref: "#/components/responses/Conflict"
         "412":
           $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/returns-orders:
+    get:
+      operationId: listReturnsOrders
+      tags:
+        - sales
+      summary: List returns orders
+      description: "The returns orders of the companies the caller may act in (ADR-0067, As built T85a), each as `getReturnsOrder` gives it: with its company's code and name, its customer's number and name, the billing document and the sales order it returns from by id and number, its reason and its items with their billed, returned, received and still expected quantities. Filtered by company, customer, billing document, sales order, status and document number. Sortable by: `returns_date`, `document_number`."
+      x-permission: sales.return.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: customer_id
+          in: query
+          required: false
+          description: Only the returns orders of this customer (business partner id).
+          schema:
+            type: string
+            format: uuid
+        - name: billing_document_id
+          in: query
+          required: false
+          description: Only the returns orders for this billing document.
+          schema:
+            type: string
+            format: uuid
+        - name: sales_order_id
+          in: query
+          required: false
+          description: Only the returns orders for billing documents of this sales order.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only returns orders in this status.
+          schema:
+            type: string
+            description: "Returns order status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - draft
+              - confirmed
+        - $ref: "#/components/parameters/DocumentNumber"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of returns orders.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReturnsOrderPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createReturnsOrder
+      tags:
+        - sales
+      summary: Create a returns order for a posted billing document
+      description: "Creates a returns order (ADR-0067, As built T85a): the customer sends back quantities of a posted billing document's items, for a reason. The billing document is one of a company the caller may act in (422 `request.reference_not_found` naming `billing_document_id`) that is posted (409 `sales.billing_document_not_posted`): what was not billed and posted is not returned in the first version. `reason` is one of `defective`, `wrong_item`, `not_wanted` and `other` (422 `sales.unknown_return_reason`), with a free text in `reason_text` if wanted. Each item names an item of the billing document by its number (422 `sales.unknown_billing_item` naming `items[i].billing_item_no`), once (422 `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the billed item's unit (422 `sales.unit_mismatch`) that is at most what can still be returned of it: its billed quantity less what the document's other returns orders took, drafts included, since a returns order is not cancelled in the first version (422 `sales.exceeds_returnable_quantity` naming `items[i].quantity.value`, with the item, what was billed and what was taken in the message). The billing document's sales order is read under a row lock, so two requests wait for one another and no quantity is returned twice. The returns order is created `draft`, dated the company's date today in its time zone, with a document number from the company's `returns_order` number range of that date's fiscal year (422 `config.no_number_range` for a company without the range). Each sales order item's `returned_quantity` rises by what the order takes and the sales order's `version` moves (`getSalesOrder`); its delivered and billed quantities stay. It is a document of the sales context alone: nothing is posted, no stock moves, the customer's open items and credit exposure are as they were, and the order's revenue contract is not changed; the credit for a return is a credit memo request's. Audited, and published as ReturnsOrderChanged. A retry with the same `Idempotency-Key` answers the returns order created. Human-only (`x-agent: false`)."
+      x-permission: sales.return.write
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.no_fiscal_period
+        - request.validation_failed
+        - sales.billing_document_not_posted
+        - sales.exceeds_returnable_quantity
+        - sales.invalid_quantity
+        - sales.item_repeated
+        - sales.items_required
+        - sales.unit_mismatch
+        - sales.unknown_billing_item
+        - sales.unknown_return_reason
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The returns order to create.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReturnsOrderCreate"
+            examples:
+              part:
+                summary: Part of a billed item sent back as defective
+                value:
+                  billing_document_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5da1"
+                  reason: defective
+                  reason_text: Threads out of tolerance
+                  items:
+                    - billing_item_no: 1
+                      quantity:
+                        value: "20"
+                        unit: EA
+      responses:
+        "201":
+          description: "Created; the new returns order."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReturnsOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/returns-orders/{id}":
+    get:
+      operationId: getReturnsOrder
+      tags:
+        - sales
+      summary: Get a returns order
+      description: "One returns order (ADR-0067, As built T85a) with its company's code and name, its customer's number and name, the billing document and the sales order it returns from by id and number, its date, its reason and its items, each naming the billing document's item and the sales order's item by number, what is sold by item key and description, the quantity billed by the billing document's item, the quantity being returned, the quantity received so far and the quantity still expected. One of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: sales.return.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The returns order.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReturnsOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/returns-orders/{id}:confirm":
+    post:
+      operationId: confirmReturnsOrder
+      tags:
+        - sales
+      summary: Confirm a returns order
+      description: "Confirms a `draft` returns order (ADR-0067, As built T85a), at the version the caller read (`If-Match`): the returns order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused (409 `sales.invalid_status`). Confirming is by permission, `sales.return.confirm`, without an approval; no rule sets the person who confirms apart from the one who created the returns order. A confirmed returns order is not changed or cancelled in the first version; it takes receipts (`confirmReturnReceipt`). Nothing is checked again, nothing is posted and no stock moves. Audited, and published as ReturnsOrderChanged. A retry with the same `Idempotency-Key` answers the confirmed returns order. Human-only (`x-agent: false`)."
+      x-permission: sales.return.confirm
+      x-agent: false
+      x-problem-codes:
+        - request.version_mismatch
+        - sales.invalid_status
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The returns order, confirmed."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReturnsOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/returns-orders/{id}/receipts":
+    get:
+      operationId: listReturnReceipts
+      tags:
+        - sales
+      summary: List a returns order's receipts
+      description: "The receipts of a returns order (ADR-0067, As built T85b), each as `confirmReturnReceipt` answered it: its number within the returns order, its date and its items, each naming the returns order's item by number, the billing document's item, the item key and the description with the quantity received in the item's unit. The returns order's own items show the sum and what is still expected (`received_quantity`, `open_quantity`, `getReturnsOrder`). A returns order of a company the caller may not act in is not found (404), as one that does not exist. Sortable by: `receipt_date`."
+      x-permission: sales.return.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of the returns order's receipts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReturnReceiptPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: confirmReturnReceipt
+      tags:
+        - sales
+      summary: Confirm that returned quantities were received
+      description: "Records that quantities of a `confirmed` returns order's items arrived on a date (ADR-0067, As built T85b). It is a confirmation by a person, kept in the sales context, as a delivery confirmation is (`confirmSalesDelivery`): no stock moves and nothing is posted; a credit memo request reads what was received. The returns order is read under a row lock, so two receipts of one returns order wait for one another. A returns order that is not confirmed takes none (409 `sales.returns_order_not_confirmed`). `receipt_date` is not after the company's date today in its time zone (422 `sales.receipt_date_in_future`). Each item names an item of the returns order by its number (422 `sales.unknown_returns_item` naming `items[i].item_no`), once (422 `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the item's unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what is returned less what earlier receipts confirmed (422 `sales.exceeds_open_quantity` naming `items[i].quantity.value`, with the item and its open quantity in the message): of two receipts racing for an item's last quantity, one is recorded. The receipt is numbered within its returns order and written once; it is not changed or reversed in the first version. Each returns order item's `received_quantity` rises by what was received, its `open_quantity` falls by it, and the returns order's `version` moves, so `getReturnsOrder` shows what is received and what is still expected. The sales order is not changed: its delivered, billed and returned quantities stay. Audited, and published as ReturnReceived. A retry with the same `Idempotency-Key` answers the receipt recorded. Human-only (`x-agent: false`)."
+      x-permission: sales.return.receive
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - sales.exceeds_open_quantity
+        - sales.invalid_quantity
+        - sales.item_repeated
+        - sales.items_required
+        - sales.receipt_date_in_future
+        - sales.returns_order_not_confirmed
+        - sales.unit_mismatch
+        - sales.unknown_returns_item
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The receipt to confirm.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReturnReceiptCreate"
+            examples:
+              in_full:
+                summary: An item received in full
+                value:
+                  receipt_date: "2026-11-30"
+                  items:
+                    - item_no: 1
+                      quantity:
+                        value: "20"
+                        unit: EA
+      responses:
+        "201":
+          description: "Created; the receipt."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReturnReceipt"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/Unprocessable"
         "428":
@@ -50063,12 +50371,13 @@ components:
       allOf:
         - $ref: "#/components/schemas/SalesItem"
         - type: object
-          required: [delivered_quantity, billed_quantity]
+          required: [delivered_quantity, billed_quantity, returned_quantity]
           properties:
             delivered_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity confirmed as delivered so far (`confirmSalesDelivery`), in the item's unit; at most `quantity`, the quantity ordered, and what is open for delivery is the difference."}
             billed_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity billed so far by the order's billing documents (`createBillingDocument`), in the item's unit; at most `delivered_quantity`."}
+            returned_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity the returns orders for the order's billing documents take (`createReturnsOrder`), drafts included, in the item's unit; at most `billed_quantity`."}
     SalesOrder:
-      description: "A sales order (sales, ADR-0067 §5): what a customer ordered. Amounts are net. Its `version` moves when it is confirmed, when its credit block is released (`releaseSalesOrderCreditBlock`) and with each delivery confirmed against it (`confirmSalesDelivery`) and each billing document created for it (`createBillingDocument`), which change what its items show as delivered and billed."
+      description: "A sales order (sales, ADR-0067 §5): what a customer ordered. Amounts are net. Its `version` moves when it is confirmed, when its credit block is released (`releaseSalesOrderCreditBlock`) and with each delivery confirmed against it (`confirmSalesDelivery`) and each billing document created for it (`createBillingDocument`), which change what its items show as delivered and billed, and with each returns order created for one of its billing documents (`createReturnsOrder`), which changes what they show as returned."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -50144,6 +50453,7 @@ components:
               tax_code: GO5
               delivered_quantity: {value: "0", unit: EA}
               billed_quantity: {value: "0", unit: EA}
+              returned_quantity: {value: "0", unit: EA}
     SalesOrderPage:
       type: object
       description: One page of sales orders.
@@ -50400,6 +50710,198 @@ components:
           type: array
           items: {$ref: "#/components/schemas/BillingDocument"}
           description: The billing documents on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    ReturnsOrderCreate:
+      type: object
+      description: "Create a returns order for quantities of a posted billing document's items. It is created `draft`, dated the company's date today."
+      required: [billing_document_id, reason, items]
+      additionalProperties: false
+      properties:
+        billing_document_id: {type: string, format: uuid, description: "The posted billing document whose items are returned: one of a company the caller may act in."}
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 40
+          x-extensible-enum: [defective, wrong_item, not_wanted, other]
+          description: "Why the customer returns the items. `defective`: they are faulty; `wrong_item`: not what was ordered; `not_wanted`: the customer no longer wants them; `other`: anything else, which `reason_text` says. Open enumeration: values may be added within /v1; one that is not known is refused."
+        reason_text: {type: string, minLength: 1, maxLength: 500, description: "The reason in the customer's or the administrator's words; optional with every reason."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 999
+          items: {$ref: "#/components/schemas/ReturnsOrderItemCreate"}
+          description: "The billing document's items returned, each at most once, numbered in this order from 1."
+    ReturnsOrderItemCreate:
+      type: object
+      description: "A quantity returned of one item of the billing document."
+      required: [billing_item_no, quantity]
+      additionalProperties: false
+      properties:
+        billing_item_no: {type: integer, format: int32, minimum: 1, description: "The billing document item's number (`BillingDocument.items[].item_no`)."}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity returned: more than zero, in the billed item's unit, at most the item's billed quantity less what the document's other returns orders took."}
+    ReturnsOrderItem:
+      type: object
+      description: "An item of a returns order (ADR-0067, As built T85a): what is returned of one item of the billing document."
+      required: [item_no, billing_item_no, order_item_no, description, billed_quantity, quantity, received_quantity, open_quantity]
+      properties:
+        item_no: {type: integer, format: int32, description: "The item's number within the returns order, from 1.", readOnly: true}
+        billing_item_no: {type: integer, format: int32, description: "The number of the billing document's item it returns from.", readOnly: true}
+        order_item_no: {type: integer, format: int32, description: "The number of the sales order's item that billing document item billed.", readOnly: true}
+        item_key: {type: string, description: "The sales order item's item key; absent when it has none.", readOnly: true}
+        description: {type: string, description: "The sales order item's description.", readOnly: true}
+        billed_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity the billing document's item billed, in the item's unit."}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity being returned, in the item's unit; at most `billed_quantity`."}
+        received_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity confirmed as received so far (`confirmReturnReceipt`), in the item's unit; at most `quantity`."}
+        open_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity still expected: `quantity` less `received_quantity`, in the item's unit. 0 for an item received in full; a returns order whose items are all at 0 is fully received."}
+    ReturnsOrder:
+      description: "A returns order (sales, ADR-0067, As built T85a): quantities of a posted billing document's items that the customer sends back, with the reason. It carries no amounts: what is credited for a return is a credit memo request's. It posts nothing and moves no stock. Its `version` moves when it is confirmed and with each receipt confirmed against it (`confirmReturnReceipt`), which changes what its items show as received and still expected."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [document_number, legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, billing_document_id,
+            billing_document_number, sales_order_id, sales_order_number, returns_date, reason, status, items]
+          properties:
+            document_number: {type: string, description: "The document number, from the company's `returns_order` number range.", readOnly: true}
+            legal_entity_id: {type: string, format: uuid, description: "The company that takes the return: the billing document's.", readOnly: true}
+            company_code: {type: string, description: "The company's code.", readOnly: true}
+            company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+            customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`): the billing document's.", readOnly: true}
+            customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+            customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+            billing_document_id: {type: string, format: uuid, description: "The posted billing document whose items are returned (`GET /v1/billing-documents/{id}`).", readOnly: true}
+            billing_document_number: {type: string, description: "The billing document's document number.", readOnly: true}
+            sales_order_id: {type: string, format: uuid, description: "The sales order the billing document billed (`GET /v1/sales-orders/{id}`); its items show what is returned of them.", readOnly: true}
+            sales_order_number: {type: string, description: "The sales order's document number.", readOnly: true}
+            returns_date: {type: string, format: date, description: "The day the returns order was created: the company's date in its time zone.", readOnly: true}
+            reason:
+              type: string
+              x-extensible-enum: [defective, wrong_item, not_wanted, other]
+              description: "Why the customer returns the items. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            reason_text: {type: string, description: "The reason in words; absent when none was given.", readOnly: true}
+            status:
+              type: string
+              x-extensible-enum: [draft, confirmed]
+              description: "`draft`: created; `confirmed`: confirmed, once (`:confirm`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            items:
+              type: array
+              items: {$ref: "#/components/schemas/ReturnsOrderItem"}
+              description: "The items, by item number."
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+          version: 1
+          created_at: "2026-11-27T10:15:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-27T10:15:00Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          document_number: RO100001
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          billing_document_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5da1"
+          billing_document_number: BD100001
+          sales_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          sales_order_number: SO100001
+          returns_date: "2026-11-27"
+          reason: defective
+          reason_text: Threads out of tolerance
+          status: draft
+          items:
+            - item_no: 1
+              billing_item_no: 1
+              order_item_no: 1
+              item_key: BRACKET-M8
+              description: Machined bracket M8
+              billed_quantity: {value: "120", unit: EA}
+              quantity: {value: "20", unit: EA}
+              received_quantity: {value: "0", unit: EA}
+              open_quantity: {value: "20", unit: EA}
+    ReturnsOrderPage:
+      type: object
+      description: One page of returns orders.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ReturnsOrder"}
+          description: The returns orders on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    ReturnReceiptCreate:
+      type: object
+      description: "Confirm that returned quantities arrived: the date and the quantities received of the returns order's items."
+      required: [receipt_date, items]
+      additionalProperties: false
+      properties:
+        receipt_date: {type: string, format: date, description: "The day the quantities arrived; not after the company's date today."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 999
+          items: {$ref: "#/components/schemas/ReturnReceiptItemCreate"}
+          description: "The returns order's items received, each at most once."
+    ReturnReceiptItemCreate:
+      type: object
+      description: "A quantity received of one item of the returns order."
+      required: [item_no, quantity]
+      additionalProperties: false
+      properties:
+        item_no: {type: integer, format: int32, minimum: 1, description: "The returns order item's number (`ReturnsOrder.items[].item_no`)."}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity received: more than zero, in the item's unit, at most the item's open quantity (returned less received)."}
+    ReturnReceiptItem:
+      type: object
+      description: "An item of a return receipt: the quantity received of one item of the returns order."
+      required: [item_no, billing_item_no, description, quantity]
+      properties:
+        item_no: {type: integer, format: int32, description: "The returns order item's number.", readOnly: true}
+        billing_item_no: {type: integer, format: int32, description: "The number of the billing document's item that returns order item returns from.", readOnly: true}
+        item_key: {type: string, description: "The sales order item's item key; absent when it has none.", readOnly: true}
+        description: {type: string, description: "The sales order item's description.", readOnly: true}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity received, in the item's unit."}
+    ReturnReceipt:
+      type: object
+      description: "A return receipt (sales, ADR-0067, As built T85b): quantities of a returns order's items a person confirmed as received on a date. It moves no stock and posts nothing. It is written once and never changed."
+      required: [id, receipt_no, returns_order_id, returns_order_number, receipt_date, items, created_at, created_by]
+      properties:
+        id: {type: string, format: uuid, description: "Identifier (UUIDv7).", readOnly: true}
+        receipt_no: {type: integer, format: int32, description: "The receipt's number within its returns order, from 1 in the order they were confirmed.", readOnly: true}
+        returns_order_id: {type: string, format: uuid, description: "The returns order (`GET /v1/returns-orders/{id}`).", readOnly: true}
+        returns_order_number: {type: string, description: "The returns order's document number.", readOnly: true}
+        receipt_date: {type: string, format: date, description: "The day the quantities arrived.", readOnly: true}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ReturnReceiptItem"}
+          description: "The items received, by the returns order's item number."
+          readOnly: true
+        created_at: {type: string, format: date-time, description: "When the receipt was confirmed.", readOnly: true}
+        created_by: {type: string, format: uuid, description: "The principal who confirmed it.", readOnly: true}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc1"
+          receipt_no: 1
+          returns_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+          returns_order_number: RO100001
+          receipt_date: "2026-11-30"
+          items:
+            - item_no: 1
+              billing_item_no: 1
+              item_key: BRACKET-M8
+              description: Machined bracket M8
+              quantity: {value: "20", unit: EA}
+          created_at: "2026-11-30T09:12:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+    ReturnReceiptPage:
+      type: object
+      description: One page of a returns order's receipts.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ReturnReceipt"}
+          description: The receipts on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     RevenueContractCreate:
       type: object

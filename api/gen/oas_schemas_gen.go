@@ -24175,6 +24175,85 @@ type ConfirmDunningRunUnprocessableEntity Problem
 
 func (*ConfirmDunningRunUnprocessableEntity) confirmDunningRunRes() {}
 
+type ConfirmReturnReceiptBadRequest Problem
+
+func (*ConfirmReturnReceiptBadRequest) confirmReturnReceiptRes() {}
+
+type ConfirmReturnReceiptForbidden Problem
+
+func (*ConfirmReturnReceiptForbidden) confirmReturnReceiptRes() {}
+
+type ConfirmReturnReceiptNotFound Problem
+
+func (*ConfirmReturnReceiptNotFound) confirmReturnReceiptRes() {}
+
+type ConfirmReturnReceiptPreconditionRequired Problem
+
+func (*ConfirmReturnReceiptPreconditionRequired) confirmReturnReceiptRes() {}
+
+type ConfirmReturnReceiptUnprocessableEntity Problem
+
+func (*ConfirmReturnReceiptUnprocessableEntity) confirmReturnReceiptRes() {}
+
+type ConfirmReturnsOrderBadRequest Problem
+
+func (*ConfirmReturnsOrderBadRequest) confirmReturnsOrderRes() {}
+
+type ConfirmReturnsOrderForbidden Problem
+
+func (*ConfirmReturnsOrderForbidden) confirmReturnsOrderRes() {}
+
+type ConfirmReturnsOrderNotFound Problem
+
+func (*ConfirmReturnsOrderNotFound) confirmReturnsOrderRes() {}
+
+// ConfirmReturnsOrderOKHeaders wraps ReturnsOrder with response headers.
+type ConfirmReturnsOrderOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           ReturnsOrder
+}
+
+// GetETag returns the value of ETag.
+func (s *ConfirmReturnsOrderOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ConfirmReturnsOrderOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ConfirmReturnsOrderOKHeaders) GetResponse() ReturnsOrder {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ConfirmReturnsOrderOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ConfirmReturnsOrderOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ConfirmReturnsOrderOKHeaders) SetResponse(val ReturnsOrder) {
+	s.Response = val
+}
+
+func (*ConfirmReturnsOrderOKHeaders) confirmReturnsOrderRes() {}
+
+type ConfirmReturnsOrderPreconditionFailed Problem
+
+func (*ConfirmReturnsOrderPreconditionFailed) confirmReturnsOrderRes() {}
+
+type ConfirmReturnsOrderPreconditionRequired Problem
+
+func (*ConfirmReturnsOrderPreconditionRequired) confirmReturnsOrderRes() {}
+
 type ConfirmSalesDeliveryBadRequest Problem
 
 func (*ConfirmSalesDeliveryBadRequest) confirmSalesDeliveryRes() {}
@@ -24325,6 +24404,8 @@ func (*ConflictHeaders) closePurchaseOrderRes()                    {}
 func (*ConflictHeaders) completeCloseTaskRes()                     {}
 func (*ConflictHeaders) completeYearCloseTaskRes()                 {}
 func (*ConflictHeaders) confirmDunningRunRes()                     {}
+func (*ConflictHeaders) confirmReturnReceiptRes()                  {}
+func (*ConflictHeaders) confirmReturnsOrderRes()                   {}
 func (*ConflictHeaders) confirmSalesDeliveryRes()                  {}
 func (*ConflictHeaders) confirmSalesOrderRes()                     {}
 func (*ConflictHeaders) createAllocationCycleRes()                 {}
@@ -24371,6 +24452,7 @@ func (*ConflictHeaders) createPurchaseOrderRes()                   {}
 func (*ConflictHeaders) createQuotationRes()                       {}
 func (*ConflictHeaders) createRecommendationRes()                  {}
 func (*ConflictHeaders) createRequisitionRes()                     {}
+func (*ConflictHeaders) createReturnsOrderRes()                    {}
 func (*ConflictHeaders) createRevenueContractRes()                 {}
 func (*ConflictHeaders) createRfqRes()                             {}
 func (*ConflictHeaders) createRoleAssignmentRes()                  {}
@@ -31657,6 +31739,22 @@ func (*CreateRequisitionPreconditionRequired) createRequisitionRes() {}
 type CreateRequisitionUnprocessableEntity Problem
 
 func (*CreateRequisitionUnprocessableEntity) createRequisitionRes() {}
+
+type CreateReturnsOrderBadRequest Problem
+
+func (*CreateReturnsOrderBadRequest) createReturnsOrderRes() {}
+
+type CreateReturnsOrderForbidden Problem
+
+func (*CreateReturnsOrderForbidden) createReturnsOrderRes() {}
+
+type CreateReturnsOrderPreconditionRequired Problem
+
+func (*CreateReturnsOrderPreconditionRequired) createReturnsOrderRes() {}
+
+type CreateReturnsOrderUnprocessableEntity Problem
+
+func (*CreateReturnsOrderUnprocessableEntity) createReturnsOrderRes() {}
 
 type CreateRevenueContractBadRequest Problem
 
@@ -42260,6 +42358,46 @@ func (s *GetRequisitionOKHeaders) SetResponse(val Requisition) {
 }
 
 func (*GetRequisitionOKHeaders) getRequisitionRes() {}
+
+type GetReturnsOrderBadRequest Problem
+
+func (*GetReturnsOrderBadRequest) getReturnsOrderRes() {}
+
+type GetReturnsOrderForbidden Problem
+
+func (*GetReturnsOrderForbidden) getReturnsOrderRes() {}
+
+type GetReturnsOrderNotFound Problem
+
+func (*GetReturnsOrderNotFound) getReturnsOrderRes() {}
+
+// GetReturnsOrderOKHeaders wraps ReturnsOrder with response headers.
+type GetReturnsOrderOKHeaders struct {
+	ETag     OptString
+	Response ReturnsOrder
+}
+
+// GetETag returns the value of ETag.
+func (s *GetReturnsOrderOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetReturnsOrderOKHeaders) GetResponse() ReturnsOrder {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetReturnsOrderOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetReturnsOrderOKHeaders) SetResponse(val ReturnsOrder) {
+	s.Response = val
+}
+
+func (*GetReturnsOrderOKHeaders) getReturnsOrderRes() {}
 
 type GetRevaluationRunBadRequest Problem
 
@@ -53113,6 +53251,26 @@ func (*ListRequisitionsBadRequest) listRequisitionsRes() {}
 type ListRequisitionsForbidden Problem
 
 func (*ListRequisitionsForbidden) listRequisitionsRes() {}
+
+type ListReturnReceiptsBadRequest Problem
+
+func (*ListReturnReceiptsBadRequest) listReturnReceiptsRes() {}
+
+type ListReturnReceiptsForbidden Problem
+
+func (*ListReturnReceiptsForbidden) listReturnReceiptsRes() {}
+
+type ListReturnReceiptsNotFound Problem
+
+func (*ListReturnReceiptsNotFound) listReturnReceiptsRes() {}
+
+type ListReturnsOrdersBadRequest Problem
+
+func (*ListReturnsOrdersBadRequest) listReturnsOrdersRes() {}
+
+type ListReturnsOrdersForbidden Problem
+
+func (*ListReturnsOrdersForbidden) listReturnsOrdersRes() {}
 
 type ListRevaluationRunsBadRequest Problem
 
@@ -74679,6 +74837,849 @@ type RetireEntryTemplatePreconditionRequired Problem
 
 func (*RetireEntryTemplatePreconditionRequired) retireEntryTemplateRes() {}
 
+// A return receipt (sales, ADR-0067, As built T85b): quantities of a returns order's items a person
+// confirmed as received on a date. It moves no stock and posts nothing. It is written once and never
+// changed.
+// Ref: #/components/schemas/ReturnReceipt
+type ReturnReceipt struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The receipt's number within its returns order, from 1 in the order they were confirmed.
+	ReceiptNo int32 `json:"receipt_no"`
+	// The returns order (`GET /v1/returns-orders/{id}`).
+	ReturnsOrderID uuid.UUID `json:"returns_order_id"`
+	// The returns order's document number.
+	ReturnsOrderNumber string `json:"returns_order_number"`
+	// The day the quantities arrived.
+	ReceiptDate time.Time `json:"receipt_date"`
+	// The items received, by the returns order's item number.
+	Items []ReturnReceiptItem `json:"items"`
+	// When the receipt was confirmed.
+	CreatedAt time.Time `json:"created_at"`
+	// The principal who confirmed it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *ReturnReceipt) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetReceiptNo returns the value of ReceiptNo.
+func (s *ReturnReceipt) GetReceiptNo() int32 {
+	return s.ReceiptNo
+}
+
+// GetReturnsOrderID returns the value of ReturnsOrderID.
+func (s *ReturnReceipt) GetReturnsOrderID() uuid.UUID {
+	return s.ReturnsOrderID
+}
+
+// GetReturnsOrderNumber returns the value of ReturnsOrderNumber.
+func (s *ReturnReceipt) GetReturnsOrderNumber() string {
+	return s.ReturnsOrderNumber
+}
+
+// GetReceiptDate returns the value of ReceiptDate.
+func (s *ReturnReceipt) GetReceiptDate() time.Time {
+	return s.ReceiptDate
+}
+
+// GetItems returns the value of Items.
+func (s *ReturnReceipt) GetItems() []ReturnReceiptItem {
+	return s.Items
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ReturnReceipt) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *ReturnReceipt) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *ReturnReceipt) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetReceiptNo sets the value of ReceiptNo.
+func (s *ReturnReceipt) SetReceiptNo(val int32) {
+	s.ReceiptNo = val
+}
+
+// SetReturnsOrderID sets the value of ReturnsOrderID.
+func (s *ReturnReceipt) SetReturnsOrderID(val uuid.UUID) {
+	s.ReturnsOrderID = val
+}
+
+// SetReturnsOrderNumber sets the value of ReturnsOrderNumber.
+func (s *ReturnReceipt) SetReturnsOrderNumber(val string) {
+	s.ReturnsOrderNumber = val
+}
+
+// SetReceiptDate sets the value of ReceiptDate.
+func (s *ReturnReceipt) SetReceiptDate(val time.Time) {
+	s.ReceiptDate = val
+}
+
+// SetItems sets the value of Items.
+func (s *ReturnReceipt) SetItems(val []ReturnReceiptItem) {
+	s.Items = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ReturnReceipt) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *ReturnReceipt) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// Confirm that returned quantities arrived: the date and the quantities received of the returns
+// order's items.
+// Ref: #/components/schemas/ReturnReceiptCreate
+type ReturnReceiptCreate struct {
+	// The day the quantities arrived; not after the company's date today.
+	ReceiptDate time.Time `json:"receipt_date"`
+	// The returns order's items received, each at most once.
+	Items []ReturnReceiptItemCreate `json:"items"`
+}
+
+// GetReceiptDate returns the value of ReceiptDate.
+func (s *ReturnReceiptCreate) GetReceiptDate() time.Time {
+	return s.ReceiptDate
+}
+
+// GetItems returns the value of Items.
+func (s *ReturnReceiptCreate) GetItems() []ReturnReceiptItemCreate {
+	return s.Items
+}
+
+// SetReceiptDate sets the value of ReceiptDate.
+func (s *ReturnReceiptCreate) SetReceiptDate(val time.Time) {
+	s.ReceiptDate = val
+}
+
+// SetItems sets the value of Items.
+func (s *ReturnReceiptCreate) SetItems(val []ReturnReceiptItemCreate) {
+	s.Items = val
+}
+
+// ReturnReceiptHeaders wraps ReturnReceipt with response headers.
+type ReturnReceiptHeaders struct {
+	IdempotentReplayed OptBool
+	Response           ReturnReceipt
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ReturnReceiptHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ReturnReceiptHeaders) GetResponse() ReturnReceipt {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ReturnReceiptHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ReturnReceiptHeaders) SetResponse(val ReturnReceipt) {
+	s.Response = val
+}
+
+func (*ReturnReceiptHeaders) confirmReturnReceiptRes() {}
+
+// An item of a return receipt: the quantity received of one item of the returns order.
+// Ref: #/components/schemas/ReturnReceiptItem
+type ReturnReceiptItem struct {
+	// The returns order item's number.
+	ItemNo int32 `json:"item_no"`
+	// The number of the billing document's item that returns order item returns from.
+	BillingItemNo int32 `json:"billing_item_no"`
+	// The sales order item's item key; absent when it has none.
+	ItemKey OptString `json:"item_key"`
+	// The sales order item's description.
+	Description string `json:"description"`
+	// The quantity received, in the item's unit.
+	Quantity Quantity `json:"quantity"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *ReturnReceiptItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetBillingItemNo returns the value of BillingItemNo.
+func (s *ReturnReceiptItem) GetBillingItemNo() int32 {
+	return s.BillingItemNo
+}
+
+// GetItemKey returns the value of ItemKey.
+func (s *ReturnReceiptItem) GetItemKey() OptString {
+	return s.ItemKey
+}
+
+// GetDescription returns the value of Description.
+func (s *ReturnReceiptItem) GetDescription() string {
+	return s.Description
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *ReturnReceiptItem) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *ReturnReceiptItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetBillingItemNo sets the value of BillingItemNo.
+func (s *ReturnReceiptItem) SetBillingItemNo(val int32) {
+	s.BillingItemNo = val
+}
+
+// SetItemKey sets the value of ItemKey.
+func (s *ReturnReceiptItem) SetItemKey(val OptString) {
+	s.ItemKey = val
+}
+
+// SetDescription sets the value of Description.
+func (s *ReturnReceiptItem) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *ReturnReceiptItem) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// A quantity received of one item of the returns order.
+// Ref: #/components/schemas/ReturnReceiptItemCreate
+type ReturnReceiptItemCreate struct {
+	// The returns order item's number (`ReturnsOrder.items[].item_no`).
+	ItemNo int32 `json:"item_no"`
+	// The quantity received: more than zero, in the item's unit, at most the item's open quantity
+	// (returned less received).
+	Quantity Quantity `json:"quantity"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *ReturnReceiptItemCreate) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *ReturnReceiptItemCreate) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *ReturnReceiptItemCreate) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *ReturnReceiptItemCreate) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// One page of a returns order's receipts.
+// Ref: #/components/schemas/ReturnReceiptPage
+type ReturnReceiptPage struct {
+	// The receipts on this page.
+	Items []ReturnReceipt `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ReturnReceiptPage) GetItems() []ReturnReceipt {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ReturnReceiptPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ReturnReceiptPage) SetItems(val []ReturnReceipt) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ReturnReceiptPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ReturnReceiptPage) listReturnReceiptsRes() {}
+
+// Merged schema.
+// Ref: #/components/schemas/ReturnsOrder
+type ReturnsOrder struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The document number, from the company's `returns_order` number range.
+	DocumentNumber string `json:"document_number"`
+	// The company that takes the return: the billing document's.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer (`GET /v1/business-partners/{id}`): the billing document's.
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The posted billing document whose items are returned (`GET /v1/billing-documents/{id}`).
+	BillingDocumentID uuid.UUID `json:"billing_document_id"`
+	// The billing document's document number.
+	BillingDocumentNumber string `json:"billing_document_number"`
+	// The sales order the billing document billed (`GET /v1/sales-orders/{id}`); its items show what is
+	// returned of them.
+	SalesOrderID uuid.UUID `json:"sales_order_id"`
+	// The sales order's document number.
+	SalesOrderNumber string `json:"sales_order_number"`
+	// The day the returns order was created: the company's date in its time zone.
+	ReturnsDate time.Time `json:"returns_date"`
+	// Why the customer returns the items. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Reason string `json:"reason"`
+	// The reason in words; absent when none was given.
+	ReasonText OptString `json:"reason_text"`
+	// `draft`: created; `confirmed`: confirmed, once (`:confirm`). Open enumeration: clients must accept
+	// and preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The items, by item number.
+	Items []ReturnsOrderItem `json:"items"`
+}
+
+// GetID returns the value of ID.
+func (s *ReturnsOrder) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *ReturnsOrder) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ReturnsOrder) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *ReturnsOrder) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *ReturnsOrder) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *ReturnsOrder) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *ReturnsOrder) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ReturnsOrder) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ReturnsOrder) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *ReturnsOrder) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *ReturnsOrder) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *ReturnsOrder) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *ReturnsOrder) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetBillingDocumentID returns the value of BillingDocumentID.
+func (s *ReturnsOrder) GetBillingDocumentID() uuid.UUID {
+	return s.BillingDocumentID
+}
+
+// GetBillingDocumentNumber returns the value of BillingDocumentNumber.
+func (s *ReturnsOrder) GetBillingDocumentNumber() string {
+	return s.BillingDocumentNumber
+}
+
+// GetSalesOrderID returns the value of SalesOrderID.
+func (s *ReturnsOrder) GetSalesOrderID() uuid.UUID {
+	return s.SalesOrderID
+}
+
+// GetSalesOrderNumber returns the value of SalesOrderNumber.
+func (s *ReturnsOrder) GetSalesOrderNumber() string {
+	return s.SalesOrderNumber
+}
+
+// GetReturnsDate returns the value of ReturnsDate.
+func (s *ReturnsOrder) GetReturnsDate() time.Time {
+	return s.ReturnsDate
+}
+
+// GetReason returns the value of Reason.
+func (s *ReturnsOrder) GetReason() string {
+	return s.Reason
+}
+
+// GetReasonText returns the value of ReasonText.
+func (s *ReturnsOrder) GetReasonText() OptString {
+	return s.ReasonText
+}
+
+// GetStatus returns the value of Status.
+func (s *ReturnsOrder) GetStatus() string {
+	return s.Status
+}
+
+// GetItems returns the value of Items.
+func (s *ReturnsOrder) GetItems() []ReturnsOrderItem {
+	return s.Items
+}
+
+// SetID sets the value of ID.
+func (s *ReturnsOrder) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *ReturnsOrder) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ReturnsOrder) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *ReturnsOrder) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *ReturnsOrder) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *ReturnsOrder) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *ReturnsOrder) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ReturnsOrder) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ReturnsOrder) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *ReturnsOrder) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *ReturnsOrder) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *ReturnsOrder) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *ReturnsOrder) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetBillingDocumentID sets the value of BillingDocumentID.
+func (s *ReturnsOrder) SetBillingDocumentID(val uuid.UUID) {
+	s.BillingDocumentID = val
+}
+
+// SetBillingDocumentNumber sets the value of BillingDocumentNumber.
+func (s *ReturnsOrder) SetBillingDocumentNumber(val string) {
+	s.BillingDocumentNumber = val
+}
+
+// SetSalesOrderID sets the value of SalesOrderID.
+func (s *ReturnsOrder) SetSalesOrderID(val uuid.UUID) {
+	s.SalesOrderID = val
+}
+
+// SetSalesOrderNumber sets the value of SalesOrderNumber.
+func (s *ReturnsOrder) SetSalesOrderNumber(val string) {
+	s.SalesOrderNumber = val
+}
+
+// SetReturnsDate sets the value of ReturnsDate.
+func (s *ReturnsOrder) SetReturnsDate(val time.Time) {
+	s.ReturnsDate = val
+}
+
+// SetReason sets the value of Reason.
+func (s *ReturnsOrder) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetReasonText sets the value of ReasonText.
+func (s *ReturnsOrder) SetReasonText(val OptString) {
+	s.ReasonText = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ReturnsOrder) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetItems sets the value of Items.
+func (s *ReturnsOrder) SetItems(val []ReturnsOrderItem) {
+	s.Items = val
+}
+
+// Create a returns order for quantities of a posted billing document's items. It is created `draft`,
+// dated the company's date today.
+// Ref: #/components/schemas/ReturnsOrderCreate
+type ReturnsOrderCreate struct {
+	// The posted billing document whose items are returned: one of a company the caller may act in.
+	BillingDocumentID uuid.UUID `json:"billing_document_id"`
+	// Why the customer returns the items. `defective`: they are faulty; `wrong_item`: not what was
+	// ordered; `not_wanted`: the customer no longer wants them; `other`: anything else, which
+	// `reason_text` says. Open enumeration: values may be added within /v1; one that is not known is
+	// refused.
+	Reason string `json:"reason"`
+	// The reason in the customer's or the administrator's words; optional with every reason.
+	ReasonText OptString `json:"reason_text"`
+	// The billing document's items returned, each at most once, numbered in this order from 1.
+	Items []ReturnsOrderItemCreate `json:"items"`
+}
+
+// GetBillingDocumentID returns the value of BillingDocumentID.
+func (s *ReturnsOrderCreate) GetBillingDocumentID() uuid.UUID {
+	return s.BillingDocumentID
+}
+
+// GetReason returns the value of Reason.
+func (s *ReturnsOrderCreate) GetReason() string {
+	return s.Reason
+}
+
+// GetReasonText returns the value of ReasonText.
+func (s *ReturnsOrderCreate) GetReasonText() OptString {
+	return s.ReasonText
+}
+
+// GetItems returns the value of Items.
+func (s *ReturnsOrderCreate) GetItems() []ReturnsOrderItemCreate {
+	return s.Items
+}
+
+// SetBillingDocumentID sets the value of BillingDocumentID.
+func (s *ReturnsOrderCreate) SetBillingDocumentID(val uuid.UUID) {
+	s.BillingDocumentID = val
+}
+
+// SetReason sets the value of Reason.
+func (s *ReturnsOrderCreate) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetReasonText sets the value of ReasonText.
+func (s *ReturnsOrderCreate) SetReasonText(val OptString) {
+	s.ReasonText = val
+}
+
+// SetItems sets the value of Items.
+func (s *ReturnsOrderCreate) SetItems(val []ReturnsOrderItemCreate) {
+	s.Items = val
+}
+
+// ReturnsOrderHeaders wraps ReturnsOrder with response headers.
+type ReturnsOrderHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           ReturnsOrder
+}
+
+// GetETag returns the value of ETag.
+func (s *ReturnsOrderHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ReturnsOrderHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *ReturnsOrderHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *ReturnsOrderHeaders) GetResponse() ReturnsOrder {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ReturnsOrderHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ReturnsOrderHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *ReturnsOrderHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ReturnsOrderHeaders) SetResponse(val ReturnsOrder) {
+	s.Response = val
+}
+
+func (*ReturnsOrderHeaders) createReturnsOrderRes() {}
+
+// An item of a returns order (ADR-0067, As built T85a): what is returned of one item of the billing
+// document.
+// Ref: #/components/schemas/ReturnsOrderItem
+type ReturnsOrderItem struct {
+	// The item's number within the returns order, from 1.
+	ItemNo int32 `json:"item_no"`
+	// The number of the billing document's item it returns from.
+	BillingItemNo int32 `json:"billing_item_no"`
+	// The number of the sales order's item that billing document item billed.
+	OrderItemNo int32 `json:"order_item_no"`
+	// The sales order item's item key; absent when it has none.
+	ItemKey OptString `json:"item_key"`
+	// The sales order item's description.
+	Description string `json:"description"`
+	// The quantity the billing document's item billed, in the item's unit.
+	BilledQuantity Quantity `json:"billed_quantity"`
+	// The quantity being returned, in the item's unit; at most `billed_quantity`.
+	Quantity Quantity `json:"quantity"`
+	// The quantity confirmed as received so far (`confirmReturnReceipt`), in the item's unit; at most
+	// `quantity`.
+	ReceivedQuantity Quantity `json:"received_quantity"`
+	// The quantity still expected: `quantity` less `received_quantity`, in the item's unit. 0 for an item
+	// received in full; a returns order whose items are all at 0 is fully received.
+	OpenQuantity Quantity `json:"open_quantity"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *ReturnsOrderItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetBillingItemNo returns the value of BillingItemNo.
+func (s *ReturnsOrderItem) GetBillingItemNo() int32 {
+	return s.BillingItemNo
+}
+
+// GetOrderItemNo returns the value of OrderItemNo.
+func (s *ReturnsOrderItem) GetOrderItemNo() int32 {
+	return s.OrderItemNo
+}
+
+// GetItemKey returns the value of ItemKey.
+func (s *ReturnsOrderItem) GetItemKey() OptString {
+	return s.ItemKey
+}
+
+// GetDescription returns the value of Description.
+func (s *ReturnsOrderItem) GetDescription() string {
+	return s.Description
+}
+
+// GetBilledQuantity returns the value of BilledQuantity.
+func (s *ReturnsOrderItem) GetBilledQuantity() Quantity {
+	return s.BilledQuantity
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *ReturnsOrderItem) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetReceivedQuantity returns the value of ReceivedQuantity.
+func (s *ReturnsOrderItem) GetReceivedQuantity() Quantity {
+	return s.ReceivedQuantity
+}
+
+// GetOpenQuantity returns the value of OpenQuantity.
+func (s *ReturnsOrderItem) GetOpenQuantity() Quantity {
+	return s.OpenQuantity
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *ReturnsOrderItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetBillingItemNo sets the value of BillingItemNo.
+func (s *ReturnsOrderItem) SetBillingItemNo(val int32) {
+	s.BillingItemNo = val
+}
+
+// SetOrderItemNo sets the value of OrderItemNo.
+func (s *ReturnsOrderItem) SetOrderItemNo(val int32) {
+	s.OrderItemNo = val
+}
+
+// SetItemKey sets the value of ItemKey.
+func (s *ReturnsOrderItem) SetItemKey(val OptString) {
+	s.ItemKey = val
+}
+
+// SetDescription sets the value of Description.
+func (s *ReturnsOrderItem) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetBilledQuantity sets the value of BilledQuantity.
+func (s *ReturnsOrderItem) SetBilledQuantity(val Quantity) {
+	s.BilledQuantity = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *ReturnsOrderItem) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetReceivedQuantity sets the value of ReceivedQuantity.
+func (s *ReturnsOrderItem) SetReceivedQuantity(val Quantity) {
+	s.ReceivedQuantity = val
+}
+
+// SetOpenQuantity sets the value of OpenQuantity.
+func (s *ReturnsOrderItem) SetOpenQuantity(val Quantity) {
+	s.OpenQuantity = val
+}
+
+// A quantity returned of one item of the billing document.
+// Ref: #/components/schemas/ReturnsOrderItemCreate
+type ReturnsOrderItemCreate struct {
+	// The billing document item's number (`BillingDocument.items[].item_no`).
+	BillingItemNo int32 `json:"billing_item_no"`
+	// The quantity returned: more than zero, in the billed item's unit, at most the item's billed quantity
+	// less what the document's other returns orders took.
+	Quantity Quantity `json:"quantity"`
+}
+
+// GetBillingItemNo returns the value of BillingItemNo.
+func (s *ReturnsOrderItemCreate) GetBillingItemNo() int32 {
+	return s.BillingItemNo
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *ReturnsOrderItemCreate) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// SetBillingItemNo sets the value of BillingItemNo.
+func (s *ReturnsOrderItemCreate) SetBillingItemNo(val int32) {
+	s.BillingItemNo = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *ReturnsOrderItemCreate) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// One page of returns orders.
+// Ref: #/components/schemas/ReturnsOrderPage
+type ReturnsOrderPage struct {
+	// The returns orders on this page.
+	Items []ReturnsOrder `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ReturnsOrderPage) GetItems() []ReturnsOrder {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ReturnsOrderPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ReturnsOrderPage) SetItems(val []ReturnsOrder) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ReturnsOrderPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ReturnsOrderPage) listReturnsOrdersRes() {}
+
 // One valued item: an open item (a journal line on a reconciliation account) or the balance in one
 // currency of a flagged account.
 // Ref: #/components/schemas/RevaluationItem
@@ -79340,6 +80341,9 @@ type SalesOrderItem struct {
 	// The quantity billed so far by the order's billing documents (`createBillingDocument`), in the item's
 	// unit; at most `delivered_quantity`.
 	BilledQuantity Quantity `json:"billed_quantity"`
+	// The quantity the returns orders for the order's billing documents take (`createReturnsOrder`),
+	// drafts included, in the item's unit; at most `billed_quantity`.
+	ReturnedQuantity Quantity `json:"returned_quantity"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -79417,6 +80421,11 @@ func (s *SalesOrderItem) GetBilledQuantity() Quantity {
 	return s.BilledQuantity
 }
 
+// GetReturnedQuantity returns the value of ReturnedQuantity.
+func (s *SalesOrderItem) GetReturnedQuantity() Quantity {
+	return s.ReturnedQuantity
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *SalesOrderItem) SetItemNo(val int32) {
 	s.ItemNo = val
@@ -79490,6 +80499,11 @@ func (s *SalesOrderItem) SetDeliveredQuantity(val Quantity) {
 // SetBilledQuantity sets the value of BilledQuantity.
 func (s *SalesOrderItem) SetBilledQuantity(val Quantity) {
 	s.BilledQuantity = val
+}
+
+// SetReturnedQuantity sets the value of ReturnedQuantity.
+func (s *SalesOrderItem) SetReturnedQuantity(val Quantity) {
+	s.ReturnedQuantity = val
 }
 
 // One page of sales orders.
@@ -85842,6 +86856,8 @@ func (*TooManyRequestsHeaders) closePurchaseOrderRes()                    {}
 func (*TooManyRequestsHeaders) completeCloseTaskRes()                     {}
 func (*TooManyRequestsHeaders) completeYearCloseTaskRes()                 {}
 func (*TooManyRequestsHeaders) confirmDunningRunRes()                     {}
+func (*TooManyRequestsHeaders) confirmReturnReceiptRes()                  {}
+func (*TooManyRequestsHeaders) confirmReturnsOrderRes()                   {}
 func (*TooManyRequestsHeaders) confirmSalesDeliveryRes()                  {}
 func (*TooManyRequestsHeaders) confirmSalesOrderRes()                     {}
 func (*TooManyRequestsHeaders) createAllocationCycleRes()                 {}
@@ -85889,6 +86905,7 @@ func (*TooManyRequestsHeaders) createQuotationRes()                       {}
 func (*TooManyRequestsHeaders) createRecommendationRes()                  {}
 func (*TooManyRequestsHeaders) createRegressionSuiteRes()                 {}
 func (*TooManyRequestsHeaders) createRequisitionRes()                     {}
+func (*TooManyRequestsHeaders) createReturnsOrderRes()                    {}
 func (*TooManyRequestsHeaders) createRevenueContractRes()                 {}
 func (*TooManyRequestsHeaders) createRfqRes()                             {}
 func (*TooManyRequestsHeaders) createRoleAssignmentRes()                  {}
@@ -86014,6 +87031,7 @@ func (*TooManyRequestsHeaders) getReceivablesAgingRes()                   {}
 func (*TooManyRequestsHeaders) getRecommendationRes()                     {}
 func (*TooManyRequestsHeaders) getRegressionSuiteRes()                    {}
 func (*TooManyRequestsHeaders) getRequisitionRes()                        {}
+func (*TooManyRequestsHeaders) getReturnsOrderRes()                       {}
 func (*TooManyRequestsHeaders) getRevaluationRunRes()                     {}
 func (*TooManyRequestsHeaders) getRevenueContractRes()                    {}
 func (*TooManyRequestsHeaders) getRfqComparisonRes()                      {}
@@ -86145,6 +87163,8 @@ func (*TooManyRequestsHeaders) listQuotationsRes()                        {}
 func (*TooManyRequestsHeaders) listRecommendationsRes()                   {}
 func (*TooManyRequestsHeaders) listRegressionSuitesRes()                  {}
 func (*TooManyRequestsHeaders) listRequisitionsRes()                      {}
+func (*TooManyRequestsHeaders) listReturnReceiptsRes()                    {}
+func (*TooManyRequestsHeaders) listReturnsOrdersRes()                     {}
 func (*TooManyRequestsHeaders) listRevaluationRunsRes()                   {}
 func (*TooManyRequestsHeaders) listRevenueContractsRes()                  {}
 func (*TooManyRequestsHeaders) listRfqsRes()                              {}
@@ -86643,6 +87663,8 @@ func (*UnauthorizedHeaders) closePurchaseOrderRes()                    {}
 func (*UnauthorizedHeaders) completeCloseTaskRes()                     {}
 func (*UnauthorizedHeaders) completeYearCloseTaskRes()                 {}
 func (*UnauthorizedHeaders) confirmDunningRunRes()                     {}
+func (*UnauthorizedHeaders) confirmReturnReceiptRes()                  {}
+func (*UnauthorizedHeaders) confirmReturnsOrderRes()                   {}
 func (*UnauthorizedHeaders) confirmSalesDeliveryRes()                  {}
 func (*UnauthorizedHeaders) confirmSalesOrderRes()                     {}
 func (*UnauthorizedHeaders) createAllocationCycleRes()                 {}
@@ -86690,6 +87712,7 @@ func (*UnauthorizedHeaders) createQuotationRes()                       {}
 func (*UnauthorizedHeaders) createRecommendationRes()                  {}
 func (*UnauthorizedHeaders) createRegressionSuiteRes()                 {}
 func (*UnauthorizedHeaders) createRequisitionRes()                     {}
+func (*UnauthorizedHeaders) createReturnsOrderRes()                    {}
 func (*UnauthorizedHeaders) createRevenueContractRes()                 {}
 func (*UnauthorizedHeaders) createRfqRes()                             {}
 func (*UnauthorizedHeaders) createRoleAssignmentRes()                  {}
@@ -86815,6 +87838,7 @@ func (*UnauthorizedHeaders) getReceivablesAgingRes()                   {}
 func (*UnauthorizedHeaders) getRecommendationRes()                     {}
 func (*UnauthorizedHeaders) getRegressionSuiteRes()                    {}
 func (*UnauthorizedHeaders) getRequisitionRes()                        {}
+func (*UnauthorizedHeaders) getReturnsOrderRes()                       {}
 func (*UnauthorizedHeaders) getRevaluationRunRes()                     {}
 func (*UnauthorizedHeaders) getRevenueContractRes()                    {}
 func (*UnauthorizedHeaders) getRfqComparisonRes()                      {}
@@ -86946,6 +87970,8 @@ func (*UnauthorizedHeaders) listQuotationsRes()                        {}
 func (*UnauthorizedHeaders) listRecommendationsRes()                   {}
 func (*UnauthorizedHeaders) listRegressionSuitesRes()                  {}
 func (*UnauthorizedHeaders) listRequisitionsRes()                      {}
+func (*UnauthorizedHeaders) listReturnReceiptsRes()                    {}
+func (*UnauthorizedHeaders) listReturnsOrdersRes()                     {}
 func (*UnauthorizedHeaders) listRevaluationRunsRes()                   {}
 func (*UnauthorizedHeaders) listRevenueContractsRes()                  {}
 func (*UnauthorizedHeaders) listRfqsRes()                              {}

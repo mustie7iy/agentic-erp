@@ -42,7 +42,9 @@ func quotationOrdered() *problem.Problem {
 }
 
 // OrderItem is an item of a sales order: a sales item with the quantities
-// delivered and billed of it so far, decimal strings in the item's unit.
+// delivered and billed of it so far and the quantity the returns orders
+// for its billing documents take (T85a), decimal strings in the item's
+// unit.
 // Deliveries are the item's deliveries by date (T78c) and Billings its
 // posted billings by posting date (T79b); Orders.Order reads them, the
 // API's reads of an order do not and leave them nil.
@@ -50,6 +52,7 @@ type OrderItem struct {
 	Item
 	Delivered  string         `json:"delivered_quantity"`
 	Billed     string         `json:"billed_quantity"`
+	Returned   string         `json:"returned_quantity"`
 	Deliveries []ItemDelivery `json:"deliveries"`
 	Billings   []ItemBilling  `json:"billings"`
 }
@@ -106,7 +109,8 @@ func orderQuery(extra string) string {
 		(SELECT q.document_number FROM sales.quotation q WHERE q.tenant_id = o.tenant_id AND q.id = o.quotation_id), o.order_date, o.currency,
 		c.exponent, o.payment_term_code, o.net_amount, o.status, o.credit_block, o.credit_released_by, o.credit_released_by_name, o.credit_released_at, ` +
 		itemsJSON("sales_order_item", "sales_order_id", "o",
-			`, 'delivered_quantity', trim_scale(t.delivered_quantity)::text, 'billed_quantity', trim_scale(t.billed_quantity)::text`+extra) + `,
+			`, 'delivered_quantity', trim_scale(t.delivered_quantity)::text, 'billed_quantity', trim_scale(t.billed_quantity)::text,
+				'returned_quantity', trim_scale(t.returned_quantity)::text`+extra) + `,
 		o.version, o.created_at, o.created_by, o.updated_at, o.updated_by
 	FROM sales.sales_order o JOIN ref.currency c ON c.code = o.currency`
 }

@@ -13,7 +13,12 @@
 // that prices an item for both documents). A tenant whose configuration
 // has a pricing procedure has the discounts recorded for the item's key
 // taken off in the procedure's order, and the item keeps the conditions
-// applied (ADR-0067 §11).
+// applied (ADR-0067 §11). A returns order takes quantities of a posted
+// billing document's items that the customer sends back, with a reason,
+// and is confirmed once (returns.go; ADR-0067, As built T85a); a person
+// confirms the quantities that arrived, as a delivery is confirmed
+// (receipts.go; As built T85b). It carries no amounts and counts neither
+// in the customer's credit exposure nor in a revenue contract.
 //
 // A sales document carries net amounts and posts nothing itself: tax is
 // calculated when the order is billed, and a billing document posts
@@ -34,18 +39,22 @@ package sales
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/receivables"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -181,4 +190,41 @@ func record(ctx context.Context, action, aggregate, event string, id uuid.UUID, 
 		return fmt.Errorf("sales: record %s of %s %s: %w", action, aggregate, id, err)
 	}
 	return nil
+}
+
+// stored is how a sales document of the type is read by id for a caller:
+// what it is called in a refusal, its table in the sales schema, the
+// query that reads the one with the id $1, how a row is scanned and the
+// company the document is of.
+type stored[T any] struct {
+	what, table, query string
+	scan               func(pgx.Row) (T, error)
+	company            func(T) uuid.UUID
+}
+
+// read returns the document of a legal entity the caller may act in,
+// forUpdate under its row lock (ADR-0008); another's is not found, as one
+// that does not exist, so ids cannot be probed (04 §4.9). The lock is
+// taken by a statement of its own and the document read by the next, as
+// an order's is (loadOrder): the read then sees what the transaction it
+// waited for left.
+func (s stored[T]) read(ctx context.Context, tx pgx.Tx, id uuid.UUID, forUpdate bool) (T, error) {
+	var none T
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return none, fmt.Errorf("sales: company access for %s %s: %w", s.what, id, err)
+	}
+	if forUpdate {
+		if _, err := tx.Exec(ctx, `SELECT FROM `+pgx.Identifier{"sales", s.table}.Sanitize()+` WHERE id = $1 FOR UPDATE`, id); err != nil {
+			return none, fmt.Errorf("sales: lock %s %s: %w", s.what, id, err)
+		}
+	}
+	doc, err := s.scan(tx.QueryRow(ctx, s.query, id))
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && !access.Allows(s.company(doc)) {
+		return none, problem.NotFoundOf(s.what)
+	}
+	if err != nil {
+		return none, fmt.Errorf("sales: read %s %s: %w", s.what, id, err)
+	}
+	return doc, nil
 }

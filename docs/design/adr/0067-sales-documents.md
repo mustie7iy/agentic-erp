@@ -6,7 +6,7 @@ the sales context and the documents of T78a-T79b
 (`docs/design/plan-breadth-week2.md`, Lane A): quotation, sales order,
 delivery confirmation and billing document. Prices (T80a, T80b) and the
 order credit block (T77b) record what they build here too. Each slice
-records what it built under "As built"; T78a's to T79b's, T80a's and T80b's are there now, with T80c's change of §11 (an entered price is the final net price) and T80d's of default 12 (a price unit without a unit price is refused), both the product owner's of 2026-11-12. The defaults
+records what it built under "As built"; T78a's to T79b's, T80a's and T80b's are there now, with T80c's change of §11 (an entered price is the final net price) and T80d's of default 12 (a price unit without a unit price is refused), both the product owner's of 2026-11-12. Returns orders and their receipts (T85a, T85b; `docs/design/plan-breadth-week3.md`, Lane A) have no section of the decision: the plan decides them by default and they are recorded under "As built" alone. The defaults
 taken and the questions left are listed at the end for the product owner's
 digest.
 
@@ -1089,3 +1089,240 @@ which records what the check compares, the exposure and the lock).
   does; `SalesOrderChanged` gains `credit_block` rather than the
   confirmation publishing a second kind of change event for an unblocked
   order. Not built, by the plan's "Later": see ADR-0066, As built T77b.
+
+### T85a Returns order created and confirmed (migration 000306)
+
+`docs/design/plan-breadth-week3.md`, T85a and its default 1: a returns
+order is for a posted billing document's items, up to the billed
+quantity; no stock, no posting.
+
+- `internal/sales/returns.go` (`MakeReturns`, `ConfirmReturns`,
+  `GetReturns`, `returnsOrder`), `returns_api.go`; nothing new is wired;
+  the fixture's number ranges include `returns_order`.
+  `quantities.go` holds the one check of the quantities a request takes
+  of a document's items (`taking`: an item named once, a plain quantity
+  above zero in the item's unit, at most what is open), which the
+  delivery confirmation now uses too, and `sales.go` the one read of a
+  document by id under its row lock for a caller's companies
+  (`stored`), which billing documents use too.
+- Migration 000306: `sales.returns_order` (`returns_order_number_once`
+  per company; a reason of the four, `returns_order_reason_check`, and
+  an optional text; statuses `draft` and `confirmed`; of a posted
+  billing document of its company and customer with that document's
+  sales order, `returns_order_document_posted` and
+  `returns_order_billing_document_fkey`; confirming its one update,
+  once, by `returns_order_confirmed_once` and a column grant of
+  `status`, `version` and `updated_by`; no delete) and
+  `sales.returns_order_item` (a quantity above zero of an item of the
+  returns order's own billing document, a billing item once per returns
+  order; no update or delete for the application);
+  `returned_quantity` on `sales.sales_order_item`, at most what is
+  billed (`sales_order_item_returned`); the permissions
+  `sales.return.read`, `.write` and `.confirm`. As for deliveries
+  (000292), two triggers running as the tables' owner add each item's
+  quantity to the order item's `returned_quantity`, hold the returns
+  orders of a billing document to what each of its items billed
+  (`returns_order_item_quantities`) and move the sales order's
+  `version` once per returns order. Schema tests in
+  `db/sales_returns_test.go`.
+- `POST /v1/returns-orders` (`billing_document_id`, `reason`, optional
+  `reason_text`, `items` each a `billing_item_no` and a quantity; 201
+  with `Location` and `ETag`, idempotent by `Idempotency-Key`,
+  human-only), `GET /v1/returns-orders` (the companies the caller may
+  act in; filters `legal_entity_id`, `customer_id`,
+  `billing_document_id`, `sales_order_id`, `status`, `document_number`;
+  sortable by `returns_date` and `document_number`; cursor paging),
+  `GET /v1/returns-orders/{id}` (404 for another company's),
+  `POST /v1/returns-orders/{id}:confirm` (`If-Match`, idempotent,
+  human-only). The returns order names its company by code and name,
+  its customer by number and name, its billing document and its sales
+  order by id and number, and each item the billing item and the order
+  item by number with the item key, the description, the quantity
+  billed and the quantity returned. It carries no amounts.
+- The billing document is read first, then its sales order's row is
+  locked by a statement of its own and what the document's returns
+  orders took is read by the next (as `loadOrder` reads an order's
+  items after the lock): the second of two requests is judged on what
+  the first took. Billing takes the same lock to count quantities, so
+  returns orders and billing documents of one order wait for one
+  another.
+- The sales order's items show `returned_quantity` (required in the
+  `SalesOrderItem` representation, 0 for an item nothing is returned
+  of); the order's `version` and `ETag` move with each returns order
+  created. Its delivered and billed quantities do not change.
+- Refusals: a billing document the caller cannot read 422
+  `request.reference_not_found` (`billing_document_id`); one that is
+  not posted 409 `sales.billing_document_not_posted`; a reason that is
+  not one of the four 422 `sales.unknown_return_reason` (`reason`); a
+  reason text of white space `request.validation_failed`
+  (`reason_text`); an item the billing document does not have
+  `sales.unknown_billing_item` (`items[i].billing_item_no`); a billing
+  item named twice `sales.item_repeated`; a quantity that is not a
+  plain decimal above zero `sales.invalid_quantity`
+  (`items[i].quantity.value`); another unit than the billed item's
+  `sales.unit_mismatch` (`items[i].quantity.unit`); more than can still
+  be returned `sales.exceeds_returnable_quantity`
+  (`items[i].quantity.value`, the message naming the item, what was
+  billed and what the document's returns orders took); no fiscal year
+  for the date `ledger.no_fiscal_period`; no number range
+  `config.no_number_range`. Confirming one that is not a draft 409
+  `sales.invalid_status`. `sales.items_required` guards the port.
+- `ReturnsOrderChanged` (created, confirmed; the reason, the customer
+  by id and number, the billing document and the sales order by id and
+  number; not `x-webhook`: product owner 2026-11-12, no webhook event
+  until a consumer asks) and the audit records
+  `sales.returns_order.create` and `.confirm`, the first with the
+  quantities returned, in the change's transaction.
+- **Credit exposure and revenue contract.** A returns order, confirmed
+  or not, counts nowhere in the customer's credit exposure: the
+  exposure is the customer's open items and its confirmed sales orders
+  not yet billed (`Endpoints.OpenOrders`, which reads `sales_order`
+  alone), and a return changes neither until its credit memo posts in
+  receivables (T85d). It gets no revenue contract and changes none: the
+  `revenue-contracts` consumer reads `SalesOrderChanged` alone, and a
+  returns order publishes `ReturnsOrderChanged`; the sales order's
+  version moves by the database's trigger without a
+  `SalesOrderChanged`, as with a delivery. The return in the revenue
+  contract (right of return, refund liability) is the plan's "Later".
+  `TestReturnsOrderLeavesCreditAndRevenueAlone` (sales) and the
+  consumer's `TestConsumerSkipsAndRefuses` case for the event (revenue)
+  hold both.
+- Walkthrough `step_returns` (step 70): Sally creates a returns order
+  for 20 of the 120 brackets of step 64's billing document, as
+  defective; the item shows 120 billed and 20 returned and the sales
+  order 20 returned at a new version; 101 more and an unknown reason
+  are refused naming their fields; she confirms it, once; Northwind's
+  open items and credit exposure are as they were. The pilot's settings
+  (step 2) add the `returns_order` number range.
+- **Decided by default:** (1) every returns order of a billing
+  document takes its quantity when it is created, a draft included,
+  since a returns order is not changed or cancelled in the first
+  version: "what the document's other returns orders took" (plan) is
+  all of them; (2) `returned_quantity` on the sales order's item is
+  that same sum over the order's billing documents, kept by the
+  database's trigger on a column, as the delivered and billed
+  quantities are, and the order's version moves with it; (3) a
+  returns order is dated the company's date today, as a quotation and
+  an order are; a person cannot set another date; (4) the reason's free
+  text is optional with every reason, `other` included, at most 500
+  characters; a reason outside the enumeration is refused, the
+  enumeration being open for values added later; (5) the request names
+  a billing document's item by `billing_item_no` and gives the
+  quantity in the billed item's unit, which is checked, as a
+  delivery's is; (6) confirming takes the caller's version
+  (`If-Match`) and checks nothing but the status; no rule sets the
+  person who confirms apart from the one who created it (product owner
+  2026-11-12); (7) a returns order carries no amounts and no currency:
+  what is credited is the credit memo request's, at the billed amount
+  in full (product owner 2026-11-12), so nothing stored here says
+  otherwise; (8) every write is human-only (§7); (9) a returns order
+  counts neither in the credit exposure nor in a revenue contract
+  (above). Not built, by the plan's "Later": a return before billing or
+  without a billing document, the return delivery, goods receipt,
+  inspection and stock posting, replacement deliveries, changing or
+  cancelling a returns order, approval of a return, return reasons from
+  configuration, the return in the revenue contract.
+
+### T85b Returned quantities confirmed as received (migration 000307)
+
+`docs/design/plan-breadth-week3.md`, T85b, its default 1 and its
+boundary "A return moves no stock": a confirmation in the sales context
+that returned quantities arrived, as T78c's is for a delivery.
+
+- `internal/sales/receipts.go` (`ConfirmReceipt`), `receipt_api.go`;
+  nothing new is wired. `returns.go` reads each item's
+  `received_quantity` and `open_quantity`; the delivery's check of its
+  date against the company's today is shared (`afterToday`).
+- Migration 000307: `received_quantity` on `sales.returns_order_item`,
+  0 by default and at most what is returned
+  (`returns_order_item_received`); `sales.return_receipt` (numbered
+  once within its returns order, `return_receipt_no_once`; only of a
+  confirmed returns order, `return_receipt_order_confirmed`;
+  insert-only) and `sales.return_receipt_item` (a quantity above zero
+  of an item of the receipt's own returns order, a returns order item
+  once per receipt; insert-only); the permission
+  `sales.return.receive`. As for deliveries (000292), two triggers
+  running as the tables' owner add each item's quantity to the returns
+  order item's `received_quantity` and move the returns order's
+  `version` once per receipt and set its `updated_by`; the returns
+  order's change rule (`sales.check_returns_order_change`) admits a
+  confirmed returns order changed from within a trigger alone, which
+  the receipt's trigger is the only one to do, moving the version; for
+  the application confirming stays its one update. Schema tests in
+  `db/sales_returns_test.go` (`TestReturnReceiptRules`).
+- `POST /v1/returns-orders/{id}/receipts` (201, idempotent by
+  `Idempotency-Key`, human-only; `receipt_date` and `items`, each the
+  returns order item's number and a quantity in its unit) and
+  `GET /v1/returns-orders/{id}/receipts` (by `receipt_date`, cursor
+  paging; `sales.return.read`). A receipt names its returns order by id
+  and number and each item by the returns order item's number, the
+  billing item's number, the item key and the description. It has no
+  `Location`: there is no read of one receipt, the response is the
+  receipt and the list gives it again, as for a delivery.
+- The returns order's items show `received_quantity` and
+  `open_quantity`, what is returned less what is received (both
+  required in the `ReturnsOrderItem` representation); a returns order
+  whose items all have an open quantity of 0 is fully received. Its
+  `version` and `ETag` move with each receipt. The sales order is not
+  touched: its delivered, billed and returned quantities and its
+  version stay.
+- Refusals: a returns order that is not confirmed 409
+  `sales.returns_order_not_confirmed`; a date after the company's today
+  422 `sales.receipt_date_in_future` (`receipt_date`, naming the
+  company's date and zone); an item the returns order does not have
+  `sales.unknown_returns_item` (`items[i].item_no`); an item named
+  twice `sales.item_repeated`; a quantity that is not a plain decimal
+  above zero `sales.invalid_quantity` (`items[i].quantity.value`);
+  another unit than the item's `sales.unit_mismatch`
+  (`items[i].quantity.unit`); more than is still expected
+  `sales.exceeds_open_quantity` (`items[i].quantity.value`, the message
+  naming the item, what is still expected, returned and received). A
+  returns order of another company is not found (404).
+  `sales.items_required` guards the port.
+- `ReturnReceived` (subject the returns order's id; not `x-webhook`):
+  the receipt's id, number and date, the items received with what is
+  received of each returns order item after it, the customer by id and
+  number, the billing document and the sales order by id and number,
+  the returns order's version after it. The audit record
+  `sales.return_receipt.confirm` is on the receipt
+  (`sales.return_receipt`), in the change's transaction.
+- **What T85c reads.** `returnsOrder` (`returns.go`), the read of a
+  returns order for the caller's companies, under its row lock when
+  asked: each `ReturnsItem` has the billing document's item
+  (`BillingItemNo`), the sales order's item (`OrderItemNo`), the
+  quantity that billing item billed (`Billed`), the quantity returned
+  (`Quantity`), received (`Received`) and still expected (`Open`), as
+  decimal strings in `Unit`. Through the API it is
+  `GET /v1/returns-orders/{id}`. Nothing yet records what a credit memo
+  request took of the received quantities: that is T85c's.
+- Walkthrough `step_return_receipt` (step 71): Sally confirms 15 of the
+  20 brackets of step 70's returns order as received and the returns
+  order shows 15 received and 5 still expected at a new version; 6 more
+  and a date after today are refused naming their fields; a second
+  receipt brings the last 5 and the returns order reads as fully
+  received; a further receipt is refused; the sales order and
+  Northwind's open items are as they were.
+- **Decided by default:** (1) a receipt has no document number and no
+  number range (the plan names none): it is numbered within its returns
+  order, as a delivery is within its order; (2) it is read with the
+  returns order's permission (`sales.return.read`), the plan adding
+  `sales.return.receive` alone; (3) the receipt date is required and
+  may be any day up to the company's today, also one before the returns
+  order's date (nothing says a returns order is entered before the
+  goods arrive); (4) a returns order item is named once per receipt, by
+  its number in the returns order, and the quantity's unit is the
+  item's and is checked; there is no over-receipt tolerance; (5) the
+  returns order's version moves with a receipt and no
+  `ReturnsOrderChanged` is published for it (its status did not change;
+  `ReturnReceived` carries the version); (6) the received quantity and
+  the version are moved by the database's triggers, so the quantity
+  cannot differ from the sum of the receipts; (7) `open_quantity` is
+  shown per item rather than a status of the returns order: "fully
+  received" is every item's open quantity at 0, and the returns order
+  keeps its two statuses; (8) a receipt was built as a second
+  walkthrough step (71) rather than as an extension of step 70, each
+  slice having its own step; (9) a receipt, like the returns order,
+  counts neither in the credit exposure nor in a revenue contract. Not
+  built, by the plan's "Later": the return delivery, goods receipt,
+  inspection and stock posting (Supply chain, outside the required
+  scope), reversing a receipt, replacement deliveries.
