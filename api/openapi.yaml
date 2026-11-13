@@ -20527,7 +20527,9 @@ paths:
         - receivables.no_tax_account
         - receivables.reference_not_allowed
         - receivables.tax_changed
-        - receivables.tax_jurisdiction_not_supported
+        # The item's jurisdiction's refusals, as postBillingDocument lists them: the credit memo's items come from the request's, which name no jurisdiction, so only a code that came to levy a subdivision after the order's date reaches them.
+        - receivables.tax_jurisdiction_not_levied
+        - receivables.tax_jurisdiction_required
         - receivables.unknown_currency
         - receivables.unknown_kind
         - receivables.unknown_payment_term
