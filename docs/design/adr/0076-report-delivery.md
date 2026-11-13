@@ -265,3 +265,7 @@ one). The recipients of a run are the report's owner until sharing
   product owner: it asks no token of a worker acting as a report's owner,
   as `uow.Act` asks none of deferred work, and refuses an owner no longer
   active).
+- The product owner accepted the in-process acting principal of §5 as
+  built: a scheduled run reads the API in-process as the report's owner,
+  with no token, and is refused once the owner is no longer active (src
+  po:2026-11-13).
