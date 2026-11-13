@@ -6653,13 +6653,13 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Scheduled delivery",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An analyst saves a report (its queries and dashboard specification) under a name through the API and runs it again on current data (POST /v1/reports, POST /v1/reports/{id}:run)",
-        "r": "T95a · docs/design/plan-breadth-week3.md §T95a",
+        "r": "T95a · docs/design/plan-breadth-week3.md §T95a · db/migrations/000308 · analytics.report · POST /v1/reports · GET /v1/reports · GET /v1/reports/{id} · POST /v1/reports/{id}:remove (no DELETE, 04 §4.3) · POST /v1/reports/{id}:run · analytics.report.read, .write · erp report -save, -id · walkthrough step_saved_report · ADR-0076 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

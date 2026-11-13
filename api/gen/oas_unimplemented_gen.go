@@ -1753,6 +1753,25 @@ func (UnimplementedHandler) CreateRegressionSuite(ctx context.Context, req *Regr
 	return r, ht.ErrNotImplemented
 }
 
+// CreateReport implements createReport operation.
+//
+// Saves a report under its specification's title (ADR-0076 §1-§2, T95a): its dashboard specification
+// and the semantic queries behind it, each under an id the specification's tiles, charts and tables
+// name (`query_id`), as `erp ask` writes a report. The report is the caller's, `active`. It is checked
+// as the analytics agent's dashboard is built: every query is run once as the caller (with the
+// caller's company access and dataset permissions, as `runAnalyticsQuery` runs it; a query it refuses
+// is refused here with its problem) and the specification validated against the results, so a tile,
+// chart or table that names a query the report lacks, a column a query does not have or a figure in
+// the commentary that no result supports is 422 `analytics.invalid_report` naming each problem;
+// nothing of that run is kept. A query naming a metric the semantic model does not have is 422
+// `analytics.report_metric_removed` naming it. An audit record is written with it. A retry with the
+// same `Idempotency-Key` answers the report saved.
+//
+// POST /v1/reports
+func (UnimplementedHandler) CreateReport(ctx context.Context, req *ReportCreate, params CreateReportParams) (r CreateReportRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateRequisition implements createRequisition operation.
 //
 // Creates a draft requisition. An item may be taken from the company's catalog by `catalog_item_id`
@@ -3757,6 +3776,16 @@ func (UnimplementedHandler) GetRegressionSuite(ctx context.Context, params GetRe
 	return r, ht.ErrNotImplemented
 }
 
+// GetReport implements getReport operation.
+//
+// One of the caller's saved reports (ADR-0076 §2, T95a), with its specification and queries as saved;
+// another's is not found (404).
+//
+// GET /v1/reports/{id}
+func (UnimplementedHandler) GetReport(ctx context.Context, params GetReportParams) (r GetReportRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetRequisition implements getRequisition operation.
 //
 // Returns one requisition. Expandable: `supplier`, for a caller who may read business partners
@@ -5488,6 +5517,17 @@ func (UnimplementedHandler) ListRegressionSuites(ctx context.Context, params Lis
 	return r, ht.ErrNotImplemented
 }
 
+// ListReports implements listReports operation.
+//
+// The caller's own saved reports (ADR-0076 §2, T95a): a report is read by the person or agent who
+// saved it alone; another's is neither listed nor found. Filtered by status (`active`, `removed`);
+// every status when omitted. Sortable by: `title` (default).
+//
+// GET /v1/reports
+func (UnimplementedHandler) ListReports(ctx context.Context, params ListReportsParams) (r ListReportsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListRequisitions implements listRequisitions operation.
 //
 // Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`, for a
@@ -6905,6 +6945,18 @@ func (UnimplementedHandler) RemoveHierarchyNode(ctx context.Context, req *Hierar
 	return r, ht.ErrNotImplemented
 }
 
+// RemoveReport implements removeReport operation.
+//
+// Removes one of the caller's active reports (status `removed`), once (409 `analytics.report_removed`
+// for a removed one), at the version read (`If-Match`). There is no `DELETE` in the API (04 §4.3): a
+// removed report is kept and still read, is listed with `status=removed` or without a status filter,
+// changes no more and is not run. An audit record is written with it.
+//
+// POST /v1/reports/{id}:remove
+func (UnimplementedHandler) RemoveReport(ctx context.Context, params RemoveReportParams) (r RemoveReportRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // RenameHierarchyNode implements renameHierarchyNode operation.
 //
 // Renames the node; its code is fixed. Opens a pending center change (`GET /v1/center-changes/{id}`)
@@ -7325,6 +7377,25 @@ func (UnimplementedHandler) RunAnalyticsQuery(ctx context.Context, req *Analytic
 //
 // POST /v1/balance-carry-forwards
 func (UnimplementedHandler) RunBalanceCarryForward(ctx context.Context, req *BalanceCarryForwardRequest, params RunBalanceCarryForwardParams) (r RunBalanceCarryForwardRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// RunReport implements runReport operation.
+//
+// Runs one of the caller's active reports again on current data (ADR-0076 §2, T95a) and answers its
+// specification with every query's result: each query is run as the caller, with the caller's company
+// access and dataset permissions now, as `runAnalyticsQuery` runs it (a query it refuses refuses the
+// run with its problem), under the active configuration version's metric definitions. Each result's
+// `query_id` is the id it has in this run, which the specification answered names. Commentary whose
+// figures the new results no longer support is left out of the specification answered, with an
+// assumption saying so, as `erp report` does. A query naming a metric the semantic model no longer has
+// is 422 `analytics.report_metric_removed` naming it; a specification the results no longer support is
+// 422 `analytics.invalid_report`. A removed report is not run (409 `analytics.report_removed`).
+// `If-Match` is the report's ETag, which a run does not change. Nothing is kept: a run changes
+// nothing, so agents of any autonomy level may run it.
+//
+// POST /v1/reports/{id}:run
+func (UnimplementedHandler) RunReport(ctx context.Context, params RunReportParams) (r RunReportRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

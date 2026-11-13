@@ -369,6 +369,10 @@ type CreateRegressionSuiteRes interface {
 	createRegressionSuiteRes()
 }
 
+type CreateReportRes interface {
+	createReportRes()
+}
+
 type CreateRequisitionRes interface {
 	createRequisitionRes()
 }
@@ -871,6 +875,10 @@ type GetRecommendationRes interface {
 
 type GetRegressionSuiteRes interface {
 	getRegressionSuiteRes()
+}
+
+type GetReportRes interface {
+	getReportRes()
 }
 
 type GetRequisitionRes interface {
@@ -1401,6 +1409,10 @@ type ListRegressionSuitesRes interface {
 	listRegressionSuitesRes()
 }
 
+type ListReportsRes interface {
+	listReportsRes()
+}
+
 type ListRequisitionsRes interface {
 	listRequisitionsRes()
 }
@@ -1725,6 +1737,10 @@ type RemoveHierarchyNodeRes interface {
 	removeHierarchyNodeRes()
 }
 
+type RemoveReportRes interface {
+	removeReportRes()
+}
+
 type RenameHierarchyNodeRes interface {
 	renameHierarchyNodeRes()
 }
@@ -1811,6 +1827,10 @@ type RunAnalyticsQueryRes interface {
 
 type RunBalanceCarryForwardRes interface {
 	runBalanceCarryForwardRes()
+}
+
+type RunReportRes interface {
+	runReportRes()
 }
 
 type SettleInternalOrderRes interface {

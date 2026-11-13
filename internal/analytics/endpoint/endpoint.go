@@ -65,11 +65,21 @@ func (e *Endpoints) RunAnalyticsQuery(ctx context.Context, req *gen.AnalyticsQue
 	if err != nil {
 		return nil, err
 	}
-	q := fromAPI(req)
+	res, err := e.answer(ctx, m, fromAPI(req), req.Companies, req.AsOf.Or(time.Time{}))
+	if err != nil {
+		return nil, err
+	}
+	res.ConfigVersion = version
+	return &gen.AnalyticsResultHeaders{Response: toAPI(res)}, nil
+}
+
+// answer runs q under m as the caller, over the companies asked for
+// within the caller's (nil: all of those), with data as of asOf or later.
+func (e *Endpoints) answer(ctx context.Context, m *analytics.Model, q analytics.Query, companies []string, asOf time.Time) (*analytics.Result, error) {
 	if err := analytics.Validate(m, q); err != nil {
 		return nil, invalid(err)
 	}
-	p, err := e.principal(ctx, req.Companies)
+	p, err := e.principal(ctx, companies)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +94,7 @@ func (e *Endpoints) RunAnalyticsQuery(ctx context.Context, req *gen.AnalyticsQue
 	defer release()
 	db := e.database(datasets)
 	src := store.Source{Reader: e.Reader, Database: db, Datasets: datasets, Requires: db.Permissions(), Now: e.Now, Log: e.Log}
-	facts, err := src.Facts(ctx, m, p, q, req.AsOf.Or(time.Time{}))
+	facts, err := src.Facts(ctx, m, p, q, asOf)
 	if err != nil {
 		return nil, apiError(err)
 	}
@@ -92,8 +102,7 @@ func (e *Endpoints) RunAnalyticsQuery(ctx context.Context, req *gen.AnalyticsQue
 	if err != nil {
 		return nil, invalid(err)
 	}
-	res.ConfigVersion = version
-	return &gen.AnalyticsResultHeaders{Response: toAPI(res)}, nil
+	return res, nil
 }
 
 // GetAnalyticsModel implements gen.Handler: the model queries are

@@ -26900,6 +26900,235 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/reports:
+    get:
+      operationId: listReports
+      tags:
+        - analytics
+      summary: List your saved reports
+      description: "The caller's own saved reports (ADR-0076 §2, T95a): a report is read by the person or agent who saved it alone; another's is neither listed nor found. Filtered by status (`active`, `removed`); every status when omitted. Sortable by: `title` (default)."
+      x-permission: analytics.report.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Only reports in this status.
+          schema:
+            type: string
+            description: "Report status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - active
+              - removed
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of your saved reports.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createReport
+      tags:
+        - analytics
+      summary: Save a report
+      description: "Saves a report under its specification's title (ADR-0076 §1-§2, T95a): its dashboard specification and the semantic queries behind it, each under an id the specification's tiles, charts and tables name (`query_id`), as `erp ask` writes a report. The report is the caller's, `active`. It is checked as the analytics agent's dashboard is built: every query is run once as the caller (with the caller's company access and dataset permissions, as `runAnalyticsQuery` runs it; a query it refuses is refused here with its problem) and the specification validated against the results, so a tile, chart or table that names a query the report lacks, a column a query does not have or a figure in the commentary that no result supports is 422 `analytics.invalid_report` naming each problem; nothing of that run is kept. A query naming a metric the semantic model does not have is 422 `analytics.report_metric_removed` naming it. An audit record is written with it. A retry with the same `Idempotency-Key` answers the report saved."
+      x-permission: analytics.report.write
+      x-also-permissions:
+        - analytics.query.run
+      x-problem-codes:
+        - analytics.busy
+        - analytics.invalid_query
+        - analytics.invalid_report
+        - analytics.report_metric_removed
+        - cash.amount_too_large
+        - config.not_bootstrapped
+        - config.unknown_version
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The report to save.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportCreate"
+      responses:
+        "201":
+          description: "Created; the report."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/reports/{id}":
+    get:
+      operationId: getReport
+      tags:
+        - analytics
+      summary: Get a saved report
+      description: "One of the caller's saved reports (ADR-0076 §2, T95a), with its specification and queries as saved; another's is not found (404)."
+      x-permission: analytics.report.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The report.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/reports/{id}:remove":
+    post:
+      operationId: removeReport
+      tags:
+        - analytics
+      summary: Remove a saved report
+      description: "Removes one of the caller's active reports (status `removed`), once (409 `analytics.report_removed` for a removed one), at the version read (`If-Match`). There is no `DELETE` in the API (04 §4.3): a removed report is kept and still read, is listed with `status=removed` or without a status filter, changes no more and is not run. An audit record is written with it."
+      x-permission: analytics.report.write
+      x-problem-codes:
+        - analytics.report_removed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The report after removeReport.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/reports/{id}:run":
+    post:
+      operationId: runReport
+      tags:
+        - analytics
+      summary: Run a saved report on current data
+      description: "Runs one of the caller's active reports again on current data (ADR-0076 §2, T95a) and answers its specification with every query's result: each query is run as the caller, with the caller's company access and dataset permissions now, as `runAnalyticsQuery` runs it (a query it refuses refuses the run with its problem), under the active configuration version's metric definitions. Each result's `query_id` is the id it has in this run, which the specification answered names. Commentary whose figures the new results no longer support is left out of the specification answered, with an assumption saying so, as `erp report` does. A query naming a metric the semantic model no longer has is 422 `analytics.report_metric_removed` naming it; a specification the results no longer support is 422 `analytics.invalid_report`. A removed report is not run (409 `analytics.report_removed`). `If-Match` is the report's ETag, which a run does not change. Nothing is kept: a run changes nothing, so agents of any autonomy level may run it."
+      x-permission: analytics.report.read
+      x-also-permissions:
+        - analytics.query.run
+      x-autonomy: read
+      x-problem-codes:
+        - analytics.busy
+        - analytics.invalid_query
+        - analytics.invalid_report
+        - analytics.report_metric_removed
+        - analytics.report_removed
+        - cash.amount_too_large
+        - config.not_bootstrapped
+        - config.unknown_version
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The report's specification and its results on current data.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportResults"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/connectors:
     get:
       operationId: listConnectors
@@ -56910,6 +57139,201 @@ components:
               type: string
         derived:
           $ref: "#/components/schemas/AnalyticsDerived"
+    ReportQuery:
+      type: object
+      description: "A semantic query of a saved report, as `runAnalyticsQuery` takes it without its scope: it is run with the company access of whoever runs the report, on current data, under the active metric definitions."
+      required: [measures]
+      properties:
+        measures:
+          type: array
+          description: Metric names of the semantic model.
+          minItems: 1
+          maxItems: 20
+          items: {type: string, maxLength: 100}
+        by:
+          type: array
+          description: Dimensions to break the metrics down by.
+          maxItems: 10
+          items: {type: string, maxLength: 100}
+        where:
+          type: array
+          description: Filters on dimensions, all of which a row must meet.
+          maxItems: 20
+          items: {$ref: "#/components/schemas/AnalyticsFilter"}
+        order_by: {type: string, maxLength: 100, description: A measure or dimension of the query to order rows by.}
+        desc: {type: boolean, description: Order descending.}
+        limit: {type: integer, minimum: 1, maximum: 500, description: "At most this many rows; the result is cut at 500 in any case."}
+        ledger: {type: string, format: uuid, description: "The ledger journal metrics read; the tenant's leading ledger when omitted (ADR-0044)."}
+      additionalProperties: false
+    ReportTile:
+      type: object
+      description: "A tile: one measure of a query summed over the rows whose dimensions have the values of `where`, optionally compared with the rows of `compare_where`."
+      required: [label, query_id, measure]
+      properties:
+        label: {type: string, minLength: 1, maxLength: 200, description: The tile's label.}
+        query_id: {type: string, minLength: 1, maxLength: 100, description: "The query whose result the tile shows: a key of the report's `queries`."}
+        measure: {type: string, maxLength: 100, description: A measure of that query.}
+        where:
+          type: object
+          description: Dimension values the rows summed have.
+          maxProperties: 10
+          additionalProperties: {type: string, maxLength: 200}
+        compare_where:
+          type: object
+          description: Dimension values of the rows compared with.
+          maxProperties: 10
+          additionalProperties: {type: string, maxLength: 200}
+        compare_label: {type: string, maxLength: 200, description: The comparison's label.}
+      additionalProperties: false
+    ReportChart:
+      type: object
+      description: A chart of a measure along a dimension, one series per value of another.
+      required: [title, type, query_id, x, measure]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 200, description: The chart's title.}
+        type:
+          type: string
+          description: "`bar` or `line`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [bar, line]
+        query_id: {type: string, minLength: 1, maxLength: 100, description: "The query whose result the chart shows: a key of the report's `queries`."}
+        x: {type: string, maxLength: 100, description: The dimension along the axis.}
+        series: {type: string, maxLength: 100, description: The dimension each series is a value of.}
+        measure: {type: string, maxLength: 100, description: The measure plotted.}
+      additionalProperties: false
+    ReportCompare:
+      type: object
+      description: A comparison of one measure between two values of a dimension, pivoted into baseline, current, change and change % columns.
+      required: [dim, baseline, current, measure]
+      properties:
+        dim: {type: string, maxLength: 100, description: The dimension compared along.}
+        baseline: {type: string, maxLength: 200, description: The dimension's value compared with.}
+        current: {type: string, maxLength: 200, description: The dimension's value compared.}
+        measure: {type: string, maxLength: 100, description: The measure compared.}
+      additionalProperties: false
+    ReportTable:
+      type: object
+      description: A table of a query's result, optionally pivoted into a comparison.
+      required: [title, query_id]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 200, description: The table's title.}
+        query_id: {type: string, minLength: 1, maxLength: 100, description: "The query whose result the table shows: a key of the report's `queries`."}
+        compare: {$ref: "#/components/schemas/ReportCompare", description: The comparison the result is pivoted into.}
+      additionalProperties: false
+    ReportSpec:
+      type: object
+      description: "A report's dashboard specification, as the analytics agent writes it: it holds no figure of its own; its tiles, charts and tables name the queries whose results they show, and its commentary cites only figures those results support."
+      required: [title]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 200, description: "The report's title, which it is saved and listed under."}
+        question: {type: string, maxLength: 2000, description: The question the report answers.}
+        assumptions:
+          type: array
+          description: What the report assumes, in words.
+          maxItems: 20
+          items: {type: string, maxLength: 500}
+        tiles:
+          type: array
+          description: The report's tiles.
+          maxItems: 20
+          items: {$ref: "#/components/schemas/ReportTile"}
+        charts:
+          type: array
+          description: The report's charts.
+          maxItems: 20
+          items: {$ref: "#/components/schemas/ReportChart"}
+        tables:
+          type: array
+          description: The report's tables.
+          maxItems: 20
+          items: {$ref: "#/components/schemas/ReportTable"}
+        commentary: {type: string, maxLength: 5000, description: "Commentary on the figures, citing only figures the results support."}
+        follow_ups:
+          type: array
+          description: Questions to ask next.
+          maxItems: 10
+          items: {type: string, maxLength: 500}
+      additionalProperties: false
+    ReportCreate:
+      type: object
+      description: "A report to save: its specification and its queries, each under the id the specification names it by."
+      required: [spec, queries]
+      properties:
+        spec: {$ref: "#/components/schemas/ReportSpec", description: The dashboard specification.}
+        queries:
+          type: object
+          description: "The report's queries by id (1 to 100 characters: letters, digits, `_`, `-` and `.`), which the specification's `query_id` names."
+          minProperties: 1
+          maxProperties: 20
+          additionalProperties: {$ref: "#/components/schemas/ReportQuery"}
+      additionalProperties: false
+      examples:
+        - spec:
+            title: Revenue by year
+            question: What is our revenue by fiscal year?
+            tables: [{title: Revenue by fiscal year, query_id: revenue_by_year}]
+          queries:
+            revenue_by_year: {measures: [revenue], by: [fiscal_year]}
+    Report:
+      description: "A saved report (analytics, ADR-0076 §1): its specification and its queries as saved, its owner and its status."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [title, spec, queries, owner_id, owner_name, status]
+          properties:
+            title: {type: string, description: "The specification's title.", readOnly: true}
+            question: {type: string, description: "The specification's question; absent when it has none.", readOnly: true}
+            spec: {$ref: "#/components/schemas/ReportSpec", description: The dashboard specification as saved.}
+            queries:
+              type: object
+              description: The report's queries by the id the specification names them by.
+              additionalProperties: {$ref: "#/components/schemas/ReportQuery"}
+            owner_id: {type: string, format: uuid, description: "The person or agent who saved the report and alone reads and runs it (`GET /v1/principals/{id}`).", readOnly: true}
+            owner_name: {type: string, description: "The owner's name, as it is now.", readOnly: true}
+            status:
+              type: string
+              description: "`active`, or `removed` for good (`removeReport`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [active, removed]
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e31"
+          version: 1
+          created_at: "2026-11-25T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-25T14:03:11Z"
+          title: Revenue by year
+          question: What is our revenue by fiscal year?
+          spec:
+            title: Revenue by year
+            question: What is our revenue by fiscal year?
+            tables: [{title: Revenue by fiscal year, query_id: revenue_by_year}]
+          queries:
+            revenue_by_year: {measures: [revenue], by: [fiscal_year]}
+          owner_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          owner_name: Carla Controller
+          status: active
+    ReportPage:
+      type: object
+      description: One page of saved reports.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Report"}
+          description: The reports on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    ReportResults:
+      type: object
+      description: "A saved report run on current data: its specification as answered and every query's result, each under the `query_id` the specification names it by."
+      required: [report_id, title, spec, results, data_through]
+      properties:
+        report_id: {type: string, format: uuid, description: "The report (`GET /v1/reports/{id}`).", readOnly: true}
+        title: {type: string, description: The report's title., readOnly: true}
+        spec: {$ref: "#/components/schemas/ReportSpec", description: "The specification as answered: its tiles, charts and tables name the results below; commentary the results no longer support is left out, with an assumption saying so."}
+        results:
+          type: array
+          description: Each query's result, by `query_id`.
+          items: {$ref: "#/components/schemas/AnalyticsResult"}
+        data_through: {type: string, description: "The latest posting or document date in the data of all the results (YYYY-MM-DD); empty when they read none.", readOnly: true}
     AnalyticsDerived:
       type: object
       description: A derived metric's operation on two others.

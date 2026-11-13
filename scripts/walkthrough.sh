@@ -7825,6 +7825,72 @@ step_control_matrix() {
   passed
 }
 
+# step_saved_report is T95a (ADR-0076): Carla saves the revenue question of
+# step 14 as a report of her own through the API, runs it again once a sale
+# is posted and sees the new figure; the CLI saves and runs it too.
+step_saved_report() {
+  heading "Step 78 — A saved report: Carla's revenue by company saved through the API, run again after a sale is posted, showing the new figure"
+  local rep tag before after other ran spec query
+  as carla
+  query="{\"revenue\": {\"measures\": [\"revenue\"], \"by\": [\"company\"], \"where\": [{\"dim\": \"company\", \"op\": \"in\", \"values\": [\"$CC\"]}]}}"
+  spec="{\"title\": \"Revenue by company\", \"question\": \"What is our revenue by company?\", \"tiles\": [{\"label\": \"Revenue $CC\", \"query_id\": \"revenue\", \"measure\": \"revenue\", \"where\": {\"company\": \"$CC\"}}], \"tables\": [{\"title\": \"Revenue by company\", \"query_id\": \"revenue\"}]}"
+  say "Carla saves step 14's question as a report of her own: its dashboard, a tile of $CC's revenue and a table by"
+  say "company, and the governed query behind it. Saving runs the query once as her and checks the dashboard against"
+  say "the result, as the analytics agent's dashboard is checked (ADR-0076 §2):"
+  api 201 '"report \(.title), \(.status), owned by \(.owner_name): queries \(.queries | keys | join(", "))"' createReport \
+    -body "{\"spec\": $spec, \"queries\": $query}"
+  rep=$(field .id) tag=$ETAG
+  expect "the report" "$(field '"\(.title) \(.status) \(.version) \(.owner_name) \(.spec.tiles[0].query_id) \(.queries.revenue.measures[0])"')" \
+    "Revenue by company active 1 Carla Controller revenue revenue"
+  say "A dashboard naming a query the report lacks is refused at save, naming the problem:"
+  refused 422 analytics.invalid_report createReport \
+    -body "{\"spec\": {\"title\": \"Revenue\", \"tables\": [{\"title\": \"Revenue\", \"query_id\": \"other\"}]}, \"queries\": $query}"
+  say "So is a query naming a metric the semantic model does not have:"
+  refused 422 analytics.report_metric_removed createReport \
+    -body "{\"spec\": {\"title\": \"Revenue\", \"tables\": [{\"title\": \"Revenue\", \"query_id\": \"q\"}]}, \"queries\": {\"q\": {\"measures\": [\"bookings\"]}}}"
+  say "She runs it: the dashboard comes back with the query's result on current data, read as her:"
+  api 200 '"run of \(.title): data through \(.data_through)", (.results[] | .rows[] | "  \(.[0].value): revenue \(.[1].value) \(.[1].currency)")' \
+    runReport -p "id=$rep" -if-match "$tag"
+  before=$(field '.results[0].rows[0][1].value')
+  expect "the run's dashboard names its result" "$(field '.spec.tables[0].query_id == .results[0].query_id')" true
+  say "The billing system posts a sale of CAD 100.00 with its GST:"
+  accounts
+  as billing
+  api 201 '"journal entry \(.document_number): \([.lines[] | .amount.amount] | join(" / "))"' postJournalEntry -body \
+    "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"Billing: invoice 1101\", \"lines\": [{\"account_id\": \"$(account 100000)\", \"amount\": {\"amount\": \"105.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$(account 4000)\", \"amount\": {\"amount\": \"-100.00\", \"currency\": \"CAD\"}, \"tax_code\": \"GO5\"}, {\"account_id\": \"$(account 2300)\", \"amount\": {\"amount\": \"-5.00\", \"currency\": \"CAD\"}, \"tax_code\": \"GO5\"}]}"
+  as carla
+  say "Run again, the report shows the new figure:"
+  api 200 '(.results[] | .rows[] | "  \(.[0].value): revenue \(.[1].value) \(.[1].currency)")' runReport -p "id=$rep" -if-match "$tag"
+  after=$(field '.results[0].rows[0][1].value')
+  expect "revenue after the sale less before it" "$(amount $(($(cents "$after") - $(cents "$before"))))" 100.00
+  say "A report is its owner's alone: Ben neither lists nor finds it."
+  as ben
+  QUIET=1 api 200 '' listReports
+  expect "Ben's reports" "$(field '[.items[] | select(.id == "'"$rep"'")] | length')" 0
+  refused 404 request.not_found getReport -p "id=$rep"
+  as carla
+  say "The CLI keeps a report the same way: erp report -save saves a report file in erp-server as hers, and -id with"
+  say "erp-server's id runs it there and writes its dashboard:"
+  printf '{"spec": %s, "queries": %s}' "$spec" "$query" >"$WORK/revenue-report.json"
+  show erp report -save -file revenue-report.json
+  "$ERP" report -save -file "$WORK/revenue-report.json" >"$WORK/report.out" 2>&1 || { sed 's/^/     /' "$WORK/report.out"; fail "erp report -save failed"; }
+  sed 's/^/     /' "$WORK/report.out"
+  other=$(sed -n 's/.* as report \([0-9a-f-]*\)$/\1/p' "$WORK/report.out")
+  [ -n "$other" ] || fail "erp report -save named no report"
+  show erp report -id "$other"
+  "$ERP" report -id "$other" -out "$WORK/reports" >"$WORK/report.out" 2>&1 || { sed 's/^/     /' "$WORK/report.out"; fail "erp report -id failed"; }
+  sed 's/^/     /' "$WORK/report.out"
+  ran=$(grep -c "Ran \"Revenue by company\" in erp-server" "$WORK/report.out" || true)
+  expect "the CLI's run" "$ran" 1
+  [ -s "$WORK/reports/$other.html" ] || fail "erp report -id wrote no dashboard"
+  say "Removed, a report is kept but no longer run:"
+  QUIET=1 api 200 '' getReport -p "id=$other"
+  api 200 '"report \(.title): \(.status), version \(.version)"' removeReport -p "id=$other" -if-match "$ETAG"
+  refused 409 analytics.report_removed runReport -p "id=$other" -if-match "$ETAG"
+  REPORT=$rep REPORT_TAG=$tag
+  passed
+}
+
 # step_sales_analytics is T91a (ADR-0044 As built T91a): Anna, a sales
 # analyst, asks the semantic layer for the month's order intake and billed
 # value by customer. Order intake is the confirmed sales orders' items by
@@ -10329,7 +10395,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_saved_report step_close'
 
 main() {
   stop_unseen

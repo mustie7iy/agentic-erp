@@ -1493,6 +1493,22 @@ type Invoker interface {
 	//
 	// POST /v1/regression-suites
 	CreateRegressionSuite(ctx context.Context, request *RegressionSuiteCreate, params CreateRegressionSuiteParams) (CreateRegressionSuiteRes, error)
+	// CreateReport invokes createReport operation.
+	//
+	// Saves a report under its specification's title (ADR-0076 §1-§2, T95a): its dashboard specification
+	// and the semantic queries behind it, each under an id the specification's tiles, charts and tables
+	// name (`query_id`), as `erp ask` writes a report. The report is the caller's, `active`. It is checked
+	// as the analytics agent's dashboard is built: every query is run once as the caller (with the
+	// caller's company access and dataset permissions, as `runAnalyticsQuery` runs it; a query it refuses
+	// is refused here with its problem) and the specification validated against the results, so a tile,
+	// chart or table that names a query the report lacks, a column a query does not have or a figure in
+	// the commentary that no result supports is 422 `analytics.invalid_report` naming each problem;
+	// nothing of that run is kept. A query naming a metric the semantic model does not have is 422
+	// `analytics.report_metric_removed` naming it. An audit record is written with it. A retry with the
+	// same `Idempotency-Key` answers the report saved.
+	//
+	// POST /v1/reports
+	CreateReport(ctx context.Context, request *ReportCreate, params CreateReportParams) (CreateReportRes, error)
 	// CreateRequisition invokes createRequisition operation.
 	//
 	// Creates a draft requisition. An item may be taken from the company's catalog by `catalog_item_id`
@@ -3119,6 +3135,13 @@ type Invoker interface {
 	//
 	// GET /v1/regression-suites/{id}
 	GetRegressionSuite(ctx context.Context, params GetRegressionSuiteParams) (GetRegressionSuiteRes, error)
+	// GetReport invokes getReport operation.
+	//
+	// One of the caller's saved reports (ADR-0076 §2, T95a), with its specification and queries as saved;
+	// another's is not found (404).
+	//
+	// GET /v1/reports/{id}
+	GetReport(ctx context.Context, params GetReportParams) (GetReportRes, error)
 	// GetRequisition invokes getRequisition operation.
 	//
 	// Returns one requisition. Expandable: `supplier`, for a caller who may read business partners
@@ -4454,6 +4477,14 @@ type Invoker interface {
 	//
 	// GET /v1/regression-suites
 	ListRegressionSuites(ctx context.Context, params ListRegressionSuitesParams) (ListRegressionSuitesRes, error)
+	// ListReports invokes listReports operation.
+	//
+	// The caller's own saved reports (ADR-0076 §2, T95a): a report is read by the person or agent who
+	// saved it alone; another's is neither listed nor found. Filtered by status (`active`, `removed`);
+	// every status when omitted. Sortable by: `title` (default).
+	//
+	// GET /v1/reports
+	ListReports(ctx context.Context, params ListReportsParams) (ListReportsRes, error)
 	// ListRequisitions invokes listRequisitions operation.
 	//
 	// Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`, for a
@@ -5628,6 +5659,15 @@ type Invoker interface {
 	//
 	// POST /v1/hierarchies/{id}/nodes/{node_id}:remove
 	RemoveHierarchyNode(ctx context.Context, request *HierarchyNodeRemove, params RemoveHierarchyNodeParams) (RemoveHierarchyNodeRes, error)
+	// RemoveReport invokes removeReport operation.
+	//
+	// Removes one of the caller's active reports (status `removed`), once (409 `analytics.report_removed`
+	// for a removed one), at the version read (`If-Match`). There is no `DELETE` in the API (04 §4.3): a
+	// removed report is kept and still read, is listed with `status=removed` or without a status filter,
+	// changes no more and is not run. An audit record is written with it.
+	//
+	// POST /v1/reports/{id}:remove
+	RemoveReport(ctx context.Context, params RemoveReportParams) (RemoveReportRes, error)
 	// RenameHierarchyNode invokes renameHierarchyNode operation.
 	//
 	// Renames the node; its code is fixed. Opens a pending center change (`GET /v1/center-changes/{id}`)
@@ -5985,6 +6025,22 @@ type Invoker interface {
 	//
 	// POST /v1/balance-carry-forwards
 	RunBalanceCarryForward(ctx context.Context, request *BalanceCarryForwardRequest, params RunBalanceCarryForwardParams) (RunBalanceCarryForwardRes, error)
+	// RunReport invokes runReport operation.
+	//
+	// Runs one of the caller's active reports again on current data (ADR-0076 §2, T95a) and answers its
+	// specification with every query's result: each query is run as the caller, with the caller's company
+	// access and dataset permissions now, as `runAnalyticsQuery` runs it (a query it refuses refuses the
+	// run with its problem), under the active configuration version's metric definitions. Each result's
+	// `query_id` is the id it has in this run, which the specification answered names. Commentary whose
+	// figures the new results no longer support is left out of the specification answered, with an
+	// assumption saying so, as `erp report` does. A query naming a metric the semantic model no longer has
+	// is 422 `analytics.report_metric_removed` naming it; a specification the results no longer support is
+	// 422 `analytics.invalid_report`. A removed report is not run (409 `analytics.report_removed`).
+	// `If-Match` is the report's ETag, which a run does not change. Nothing is kept: a run changes
+	// nothing, so agents of any autonomy level may run it.
+	//
+	// POST /v1/reports/{id}:run
+	RunReport(ctx context.Context, params RunReportParams) (RunReportRes, error)
 	// SettleInternalOrder invokes settleInternalOrder operation.
 	//
 	// Settles a released internal order's actual costs up to a fiscal period to the receiver of its
@@ -21066,6 +21122,146 @@ func (c *Client) sendCreateRegressionSuite(ctx context.Context, request *Regress
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateRegressionSuiteResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateReport invokes createReport operation.
+//
+// Saves a report under its specification's title (ADR-0076 §1-§2, T95a): its dashboard specification
+// and the semantic queries behind it, each under an id the specification's tiles, charts and tables
+// name (`query_id`), as `erp ask` writes a report. The report is the caller's, `active`. It is checked
+// as the analytics agent's dashboard is built: every query is run once as the caller (with the
+// caller's company access and dataset permissions, as `runAnalyticsQuery` runs it; a query it refuses
+// is refused here with its problem) and the specification validated against the results, so a tile,
+// chart or table that names a query the report lacks, a column a query does not have or a figure in
+// the commentary that no result supports is 422 `analytics.invalid_report` naming each problem;
+// nothing of that run is kept. A query naming a metric the semantic model does not have is 422
+// `analytics.report_metric_removed` naming it. An audit record is written with it. A retry with the
+// same `Idempotency-Key` answers the report saved.
+//
+// POST /v1/reports
+func (c *Client) CreateReport(ctx context.Context, request *ReportCreate, params CreateReportParams) (CreateReportRes, error) {
+	res, err := c.sendCreateReport(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateReport(ctx context.Context, request *ReportCreate, params CreateReportParams) (res CreateReportRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createReport"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/reports"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateReportOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/reports"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateReportRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateReportOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateReportResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -39928,6 +40124,138 @@ func (c *Client) sendGetRegressionSuite(ctx context.Context, params GetRegressio
 
 	stage = "DecodeResponse"
 	result, err := decodeGetRegressionSuiteResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetReport invokes getReport operation.
+//
+// One of the caller's saved reports (ADR-0076 §2, T95a), with its specification and queries as saved;
+// another's is not found (404).
+//
+// GET /v1/reports/{id}
+func (c *Client) GetReport(ctx context.Context, params GetReportParams) (GetReportRes, error) {
+	res, err := c.sendGetReport(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetReport(ctx context.Context, params GetReportParams) (res GetReportRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getReport"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/reports/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetReportOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/reports/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetReportOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetReportResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -69077,6 +69405,193 @@ func (c *Client) sendListRegressionSuites(ctx context.Context, params ListRegres
 	return result, nil
 }
 
+// ListReports invokes listReports operation.
+//
+// The caller's own saved reports (ADR-0076 §2, T95a): a report is read by the person or agent who
+// saved it alone; another's is neither listed nor found. Filtered by status (`active`, `removed`);
+// every status when omitted. Sortable by: `title` (default).
+//
+// GET /v1/reports
+func (c *Client) ListReports(ctx context.Context, params ListReportsParams) (ListReportsRes, error) {
+	res, err := c.sendListReports(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListReports(ctx context.Context, params ListReportsParams) (res ListReportsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listReports"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/reports"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListReportsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/reports"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListReportsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListReportsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListRequisitions invokes listRequisitions operation.
 //
 // Purchase requisitions. Sortable by: `created_at`, `document_number`. Expandable: `supplier`, for a
@@ -84297,6 +84812,166 @@ func (c *Client) sendRemoveHierarchyNode(ctx context.Context, request *Hierarchy
 	return result, nil
 }
 
+// RemoveReport invokes removeReport operation.
+//
+// Removes one of the caller's active reports (status `removed`), once (409 `analytics.report_removed`
+// for a removed one), at the version read (`If-Match`). There is no `DELETE` in the API (04 §4.3): a
+// removed report is kept and still read, is listed with `status=removed` or without a status filter,
+// changes no more and is not run. An audit record is written with it.
+//
+// POST /v1/reports/{id}:remove
+func (c *Client) RemoveReport(ctx context.Context, params RemoveReportParams) (RemoveReportRes, error) {
+	res, err := c.sendRemoveReport(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendRemoveReport(ctx context.Context, params RemoveReportParams) (res RemoveReportRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("removeReport"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/reports/{id}:remove"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RemoveReportOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/reports/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":remove"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RemoveReportOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRemoveReportResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // RenameHierarchyNode invokes renameHierarchyNode operation.
 //
 // Renames the node; its code is fixed. Opens a pending center change (`GET /v1/center-changes/{id}`)
@@ -88025,6 +88700,173 @@ func (c *Client) sendRunBalanceCarryForward(ctx context.Context, request *Balanc
 
 	stage = "DecodeResponse"
 	result, err := decodeRunBalanceCarryForwardResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// RunReport invokes runReport operation.
+//
+// Runs one of the caller's active reports again on current data (ADR-0076 §2, T95a) and answers its
+// specification with every query's result: each query is run as the caller, with the caller's company
+// access and dataset permissions now, as `runAnalyticsQuery` runs it (a query it refuses refuses the
+// run with its problem), under the active configuration version's metric definitions. Each result's
+// `query_id` is the id it has in this run, which the specification answered names. Commentary whose
+// figures the new results no longer support is left out of the specification answered, with an
+// assumption saying so, as `erp report` does. A query naming a metric the semantic model no longer has
+// is 422 `analytics.report_metric_removed` naming it; a specification the results no longer support is
+// 422 `analytics.invalid_report`. A removed report is not run (409 `analytics.report_removed`).
+// `If-Match` is the report's ETag, which a run does not change. Nothing is kept: a run changes
+// nothing, so agents of any autonomy level may run it.
+//
+// POST /v1/reports/{id}:run
+func (c *Client) RunReport(ctx context.Context, params RunReportParams) (RunReportRes, error) {
+	res, err := c.sendRunReport(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendRunReport(ctx context.Context, params RunReportParams) (res RunReportRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("runReport"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/reports/{id}:run"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RunReportOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/reports/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":run"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RunReportOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRunReportResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
