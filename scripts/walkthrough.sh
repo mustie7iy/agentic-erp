@@ -8413,7 +8413,7 @@ step_expense_report() {
     "$(field '[.lines[] | "\(.expense_type) \(.account_number) \(.amount.amount) \(.tax_amount.amount) \(.net_amount.amount)"] | join(", ")')" \
     "TRAVEL 6000 105.00 5.00 100.00, LODGING 6100 210.00 10.00 200.00"
   as carla
-  say "Carla posts it at the version she read: each line's net on its account and CC-1100, the GST on V1's account,"
+  say "Carla posts it at the version she read: each line's net on its account and CC-1100, the GST on V1's account in one line,"
   say "the gross Ben's open item:"
   QUIET=1 api 200 '' getExpenseReport -p "id=$report"
   api 200 '"expense report \(.document_number): \(.status) on \(.posting_date), journal entry \(.journal_entry_id), term \(.payment_term_code), due \(.net_due_date)"' \
@@ -8423,7 +8423,7 @@ step_expense_report() {
   due=$(field .net_due_date)
   expect "the net due date, the report date plus 30 days" "$due" "$(date_add "$(field .report_date)" 30)"
   api 200 '"journal entry \(.document_number) (\(.document_type)): \([.lines[] | "\(.amount.amount)\(if .tax_code then " \(.tax_code)" else "" end)"] | join(" / "))"' getJournalEntry -p "id=$entry"
-  expect "the entry's amounts" "$(field '[.lines[].amount.amount] | sort | join(" ")')" "-315.00 10.00 100.00 200.00 5.00"
+  expect "the entry's amounts, the GST on V1 one line" "$(field '[.lines[].amount.amount] | sort | join(" ")')" "-315.00 100.00 15.00 200.00"
   expect "the entry's reference" "$(field .reference)" "$number"
   say "It posts once:"
   QUIET=1 api 200 '' getExpenseReport -p "id=$report"
