@@ -24094,6 +24094,8 @@ func (*ConflictHeaders) createCompanyAccessRes()                   {}
 func (*ConflictHeaders) createConnectorRes()                       {}
 func (*ConflictHeaders) createConsolidationRunRes()                {}
 func (*ConflictHeaders) createContractRes()                        {}
+func (*ConflictHeaders) createControlRes()                         {}
+func (*ConflictHeaders) createControlTestRes()                     {}
 func (*ConflictHeaders) createCostCenterRes()                      {}
 func (*ConflictHeaders) createCreditLimitRes()                     {}
 func (*ConflictHeaders) createCustomerInvoiceRes()                 {}
@@ -24241,6 +24243,7 @@ func (*ConflictHeaders) requestBankAccountChangeRes()              {}
 func (*ConflictHeaders) requestBankAccountEndRes()                 {}
 func (*ConflictHeaders) resumeWebhookSubscriptionRes()             {}
 func (*ConflictHeaders) retireCatalogItemRes()                     {}
+func (*ConflictHeaders) retireControlRes()                         {}
 func (*ConflictHeaders) retireEntryTemplateRes()                   {}
 func (*ConflictHeaders) reverseAssetAcquisitionRes()               {}
 func (*ConflictHeaders) reverseAssetRetirementRes()                {}
@@ -24277,6 +24280,7 @@ func (*ConflictHeaders) updateChangeRequestRes()                   {}
 func (*ConflictHeaders) updateCloseTaskRes()                       {}
 func (*ConflictHeaders) updateConnectorRes()                       {}
 func (*ConflictHeaders) updateContractRes()                        {}
+func (*ConflictHeaders) updateControlRes()                         {}
 func (*ConflictHeaders) updateCostCenterRes()                      {}
 func (*ConflictHeaders) updateCreditLimitRes()                     {}
 func (*ConflictHeaders) updateEntryTemplateRes()                   {}
@@ -27851,6 +27855,639 @@ func (s *ContractUpdate) SetItems(val []ContractItem) {
 }
 
 // Merged schema.
+// Ref: #/components/schemas/Control
+type Control struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The tenant's code of the control, unique in the library.
+	Code string `json:"code"`
+	// What the control is to achieve.
+	Objective string `json:"objective"`
+	// The process the control belongs to, in the tenant's own words.
+	Process string `json:"process"`
+	// The person who owns the control (`GET /v1/principals/{id}`).
+	OwnerID uuid.UUID `json:"owner_id"`
+	// The owner's name, as it is now.
+	OwnerName string `json:"owner_name"`
+	// How often the control is performed. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Frequency string `json:"frequency"`
+	// Whether a person performs the control (`manual`) or the system does (`automated`). Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Nature string `json:"nature"`
+	// `active`, or `retired` for good (`retireControl`). Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The control's last test: the one with the latest test date, the one recorded last among several of
+	// one date. Absent while the control was never tested.
+	LastTest OptControlTest `json:"last_test"`
+}
+
+// GetID returns the value of ID.
+func (s *Control) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *Control) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *Control) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *Control) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *Control) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *Control) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetCode returns the value of Code.
+func (s *Control) GetCode() string {
+	return s.Code
+}
+
+// GetObjective returns the value of Objective.
+func (s *Control) GetObjective() string {
+	return s.Objective
+}
+
+// GetProcess returns the value of Process.
+func (s *Control) GetProcess() string {
+	return s.Process
+}
+
+// GetOwnerID returns the value of OwnerID.
+func (s *Control) GetOwnerID() uuid.UUID {
+	return s.OwnerID
+}
+
+// GetOwnerName returns the value of OwnerName.
+func (s *Control) GetOwnerName() string {
+	return s.OwnerName
+}
+
+// GetFrequency returns the value of Frequency.
+func (s *Control) GetFrequency() string {
+	return s.Frequency
+}
+
+// GetNature returns the value of Nature.
+func (s *Control) GetNature() string {
+	return s.Nature
+}
+
+// GetStatus returns the value of Status.
+func (s *Control) GetStatus() string {
+	return s.Status
+}
+
+// GetLastTest returns the value of LastTest.
+func (s *Control) GetLastTest() OptControlTest {
+	return s.LastTest
+}
+
+// SetID sets the value of ID.
+func (s *Control) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *Control) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *Control) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *Control) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *Control) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *Control) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetCode sets the value of Code.
+func (s *Control) SetCode(val string) {
+	s.Code = val
+}
+
+// SetObjective sets the value of Objective.
+func (s *Control) SetObjective(val string) {
+	s.Objective = val
+}
+
+// SetProcess sets the value of Process.
+func (s *Control) SetProcess(val string) {
+	s.Process = val
+}
+
+// SetOwnerID sets the value of OwnerID.
+func (s *Control) SetOwnerID(val uuid.UUID) {
+	s.OwnerID = val
+}
+
+// SetOwnerName sets the value of OwnerName.
+func (s *Control) SetOwnerName(val string) {
+	s.OwnerName = val
+}
+
+// SetFrequency sets the value of Frequency.
+func (s *Control) SetFrequency(val string) {
+	s.Frequency = val
+}
+
+// SetNature sets the value of Nature.
+func (s *Control) SetNature(val string) {
+	s.Nature = val
+}
+
+// SetStatus sets the value of Status.
+func (s *Control) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetLastTest sets the value of LastTest.
+func (s *Control) SetLastTest(val OptControlTest) {
+	s.LastTest = val
+}
+
+// Record a control in the control library. It is created `active`.
+// Ref: #/components/schemas/ControlCreate
+type ControlCreate struct {
+	// The tenant's own code of the control, unique in the library whatever its case; it never changes.
+	Code string `json:"code"`
+	// What the control is to achieve.
+	Objective string `json:"objective"`
+	// The process the control belongs to, in the tenant's own words, without leading or trailing white
+	// space; the library is filtered by it.
+	Process string `json:"process"`
+	// The person who owns the control: an active person of the tenant (`GET /v1/principals/{id}`).
+	OwnerID uuid.UUID `json:"owner_id"`
+	// How often the control is performed. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Frequency string `json:"frequency"`
+	// Whether a person performs the control (`manual`) or the system does (`automated`). Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Nature string `json:"nature"`
+}
+
+// GetCode returns the value of Code.
+func (s *ControlCreate) GetCode() string {
+	return s.Code
+}
+
+// GetObjective returns the value of Objective.
+func (s *ControlCreate) GetObjective() string {
+	return s.Objective
+}
+
+// GetProcess returns the value of Process.
+func (s *ControlCreate) GetProcess() string {
+	return s.Process
+}
+
+// GetOwnerID returns the value of OwnerID.
+func (s *ControlCreate) GetOwnerID() uuid.UUID {
+	return s.OwnerID
+}
+
+// GetFrequency returns the value of Frequency.
+func (s *ControlCreate) GetFrequency() string {
+	return s.Frequency
+}
+
+// GetNature returns the value of Nature.
+func (s *ControlCreate) GetNature() string {
+	return s.Nature
+}
+
+// SetCode sets the value of Code.
+func (s *ControlCreate) SetCode(val string) {
+	s.Code = val
+}
+
+// SetObjective sets the value of Objective.
+func (s *ControlCreate) SetObjective(val string) {
+	s.Objective = val
+}
+
+// SetProcess sets the value of Process.
+func (s *ControlCreate) SetProcess(val string) {
+	s.Process = val
+}
+
+// SetOwnerID sets the value of OwnerID.
+func (s *ControlCreate) SetOwnerID(val uuid.UUID) {
+	s.OwnerID = val
+}
+
+// SetFrequency sets the value of Frequency.
+func (s *ControlCreate) SetFrequency(val string) {
+	s.Frequency = val
+}
+
+// SetNature sets the value of Nature.
+func (s *ControlCreate) SetNature(val string) {
+	s.Nature = val
+}
+
+// ControlHeaders wraps Control with response headers.
+type ControlHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           Control
+}
+
+// GetETag returns the value of ETag.
+func (s *ControlHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ControlHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *ControlHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *ControlHeaders) GetResponse() Control {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ControlHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ControlHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *ControlHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ControlHeaders) SetResponse(val Control) {
+	s.Response = val
+}
+
+func (*ControlHeaders) createControlRes() {}
+
+// One page of the control library.
+// Ref: #/components/schemas/ControlPage
+type ControlPage struct {
+	// The controls on this page.
+	Items []Control `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ControlPage) GetItems() []Control {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ControlPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ControlPage) SetItems(val []Control) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ControlPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ControlPage) listControlsRes() {}
+
+// The result of testing a control once (grc, ADR-0078 §3). It is never changed.
+// Ref: #/components/schemas/ControlTest
+type ControlTest struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The control tested (`GET /v1/controls/{id}`).
+	ControlID uuid.UUID `json:"control_id"`
+	// The control's code.
+	ControlCode string `json:"control_code"`
+	// The date of the test.
+	TestedOn time.Time `json:"tested_on"`
+	// The result of the test. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Result string `json:"result"`
+	// The note of the evidence seen.
+	Note string `json:"note"`
+	// The person who tested and recorded it (`GET /v1/principals/{id}`).
+	TestedBy uuid.UUID `json:"tested_by"`
+	// The tester's name, as it is now.
+	TestedByName string `json:"tested_by_name"`
+	// When the test was recorded (UTC).
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// GetID returns the value of ID.
+func (s *ControlTest) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetControlID returns the value of ControlID.
+func (s *ControlTest) GetControlID() uuid.UUID {
+	return s.ControlID
+}
+
+// GetControlCode returns the value of ControlCode.
+func (s *ControlTest) GetControlCode() string {
+	return s.ControlCode
+}
+
+// GetTestedOn returns the value of TestedOn.
+func (s *ControlTest) GetTestedOn() time.Time {
+	return s.TestedOn
+}
+
+// GetResult returns the value of Result.
+func (s *ControlTest) GetResult() string {
+	return s.Result
+}
+
+// GetNote returns the value of Note.
+func (s *ControlTest) GetNote() string {
+	return s.Note
+}
+
+// GetTestedBy returns the value of TestedBy.
+func (s *ControlTest) GetTestedBy() uuid.UUID {
+	return s.TestedBy
+}
+
+// GetTestedByName returns the value of TestedByName.
+func (s *ControlTest) GetTestedByName() string {
+	return s.TestedByName
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ControlTest) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// SetID sets the value of ID.
+func (s *ControlTest) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetControlID sets the value of ControlID.
+func (s *ControlTest) SetControlID(val uuid.UUID) {
+	s.ControlID = val
+}
+
+// SetControlCode sets the value of ControlCode.
+func (s *ControlTest) SetControlCode(val string) {
+	s.ControlCode = val
+}
+
+// SetTestedOn sets the value of TestedOn.
+func (s *ControlTest) SetTestedOn(val time.Time) {
+	s.TestedOn = val
+}
+
+// SetResult sets the value of Result.
+func (s *ControlTest) SetResult(val string) {
+	s.Result = val
+}
+
+// SetNote sets the value of Note.
+func (s *ControlTest) SetNote(val string) {
+	s.Note = val
+}
+
+// SetTestedBy sets the value of TestedBy.
+func (s *ControlTest) SetTestedBy(val uuid.UUID) {
+	s.TestedBy = val
+}
+
+// SetTestedByName sets the value of TestedByName.
+func (s *ControlTest) SetTestedByName(val string) {
+	s.TestedByName = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ControlTest) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// Record the result of testing a control. The tester is the caller.
+// Ref: #/components/schemas/ControlTestCreate
+type ControlTestCreate struct {
+	// The date of the test: the database's date today or earlier.
+	TestedOn time.Time `json:"tested_on"`
+	// The result of the test. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Result string `json:"result"`
+	// A note of the evidence seen: what was tested and where it is kept.
+	Note string `json:"note"`
+}
+
+// GetTestedOn returns the value of TestedOn.
+func (s *ControlTestCreate) GetTestedOn() time.Time {
+	return s.TestedOn
+}
+
+// GetResult returns the value of Result.
+func (s *ControlTestCreate) GetResult() string {
+	return s.Result
+}
+
+// GetNote returns the value of Note.
+func (s *ControlTestCreate) GetNote() string {
+	return s.Note
+}
+
+// SetTestedOn sets the value of TestedOn.
+func (s *ControlTestCreate) SetTestedOn(val time.Time) {
+	s.TestedOn = val
+}
+
+// SetResult sets the value of Result.
+func (s *ControlTestCreate) SetResult(val string) {
+	s.Result = val
+}
+
+// SetNote sets the value of Note.
+func (s *ControlTestCreate) SetNote(val string) {
+	s.Note = val
+}
+
+// ControlTestHeaders wraps ControlTest with response headers.
+type ControlTestHeaders struct {
+	IdempotentReplayed OptBool
+	Response           ControlTest
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ControlTestHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ControlTestHeaders) GetResponse() ControlTest {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ControlTestHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ControlTestHeaders) SetResponse(val ControlTest) {
+	s.Response = val
+}
+
+func (*ControlTestHeaders) createControlTestRes() {}
+
+// One page of a control's tests.
+// Ref: #/components/schemas/ControlTestPage
+type ControlTestPage struct {
+	// The tests on this page.
+	Items []ControlTest `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ControlTestPage) GetItems() []ControlTest {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ControlTestPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ControlTestPage) SetItems(val []ControlTest) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ControlTestPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ControlTestPage) listControlTestsRes() {}
+
+// Merge patch of a control: its objective, process, owner, frequency or nature. The code does not
+// change.
+// Ref: #/components/schemas/ControlUpdate
+type ControlUpdate struct {
+	// What the control is to achieve.
+	Objective OptString `json:"objective"`
+	// The process the control belongs to, without leading or trailing white space.
+	Process OptString `json:"process"`
+	// The person who owns the control: an active person of the tenant.
+	OwnerID OptUUID `json:"owner_id"`
+	// How often the control is performed. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Frequency OptString `json:"frequency"`
+	// Whether a person performs the control (`manual`) or the system does (`automated`). Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Nature OptString `json:"nature"`
+}
+
+// GetObjective returns the value of Objective.
+func (s *ControlUpdate) GetObjective() OptString {
+	return s.Objective
+}
+
+// GetProcess returns the value of Process.
+func (s *ControlUpdate) GetProcess() OptString {
+	return s.Process
+}
+
+// GetOwnerID returns the value of OwnerID.
+func (s *ControlUpdate) GetOwnerID() OptUUID {
+	return s.OwnerID
+}
+
+// GetFrequency returns the value of Frequency.
+func (s *ControlUpdate) GetFrequency() OptString {
+	return s.Frequency
+}
+
+// GetNature returns the value of Nature.
+func (s *ControlUpdate) GetNature() OptString {
+	return s.Nature
+}
+
+// SetObjective sets the value of Objective.
+func (s *ControlUpdate) SetObjective(val OptString) {
+	s.Objective = val
+}
+
+// SetProcess sets the value of Process.
+func (s *ControlUpdate) SetProcess(val OptString) {
+	s.Process = val
+}
+
+// SetOwnerID sets the value of OwnerID.
+func (s *ControlUpdate) SetOwnerID(val OptUUID) {
+	s.OwnerID = val
+}
+
+// SetFrequency sets the value of Frequency.
+func (s *ControlUpdate) SetFrequency(val OptString) {
+	s.Frequency = val
+}
+
+// SetNature sets the value of Nature.
+func (s *ControlUpdate) SetNature(val OptString) {
+	s.Nature = val
+}
+
+// Merged schema.
 // Ref: #/components/schemas/CostCenter
 type CostCenter struct {
 	// Identifier (UUIDv7).
@@ -29565,6 +30202,42 @@ func (*CreateContractPreconditionRequired) createContractRes() {}
 type CreateContractUnprocessableEntity Problem
 
 func (*CreateContractUnprocessableEntity) createContractRes() {}
+
+type CreateControlBadRequest Problem
+
+func (*CreateControlBadRequest) createControlRes() {}
+
+type CreateControlForbidden Problem
+
+func (*CreateControlForbidden) createControlRes() {}
+
+type CreateControlPreconditionRequired Problem
+
+func (*CreateControlPreconditionRequired) createControlRes() {}
+
+type CreateControlTestBadRequest Problem
+
+func (*CreateControlTestBadRequest) createControlTestRes() {}
+
+type CreateControlTestForbidden Problem
+
+func (*CreateControlTestForbidden) createControlTestRes() {}
+
+type CreateControlTestNotFound Problem
+
+func (*CreateControlTestNotFound) createControlTestRes() {}
+
+type CreateControlTestPreconditionRequired Problem
+
+func (*CreateControlTestPreconditionRequired) createControlTestRes() {}
+
+type CreateControlTestUnprocessableEntity Problem
+
+func (*CreateControlTestUnprocessableEntity) createControlTestRes() {}
+
+type CreateControlUnprocessableEntity Problem
+
+func (*CreateControlUnprocessableEntity) createControlRes() {}
 
 type CreateCostCenterBadRequest Problem
 
@@ -39069,6 +39742,46 @@ func (s *GetContractOKHeaders) SetResponse(val Contract) {
 }
 
 func (*GetContractOKHeaders) getContractRes() {}
+
+type GetControlBadRequest Problem
+
+func (*GetControlBadRequest) getControlRes() {}
+
+type GetControlForbidden Problem
+
+func (*GetControlForbidden) getControlRes() {}
+
+type GetControlNotFound Problem
+
+func (*GetControlNotFound) getControlRes() {}
+
+// GetControlOKHeaders wraps Control with response headers.
+type GetControlOKHeaders struct {
+	ETag     OptString
+	Response Control
+}
+
+// GetETag returns the value of ETag.
+func (s *GetControlOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetControlOKHeaders) GetResponse() Control {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetControlOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetControlOKHeaders) SetResponse(val Control) {
+	s.Response = val
+}
+
+func (*GetControlOKHeaders) getControlRes() {}
 
 type GetCostCenterBadRequest Problem
 
@@ -50725,6 +51438,26 @@ type ListContractsForbidden Problem
 
 func (*ListContractsForbidden) listContractsRes() {}
 
+type ListControlTestsBadRequest Problem
+
+func (*ListControlTestsBadRequest) listControlTestsRes() {}
+
+type ListControlTestsForbidden Problem
+
+func (*ListControlTestsForbidden) listControlTestsRes() {}
+
+type ListControlTestsNotFound Problem
+
+func (*ListControlTestsNotFound) listControlTestsRes() {}
+
+type ListControlsBadRequest Problem
+
+func (*ListControlsBadRequest) listControlsRes() {}
+
+type ListControlsForbidden Problem
+
+func (*ListControlsForbidden) listControlsRes() {}
+
 type ListCostCenterBalancesBadRequest Problem
 
 func (*ListCostCenterBalancesBadRequest) listCostCenterBalancesRes() {}
@@ -57363,6 +58096,52 @@ func (o OptConsolidationRunProblem) Get() (v ConsolidationRunProblem, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptConsolidationRunProblem) Or(d ConsolidationRunProblem) ConsolidationRunProblem {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptControlTest returns new OptControlTest with value set to v.
+func NewOptControlTest(v ControlTest) OptControlTest {
+	return OptControlTest{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptControlTest is optional ControlTest.
+type OptControlTest struct {
+	Value ControlTest
+	Set   bool
+}
+
+// IsSet returns true if OptControlTest was set.
+func (o OptControlTest) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptControlTest) Reset() {
+	var v ControlTest
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptControlTest) SetTo(v ControlTest) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptControlTest) Get() (v ControlTest, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptControlTest) Or(d ControlTest) ControlTest {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -72396,6 +73175,26 @@ type RetireCatalogItemUnprocessableEntity Problem
 
 func (*RetireCatalogItemUnprocessableEntity) retireCatalogItemRes() {}
 
+type RetireControlBadRequest Problem
+
+func (*RetireControlBadRequest) retireControlRes() {}
+
+type RetireControlForbidden Problem
+
+func (*RetireControlForbidden) retireControlRes() {}
+
+type RetireControlNotFound Problem
+
+func (*RetireControlNotFound) retireControlRes() {}
+
+type RetireControlPreconditionFailed Problem
+
+func (*RetireControlPreconditionFailed) retireControlRes() {}
+
+type RetireControlPreconditionRequired Problem
+
+func (*RetireControlPreconditionRequired) retireControlRes() {}
+
 type RetireEntryTemplateBadRequest Problem
 
 func (*RetireEntryTemplateBadRequest) retireEntryTemplateRes() {}
@@ -82179,6 +82978,8 @@ func (*TooManyRequestsHeaders) createCompanyAccessRes()                   {}
 func (*TooManyRequestsHeaders) createConnectorRes()                       {}
 func (*TooManyRequestsHeaders) createConsolidationRunRes()                {}
 func (*TooManyRequestsHeaders) createContractRes()                        {}
+func (*TooManyRequestsHeaders) createControlRes()                         {}
+func (*TooManyRequestsHeaders) createControlTestRes()                     {}
 func (*TooManyRequestsHeaders) createCostCenterRes()                      {}
 func (*TooManyRequestsHeaders) createCreditLimitRes()                     {}
 func (*TooManyRequestsHeaders) createCustomerInvoiceRes()                 {}
@@ -82278,6 +83079,7 @@ func (*TooManyRequestsHeaders) getConsolidatedStatementRes()              {}
 func (*TooManyRequestsHeaders) getConsolidationGroupRes()                 {}
 func (*TooManyRequestsHeaders) getConsolidationRunRes()                   {}
 func (*TooManyRequestsHeaders) getContractRes()                           {}
+func (*TooManyRequestsHeaders) getControlRes()                            {}
 func (*TooManyRequestsHeaders) getCostCenterRes()                         {}
 func (*TooManyRequestsHeaders) getCreditExposureRes()                     {}
 func (*TooManyRequestsHeaders) getCreditLimitRes()                        {}
@@ -82391,6 +83193,8 @@ func (*TooManyRequestsHeaders) listConsolidationEntriesRes()              {}
 func (*TooManyRequestsHeaders) listConsolidationGroupsRes()               {}
 func (*TooManyRequestsHeaders) listConsolidationRunsRes()                 {}
 func (*TooManyRequestsHeaders) listContractsRes()                         {}
+func (*TooManyRequestsHeaders) listControlTestsRes()                      {}
+func (*TooManyRequestsHeaders) listControlsRes()                          {}
 func (*TooManyRequestsHeaders) listCostCenterBalancesRes()                {}
 func (*TooManyRequestsHeaders) listCostCenterPathsRes()                   {}
 func (*TooManyRequestsHeaders) listCostCenterPlanActualRes()              {}
@@ -82537,6 +83341,7 @@ func (*TooManyRequestsHeaders) requestBankAccountChangeRes()              {}
 func (*TooManyRequestsHeaders) requestBankAccountEndRes()                 {}
 func (*TooManyRequestsHeaders) resumeWebhookSubscriptionRes()             {}
 func (*TooManyRequestsHeaders) retireCatalogItemRes()                     {}
+func (*TooManyRequestsHeaders) retireControlRes()                         {}
 func (*TooManyRequestsHeaders) retireEntryTemplateRes()                   {}
 func (*TooManyRequestsHeaders) reverseAssetAcquisitionRes()               {}
 func (*TooManyRequestsHeaders) reverseAssetRetirementRes()                {}
@@ -82573,6 +83378,7 @@ func (*TooManyRequestsHeaders) updateChangeRequestRes()                   {}
 func (*TooManyRequestsHeaders) updateCloseTaskRes()                       {}
 func (*TooManyRequestsHeaders) updateConnectorRes()                       {}
 func (*TooManyRequestsHeaders) updateContractRes()                        {}
+func (*TooManyRequestsHeaders) updateControlRes()                         {}
 func (*TooManyRequestsHeaders) updateCostCenterRes()                      {}
 func (*TooManyRequestsHeaders) updateCreditLimitRes()                     {}
 func (*TooManyRequestsHeaders) updateEntryTemplateRes()                   {}
@@ -82958,6 +83764,8 @@ func (*UnauthorizedHeaders) createCompanyAccessRes()                   {}
 func (*UnauthorizedHeaders) createConnectorRes()                       {}
 func (*UnauthorizedHeaders) createConsolidationRunRes()                {}
 func (*UnauthorizedHeaders) createContractRes()                        {}
+func (*UnauthorizedHeaders) createControlRes()                         {}
+func (*UnauthorizedHeaders) createControlTestRes()                     {}
 func (*UnauthorizedHeaders) createCostCenterRes()                      {}
 func (*UnauthorizedHeaders) createCreditLimitRes()                     {}
 func (*UnauthorizedHeaders) createCustomerInvoiceRes()                 {}
@@ -83057,6 +83865,7 @@ func (*UnauthorizedHeaders) getConsolidatedStatementRes()              {}
 func (*UnauthorizedHeaders) getConsolidationGroupRes()                 {}
 func (*UnauthorizedHeaders) getConsolidationRunRes()                   {}
 func (*UnauthorizedHeaders) getContractRes()                           {}
+func (*UnauthorizedHeaders) getControlRes()                            {}
 func (*UnauthorizedHeaders) getCostCenterRes()                         {}
 func (*UnauthorizedHeaders) getCreditExposureRes()                     {}
 func (*UnauthorizedHeaders) getCreditLimitRes()                        {}
@@ -83170,6 +83979,8 @@ func (*UnauthorizedHeaders) listConsolidationEntriesRes()              {}
 func (*UnauthorizedHeaders) listConsolidationGroupsRes()               {}
 func (*UnauthorizedHeaders) listConsolidationRunsRes()                 {}
 func (*UnauthorizedHeaders) listContractsRes()                         {}
+func (*UnauthorizedHeaders) listControlTestsRes()                      {}
+func (*UnauthorizedHeaders) listControlsRes()                          {}
 func (*UnauthorizedHeaders) listCostCenterBalancesRes()                {}
 func (*UnauthorizedHeaders) listCostCenterPathsRes()                   {}
 func (*UnauthorizedHeaders) listCostCenterPlanActualRes()              {}
@@ -83316,6 +84127,7 @@ func (*UnauthorizedHeaders) requestBankAccountChangeRes()              {}
 func (*UnauthorizedHeaders) requestBankAccountEndRes()                 {}
 func (*UnauthorizedHeaders) resumeWebhookSubscriptionRes()             {}
 func (*UnauthorizedHeaders) retireCatalogItemRes()                     {}
+func (*UnauthorizedHeaders) retireControlRes()                         {}
 func (*UnauthorizedHeaders) retireEntryTemplateRes()                   {}
 func (*UnauthorizedHeaders) reverseAssetAcquisitionRes()               {}
 func (*UnauthorizedHeaders) reverseAssetRetirementRes()                {}
@@ -83352,6 +84164,7 @@ func (*UnauthorizedHeaders) updateChangeRequestRes()                   {}
 func (*UnauthorizedHeaders) updateCloseTaskRes()                       {}
 func (*UnauthorizedHeaders) updateConnectorRes()                       {}
 func (*UnauthorizedHeaders) updateContractRes()                        {}
+func (*UnauthorizedHeaders) updateControlRes()                         {}
 func (*UnauthorizedHeaders) updateCostCenterRes()                      {}
 func (*UnauthorizedHeaders) updateCreditLimitRes()                     {}
 func (*UnauthorizedHeaders) updateEntryTemplateRes()                   {}
@@ -83835,6 +84648,70 @@ func (*UpdateContractPreconditionRequired) updateContractRes() {}
 type UpdateContractUnprocessableEntity Problem
 
 func (*UpdateContractUnprocessableEntity) updateContractRes() {}
+
+type UpdateControlBadRequest Problem
+
+func (*UpdateControlBadRequest) updateControlRes() {}
+
+type UpdateControlForbidden Problem
+
+func (*UpdateControlForbidden) updateControlRes() {}
+
+type UpdateControlNotFound Problem
+
+func (*UpdateControlNotFound) updateControlRes() {}
+
+// UpdateControlOKHeaders wraps Control with response headers.
+type UpdateControlOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           Control
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateControlOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateControlOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateControlOKHeaders) GetResponse() Control {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateControlOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateControlOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateControlOKHeaders) SetResponse(val Control) {
+	s.Response = val
+}
+
+func (*UpdateControlOKHeaders) retireControlRes() {}
+func (*UpdateControlOKHeaders) updateControlRes() {}
+
+type UpdateControlPreconditionFailed Problem
+
+func (*UpdateControlPreconditionFailed) updateControlRes() {}
+
+type UpdateControlPreconditionRequired Problem
+
+func (*UpdateControlPreconditionRequired) updateControlRes() {}
+
+type UpdateControlUnprocessableEntity Problem
+
+func (*UpdateControlUnprocessableEntity) updateControlRes() {}
 
 type UpdateCostCenterBadRequest Problem
 

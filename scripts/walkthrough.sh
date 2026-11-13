@@ -7121,6 +7121,66 @@ step_price_list() {
   expect "the item's net value after the discount" "$(field '"\(.items[0].net_amount.amount) \(.net_amount.amount) \(.net_amount.currency)"')" "2790.61 2790.61 CAD"
   passed
 }
+# step_controls is T98a (ADR-0078 §2-§5): Olive, the compliance officer,
+# records a control on the release of payment runs in Maple's control
+# library, owned by Tara, the treasury manager; the library is the
+# tenant's own and starts empty. A second control with its code is
+# refused. She tests it on step 6's payment run, records the test as
+# passed with a note of the evidence and reads the library with the
+# control's last test; a test dated after today is refused, and a test is
+# never changed. CONTROL is the control, for step_control_matrix.
+step_controls() {
+  heading "Step 66 — Controls: a control on payment release recorded in the control library, tested as passed with a note of the evidence, and the library read with its last test"
+  local owner tag test later note
+  as ada
+  say "Ada adds Olive, the compliance officer, to the team:"
+  person olive "Olive Compliance Officer" finance_staff
+  owner=$(awk -F'\t' '$2 == "Tara Treasury Manager" { print $1 }' "$WORK/names")
+  [ -n "$owner" ] || fail "step 1's Tara is not there"
+  as olive
+  say "Maple's control library is its own: nothing is shipped, so it starts empty (ADR-0078 §2)."
+  api 200 '"controls in the library: \(.items | length)"' listControls
+  expect "an empty library" "$(field '.items | length')" 0
+  say "Olive records the control on the release of payment runs: its code, its objective, the process it belongs"
+  say "to, its owner, how often it is performed and that the system performs it:"
+  api 201 '"control \(.code), \(.process), owned by \(.owner_name): \(.frequency), \(.nature), \(.status)", "  \(.objective)"' createControl \
+    -body "{\"code\": \"PAY-01\", \"objective\": \"A payment run is released by a person other than the one who proposed it.\", \"process\": \"Payments\", \"owner_id\": \"$owner\", \"frequency\": \"continuous\", \"nature\": \"automated\"}"
+  CONTROL=$(field .id) tag=$ETAG
+  expect "the control" "$(field '"\(.code) \(.process) \(.owner_id) \(.owner_name) \(.frequency) \(.nature) \(.status) \(.version) \(has("last_test"))"')" \
+    "PAY-01 Payments $owner Tara Treasury Manager continuous automated active 1 false"
+  say "A code is one control's in the library, whatever its case:"
+  refused 409 grc.control_code_taken createControl \
+    -body "{\"code\": \"pay-01\", \"objective\": \"Another control.\", \"process\": \"Payments\", \"owner_id\": \"$owner\", \"frequency\": \"monthly\", \"nature\": \"manual\"}"
+  say "She tests the control on the payment run of step 6, where Tom proposed the run and his own release of it"
+  say "was refused, and records the result with a note of the evidence she saw. A test is a person's statement:"
+  say "an agent cannot record one, and the test is never changed."
+  note="Payment run of $TODAY: proposed by Tom Treasurer; his release refused (identity.sod_conflict); released by another person."
+  api 201 '"test of \(.control_code) on \(.tested_on): \(.result), by \(.tested_by_name)", "  \(.note)"' createControlTest -p "id=$CONTROL" \
+    -body "{\"tested_on\": \"$TODAY\", \"result\": \"passed\", \"note\": \"$note\"}"
+  test=$(field .id)
+  expect "the test" "$(field '"\(.control_id) \(.control_code) \(.tested_on) \(.result) \(.tested_by_name)"')" "$CONTROL PAY-01 $TODAY passed Olive Compliance Officer"
+  later=$(date_add "$(utc_day)" 2)
+  say "A test dated after today is refused:"
+  refused 422 grc.test_in_future createControlTest -p "id=$CONTROL" -body "{\"tested_on\": \"$later\", \"result\": \"passed\", \"note\": \"Not seen yet.\"}"
+  say "The library shows the control with its last test: its date, its result, who tested and the note."
+  api 200 '.items[] | "  \(.code) \(.process), owned by \(.owner_name): last tested \(.last_test.tested_on), \(.last_test.result), by \(.last_test.tested_by_name)"' \
+    listControls -p process=Payments -p last_result=passed
+  expect "the library by process and last result" \
+    "$(field '[.items[] | "\(.id) \(.code) \(.last_test.id) \(.last_test.tested_on) \(.last_test.result) \(.last_test.tested_by_name) \(.last_test.note)"] | join(", ")')" \
+    "$CONTROL PAY-01 $test $TODAY passed Olive Compliance Officer $note"
+  QUIET=1 api 200 '' listControls -p last_result=failed
+  expect "no control last tested as failed" "$(field '.items | length')" 0
+  QUIET=1 api 200 '' listControls -p last_result=none
+  expect "no control never tested" "$(field '.items | length')" 0
+  QUIET=1 api 200 '' getControl -p "id=$CONTROL"
+  expect "the control's version after its test" "$(field .version) $ETAG" "1 $tag"
+  QUIET=1 api 200 '' listControlTests -p "id=$CONTROL"
+  expect "the control's tests" "$(field '[.items[] | "\(.id) \(.result)"] | join(", ")')" "$test passed"
+  QUIET=1 api 200 '' listAuditEvents -p object_type=grc.control -p "object_id=$CONTROL"
+  expect "the control's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "grc.control.create grc.control.test"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -9145,7 +9205,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_controls step_close'
 
 main() {
   stop_unseen

@@ -95,6 +95,7 @@ info:
     - name: collections
     - name: sales
     - name: credit
+    - name: grc
     - name: payments
     - name: workflow
     - name: integration
@@ -456,6 +457,14 @@ channels:
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       CreditLimitChanged: {$ref: '#/components/messages/CreditLimitChanged'}
+  grc:
+    address: 'erp.{cell}.grc.{tenant}.{event}'
+    title: Governance, risk and compliance events
+    description: The control library and the results of testing its controls (ADR-0078 §5).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      ControlChanged: {$ref: '#/components/messages/ControlChanged'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -748,6 +757,12 @@ operations:
     channel: {$ref: '#/channels/credit'}
     messages:
       - $ref: '#/channels/credit/messages/CreditLimitChanged'
+  publishGrcEvents:
+    action: send
+    title: Governance, risk and compliance publishes
+    channel: {$ref: '#/channels/grc'}
+    messages:
+      - $ref: '#/channels/grc/messages/ControlChanged'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -4142,6 +4157,34 @@ components:
         - name: created
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001104, source: /erp/eu-1/sales, type: com.example.erp.sales.billing_document_changed.v1, subject: 0192a000-0000-7000-8000-000000001311, time: '2026-11-20T16:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {billing_document_id: 0192a000-0000-7000-8000-000000001311, document_number: BD100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, sales_order_id: 0192a000-0000-7000-8000-000000001111, sales_order_number: SO100001, billing_date: '2026-11-20', net_amount: {amount: '1500.00', currency: CAD}, status: created, status_before: null, version: 1}
+    ControlChanged:
+      name: ControlChanged
+      title: Control changed
+      summary: A control of the control library was recorded, changed, retired or tested.
+      description: |
+        Emitted when a control is recorded (`created`), when its objective,
+        process, owner, frequency or nature changes (`changed`), when it is
+        retired (`retired`) and when the result of testing it is recorded
+        (`tested`, ADR-0078 §5, T98a). `test` is the test recorded, null
+        for every other change; it carries the test's date and result,
+        never the note of the evidence. The event names the owner and the
+        tester by id, never by name. It is not offered as a webhook event.
+        `GET /v1/controls/{id}` returns the control at `version` or later
+        with its last test. Subject is the control id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.grc.control_changed.v1}
+      payload: {$ref: '#/components/schemas/ControlChangedV1'}
+      examples:
+        - name: created
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000fa1, source: /erp/eu-1/grc, type: com.example.erp.grc.control_changed.v1, subject: 0192a000-0000-7000-8000-000000000fa0, time: '2026-11-25T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {control_id: 0192a000-0000-7000-8000-000000000fa0, code: PAY-01, process: Payments, owner_id: 0192a000-0000-7000-8000-000000000101, frequency: continuous, nature: automated, status: active, change: created, test: null, version: 1}
+        - name: tested
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000fa2, source: /erp/eu-1/grc, type: com.example.erp.grc.control_changed.v1, subject: 0192a000-0000-7000-8000-000000000fa0, time: '2026-11-25T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {control_id: 0192a000-0000-7000-8000-000000000fa0, code: PAY-01, process: Payments, owner_id: 0192a000-0000-7000-8000-000000000101, frequency: continuous, nature: automated, status: active, change: tested, test: {test_id: 0192a000-0000-7000-8000-000000000fa3, tested_on: '2026-11-25', result: passed, tested_by: 0192a000-0000-7000-8000-000000000101}, version: 1}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -4954,6 +4997,30 @@ components:
         status: {type: string, description: "The document's status after the change. Open enum: created."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
         version: {type: integer, description: "The document's version after the change."}
+    ControlChangedV1:
+      type: object
+      required: [control_id, code, process, owner_id, frequency, nature, status, change, test, version]
+      properties:
+        control_id: {$ref: '#/components/schemas/Uuid', description: '`grc.control.id`.'}
+        code: {type: string, description: "The tenant's code of the control."}
+        process: {type: string, description: The process the control belongs to.}
+        owner_id: {$ref: '#/components/schemas/Uuid', description: 'The person who owns the control: `identity.principal.id`.'}
+        frequency: {type: string, description: 'How often the control is performed: continuous, daily, weekly, monthly, quarterly, yearly or ad_hoc. Open enumeration.'}
+        nature: {type: string, description: 'manual or automated. Open enumeration.'}
+        status: {type: string, description: 'active or retired. Open enumeration.'}
+        change: {type: string, description: 'What happened: created, changed, retired or tested. Open enumeration.'}
+        test:
+          description: 'The test recorded, when `change` is tested; null otherwise.'
+          oneOf:
+            - type: object
+              required: [test_id, tested_on, result, tested_by]
+              properties:
+                test_id: {$ref: '#/components/schemas/Uuid', description: '`grc.control_test.id`.'}
+                tested_on: {type: string, format: date, description: The date of the test.}
+                result: {type: string, description: 'passed or failed. Open enumeration.'}
+                tested_by: {$ref: '#/components/schemas/Uuid', description: 'The person who tested: `identity.principal.id`.'}
+            - type: 'null'
+        version: {type: integer, description: "The control's version after the change; a test does not move it."}
     ConsolidationRunChangedV1:
       type: object
       required: [run_id, group_code, fiscal_year, fiscal_period, status, status_before, problem, version]

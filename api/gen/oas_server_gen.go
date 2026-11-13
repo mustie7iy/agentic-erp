@@ -881,6 +881,36 @@ type Handler interface {
 	//
 	// POST /v1/contracts
 	CreateContract(ctx context.Context, req *ContractCreate, params CreateContractParams) (CreateContractRes, error)
+	// CreateControl implements createControl operation.
+	//
+	// Records a control in the tenant's control library (ADR-0078 §2, T98a): its code, its objective, the
+	// process it belongs to, the person who owns it, how often it is performed and whether it is performed
+	// by a person (`manual`) or by the system (`automated`). It is created `active`. The code is the
+	// tenant's own and unique in the library, whatever its case (409 `grc.control_code_taken`); it never
+	// changes. The owner is a person of the tenant who is active (422 `request.reference_not_found` naming
+	// `owner_id` for an unknown principal, `grc.invalid_owner` for an agent, a service or a person who is
+	// not active). The objective and the process are texts, not white space alone, the process without
+	// white space around it (422 `grc.invalid_process`); a frequency or a nature the contract does not
+	// list is refused naming the field (422 `request.validation_failed`). No library is shipped: every
+	// control is the tenant's. An audit record and ControlChanged (`created`) are written with it. A retry
+	// with the same `Idempotency-Key` answers the control recorded.
+	//
+	// POST /v1/controls
+	CreateControl(ctx context.Context, req *ControlCreate, params CreateControlParams) (CreateControlRes, error)
+	// CreateControlTest implements createControlTest operation.
+	//
+	// Records that an active control was tested (ADR-0078 §3, T98a): the date of the test, its result
+	// (`passed` or `failed`) and a note of the evidence seen. The tester is the caller. A test is never
+	// changed or removed: a correction is another test. The test date is the database's date today or
+	// earlier (422 `grc.test_in_future`, naming `tested_on`); the note is a text, not white space alone,
+	// and a result the contract does not list is refused (422 `request.validation_failed`, naming the
+	// field). A retired control takes no test (409 `grc.control_retired`). The control's version does not
+	// move: its `last_test` does. An audit record and ControlChanged (`tested`) are written with it;
+	// neither carries the note. Human-only (`x-agent: false`): a test is a person's statement of what they
+	// saw.
+	//
+	// POST /v1/controls/{id}/tests
+	CreateControlTest(ctx context.Context, req *ControlTestCreate, params CreateControlTestParams) (CreateControlTestRes, error)
 	// CreateCostCenter implements createCostCenter operation.
 	//
 	// Creates the cost center in status `pending` together with its center change of kind `create` and
@@ -2220,6 +2250,14 @@ type Handler interface {
 	//
 	// GET /v1/contracts/{id}
 	GetContract(ctx context.Context, params GetContractParams) (GetContractRes, error)
+	// GetControl implements getControl operation.
+	//
+	// One control of the library (ADR-0078 §2, T98a) with its owner's name and its last test: the test
+	// with the latest test date, the one recorded last among several of one date; absent while the control
+	// was never tested. Every test is read with `listControlTests`.
+	//
+	// GET /v1/controls/{id}
+	GetControl(ctx context.Context, params GetControlParams) (GetControlRes, error)
 	// GetCostCenter implements getCostCenter operation.
 	//
 	// Returns one cost center with its active periods.
@@ -3418,6 +3456,23 @@ type Handler interface {
 	//
 	// GET /v1/contracts
 	ListContracts(ctx context.Context, params ListContractsParams) (ListContractsRes, error)
+	// ListControlTests implements listControlTests operation.
+	//
+	// The results of testing one control (ADR-0078 §3, T98a), the latest test date first and, among the
+	// tests of one date, the one recorded last first: the first is the control's last test. Filtered by
+	// result. Sortable by: `tested_on` (default, descending).
+	//
+	// GET /v1/controls/{id}/tests
+	ListControlTests(ctx context.Context, params ListControlTestsParams) (ListControlTestsRes, error)
+	// ListControls implements listControls operation.
+	//
+	// The tenant's control library (ADR-0078 §2-§4, T98a): each control as `getControl` gives it, with
+	// its owner's name and its last test. Filtered by process (the exact text), by status, by owner and by
+	// the result of the last test: `last_result=passed` or `failed` gives the controls whose last test had
+	// that result, `last_result=none` those never tested. Sortable by: `code` (default).
+	//
+	// GET /v1/controls
+	ListControls(ctx context.Context, params ListControlsParams) (ListControlsRes, error)
 	// ListCostCenterBalances implements listCostCenterBalances operation.
 	//
 	// Actual period totals per cost center, account and transaction currency of one legal entity, ledger
@@ -5206,6 +5261,15 @@ type Handler interface {
 	//
 	// POST /v1/catalog-items/{id}:retire
 	RetireCatalogItem(ctx context.Context, params RetireCatalogItemParams) (RetireCatalogItemRes, error)
+	// RetireControl implements retireControl operation.
+	//
+	// Retires an active control for good (status `retired`), once (409 `grc.control_retired` for a retired
+	// one), at the version read (`If-Match`). A retired control changes no more and takes no further test;
+	// it and its tests are still read, and it is listed with `status=retired` or without a status filter.
+	// Its code stays taken. An audit record and ControlChanged (`retired`) are written with it.
+	//
+	// POST /v1/controls/{id}:retire
+	RetireControl(ctx context.Context, params RetireControlParams) (RetireControlRes, error)
 	// RetireEntryTemplate implements retireEntryTemplate operation.
 	//
 	// Retires an active entry template for good (status `retired`, `EntryTemplateChanged`): it changes no
@@ -5795,6 +5859,19 @@ type Handler interface {
 	//
 	// PATCH /v1/contracts/{id}
 	UpdateContract(ctx context.Context, req *ContractUpdate, params UpdateContractParams) (UpdateContractRes, error)
+	// UpdateControl implements updateControl operation.
+	//
+	// Changes an active control's objective, process, owner, frequency or nature at once, with the
+	// caller's version of it (`If-Match`; 412 when another change came first). JSON Merge Patch (RFC
+	// 7396): absent fields are unchanged. The code does not change. The owner is checked as
+	// `createControl` checks it when the change names another, and the texts, the frequency and the nature
+	// as it checks them. A change that would leave the control as it is is refused (422
+	// `grc.nothing_to_change`), as is a change of a retired control (409 `grc.control_retired`). The
+	// control's tests stay as they were recorded. An audit record naming the fields changed and
+	// ControlChanged (`changed`) are written with it.
+	//
+	// PATCH /v1/controls/{id}
+	UpdateControl(ctx context.Context, req *ControlUpdate, params UpdateControlParams) (UpdateControlRes, error)
 	// UpdateCostCenter implements updateCostCenter operation.
 	//
 	// Changes name, description or person responsible at once: texts need no approval (ADR-0050 §11,

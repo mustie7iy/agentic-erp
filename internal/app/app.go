@@ -40,6 +40,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/countrypack"
 	"github.com/mustie7iy/agentic-erp/internal/credit"
 	"github.com/mustie7iy/agentic-erp/internal/einvoicing"
+	"github.com/mustie7iy/agentic-erp/internal/grc"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
@@ -87,6 +88,7 @@ type (
 	salesAPI       = sales.Endpoints
 	collectionsAPI = collections.Endpoints
 	creditAPI      = credit.Endpoints
+	grcAPI         = grc.Endpoints
 	paymentsAPI    = payments.Endpoints
 	auditAPI       = audit.Endpoints
 	integrationAPI = integration.Endpoints
@@ -117,6 +119,7 @@ type handler struct {
 	*salesAPI
 	*collectionsAPI
 	*creditAPI
+	*grcAPI
 	*paymentsAPI
 	*auditAPI
 	*integrationAPI
@@ -244,6 +247,7 @@ func New(cfg Config) (http.Handler, error) {
 		salesAPI:       Sales(cfg),
 		collectionsAPI: Collections(cfg),
 		creditAPI:      Credit(cfg),
+		grcAPI:         GRC(cfg),
 		paymentsAPI:    Payments(cfg),
 		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
 		integrationAPI: Integration(cfg),

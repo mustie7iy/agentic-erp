@@ -63,6 +63,8 @@ tags:
     description: "Sales (ADR-0067): quotations, sales orders, the confirmations of their deliveries, billing documents and sales prices."
   - name: credit
     description: "Credit management (ADR-0066): customers' credit limits, their credit exposure and the check of an amount against the limit."
+  - name: grc
+    description: "Governance, risk and compliance (ADR-0078): the tenant's control library and the results of testing its controls."
   - name: payments
     description: Payment runs, payments and bank files.
   - name: cash
@@ -16776,6 +16778,345 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/controls:
+    get:
+      operationId: listControls
+      tags:
+        - grc
+      summary: List the control library
+      description: "The tenant's control library (ADR-0078 §2-§4, T98a): each control as `getControl` gives it, with its owner's name and its last test. Filtered by process (the exact text), by status, by owner and by the result of the last test: `last_result=passed` or `failed` gives the controls whose last test had that result, `last_result=none` those never tested. Sortable by: `code` (default)."
+      x-permission: grc.control.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: process
+          in: query
+          required: false
+          description: Only the controls of this process, by its exact text.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+        - name: status
+          in: query
+          required: false
+          description: Only controls in this status.
+          schema:
+            type: string
+            description: "Control status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - active
+              - retired
+        - name: owner_id
+          in: query
+          required: false
+          description: Only the controls this person owns.
+          schema:
+            type: string
+            format: uuid
+        - name: last_result
+          in: query
+          required: false
+          description: "Only the controls whose last test had this result; `none`: only those never tested."
+          schema:
+            type: string
+            description: "Result of a control's last test, or `none`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - passed
+              - failed
+              - none
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of controls.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControlPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createControl
+      tags:
+        - grc
+      summary: Record a control
+      description: "Records a control in the tenant's control library (ADR-0078 §2, T98a): its code, its objective, the process it belongs to, the person who owns it, how often it is performed and whether it is performed by a person (`manual`) or by the system (`automated`). It is created `active`. The code is the tenant's own and unique in the library, whatever its case (409 `grc.control_code_taken`); it never changes. The owner is a person of the tenant who is active (422 `request.reference_not_found` naming `owner_id` for an unknown principal, `grc.invalid_owner` for an agent, a service or a person who is not active). The objective and the process are texts, not white space alone, the process without white space around it (422 `grc.invalid_process`); a frequency or a nature the contract does not list is refused naming the field (422 `request.validation_failed`). No library is shipped: every control is the tenant's. An audit record and ControlChanged (`created`) are written with it. A retry with the same `Idempotency-Key` answers the control recorded."
+      x-permission: grc.control.write
+      x-problem-codes:
+        - grc.control_code_taken
+        - grc.invalid_owner
+        - grc.invalid_process
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The control to record.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ControlCreate"
+      responses:
+        "201":
+          description: "Created; the control."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Control"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/controls/{id}":
+    get:
+      operationId: getControl
+      tags:
+        - grc
+      summary: Get a control
+      description: "One control of the library (ADR-0078 §2, T98a) with its owner's name and its last test: the test with the latest test date, the one recorded last among several of one date; absent while the control was never tested. Every test is read with `listControlTests`."
+      x-permission: grc.control.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The control.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Control"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateControl
+      tags:
+        - grc
+      summary: Change a control
+      description: "Changes an active control's objective, process, owner, frequency or nature at once, with the caller's version of it (`If-Match`; 412 when another change came first). JSON Merge Patch (RFC 7396): absent fields are unchanged. The code does not change. The owner is checked as `createControl` checks it when the change names another, and the texts, the frequency and the nature as it checks them. A change that would leave the control as it is is refused (422 `grc.nothing_to_change`), as is a change of a retired control (409 `grc.control_retired`). The control's tests stay as they were recorded. An audit record naming the fields changed and ControlChanged (`changed`) are written with it."
+      x-permission: grc.control.write
+      x-problem-codes:
+        - grc.control_code_taken
+        - grc.control_retired
+        - grc.invalid_owner
+        - grc.invalid_process
+        - grc.nothing_to_change
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the control.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/ControlUpdate"
+      responses:
+        "200":
+          description: "Updated; the control after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Control"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/controls/{id}:retire":
+    post:
+      operationId: retireControl
+      tags:
+        - grc
+      summary: Retire a control
+      description: "Retires an active control for good (status `retired`), once (409 `grc.control_retired` for a retired one), at the version read (`If-Match`). A retired control changes no more and takes no further test; it and its tests are still read, and it is listed with `status=retired` or without a status filter. Its code stays taken. An audit record and ControlChanged (`retired`) are written with it."
+      x-permission: grc.control.write
+      x-problem-codes:
+        - grc.control_code_taken
+        - grc.control_retired
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The control after retireControl.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Control"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/controls/{id}/tests":
+    get:
+      operationId: listControlTests
+      tags:
+        - grc
+      summary: List a control's tests
+      description: "The results of testing one control (ADR-0078 §3, T98a), the latest test date first and, among the tests of one date, the one recorded last first: the first is the control's last test. Filtered by result. Sortable by: `tested_on` (default, descending)."
+      x-permission: grc.control.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: result
+          in: query
+          required: false
+          description: Only the tests with this result.
+          schema:
+            type: string
+            description: "Result of a control test. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - passed
+              - failed
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of the control's tests.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControlTestPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createControlTest
+      tags:
+        - grc
+      summary: Record the result of testing a control
+      description: "Records that an active control was tested (ADR-0078 §3, T98a): the date of the test, its result (`passed` or `failed`) and a note of the evidence seen. The tester is the caller. A test is never changed or removed: a correction is another test. The test date is the database's date today or earlier (422 `grc.test_in_future`, naming `tested_on`); the note is a text, not white space alone, and a result the contract does not list is refused (422 `request.validation_failed`, naming the field). A retired control takes no test (409 `grc.control_retired`). The control's version does not move: its `last_test` does. An audit record and ControlChanged (`tested`) are written with it; neither carries the note. Human-only (`x-agent: false`): a test is a person's statement of what they saw."
+      x-permission: grc.control.test
+      x-agent: false
+      x-problem-codes:
+        - grc.control_retired
+        - grc.test_in_future
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The test to record.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ControlTestCreate"
+      responses:
+        "201":
+          description: "Created; the test."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControlTest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/credit-exposure:
@@ -48612,6 +48953,164 @@ components:
                 - {bucket: overdue, days_from: 1, days_to: 30, item_count: 2, amount: {amount: "1680.00", currency: CAD}}
                 - {bucket: overdue, days_from: 31, item_count: 0, amount: {amount: "0.00", currency: CAD}}
                 - {bucket: no_due_date, item_count: 0, amount: {amount: "0.00", currency: CAD}}
+    ControlCreate:
+      type: object
+      description: "Record a control in the control library. It is created `active`."
+      required: [code, objective, process, owner_id, frequency, nature]
+      additionalProperties: false
+      properties:
+        code: {type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$", description: "The tenant's own code of the control, unique in the library whatever its case; it never changes."}
+        objective: {type: string, minLength: 1, maxLength: 1000, description: "What the control is to achieve."}
+        process: {type: string, minLength: 1, maxLength: 100, description: "The process the control belongs to, in the tenant's own words, without leading or trailing white space; the library is filtered by it."}
+        owner_id: {type: string, format: uuid, description: "The person who owns the control: an active person of the tenant (`GET /v1/principals/{id}`)."}
+        frequency:
+          type: string
+          description: "How often the control is performed. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [continuous, daily, weekly, monthly, quarterly, yearly, ad_hoc]
+        nature:
+          type: string
+          description: "Whether a person performs the control (`manual`) or the system does (`automated`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [manual, automated]
+      examples:
+        - code: PAY-01
+          objective: A payment run is released by a person other than the one who proposed it.
+          process: Payments
+          owner_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          frequency: continuous
+          nature: automated
+    ControlUpdate:
+      type: object
+      description: "Merge patch of a control: its objective, process, owner, frequency or nature. The code does not change."
+      additionalProperties: false
+      properties:
+        objective: {type: string, minLength: 1, maxLength: 1000, description: "What the control is to achieve."}
+        process: {type: string, minLength: 1, maxLength: 100, description: "The process the control belongs to, without leading or trailing white space."}
+        owner_id: {type: string, format: uuid, description: "The person who owns the control: an active person of the tenant."}
+        frequency:
+          type: string
+          description: "How often the control is performed. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [continuous, daily, weekly, monthly, quarterly, yearly, ad_hoc]
+        nature:
+          type: string
+          description: "Whether a person performs the control (`manual`) or the system does (`automated`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [manual, automated]
+      examples:
+        - frequency: monthly
+    Control:
+      description: "A control of the tenant's control library (grc, ADR-0078 §2), with its last test."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [code, objective, process, owner_id, owner_name, frequency, nature, status]
+          properties:
+            code: {type: string, description: "The tenant's code of the control, unique in the library.", readOnly: true}
+            objective: {type: string, description: "What the control is to achieve."}
+            process: {type: string, description: "The process the control belongs to, in the tenant's own words."}
+            owner_id: {type: string, format: uuid, description: "The person who owns the control (`GET /v1/principals/{id}`)."}
+            owner_name: {type: string, description: "The owner's name, as it is now.", readOnly: true}
+            frequency:
+              type: string
+              description: "How often the control is performed. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [continuous, daily, weekly, monthly, quarterly, yearly, ad_hoc]
+            nature:
+              type: string
+              description: "Whether a person performs the control (`manual`) or the system does (`automated`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [manual, automated]
+            status:
+              type: string
+              description: "`active`, or `retired` for good (`retireControl`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [active, retired]
+              readOnly: true
+            last_test: {$ref: "#/components/schemas/ControlTest", description: "The control's last test: the one with the latest test date, the one recorded last among several of one date. Absent while the control was never tested."}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+          version: 1
+          created_at: "2026-11-25T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-25T14:03:11Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          code: PAY-01
+          objective: A payment run is released by a person other than the one who proposed it.
+          process: Payments
+          owner_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          owner_name: Carla Controller
+          frequency: continuous
+          nature: automated
+          status: active
+          last_test:
+            id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e02"
+            control_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+            control_code: PAY-01
+            tested_on: "2026-11-25"
+            result: passed
+            note: "Run PR-2026-000012: proposed by T. Treasurer, release by the same person refused; released by T. Manager."
+            tested_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+            tested_by_name: Carla Controller
+            created_at: "2026-11-25T14:10:42Z"
+    ControlPage:
+      type: object
+      description: One page of the control library.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Control"}
+          description: The controls on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    ControlTestCreate:
+      type: object
+      description: "Record the result of testing a control. The tester is the caller."
+      required: [tested_on, result, note]
+      additionalProperties: false
+      properties:
+        tested_on: {type: string, format: date, description: "The date of the test: the database's date today or earlier."}
+        result:
+          type: string
+          description: "The result of the test. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [passed, failed]
+        note: {type: string, minLength: 1, maxLength: 2000, description: "A note of the evidence seen: what was tested and where it is kept."}
+      examples:
+        - tested_on: "2026-11-25"
+          result: passed
+          note: "Run PR-2026-000012: proposed by T. Treasurer, release by the same person refused; released by T. Manager."
+    ControlTest:
+      type: object
+      description: "The result of testing a control once (grc, ADR-0078 §3). It is never changed."
+      required: [id, control_id, control_code, tested_on, result, note, tested_by, tested_by_name, created_at]
+      properties:
+        id: {type: string, format: uuid, description: "Identifier (UUIDv7).", readOnly: true}
+        control_id: {type: string, format: uuid, description: "The control tested (`GET /v1/controls/{id}`).", readOnly: true}
+        control_code: {type: string, description: "The control's code.", readOnly: true}
+        tested_on: {type: string, format: date, description: "The date of the test.", readOnly: true}
+        result:
+          type: string
+          description: "The result of the test. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [passed, failed]
+          readOnly: true
+        note: {type: string, description: "The note of the evidence seen.", readOnly: true}
+        tested_by: {type: string, format: uuid, description: "The person who tested and recorded it (`GET /v1/principals/{id}`).", readOnly: true}
+        tested_by_name: {type: string, description: "The tester's name, as it is now.", readOnly: true}
+        created_at: {type: string, format: date-time, description: "When the test was recorded (UTC).", readOnly: true}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e02"
+          control_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+          control_code: PAY-01
+          tested_on: "2026-11-25"
+          result: passed
+          note: "Run PR-2026-000012: proposed by T. Treasurer, release by the same person refused; released by T. Manager."
+          tested_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          tested_by_name: Carla Controller
+          created_at: "2026-11-25T14:10:42Z"
+    ControlTestPage:
+      type: object
+      description: One page of a control's tests.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ControlTest"}
+          description: The tests on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     EInvoiceFetch:
       type: object
       description: A fetch of e-invoices from a provider (ADR-0061 §4).

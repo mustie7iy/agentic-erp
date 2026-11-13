@@ -46,6 +46,7 @@ pointing its schema at a separate database. Callers do not change.
 | **receivables** (ADR-0063) | Customer invoices entered without a sales order, with their items and the output tax calculated for them (T75a), and posted as the customer's open items with their payment terms (T75b); incoming payments on a house bank's incoming payments clearing account applied to a customer's open items in full (T75c); credit memos and the aging read planned (T75d, T75e) | `CustomerInvoiceChanged`, `CustomerInvoicePosted`, `IncomingPaymentApplied` |
 | **collections** (ADR-0065, a leaf) | Dunning runs: per company and key date, one notice per customer proposing the open customer items overdue and the dunning level each would reach, from the ledger's customer open items (`ledger.OpenItems.Receivable`) and the company's dunning levels in the configuration, through the ports `OpenItems`, `Partners`, `LegalEntities` and `Settings`; nothing changes on the items (T76a); a run is confirmed once, which records each item's level and dunning date for the next run to read (T76b); the collection worklist, a company's customers with overdue items computed on read from the same open items and the recorded levels (T76c) | `DunningRunChanged`, `DunningNoticeIssued` |
 | **credit** (ADR-0066, a leaf) | Customers' credit limits, one amount per customer and company in the company's currency, set and changed by people with the caller's version; the credit exposure, the customer's open items in the ledger (`ledger.OpenItems.Receivable`) as booked with credits netted, computed on read, and the check of an amount against the limit, which changes and blocks nothing; through the ports `OpenItems`, `Customers`, `Partners` and `LegalEntities` (T77a) | `CreditLimitChanged` |
+| **grc** (ADR-0078, a leaf) | The tenant's control library: controls with a code, an objective, a process, an owner, a frequency and a nature, recorded, changed with the caller's version and retired once, none shipped; the results of testing a control, insert-only, recorded by people; the library read with each control's last test, computed on read; principals' names through the port `People`, in types of its own (T98a) | `ControlChanged` |
 | **sales** (ADR-0067) | Quotations to customers with their items, net of tax, open then accepted or rejected once (T78a); sales orders created from an accepted quotation or directly and confirmed once, each item with its ordered, delivered and billed quantities, read by other contexts through `sales.Orders` (T78b); delivery confirmations of a confirmed order's items, by a person, on a date, up to what is open, moving no stock and posting nothing, each item's deliveries read through `sales.Orders` (T78c); billing documents for an order's delivered quantities not yet billed, at the order's prices, the last document of an item taking the remainder of its net value, created without posting (T79a); price records per company and item key, general or for one customer with validity dates, from which an item without a price takes the price valid on the document's date (T80a); the tenant's condition types and pricing procedure from the configuration (`pricing`), percentage discounts recorded as price records are, and each item's conditions with its net value after them (T80b); posting billing documents planned (T79b). Posts nothing itself: billing posts through receivables | `QuotationChanged`, `SalesOrderChanged`, `SalesOrderDelivered`, `BillingDocumentChanged`, `SalesPriceChanged` |
 | **payments** | Payment proposals, payments, bank files, bank statements | `PaymentRunReleased` |
 | **workflow** | Approval requests, steps, decisions | `ApprovalCompleted` |
@@ -61,7 +62,7 @@ pointing its schema at a separate database. Callers do not change.
 Later phases add `inventory`, `manufacturing`, `maintenance`,
 `projects` and `hr` with the same rules; `receivables` is built from T75a
 (ADR-0063), `collections` from T76a (ADR-0065), `credit` from T77a
-(ADR-0066) and `sales` from T78a (ADR-0067).
+(ADR-0066), `grc` from T98a (ADR-0078) and `sales` from T78a (ADR-0067).
 
 Dependencies between contexts point one way (no cycles):
 
@@ -82,6 +83,7 @@ flowchart LR
   partner --> collections
   ledger --> credit
   partner --> credit
+  identity --> grc
   payables --> payments
   partner --> payments
   ledger --> payments

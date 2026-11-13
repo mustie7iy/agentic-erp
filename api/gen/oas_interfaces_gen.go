@@ -233,6 +233,14 @@ type CreateContractRes interface {
 	createContractRes()
 }
 
+type CreateControlRes interface {
+	createControlRes()
+}
+
+type CreateControlTestRes interface {
+	createControlTestRes()
+}
+
 type CreateCostCenterRes interface {
 	createCostCenterRes()
 }
@@ -627,6 +635,10 @@ type GetConsolidationRunRes interface {
 
 type GetContractRes interface {
 	getContractRes()
+}
+
+type GetControlRes interface {
+	getControlRes()
 }
 
 type GetCostCenterRes interface {
@@ -1079,6 +1091,14 @@ type ListConsolidationRunsRes interface {
 
 type ListContractsRes interface {
 	listContractsRes()
+}
+
+type ListControlTestsRes interface {
+	listControlTestsRes()
+}
+
+type ListControlsRes interface {
+	listControlsRes()
 }
 
 type ListCostCenterBalancesRes interface {
@@ -1665,6 +1685,10 @@ type RetireCatalogItemRes interface {
 	retireCatalogItemRes()
 }
 
+type RetireControlRes interface {
+	retireControlRes()
+}
+
 type RetireEntryTemplateRes interface {
 	retireEntryTemplateRes()
 }
@@ -1807,6 +1831,10 @@ type UpdateConnectorRes interface {
 
 type UpdateContractRes interface {
 	updateContractRes()
+}
+
+type UpdateControlRes interface {
+	updateControlRes()
 }
 
 type UpdateCostCenterRes interface {

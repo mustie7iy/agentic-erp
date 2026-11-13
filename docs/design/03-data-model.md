@@ -4728,3 +4728,66 @@ erDiagram
   `.write` and `.confirm`; `sales.delivery.confirm`; `sales.billing.read`,
   `.write` and `.post` (posting comes with T79b); `sales.price.read` and
   `.write`.
+
+## 3.30 Governance, risk and compliance (`grc`)
+
+ADR-0078, T98a (migration 000296). A leaf: it reads the identity
+context's principals through its port, in types of its own, imports no
+other context, posts nothing and keeps no foreign key out of its schema
+(02 §2.1). It stores the tenant's control library and the results of
+testing its controls. The library is the tenant's own: no control is
+shipped.
+
+```mermaid
+erDiagram
+  control ||--o{ control_test : "tested"
+  control { uuid id PK
+    text code "the tenant's, unique in any case, fixed"
+    text objective
+    text process "free text"
+    uuid owner_id "identity: a person"
+    text frequency
+    text nature "manual | automated"
+    text status "active | retired"
+    int version }
+  control_test { uuid id PK
+    uuid control_id FK
+    date tested_on
+    text result "passed | failed"
+    text note "of the evidence"
+    uuid tested_by "identity: the person" }
+```
+
+- `grc.control`: a control of the library. Its code is 1 to 40 letters,
+  digits, dots, dashes and underscores (`control_code_check`), unique in
+  the tenant whatever its case (`control_code_once`, which the API
+  answers 409 `grc.control_code_taken`) and never changed: the
+  application is granted the update of what a control says, its status,
+  `version` and `updated_by`, not of `code`, and no delete. The
+  objective is a text of up to 1,000 characters
+  (`control_objective_check`), the process one of up to 100 without
+  white space around it (`control_process_check`), the frequency one of
+  `continuous`, `daily`, `weekly`, `monthly`, `quarterly`, `yearly`,
+  `ad_hoc` (`control_frequency_check`) and the nature `manual` or
+  `automated` (`control_nature_check`). A change moves the version by
+  one (`platform.touch`, which also moves `updated_at`). The status is
+  `active` or `retired` (`control_status_check`); a retired row is fixed
+  (`control_retired_fixed`). The library is listed by code
+  (`control_by_code`). `owner_id` is the identity context's; that the
+  owner is an active person is the application's check when it is
+  named.
+- `grc.control_test`: the result of testing a control once, `passed` or
+  `failed` (`control_test_result_check`) on a date, with a note of the
+  evidence of up to 2,000 characters (`control_test_note_check`) and the
+  person who tested. It belongs to a control of the tenant
+  (`control_test_control_fkey`) and is insert-only
+  (`control_test_immutable`, `platform.forbid_mutation`; no update or
+  delete grant). A control's last test is the one with the latest
+  `tested_on` and, among those of one date, the latest `id` (a UUIDv7),
+  which `control_test_latest` reads first; it is computed on read and
+  not stored on the control. That the date is not after today and that
+  the control is active are the application's checks, under the
+  control's row lock.
+- `grc.outbox`, `grc.inbox`: the context's events (`ControlChanged`).
+- Permissions `grc.control.read`, `grc.control.write` and
+  `grc.control.test`.
