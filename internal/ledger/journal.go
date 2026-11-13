@@ -1492,7 +1492,8 @@ func requireReversible(ctx context.Context, tx pgx.Tx, orig Entry, cancelling uu
 // only the owner knows what else the reversal must change (a supplier
 // invoice's status, its permission, the payment runs holding its item), so
 // it reverses the entry through Postings.Reverse. Today that is payables
-// (supplier-invoices/{id}:reverse), and procurement, whose goods receipts
+// (supplier-invoices/{id}:reverse; an expense report's entry is not
+// reversed, ADR-0074), and procurement, whose goods receipts
 // are reversed by a 102 movement posting its own WE entry
 // (goods-receipts/{id}:reverse, T33), and assets, whose documents are
 // reversed through their own paths (asset-acquisitions/{id}:reverse,
@@ -1508,8 +1509,12 @@ func requireOwnEntry(orig Entry) error {
 	case orig.SourceContext == "ledger" || orig.SourceContext == "integration" || orig.SourceContext == "payments":
 		return nil
 	case orig.SourceContext == "payables" && orig.SourceDocumentID != nil:
-		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for supplier invoice "+orig.SourceDocumentID.String()+
-			"; reverse it with POST /v1/supplier-invoices/"+orig.SourceDocumentID.String()+":reverse.")
+		// The entry does not say which kind of payables document posted
+		// it: a supplier invoice, or an expense report, whose entry is not
+		// reversed in the first version (ADR-0074).
+		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for payables document "+orig.SourceDocumentID.String()+
+			"; a supplier invoice is reversed with POST /v1/supplier-invoices/"+orig.SourceDocumentID.String()+
+			":reverse, and an expense report's entry is not reversed.")
 	case orig.SourceContext == "procurement" && orig.SourceDocumentID != nil:
 		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for goods movement "+orig.SourceDocumentID.String()+
 			"; goods receipts are reversed with POST /v1/goods-receipts/{receipt id}:reverse, which posts its own entry.")

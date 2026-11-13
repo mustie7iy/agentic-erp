@@ -14293,6 +14293,290 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/expense-reports:
+    get:
+      operationId: listExpenseReports
+      tags:
+        - payables
+      summary: List expense reports
+      description: "The expense reports of the companies the caller may act in (ADR-0074), each as `getExpenseReport` gives it: with its company's code and name, its employee's number and name, its totals and its lines. Filtered by company, employee, status and document number. Sortable by: `report_date`, `document_number`."
+      x-permission: payables.expense.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: employee_id
+          in: query
+          required: false
+          description: Only the expense reports of this employee (business partner id).
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only expense reports in this status.
+          schema:
+            type: string
+            description: "Expense report status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - entered
+              - posted
+        - $ref: "#/components/parameters/DocumentNumber"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of expense reports.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpenseReportPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createExpenseReport
+      tags:
+        - payables
+      summary: Enter an employee's expense report
+      description: "Enters an employee's expense report (ADR-0074). The employee is a business partner with the supplier role, set up in the company and usable there (422 `payables.supplier_not_usable` naming `employee_id`), as a supplier invoice's supplier is; the company is one the caller may act in. Each line has the date of the expense, which is not after the company's date today (422 `payables.expense_date_in_future` naming `lines[i].expense_date`); an expense type of the company's configuration (`companies[].expense_types[]`; 422 `payables.unknown_expense_type` naming `lines[i].expense_type`), whose expense account it posts to and which must be postable in the company (422 `payables.account_not_postable` naming `lines[i].expense_type`); a gross amount, more than zero, in the company's currency (422 `payables.currency_mismatch` naming `lines[i].amount.currency`, `payables.invalid_amount` naming `lines[i].amount.amount`); optionally an input tax code of the company on the report date (422 `payables.unknown_tax_code` naming `lines[i].tax_code`), whose tax is taken out of the gross as the code's rates give it; and optionally a cost center, checked as the posting will check it, a line without one taking its account's default (the ledger's 422 naming `lines[i].cost_center_id`). The report is created `entered`, dated the company's date today in its time zone (`report_date`: its document date and the date its tax is calculated on), with a document number from the company's `expense_report` number range of that date's fiscal year (422 `config.no_number_range` for a company without the range). Nothing is posted. Audited, and published as ExpenseReportChanged. A retry with the same `Idempotency-Key` answers the report created. Human-only (`x-agent: false`)."
+      x-permission: payables.expense.write
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.internal_order_invalid
+        - ledger.no_fiscal_period
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
+        - payables.account_not_postable
+        - payables.amount_too_large
+        - payables.currency_mismatch
+        - payables.expense_date_in_future
+        - payables.invalid_amount
+        - payables.invalid_tax_code
+        - payables.no_tax_rate
+        - payables.supplier_not_usable
+        - payables.unknown_currency
+        - payables.unknown_expense_type
+        - payables.unknown_tax_code
+        - request.invalid_amount
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The expense report to enter.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExpenseReportCreate"
+            examples:
+              trip:
+                summary: A trip with a hotel night and a dinner
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  employee_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+                  description: Customer visit, Montreal
+                  lines:
+                    - expense_date: "2026-11-24"
+                      expense_type: LODGING
+                      amount: {amount: "226.00", currency: CAD}
+                      tax_code: P1
+                      cost_center_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+                    - expense_date: "2026-11-24"
+                      expense_type: MEALS
+                      amount: {amount: "56.50", currency: CAD}
+                      tax_code: P1
+                      description: Dinner with the customer
+      responses:
+        "201":
+          description: "Created; the new expense report."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpenseReport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/expense-reports/{id}":
+    get:
+      operationId: getExpenseReport
+      tags:
+        - payables
+      summary: Get an expense report
+      description: "One expense report (ADR-0074) with its company's code and name, its employee's number and name, its date, status and totals (gross, the tax its lines hold, net) and its lines, each with its date, expense type by code and name, account by id, number and name, gross, tax and net amounts, tax code and cost center by id, code and name. A posted report names its journal entry, posting date, payment term and net due date. One of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: payables.expense.read
+      x-problem-codes:
+        - config.not_bootstrapped
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The expense report.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpenseReport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/expense-reports/{id}:post":
+    post:
+      operationId: postExpenseReport
+      tags:
+        - payables
+      summary: Post an expense report
+      description: "Posts an `entered` expense report to the ledger, once (ADR-0074), at the version the caller read (`If-Match`): the report is read under a row lock and moves to `posted` once (409 `payables.invalid_status` otherwise). Each line debits its expense account with its net amount, and with the tax its code does not let the company recover, on its cost center; the input tax goes to its codes' accounts, one line per code and component, as a supplier invoice's does; the employee's reconciliation account is credited with the report's gross amount, naming the employee. The entry has the document type `KR`, the report's number as its reference, the report date as its document and tax date and `source_context` `payables`. Its credit line is the employee's open item (`GET /v1/open-items`), which a payment run pays as a supplier's, kept with the employee's payment term in the company counted from the report date (`payment_term_code`, `net_due_date`). The posting date is the request's, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`). An employee no longer usable in the company is refused (422 `payables.supplier_not_usable`); the tax is calculated again on the report date, and a line whose code no longer gives the tax it was entered with is refused (409 `payables.tax_changed`), the report then entered again. The entry is not reversed through the ledger (409 `ledger.entry_owned_elsewhere`), nor through the report in the first version. Audited, and published as ExpenseReportChanged. A retry with the same `Idempotency-Key` answers the posted report. Human-only (`x-agent: false`)."
+      x-permission: payables.expense.post
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - payables.amount_too_large
+        - payables.invalid_status
+        - payables.invalid_tax_code
+        - payables.no_tax_rate
+        - payables.supplier_not_usable
+        - payables.tax_changed
+        - payables.unknown_payment_term
+        - payables.unknown_tax_code
+        - request.invalid_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of postExpenseReport.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExpenseReportPost"
+      responses:
+        "200":
+          description: "The expense report, posted."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpenseReport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/payment-runs:
     get:
       operationId: listPaymentRuns
@@ -44664,6 +44948,153 @@ components:
           type: string
           description: "Opaque cursor for the next page; absent on the last page."
           maxLength: 2048
+    ExpenseReportCreate:
+      type: object
+      description: "An employee's expense report to enter. It is created `entered`, dated the company's date today."
+      required: [legal_entity_id, employee_id, lines]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company the expenses are claimed from: one the caller may act in."}
+        employee_id: {type: string, format: uuid, description: "The employee: a business partner with the supplier role, set up in the company (`GET /v1/business-partners/{id}`)."}
+        description: {type: string, minLength: 1, maxLength: 200, description: "What the expenses were for; optional. It is the entry's header text."}
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 999
+          items: {$ref: "#/components/schemas/ExpenseReportLineCreate"}
+          description: "The expenses, numbered in this order from 1."
+    ExpenseReportLineCreate:
+      type: object
+      description: "One expense: its date, type, gross amount, tax code and cost center."
+      required: [expense_date, expense_type, amount]
+      additionalProperties: false
+      properties:
+        expense_date: {type: string, format: date, description: "The day of the expense: not after the company's date today."}
+        expense_type: {type: string, minLength: 1, maxLength: 20, description: "An expense type of the company (`companies[].expense_types[].code`), whose expense account the line posts to."}
+        amount: {$ref: "#/components/schemas/Money", description: "The gross amount spent, tax included, more than zero, in the company's currency."}
+        tax_code: {type: string, minLength: 1, maxLength: 20, description: "An input tax code of the company on the report date; its tax is taken out of the gross. Absent: the line holds no tax."}
+        cost_center_id: {type: string, format: uuid, description: "The cost center the expense is charged to; absent: the account's default."}
+        description: {type: string, minLength: 1, maxLength: 200, description: "What was spent, in words; optional. It is the line's text."}
+    ExpenseReportLine:
+      type: object
+      description: "A line of an expense report (ADR-0074): one expense, with the tax its gross holds."
+      required: [line_no, expense_date, expense_type, account_id, account_number, account_name, amount, tax_amount, net_amount]
+      properties:
+        line_no: {type: integer, format: int32, description: "The line's number within the report, from 1.", readOnly: true}
+        expense_date: {type: string, format: date, description: "The day of the expense.", readOnly: true}
+        expense_type: {type: string, description: "The expense type's code.", readOnly: true}
+        expense_type_name: {type: string, description: "The expense type's name, as the configuration now gives it; absent once the type is no longer configured.", readOnly: true}
+        account_id: {type: string, format: uuid, description: "The expense account the line posts to: its expense type's when the report was entered (`GET /v1/accounts/{id}`).", readOnly: true}
+        account_number: {type: string, description: "The account's number.", readOnly: true}
+        account_name: {type: string, description: "The account's name, as it is now.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "The gross amount, tax included."}
+        tax_code: {type: string, description: "The input tax code; absent when the line holds no tax.", readOnly: true}
+        tax_amount: {$ref: "#/components/schemas/Money", description: "The tax the gross holds by the code's rates on the report date, as calculated when the report was entered; 0 without a code."}
+        net_amount: {$ref: "#/components/schemas/Money", description: "`amount` less `tax_amount`."}
+        cost_center_id: {type: string, format: uuid, description: "The cost center entered; absent: the account's default, which the posting takes.", readOnly: true}
+        cost_center_code: {type: string, description: "The cost center's code; absent without one.", readOnly: true}
+        cost_center_name: {type: string, description: "The cost center's name, as it is now; absent without one.", readOnly: true}
+        description: {type: string, description: "The line's text; absent when none was given.", readOnly: true}
+    ExpenseReport:
+      description: "An employee's expense report (payables, ADR-0074): expenses in the company's currency the employee is owed, entered by an accountant and posted once, its credit the employee's open item, which a payment run pays. Its `version` moves when it is posted."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [document_number, legal_entity_id, company_code, company_name, employee_id, employee_number, employee_name, report_date,
+            gross_amount, tax_amount, net_amount, status, lines]
+          properties:
+            document_number: {type: string, description: "The document number, from the company's `expense_report` number range.", readOnly: true}
+            legal_entity_id: {type: string, format: uuid, description: "The company the expenses are claimed from.", readOnly: true}
+            company_code: {type: string, description: "The company's code.", readOnly: true}
+            company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+            employee_id: {type: string, format: uuid, description: "The employee: a business partner with the supplier role (`GET /v1/business-partners/{id}`).", readOnly: true}
+            employee_number: {type: string, description: "The employee's business partner number.", readOnly: true}
+            employee_name: {type: string, description: "The employee's name, as it is now.", readOnly: true}
+            report_date: {type: string, format: date, description: "The day the report was entered, the company's date in its time zone: the entry's document date and the date its tax is calculated on.", readOnly: true}
+            description: {type: string, description: "What the expenses were for; absent when none was given.", readOnly: true}
+            gross_amount: {$ref: "#/components/schemas/Money", description: "The lines' gross amounts added up: what the employee is owed."}
+            tax_amount: {$ref: "#/components/schemas/Money", description: "The tax the lines hold, added up."}
+            net_amount: {$ref: "#/components/schemas/Money", description: "`gross_amount` less `tax_amount`."}
+            status:
+              type: string
+              x-extensible-enum: [entered, posted]
+              description: "`entered`: entered, nothing posted; `posted`: posted, once (`:post`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            posting_date: {type: string, format: date, description: "The date the report posted on; absent until it is posted.", readOnly: true}
+            journal_entry_id: {type: string, format: uuid, description: "The journal entry the report posted (`GET /v1/journal-entries/{id}`); absent until it is posted.", readOnly: true}
+            journal_entry_year: {type: integer, format: int32, description: "The fiscal year of `journal_entry_id`; absent until it is posted.", readOnly: true}
+            payment_term_code: {type: string, description: "The payment term the employee's open item posted with: the employee's in the company; absent until it is posted.", readOnly: true}
+            net_due_date: {type: string, format: date, description: "When the open item is due without discount: the report date plus the term's net days; absent until it is posted.", readOnly: true}
+            lines:
+              type: array
+              items: {$ref: "#/components/schemas/ExpenseReportLine"}
+              description: "The lines, by line number."
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc1"
+          version: 1
+          created_at: "2026-11-27T10:15:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-27T10:15:00Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          document_number: ER100001
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          employee_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          employee_number: BP100061
+          employee_name: Sam Sales
+          report_date: "2026-11-27"
+          description: Customer visit, Montreal
+          gross_amount: {amount: "282.50", currency: CAD}
+          tax_amount: {amount: "32.50", currency: CAD}
+          net_amount: {amount: "250.00", currency: CAD}
+          status: entered
+          lines:
+            - line_no: 1
+              expense_date: "2026-11-24"
+              expense_type: LODGING
+              expense_type_name: Lodging
+              account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+              account_number: "6410"
+              account_name: Travel and lodging
+              amount: {amount: "226.00", currency: CAD}
+              tax_code: P1
+              tax_amount: {amount: "26.00", currency: CAD}
+              net_amount: {amount: "200.00", currency: CAD}
+              cost_center_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+              cost_center_code: SALES
+              cost_center_name: Sales
+            - line_no: 2
+              expense_date: "2026-11-24"
+              expense_type: MEALS
+              expense_type_name: Meals
+              account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d82"
+              account_number: "6420"
+              account_name: Meals and entertainment
+              amount: {amount: "56.50", currency: CAD}
+              tax_code: P1
+              tax_amount: {amount: "6.50", currency: CAD}
+              net_amount: {amount: "50.00", currency: CAD}
+              description: Dinner with the customer
+    ExpenseReportPost:
+      type: object
+      description: Options for posting an expense report.
+      additionalProperties: false
+      properties:
+        posting_date: {type: string, format: date, description: "The posting date; absent: today, the company's date in its time zone (`companies[].time_zone`)."}
+      examples:
+        - posting_date: "2026-11-27"
+    ExpenseReportPage:
+      type: object
+      description: One page of expense reports.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ExpenseReport"}
+          description: The expense reports on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     MatchIssue:
       type: object
       description: One three-way match issue.

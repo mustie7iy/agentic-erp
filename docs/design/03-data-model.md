@@ -2469,6 +2469,32 @@ while they stand (409 `payables.down_payments_cleared`). The clearing is
 audited and publishes `DownPaymentsCleared`. Special G/L items keep no
 payment terms (`open_item_terms` is kept for the other supplier lines).
 
+`expense_report` (T87a, ADR-0074; migration 000308) is an employee's
+expense report: a document number from the company's `expense_report`
+number range of the fiscal year of its `report_date`, the company's date
+when it was entered (its document and tax date), the legal entity, the
+employee (`employee_id`, a business partner with the supplier role: human
+capital is outside the required scope), the company's currency and an
+optional description. It is `entered`, then `posted` once (trigger
+`expense_report_posted_once`; the application may update only the columns
+posting sets), naming then its `posting_date`, journal entry and the
+payment term and net due date of the employee's open item, and none of
+them before (`expense_report_posted`); it is never deleted.
+`expense_report_line` holds its lines, numbered 1-999, written with the
+report and never changed: the expense's date, its expense type's code
+(`companies[].expense_types[]`) and the type's account as it was when the
+report was entered, the gross amount (above zero), the input tax code and
+the tax the gross holds by the code's rates at the report date (below the
+gross, none without a code, `expense_report_line_tax`), an optional cost
+center and text. Posting debits each line's net and the tax its code
+does not let the company recover on its account and cost center, the
+recovered tax on the codes' accounts, and credits the employee's
+reconciliation account with the gross (document type KR); the credit is
+the employee's open item, which a payment run pays. Entering and posting
+need `payables.expense.write` and `payables.expense.post`, reading
+`payables.expense.read`; each is audited and publishes
+`ExpenseReportChanged`.
+
 ## 3.10 Payments (`payments`)
 
 ```mermaid

@@ -1548,7 +1548,8 @@ migrated_down_payment() {
 # the walkthrough's sales entry: GST at 5% (Excise Tax Act, Part IX, s. 165(1);
 # CRA, "Charge and collect the tax - Which rate to charge",
 # https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html),
-# a number range for the returns orders of step 74 (T85a; the ranges of
+# number ranges for the returns orders of step 74 (T85a) and the expense
+# reports of step 78 (T87a; the ranges of
 # customer invoices, incoming payments, quotations, sales orders, billing
 # documents and RFQs come from the pack since Canada 2026.9),
 # and two codes of tax alone for the return's adjustments (kind adjustment,
@@ -1601,7 +1602,8 @@ PILOT_SETTINGS='
     | .fx_valuation.accounts += (["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"}))
     | .bank_statements = {"matching_rules": [{"kind": "end_to_end_id"}, {"kind": "amount", "date_window_days": 5, "counterparty": true}],
         "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})
-| .number_ranges += [{"company": "@CC@", "document_type": "returns_order", "fiscal_year": @YEAR@, "prefix": "RO", "first": 1, "last": 999999}]'
+| .number_ranges += [{"company": "@CC@", "document_type": "returns_order", "fiscal_year": @YEAR@, "prefix": "RO", "first": 1, "last": 999999},
+  {"company": "@CC@", "document_type": "expense_report", "fiscal_year": @YEAR@, "prefix": "ER", "first": 1, "last": 999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -8305,6 +8307,119 @@ step_return_receipt() {
   passed
 }
 
+# step_expense_report is T87a (ADR-0074): Ada gives Maple two expense
+# types through a governed change, travel on 6000 and lodging on 6100
+# (tier 3); Alex sets Ben up as a business partner with the supplier role
+# and his bank account, which Carla approves (human capital's employee
+# master is outside the required scope). Alex enters Ben's report of a
+# client visit, two lines of different types with GST on V1 taken out of
+# their gross; an unknown type and an expense dated after today are
+# refused naming the line's field. Carla posts it once: each line's net
+# on its type's account and cost center, the GST on the code's account,
+# the gross Ben's open item, due by his term; a payment run's proposal
+# from RBC pays it, and Tara rejects the run, which was for the showing.
+step_expense_report() {
+  heading "Step 78 — Expense reports: an employee set up as a supplier, two expense types through a governed change; a report of two lines of different types entered with the tax taken out of their gross, an unknown type and a later date refused naming the line's field; posted once, the employee's open item due by his term and paid in a payment run's proposal"
+  local base cr request ap employee center day report number tag entry run etag due
+  as ada
+  say "Maple reimburses its people's travel. Ada proposes two expense types for $CC (ADR-0074): travel on 6000"
+  say "and lodging on 6100. What a type posts to is posting-related (tier 3):"
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq --arg cc "$CC" --argjson base "$base" '{title: "Expense types", rationale: "Employees'"'"' expense reports (T87a)", base_version: $base,
+    proposed: (.items[0].document | .companies |= map(if .code == $cc then .expense_types = [{code: "TRAVEL", name: "Travel", account: "6000"},
+      {code: "LODGING", name: "Lodging", account: "6100"}] else . end))}' "$WORK/last.json" >"$WORK/expense_types.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @expense_types.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 3
+  QUIET=1 api 201 '' createRegressionSuite -body '{"name": "Before the expense types", "window_days": 366}'
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  wait_op
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  expect "status after the evidence" "$(field .status)" pending_approval
+  request=$(field .workflow_request_id)
+  approve priya "$request" "The expense types of the travel policy"
+  approve carla "$request" "Travel on 6000, lodging on 6100"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  as alex
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$SUPPLIER"
+  ap=$(field ".supplier_companies[] | select(.legal_entity_id == \"$LE\") | .reconciliation_account_id")
+  day=$(company_day)
+  say "An employee is a business partner with the supplier role (human capital is outside the required scope). Alex"
+  say "sets Ben up in $CC with the payables account, net 30 days and his bank account; Carla approves him:"
+  api 201 '"business partner \(.number) \(.name): \(.status), \(.roles | join(", "))"' createBusinessPartner \
+    -body "{\"kind\": \"person\", \"name\": \"Ben Buyer\", \"country_code\": \"CA\", \"roles\": [\"supplier\"], \"supplier_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"$ap\", \"payment_term_code\": \"NT30\"}], \"bank_accounts\": [{\"purpose\": \"payments\", \"account_scheme\": \"ca\", \"institution_number\": \"003\", \"transit_number\": \"00002\", \"account_number\": \"7000123\", \"bank_country_code\": \"CA\", \"holder_name\": \"Ben Buyer\", \"valid_from\": \"$day\"}], \"reason\": \"Employee, reimbursed for his expenses\"}"
+  employee=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$employee" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Employee confirmed by HR"
+  as alex
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  center=$(field '.items[0].id')
+  say "Ben visited a customer: a train ticket of CAD 105.00 and a hotel night of CAD 210.00, each with GST on V1."
+  say "A type that is not configured and an expense dated after today are refused, naming the line's field:"
+  refused 422 payables.unknown_expense_type createExpenseReport \
+    -body "{\"legal_entity_id\": \"$LE\", \"employee_id\": \"$employee\", \"lines\": [{\"expense_date\": \"$day\", \"expense_type\": \"GIFTS\", \"amount\": {\"amount\": \"10.00\", \"currency\": \"CAD\"}}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "lines[0].expense_type"
+  refused 422 payables.expense_date_in_future createExpenseReport \
+    -body "{\"legal_entity_id\": \"$LE\", \"employee_id\": \"$employee\", \"lines\": [{\"expense_date\": \"$day\", \"expense_type\": \"TRAVEL\", \"amount\": {\"amount\": \"10.00\", \"currency\": \"CAD\"}}, {\"expense_date\": \"$(date_add "$day" 1)\", \"expense_type\": \"TRAVEL\", \"amount\": {\"amount\": \"10.00\", \"currency\": \"CAD\"}}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "lines[1].expense_date"
+  say "Alex enters the report. The amounts are gross: the GST is taken out of each by its code, as payables does for"
+  say "a gross amount; each line posts to its type's account. It is entered, dated Maple's today:"
+  api 201 '"expense report \(.document_number) of \(.employee_number) \(.employee_name), \(.company_code): \(.status), dated \(.report_date), gross \(.gross_amount.amount), tax \(.tax_amount.amount), net \(.net_amount.amount) \(.gross_amount.currency)", (.lines[] | "  line \(.line_no) \(.expense_date) \(.expense_type) \(.expense_type_name) on \(.account_number) \(.account_name), \(.cost_center_code): gross \(.amount.amount), \(.tax_code) \(.tax_amount.amount), net \(.net_amount.amount)")' \
+    createExpenseReport -body "{\"legal_entity_id\": \"$LE\", \"employee_id\": \"$employee\", \"description\": \"Customer visit, Montreal\", \"lines\": [{\"expense_date\": \"$day\", \"expense_type\": \"TRAVEL\", \"amount\": {\"amount\": \"105.00\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\", \"cost_center_id\": \"$center\", \"description\": \"Train to Montreal\"}, {\"expense_date\": \"$day\", \"expense_type\": \"LODGING\", \"amount\": {\"amount\": \"210.00\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\", \"cost_center_id\": \"$center\"}]}"
+  report=$(field .id)
+  number=$(field .document_number)
+  expect_today "the report date, Maple's today" "$(field .report_date)" "$day"
+  expect "the report's status, version and totals" "$(field '"\(.status) \(.version) \(.gross_amount.amount) \(.tax_amount.amount) \(.net_amount.amount)"')" "entered 1 315.00 15.00 300.00"
+  expect "the lines: type, account, gross, tax and net" \
+    "$(field '[.lines[] | "\(.expense_type) \(.account_number) \(.amount.amount) \(.tax_amount.amount) \(.net_amount.amount)"] | join(", ")')" \
+    "TRAVEL 6000 105.00 5.00 100.00, LODGING 6100 210.00 10.00 200.00"
+  as carla
+  say "Carla posts it at the version she read: each line's net on its account and CC-1100, the GST on V1's account,"
+  say "the gross Ben's open item:"
+  QUIET=1 api 200 '' getExpenseReport -p "id=$report"
+  api 200 '"expense report \(.document_number): \(.status) on \(.posting_date), journal entry \(.journal_entry_id), term \(.payment_term_code), due \(.net_due_date)"' \
+    postExpenseReport -p "id=$report" -if-match "$ETAG"
+  expect "the posted report" "$(field '"\(.status) \(.version) \(.payment_term_code)"')" "posted 2 NT30"
+  entry=$(field .journal_entry_id)
+  due=$(field .net_due_date)
+  expect "the net due date, the report date plus 30 days" "$due" "$(date_add "$(field .report_date)" 30)"
+  api 200 '"journal entry \(.document_number) (\(.document_type)): \([.lines[] | "\(.amount.amount)\(if .tax_code then " \(.tax_code)" else "" end)"] | join(" / "))"' getJournalEntry -p "id=$entry"
+  expect "the entry's amounts" "$(field '[.lines[].amount.amount] | sort | join(" ")')" "-315.00 10.00 100.00 200.00 5.00"
+  expect "the entry's reference" "$(field .reference)" "$number"
+  say "It posts once:"
+  QUIET=1 api 200 '' getExpenseReport -p "id=$report"
+  refused 409 payables.invalid_status postExpenseReport -p "id=$report" -if-match "$ETAG"
+  api 200 '.items[] | "  open item of Ben: \(.amount.amount) \(.amount.currency), due \(.payment_terms.net_due_date)"' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$employee"
+  expect "Ben's open item and its due date" "$(field '[.items[] | "\(.amount.amount) \(.payment_terms.net_due_date)"] | join(", ")')" "-315.00 $due"
+  api 200 '.items[] | "  \(.document_number) \(.employee_name): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' listExpenseReports -p "employee_id=$employee" -p status=posted
+  expect "Ben's posted reports" "$(field '[.items[].document_number] | join(" ")')" "$number"
+  QUIET=1 api 200 '' listAuditEvents -p object_type=payables.expense_report -p "object_id=$report"
+  expect "the report's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "payables.expense_report.create payables.expense_report.post"
+  as tom
+  say "A payment run pays Ben's open item as a supplier's. Tom proposes a run from RBC for what is due within 30 days:"
+  api 202 '"\(.kind) \(.status)"' proposePaymentRun \
+    -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBC\", \"currency\": \"CAD\", \"run_date\": \"$TODAY\", \"due_by\": \"$(date_add "$TODAY" 30)\"}"
+  wait_op
+  run=$(field .resource | sed 's|.*/||')
+  QUIET=1 api 200 '' getPaymentRun -p "id=$run"
+  etag=$ETAG
+  api 200 '.items[] | select(.supplier_name == "Ben Buyer") | "payment \(.end_to_end_id) to \(.supplier_name): \(.amount.amount) \(.amount.currency)"' \
+    listPayments -p "id=$run" -p page_size=100
+  expect "the payment to Ben and the item it pays" \
+    "$(field '[.items[] | select(.supplier_name == "Ben Buyer") | "\(.amount.amount) \([.items[].journal_entry_id] | join(" "))"] | join(", ")')" "315.00 $entry"
+  say "The run was proposed to show Ben's item in it; Tara rejects it and its items are free again."
+  as tara
+  api 200 '"run \(.document_number): \(.status)"' rejectPaymentRun -p "id=$run" -if-match "$etag" -body '{"reason": "Shown for the expense report; the next run pays it"}'
+  expect "the run" "$(field .status)" rejected
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -10329,7 +10444,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_expense_report step_close'
 
 main() {
   stop_unseen

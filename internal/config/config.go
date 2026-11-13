@@ -296,6 +296,10 @@ type Company struct {
 	// Dunning is how the company duns its customers' overdue items
 	// (ADR-0065 §2): its dunning levels. None: the company has no dunning.
 	Dunning Dunning `yaml:"dunning,omitempty" json:"dunning,omitzero"`
+	// ExpenseTypes are the kinds of expense the company's employees claim
+	// on expense reports, each posting to its expense account (ADR-0074
+	// §2). None: the company takes no expense reports.
+	ExpenseTypes []ExpenseType `yaml:"expense_types,omitempty" json:"expense_types,omitempty"`
 }
 
 // YearEnd is a company's year-end settings (ADR-0060 §4). Without a
