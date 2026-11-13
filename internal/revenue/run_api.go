@@ -24,15 +24,15 @@ import (
 // minor-unit digits: a listing's cursor names the run's id without a
 // table (pagination.Keyset).
 const runSelect = `SELECT r.id, r.legal_entity_id, r.fiscal_year, r.fiscal_period, r.posting_date, r.currency, r.exponent, r.contract_count, r.posting_count,
-		r.recognized_amount, r.billed_amount, r.contract_asset_amount, r.contract_liability_amount, r.created_at, r.created_by
+		r.recognized_amount, r.billed_amount, r.contract_asset_amount, r.contract_liability_amount, r.revenue_amount, r.created_at, r.created_by
 	FROM (SELECT n.id, n.legal_entity_id, n.fiscal_year, n.fiscal_period, n.posting_date, n.currency, c.exponent, n.contract_count, n.posting_count,
-			n.recognized_amount, n.billed_amount, n.contract_asset_amount, n.contract_liability_amount, n.created_at, n.created_by
+			n.recognized_amount, n.billed_amount, n.contract_asset_amount, n.contract_liability_amount, n.revenue_amount, n.created_at, n.created_by
 		FROM revenue.recognition_run n JOIN ref.currency c ON c.code = n.currency) AS r`
 
 func scanRun(row pgx.Row) (Run, error) {
 	var r Run
 	err := row.Scan(&r.ID, &r.LegalEntityID, &r.FiscalYear, &r.FiscalPeriod, &r.PostingDate, &r.Currency, &r.Exponent, &r.Contracts, &r.Posted,
-		&r.Recognized, &r.Billed, &r.Asset, &r.Liability, &r.CreatedAt, &r.CreatedBy)
+		&r.Recognized, &r.Billed, &r.Asset, &r.Liability, &r.Revenue, &r.CreatedAt, &r.CreatedBy)
 	return r, errs.Wrapf(err, "scan revenue recognition run")
 }
 
@@ -128,7 +128,7 @@ func runAPI(r Run, names runNames) gen.RevenueRecognitionRun {
 	out := gen.RevenueRecognitionRun{ID: r.ID, LegalEntityID: r.LegalEntityID, CompanyCode: le.Code, CompanyName: le.Name, FiscalYear: int32(r.FiscalYear),
 		FiscalPeriod: int32(r.FiscalPeriod), PostingDate: r.PostingDate, Currency: r.Currency, ContractCount: r.Contracts, PostingCount: r.Posted,
 		RecognizedAmount: amount(r.Recognized), BilledAmount: amount(r.Billed), ContractAssetAmount: amount(r.Asset),
-		ContractLiabilityAmount: amount(r.Liability), CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy}
+		ContractLiabilityAmount: amount(r.Liability), RevenueAmount: amount(r.Revenue), CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy}
 	for _, p := range r.Postings {
 		customer := names.customers[p.CustomerID]
 		asset, liability := position(p.Recognized, p.Billed)

@@ -74793,6 +74793,11 @@ type RevenueRecognitionRun struct {
 	// The contract liabilities after the run: the positions of the contracts read whose revenue billed
 	// exceeds their revenue recognized, added up.
 	ContractLiabilityAmount Money `json:"contract_liability_amount"`
+	// What the run's entries moved revenue by, the postings' `revenue_amount` added up: positive when the
+	// run credited revenue on balance, negative when it debited it, zero for a run that posted nothing. It
+	// is also what the run moved the contract assets less the contract liabilities by. Unlike the other
+	// amounts it is the run's own, not cumulative.
+	RevenueAmount Money `json:"revenue_amount"`
 	// When the run was made.
 	CreatedAt time.Time `json:"created_at"`
 	// Who ran it.
@@ -74870,6 +74875,11 @@ func (s *RevenueRecognitionRun) GetContractAssetAmount() Money {
 // GetContractLiabilityAmount returns the value of ContractLiabilityAmount.
 func (s *RevenueRecognitionRun) GetContractLiabilityAmount() Money {
 	return s.ContractLiabilityAmount
+}
+
+// GetRevenueAmount returns the value of RevenueAmount.
+func (s *RevenueRecognitionRun) GetRevenueAmount() Money {
+	return s.RevenueAmount
 }
 
 // GetCreatedAt returns the value of CreatedAt.
@@ -74955,6 +74965,11 @@ func (s *RevenueRecognitionRun) SetContractAssetAmount(val Money) {
 // SetContractLiabilityAmount sets the value of ContractLiabilityAmount.
 func (s *RevenueRecognitionRun) SetContractLiabilityAmount(val Money) {
 	s.ContractLiabilityAmount = val
+}
+
+// SetRevenueAmount sets the value of RevenueAmount.
+func (s *RevenueRecognitionRun) SetRevenueAmount(val Money) {
+	s.RevenueAmount = val
 }
 
 // SetCreatedAt sets the value of CreatedAt.

@@ -133,6 +133,9 @@ func TestRecognitionRunAccrual(t *testing.T) {
 		if got, want := totals(t, january), "recognized 625.00 EUR, billed 0.00 EUR, asset 625.00 EUR, liability 0.00 EUR"; got != want {
 			t.Errorf("the run's totals: got %s, want %s", got, want)
 		}
+		if got, want := amount(t, january, "revenue_amount"), "625.00 EUR"; got != want {
+			t.Errorf("what the run moved revenue by: got %s, want %s", got, want)
+		}
 		ps := postings(t, january)
 		if len(ps) != 1 {
 			t.Fatalf("postings: got %d, want 1", len(ps))
@@ -163,6 +166,9 @@ func TestRecognitionRunAccrual(t *testing.T) {
 		if got, want := totals(t, february), "recognized 625.00 EUR, billed 625.00 EUR, asset 0.00 EUR, liability 0.00 EUR"; got != want {
 			t.Errorf("the run's totals: got %s, want %s", got, want)
 		}
+		if got, want := amount(t, february, "revenue_amount"), "-625.00 EUR"; got != want {
+			t.Errorf("what the run moved revenue by: got %s, want %s", got, want)
+		}
 		ps := postings(t, february)
 		if len(ps) != 1 {
 			t.Fatalf("postings: got %d, want 1", len(ps))
@@ -190,6 +196,9 @@ func TestRecognitionRunAccrual(t *testing.T) {
 		}
 		if got, want := totals(t, march), "recognized 625.00 EUR, billed 625.00 EUR, asset 0.00 EUR, liability 0.00 EUR"; got != want {
 			t.Errorf("the run's totals: got %s, want %s", got, want)
+		}
+		if got, want := amount(t, march, "revenue_amount"), "0.00 EUR"; got != want {
+			t.Errorf("what the run moved revenue by: got %s, want %s", got, want)
 		}
 		if got := e.revenueEntries(t); got != entries {
 			t.Errorf("the revenue context's entries: got %d, want %d as before", got, entries)
@@ -279,10 +288,18 @@ func TestRecognitionRunPosition(t *testing.T) {
 	})
 
 	e.delivered(t, order, 1, "120", "2026-02-20")
+	// A second contract, delivered in part and not billed, sorted after the first by its order's number.
+	_, second := e.active(t, e.goods())
+	e.delivered(t, second, 1, "10", "2026-02-21")
 	t.Run("more recognized than billed: the liability off, an asset on", func(t *testing.T) {
-		ps := postings(t, e.ran(t, 2))
-		if len(ps) != 1 {
-			t.Fatalf("postings: got %d, want 1", len(ps))
+		run := e.ran(t, 2)
+		// A second contract moves in the run too: the run's movement of revenue is both contracts'.
+		if got, want := amount(t, run, "revenue_amount"), "1717.05 EUR"; got != want {
+			t.Errorf("what the run moved revenue by: got %s, want %s", got, want)
+		}
+		ps := postings(t, run)
+		if len(ps) != 2 {
+			t.Fatalf("postings: got %d, want 2", len(ps))
 		}
 		if got, want := totals(t, ps[0]), "recognized 1693.97 EUR, billed 1200.00 EUR, asset 493.97 EUR, liability 0.00 EUR"; got != want {
 			t.Errorf("the posting's amounts: got %s, want %s", got, want)
@@ -293,15 +310,22 @@ func TestRecognitionRunPosition(t *testing.T) {
 		if got, want := e.entryLines(t, ps[0]["journal_entry_id"]), "400000 -150000; 410000 -9205; 125000 49397; 245000 109808"; got != want {
 			t.Errorf("the entry's lines: got %s, want %s", got, want)
 		}
-		if asset, liability := e.balance(t, "125000"), e.balance(t, "245000"); asset != 49397 || liability != 0 {
-			t.Errorf("the contract's position: got asset %d and liability %d, want 49397 and 0, never both", asset, liability)
+		if got, want := amount(t, ps[0], "contract_asset_amount")+" "+amount(t, ps[0], "contract_liability_amount"), "493.97 EUR 0.00 EUR"; got != want {
+			t.Errorf("the contract's position: got %s, want %s, never both", got, want)
+		}
+		if got := e.balance(t, "245000"); got != 0 {
+			t.Errorf("contract liabilities: got %d, want 0, taken off", got)
 		}
 	})
 
 	// Dated into February, which is run: March's run catches it up.
 	e.billed(t, order, "2026-02-25")
 	t.Run("billing dated into a period already run", func(t *testing.T) {
-		ps := postings(t, e.ran(t, 3))
+		run := e.ran(t, 3)
+		if got, want := amount(t, run, "revenue_amount"), "-1398.08 EUR"; got != want {
+			t.Errorf("what the run moved revenue by: got %s, want %s", got, want)
+		}
+		ps := postings(t, run)
 		if len(ps) != 1 {
 			t.Fatalf("postings: got %d, want 1", len(ps))
 		}
@@ -311,12 +335,19 @@ func TestRecognitionRunPosition(t *testing.T) {
 		if got, want := e.entryLines(t, ps[0]["journal_entry_id"]), "400000 150000; 410000 -10192; 125000 -49397; 245000 -90411"; got != want {
 			t.Errorf("the entry's lines: got %s, want %s", got, want)
 		}
-		if asset, liability := e.balance(t, "125000"), e.balance(t, "245000"); asset != 0 || liability != -90411 {
-			t.Errorf("the contract's position: got asset %d and liability %d, want 0 and -90411, never both", asset, liability)
+		// The second contract's 125.00 stays; the first's asset is taken off.
+		if got := e.balance(t, "125000"); got != 12500 {
+			t.Errorf("contract assets: got %d, want 12500, the second contract's alone", got)
 		}
-		// Billing credited 2700.00; the runs leave what is recognized: the goods' 1500.00 and three months of support.
-		if goods, support := e.balance(t, "400000"), e.balance(t, "410000"); goods != -150000 || support != -29589 {
-			t.Errorf("revenue: got goods %d and support %d, want -150000 and -29589", goods, support)
+		if got := e.balance(t, "245000"); got != -90411 {
+			t.Errorf("contract liabilities: got %d, want -90411", got)
+		}
+		// Billing credited 2700.00; the runs leave what is recognized: the goods' 1500.00 and the second contract's 125.00, and three months of support.
+		if got := e.balance(t, "400000"); got != -162500 {
+			t.Errorf("revenue of goods: got %d, want -162500", got)
+		}
+		if got := e.balance(t, "410000"); got != -29589 {
+			t.Errorf("revenue of support: got %d, want -29589", got)
 		}
 	})
 }
@@ -489,8 +520,8 @@ func TestRecognitionRunAtOnce(t *testing.T) {
 func TestRecognitionRunRules(t *testing.T) {
 	e := setup(t)
 	const keep = `INSERT INTO revenue.recognition_run (tenant_id, id, legal_entity_id, fiscal_year, fiscal_period, posting_date, currency, contract_count,
-		posting_count, recognized_amount, billed_amount, contract_asset_amount, contract_liability_amount, created_by)
-		VALUES ($1, gen_random_uuid(), $2, 2026, $3, $4, 'EUR', 0, 0, 0, 0, 0, 0, $5)`
+		posting_count, recognized_amount, billed_amount, contract_asset_amount, contract_liability_amount, revenue_amount, created_by)
+		VALUES ($1, gen_random_uuid(), $2, 2026, $3, $4, 'EUR', 0, 0, 0, 0, 0, 0, 0, $5)`
 	for _, c := range []struct {
 		name   string
 		period int

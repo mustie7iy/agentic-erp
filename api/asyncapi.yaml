@@ -4342,7 +4342,8 @@ components:
         are dated, the number of active contracts read and of contracts
         posted, and the company's totals to that day over the contracts
         read: revenue recognized, revenue billed, contract assets and
-        contract liabilities. Each contract posted has a journal entry of
+        contract liabilities, and what the run's entries moved revenue by.
+        Each contract posted has a journal entry of
         its own, published by the ledger as JournalEntryPosted with
         `source_context` `revenue`; `GET /v1/revenue-recognition-runs/{id}`
         returns the run with its postings. A run that finds nothing to post
@@ -4359,7 +4360,7 @@ components:
       examples:
         - name: run
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001201, source: /erp/eu-1/revenue, type: com.example.erp.revenue.revenue_recognized.v1, subject: 0192a000-0000-7000-8000-000000001211, time: '2026-12-02T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {revenue_recognition_run_id: 0192a000-0000-7000-8000-000000001211, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', fiscal_year: 2026, fiscal_period: 11, posting_date: '2026-11-30', contract_count: 3, posting_count: 2, recognized_amount: {amount: '8085.28', currency: CAD}, billed_amount: {amount: '4437.53', currency: CAD}, contract_asset_amount: {amount: '5000.00', currency: CAD}, contract_liability_amount: {amount: '1352.25', currency: CAD}}
+          payload: {revenue_recognition_run_id: 0192a000-0000-7000-8000-000000001211, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', fiscal_year: 2026, fiscal_period: 11, posting_date: '2026-11-30', contract_count: 3, posting_count: 2, recognized_amount: {amount: '8085.28', currency: CAD}, billed_amount: {amount: '4437.53', currency: CAD}, contract_asset_amount: {amount: '5000.00', currency: CAD}, contract_liability_amount: {amount: '1352.25', currency: CAD}, revenue_amount: {amount: '3647.75', currency: CAD}}
     BillingDocumentPosted:
       name: BillingDocumentPosted
       x-webhook: true
@@ -4691,7 +4692,7 @@ components:
         currency_lc: {$ref: '#/components/schemas/CurrencyCode'}
         currency_gc: {$ref: '#/components/schemas/CurrencyCode'}
         reference: {type: [string, 'null']}
-        source_context: {type: string, description: 'Open enum: ledger, payables, payments, procurement, receivables, assets, integration, controlling.'}
+        source_context: {type: string, description: 'Open enum: ledger, payables, payments, procurement, receivables, assets, integration, controlling, revenue.'}
         source_document_id: {$ref: '#/components/schemas/NullableUuid'}
         reversal_of_id: {$ref: '#/components/schemas/NullableUuid', description: Set on reversal entries.}
         reversal_of_year: {type: [integer, 'null']}
@@ -5247,7 +5248,7 @@ components:
         version: {type: integer, description: "The contract's version after the change."}
     RevenueRecognizedV1:
       type: object
-      required: [revenue_recognition_run_id, legal_entity_id, legal_entity_code, fiscal_year, fiscal_period, posting_date, contract_count, posting_count, recognized_amount, billed_amount, contract_asset_amount, contract_liability_amount]
+      required: [revenue_recognition_run_id, legal_entity_id, legal_entity_code, fiscal_year, fiscal_period, posting_date, contract_count, posting_count, recognized_amount, billed_amount, contract_asset_amount, contract_liability_amount, revenue_amount]
       properties:
         revenue_recognition_run_id: {$ref: '#/components/schemas/Uuid', description: '`revenue.recognition_run.id`.'}
         legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company run.}
@@ -5261,6 +5262,7 @@ components:
         billed_amount: {$ref: '#/components/schemas/Money', description: 'The revenue billed to the posting date of the contracts read, without tax.'}
         contract_asset_amount: {$ref: '#/components/schemas/Money', description: 'The contract assets after the run: the positions of the contracts whose revenue recognized exceeds their revenue billed.'}
         contract_liability_amount: {$ref: '#/components/schemas/Money', description: 'The contract liabilities after the run: the positions of the contracts whose revenue billed exceeds their revenue recognized.'}
+        revenue_amount: {$ref: '#/components/schemas/Money', description: "What the run's entries moved revenue by: positive when the run credited revenue on balance, negative when it debited it, zero when it posted nothing."}
     BillingDocumentPostedV1:
       type: object
       required: [billing_document_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, sales_order_id, sales_order_number, billing_date, posting_date, net_amount, tax_amount, gross_amount, customer_invoice_id, customer_invoice_number, journal_entry_id, journal_entry_year, journal_entry_number, status, status_before, version]

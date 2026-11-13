@@ -369,7 +369,7 @@ func TestRevenueInbox(t *testing.T) {
 // TestRevenueRecognitionRules (T81d, migrations 000304 and 000305;
 // ADR-0068 §9): one run per company and period, each for a later period
 // than the company's last; a run's positions are what it recognized less
-// what it billed; a posting is of a run and a contract, once, and its
+// what it billed, and one that posted nothing moved no revenue; a posting is of a run and a contract, once, and its
 // obligations are the contract's; runs and postings are written once;
 // the two account determination keys and the journal's source context
 // are taken, their checks validated; the revert is refused while a run
@@ -377,8 +377,8 @@ func TestRevenueInbox(t *testing.T) {
 func TestRevenueRecognitionRules(t *testing.T) {
 	need(t)
 	const run = `INSERT INTO revenue.recognition_run (tenant_id, id, legal_entity_id, fiscal_year, fiscal_period, posting_date, currency, contract_count,
-		posting_count, recognized_amount, billed_amount, contract_asset_amount, contract_liability_amount, created_by)
-		VALUES ($1, $2, $3, 2026, $4, $5, 'EUR', $6, $7, $8, $9, $10, $11, $1)`
+		posting_count, recognized_amount, billed_amount, contract_asset_amount, contract_liability_amount, revenue_amount, created_by)
+		VALUES ($1, $2, $3, 2026, $4, $5, 'EUR', $6, $7, $8, $9, $10, $11, $12, $1)`
 	const contract = `INSERT INTO revenue.contract (tenant_id, id, legal_entity_id, customer_id, sales_order_id, sales_order_number, currency,
 		transaction_price, status, created_by, updated_by) VALUES ($1, $2, $3, gen_random_uuid(), gen_random_uuid(), 'SO1', 'EUR', 100, 'draft', $1, $1)`
 	const obligation = `INSERT INTO revenue.performance_obligation (tenant_id, contract_id, obligation_no, order_item_no, description, net_amount,
@@ -388,9 +388,11 @@ func TestRevenueRecognitionRules(t *testing.T) {
 	const figures = `INSERT INTO revenue.recognition_posting_obligation (tenant_id, run_id, contract_id, obligation_no, account_id, recognized_amount,
 		billed_amount, revenue_amount) VALUES ($1, $2, $3, $4, gen_random_uuid(), 100, 0, 100)`
 	type scene struct{ tenant, le, run, doc uuid.UUID }
-	february := func(s scene) stmt { return step(run, s.tenant, s.run, s.le, 2, "2026-02-28", 1, 1, 100, 0, 100, 0) }
+	february := func(s scene) stmt {
+		return step(run, s.tenant, s.run, s.le, 2, "2026-02-28", 1, 1, 100, 0, 100, 0, 100)
+	}
 	other := func(s scene, period int, day string) stmt {
-		return step(run, s.tenant, id(), s.le, period, day, 0, 0, 0, 0, 0, 0)
+		return step(run, s.tenant, id(), s.le, period, day, 0, 0, 0, 0, 0, 0, 0)
 	}
 	posted := func(s scene, more ...stmt) []stmt {
 		return append([]stmt{february(s), step(contract, s.tenant, s.doc, s.le), step(obligation, s.tenant, s.doc), step(posting, s.tenant, s.run, s.doc),
@@ -404,19 +406,22 @@ func TestRevenueRecognitionRules(t *testing.T) {
 		{"a run with a posting and its obligation", func(s scene) []stmt { return posted(s) }, ""},
 		{"a later period's run", func(s scene) []stmt { return []stmt{february(s), other(s, 3, "2026-03-31")} }, ""},
 		{"another company's run for an earlier period", func(s scene) []stmt {
-			return []stmt{february(s), step(run, s.tenant, id(), id(), 1, "2026-01-31", 0, 0, 0, 0, 0, 0)}
+			return []stmt{february(s), step(run, s.tenant, id(), id(), 1, "2026-01-31", 0, 0, 0, 0, 0, 0, 0)}
 		}, ""},
 		{"a second run of the period", func(s scene) []stmt { return []stmt{february(s), other(s, 2, "2026-02-28")} }, "recognition_run_once"},
 		{"a run for an earlier period", func(s scene) []stmt { return []stmt{february(s), other(s, 1, "2026-01-31")} }, "the company has a run for this day or a later one"},
 		{"positions that are not recognized less billed", func(s scene) []stmt {
-			return []stmt{step(run, s.tenant, s.run, s.le, 2, "2026-02-28", 1, 1, 100, 0, 90, 0)}
+			return []stmt{step(run, s.tenant, s.run, s.le, 2, "2026-02-28", 1, 1, 100, 0, 90, 0, 100)}
 		}, "recognition_run_positions_check"},
 		{"more postings than contracts", func(s scene) []stmt {
-			return []stmt{step(run, s.tenant, s.run, s.le, 2, "2026-02-28", 1, 2, 0, 0, 0, 0)}
+			return []stmt{step(run, s.tenant, s.run, s.le, 2, "2026-02-28", 1, 2, 0, 0, 0, 0, 0)}
 		}, "recognition_run_posting_count_check"},
 		{"a negative contract asset", func(s scene) []stmt {
-			return []stmt{step(run, s.tenant, s.run, s.le, 2, "2026-02-28", 1, 1, 0, 0, -10, -10)}
+			return []stmt{step(run, s.tenant, s.run, s.le, 2, "2026-02-28", 1, 1, 0, 0, -10, -10, 0)}
 		}, "recognition_run_asset_check"},
+		{"revenue moved by a run that posted nothing", func(s scene) []stmt {
+			return []stmt{step(run, s.tenant, s.run, s.le, 2, "2026-02-28", 1, 0, 0, 0, 0, 0, 100)}
+		}, "recognition_run_revenue_check"},
 		{"a contract posted twice in a run", func(s scene) []stmt { return posted(s, step(posting, s.tenant, s.run, s.doc)) }, "recognition_posting_pkey"},
 		{"a posting of no run", func(s scene) []stmt {
 			return []stmt{step(contract, s.tenant, s.doc, s.le), step(posting, s.tenant, s.run, s.doc)}
@@ -481,7 +486,7 @@ func TestRevenueRecognitionRules(t *testing.T) {
 		defer tx.Rollback(ctx)
 		tenant := id()
 		if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, tenant.String()),
-			step(run, tenant, id(), id(), 2, "2026-02-28", 0, 0, 0, 0, 0, 0)); err != nil {
+			step(run, tenant, id(), id(), 2, "2026-02-28", 0, 0, 0, 0, 0, 0, 0)); err != nil {
 			t.Fatal(err)
 		}
 		failsWith(t, exec(tx, down), "reverting would lose what later runs take off")

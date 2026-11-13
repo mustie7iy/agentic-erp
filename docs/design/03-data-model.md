@@ -4882,7 +4882,8 @@ erDiagram
     bigint recognized_amount "cumulative, the contracts read"
     bigint billed_amount
     bigint contract_asset_amount
-    bigint contract_liability_amount }
+    bigint contract_liability_amount
+    bigint revenue_amount "what the run's entries moved revenue by" }
   recognition_posting { uuid run_id PK
     uuid contract_id PK
     uuid id "the entry's source document"
@@ -4946,8 +4947,10 @@ erDiagram
   active contracts read, none negative, the contract assets less the
   contract liabilities being what was recognized less what was billed
   (`recognition_run_positions_check`); `posting_count` is at most
-  `contract_count` (`recognition_run_posting_count_check`). Written
-  once: the application neither changes nor deletes a run.
+  `contract_count` (`recognition_run_posting_count_check`);
+  `revenue_amount` is what the run's entries moved revenue by, signed,
+  the one amount that is the run's own, and zero for a run that posted
+  nothing (`recognition_run_revenue_check`). Written once: the application neither changes nor deletes a run.
 - `revenue.recognition_posting`: what a run posted for one contract, at
   most once per run (its primary key): the contract's cumulative
   revenue recognized and billed to the run's posting date, what the

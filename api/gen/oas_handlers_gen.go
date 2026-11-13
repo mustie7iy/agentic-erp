@@ -19008,8 +19008,9 @@ func (s *Server) handleCreateRevenueContractRequest(args [0]string, argsEscaped 
 // needs a fiscal period for that lies in no fiscal year set up is refused naming the contract's order
 // and the obligation (422 `revenue.no_fiscal_period`). What the ledger refuses of an entry refuses the
 // run (for example an obligation's revenue account that is no longer postable). The answer is the run
-// with its totals and its postings, one per contract that moved, each naming its journal entry.
-// Audited, and published as RevenueRecognized. Human-only (`x-agent: false`).
+// with its totals, what its entries moved revenue by on balance (`revenue_amount`) and its postings,
+// one per contract that moved, each naming its journal entry. Audited, and published as
+// RevenueRecognized. Human-only (`x-agent: false`).
 //
 // POST /v1/revenue-recognition-runs
 func (s *Server) handleCreateRevenueRecognitionRunRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -43901,11 +43902,11 @@ func (s *Server) handleGetRevenueContractRequest(args [1]string, argsEscaped boo
 // One revenue recognition run (ADR-0068 §9, T81d) with its company's code and name, its fiscal period
 // and posting date, the number of active contracts it read and of contracts it posted, the company's
 // totals to the period's end over the contracts it read (revenue recognized, revenue billed, contract
-// assets, contract liabilities) and its `postings`, one per contract that moved, by sales order
-// number: the contract's order and customer, its cumulative amounts, its position as a contract asset
-// or a contract liability, what the entry moved revenue by, its journal entry, and per obligation the
-// revenue account and the amounts. One of a company the caller may not act in is not found (404), as
-// one that does not exist.
+// assets, contract liabilities), what its entries moved revenue by (`revenue_amount`) and its
+// `postings`, one per contract that moved, by sales order number: the contract's order and customer,
+// its cumulative amounts, its position as a contract asset or a contract liability, what the entry
+// moved revenue by, its journal entry, and per obligation the revenue account and the amounts. One of
+// a company the caller may not act in is not found (404), as one that does not exist.
 //
 // GET /v1/revenue-recognition-runs/{id}
 func (s *Server) handleGetRevenueRecognitionRunRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -71619,9 +71620,9 @@ func (s *Server) handleListRevenueContractsRequest(args [0]string, argsEscaped b
 // handleListRevenueRecognitionRunsRequest handles listRevenueRecognitionRuns operation.
 //
 // The revenue recognition runs of the companies the caller may act in (ADR-0068 §9, T81d), latest
-// posting date first, each with its company's code and name, its fiscal period, its counts and its
-// totals, without its postings, which `getRevenueRecognitionRun` gives. Filtered by company, fiscal
-// year and fiscal period. Sortable by: `posting_date`.
+// posting date first, each with its company's code and name, its fiscal period, its counts, its totals
+// and what it moved revenue by, without its postings, which `getRevenueRecognitionRun` gives. Filtered
+// by company, fiscal year and fiscal period. Sortable by: `posting_date`.
 //
 // GET /v1/revenue-recognition-runs
 func (s *Server) handleListRevenueRecognitionRunsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

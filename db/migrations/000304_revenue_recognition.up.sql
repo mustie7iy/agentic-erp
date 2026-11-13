@@ -32,7 +32,9 @@ ALTER TABLE ledger.journal_entry ADD CONSTRAINT journal_entry_source_context_che
 -- dated. contract_count is the active contracts read, posting_count
 -- those that moved and were posted; the amounts are the company's totals
 -- to the period's end over the contracts read, in minor units of
--- currency, the company's local currency. legal_entity_id is the
+-- currency, the company's local currency, and revenue_amount is what the
+-- run's entries moved revenue by, a credit when positive: the one amount
+-- that is the run's own and not cumulative. legal_entity_id is the
 -- tenancy context's (02 §2.1).
 CREATE TABLE revenue.recognition_run (
   tenant_id                  uuid NOT NULL,
@@ -48,10 +50,13 @@ CREATE TABLE revenue.recognition_run (
   billed_amount              bigint NOT NULL CONSTRAINT recognition_run_billed_check CHECK (billed_amount >= 0),
   contract_asset_amount      bigint NOT NULL CONSTRAINT recognition_run_asset_check CHECK (contract_asset_amount >= 0),
   contract_liability_amount  bigint NOT NULL CONSTRAINT recognition_run_liability_check CHECK (contract_liability_amount >= 0),
+  revenue_amount             bigint NOT NULL,
   created_at                 timestamptz NOT NULL DEFAULT now(),
   created_by                 uuid NOT NULL,
   PRIMARY KEY (tenant_id, id),
   CONSTRAINT recognition_run_posting_count_check CHECK (posting_count BETWEEN 0 AND contract_count),
+  -- A run that posted nothing moved nothing.
+  CONSTRAINT recognition_run_revenue_check CHECK (posting_count > 0 OR revenue_amount = 0),
   -- The contracts' positions added up are what was recognized less what
   -- was billed.
   CONSTRAINT recognition_run_positions_check CHECK (contract_asset_amount - contract_liability_amount = recognized_amount - billed_amount),

@@ -187601,6 +187601,10 @@ func (s *RevenueRecognitionRun) encodeFields(e *jx.Encoder) {
 		s.ContractLiabilityAmount.Encode(e)
 	}
 	{
+		e.FieldStart("revenue_amount")
+		s.RevenueAmount.Encode(e)
+	}
+	{
 		e.FieldStart("created_at")
 		json.EncodeDateTime(e, s.CreatedAt)
 	}
@@ -187620,7 +187624,7 @@ func (s *RevenueRecognitionRun) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfRevenueRecognitionRun = [17]string{
+var jsonFieldsNameOfRevenueRecognitionRun = [18]string{
 	0:  "id",
 	1:  "legal_entity_id",
 	2:  "company_code",
@@ -187635,9 +187639,10 @@ var jsonFieldsNameOfRevenueRecognitionRun = [17]string{
 	11: "billed_amount",
 	12: "contract_asset_amount",
 	13: "contract_liability_amount",
-	14: "created_at",
-	15: "created_by",
-	16: "postings",
+	14: "revenue_amount",
+	15: "created_at",
+	16: "created_by",
+	17: "postings",
 }
 
 // Decode decodes RevenueRecognitionRun from json.
@@ -187809,8 +187814,18 @@ func (s *RevenueRecognitionRun) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"contract_liability_amount\"")
 			}
-		case "created_at":
+		case "revenue_amount":
 			requiredBitSet[1] |= 1 << 6
+			if err := func() error {
+				if err := s.RevenueAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"revenue_amount\"")
+			}
+		case "created_at":
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.CreatedAt = v
@@ -187822,7 +187837,7 @@ func (s *RevenueRecognitionRun) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_at\"")
 			}
 		case "created_by":
-			requiredBitSet[1] |= 1 << 7
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.CreatedBy = v
@@ -187862,7 +187877,7 @@ func (s *RevenueRecognitionRun) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11111111,
 		0b11111111,
-		0b00000000,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

@@ -404,6 +404,10 @@ and the sales documents say; it judges nothing.
    owner's decision of 2026-11-12 on question 2 brought this one form
    of it forward. Changing it on an active contract, and a day per
    delivery, stay later.
+10. The schedule's periods across fiscal years need each year set up in
+    the ledger's calendar; a service period reaching into a year that is
+    not is refused at the read, not at the change of the obligation or
+    at activation, since a year may be set up later (§8).
 11. The run reads billing by posting date and recognition by delivery
     date or service day: both are compared at the period's last day (§9).
 12. A run's entry is per contract, with a line per obligation that
@@ -422,10 +426,6 @@ and the sales documents say; it judges nothing.
     and the contract's cumulative amounts, and per obligation the
     amounts the next run takes off, which a row per contract cannot
     hold.
-10. The schedule's periods across fiscal years need each year set up in
-    the ledger's calendar; a service period reaching into a year that is
-    not is refused at the read, not at the change of the obligation or
-    at activation, since a year may be set up later (§8).
 
 ## Questions
 
@@ -470,6 +470,11 @@ is answered by the product owner: yes.
   but G/L accounts.
 - A run cannot be reversed, and a company that ran a period cannot run
   an earlier one (the plan's "later").
+- One active contract whose schedule reaches a fiscal year that is not
+  set up refuses the company's whole run until the year is set up
+  (default 10): the straight line's rounding needs every period of the
+  service period. Requiring only the periods up to the run's end would
+  place the rounding unit later.
 
 - No read lists confirmed orders without a revenue contract (those
   confirmed before the consumer ran, or in a foreign currency).
@@ -689,7 +694,9 @@ is answered by the product owner: yes.
   period than the company's last (`recognition_run_in_order`, a trigger
   that takes the company's advisory lock); a run's positions are what
   it recognized less what it billed
-  (`recognition_run_positions_check`). The account determination takes
+  (`recognition_run_positions_check`). It keeps what its entries moved
+  revenue by, zero when it posted nothing
+  (`recognition_run_revenue_check`). The account determination takes
   the keys `contract_asset` and `contract_liability` and the journal
   the source context `revenue`, both checks added NOT VALID in 000304
   and validated in 000305, the journal's partition by partition. The
@@ -724,7 +731,10 @@ is answered by the product owner: yes.
   period; cursor paging by `posting_date`, latest first; without
   postings) and `GET /v1/revenue-recognition-runs/{id}` with the
   postings by sales order number (`revenue.contract.read`): the
-  company's code and name, per posting the order by id and number, the
+  company's code and name, the run's totals and `revenue_amount`, what
+  its entries moved revenue by on balance (review round 1: the run's
+  own total, which its consumer would otherwise add up from the
+  postings), per posting the order by id and number, the
   customer's number and name, the cumulative amounts, the position as
   contract asset or liability, the entry by id, year and number, and
   per obligation its description, its revenue account by id and number

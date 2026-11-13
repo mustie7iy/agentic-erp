@@ -14,7 +14,7 @@ import (
 // company, principal or document id would make the series grow with the
 // business, so per-tenant figures stay in the database.
 var Labels = map[string]int{
-	"operation":  512, // operationIds of the contracts, and "unmatched"
+	"operation":  576, // operationIds of the contracts, and "unmatched": 513 with T81d's recognition runs, so 512 no longer holds them; within MaxSeries
 	"code":       32,  // HTTP status codes the API returns
 	"class":      8,   // api.Classes
 	"context":    32,  // outbox.Contexts (17 with assets and closing, batch 47)

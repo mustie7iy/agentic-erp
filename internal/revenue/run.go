@@ -113,7 +113,9 @@ func position(recognized, billed money.Minor) (asset, liability money.Minor) {
 
 // Run is a row of revenue.recognition_run: the amounts are the company's
 // totals to PostingDate over the Contracts active contracts read, in
-// minor units of Currency; Posted of them moved and were posted.
+// minor units of Currency; Posted of them moved and were posted, and
+// Revenue is what their entries moved revenue by, a credit when
+// positive.
 // Postings are read by GetRun and given by Recognize.
 type Run struct {
 	ID            uuid.UUID
@@ -129,6 +131,7 @@ type Run struct {
 	Billed        money.Minor
 	Asset         money.Minor
 	Liability     money.Minor
+	Revenue       money.Minor
 	CreatedAt     time.Time
 	CreatedBy     uuid.UUID
 	Postings      []Posting
@@ -386,7 +389,8 @@ func (e *Endpoints) read(ctx context.Context, tx pgx.Tx, b runBasis) (Run, error
 	run := Run{ID: uuid.Must(uuid.NewV7()), LegalEntityID: b.le.ID, FiscalYear: b.period.FiscalYear, FiscalPeriod: b.period.Number,
 		PostingDate: b.period.End, Currency: b.le.LocalCurrency, Exponent: b.exp, Contracts: int32(len(contracts))}
 	cal := &calendar{source: e.Calendar, company: b.le}
-	recognized, billed, assets, liabilities := make([]money.Minor, len(contracts)), make([]money.Minor, len(contracts)), make([]money.Minor, len(contracts)), make([]money.Minor, len(contracts))
+	recognized, billed := make([]money.Minor, len(contracts)), make([]money.Minor, len(contracts))
+	assets, liabilities, revenue := make([]money.Minor, len(contracts)), make([]money.Minor, len(contracts)), make([]money.Minor, len(contracts))
 	for i, k := range contracts {
 		order, _, err := e.SalesOrders.Order(ctx, k.SalesOrderID) // a stored contract's sales order exists
 		if err != nil {
@@ -404,19 +408,21 @@ func (e *Endpoints) read(ctx context.Context, tx pgx.Tx, b runBasis) (Run, error
 		assets[i], liabilities[i] = position(p.Recognized, p.Billed)
 		if moved {
 			run.Postings = append(run.Postings, p)
+			revenue[i] = p.Revenue
 		}
 	}
 	run.Posted = int32(len(run.Postings))
-	return totalled(run, recognized, billed, assets, liabilities)
+	return totalled(run, recognized, billed, assets, liabilities, revenue)
 }
 
-// totalled is the run with the contracts' amounts added up; sums beyond
-// an amount are refused (422 revenue.amount_too_large).
-func totalled(run Run, recognized, billed, assets, liabilities []money.Minor) (Run, error) {
+// totalled is the run with the contracts' amounts added up, and the
+// movements of revenue of those that moved; sums beyond an amount are
+// refused (422 revenue.amount_too_large).
+func totalled(run Run, recognized, billed, assets, liabilities, revenue []money.Minor) (Run, error) {
 	for _, t := range []struct {
 		sum     *money.Minor
 		amounts []money.Minor
-	}{{&run.Recognized, recognized}, {&run.Billed, billed}, {&run.Asset, assets}, {&run.Liability, liabilities}} {
+	}{{&run.Recognized, recognized}, {&run.Billed, billed}, {&run.Asset, assets}, {&run.Liability, liabilities}, {&run.Revenue, revenue}} {
 		sum, err := money.Sum(t.amounts...)
 		if err != nil {
 			return Run{}, problem.Unprocessable("revenue.amount_too_large", "The company's contracts add up to more than an amount holds.").WithCause(err)
@@ -448,9 +454,10 @@ func (e *Endpoints) Recognize(ctx context.Context, legalEntity uuid.UUID, year, 
 	}
 	run.CreatedBy = p.ID
 	err = tx.QueryRow(ctx, `INSERT INTO revenue.recognition_run (tenant_id, id, legal_entity_id, fiscal_year, fiscal_period, posting_date, currency,
-			contract_count, posting_count, recognized_amount, billed_amount, contract_asset_amount, contract_liability_amount, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING created_at`, p.TenantID, run.ID, run.LegalEntityID, run.FiscalYear,
-		run.FiscalPeriod, run.PostingDate, run.Currency, run.Contracts, run.Posted, run.Recognized, run.Billed, run.Asset, run.Liability, run.CreatedBy).Scan(&run.CreatedAt)
+			contract_count, posting_count, recognized_amount, billed_amount, contract_asset_amount, contract_liability_amount, revenue_amount, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING created_at`, p.TenantID, run.ID, run.LegalEntityID, run.FiscalYear,
+		run.FiscalPeriod, run.PostingDate, run.Currency, run.Contracts, run.Posted, run.Recognized, run.Billed, run.Asset, run.Liability, run.Revenue,
+		run.CreatedBy).Scan(&run.CreatedAt)
 	if err != nil {
 		return Run{}, tenancy.Entity{}, fmt.Errorf("revenue: keep the recognition run of company %s for %d/%d: %w", b.le.Code, run.FiscalYear, run.FiscalPeriod, err)
 	}
@@ -499,14 +506,14 @@ func (e *Endpoints) post(ctx context.Context, tx pgx.Tx, pr reqctx.Principal, b 
 
 // recordRun adds the run's audit record and publishes RevenueRecognized
 // in the same transaction (ADR-0007, ADR-0011): the run with its counts
-// and totals, not its postings.
+// and totals and what it moved revenue by, not its postings.
 func recordRun(ctx context.Context, r Run, le tenancy.Entity) error {
 	day := r.PostingDate.Format(time.DateOnly)
 	amount := func(m money.Minor) map[string]string { return money.EventAmount(m, r.Currency, r.Exponent) }
 	payload := map[string]any{"revenue_recognition_run_id": r.ID, "legal_entity_id": r.LegalEntityID, "legal_entity_code": le.Code,
 		"fiscal_year": r.FiscalYear, "fiscal_period": r.FiscalPeriod, "posting_date": day, "contract_count": r.Contracts, "posting_count": r.Posted,
 		"recognized_amount": amount(r.Recognized), "billed_amount": amount(r.Billed), "contract_asset_amount": amount(r.Asset),
-		"contract_liability_amount": amount(r.Liability)}
+		"contract_liability_amount": amount(r.Liability), "revenue_amount": amount(r.Revenue)}
 	entries := make([]map[string]any, len(r.Postings))
 	for i, p := range r.Postings {
 		entries[i] = map[string]any{"revenue_contract_id": p.ContractID, "sales_order_number": p.SalesOrderNumber, "journal_entry_id": p.EntryID,
@@ -515,7 +522,7 @@ func recordRun(ctx context.Context, r Run, le tenancy.Entity) error {
 	detail := map[string]any{"legal_entity_id": r.LegalEntityID, "fiscal_year": r.FiscalYear, "fiscal_period": r.FiscalPeriod, "posting_date": day,
 		"currency": r.Currency, "contract_count": r.Contracts, "posting_count": r.Posted, "recognized_amount": r.Recognized.Plain(r.Exponent),
 		"billed_amount": r.Billed.Plain(r.Exponent), "contract_asset_amount": r.Asset.Plain(r.Exponent),
-		"contract_liability_amount": r.Liability.Plain(r.Exponent), "postings": entries}
+		"contract_liability_amount": r.Liability.Plain(r.Exponent), "revenue_amount": r.Revenue.Plain(r.Exponent), "postings": entries}
 	if err := audit.Record(ctx, "revenue.recognition_run.create", "revenue.recognition_run", r.ID, detail,
 		outbox.Event{Context: "revenue", Name: "revenue_recognized", AggregateType: "revenue.recognition_run", AggregateID: r.ID, Payload: payload}); err != nil {
 		return fmt.Errorf("revenue: record recognition run %s: %w", r.ID, err)
