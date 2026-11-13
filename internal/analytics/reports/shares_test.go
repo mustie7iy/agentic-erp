@@ -246,14 +246,14 @@ func TestSharedRuns(t *testing.T) {
 	if items := apitest.List(t, page, "items"); len(items) != 0 {
 		t.Errorf("viewer's runs: got %v, want none: the run covers company 1000", items)
 	}
-	viewer.Problem(403, "analytics.report_run_companies", "GET", "/v1/report-runs/"+runID, "", "")
+	viewer.Problem(403, "analytics.report_run_access", "GET", "/v1/report-runs/"+runID, "", "")
 	if got, _ := e.As(all).Must(200, "GET", "/v1/report-runs/"+runID, "", ""); cells(t, got) != "2000 500.00 EUR" {
 		t.Errorf("a viewer of every company: got %v, want the kept results", got)
 	}
 	failed, legacy := uuid.New(), uuid.New()
-	pgtest.Exec(t, `INSERT INTO analytics.report_run (tenant_id, id, report_id, run_date, status, run_as, failure_code, failure_detail, companies)
-		VALUES ($1, $2, $3, current_date - 1, 'failed', $4, 'x.refused', 'Refused.', '{}'),
-		       ($1, $5, $3, current_date - 2, 'failed', $4, 'x.refused', 'Refused.', NULL)`, e.Tenant.ID, failed, id, e.Tenant.Human.ID, legacy)
+	pgtest.Exec(t, `INSERT INTO analytics.report_run (tenant_id, id, report_id, run_date, status, run_as, failure_code, failure_detail, companies, permissions)
+		VALUES ($1, $2, $3, current_date - 1, 'failed', $4, 'x.refused', 'Refused.', '{}', '{}'),
+		       ($1, $5, $3, current_date - 2, 'failed', $4, 'x.refused', 'Refused.', NULL, NULL)`, e.Tenant.ID, failed, id, e.Tenant.Human.ID, legacy)
 	page, _ = viewer.Must(200, "GET", "/v1/report-runs?report_id="+id, "", "")
 	if items := apitest.List(t, page, "items"); len(items) != 1 || items[0].(map[string]any)["id"] != failed.String() {
 		t.Errorf("viewer's runs: got %v, want the failed run alone", items)
@@ -261,7 +261,7 @@ func TestSharedRuns(t *testing.T) {
 	if got, _ := viewer.Must(200, "GET", "/v1/report-runs/"+failed.String(), "", ""); fmt.Sprint(got["companies"]) != "[]" {
 		t.Errorf("failed run's companies: got %v, want none", got["companies"])
 	}
-	e.As(all).Problem(403, "analytics.report_run_companies", "GET", "/v1/report-runs/"+legacy.String(), "", "")
+	e.As(all).Problem(403, "analytics.report_run_access", "GET", "/v1/report-runs/"+legacy.String(), "", "")
 	mine, _ := e.Must(200, "GET", "/v1/report-runs/"+legacy.String(), "", "")
 	if _, ok := mine["companies"]; ok {
 		t.Errorf("a run kept before T95c: got companies %v, want none named", mine["companies"])
@@ -269,6 +269,72 @@ func TestSharedRuns(t *testing.T) {
 	if got := len(e.runs(t, id)); got != 3 {
 		t.Errorf("owner's runs: got %d, want 3", got)
 	}
+}
+
+// role creates an active role with the permissions, held by the people
+// from yesterday, and returns its id.
+func (e env) role(t *testing.T, code string, permissions []string, holders ...pgtest.Actor) string {
+	t.Helper()
+	id := uuid.New()
+	pgtest.Exec(t, `INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1, $2, $3, $3, 'active', $4, $4)`,
+		e.Tenant.ID, id, code, e.Tenant.Human.ID)
+	for _, p := range permissions {
+		pgtest.Exec(t, `INSERT INTO identity.role_permission (tenant_id, id, role_id, permission_code, valid_from, created_by)
+			VALUES ($1, gen_random_uuid(), $2, $3, current_date - 1, $4)`, e.Tenant.ID, id, p, e.Tenant.Human.ID)
+	}
+	for _, a := range holders {
+		pgtest.Exec(t, `INSERT INTO identity.principal_role (tenant_id, id, principal_id, role_id, valid_from, created_by)
+			VALUES ($1, gen_random_uuid(), $2, $3, current_date - 1, $4)`, e.Tenant.ID, a.ID, id, e.Tenant.Human.ID)
+	}
+	return id.String()
+}
+
+// TestSharedRunPermissions: a kept run names the permissions its queries
+// read their data with, and a viewer of every company who lacks one, or
+// may not use one for a segregation-of-duties rule, does not read it, as
+// they could not run the report.
+func TestSharedRunPermissions(t *testing.T) {
+	e := withObjects(t)
+	id := e.scheduled(t)
+	e.runOnce(t)
+	run := e.runs(t, id)[0]
+	if got := fmt.Sprint(run["permissions"]); got != "[ledger.account.read ledger.entry.read partner.supplier.read tenancy.org.read]" {
+		t.Errorf("run's permissions: got %s, want the general ledger's, its names' and the organization's", got)
+	}
+	runID := apitest.String(t, run, "id")
+	rita := pgtest.Actor{ID: uuid.Must(uuid.NewV7()), Kind: "human"}
+	rita.Subject = "human|" + rita.ID.String()
+	pgtest.Exec(t, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, all_companies, status, created_by, updated_by)
+		VALUES ($1, $2, 'human', $3, $4, 'Rita Reports', true, 'active', $2, $2)`, e.Tenant.ID, rita.ID, pgtest.Issuer(t), rita.Subject)
+	e.role(t, "reports_only", []string{"analytics.report.read", "analytics.query.run", "tenancy.org.read"}, rita)
+	e.shareWith(t, id, person(rita))
+	viewer := e.As(rita)
+	page, _ := viewer.Must(200, "GET", "/v1/report-runs?report_id="+id, "", "")
+	if items := apitest.List(t, page, "items"); len(items) != 0 {
+		t.Errorf("runs of a viewer without the ledger's read: got %v, want none", items)
+	}
+	viewer.Problem(403, "analytics.report_run_access", "GET", "/v1/report-runs/"+runID, "", "")
+	viewer.Problem(403, "identity.permission_missing", "POST", "/v1/reports/"+id+":run", "", `"2"`)
+	paula := e.Person(t, "Paula Partner")
+	e.shareWith(t, id, person(paula))
+	e.As(paula).Must(200, "GET", "/v1/report-runs/"+runID, "", "")
+	pgtest.Exec(t, `INSERT INTO identity.sod_rule (tenant_id, id, permission_a, permission_b, description, valid_from, created_by)
+		VALUES ($1, gen_random_uuid(), 'analytics.report.read', 'ledger.entry.read', 'Reports or ledger', current_date - 1, $2)`, e.Tenant.ID, e.Tenant.Human.ID)
+	e.As(paula).Problem(403, "identity.sod_conflict", "GET", "/v1/report-runs/"+runID, "", "")
+}
+
+// TestShareWithInactiveRole: a share with a role reaches its holders
+// while the role is active alone.
+func TestShareWithInactiveRole(t *testing.T) {
+	e := setup(t)
+	rep, _ := e.save(t, reportOf(""))
+	id := apitest.String(t, rep, "id")
+	vera := e.Reader(t, "Vera Viewer", e.DE)
+	role := e.role(t, "temp_auditors", nil, vera)
+	e.shareWith(t, id, fmt.Sprintf(`{"role_id": %q}`, role))
+	e.As(vera).Must(200, "GET", "/v1/reports/"+id, "", "")
+	pgtest.Exec(t, `UPDATE identity.role SET status = 'inactive', version = version + 1 WHERE id = $1`, role)
+	e.As(vera).Problem(404, "request.not_found", "GET", "/v1/reports/"+id, "", "")
 }
 
 // TestShareLocks: two shares of one report at once wait for each other on

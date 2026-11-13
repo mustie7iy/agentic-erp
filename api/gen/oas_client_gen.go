@@ -3177,9 +3177,11 @@ type Invoker interface {
 	// GetReportRun invokes getReportRun operation.
 	//
 	// One kept run of a report the caller reads, their own or one shared with them (ADR-0076 §6-§7;
-	// T95b, T95c), when the caller's company access today covers every company the run covered (403
-	// `analytics.report_run_companies` otherwise, and for a run kept before T95c, which names no
-	// companies, to all but its report's owner): as JSON (`format=json`, the default) the run with its
+	// T95b, T95c), when the caller's company access today covers every company the run covered and they
+	// may use every permission its queries read their data with (`permissions`; held and not barred by a
+	// segregation-of-duties rule), as a run of theirs would need (403 `analytics.report_run_access`
+	// otherwise, or the segregation-of-duties problem; and for a run kept before T95c, which names
+	// neither, to all but its report's owner): as JSON (`format=json`, the default) the run with its
 	// specification and every query's result as the run kept them, read back from object storage, whose
 	// bytes are compared with the SHA-256 recorded (409 `analytics.report_run_changed` when they differ);
 	// as CSV (`format=csv`) one result, a header row of its columns' names then a row per result row, each
@@ -4532,10 +4534,11 @@ type Invoker interface {
 	// The runs the worker kept of the scheduled reports the caller reads (ADR-0076 §5-§7; T95b, T95c),
 	// their own and those shared with them, each with its report's title, its day, its outcome, the
 	// companies it covered and, for a failed one, the problem that failed it; without results, which
-	// `getReportRun` gives. Only the runs whose companies the caller's company access covers today are
-	// listed; a run kept before T95c, which names no companies, is its report owner's alone. Another's
-	// report's runs that are not shared with the caller are neither listed nor found. Filtered by report
-	// and status. Sortable by: `run_date` (default, the latest first).
+	// `getReportRun` gives. Only the runs whose companies the caller's company access covers today, and
+	// whose permissions (those its queries read their data with) the caller holds, are listed; a run kept
+	// before T95c, which names neither, is its report owner's alone. Another's report's runs that are not
+	// shared with the caller are neither listed nor found. Filtered by report and status. Sortable by:
+	// `run_date` (default, the latest first).
 	//
 	// GET /v1/report-runs
 	ListReportRuns(ctx context.Context, params ListReportRunsParams) (ListReportRunsRes, error)
@@ -6037,7 +6040,8 @@ type Invoker interface {
 	// exactly from the minor units and rounded half away from zero to the metric's digits: an amount to
 	// its currency's, a count to a whole number. A ratio is refused (422 `analytics.forecast_ratio`): its
 	// average is not the ratio of averages. Too little history for the method is refused naming the
-	// periods it needs and those the history has (422 `analytics.forecast_history_short`). The answer
+	// periods it needs and those the history has (422 `analytics.forecast_history_short`); a history of
+	// more periods than a query answers (500 rows) is refused (422 `analytics.invalid_query`). The answer
 	// names the method, the periods it used (`used`) and says it is an arithmetic projection, not a
 	// statistical forecast. Changes nothing: agents of any autonomy level may run it.
 	//
@@ -40735,9 +40739,11 @@ func (c *Client) sendGetReport(ctx context.Context, params GetReportParams) (res
 // GetReportRun invokes getReportRun operation.
 //
 // One kept run of a report the caller reads, their own or one shared with them (ADR-0076 §6-§7;
-// T95b, T95c), when the caller's company access today covers every company the run covered (403
-// `analytics.report_run_companies` otherwise, and for a run kept before T95c, which names no
-// companies, to all but its report's owner): as JSON (`format=json`, the default) the run with its
+// T95b, T95c), when the caller's company access today covers every company the run covered and they
+// may use every permission its queries read their data with (`permissions`; held and not barred by a
+// segregation-of-duties rule), as a run of theirs would need (403 `analytics.report_run_access`
+// otherwise, or the segregation-of-duties problem; and for a run kept before T95c, which names
+// neither, to all but its report's owner): as JSON (`format=json`, the default) the run with its
 // specification and every query's result as the run kept them, read back from object storage, whose
 // bytes are compared with the SHA-256 recorded (409 `analytics.report_run_changed` when they differ);
 // as CSV (`format=csv`) one result, a header row of its columns' names then a row per result row, each
@@ -70060,10 +70066,11 @@ func (c *Client) sendListRegressionSuites(ctx context.Context, params ListRegres
 // The runs the worker kept of the scheduled reports the caller reads (ADR-0076 §5-§7; T95b, T95c),
 // their own and those shared with them, each with its report's title, its day, its outcome, the
 // companies it covered and, for a failed one, the problem that failed it; without results, which
-// `getReportRun` gives. Only the runs whose companies the caller's company access covers today are
-// listed; a run kept before T95c, which names no companies, is its report owner's alone. Another's
-// report's runs that are not shared with the caller are neither listed nor found. Filtered by report
-// and status. Sortable by: `run_date` (default, the latest first).
+// `getReportRun` gives. Only the runs whose companies the caller's company access covers today, and
+// whose permissions (those its queries read their data with) the caller holds, are listed; a run kept
+// before T95c, which names neither, is its report owner's alone. Another's report's runs that are not
+// shared with the caller are neither listed nor found. Filtered by report and status. Sortable by:
+// `run_date` (default, the latest first).
 //
 // GET /v1/report-runs
 func (c *Client) ListReportRuns(ctx context.Context, params ListReportRunsParams) (ListReportRunsRes, error) {
@@ -89482,7 +89489,8 @@ func (c *Client) sendRunAllocationCycle(ctx context.Context, request *Allocation
 // exactly from the minor units and rounded half away from zero to the metric's digits: an amount to
 // its currency's, a count to a whole number. A ratio is refused (422 `analytics.forecast_ratio`): its
 // average is not the ratio of averages. Too little history for the method is refused naming the
-// periods it needs and those the history has (422 `analytics.forecast_history_short`). The answer
+// periods it needs and those the history has (422 `analytics.forecast_history_short`); a history of
+// more periods than a query answers (500 rows) is refused (422 `analytics.invalid_query`). The answer
 // names the method, the periods it used (`used`) and says it is an arithmetic projection, not a
 // statistical forecast. Changes nothing: agents of any autonomy level may run it.
 //

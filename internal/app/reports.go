@@ -56,8 +56,22 @@ func (reportGrantees) Kinds(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID
 	return out, err
 }
 
-func (reportGrantees) RolesHeld(ctx context.Context, principal uuid.UUID) ([]uuid.UUID, error) {
-	return identity.Directory{}.RolesHeld(ctx, principal)
+// RolesHeld are the active roles the principal holds today: a share with
+// a role reaches its holders while the role is active, as authz grants its
+// permissions only then.
+func (g reportGrantees) RolesHeld(ctx context.Context, principal uuid.UUID) ([]uuid.UUID, error) {
+	held, err := identity.Directory{}.RolesHeld(ctx, principal)
+	if err != nil {
+		return nil, err
+	}
+	roles, err := g.Roles(ctx, held)
+	out := []uuid.UUID{}
+	for _, id := range held {
+		if roles[id].Active {
+			out = append(out, id)
+		}
+	}
+	return out, err
 }
 
 func (reportGrantees) Roles(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]reports.Role, error) {

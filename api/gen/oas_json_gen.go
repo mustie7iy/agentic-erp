@@ -189915,6 +189915,16 @@ func (s *ReportRun) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.Permissions != nil {
+			e.FieldStart("permissions")
+			e.ArrStart()
+			for _, elem := range s.Permissions {
+				e.Str(elem)
+			}
+			e.ArrEnd()
+		}
+	}
+	{
 		e.FieldStart("created_at")
 		json.EncodeDateTime(e, s.CreatedAt)
 	}
@@ -189936,7 +189946,7 @@ func (s *ReportRun) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfReportRun = [14]string{
+var jsonFieldsNameOfReportRun = [15]string{
 	0:  "id",
 	1:  "report_id",
 	2:  "report_title",
@@ -189948,9 +189958,10 @@ var jsonFieldsNameOfReportRun = [14]string{
 	8:  "sha256",
 	9:  "data_through",
 	10: "companies",
-	11: "created_at",
-	12: "spec",
-	13: "results",
+	11: "permissions",
+	12: "created_at",
+	13: "spec",
+	14: "results",
 }
 
 // Decode decodes ReportRun from json.
@@ -190095,8 +190106,27 @@ func (s *ReportRun) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"companies\"")
 			}
+		case "permissions":
+			if err := func() error {
+				s.Permissions = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
+						return err
+					}
+					s.Permissions = append(s.Permissions, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"permissions\"")
+			}
 		case "created_at":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.CreatedAt = v
@@ -190145,7 +190175,7 @@ func (s *ReportRun) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b01111111,
-		0b00001000,
+		0b00010000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

@@ -368,31 +368,38 @@ func TestReportShareEndedFixed(t *testing.T) {
 
 // TestReportRunCompanies (T95c, migration 000310; ADR-0076 §7): a run
 // names the codes of the companies it covered, none of them null and at
-// most 10,000; a run kept before names none.
+// most 10,000, and the permissions its queries read with, none null and
+// at most 100, both or neither; a run kept before names neither.
 func TestReportRunCompanies(t *testing.T) {
 	need(t)
 	const report = `INSERT INTO analytics.report (tenant_id, id, title, spec, queries, owner_id) VALUES ($1, $2, 'R', '{}', '{}', $1)`
-	const run = `INSERT INTO analytics.report_run (tenant_id, id, report_id, run_date, status, run_as, failure_code, failure_detail, companies)
-		VALUES ($1, $2, $3, '2026-11-13', 'failed', $1, 'x.refused', 'Refused.', $4)`
+	const run = `INSERT INTO analytics.report_run (tenant_id, id, report_id, run_date, status, run_as, failure_code, failure_detail, companies, permissions)
+		VALUES ($1, $2, $3, '2026-11-13', 'failed', $1, 'x.refused', 'Refused.', $4, $5)`
 	many := make([]string, 10001)
 	for i := range many {
 		many[i] = "c"
 	}
+	perms := []string{"ledger.entry.read"}
 	for name, c := range map[string]struct {
-		companies any
-		want      string // empty: allowed
+		companies, permissions any
+		want                   string // empty: allowed
 	}{
-		"two companies":          {[]string{"1000", "2000"}, ""},
-		"none":                   {[]string{}, ""},
-		"not named":              {nil, ""},
-		"a null company":         {[]*string{nil}, "report_run_companies_check"},
-		"10,001 companies":       {many, "report_run_companies_check"},
-		"10,000 companies named": {many[1:], ""},
+		"two companies":          {[]string{"1000", "2000"}, perms, ""},
+		"none":                   {[]string{}, []string{}, ""},
+		"not named":              {nil, nil, ""},
+		"a null company":         {[]*string{nil}, perms, "report_run_companies_check"},
+		"10,001 companies":       {many, perms, "report_run_companies_check"},
+		"10,000 companies named": {many[1:], perms, ""},
+		"a null permission":      {[]string{}, []*string{nil}, "report_run_permissions_check"},
+		"101 permissions":        {[]string{}, many[:101], "report_run_permissions_check"},
+		"100 permissions":        {[]string{}, many[:100], ""},
+		"companies alone":        {[]string{"1000"}, nil, "report_run_access_whole"},
+		"permissions alone":      {nil, perms, "report_run_access_whole"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			tenant, rep := id(), id()
 			err := asApp(t, tenant, func(tx pgx.Tx) error {
-				return all(tx, step(report, tenant, rep), step(run, tenant, id(), rep, c.companies))
+				return all(tx, step(report, tenant, rep), step(run, tenant, id(), rep, c.companies, c.permissions))
 			})
 			if c.want != "" {
 				failsWith(t, err, c.want)

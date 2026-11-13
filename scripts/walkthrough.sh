@@ -7943,7 +7943,7 @@ step_saved_report() {
   say "Carla's kept run covered every company she may read, so it is neither listed to Vera nor read by her:"
   QUIET=1 api 200 '' listReportRuns -p "report_id=$rep"
   expect "the runs listed to Vera" "$(field '.items | length')" 0
-  refused 403 analytics.report_run_companies getReportRun -p "id=$run"
+  refused 403 analytics.report_run_access getReportRun -p "id=$run"
   say "She reads and runs Carla's reports, but does not change or share them:"
   refused 403 analytics.report_not_owner removeReport -p "id=$wide" -if-match "$wide_tag"
   refused 403 analytics.report_not_owner createReportShare -p "id=$wide" -body "{\"principal_id\": \"$vera\"}"

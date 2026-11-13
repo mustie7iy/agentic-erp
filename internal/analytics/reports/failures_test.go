@@ -36,6 +36,11 @@ func (f facts) Runner(context.Context) (analytics.Runner, *analytics.Model, erro
 	return runner{s}, m, nil
 }
 
+// Permissions are what a query of the general ledger reads with.
+func (facts) Permissions(*analytics.Model, analytics.Query) []string {
+	return []string{"ledger.entry.read"}
+}
+
 type runner struct{ s *analytics.Session }
 
 func (r runner) Query(_ context.Context, q analytics.Query) (*analytics.Result, error) {
@@ -173,6 +178,23 @@ func (failing) Runner(context.Context) (analytics.Runner, *analytics.Model, erro
 
 func (failing) Query(context.Context, analytics.Query) (*analytics.Result, error) {
 	return nil, errQuery
+}
+
+func (failing) Permissions(*analytics.Model, analytics.Query) []string { return nil }
+
+// modelLost answers the queries of its Queries, but has no model the
+// second time it is asked for one: after a run, for its permissions.
+type modelLost struct {
+	reports.Queries
+	asked *int
+}
+
+func (q modelLost) Runner(ctx context.Context) (analytics.Runner, *analytics.Model, error) {
+	*q.asked++
+	if *q.asked > 1 {
+		return nil, nil, errQuery
+	}
+	return q.Queries.Runner(ctx)
 }
 
 // people answer no name.
@@ -360,6 +382,8 @@ func (r refusing) Runner(context.Context) (analytics.Runner, *analytics.Model, e
 
 func (r refusing) Query(context.Context, analytics.Query) (*analytics.Result, error) { return nil, r.p }
 
+func (refusing) Permissions(*analytics.Model, analytics.Query) []string { return nil }
+
 // TestSchedulerPorts: the configuration, the store or a query failing
 // fails the round and keeps nothing; a query refused is kept as the run's
 // failure, its detail the problem's title when it has none and cut at
@@ -370,11 +394,12 @@ func TestSchedulerPorts(t *testing.T) {
 		change func(r *reports.Endpoints)
 		want   error
 	}{
-		"the configuration": {func(r *reports.Endpoints) { r.Configs = configs{err: errStore} }, errStore},
-		"a zone":            {func(r *reports.Endpoints) { r.Configs = configs{doc: &broken} }, nil},
-		"the store":         {func(r *reports.Endpoints) { r.Objects = storeFailing{} }, errStore},
-		"a query":           {func(r *reports.Endpoints) { r.Queries = failing{} }, errQuery},
-		"a server problem":  {func(r *reports.Endpoints) { r.Queries = refusing{problem.Unavailable("busy", 1)} }, nil},
+		"the configuration":        {func(r *reports.Endpoints) { r.Configs = configs{err: errStore} }, errStore},
+		"a zone":                   {func(r *reports.Endpoints) { r.Configs = configs{doc: &broken} }, nil},
+		"the store":                {func(r *reports.Endpoints) { r.Objects = storeFailing{} }, errStore},
+		"a query":                  {func(r *reports.Endpoints) { r.Queries = failing{} }, errQuery},
+		"the model, after the run": {func(r *reports.Endpoints) { r.Queries = modelLost{Queries: r.Queries, asked: new(int)} }, errQuery},
+		"a server problem":         {func(r *reports.Endpoints) { r.Queries = refusing{problem.Unavailable("busy", 1)} }, nil},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := withObjects(t)

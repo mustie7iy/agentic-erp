@@ -48,7 +48,8 @@ const (
 	ForecastRatio        = "analytics.forecast_ratio"
 	ForecastHistoryShort = "analytics.forecast_history_short"
 	// ForecastCurrencies is a history in several currencies, refused as
-	// the semantic layer refuses amounts of two currencies summed.
+	// the semantic layer refuses amounts of two currencies summed, or one
+	// of more periods than a query answers.
 	ForecastCurrencies = "analytics.invalid_query"
 )
 
@@ -142,6 +143,9 @@ func NewForecast(m *Model, s ForecastSpec, res *Result) (*Forecast, error) {
 // metric's zero, of its currency and digits. No period with data is too
 // little history for any method.
 func series(s ForecastSpec, res *Result) ([]Point, Value, error) {
+	if res.Truncated { // the earliest periods alone: a forecast from them would project the past
+		return nil, Value{}, &ForecastError{Code: ForecastCurrencies, Detail: "The history has more periods than a query answers (500); filter it to fewer."}
+	}
 	byIndex := map[int]Point{}
 	var zero Value
 	for _, row := range res.Rows {

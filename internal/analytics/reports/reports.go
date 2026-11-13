@@ -34,9 +34,10 @@ import (
 
 // Queries runs a report's queries as the caller (the semantic layer's
 // endpoint, endpoint.Endpoints): a Runner under the active model, and
-// that model.
+// that model; and names the permissions a query reads its data with.
 type Queries interface {
 	Runner(ctx context.Context) (analytics.Runner, *analytics.Model, error)
+	Permissions(m *analytics.Model, q analytics.Query) []string
 }
 
 // People reads principals' names (identity context), keyed by id; an id

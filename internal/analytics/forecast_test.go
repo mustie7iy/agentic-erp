@@ -177,6 +177,7 @@ func TestForecastRefusals(t *testing.T) {
 		"no history": {ok, &Result{Rows: []Row{{"2026", "1", nil}}}, "revenue has no history to forecast from"},
 		"too few months": {ok, history(t, "2026-8=1", "2026-9=1"),
 			"moving_average needs revenue from 2026-07 to 2026-09; its history runs from 2026-08 to 2026-09."},
+		"more periods than a query answers": {ok, &Result{Truncated: true}, "The history has more periods than a query answers"},
 		"two currencies": {ok, &Result{Rows: []Row{{"2026", "1", cad(1)}, {"2026", "2", Value{Units: 1, Scale: 2, Currency: "USD"}}}},
 			"revenue's history is in amounts in CAD and amounts in USD"},
 		"no year before": {ForecastSpec{Metric: "revenue", Grain: "month", Ahead: 2, Method: SamePeriodLastYear}, history(t, "2025-11=1", "2026-9=1"),

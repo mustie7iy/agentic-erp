@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -34,34 +37,38 @@ type Run struct {
 	FailureCode   *string
 	FailureDetail *string
 	CreatedAt     time.Time
-	// Companies are the codes of the companies the run covered; nil for a
-	// run kept before T95c, which named none.
-	Companies []string
-	// Covered says whether the reader's company access covers them (the
-	// report's owner alone reads a run that named none).
+	// Companies are the codes of the companies the run covered and
+	// Permissions those its queries read their data with; nil for a run
+	// kept before T95c, which named neither.
+	Companies, Permissions []string
+	// Covered says whether the reader's company access covers the
+	// companies and they hold the permissions (the report's owner alone
+	// reads a run that named neither).
 	Covered bool
 }
 
 // runSelect reads the runs of the reports the reader ($1 to $3, as
 // readable) reads, each with its report's title and whether the reader's
-// companies ($4) cover the run's; the join is inside, so the keyset's id
-// is the run's.
+// companies ($4) cover the run's and their permissions ($5) hold the
+// run's; the join is inside, so the keyset's id is the run's.
 const runSelect = `SELECT id, report_id, title, run_date, status, run_as, object_key, sha256, data_through, failure_code, failure_detail, created_at,
-		companies, covered
+		companies, permissions, covered
 	FROM (SELECT rr.id, rr.report_id, r.title, rr.run_date, rr.status, rr.run_as, rr.object_key, rr.sha256, rr.data_through,
-			rr.failure_code, rr.failure_detail, rr.created_at, rr.companies, coalesce(rr.companies <@ $4::text[], r.owner_id = $1) AS covered
+			rr.failure_code, rr.failure_detail, rr.created_at, rr.companies, rr.permissions,
+			coalesce(rr.companies <@ $4::text[] AND rr.permissions <@ $5::text[], r.owner_id = $1) AS covered
 		FROM analytics.report_run rr JOIN analytics.report r ON r.tenant_id = rr.tenant_id AND r.id = rr.report_id WHERE ` + readable + `) runs
 	WHERE true`
 
 func scanRun(row pgx.Row) (Run, error) {
 	var r Run
 	err := row.Scan(&r.ID, &r.ReportID, &r.ReportTitle, &r.Date, &r.Status, &r.RunAs, &r.ObjectKey, &r.SHA256, &r.DataThrough,
-		&r.FailureCode, &r.FailureDetail, &r.CreatedAt, &r.Companies, &r.Covered)
+		&r.FailureCode, &r.FailureDetail, &r.CreatedAt, &r.Companies, &r.Permissions, &r.Covered)
 	return r, errs.Wrapf(err, "scan report run")
 }
 
 // runsRequest is the request's transaction and the arguments runSelect
-// reads the caller by: as a reader, and the companies they may read now.
+// reads the caller by: as a reader, the companies they may read and the
+// permissions they hold now.
 func (e *Endpoints) runsRequest(ctx context.Context) (pgx.Tx, []any, error) {
 	tx, _, v, err := e.request(ctx)
 	if err != nil {
@@ -71,7 +78,11 @@ func (e *Endpoints) runsRequest(ctx context.Context) (pgx.Tx, []any, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return tx, append(v.args(), companies), nil
+	held, err := authz.Permissions(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("analytics: permissions of the caller: %w", err)
+	}
+	return tx, append(v.args(), companies, slices.Sorted(maps.Keys(held))), nil
 }
 
 var runSort = pagination.Sort{Default: "run_date", DefaultDesc: true, Fields: []pagination.Field{{Name: "run_date", Column: "run_date", Type: "date"}}}
@@ -88,7 +99,7 @@ func (e *Endpoints) Runs(ctx context.Context, report *uuid.UUID, status string, 
 	if err != nil {
 		return nil, nil, fmt.Errorf("analytics: page of report runs: %w", err)
 	}
-	q, args := ks.SQL(runSelect+` AND covered AND ($5::uuid IS NULL OR report_id = $5) AND ($6 = '' OR status = $6)`, append(args, report, status))
+	q, args := ks.SQL(runSelect+` AND covered AND ($6::uuid IS NULL OR report_id = $6) AND ($7 = '' OR status = $7)`, append(args, report, status))
 	rows, _ := tx.Query(ctx, q, args...)
 	runs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Run, error) { return scanRun(r) })
 	if err != nil {
@@ -98,24 +109,27 @@ func (e *Endpoints) Runs(ctx context.Context, report *uuid.UUID, status string, 
 }
 
 // GetRun is a run of a report the caller reads, refused (403
-// analytics.report_run_companies) unless their company access covers
-// every company it covered (ADR-0076 §7).
+// analytics.report_run_access) unless their company access covers every
+// company it covered and they may use every permission its queries read
+// their data with (ADR-0076 §7).
 func (e *Endpoints) GetRun(ctx context.Context, id uuid.UUID) (Run, error) {
 	tx, args, err := e.runsRequest(ctx)
 	if err != nil {
 		return Run{}, err
 	}
-	r, err := scanRun(tx.QueryRow(ctx, runSelect+` AND id = $5`, append(args, id)...))
+	r, err := scanRun(tx.QueryRow(ctx, runSelect+` AND id = $6`, append(args, id)...))
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return Run{}, problem.NotFoundOf("report run")
 	case err != nil:
 		return Run{}, fmt.Errorf("analytics: read report run %s: %w", id, err)
 	case !r.Covered:
-		return Run{}, problem.Forbidden("analytics.report_run_companies",
-			"The run covered companies your company access does not, or was kept before runs named their companies; run the report to see your companies' figures.")
+		return Run{}, problem.Forbidden("analytics.report_run_access",
+			"The run covered companies your company access does not, read data with permissions you do not hold, or was kept before runs named them; run the report to see what your access shows.")
 	}
-	return r, nil
+	// A permission held but barred by a segregation-of-duties rule refuses
+	// the run as it refuses the query (endpoint.datasets).
+	return r, authz.Require(ctx, r.Permissions...)
 }
 
 // results reads a succeeded run's results back from object storage,
@@ -142,7 +156,7 @@ func (e *Endpoints) results(ctx context.Context, r Run) (gen.ReportResults, erro
 // runToAPI is a run as the API lists it, with the name of whom it ran as.
 func runToAPI(r Run, names map[uuid.UUID]string) gen.ReportRun {
 	out := gen.ReportRun{ID: r.ID, ReportID: r.ReportID, ReportTitle: r.ReportTitle, RunDate: r.Date, Status: r.Status, RunAs: r.RunAs,
-		RunAsName: names[r.RunAs], CreatedAt: r.CreatedAt, Companies: r.Companies}
+		RunAsName: names[r.RunAs], CreatedAt: r.CreatedAt, Companies: r.Companies, Permissions: r.Permissions}
 	if r.FailureCode != nil {
 		out.Failure = gen.NewOptReportRunFailure(gen.ReportRunFailure{Code: *r.FailureCode, Detail: *r.FailureDetail})
 	}

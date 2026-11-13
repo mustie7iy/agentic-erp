@@ -26867,7 +26867,7 @@ paths:
       tags:
         - analytics
       summary: Forecast a governed metric
-      description: "Forecasts a governed metric (ADR-0076 §8, T97a) for the periods after its history by a named method, and answers history and forecast together; nothing is stored. The history is the metric by fiscal period of `grain` (`month`, `quarter` or `year` of the semantic model's fiscal calendar), filtered by `where` and `companies`, as `runAnalyticsQuery` answers it for the caller (their company access and dataset permissions, the active metric definitions; a query it refuses, amounts of two currencies summed among them, is refused here with its problem): every period from the first with data through the last with data, which may be the current one not yet complete, a period without data counting as zero. `moving_average` forecasts each of the `periods_ahead` periods after the history as the average of its last `window` periods; `same_period_last_year` forecasts each as the same period a fiscal year before (`periods_ahead` at most a year's periods). A forecast is computed exactly from the minor units and rounded half away from zero to the metric's digits: an amount to its currency's, a count to a whole number. A ratio is refused (422 `analytics.forecast_ratio`): its average is not the ratio of averages. Too little history for the method is refused naming the periods it needs and those the history has (422 `analytics.forecast_history_short`). The answer names the method, the periods it used (`used`) and says it is an arithmetic projection, not a statistical forecast. Changes nothing: agents of any autonomy level may run it."
+      description: "Forecasts a governed metric (ADR-0076 §8, T97a) for the periods after its history by a named method, and answers history and forecast together; nothing is stored. The history is the metric by fiscal period of `grain` (`month`, `quarter` or `year` of the semantic model's fiscal calendar), filtered by `where` and `companies`, as `runAnalyticsQuery` answers it for the caller (their company access and dataset permissions, the active metric definitions; a query it refuses, amounts of two currencies summed among them, is refused here with its problem): every period from the first with data through the last with data, which may be the current one not yet complete, a period without data counting as zero. `moving_average` forecasts each of the `periods_ahead` periods after the history as the average of its last `window` periods; `same_period_last_year` forecasts each as the same period a fiscal year before (`periods_ahead` at most a year's periods). A forecast is computed exactly from the minor units and rounded half away from zero to the metric's digits: an amount to its currency's, a count to a whole number. A ratio is refused (422 `analytics.forecast_ratio`): its average is not the ratio of averages. Too little history for the method is refused naming the periods it needs and those the history has (422 `analytics.forecast_history_short`); a history of more periods than a query answers (500 rows) is refused (422 `analytics.invalid_query`). The answer names the method, the periods it used (`used`) and says it is an arithmetic projection, not a statistical forecast. Changes nothing: agents of any autonomy level may run it."
       x-permission: analytics.query.run
       x-autonomy: read
       x-problem-codes:
@@ -27451,7 +27451,7 @@ paths:
       tags:
         - analytics
       summary: List the kept runs of the reports you read
-      description: "The runs the worker kept of the scheduled reports the caller reads (ADR-0076 §5-§7; T95b, T95c), their own and those shared with them, each with its report's title, its day, its outcome, the companies it covered and, for a failed one, the problem that failed it; without results, which `getReportRun` gives. Only the runs whose companies the caller's company access covers today are listed; a run kept before T95c, which names no companies, is its report owner's alone. Another's report's runs that are not shared with the caller are neither listed nor found. Filtered by report and status. Sortable by: `run_date` (default, the latest first)."
+      description: "The runs the worker kept of the scheduled reports the caller reads (ADR-0076 §5-§7; T95b, T95c), their own and those shared with them, each with its report's title, its day, its outcome, the companies it covered and, for a failed one, the problem that failed it; without results, which `getReportRun` gives. Only the runs whose companies the caller's company access covers today, and whose permissions (those its queries read their data with) the caller holds, are listed; a run kept before T95c, which names neither, is its report owner's alone. Another's report's runs that are not shared with the caller are neither listed nor found. Filtered by report and status. Sortable by: `run_date` (default, the latest first)."
       x-permission: analytics.report.read
       x-problem-codes:
         - request.invalid_order_by
@@ -27499,11 +27499,11 @@ paths:
       tags:
         - analytics
       summary: Get a kept run of a report you read
-      description: "One kept run of a report the caller reads, their own or one shared with them (ADR-0076 §6-§7; T95b, T95c), when the caller's company access today covers every company the run covered (403 `analytics.report_run_companies` otherwise, and for a run kept before T95c, which names no companies, to all but its report's owner): as JSON (`format=json`, the default) the run with its specification and every query's result as the run kept them, read back from object storage, whose bytes are compared with the SHA-256 recorded (409 `analytics.report_run_changed` when they differ); as CSV (`format=csv`) one result, a header row of its columns' names then a row per result row, each measure an exact decimal and a money measure followed by its currency's column (`<name>_currency`), a measure that cannot be computed empty, the result named by `query_id` (422 `analytics.unknown_query` when the run has no such result, or when the run has several and none is named). A failed run has no results (409 `analytics.report_run_failed` for its CSV); a format the contract does not list is 422 `request.validation_failed`; 503 while the server has no object storage."
+      description: "One kept run of a report the caller reads, their own or one shared with them (ADR-0076 §6-§7; T95b, T95c), when the caller's company access today covers every company the run covered and they may use every permission its queries read their data with (`permissions`; held and not barred by a segregation-of-duties rule), as a run of theirs would need (403 `analytics.report_run_access` otherwise, or the segregation-of-duties problem; and for a run kept before T95c, which names neither, to all but its report's owner): as JSON (`format=json`, the default) the run with its specification and every query's result as the run kept them, read back from object storage, whose bytes are compared with the SHA-256 recorded (409 `analytics.report_run_changed` when they differ); as CSV (`format=csv`) one result, a header row of its columns' names then a row per result row, each measure an exact decimal and a money measure followed by its currency's column (`<name>_currency`), a measure that cannot be computed empty, the result named by `query_id` (422 `analytics.unknown_query` when the run has no such result, or when the run has several and none is named). A failed run has no results (409 `analytics.report_run_failed` for its CSV); a format the contract does not list is 422 `request.validation_failed`; 503 while the server has no object storage."
       x-permission: analytics.report.read
       x-problem-codes:
+        - analytics.report_run_access
         - analytics.report_run_changed
-        - analytics.report_run_companies
         - analytics.report_run_failed
         - analytics.unknown_query
         - request.validation_failed
@@ -57925,6 +57925,11 @@ components:
           description: "The codes of the companies the run covered, its owner's company access when it ran, by code: a reader's company access must cover each (ADR-0076 §7). Empty for a failed run, which kept no results; absent for a run kept before T95c, which its report's owner alone reads."
           items: {type: string}
           readOnly: true
+        permissions:
+          type: array
+          description: "The permissions the run's queries read their data with, in order: a reader must hold each (ADR-0076 §7). Empty for a failed run; absent for a run kept before T95c."
+          items: {type: string}
+          readOnly: true
         created_at: {type: string, format: date-time, description: When the run was kept (UTC)., readOnly: true}
         spec: {$ref: "#/components/schemas/ReportSpec", description: "From `getReportRun`, for a succeeded run: the specification as answered, naming the results below."}
         results:
@@ -57942,6 +57947,7 @@ components:
           sha256: 3f2a0c1d6e5b4a3928171615141312111009080706050403020100ffeeddccbb
           data_through: "2026-11-25"
           companies: ["1000", "3000"]
+          permissions: [ledger.account.read, ledger.entry.read, partner.supplier.read, tenancy.org.read]
           created_at: "2026-11-26T05:00:12Z"
     ReportShareCreate:
       type: object

@@ -53,7 +53,11 @@ SELECT platform.secure_table('analytics.report_share'::regclass);
 REVOKE UPDATE ON analytics.report_share FROM erp_app;
 GRANT UPDATE (status, version, updated_by) ON analytics.report_share TO erp_app;
 
--- The company codes a kept run covered: its owner's company access when
--- it ran; none for a failed run, which kept no results.
+-- The company codes a kept run covered, its owner's company access when
+-- it ran, and the permissions its queries read their data with; none for
+-- a failed run, which kept no results. Both or neither: a run kept before
+-- names neither.
 ALTER TABLE analytics.report_run
-  ADD COLUMN companies text[] CONSTRAINT report_run_companies_check CHECK (array_position(companies, NULL) IS NULL AND cardinality(companies) <= 10000);
+  ADD COLUMN companies text[] CONSTRAINT report_run_companies_check CHECK (array_position(companies, NULL) IS NULL AND cardinality(companies) <= 10000),
+  ADD COLUMN permissions text[] CONSTRAINT report_run_permissions_check CHECK (array_position(permissions, NULL) IS NULL AND cardinality(permissions) <= 100),
+  ADD CONSTRAINT report_run_access_whole CHECK ((companies IS NULL) = (permissions IS NULL));

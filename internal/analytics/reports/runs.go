@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 	"unicode/utf8"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/analytics/endpoint"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
@@ -181,9 +184,9 @@ type keptRun struct {
 	SHA256      []byte
 	DataThrough string
 	// Companies are the codes of the companies a success covered, the
-	// owner's company access when it ran (ADR-0076 §7); none for a
-	// failure.
-	Companies []string
+	// owner's company access when it ran, and Permissions those its
+	// queries read their data with (ADR-0076 §7); none for a failure.
+	Companies, Permissions []string
 	// FailureCode and FailureDetail are the problem that failed the run;
 	// "" for a success.
 	FailureCode, FailureDetail string
@@ -207,6 +210,10 @@ func (s *Scheduler) execute(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	if err != nil {
 		return failed(run, err)
 	}
+	permissions, err := s.Reports.permissions(ctx, run.Report.Queries)
+	if err != nil {
+		return err
+	}
 	res := Results{Report: run.Report, Spec: out.Spec, DataThrough: sess.DataThrough()}
 	for _, qid := range sortedIDs(results) {
 		res.Results = append(res.Results, results[qid])
@@ -218,7 +225,7 @@ func (s *Scheduler) execute(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	if err := s.Reports.Objects.Put(ctx, key, body, blobstore.PutOptions{ContentType: "application/json"}); err != nil {
 		return fmt.Errorf("analytics: keep run %s of report %s: %w", run.ID, run.Report.ID, err)
 	}
-	run.ObjectKey, run.SHA256, run.DataThrough, run.Companies = key, sum[:], res.DataThrough, companies
+	run.ObjectKey, run.SHA256, run.DataThrough, run.Companies, run.Permissions = key, sum[:], res.DataThrough, companies, permissions
 	return nil
 }
 
@@ -267,9 +274,9 @@ const maxDetail = 2000
 func keep(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run keptRun) error {
 	status, code, detail, sum, through := Succeeded, (*string)(nil), (*string)(nil), (*string)(nil), (*string)(nil)
 	var key *string
-	companies := run.Companies
-	if companies == nil { // a failure covered none
-		companies = []string{}
+	companies, permissions := run.Companies, run.Permissions
+	if companies == nil { // a failure covered none and read nothing
+		companies, permissions = []string{}, []string{}
 	}
 	if run.FailureCode != "" {
 		status = Failed
@@ -279,8 +286,8 @@ func keep(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run keptRun) error
 		key, sum, through = &run.ObjectKey, &h, &run.DataThrough
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO analytics.report_run (tenant_id, id, report_id, run_date, status, run_as, object_key, sha256, data_through,
-			failure_code, failure_detail, companies) VALUES ($1, $2, $3, $4, $5, $6, $7, decode($8, 'hex'), $9, $10, $11, $12)`,
-		p.TenantID, run.ID, run.Report.ID, run.Date, status, run.RunAs, key, sum, through, code, detail, companies); err != nil {
+			failure_code, failure_detail, companies, permissions) VALUES ($1, $2, $3, $4, $5, $6, $7, decode($8, 'hex'), $9, $10, $11, $12, $13)`,
+		p.TenantID, run.ID, run.Report.ID, run.Date, status, run.RunAs, key, sum, through, code, detail, companies, permissions); err != nil {
 		return fmt.Errorf("analytics: keep run %s of report %s: %w", run.ID, run.Report.ID, err)
 	}
 	date := run.Date.Format("2006-01-02")
@@ -302,4 +309,21 @@ func resultsToAPI(res Results) gen.ReportResults {
 		out.Results[i] = endpoint.ResultToAPI(r)
 	}
 	return out
+}
+
+// permissions are those the queries read their data with, under the
+// active model, in order: a kept run's results are read only by whoever
+// holds them all (ADR-0076 §7).
+func (e *Endpoints) permissions(ctx context.Context, queries map[string]analytics.Query) ([]string, error) {
+	_, m, err := e.Queries.Runner(ctx)
+	if err != nil {
+		return nil, err
+	}
+	set := map[string]bool{}
+	for _, q := range queries {
+		for _, p := range e.Queries.Permissions(m, q) {
+			set[p] = true
+		}
+	}
+	return slices.Sorted(maps.Keys(set)), nil
 }

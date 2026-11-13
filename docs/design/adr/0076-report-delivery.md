@@ -181,11 +181,19 @@ shared role reads nothing through it.
   nor list its shares. A run by a viewer is §2's run as the viewer: their
   company access and dataset permissions, never the owner's.
 - A kept run names the companies it covered: the owner's company access
-  when it ran, by code (all the tenant's companies for access to all); a
-  failed run covered none. A run is listed to, and read by, a reader
-  whose company access today covers every one of them (403
-  `analytics.report_run_companies` otherwise), its owner included; a run
-  kept before T95c names none and is its owner's alone.
+  when it ran, by code (all the tenant's companies for access to all);
+  and the permissions its queries read their data with
+  (`endpoint.Permissions`, as the store asks of a reader: the datasets',
+  `tenancy.org.read` and the names' it shows, `partner.supplier.read`
+  among them); a failed run names none of either. A run is listed to a
+  reader whose company access today covers every company and who holds
+  every permission, and read by one who may also use each (no
+  segregation-of-duties rule barring it; 403
+  `analytics.report_run_access` otherwise), its owner included, so a kept
+  run shows no viewer more than their own run would; a run kept before
+  T95c names neither and is its owner's alone.
+- A share with a role reaches the role's holders while the role is
+  active, as authz grants a role's permissions only then.
 - There is no `DELETE` (04 §4.3): `POST
   /v1/reports/{id}/shares/{share_id}:end` ends a share once, at the
   share's version, and from that moment it reaches no one; an ended share
@@ -227,7 +235,9 @@ may run it (`x-autonomy: read`).
   average is not the ratio of its averages. A history in more than one
   currency is refused as the semantic layer refuses amounts of two
   currencies summed (422 `analytics.invalid_query`; product owner
-  2026-11-13: analytics never sums foreign currency).
+  2026-11-13: analytics never sums foreign currency), and so is one of
+  more periods than a query answers (500 rows), which would project from
+  the earliest.
 - The answer names the method, the window, the periods it used and says
   it is an arithmetic projection, not a statistical forecast; each
   figure is an exact decimal beside its currency, with the history's and
@@ -349,8 +359,10 @@ may run it (`x-autonomy: read`).
   (`report_share_grantee`, `report_share_once`, the trigger
   `report_share_ended_fixed`, an update grant of the status, version and
   `updated_by` alone, optimistic locking by `platform.touch`), and
-  `analytics.report_run.companies` (`report_run_companies_check`). Schema
-  tests in `db/reports_test.go`.
+  `analytics.report_run.companies` and `.permissions`
+  (`report_run_companies_check`, `report_run_permissions_check`, both or
+  neither: `report_run_access_whole`). Schema tests in
+  `db/reports_test.go`.
 - `internal/analytics/reports`: `CreateShare`, `EndShare` and `Shares`
   with the handlers of `POST /v1/reports/{id}/shares`,
   `POST /v1/reports/{id}/shares/{share_id}:end` (no `DELETE`, 04 §4.3)
@@ -373,6 +385,9 @@ may run it (`x-autonomy: read`).
   run over every company is neither listed nor read by her (403), she may
   not remove or share the report, a share with an agent is refused, and
   once Carla ends the share Vera no longer finds the report.
+- A run names every company of its owner's access, even when each of its
+  queries filters on one company: stricter than needed, never looser
+  (review round 1; narrowing to a shared company filter is left for later).
 - Decided by default while building: §7 and default 6 above;
   `:schedule` checks the caller owns the report before it answers 503
   without object storage.

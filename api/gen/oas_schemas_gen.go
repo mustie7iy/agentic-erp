@@ -75435,6 +75435,9 @@ type ReportRun struct {
 	// reader's company access must cover each (ADR-0076 §7). Empty for a failed run, which kept no
 	// results; absent for a run kept before T95c, which its report's owner alone reads.
 	Companies []string `json:"companies"`
+	// The permissions the run's queries read their data with, in order: a reader must hold each (ADR-0076
+	// §7). Empty for a failed run; absent for a run kept before T95c.
+	Permissions []string `json:"permissions"`
 	// When the run was kept (UTC).
 	CreatedAt time.Time `json:"created_at"`
 	// From `getReportRun`, for a succeeded run: the specification as answered, naming the results below.
@@ -75496,6 +75499,11 @@ func (s *ReportRun) GetDataThrough() OptString {
 // GetCompanies returns the value of Companies.
 func (s *ReportRun) GetCompanies() []string {
 	return s.Companies
+}
+
+// GetPermissions returns the value of Permissions.
+func (s *ReportRun) GetPermissions() []string {
+	return s.Permissions
 }
 
 // GetCreatedAt returns the value of CreatedAt.
@@ -75566,6 +75574,11 @@ func (s *ReportRun) SetDataThrough(val OptString) {
 // SetCompanies sets the value of Companies.
 func (s *ReportRun) SetCompanies(val []string) {
 	s.Companies = val
+}
+
+// SetPermissions sets the value of Permissions.
+func (s *ReportRun) SetPermissions(val []string) {
+	s.Permissions = val
 }
 
 // SetCreatedAt sets the value of CreatedAt.
