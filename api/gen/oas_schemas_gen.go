@@ -4038,6 +4038,428 @@ func (s *AnalyticsFilter) SetValues(val []string) {
 	s.Values = val
 }
 
+// A governed metric's history and its forecast, an arithmetic projection computed on request and
+// stored nowhere (ADR-0076 §8).
+// Ref: #/components/schemas/AnalyticsForecast
+type AnalyticsForecast struct {
+	// The metric.
+	Metric string `json:"metric"`
+	// The metric's label in the semantic model.
+	MetricLabel string `json:"metric_label"`
+	// `money` or `count`. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Type string `json:"type"`
+	// For a money metric: the currency of every figure.
+	Currency OptString `json:"currency"`
+	// `month`, `quarter` or `year`.
+	Grain string `json:"grain"`
+	// `moving_average` or `same_period_last_year`.
+	Method string `json:"method"`
+	// For `moving_average`: the periods it averaged.
+	Window OptInt32 `json:"window"`
+	// The periods forecast.
+	PeriodsAhead int32 `json:"periods_ahead"`
+	// Every period from the first with data through the last, in order.
+	History []AnalyticsForecastPoint `json:"history"`
+	// The periods after the history, in order.
+	Forecast []AnalyticsForecastPoint `json:"forecast"`
+	// The history's periods the method read, by label, in order.
+	Used []string `json:"used"`
+	// The history's figures summed, in `currency` for an amount.
+	HistoryTotal string `json:"history_total"`
+	// The forecast's figures summed, in `currency` for an amount.
+	ForecastTotal string `json:"forecast_total"`
+	// What the forecast is: an arithmetic projection by the method named, not a statistical forecast.
+	Basis string `json:"basis"`
+	// Where the history was answered from: `store` or `database`, as a query's.
+	Source string `json:"source"`
+	// The data's time, as a query's.
+	AsOf time.Time `json:"as_of"`
+	// The latest posting or document date in the history's data (YYYY-MM-DD).
+	DataThrough string `json:"data_through"`
+	// The configuration version whose metric definitions answered.
+	ConfigVersion int32 `json:"config_version"`
+}
+
+// GetMetric returns the value of Metric.
+func (s *AnalyticsForecast) GetMetric() string {
+	return s.Metric
+}
+
+// GetMetricLabel returns the value of MetricLabel.
+func (s *AnalyticsForecast) GetMetricLabel() string {
+	return s.MetricLabel
+}
+
+// GetType returns the value of Type.
+func (s *AnalyticsForecast) GetType() string {
+	return s.Type
+}
+
+// GetCurrency returns the value of Currency.
+func (s *AnalyticsForecast) GetCurrency() OptString {
+	return s.Currency
+}
+
+// GetGrain returns the value of Grain.
+func (s *AnalyticsForecast) GetGrain() string {
+	return s.Grain
+}
+
+// GetMethod returns the value of Method.
+func (s *AnalyticsForecast) GetMethod() string {
+	return s.Method
+}
+
+// GetWindow returns the value of Window.
+func (s *AnalyticsForecast) GetWindow() OptInt32 {
+	return s.Window
+}
+
+// GetPeriodsAhead returns the value of PeriodsAhead.
+func (s *AnalyticsForecast) GetPeriodsAhead() int32 {
+	return s.PeriodsAhead
+}
+
+// GetHistory returns the value of History.
+func (s *AnalyticsForecast) GetHistory() []AnalyticsForecastPoint {
+	return s.History
+}
+
+// GetForecast returns the value of Forecast.
+func (s *AnalyticsForecast) GetForecast() []AnalyticsForecastPoint {
+	return s.Forecast
+}
+
+// GetUsed returns the value of Used.
+func (s *AnalyticsForecast) GetUsed() []string {
+	return s.Used
+}
+
+// GetHistoryTotal returns the value of HistoryTotal.
+func (s *AnalyticsForecast) GetHistoryTotal() string {
+	return s.HistoryTotal
+}
+
+// GetForecastTotal returns the value of ForecastTotal.
+func (s *AnalyticsForecast) GetForecastTotal() string {
+	return s.ForecastTotal
+}
+
+// GetBasis returns the value of Basis.
+func (s *AnalyticsForecast) GetBasis() string {
+	return s.Basis
+}
+
+// GetSource returns the value of Source.
+func (s *AnalyticsForecast) GetSource() string {
+	return s.Source
+}
+
+// GetAsOf returns the value of AsOf.
+func (s *AnalyticsForecast) GetAsOf() time.Time {
+	return s.AsOf
+}
+
+// GetDataThrough returns the value of DataThrough.
+func (s *AnalyticsForecast) GetDataThrough() string {
+	return s.DataThrough
+}
+
+// GetConfigVersion returns the value of ConfigVersion.
+func (s *AnalyticsForecast) GetConfigVersion() int32 {
+	return s.ConfigVersion
+}
+
+// SetMetric sets the value of Metric.
+func (s *AnalyticsForecast) SetMetric(val string) {
+	s.Metric = val
+}
+
+// SetMetricLabel sets the value of MetricLabel.
+func (s *AnalyticsForecast) SetMetricLabel(val string) {
+	s.MetricLabel = val
+}
+
+// SetType sets the value of Type.
+func (s *AnalyticsForecast) SetType(val string) {
+	s.Type = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *AnalyticsForecast) SetCurrency(val OptString) {
+	s.Currency = val
+}
+
+// SetGrain sets the value of Grain.
+func (s *AnalyticsForecast) SetGrain(val string) {
+	s.Grain = val
+}
+
+// SetMethod sets the value of Method.
+func (s *AnalyticsForecast) SetMethod(val string) {
+	s.Method = val
+}
+
+// SetWindow sets the value of Window.
+func (s *AnalyticsForecast) SetWindow(val OptInt32) {
+	s.Window = val
+}
+
+// SetPeriodsAhead sets the value of PeriodsAhead.
+func (s *AnalyticsForecast) SetPeriodsAhead(val int32) {
+	s.PeriodsAhead = val
+}
+
+// SetHistory sets the value of History.
+func (s *AnalyticsForecast) SetHistory(val []AnalyticsForecastPoint) {
+	s.History = val
+}
+
+// SetForecast sets the value of Forecast.
+func (s *AnalyticsForecast) SetForecast(val []AnalyticsForecastPoint) {
+	s.Forecast = val
+}
+
+// SetUsed sets the value of Used.
+func (s *AnalyticsForecast) SetUsed(val []string) {
+	s.Used = val
+}
+
+// SetHistoryTotal sets the value of HistoryTotal.
+func (s *AnalyticsForecast) SetHistoryTotal(val string) {
+	s.HistoryTotal = val
+}
+
+// SetForecastTotal sets the value of ForecastTotal.
+func (s *AnalyticsForecast) SetForecastTotal(val string) {
+	s.ForecastTotal = val
+}
+
+// SetBasis sets the value of Basis.
+func (s *AnalyticsForecast) SetBasis(val string) {
+	s.Basis = val
+}
+
+// SetSource sets the value of Source.
+func (s *AnalyticsForecast) SetSource(val string) {
+	s.Source = val
+}
+
+// SetAsOf sets the value of AsOf.
+func (s *AnalyticsForecast) SetAsOf(val time.Time) {
+	s.AsOf = val
+}
+
+// SetDataThrough sets the value of DataThrough.
+func (s *AnalyticsForecast) SetDataThrough(val string) {
+	s.DataThrough = val
+}
+
+// SetConfigVersion sets the value of ConfigVersion.
+func (s *AnalyticsForecast) SetConfigVersion(val int32) {
+	s.ConfigVersion = val
+}
+
+// AnalyticsForecastHeaders wraps AnalyticsForecast with response headers.
+type AnalyticsForecastHeaders struct {
+	IdempotentReplayed OptBool
+	Response           AnalyticsForecast
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AnalyticsForecastHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *AnalyticsForecastHeaders) GetResponse() AnalyticsForecast {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AnalyticsForecastHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AnalyticsForecastHeaders) SetResponse(val AnalyticsForecast) {
+	s.Response = val
+}
+
+func (*AnalyticsForecastHeaders) runAnalyticsForecastRes() {}
+
+// A fiscal period's figure: of the history, or forecast.
+// Ref: #/components/schemas/AnalyticsForecastPoint
+type AnalyticsForecastPoint struct {
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The fiscal month (1-12) or quarter (1-4) within it; absent for a year.
+	Period OptInt32 `json:"period"`
+	// The period as `2026-09` (a month), `2026-Q3` (a quarter) or `2026` (a year).
+	Label string `json:"label"`
+	// The figure, an exact decimal at the metric's digits: an amount in `currency`, a count whole.
+	Value string `json:"value"`
+	// For an amount: its currency.
+	Currency OptString `json:"currency"`
+	// Of the history: whether the period had data; a period without is zero.
+	HasData OptBool `json:"has_data"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AnalyticsForecastPoint) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *AnalyticsForecastPoint) GetPeriod() OptInt32 {
+	return s.Period
+}
+
+// GetLabel returns the value of Label.
+func (s *AnalyticsForecastPoint) GetLabel() string {
+	return s.Label
+}
+
+// GetValue returns the value of Value.
+func (s *AnalyticsForecastPoint) GetValue() string {
+	return s.Value
+}
+
+// GetCurrency returns the value of Currency.
+func (s *AnalyticsForecastPoint) GetCurrency() OptString {
+	return s.Currency
+}
+
+// GetHasData returns the value of HasData.
+func (s *AnalyticsForecastPoint) GetHasData() OptBool {
+	return s.HasData
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AnalyticsForecastPoint) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *AnalyticsForecastPoint) SetPeriod(val OptInt32) {
+	s.Period = val
+}
+
+// SetLabel sets the value of Label.
+func (s *AnalyticsForecastPoint) SetLabel(val string) {
+	s.Label = val
+}
+
+// SetValue sets the value of Value.
+func (s *AnalyticsForecastPoint) SetValue(val string) {
+	s.Value = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *AnalyticsForecastPoint) SetCurrency(val OptString) {
+	s.Currency = val
+}
+
+// SetHasData sets the value of HasData.
+func (s *AnalyticsForecastPoint) SetHasData(val OptBool) {
+	s.HasData = val
+}
+
+// A governed metric to forecast: its history's filters, the fiscal period it is forecast by, how many
+// periods ahead and by which method.
+// Ref: #/components/schemas/AnalyticsForecastRequest
+type AnalyticsForecastRequest struct {
+	// A metric of the semantic model (`getAnalyticsModel`); not a ratio.
+	Metric string `json:"metric"`
+	// Filters on dimensions, all of which the history's rows must meet, as a query's.
+	Where []AnalyticsFilter `json:"where"`
+	// Company codes to restrict the history to, within those the caller may read; all of those when
+	// omitted.
+	Companies []string `json:"companies"`
+	// The fiscal period of history and forecast: `month`, `quarter` or `year`. Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	Grain string `json:"grain"`
+	// How many periods after the history to forecast.
+	PeriodsAhead int32 `json:"periods_ahead"`
+	// `moving_average` (the average of the last `window` periods) or `same_period_last_year` (the same
+	// period a fiscal year before). Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Method string `json:"method"`
+	// For `moving_average`, and for it alone: how many of the last periods it averages.
+	Window OptInt32 `json:"window"`
+}
+
+// GetMetric returns the value of Metric.
+func (s *AnalyticsForecastRequest) GetMetric() string {
+	return s.Metric
+}
+
+// GetWhere returns the value of Where.
+func (s *AnalyticsForecastRequest) GetWhere() []AnalyticsFilter {
+	return s.Where
+}
+
+// GetCompanies returns the value of Companies.
+func (s *AnalyticsForecastRequest) GetCompanies() []string {
+	return s.Companies
+}
+
+// GetGrain returns the value of Grain.
+func (s *AnalyticsForecastRequest) GetGrain() string {
+	return s.Grain
+}
+
+// GetPeriodsAhead returns the value of PeriodsAhead.
+func (s *AnalyticsForecastRequest) GetPeriodsAhead() int32 {
+	return s.PeriodsAhead
+}
+
+// GetMethod returns the value of Method.
+func (s *AnalyticsForecastRequest) GetMethod() string {
+	return s.Method
+}
+
+// GetWindow returns the value of Window.
+func (s *AnalyticsForecastRequest) GetWindow() OptInt32 {
+	return s.Window
+}
+
+// SetMetric sets the value of Metric.
+func (s *AnalyticsForecastRequest) SetMetric(val string) {
+	s.Metric = val
+}
+
+// SetWhere sets the value of Where.
+func (s *AnalyticsForecastRequest) SetWhere(val []AnalyticsFilter) {
+	s.Where = val
+}
+
+// SetCompanies sets the value of Companies.
+func (s *AnalyticsForecastRequest) SetCompanies(val []string) {
+	s.Companies = val
+}
+
+// SetGrain sets the value of Grain.
+func (s *AnalyticsForecastRequest) SetGrain(val string) {
+	s.Grain = val
+}
+
+// SetPeriodsAhead sets the value of PeriodsAhead.
+func (s *AnalyticsForecastRequest) SetPeriodsAhead(val int32) {
+	s.PeriodsAhead = val
+}
+
+// SetMethod sets the value of Method.
+func (s *AnalyticsForecastRequest) SetMethod(val string) {
+	s.Method = val
+}
+
+// SetWindow sets the value of Window.
+func (s *AnalyticsForecastRequest) SetWindow(val OptInt32) {
+	s.Window = val
+}
+
 // A configuration version's governed semantic model.
 // Ref: #/components/schemas/AnalyticsModel
 type AnalyticsModel struct {
@@ -24595,6 +25017,7 @@ func (*ConflictHeaders) reverseJournalEntryRes()                   {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()                {}
 func (*ConflictHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*ConflictHeaders) runAllocationCycleRes()                    {}
+func (*ConflictHeaders) runAnalyticsForecastRes()                  {}
 func (*ConflictHeaders) runAnalyticsQueryRes()                     {}
 func (*ConflictHeaders) runBalanceCarryForwardRes()                {}
 func (*ConflictHeaders) runReportRes()                             {}
@@ -81218,6 +81641,22 @@ type RunAllocationCycleUnprocessableEntity Problem
 
 func (*RunAllocationCycleUnprocessableEntity) runAllocationCycleRes() {}
 
+type RunAnalyticsForecastBadRequest Problem
+
+func (*RunAnalyticsForecastBadRequest) runAnalyticsForecastRes() {}
+
+type RunAnalyticsForecastForbidden Problem
+
+func (*RunAnalyticsForecastForbidden) runAnalyticsForecastRes() {}
+
+type RunAnalyticsForecastPreconditionRequired Problem
+
+func (*RunAnalyticsForecastPreconditionRequired) runAnalyticsForecastRes() {}
+
+type RunAnalyticsForecastUnprocessableEntity Problem
+
+func (*RunAnalyticsForecastUnprocessableEntity) runAnalyticsForecastRes() {}
+
 type RunAnalyticsQueryBadRequest Problem
 
 func (*RunAnalyticsQueryBadRequest) runAnalyticsQueryRes() {}
@@ -83960,6 +84399,7 @@ func (*ServiceUnavailableHeaders) reverseJournalEntryRes()                   {}
 func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()                {}
 func (*ServiceUnavailableHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*ServiceUnavailableHeaders) runAllocationCycleRes()                    {}
+func (*ServiceUnavailableHeaders) runAnalyticsForecastRes()                  {}
 func (*ServiceUnavailableHeaders) runAnalyticsQueryRes()                     {}
 func (*ServiceUnavailableHeaders) runBalanceCarryForwardRes()                {}
 func (*ServiceUnavailableHeaders) runReportRes()                             {}
@@ -89362,6 +89802,7 @@ func (*TooManyRequestsHeaders) reverseJournalEntryRes()                   {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()                {}
 func (*TooManyRequestsHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*TooManyRequestsHeaders) runAllocationCycleRes()                    {}
+func (*TooManyRequestsHeaders) runAnalyticsForecastRes()                  {}
 func (*TooManyRequestsHeaders) runAnalyticsQueryRes()                     {}
 func (*TooManyRequestsHeaders) runBalanceCarryForwardRes()                {}
 func (*TooManyRequestsHeaders) runReportRes()                             {}
@@ -90181,6 +90622,7 @@ func (*UnauthorizedHeaders) reverseJournalEntryRes()                   {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()                {}
 func (*UnauthorizedHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*UnauthorizedHeaders) runAllocationCycleRes()                    {}
+func (*UnauthorizedHeaders) runAnalyticsForecastRes()                  {}
 func (*UnauthorizedHeaders) runAnalyticsQueryRes()                     {}
 func (*UnauthorizedHeaders) runBalanceCarryForwardRes()                {}
 func (*UnauthorizedHeaders) runReportRes()                             {}

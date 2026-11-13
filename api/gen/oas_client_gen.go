@@ -6022,6 +6022,27 @@ type Invoker interface {
 	//
 	// POST /v1/allocation-cycles/{id}:run
 	RunAllocationCycle(ctx context.Context, request *AllocationCycleRun, params RunAllocationCycleParams) (RunAllocationCycleRes, error)
+	// RunAnalyticsForecast invokes runAnalyticsForecast operation.
+	//
+	// Forecasts a governed metric (ADR-0076 §8, T97a) for the periods after its history by a named
+	// method, and answers history and forecast together; nothing is stored. The history is the metric by
+	// fiscal period of `grain` (`month`, `quarter` or `year` of the semantic model's fiscal calendar),
+	// filtered by `where` and `companies`, as `runAnalyticsQuery` answers it for the caller (their company
+	// access and dataset permissions, the active metric definitions; a query it refuses, amounts of two
+	// currencies summed among them, is refused here with its problem): every period from the first with
+	// data through the last with data, which may be the current one not yet complete, a period without
+	// data counting as zero. `moving_average` forecasts each of the `periods_ahead` periods after the
+	// history as the average of its last `window` periods; `same_period_last_year` forecasts each as the
+	// same period a fiscal year before (`periods_ahead` at most a year's periods). A forecast is computed
+	// exactly from the minor units and rounded half away from zero to the metric's digits: an amount to
+	// its currency's, a count to a whole number. A ratio is refused (422 `analytics.forecast_ratio`): its
+	// average is not the ratio of averages. Too little history for the method is refused naming the
+	// periods it needs and those the history has (422 `analytics.forecast_history_short`). The answer
+	// names the method, the periods it used (`used`) and says it is an arithmetic projection, not a
+	// statistical forecast. Changes nothing: agents of any autonomy level may run it.
+	//
+	// POST /v1/analytics-forecasts
+	RunAnalyticsForecast(ctx context.Context, request *AnalyticsForecastRequest, params RunAnalyticsForecastParams) (RunAnalyticsForecastRes, error)
 	// RunAnalyticsQuery invokes runAnalyticsQuery operation.
 	//
 	// Answers governed metrics (the semantic model in the active configuration version's `analytics`
@@ -89439,6 +89460,151 @@ func (c *Client) sendRunAllocationCycle(ctx context.Context, request *Allocation
 
 	stage = "DecodeResponse"
 	result, err := decodeRunAllocationCycleResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// RunAnalyticsForecast invokes runAnalyticsForecast operation.
+//
+// Forecasts a governed metric (ADR-0076 §8, T97a) for the periods after its history by a named
+// method, and answers history and forecast together; nothing is stored. The history is the metric by
+// fiscal period of `grain` (`month`, `quarter` or `year` of the semantic model's fiscal calendar),
+// filtered by `where` and `companies`, as `runAnalyticsQuery` answers it for the caller (their company
+// access and dataset permissions, the active metric definitions; a query it refuses, amounts of two
+// currencies summed among them, is refused here with its problem): every period from the first with
+// data through the last with data, which may be the current one not yet complete, a period without
+// data counting as zero. `moving_average` forecasts each of the `periods_ahead` periods after the
+// history as the average of its last `window` periods; `same_period_last_year` forecasts each as the
+// same period a fiscal year before (`periods_ahead` at most a year's periods). A forecast is computed
+// exactly from the minor units and rounded half away from zero to the metric's digits: an amount to
+// its currency's, a count to a whole number. A ratio is refused (422 `analytics.forecast_ratio`): its
+// average is not the ratio of averages. Too little history for the method is refused naming the
+// periods it needs and those the history has (422 `analytics.forecast_history_short`). The answer
+// names the method, the periods it used (`used`) and says it is an arithmetic projection, not a
+// statistical forecast. Changes nothing: agents of any autonomy level may run it.
+//
+// POST /v1/analytics-forecasts
+func (c *Client) RunAnalyticsForecast(ctx context.Context, request *AnalyticsForecastRequest, params RunAnalyticsForecastParams) (RunAnalyticsForecastRes, error) {
+	res, err := c.sendRunAnalyticsForecast(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendRunAnalyticsForecast(ctx context.Context, request *AnalyticsForecastRequest, params RunAnalyticsForecastParams) (res RunAnalyticsForecastRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("runAnalyticsForecast"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/analytics-forecasts"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RunAnalyticsForecastOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/analytics-forecasts"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeRunAnalyticsForecastRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RunAnalyticsForecastOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRunAnalyticsForecastResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

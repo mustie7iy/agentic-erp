@@ -47,7 +47,7 @@ func TestOperationsFromTheContract(t *testing.T) {
 		if op.Proposes && op.Method == "GET" {
 			t.Errorf("%s: a read marked x-autonomy: propose", id)
 		}
-		if op.Reads != (id == "verifyAuditChain" || id == "previewRevaluation" || id == "runAnalyticsQuery" || id == "previewDepreciationRun" || id == "runReport") {
+		if op.Reads != (id == "verifyAuditChain" || id == "previewRevaluation" || id == "runAnalyticsQuery" || id == "previewDepreciationRun" || id == "runReport" || id == "runAnalyticsForecast") {
 			t.Errorf("%s reads: got %v", id, op.Reads)
 		}
 	}

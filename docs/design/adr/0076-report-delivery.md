@@ -1,6 +1,6 @@
 # ADR-0076: Report delivery
 
-**Status:** accepted (T95a, T95b, T95c, 2026-11-13; decided by default under ADR-0053 d;
+**Status:** accepted (T95a, T95b, T95c, T97a, 2026-11-13; decided by default under ADR-0053 d;
 `go-reviewer` had no blocking finding on the step's last commit). It decides
 how saved analytics reports are kept, run, scheduled and delivered, for the
 slices T95a to T95d (`docs/design/plan-breadth-week3.md`, Lane B), each of
@@ -195,6 +195,44 @@ shared role reads nothing through it.
   identity administration does. Each is audited
   (`analytics.report_share.create`, `.end`); a share has no event.
 
+### 8. Forecasts of a governed metric (T97a)
+
+The plan records this in ADR-0077 (metric watchers, T96a), which is not on
+this lane's base; it is written here and moves there when the lanes are
+integrated.
+
+`POST /v1/analytics-forecasts` forecasts one governed metric for the
+periods after its history by a named method and answers history and
+forecast together; nothing is stored, and agents of any autonomy level
+may run it (`x-autonomy: read`).
+
+- The history is the metric by fiscal period (`month`, `quarter` or
+  `year` of the semantic model's fiscal calendar), filtered by `where`
+  and `companies`, run as `runAnalyticsQuery` runs the caller's query
+  (`endpoint.answer`): the caller's company access and dataset
+  permissions, the active metric definitions. It runs from the first
+  period with data through the last with data, which may be the current
+  one not yet complete; a period between them without data counts as
+  zero.
+- `moving_average` forecasts each of `periods_ahead` periods (1 to 36) as
+  the average of the history's last `window` periods (1 to 36);
+  `same_period_last_year` as the same period a fiscal year before, for at
+  most a year's periods ahead. Too little history is 422
+  `analytics.forecast_history_short`, naming the periods the method
+  needs and those the history has.
+- Arithmetic is on minor units (ADR-0005): the window is summed exactly
+  and divided once, rounded half away from zero to the metric's digits
+  (`money.Divide`): an amount to its currency's, a count to a whole
+  number. A ratio is refused (422 `analytics.forecast_ratio`): its
+  average is not the ratio of its averages. A history in more than one
+  currency is refused as the semantic layer refuses amounts of two
+  currencies summed (422 `analytics.invalid_query`; product owner
+  2026-11-13: analytics never sums foreign currency).
+- The answer names the method, the window, the periods it used and says
+  it is an arithmetic projection, not a statistical forecast; each
+  figure is an exact decimal beside its currency, with the history's and
+  the forecast's totals.
+
 ## Alternatives
 
 - Keep reports as files the CLI writes (as before): nothing a schedule,
@@ -233,6 +271,10 @@ shared role reads nothing through it.
    of reading; a viewer reads and runs but does not change or share; a
    kept run is read by whoever's company access covers the companies it
    names, its owner included; sharing is human-only.
+7. A forecast's history runs from the first period with data through
+   the last, a period between without data counting as zero; the
+   moving average is flat over the periods ahead; same period last year
+   reaches at most a year ahead; a history in two currencies is refused.
 
 ## As built
 
@@ -334,3 +376,19 @@ shared role reads nothing through it.
 - Decided by default while building: §7 and default 6 above;
   `:schedule` checks the caller owns the report before it answers 503
   without object storage.
+
+### T97a Forecast of a governed metric (no migration)
+
+- `internal/analytics`: `ForecastSpec` (`Check`, `Query`), `NewForecast`
+  and `Forecast`, pure arithmetic on a query's result
+  (`forecast.go`); `endpoint.RunAnalyticsForecast` runs the history as
+  the caller (`answer`) and answers `POST /v1/analytics-forecasts`.
+- Walkthrough `step_metric_forecast` (step 79): Carla forecasts Maple's
+  revenue for the next three months by the average of its months of
+  history; the forecast equals that average, computed from the governed
+  query's monthly figures, and the history's total equals theirs; a
+  ratio and the same month a year before (with less than a year of
+  history) are refused.
+- Decided by default while building: §8 and default 7 above; recorded in
+  this ADR rather than ADR-0077, which is not on the lane's base
+  (coordinator, 2026-11-13).

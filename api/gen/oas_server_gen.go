@@ -6001,6 +6001,27 @@ type Handler interface {
 	//
 	// POST /v1/allocation-cycles/{id}:run
 	RunAllocationCycle(ctx context.Context, req *AllocationCycleRun, params RunAllocationCycleParams) (RunAllocationCycleRes, error)
+	// RunAnalyticsForecast implements runAnalyticsForecast operation.
+	//
+	// Forecasts a governed metric (ADR-0076 §8, T97a) for the periods after its history by a named
+	// method, and answers history and forecast together; nothing is stored. The history is the metric by
+	// fiscal period of `grain` (`month`, `quarter` or `year` of the semantic model's fiscal calendar),
+	// filtered by `where` and `companies`, as `runAnalyticsQuery` answers it for the caller (their company
+	// access and dataset permissions, the active metric definitions; a query it refuses, amounts of two
+	// currencies summed among them, is refused here with its problem): every period from the first with
+	// data through the last with data, which may be the current one not yet complete, a period without
+	// data counting as zero. `moving_average` forecasts each of the `periods_ahead` periods after the
+	// history as the average of its last `window` periods; `same_period_last_year` forecasts each as the
+	// same period a fiscal year before (`periods_ahead` at most a year's periods). A forecast is computed
+	// exactly from the minor units and rounded half away from zero to the metric's digits: an amount to
+	// its currency's, a count to a whole number. A ratio is refused (422 `analytics.forecast_ratio`): its
+	// average is not the ratio of averages. Too little history for the method is refused naming the
+	// periods it needs and those the history has (422 `analytics.forecast_history_short`). The answer
+	// names the method, the periods it used (`used`) and says it is an arithmetic projection, not a
+	// statistical forecast. Changes nothing: agents of any autonomy level may run it.
+	//
+	// POST /v1/analytics-forecasts
+	RunAnalyticsForecast(ctx context.Context, req *AnalyticsForecastRequest, params RunAnalyticsForecastParams) (RunAnalyticsForecastRes, error)
 	// RunAnalyticsQuery implements runAnalyticsQuery operation.
 	//
 	// Answers governed metrics (the semantic model in the active configuration version's `analytics`

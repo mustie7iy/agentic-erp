@@ -1841,6 +1841,10 @@ type RunAllocationCycleRes interface {
 	runAllocationCycleRes()
 }
 
+type RunAnalyticsForecastRes interface {
+	runAnalyticsForecastRes()
+}
+
 type RunAnalyticsQueryRes interface {
 	runAnalyticsQueryRes()
 }

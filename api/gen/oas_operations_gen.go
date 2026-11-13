@@ -466,6 +466,7 @@ const (
 	ReverseSupplierInvoiceOperation                OperationName = "ReverseSupplierInvoice"
 	RotateWebhookSubscriptionSecretOperation       OperationName = "RotateWebhookSubscriptionSecret"
 	RunAllocationCycleOperation                    OperationName = "RunAllocationCycle"
+	RunAnalyticsForecastOperation                  OperationName = "RunAnalyticsForecast"
 	RunAnalyticsQueryOperation                     OperationName = "RunAnalyticsQuery"
 	RunBalanceCarryForwardOperation                OperationName = "RunBalanceCarryForward"
 	RunReportOperation                             OperationName = "RunReport"

@@ -6800,13 +6800,13 @@
     "ph": 9,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Forecasts on governed metrics",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An analyst forecasts a governed metric for the coming periods from its history by a named method (the average of the last periods, or the same period a year before) and reads history and forecast together (POST /v1/analytics-forecasts)",
-        "r": "T97a · docs/design/plan-breadth-week3.md §T97a",
+        "r": "T97a · docs/design/plan-breadth-week3.md §T97a · POST /v1/analytics-forecasts (runAnalyticsForecast, x-autonomy: read; nothing stored) · internal/analytics forecast.go · walkthrough step_metric_forecast · ADR-0076 §8 and As built (ADR-0077 not on the lane's base)",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

@@ -52,7 +52,7 @@ func TestDirectory(t *testing.T) {
 		if err != nil {
 			t.Errorf("roles: %v", err)
 		}
-		if got := fmt.Sprint(named); got != fmt.Sprintf("map[%s:{all all active}]", role) {
+		if got := fmt.Sprint(named); got != fmt.Sprintf("map[%s:{all All active}]", role) {
 			t.Errorf("roles: got %s, want the role alone", got)
 		}
 		return nil

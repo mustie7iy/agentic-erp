@@ -8442,6 +8442,46 @@ step_return_receipt() {
   passed
 }
 
+# step_metric_forecast is T97a (ADR-0076 §8): Carla forecasts Maple's
+# revenue for the next three months by the average of its months of
+# history; the forecast equals that average, computed here from the
+# governed query's monthly figures; a ratio and a year before the history
+# are refused.
+step_metric_forecast() {
+  heading "Step 79 — Forecast of a governed metric: Maple's revenue for the next three months, the average of its months of history"
+  local n sum cents_sum avg want got
+  as carla
+  say "Carla asks the semantic layer for Maple's revenue by fiscal month: the history a forecast reads, as her."
+  api 200 '(.rows[] | "  \(.[0].value)-\(.[1].value): revenue \(.[2].value) \(.[2].currency)")' runAnalyticsQuery -body \
+    "{\"measures\": [\"revenue\"], \"by\": [\"fiscal_year\", \"fiscal_month\"], \"companies\": [\"$CC\"], \"order_by\": \"fiscal_year\"}"
+  sum=$(field '[.rows[] | .[2].value | sub("\\."; "") | tonumber] | add')
+  say "She forecasts it for the next three months by the average of every month from the first with data through the"
+  say "last (a month without data counts as zero): first one month, to see how long the history is (ADR-0076 §8, T97a)."
+  QUIET=1 api 200 '' runAnalyticsForecast -body \
+    "{\"metric\": \"revenue\", \"companies\": [\"$CC\"], \"grain\": \"month\", \"periods_ahead\": 3, \"method\": \"moving_average\", \"window\": 1}"
+  n=$(field '.history | length')
+  api 200 '"history \(.history[0].label) to \(.history[-1].label): \(.history_total) \(.currency)", (.forecast[] | "  forecast \(.label): \(.value) \(.currency)"), "  \(.basis)"' \
+    runAnalyticsForecast -body \
+    "{\"metric\": \"revenue\", \"companies\": [\"$CC\"], \"grain\": \"month\", \"periods_ahead\": 3, \"method\": \"moving_average\", \"window\": $n}"
+  cents_sum=$(cents "$(field .history_total)")
+  expect "the history's total, the query's months summed" "$cents_sum" "$sum"
+  # The average in whole cents, rounded half away from zero, in integers.
+  if [ "$sum" -ge 0 ]; then avg=$(((2 * sum + n) / (2 * n))); else avg=$((-((-2 * sum + n) / (2 * n)))); fi
+  want=$(amount "$avg")
+  got=$(field '[.forecast[].value] | unique | join(" ")')
+  expect "each month's forecast, the average of the $n months" "$got" "$want"
+  expect "the months it used" "$(field '.used | length')" "$n"
+  expect "the forecast's total" "$(field .forecast_total)" "$(amount $((3 * avg)))"
+  say "A ratio is not forecast, and the same month a year before is refused while the history is shorter than a year:"
+  refused 422 analytics.forecast_ratio runAnalyticsForecast -body \
+    "{\"metric\": \"operating_margin\", \"companies\": [\"$CC\"], \"grain\": \"month\", \"periods_ahead\": 3, \"method\": \"moving_average\", \"window\": 3}"
+  if [ "$n" -lt 12 ]; then
+    refused 422 analytics.forecast_history_short runAnalyticsForecast -body \
+      "{\"metric\": \"revenue\", \"companies\": [\"$CC\"], \"grain\": \"month\", \"periods_ahead\": 3, \"method\": \"same_period_last_year\"}"
+  fi
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -10466,7 +10506,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_saved_report step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_saved_report step_metric_forecast step_close'
 
 main() {
   stop_unseen

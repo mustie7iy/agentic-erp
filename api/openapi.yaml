@@ -26861,6 +26861,59 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/analytics-forecasts:
+    post:
+      operationId: runAnalyticsForecast
+      tags:
+        - analytics
+      summary: Forecast a governed metric
+      description: "Forecasts a governed metric (ADR-0076 §8, T97a) for the periods after its history by a named method, and answers history and forecast together; nothing is stored. The history is the metric by fiscal period of `grain` (`month`, `quarter` or `year` of the semantic model's fiscal calendar), filtered by `where` and `companies`, as `runAnalyticsQuery` answers it for the caller (their company access and dataset permissions, the active metric definitions; a query it refuses, amounts of two currencies summed among them, is refused here with its problem): every period from the first with data through the last with data, which may be the current one not yet complete, a period without data counting as zero. `moving_average` forecasts each of the `periods_ahead` periods after the history as the average of its last `window` periods; `same_period_last_year` forecasts each as the same period a fiscal year before (`periods_ahead` at most a year's periods). A forecast is computed exactly from the minor units and rounded half away from zero to the metric's digits: an amount to its currency's, a count to a whole number. A ratio is refused (422 `analytics.forecast_ratio`): its average is not the ratio of averages. Too little history for the method is refused naming the periods it needs and those the history has (422 `analytics.forecast_history_short`). The answer names the method, the periods it used (`used`) and says it is an arithmetic projection, not a statistical forecast. Changes nothing: agents of any autonomy level may run it."
+      x-permission: analytics.query.run
+      x-autonomy: read
+      x-problem-codes:
+        - analytics.busy
+        - analytics.forecast_history_short
+        - analytics.forecast_ratio
+        - analytics.invalid_query
+        - cash.amount_too_large
+        - config.not_bootstrapped
+        - config.unknown_version
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The metric to forecast and how.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalyticsForecastRequest"
+      responses:
+        "200":
+          description: The metric's history and forecast.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsForecast"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/analytics-model:
     get:
       operationId: getAnalyticsModel
@@ -57277,6 +57330,104 @@ components:
           minimum: 0
       examples:
         - queued: 12
+    AnalyticsForecastRequest:
+      type: object
+      description: "A governed metric to forecast: its history's filters, the fiscal period it is forecast by, how many periods ahead and by which method."
+      required: [metric, grain, periods_ahead, method]
+      properties:
+        metric: {type: string, maxLength: 100, description: "A metric of the semantic model (`getAnalyticsModel`); not a ratio."}
+        where:
+          type: array
+          description: Filters on dimensions, all of which the history's rows must meet, as a query's.
+          maxItems: 20
+          items: {$ref: "#/components/schemas/AnalyticsFilter"}
+        companies:
+          type: array
+          description: Company codes to restrict the history to, within those the caller may read; all of those when omitted.
+          maxItems: 100
+          items: {type: string, maxLength: 20}
+        grain:
+          type: string
+          description: "The fiscal period of history and forecast: `month`, `quarter` or `year`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [month, quarter, year]
+        periods_ahead: {type: integer, format: int32, minimum: 1, maximum: 36, description: "How many periods after the history to forecast."}
+        method:
+          type: string
+          description: "`moving_average` (the average of the last `window` periods) or `same_period_last_year` (the same period a fiscal year before). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [moving_average, same_period_last_year]
+        window: {type: integer, format: int32, minimum: 1, maximum: 36, description: "For `moving_average`, and for it alone: how many of the last periods it averages."}
+      additionalProperties: false
+      examples:
+        - {metric: revenue, companies: ["3000"], grain: month, periods_ahead: 3, method: moving_average, window: 3}
+    AnalyticsForecastPoint:
+      type: object
+      description: "A fiscal period's figure: of the history, or forecast."
+      required: [fiscal_year, label, value]
+      properties:
+        fiscal_year: {type: integer, format: int32, description: The fiscal year., readOnly: true}
+        period: {type: integer, format: int32, description: "The fiscal month (1-12) or quarter (1-4) within it; absent for a year.", readOnly: true}
+        label: {type: string, description: "The period as `2026-09` (a month), `2026-Q3` (a quarter) or `2026` (a year).", readOnly: true}
+        value: {type: string, description: "The figure, an exact decimal at the metric's digits: an amount in `currency`, a count whole.", readOnly: true}
+        currency: {type: string, description: "For an amount: its currency.", readOnly: true}
+        has_data: {type: boolean, description: "Of the history: whether the period had data; a period without is zero.", readOnly: true}
+    AnalyticsForecast:
+      type: object
+      description: "A governed metric's history and its forecast, an arithmetic projection computed on request and stored nowhere (ADR-0076 §8)."
+      required: [metric, metric_label, type, grain, method, periods_ahead, history, forecast, used, history_total, forecast_total, basis, source, as_of, data_through, config_version]
+      properties:
+        metric: {type: string, description: The metric., readOnly: true}
+        metric_label: {type: string, description: "The metric's label in the semantic model.", readOnly: true}
+        type:
+          type: string
+          description: "`money` or `count`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [money, count]
+          readOnly: true
+        currency: {type: string, description: "For a money metric: the currency of every figure.", readOnly: true}
+        grain: {type: string, description: "`month`, `quarter` or `year`.", readOnly: true}
+        method: {type: string, description: "`moving_average` or `same_period_last_year`.", readOnly: true}
+        window: {type: integer, format: int32, description: "For `moving_average`: the periods it averaged.", readOnly: true}
+        periods_ahead: {type: integer, format: int32, description: The periods forecast., readOnly: true}
+        history:
+          type: array
+          description: "Every period from the first with data through the last, in order."
+          items: {$ref: "#/components/schemas/AnalyticsForecastPoint"}
+        forecast:
+          type: array
+          description: "The periods after the history, in order."
+          items: {$ref: "#/components/schemas/AnalyticsForecastPoint"}
+        used:
+          type: array
+          description: "The history's periods the method read, by label, in order."
+          items: {type: string}
+        history_total: {type: string, description: "The history's figures summed, in `currency` for an amount.", readOnly: true}
+        forecast_total: {type: string, description: "The forecast's figures summed, in `currency` for an amount.", readOnly: true}
+        basis: {type: string, description: "What the forecast is: an arithmetic projection by the method named, not a statistical forecast.", readOnly: true}
+        source: {type: string, description: "Where the history was answered from: `store` or `database`, as a query's.", readOnly: true}
+        as_of: {type: string, format: date-time, description: "The data's time, as a query's.", readOnly: true}
+        data_through: {type: string, description: "The latest posting or document date in the history's data (YYYY-MM-DD).", readOnly: true}
+        config_version: {type: integer, format: int32, description: "The configuration version whose metric definitions answered.", readOnly: true}
+      examples:
+        - metric: revenue
+          metric_label: Revenue
+          type: money
+          currency: CAD
+          grain: month
+          method: moving_average
+          window: 2
+          periods_ahead: 1
+          history:
+            - {fiscal_year: 2026, period: 8, label: "2026-08", value: "100.00", currency: CAD, has_data: true}
+            - {fiscal_year: 2026, period: 9, label: "2026-09", value: "301.00", currency: CAD, has_data: true}
+          forecast:
+            - {fiscal_year: 2026, period: 10, label: "2026-10", value: "200.50", currency: CAD}
+          used: ["2026-08", "2026-09"]
+          history_total: "401.00"
+          forecast_total: "200.50"
+          basis: "An arithmetic projection, not a statistical forecast: each period is the average of the last 2 months of history (2026-08 to 2026-09), rounded half away from zero."
+          source: database
+          as_of: "2026-10-01T09:00:00Z"
+          data_through: "2026-09-30"
+          config_version: 1
     AnalyticsQuery:
       type: object
       description: "A semantic query: governed metrics, the dimensions to break them down by, filters on dimensions, ordering and a row limit. Unknown metrics or dimensions, dimensions the metrics do not share and malformed filters are 422 `analytics.invalid_query`."
