@@ -368,3 +368,36 @@ func TestExpenseDatabaseFailures(t *testing.T) {
 		})
 	}
 }
+
+// TestExpenseReportTaxNotRecovered: tax the company cannot recover is a
+// cost on the expense line (ADR-0074 decision 5): half of M5's 19%, all
+// of P7's non-deductible 7%, half of RH's self-assessed 5% claim; the
+// recovered part goes to the input tax account, RH's self-assessed tax
+// due to its own account, and the entry balances on the gross. A
+// self-assessed line holds no tax in its gross.
+func TestExpenseReportTaxNotRecovered(t *testing.T) {
+	e := setupExpenses(t)
+	inputCodes(t, e.env)
+	output := e.Account(t, "2000", "240000")
+	r, tag := e.Must(201, "POST", "/v1/expense-reports", e.report(e.Supplier, expenseLine(e.today, "TRAVEL", "119.00", `, "tax_code": "M5"`),
+		expenseLine(e.today, "TRAVEL", "107.00", `, "tax_code": "P7"`), expenseLine(e.today, "TRAVEL", "100.00", `, "tax_code": "RH"`)), "")
+	if got := fmt.Sprint(r["gross_amount"], r["tax_amount"], r["net_amount"]); got != "map[amount:326.00 currency:EUR] map[amount:26.00 currency:EUR] map[amount:300.00 currency:EUR]" {
+		t.Errorf("totals: got %s, want 326.00, 26.00, 300.00", got)
+	}
+	var lines []string
+	for _, l := range r["lines"].([]any) {
+		m := l.(map[string]any)
+		lines = append(lines, fmt.Sprintf("%v %v", m["tax_amount"].(map[string]any)["amount"], m["net_amount"].(map[string]any)["amount"]))
+	}
+	if got, want := strings.Join(lines, ", "), "19.00 100.00, 7.00 100.00, 0.00 100.00"; got != want {
+		t.Errorf("lines' tax and net: got %s, want %s", got, want)
+	}
+	posted, _ := e.Must(200, "POST", "/v1/expense-reports/"+id(r)+":post", "", tag)
+	want := []string{fmt.Sprintf("%s 109.50 M5 - -", e.expense), fmt.Sprintf("%s 107.00 P7 - -", e.expense), fmt.Sprintf("%s 102.50 RH - -", e.expense),
+		fmt.Sprintf("%s 9.50 M5 - -", e.tax), fmt.Sprintf("%s 2.50 RH - -", e.tax), fmt.Sprintf("%s -5.00 RH - -", output),
+		fmt.Sprintf("%s -326.00 - - %s", e.ap, e.Supplier)}
+	slices.Sort(want)
+	if got := e.entryLines(t, posted["journal_entry_id"]); !slices.Equal(got, want) {
+		t.Errorf("entry lines: got %v, want %v", got, want)
+	}
+}
