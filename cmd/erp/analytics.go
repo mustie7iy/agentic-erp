@@ -222,6 +222,13 @@ func askCmd(ctx context.Context, args []string) error {
 	if question == "" {
 		return fmt.Errorf(`ask a question, e.g. erp ask "monthly sales vs last year this time"`)
 	}
+	var earlier *analytics.Report
+	var err error
+	if *cont != "" {
+		if earlier, err = continued(af, *outDir, *cont); err != nil {
+			return err
+		}
+	}
 	c, err := client("ERP_TOKEN")
 	if err != nil {
 		return err
@@ -231,7 +238,7 @@ func askCmd(ctx context.Context, args []string) error {
 		return err
 	}
 	fmt.Fprintln(errOut, "Working on it...")
-	ans, err := askOrContinue(ctx, c, sess, *outDir, *cont, question)
+	ans, err := askOrContinue(ctx, c, sess, earlier, question)
 	if err != nil {
 		return err
 	}
@@ -243,18 +250,35 @@ func askCmd(ctx context.Context, args []string) error {
 		ans.Summary, path, ans.Report.ID, ans.Report.ID)
 }
 
-// askOrContinue asks the agent the question, as a follow-up in the analysis of the
-// saved report cont when it names one: its queries rerun first, so the
-// agent sees the earlier exchange on current data (T94a).
-func askOrContinue(ctx context.Context, c *apitools.Client, sess *analytics.Session, outDir, cont, question string) (*analytics.Answer, error) {
-	if cont == "" {
-		return newAgent(c).Ask(ctx, sess, question)
-	}
-	rep, err := analytics.LoadReport(filepath.Join(outDir, filepath.Base(cont)+".json"))
+// continued is the saved report whose analysis a follow-up continues,
+// with its companies: the follow-up keeps the analysis's scope, so
+// -companies may be left out, and one naming other companies is refused
+// rather than answered over a scope the earlier answers were not.
+func continued(af analyticsFlags, outDir, id string) (*analytics.Report, error) {
+	rep, err := analytics.LoadReport(filepath.Join(outDir, filepath.Base(id)+".json"))
 	if err != nil {
 		return nil, err
 	}
-	fresh, _, err := sess.Rerun(ctx, rep)
+	saved := strings.Join(rep.Principal.Companies, ",")
+	switch *af.companies {
+	case "":
+		*af.companies = saved
+	case saved:
+	default:
+		return nil, fmt.Errorf("report %s is an analysis of companies %q: continue it without -companies, or ask anew", rep.ID, saved)
+	}
+	return rep, nil
+}
+
+// askOrContinue asks the agent the question, as a follow-up in the
+// analysis of the saved report earlier when there is one: its queries
+// rerun first, so the agent sees the earlier exchange on current data
+// (T94a).
+func askOrContinue(ctx context.Context, c *apitools.Client, sess *analytics.Session, earlier *analytics.Report, question string) (*analytics.Answer, error) {
+	if earlier == nil {
+		return newAgent(c).Ask(ctx, sess, question)
+	}
+	fresh, _, err := sess.Rerun(ctx, earlier)
 	if err != nil {
 		return nil, err
 	}

@@ -196,5 +196,5 @@ func (a *Agent) answer(ctx context.Context, s *Session, prompt, question, earlie
 		built.Question = question
 		built.Spec.Question = question
 	}
-	return &Answer{Report: built, Summary: strings.TrimSpace(summary.String())}, nil
+	return &Answer{Report: built, Summary: checkedSummary(strings.TrimSpace(summary.String()), built.Spec, s.Results)}, nil
 }

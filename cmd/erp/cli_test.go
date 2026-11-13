@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"io"
@@ -1057,18 +1056,32 @@ func TestAskContinue(t *testing.T) {
 		return &analytics.Agent{Client: r.Client, Model: r.Model}
 	}
 	t.Cleanup(func() { newAgent = defaultAgent })
-	got := must(t, "ask", "-out", "reports", "how", "many")
+	got := must(t, "ask", "-companies", "2000", "-out", "reports", "how", "many")
 	id := regexp.MustCompile(`erp report -id (rpt_[0-9a-f]+)`).FindStringSubmatch(got)
-	if id == nil || !strings.Contains(got, "erp ask -continue "+id[1]) {
-		t.Fatalf("ask: got %s, want the report's id and how to continue it", got)
+	if id == nil {
+		t.Fatalf("ask: got %s, want the report's id", got)
 	}
+	if !strings.Contains(got, "erp ask -continue "+id[1]) {
+		t.Errorf("ask: got %s, want how to continue the analysis", got)
+	}
+	fails(t, `an analysis of companies "2000"`, "ask", "-continue", id[1], "-companies", "1000", "-out", "reports", "q")
+	// Without -companies the follow-up keeps the analysis's companies.
 	must(t, "ask", "-continue", id[1], "-out", "reports", "and", "by", "month?")
 	rep, err := analytics.LoadReport(filepath.Join("reports", id[1]+".json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := fmt.Sprint(len(rep.Exchange), " ", rep.Exchange[1].Question, " ", rep.Exchange[1].Answer); got != "2 and by month? Again." {
-		t.Errorf("the exchange: got %s, want both turns", got)
+	if len(rep.Exchange) != 2 {
+		t.Fatalf("the exchange: got %d turns, want 2", len(rep.Exchange))
+	}
+	if rep.Exchange[1].Question != "and by month?" {
+		t.Errorf("the follow-up's question: got %q, want and by month?", rep.Exchange[1].Question)
+	}
+	if rep.Exchange[1].Answer != "Again." {
+		t.Errorf("the follow-up's answer: got %q, want Again.", rep.Exchange[1].Answer)
+	}
+	if got := strings.Join(rep.Principal.Companies, ","); got != "2000" {
+		t.Errorf("the analysis's companies: got %q, want 2000 kept", got)
 	}
 	fails(t, "no such file", "ask", "-continue", "rpt_missing", "-out", "reports", "q")
 	fakeAPI(t, answers(refused))

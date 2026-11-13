@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"maps"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
@@ -74,17 +75,12 @@ func earlierExchange(turns []Turn, results map[string]*Result) string {
 // asked in): the agent sees the earlier exchange and its results as data.
 // The answer's report is the analysis continued: earlier's id, question and
 // time, the follow-up's dashboard, every query of the exchange and the
-// exchange with the follow-up's turn. A summary citing a figure no result
-// supports is not kept as the turn's answer: the dashboard's commentary,
-// which the build checked, is.
+// exchange with the follow-up's turn.
 func (a *Agent) Continue(ctx context.Context, s *Session, earlier *Report, question string) (*Answer, error) {
 	turns := earlier.exchange()
 	ans, err := a.answer(ctx, s, analystPrompt+followUpNote, question, earlierExchange(turns, s.Results))
 	if err != nil {
 		return nil, err
-	}
-	if bad := CheckNarrative(ans.Summary, slices.Collect(maps.Values(s.Results))); len(bad) > 0 {
-		ans.Summary = ans.Report.Spec.Commentary
 	}
 	rep := ans.Report
 	rep.Exchange = append(slices.Clone(turns), ans.turn(s, question))
@@ -93,4 +89,20 @@ func (a *Agent) Continue(ctx context.Context, s *Session, earlier *Report, quest
 	maps.Copy(queries, rep.Queries)
 	rep.Queries = queries
 	return ans, nil
+}
+
+// checkedSummary is the agent's summary when every figure it cites is a
+// result's (CheckNarrative over the session's results); otherwise the
+// dashboard's commentary, which the build checked, or, without one, a
+// sentence pointing to the dashboard: an answer kept in the exchange is
+// shown to the agent again in every follow-up, so it holds no figure no
+// result supports, as the dashboard holds none (T94a).
+func checkedSummary(summary string, spec Spec, results map[string]*Result) string {
+	if len(CheckNarrative(summary, slices.Collect(maps.Values(results)))) == 0 {
+		return summary
+	}
+	if spec.Commentary != "" {
+		return spec.Commentary
+	}
+	return "The answer is on the dashboard " + strconv.Quote(spec.Title) + "."
 }

@@ -178,26 +178,13 @@ func (s *Session) Rerun(ctx context.Context, rep *Report) (*Report, map[string]*
 		remap[id] = r.ID
 		out.Queries[r.ID] = q
 	}
-	spec := rep.Spec
-	spec.Tiles = append([]Tile(nil), rep.Spec.Tiles...)
-	spec.Charts = append([]Chart(nil), rep.Spec.Charts...)
-	spec.Tables = append([]Table(nil), rep.Spec.Tables...)
-	spec.Assumptions = append([]string(nil), rep.Spec.Assumptions...)
 	fix := func(id string) string {
 		if n, ok := remap[id]; ok {
 			return n
 		}
 		return id
 	}
-	for i := range spec.Tiles {
-		spec.Tiles[i].QueryID = fix(spec.Tiles[i].QueryID)
-	}
-	for i := range spec.Charts {
-		spec.Charts[i].QueryID = fix(spec.Charts[i].QueryID)
-	}
-	for i := range spec.Tables {
-		spec.Tables[i].QueryID = fix(spec.Tables[i].QueryID)
-	}
+	spec := remapSpec(rep.Spec, fix)
 	out.Exchange = remapTurns(rep.Exchange, fix)
 	if spec.Commentary != "" {
 		var list []*Result
@@ -218,6 +205,26 @@ func (s *Session) Rerun(ctx context.Context, rep *Report) (*Report, map[string]*
 		out.ID = "rpt_" + QueryID(Query{Measures: []string{spec.Title}}, s.Principal)[2:]
 	}
 	return &out, results, nil
+}
+
+// remapSpec is a copy of spec whose tiles, charts and tables name their
+// queries as fix maps them.
+func remapSpec(in Spec, fix func(string) string) Spec {
+	spec := in
+	spec.Tiles = append([]Tile(nil), in.Tiles...)
+	spec.Charts = append([]Chart(nil), in.Charts...)
+	spec.Tables = append([]Table(nil), in.Tables...)
+	spec.Assumptions = append([]string(nil), in.Assumptions...)
+	for i := range spec.Tiles {
+		spec.Tiles[i].QueryID = fix(spec.Tiles[i].QueryID)
+	}
+	for i := range spec.Charts {
+		spec.Charts[i].QueryID = fix(spec.Charts[i].QueryID)
+	}
+	for i := range spec.Tables {
+		spec.Tables[i].QueryID = fix(spec.Tables[i].QueryID)
+	}
+	return spec
 }
 
 // remapTurns is the exchange with its query ids as fix maps them: a rerun

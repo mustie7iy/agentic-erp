@@ -1212,9 +1212,17 @@ API is T95a). Decisions:
   tool and endpoint (permissions, company access, the currency guard);
   its dashboard is built and checked as any (`Session.Build`: every figure
   of the commentary from a result of the session, earlier ones
-  included). Its summary is checked too (`CheckNarrative` over the
-  session's results): one citing a figure no result holds is not kept,
-  and the dashboard's commentary is the turn's answer instead.
+  included). Every answer's summary, the first question's as a
+  follow-up's, is checked too (`CheckNarrative` over the session's
+  results), since the exchange shows it to the agent again in every
+  follow-up: one citing a figure no result holds is not kept, and the
+  dashboard's commentary, or without one a sentence naming the
+  dashboard, is the answer instead.
+- *The analysis keeps its companies.* `-continue` without `-companies`
+  takes the report's own (its principal's), so a follow-up answers for
+  the companies the earlier answers were about without naming them
+  again; `-companies` naming others is refused rather than mixing
+  scopes in one exchange.
 - *One analysis, one report.* The continued report keeps the first
   report's id, question and time, takes the follow-up's dashboard, holds
   every query of the exchange and appends the follow-up's turn, so
@@ -1231,10 +1239,15 @@ API is T95a). Decisions:
   against its reference, and the reply counts the turns and queries.
   The replay variable `latest` is a request's last query id, the
   follow-up's own.
-- *Walkthrough.* Step 71 (`step_follow_up`): an analytics agent principal
-  answers Carla's question and her follow-up "and by supplier?" through
-  the model stand-in; the saved report keeps both turns, the follow-up's
-  query keeps the year, and `erp report` reruns both queries.
+- *Walkthrough.* Step 71 (`step_follow_up`), a new step before the close
+  where the plan names step 14 extended, as T94b's step 70 is (each
+  slice of the lane adds a step of its own; `erp ask` needs the model
+  stand-in and an agent principal, which step 14 has neither of): an
+  analytics agent principal answers Carla's question and her follow-up
+  "and by supplier?" through the model stand-in; the saved report keeps
+  both turns, the follow-up's query keeps the year and the analysis its
+  company, which the follow-up names neither of, and `erp report` reruns
+  both queries.
 - *Evidence.* `analytics.TestContinue`, `TestEarlierExchangeIsData`,
   `TestRerunKeepsTheExchange`; `erp`'s `TestAskContinue`,
   `TestEvalSuites` (analytics); the walkthrough's step 71.
