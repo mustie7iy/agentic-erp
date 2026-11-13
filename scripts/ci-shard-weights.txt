@@ -1,42 +1,60 @@
 # Seconds one race run of a package took on a GitHub-hosted runner (4 vCPU,
-# 16 GB), two packages at a time: main's full run 43072109681 of 2026-11-11,
-# `go test -race -count=1 -p 2 ./...`. Only packages of 20 s or more are
-# listed; scripts/ci-shards.sh counts any other as 10 s. The figures only
-# balance the shards (a package without one is still tested), so they need
-# refreshing only when a shard runs long: take the package's time from the
-# shard's log, divide a three-run time by three, and raise its line. A
-# package whose three runs exceed 1200 s is split by test function.
-750 internal/web
-697 internal/integration
-599 cmd/erp
-592 internal/web/e2e
-536 internal/payments
-482 internal/ledger
-458 internal/assets
-442 internal/web/ui
-369 internal/cash
-369 internal/payables
-222 api
-215 internal/closing
-213 internal/procurement
-163 internal/workflows
-143 internal/analytics/store
-105 internal/consolidation
-94 db
-91 internal/analytics/extract
-83 internal/taxfiling
-78 internal/configuration
-65 internal/drverify
-64 internal/provisioning
-59 cmd/erp-server
-47 internal/partner
-45 internal/platform/redact
-40 internal/nfr
-37 internal/controlling
-35 internal/app
-35 internal/offboarding
-32 internal/layout
-25 internal/agents
-23 internal/approvals
-23 internal/einvoicing
-22 internal/controlplane
+# 16 GB), two packages at a time: the race shards of main's full run
+# 43361715812 (2026-11-13, after batch 70) and of PR #121's run 43451866743
+# (batch 71), the larger of the two: a package's `ok … <seconds>` line is
+# its three runs, so divided by three, and a split package's parts are
+# added up. Only packages of 20 s or more are listed; scripts/ci-shards.sh
+# counts any other as 10 s. The figures only balance the shards (a package
+# without one is still tested), so they need refreshing only when a shard
+# runs long: take the package's time from the shard's log, divide a
+# three-run time by three, and raise its line. A package whose three runs
+# exceed 1200 s is split by test function.
+#
+# A line of three fields gives one run of a test function on its own, which
+# the plan then runs apart from its package's other tests (ci-shards.sh's
+# header). cmd/erp's TestWalkthrough: PR #121's part holding it and
+# TestEndToEnd timed out at 2103 s, the walkthrough 326 s into the third
+# run, so the first two runs took at most 1776 s, some 890 s a run, of
+# which the part's other tests take some 145 s (main's part holding them,
+# 434 s for three runs): about 745 s a run, raised to 800 because each run
+# apart builds the binaries afresh, as only the first of three did. The
+# package's other tests take some 150 s a run (that 145 s and the PR's other
+# part, 10.5 s for three runs), so cmd/erp is 950 in all.
+950 cmd/erp
+671 internal/integration
+514 internal/web
+421 internal/web/ui
+407 internal/ledger
+388 internal/cash
+367 internal/assets
+364 internal/web/e2e
+360 internal/payments
+331 internal/payables
+215 internal/procurement
+181 internal/sales
+178 internal/closing
+167 internal/workflows
+130 internal/analytics/store
+124 internal/configuration
+120 internal/consolidation
+119 api
+103 db
+102 internal/analytics/extract
+89 internal/provisioning
+86 internal/layout
+85 internal/controlling
+85 internal/drverify
+82 internal/taxfiling
+73 internal/receivables
+61 cmd/erp-server
+55 internal/partner
+46 internal/platform/redact
+44 internal/offboarding
+36 internal/app
+35 internal/grc
+32 internal/collections
+30 internal/nfr
+23 internal/credit
+21 internal/analytics/endpoint
+20 internal/controlplane
+800 cmd/erp TestWalkthrough

@@ -483,8 +483,9 @@ jobs:
         shard: ${{ fromJSON(needs.shards.outputs.race) }}
     runs-on: ubuntu-latest
     # A shard is planned at about 25 minutes with its set-up. Each go test in it (the whole
-    # packages together, then each part of a split one) has -timeout 35m
-    # (scripts/ci-shards.sh), so a hung one is named by go test before
+    # packages together, then each other piece: a part of a split package, a
+    # test run alone, or one of the walkthrough's three runs) has -timeout
+    # 35m (scripts/ci-shards.sh), so a hung one is named by go test before
     # this limit stops the runner.
     timeout-minutes: 60
     permissions:

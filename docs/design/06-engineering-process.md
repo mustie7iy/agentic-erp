@@ -273,19 +273,31 @@ larger or self-hosted ones:
   computed, never listed (`scripts/ci-shards.sh`, the `shards` job): the
   packages come from `go list`, each weighted by the seconds one race run
   of it took on a runner (`scripts/ci-shard-weights.txt`, main's run
-  43072109681; a package without a weight counts as 10 s and is tested all
-  the same); a package whose three runs exceed 1200 s is split by test
-  function, the functions sorted and dealt in turn, and the pieces are
-  dealt, heaviest first, to the lightest of as many shards as keep each
-  near 25 minutes: 14 race shards on 2026-11-11, with `internal/web`,
-  `internal/integration`, `cmd/erp`, `internal/web/e2e`,
-  `internal/payments`, `internal/web/ui`, `internal/assets` and
-  `internal/ledger` in two parts each, and 4 coverage shards.
+  43361715812 and PR #121's run 43451866743; a package without a weight
+  counts as 10 s and is tested all the same); a package whose three runs
+  exceed 1200 s is split by test function, the functions sorted and dealt
+  in turn, and the pieces are dealt, heaviest first, to the lightest of as
+  many shards as keep each near 25 minutes. A test function too long to
+  share a part has a weight line of its own and runs apart from its
+  package's other tests; when its three runs exceed 1200 s they are three
+  pieces of one shuffled run each, in three shards. That is the
+  walkthrough (`cmd/erp`'s `TestWalkthrough`): with 78 steps a run took
+  some 13 minutes, and its three runs in one `go test` passed the
+  35-minute `-timeout` in PR #121's run 43451866743 (batch 71; the weights
+  of 2026-11-11 still gave `cmd/erp` 599 s, and nothing compared a part's
+  planned seconds with its log). Run apart, a run of the walkthrough has
+  the limit to itself until it grows to about three times its size, the
+  roughly 50 steps week 3 adds included; every test still runs three
+  times shuffled. 13 race shards on 2026-11-13, with
+  `internal/integration`, `internal/web`, `internal/ledger` and
+  `internal/web/ui` in two parts each, `cmd/erp`'s other tests in one
+  and the walkthrough's three runs in three, and 4 coverage shards.
   `ci-shards.sh check`, in the `shards` job and in `make ci-local`, fails
-  when a package is in no shard or in two, or a test function of a split
-  package is in no part or in two, and the shard that runs a split
-  package's first part asks the compiled test binary for its tests
-  (`go test -list`) and fails on one no part runs. The coverage shards
+  when a package is in no shard or in two, a test function of a package
+  in pieces is in no piece or in two, or a test the weights run alone is
+  not in the package, and the shard that runs a package's first part asks
+  the compiled test binary for its tests (`go test -list`) and fails on
+  one no piece runs. The coverage shards
   hand their profiles (reduced to one line per block) to the gate through
   the run's own cache entries, named by the run, since the workflows pin
   the cache action and no artifact action; the gate names the profiles
