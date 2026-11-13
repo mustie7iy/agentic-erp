@@ -61,6 +61,12 @@ func TestControlRules(t *testing.T) {
 		{"an objective of white space", func(s scene) []stmt {
 			return []stmt{with(s, "PAY-01", "  ", "Payments", "daily", "manual")}
 		}, "control_objective_check"},
+		{"an objective of 1001 characters", func(s scene) []stmt {
+			return []stmt{with(s, "PAY-01", strings.Repeat("o", 1001), "Payments", "daily", "manual")}
+		}, "control_objective_check"},
+		{"a process of 101 characters", func(s scene) []stmt {
+			return []stmt{with(s, "PAY-01", "x", strings.Repeat("p", 101), "daily", "manual")}
+		}, "control_process_check"},
 		{"a process of white space", func(s scene) []stmt {
 			return []stmt{with(s, "PAY-01", "x", " ", "daily", "manual")}
 		}, "control_process_check"},

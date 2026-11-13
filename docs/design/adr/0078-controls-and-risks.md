@@ -106,7 +106,9 @@ no update or delete grant): a correction is another test.
 - `POST /v1/controls/{id}/tests` records one on an active control. The
   control's row is locked, so a test and a retirement never pass each
   other; the control's version does not move, since nothing the control
-  says changed.
+  says changed. The version, and the ETag it is, guard what the control
+  says, not its last test: a conditional read of a control, should one
+  be built, must not answer "not modified" by the version alone.
 - `tested_on` is the database's date today or earlier (422
   `grc.test_in_future`), the date identity judges a grant's validity by
   (`database.Today`). The library is the tenant's, not a company's, so
