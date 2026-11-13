@@ -917,7 +917,14 @@ acts through the normal operation. The credit scoring agent
 `credit_scoring`, T105a) recommends on a customer's `credit_limit`
 (`raise_limit`, `lower_limit`, `keep_limit`) or, for a customer without
 one, on the `business_partner` (`set_limit`); setting and changing a limit
-stay people's (`x-agent: false`, ADR-0066).
+stay people's (`x-agent: false`, ADR-0066). The access agent
+(`erp agent access-roles -role CODE -period FROM..TO`, agent type
+`access`, T106a) recommends on a `role`: `remove_permissions`, naming the
+permissions in whose context no holder has an audit event in the period,
+or `keep`; a permission only reads need is listed as "use not recorded".
+It holds `identity.access.read` and `audit.event.read` only where a
+tenant's administrator granted them to its role, and identity writes stay
+people's.
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation

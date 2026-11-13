@@ -196,6 +196,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | Type | Package, command | Reads | Recommends | Never |
 |---|---|---|---|---|
 | `credit_scoring` | `internal/creditagent`, `erp agent credit-score -company CODE -customer ID` | `getCreditExposure`, `listCreditLimits`, `getReceivablesAging`, `listDunningRuns`, `listDunningNotices`, `listIncomingPayments`, `listCustomerInvoices`, `getBusinessPartner` | on `credit_limit`: `raise_limit`, `lower_limit`, `keep_limit`; on `business_partner` (a customer without a limit): `set_limit` | `createCreditLimit`, `updateCreditLimit`, the release of an order's credit block |
+| `access` | `internal/accessagent`, `erp agent access-roles -role CODE -period FROM..TO` | `listRoles`, `getRole`, `listRolePermissions`, `listRoleAssignments`, `listPrincipals`, `listAuditEvents` | on `role`: `remove_permissions`, `keep` | every identity write |
 
 A later slice adds its row here and its section under "As built".
 
@@ -262,6 +263,72 @@ A later slice adds its row here and its section under "As built".
   the credit manager, overrides it, and the limit is as it was.
 - No migration, no new operation, permission, event or problem code.
 
+### T106a, the access agent: roles from actual usage
+
+- `internal/accessagent`; agent type `access`; `apitools.Each` (a list
+  read page by page with a visitor, which `apitools.List` is now built
+  on), so a run can stop at its limit of events.
+- `erp agent access-roles -role CODE|ID -period FROM..TO`: the period's
+  days are UTC days, as the audit trail's instants are. Before its
+  session the run itself reads the role (`listRoles`), its permissions
+  valid on the period's last day (`listRolePermissions`), who held it at
+  any time in the period (`listRoleAssignments`) and the period's audit
+  events, every page (`listAuditEvents`), up to 100,000 events, beyond
+  which it stops and asks for a shorter period: a period's audit events
+  do not fit a model's context. The model is given what was found and
+  may read further with the same operations and `listPrincipals`,
+  `getRole`. A role, a grant or a trail the agent may not read stops the
+  run before a session: its role holds `identity.access.read` and
+  `audit.event.read` only where the tenant's administrator granted them
+  (product owner, 2026-11-12).
+- **What "used" means.** The plan's rule is "an audit event of an
+  operation that needs the permission, by a holder, in the period". The
+  audit trail names actions (`credit.credit_limit.create`), not the
+  operation or the permission behind them (ADR-0011), and nothing in the
+  contract maps an action to an operation. So the first version tells use
+  apart by context, the first segment of a permission's code and of an
+  action:
+  - a permission **only reads need** (no operation of the contract that
+    changes something names it in `x-permission` or `x-also-permissions`)
+    leaves no audit event: its **use is not recorded**, and it is never
+    listed as unused. The approval permissions, which the contract names
+    by the object decided (`x-object-permissions`), fall here too;
+  - a permission needed by an operation that changes something is
+    **used** when a holder has an audit event in the permission's context
+    in the period, whatever the action and its outcome, and whichever of
+    the holder's roles allowed it: the permissions of one context are not
+    told apart;
+  - it is **unused** when no holder has an audit event in its context in
+    the period.
+  This errs towards keeping: a permission is recommended for removal
+  only when no holder acted in its whole context. It rests on an action
+  carrying the context of the permission its operation needs, which the
+  contexts' audit records do today.
+- Its check (`accessagent.review.check`) holds the recommendation to
+  that, computed by the run, not judged by the model:
+  `remove_permissions` is admitted only when somebody held the role and
+  some permission is unused, and its content's first line is `Remove: `
+  and exactly the unused permissions, in the order of their codes; `keep`
+  only otherwise (a role nobody held in the period is kept: none of its
+  permissions could be used); and where the role has permissions whose
+  use is not recorded the content carries the line `Use not recorded: `
+  with them. The model adds the reasons: who held the role and what they
+  did.
+- `evals/access`, version 1, replayed to level 2: a permission in whose
+  context no holder acted recommended for removal and named, the read
+  permission listed as not recorded; a role whose holder used what it may
+  change kept; an instruction in the role's name not followed, the role's
+  permissions and assignments as they were. Not run against a live model.
+- Walkthrough `step_access_agent` (step 67): Ada gives Ruth a role
+  `credit_controller` holding the credit limit permissions and, left
+  over, `tax.return.prepare`; the agent's first run is refused before a
+  session (403 `identity.permission_missing`), Ada grants its role
+  `identity.access.read` and `audit.event.read`, and the agent recommends
+  removing `tax.return.prepare`, naming it, with `credit.limit.read` as
+  use not recorded; its own `endRolePermission` is refused (403); Ada
+  accepts, which changes nothing, and ends the grant herself.
+- No migration, no new operation, permission, event or problem code.
+
 ## Defaults taken (for the product owner's digest)
 
 1. The shared run is a package, `internal/recommend`, not a copy per
@@ -289,3 +356,16 @@ A later slice adds its row here and its section under "As built".
    "rejected").
 8. The run's date is UTC's, not the company's: the agent is given no read
    of the company's time zone.
+9. (T106a) "Used" is told apart by context, since the audit trail names
+   actions and not the operation or permission behind them: a permission
+   is unused only when no holder has an audit event in its whole context
+   in the period, and a permission only reads need (or one the contract
+   names by the object decided) is "use not recorded". Telling the
+   permissions of one context apart needs the audit record to name its
+   operation, a change to ADR-0011 that no slice of this plan makes.
+10. (T106a) The run reads the usage itself before its session, up to
+    100,000 audit events, and the kind and the permissions to remove are
+    computed, not judged by the model; a role nobody held in the period
+    is kept; a holder is whoever held the role at any time in the period,
+    and all the holder's events in the period count, whichever role
+    allowed them; the period's days are UTC days.

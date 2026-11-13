@@ -370,3 +370,34 @@ func TestLegalEntity(t *testing.T) {
 		t.Error("an unreachable server: got no error")
 	}
 }
+
+// TestEach: a list is shown item by item across its pages, in order, and
+// reading stops where the visitor says so, without asking for the page
+// after.
+func TestEach(t *testing.T) {
+	pages := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pages++
+		if r.URL.Query().Get("page_token") == "" {
+			_, _ = w.Write([]byte(`{"items": [1, 2], "next_page_token": "p2"}`)) // a test's answer
+			return
+		}
+		_, _ = w.Write([]byte(`{"items": [3, 4], "next_page_token": "p3"}`)) // a test's answer
+	}))
+	t.Cleanup(srv.Close)
+	c := &apitools.Client{BaseURL: srv.URL, Token: "t"}
+	var seen []int
+	err := apitools.Each(context.Background(), c, "/v1/things", nil, func(n int) bool {
+		seen = append(seen, n)
+		return n < 3
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(seen, []int{1, 2, 3}) {
+		t.Errorf("items shown: got %v, want 1 2 3: the visitor stopped at 3", seen)
+	}
+	if pages != 2 {
+		t.Errorf("pages read: got %d, want 2", pages)
+	}
+}

@@ -82,6 +82,7 @@ var webForbidden = []string{"platform/uow", "platform/outbox", "platform/audit",
 // makes today, by importing unit. A new one fails TestImportRules; one that
 // is no longer made fails it too, so the list stays exact.
 var allowed = map[string][]string{
+	"accessagent":             {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration, what it reads before its session and its check
 	"agent":                   {"apitools", "llm"},
 	"analytics":               {"apitools", "config", "configuration"},
 	"apitools":                {"llm"},

@@ -76,30 +76,49 @@ func (r Response) Decode(into any) error {
 // items a page, following next_page_token until a page has none: a caller
 // that read only the first page would silently miss the rest.
 func List[T any](ctx context.Context, c *Client, path string, query url.Values) ([]T, error) {
+	var out []T
+	err := Each(ctx, c, path, query, func(item T) bool {
+		out = append(out, item)
+		return true
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Each reads the list operation at path with the query page by page, as
+// List does, and shows each item to visit in the list's order, until
+// visit returns false or a page has no next_page_token: for a list too
+// long to hold, or one a caller reads only up to a limit.
+func Each[T any](ctx context.Context, c *Client, path string, query url.Values, visit func(T) bool) error {
 	q := url.Values{"page_size": {"500"}}
 	for k, v := range query {
 		q[k] = v
 	}
-	var out []T
 	for {
 		resp, err := c.Do(ctx, http.MethodGet, path, q, nil, "")
 		if err != nil {
-			return nil, err
+			return err
 		}
 		var page struct {
 			Items         []T
 			NextPageToken string `json:"next_page_token"`
 		}
 		if err := resp.Decode(&page); err != nil {
-			return nil, fmt.Errorf("apitools: list %s: %w", path, err)
+			return fmt.Errorf("apitools: list %s: %w", path, err)
 		}
-		out = append(out, page.Items...)
+		for _, item := range page.Items {
+			if !visit(item) {
+				return nil
+			}
+		}
 		if page.NextPageToken == "" {
-			return out, nil
+			return nil
 		}
 		// A server answering the token it was sent would be read forever.
 		if page.NextPageToken == q.Get("page_token") {
-			return nil, fmt.Errorf("apitools: list %s: page token %q repeated", path, page.NextPageToken)
+			return fmt.Errorf("apitools: list %s: page token %q repeated", path, page.NextPageToken)
 		}
 		q.Set("page_token", page.NextPageToken)
 	}

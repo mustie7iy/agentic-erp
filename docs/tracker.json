@@ -10311,13 +10311,13 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Roles from actual usage",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The access agent reads a role's permissions, who holds it and which operations they called in a period, and recommends the permissions the role needs with those never used, for an identity administrator to decide; it never changes a role (erp agent access-roles)",
-        "r": "T106a · docs/design/plan-breadth-week3.md §T106a",
+        "r": "T106a · docs/design/plan-breadth-week3.md §T106a · internal/accessagent · agent type access · erp agent access-roles · evals/access · walkthrough step_access_agent · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

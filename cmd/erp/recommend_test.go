@@ -62,6 +62,45 @@ func TestAgentCreditScore(t *testing.T) {
 	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "credit-score", "-company", "3000", "-customer", "c1")
 }
 
+// TestAgentAccessRoles: erp agent access-roles needs -role and -period,
+// reads the role, its permissions, its holders and their audit events,
+// runs the access agent's session and prints what it recommended and the
+// model's reply, also when the run failed after starting its session
+// (ADR-0072, T106a).
+func TestAgentAccessRoles(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	const period = "2026-04-01..2026-06-30"
+	fails(t, "flag provided", "agent", "access-roles", "-x")
+	fails(t, "want -role CODE -period FROM..TO", "agent", "access-roles", "-role", "clerk")
+	fails(t, "want -role CODE -period FROM..TO", "agent", "access-roles", "-period", period)
+	fails(t, "want -role CODE -period FROM..TO", "agent", "access-roles", "-role", "clerk", "-period", "2026-04-01")
+	fails(t, "a period is two dates", "agent", "access-roles", "-role", "clerk", "-period", "April..June")
+	fails(t, "404", "agent", "access-roles", "-role", "clerk", "-period", period)
+	reviewed := sessionRoutes(routes{"GET /v1/roles": {ok(`{"items": [{"id": "r1", "code": "clerk", "name": "Clerks"}]}`)},
+		"GET /v1/roles/r1/permissions": {ok(`{"items": [{"permission_code": "credit.limit.write"}]}`)},
+		"GET /v1/role-assignments":     {ok(`{"items": [{"principal_id": "p1", "valid_from": "2026-01-01"}]}`)},
+		"GET /v1/audit-events":         {ok(`{"items": [{"actor_id": "p1", "action": "credit.credit_limit.create"}]}`)},
+		"POST /v1/recommendations":     {reply{201, `{"id": "rec1", "object_type": "role", "object_id": "r1", "kind": "keep"}`}}})
+	fakeAPI(t, reviewed)
+	model(t, llmtest.Tool("createRecommendation", map[string]any{"body": map[string]any{"session_id": agentSession, "object_type": "role",
+		"object_id": "r1", "kind": "keep", "content": "Its holder set a credit limit in the period."}}),
+		llmtest.Final("The role is kept; an identity administrator decides."))
+	got := must(t, "agent", "access-roles", "-role", "clerk", "-period", period)
+	if want := "Session " + agentSession + ": recommendations made 1, refused 0.\n  recommendation rec1: keep on role r1\n" +
+		"The role is kept; an identity administrator decides.\n"; got != want {
+		t.Errorf("agent access-roles: got %q, want %q", got, want)
+	}
+	model(t, llmtest.Final("Nothing."))
+	printFails(t, "agent", "access-roles", "-role", "clerk", "-period", period)
+	model(t)
+	// A failed run still names its session, then fails.
+	fails(t, "Session "+agentSession+": recommendations made 0, refused 0.", "agent", "access-roles", "-role", "clerk", "-period", period)
+	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
+	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "access-roles", "-role", "clerk", "-period", period)
+}
+
 // TestRecommendingAdapterFailures: a recommending agent's evaluation
 // adapter fails its case on a task without its values and on an agent
 // that could not run.
@@ -71,6 +110,9 @@ func TestRecommendingAdapterFailures(t *testing.T) {
 		"credit_scoring without a customer": creditScoringEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{"company": "3000"}}),
 		"credit_scoring without its API": creditScoringEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{},
 			Task: map[string]any{"company": "3000", "customer": "c1"}}),
+		"access without a period": accessEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{"role": "clerk", "from": "2026-04-01"}}),
+		"access without its API": accessEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{},
+			Task: map[string]any{"role": "clerk", "from": "2026-04-01", "to": "2026-06-30"}}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err == nil {

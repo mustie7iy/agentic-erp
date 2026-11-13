@@ -5,7 +5,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"strings"
 
+	"github.com/mustie7iy/agentic-erp/internal/accessagent"
 	"github.com/mustie7iy/agentic-erp/internal/creditagent"
 	"github.com/mustie7iy/agentic-erp/internal/eval"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
@@ -74,6 +76,45 @@ func creditScoringEval(ctx context.Context, env eval.Env) error {
 	res, err := (&creditagent.Agent{LLM: env.LLM, API: env.Agent}).Score(ctx, t["company"], t["customer"])
 	if err != nil {
 		return fmt.Errorf("credit_scoring: %w", err)
+	}
+	graded(env, res)
+	return nil
+}
+
+// agentAccessRoles has the access agent review a role's permissions
+// against what its holders did in a period (ADR-0072, T106a): an identity
+// administrator reads its recommendation and decides it, and ends the
+// grants, or not.
+func agentAccessRoles(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("agent access-roles", flag.ContinueOnError)
+	role := fs.String("role", "", "role code or id")
+	period := fs.String("period", "", "the period, FROM..TO (YYYY-MM-DD..YYYY-MM-DD, UTC days)")
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	from, to, ok := strings.Cut(*period, "..")
+	if *role == "" || !ok {
+		return errors.New("agent access-roles: want -role CODE -period FROM..TO")
+	}
+	c, err := client("ERP_AGENT_TOKEN")
+	if err != nil {
+		return err
+	}
+	res, runErr := (&accessagent.Agent{LLM: newRunner(c), API: c}).Review(ctx, *role, accessagent.Period{From: from, To: to})
+	return recommended("agent access-roles", res, runErr)
+}
+
+// accessEval has the access agent review the task's role over its period
+// as erp agent access-roles does; what it recommended is the checks' to
+// judge, and its reply theirs too.
+func accessEval(ctx context.Context, env eval.Env) error {
+	t, err := tasked(env, "role", "from", "to")
+	if err != nil {
+		return err
+	}
+	res, err := (&accessagent.Agent{LLM: env.LLM, API: env.Agent}).Review(ctx, t["role"], accessagent.Period{From: t["from"], To: t["to"]})
+	if err != nil {
+		return fmt.Errorf("access: %w", err)
 	}
 	graded(env, res)
 	return nil
