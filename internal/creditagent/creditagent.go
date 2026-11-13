@@ -224,7 +224,8 @@ var score = regexp.MustCompile(`(?i)\bscor(e|es|ed)\b(\s+(of|is|at))?[\s:=]*\d`)
 
 // check is the agent's rule on a recommendation the pattern admits
 // (ADR-0072, T105a): it gives no score, every number it writes is one the
-// run read, the first of them being the limit recommended, in the
+// run read, the first of them being the limit recommended, an amount a
+// read returned as money, in the
 // company's currency and fitting the kind, and a limit other than the one
 // in place needs the customer's history read.
 func (r *review) check(p recommend.Proposed, f *recommend.Figures) error {
@@ -237,6 +238,11 @@ func (r *review) check(p recommend.Proposed, f *recommend.Figures) error {
 	stated := recommend.Numbers(p.Content)
 	if len(stated) == 0 || !strings.HasPrefix(p.Content, "Limit "+stated[0]+" "+r.e.Currency) {
 		return ErrNoLimit
+	}
+	if !f.Returned(stated[0]) {
+		// A whole number passes Unread by standing anywhere in what the
+		// run read (a year, a customer number): the limit must be money.
+		return fmt.Errorf("%w: the limit %s is no amount a tool returned", ErrUnread, stated[0])
 	}
 	if p.Kind != Keep && r.history == 0 {
 		return ErrNoHistory

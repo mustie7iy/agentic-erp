@@ -128,19 +128,28 @@ content writes must be one the run read** (`recommend.Figures`,
   no amount, whatever it looks like (a reference of "900000.00");
 - a whole number must be written somewhere in an answer of the run's
   reads or in the run's prompt (a count, a day of a date, a document or
-  customer number), or be a whole amount (a currency without minor
-  units);
-- a value the read's own input supplied as a number is not read, though
-  the answer gives it back (`getCreditExposure` returns the amount it was
-  asked to check): the model could otherwise have any amount it made up
-  returned to it. It is known again whatever zeros end its fraction.
+  customer number, a whole amount);
+- no number the read's own input wrote, wherever it stands in the input
+  (an amount to check, the days of a date, a list of days in one text),
+  is read from that read's answer, though the answer gives it back
+  (`getCreditExposure` returns the amount it was asked to check): the
+  model could otherwise have any number it made up returned to it. An
+  amount is known again whatever zeros end its fraction;
+- `Figures.Returned` says whether a number was returned as a Money's
+  amount. An agent that recommends an amount holds that amount to it,
+  since a whole number passes `Unread` by standing anywhere in what the
+  run read.
 
-So a figure the agent computed, rounded or made up is refused in
-whatever form it is written with digits, and so is a count the agent made
-itself, which the prompt tells it to write in words. What the check does
-not see is a number spelled in words, and a small whole number that
-happens to stand somewhere in what the run read: it is a floor under the
-prompt's rule, not a reading of the text. An agent whose recommendation
+So a number with a fraction that the agent computed, rounded or made up
+is refused in whatever form it is written with digits, and so is the
+amount an agent recommends when its check asks `Returned`, and a whole
+number that stands nowhere in what the run read (a count the agent made
+itself, which the prompt tells it to write in words). What the check
+does not see: a number spelled in words; and **any whole number, of any
+size, that is written in an answer or in the prompt** (a year, a
+customer number, a count), which a content may write as though it were
+an amount. It is a floor under the prompt's rule, not a reading of the
+text. An agent whose recommendation
 states amounts holds its content to the figures in its `Check`, as the
 API holds the forecast agent's citations to the variance's documents
 (ADR-0051 §13): here the check is the run's, since no slice adds an
@@ -222,11 +231,13 @@ A later slice adds its row here and its section under "As built".
   `business_partner`, kind `set_limit`).
 - Its check (`creditagent.review.check`): the content starts with `Limit
   <amount> <currency>`, the limit recommended in the company's currency;
-  every number in the content is one the run read (§4), so every amount,
-  that one included, is one a read of the run returned, whatever that
-  read was about (the check does not tell the customer's own figures
-  from others the run read), written without thousands separators at the
-  start; the
+  that limit is an amount a read of the run returned as money
+  (`Figures.Returned`), whatever that read was about (the check does not
+  tell the customer's own figures from others the run read), written
+  without thousands separators; every other number in the content is one
+  the run read (§4), so an amount with a fraction is one a read returned,
+  while a whole number written elsewhere in what the run read would pass;
+  the
   limit recommended is above the limit in place for `raise_limit`, below
   it for `lower_limit` and equal to it for `keep_limit`; a content that
   gives a score, the word with a number right after it, is refused, which
@@ -257,8 +268,8 @@ A later slice adds its row here and its section under "As built".
 2. An agent of the pattern has no tool but reads (`GET`) and
    `createRecommendation`, refused at run time otherwise.
 3. Every number in a recommendation that states amounts is one the run
-   read, and so every amount is one a read of the run returned, **the
-   recommended limit included**: the credit
+   read (§4 says what that floor does not see), and **the recommended
+   limit is an amount a read of the run returned as money**: the credit
    scoring agent recommends a limit that is an amount it read (the prompt
    asks for the customer's exposure, its limit, an amount overdue or
    paid), never one it computed. The check holds "a read returned it",

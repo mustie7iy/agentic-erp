@@ -151,6 +151,8 @@ func TestScore(t *testing.T) {
 		llmtest.ToolFn("createRecommendation", rec("lower_limit", "Limit 1470.00 CAD: the customer scores 3 of 10.")),
 		llmtest.ToolFn("createRecommendation", rec("lower_limit", "Limit 1500.00 CAD: a round amount above the exposure of 1470.00 CAD.")),
 		llmtest.ToolFn("createRecommendation", rec("lower_limit", "Limit 1470.00 CAD: it owes that and about $1600, on 3 invoices.")),
+		llmtest.ToolFn("createRecommendation", rec("lower_limit", "Limit 2026 CAD: the year of today's date, which the run was given.")),
+		llmtest.ToolFn("createRecommendation", rec("lower_limit", "Limit 100042 CAD: the customer's number.")),
 		llmtest.ToolFn("createRecommendation", rec("lower_limit", "Limit 9000.00 CAD: above the limit of 2470.00, so no lower limit.")),
 		llmtest.ToolFn("createRecommendation", rec("lower_limit", "Lower the limit to 1470.00 CAD.")),
 		llmtest.ToolFn("createRecommendation", rec("lower_limit", "Limit 1470.00 USD.")),
@@ -170,8 +172,8 @@ func TestScore(t *testing.T) {
 	if !slices.Equal(res.Recommendations, want) {
 		t.Errorf("recommendations: got %v, want %v", res.Recommendations, want)
 	}
-	if res.Refused != 11 {
-		t.Errorf("refused: got %d, want 11: the check's ten and the pattern's one (set_limit on a limit)", res.Refused)
+	if res.Refused != 13 {
+		t.Errorf("refused: got %d, want 13: the check's twelve and the pattern's one (set_limit on a limit)", res.Refused)
 	}
 	if got := len(a.sent("recommendations")); got != 1 {
 		t.Errorf("recommendations sent: got %d, want 1: the check keeps the others from the API", got)
@@ -188,7 +190,7 @@ func TestScore(t *testing.T) {
 			t.Errorf("the model was not told %q", want)
 		}
 	}
-	for _, want := range []string{"not 1500.00", "not 1600, 3"} {
+	for _, want := range []string{"not 1500.00", "not 1600, 3", "the limit 2026 is no amount a tool returned", "the limit 100042 is no amount"} {
 		if !strings.Contains(refusals, want) {
 			t.Errorf("the refusal of numbers the run did not read: want %q", want)
 		}
