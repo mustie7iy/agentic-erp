@@ -347,7 +347,7 @@ func (e *Endpoints) checkObjects(ctx context.Context, le uuid.UUID, year int16, 
 // replaced, since a batch replaces its centers' plan (costCenters) in
 // every period of the year. A replaced line is named by the batch's first
 // line on its center; a copy also replaces the plan of centers it has no
-// line of, which its refusal names by `replace`. The category is held FOR
+// line of, which its refusal names as replaced_cost_centers[<id>]. The category is held FOR
 // UPDATE, so no other batch changes its current lines meanwhile.
 func checkPlanLocks(ctx context.Context, tx pgx.Tx, b Batch, lines []planLine, costCenters []uuid.UUID, locked map[uuid.UUID]map[int16]bool, ref lineRef) error {
 	var refused []problem.FieldError
@@ -379,8 +379,8 @@ func checkPlanLocks(ctx context.Context, tx pgx.Tx, b Batch, lines []planLine, c
 				"locked for planning, which the batch would replace", period)))
 			return nil
 		}
-		refused = append(refused, planLockedField("replace", fmt.Sprintf("a target without a current plan of cost center %s in period %d, "+
-			"locked for planning, which the copy would replace", center, period)))
+		refused = append(refused, planLockedField(fmt.Sprintf("replaced_cost_centers[%s]", center), fmt.Sprintf("a target without a current plan "+
+			"of the cost center in period %d, locked for planning, which the copy would replace", period)))
 		return nil
 	}); err != nil {
 		return fmt.Errorf("controlling: current plan of the batch's cost centers: %w", err)

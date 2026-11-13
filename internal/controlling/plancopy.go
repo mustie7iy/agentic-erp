@@ -103,10 +103,13 @@ func copyPercentage(s string) bool {
 }
 
 // resolveCopy checks the request and reads its categories: the source as
-// it is (404 when there is none), the target FOR UPDATE, as a batch into
-// it holds it, which must be another category and open. Only the target
-// is locked, so two copies in opposite directions do not wait for each
-// other; the source's lines are read in one statement (lines).
+// it is (404 when there is none), the target held as a batch into it
+// holds it (getCategory), which must be another category and open. The
+// source is not held: its lines are read in one statement (lines), and
+// the batch's foreign key to it takes it FOR KEY SHARE only, which no
+// holder of a category blocks, so a copy does not wait for a batch into
+// its source or for the source's lock, and two copies in opposite
+// directions do not wait for each other.
 func resolveCopy(ctx context.Context, tx pgx.Tx, source uuid.UUID, req *gen.PlanCategoryCopy) (planCopy, error) {
 	c := planCopy{year: int16(req.FiscalYear), percentage: req.Percentage, replace: req.Replace.Or(false)}
 	if !copyPercentage(req.Percentage) {

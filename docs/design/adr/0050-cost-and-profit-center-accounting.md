@@ -1088,7 +1088,8 @@ As built in T56g (migration 000164):
     the scaled source and nothing else. (An uploaded batch replaces only
     the centers it names; a version that kept some old centers would be
     neither plan.) The plan locks of those centers are checked too; a
-    locked one the copy has no line of is named by `replace`.
+    locked one the copy has no line of is named as
+    `replaced_cost_centers[<cost center id>]`.
   - *Refusals name source lines by id*: `source_lines[<plan line id>]`,
     which `GET /v1/plan-lines` shows, where a batch names `lines[N]`.
   - *The replay is the `Idempotency-Key`'s* (04 §4.7): the same key and
@@ -1099,10 +1100,19 @@ As built in T56g (migration 000164):
   - *`If-Match`* is the source category's version, as every custom method
     takes one (`TestOperations`): the caller copies the category as it
     read it, locked or open. The copy does not move the version.
-  - *Only the target is held* (`FOR UPDATE`, as a batch holds its
-    category): the source's lines are read in one statement, so a batch
-    into the source commits before or after the read, and two copies in
-    opposite directions do not wait for each other.
+  - *Only the target is held*, as a batch holds its category. The
+    source's lines are read in one statement, so a batch into the source
+    commits before or after the read. The batch names the source by a
+    foreign key, whose check takes the source's row `FOR KEY SHARE`; a
+    category was held `FOR UPDATE`, which that would wait for, so a copy
+    would have waited for any batch into its source or lock of it, and
+    two copies in opposite directions would have deadlocked (review round
+    1). A category is therefore held `FOR NO KEY UPDATE` from T93a on
+    (`getCategory`), the lock an update of it takes anyway: batches,
+    copies into it, its lock and unlock and the trigger's `FOR SHARE`
+    (`plan_category_open`) serialize as before, and a foreign key's check
+    does not wait. `TestOppositeCopiesDoNotWait` drives two copies in
+    opposite directions; `TestPlanLockWaitsForACopy` the target's lock.
   - *A bound of 50,000 lines* per copy (ten uploads' worth), since the
     copy reads and writes its lines in one request; a larger plan is 422
     `controlling.plan_copy_invalid` (`too_many_lines`). An amount that

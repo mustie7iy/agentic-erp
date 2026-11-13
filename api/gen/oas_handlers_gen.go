@@ -9111,15 +9111,15 @@ func (s *Server) handleConfirmSalesOrderRequest(args [1]string, argsEscaped bool
 // `source_lines[<plan line id>].field`, at most 100); a cost center's line, copied or replaced, in a
 // period the center is locked for planning in (422 `controlling.cost_center_plan_locked`:
 // `source_lines[<plan line id>].cost_center_id` for a line copied or for the first line copied to a
-// center whose current line would be replaced, `replace` for a center the copy has no line of). Also
-// refused (422 `controlling.plan_copy_invalid`, naming the field): the target the category itself, a
-// percentage that is not above 0 and at most 1000 with up to four decimals, a legal entity and year
-// the category has no current lines of, more than 50,000 lines, and an amount that does not fit after
-// scaling. An unknown target, or a legal entity the caller cannot act in, is 422
-// `request.reference_not_found`. `If-Match` names the version of the category copied, as the caller
-// read it (412 `request.version_mismatch`; a lock or unlock moves it, a batch does not); the copy does
-// not change it. A repeat with the same `Idempotency-Key` answers the same batch. Audited and
-// published as PlanBatchApplied, as a batch is. Agents may not copy a plan.
+// center whose current line would be replaced, `replaced_cost_centers[<cost center id>]` for a center
+// of the target's plan the copy has no line of). Also refused (422 `controlling.plan_copy_invalid`,
+// naming the field): the target the category itself, a percentage that is not above 0 and at most 1000
+// with up to four decimals, a legal entity and year the category has no current lines of, more than
+// 50,000 lines, and an amount that does not fit after scaling. An unknown target, or a legal entity
+// the caller cannot act in, is 422 `request.reference_not_found`. `If-Match` names the version of the
+// category copied, as the caller read it (412 `request.version_mismatch`; a lock or unlock moves it, a
+// batch does not); the copy does not change it. A repeat with the same `Idempotency-Key` answers the
+// same batch. Audited and published as PlanBatchApplied, as a batch is. Agents may not copy a plan.
 //
 // POST /v1/plan-categories/{id}:copy
 func (s *Server) handleCopyPlanCategoryRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

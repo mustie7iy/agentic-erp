@@ -9,8 +9,9 @@
 //
 // Plan categories (PLAN, FORECAST, ...) are open or locked; locking and
 // unlocking are a person's decision (controlling.plan.lock, an approval
-// permission agents cannot hold, ADR-0050 §12), read FOR UPDATE with the
-// caller's version (ADR-0008). Plan lines are written by batches: a batch
+// permission agents cannot hold, ADR-0050 §12), the category held
+// (getCategory: FOR NO KEY UPDATE) and read with the caller's version
+// (ADR-0008). Plan lines are written by batches: a batch
 // replaces the plan of its category, company, fiscal year and centers, and
 // its key, once applied, makes the same batch again a no-op that publishes
 // nothing. A batch that would write or replace a cost center's plan in a

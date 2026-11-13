@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -259,7 +261,7 @@ func TestPlanCopyOfAPlanItCannotTake(t *testing.T) {
 // for planning in: a line it copies there, the target's current line
 // there of a center it copies lines of, named by the first of them, and
 // the target's current line there of a center it copies none of, named
-// by replace.
+// as a replaced cost center.
 func TestPlanCopyAndLockedCostCenters(t *testing.T) {
 	b := setupBudgeted(t)
 	path := "/v1/plan-categories/" + b.budget + ":copy"
@@ -274,7 +276,7 @@ func TestPlanCopyAndLockedCostCenters(t *testing.T) {
 	wantList(t, "fields", sorted(refusedFields(got)), sorted([]string{
 		"source_lines[" + b.lineID(t, b.budget, "1000/520000/2") + "].cost_center_id plan_locked",
 		"source_lines[" + b.lineID(t, b.budget, "2000/520000/2") + "].cost_center_id plan_locked",
-		"replace plan_locked"}))
+		"replaced_cost_centers[" + b.c.Locked.String() + "] plan_locked"}))
 	wantList(t, "the forecast after the refusal", b.planned(t, b.forecast), []string{"2000/520000/3 9.00", "3000/520000/3 7.00"})
 	t.Run("into a category without a plan in the locked periods", func(t *testing.T) {
 		got := b.in(t).Problem(422, "controlling.cost_center_plan_locked", "POST", path, b.copyBody(b.category(t, "NEW"), "105", false), `"1"`)
@@ -282,9 +284,69 @@ func TestPlanCopyAndLockedCostCenters(t *testing.T) {
 	})
 }
 
+// TestOppositeCopiesDoNotWait: a copy holds its target and only names its
+// source, by a foreign key whose check a held category does not block, so
+// a copy of the forecast into the budget runs to its end while a copy of
+// the budget into the forecast is still open, where it would otherwise
+// wait for it and the first for the second's hold of the budget: a
+// deadlock.
+func TestOppositeCopiesDoNotWait(t *testing.T) {
+	b := setupBudgeted(t)
+	b.batch(t, b.forecast, "old", line(b.c.Admin, b.office, 9, "9.00"))
+	h := endpoints(t)
+	copyOf := func(source, target string) func(ctx context.Context) error {
+		return func(ctx context.Context) error {
+			_, err := h.CopyPlanCategory(ctx, &gen.PlanCategoryCopy{TargetPlanCategoryID: uuid.MustParse(target), LegalEntityID: b.DE, FiscalYear: 2026,
+				Percentage: "100", Replace: gen.NewOptBool(true)}, gen.CopyPlanCategoryParams{ID: uuid.MustParse(source), IfMatch: `"1"`})
+			return err
+		}
+	}
+	held, release := make(chan struct{}), make(chan struct{})
+	letGo := sync.OnceFunc(func() { close(release) })
+	defer letGo() // a failed wait does not leave the first copy holding its transaction
+	firstPID, firstDone := apitest.Started(t, b.Tenant, b.Tenant.Human, func(ctx context.Context) error {
+		if err := copyOf(b.budget, b.forecast)(ctx); err != nil {
+			return err
+		}
+		close(held)
+		<-release
+		return nil
+	})
+	first := <-firstPID
+	select {
+	case <-held:
+	case err := <-firstDone:
+		t.Fatalf("the first copy: got %v, want it applied and open", err)
+	}
+	secondPID, secondDone := apitest.Started(t, b.Tenant, b.Tenant.Human, copyOf(b.forecast, b.budget))
+	second := <-secondPID
+	var secondErr error
+	pgtest.Eventually(t, 10*time.Second, func() bool {
+		select {
+		case secondErr = <-secondDone:
+			return true
+		default:
+		}
+		if second != 0 && apitest.Blocks(t, first, second) {
+			t.Fatal("the second copy waits for the first, which holds only its own target")
+		}
+		return false
+	}, "the second copy did not finish while the first was open")
+	if secondErr != nil {
+		t.Fatalf("the second copy: got %v, want it applied", secondErr)
+	}
+	letGo()
+	if err := <-firstDone; err != nil {
+		t.Fatalf("the first copy: got %v, want it committed", err)
+	}
+	// The second read the forecast before the first committed: the old line.
+	wantList(t, "the budget, the forecast as it was", b.planned(t, b.budget), []string{"1000/520000/9 9.00"})
+	wantList(t, "the forecast, the budget as it was", b.planned(t, b.forecast), budget)
+}
+
 // TestPlanLockWaitsForACopy: a copy holds its target, so a lock of the
-// target waits for it and then locks the plan the copy wrote; the source
-// is not held.
+// target waits for it and then locks the plan the copy wrote. The source
+// is locked in the copy's own transaction, which a copy out of it allows.
 func TestPlanLockWaitsForACopy(t *testing.T) {
 	b := setupBudgeted(t)
 	h := endpoints(t)
@@ -300,8 +362,11 @@ func TestPlanLockWaitsForACopy(t *testing.T) {
 		_, err := h.LockPlanCategory(ctx, gen.LockPlanCategoryParams{ID: target, IfMatch: `"1"`})
 		return err
 	})
-	if copyErr != nil || lockErr != nil {
-		t.Fatalf("copy: %v, lock: %v, want both to succeed", copyErr, lockErr)
+	if copyErr != nil {
+		t.Fatalf("the copy: got %v, want it applied", copyErr)
+	}
+	if lockErr != nil {
+		t.Fatalf("the lock: got %v, want it applied after the copy", lockErr)
 	}
 	want(t, "lines the lock found written", len(b.planned(t, b.forecast)), 5)
 	b.Problem(409, "controlling.plan_category_locked", "POST", "/v1/plan-categories/"+b.budget+":copy", b.copyBody(b.forecast, "105", true), `"2"`)
