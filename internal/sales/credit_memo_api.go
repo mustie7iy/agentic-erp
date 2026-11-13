@@ -18,17 +18,29 @@ import (
 )
 
 // creditRefs reads what the credit memo requests name by id: their
-// companies, their customers and their items' accounts.
+// companies, their customers, their items' accounts and, for the posted
+// ones, their credit memos' journal entries by number.
 func (e *Endpoints) creditRefs(ctx context.Context, requests []CreditMemoRequest) (references, error) {
 	docs := make([]named, len(requests))
+	var entries []uuid.UUID
 	for i, r := range requests {
 		items := make([]Item, len(r.Items))
 		for j, it := range r.Items {
 			items[j] = Item{AccountID: it.AccountID}
 		}
 		docs[i] = named{legalEntity: r.LegalEntityID, customer: r.CustomerID, items: items}
+		if r.EntryID != nil {
+			entries = append(entries, *r.EntryID)
+		}
 	}
-	return e.references(ctx, docs)
+	refs, err := e.references(ctx, docs)
+	if err != nil {
+		return references{}, err
+	}
+	if refs.entries, err = e.Entries.Numbers(ctx, entries); err != nil {
+		return references{}, fmt.Errorf("sales: journal entries of %d credit memo requests: %w", len(requests), err)
+	}
+	return refs, nil
 }
 
 // creditAPI is a credit memo request as the API gives it, with what it
@@ -42,7 +54,12 @@ func creditAPI(r CreditMemoRequest, refs references) gen.CreditMemoRequest {
 		BillingDocumentID: r.BillingDocumentID, BillingDocumentNumber: r.BillingDocumentNumber, SalesOrderID: r.OrderID,
 		SalesOrderNumber: r.OrderNumber, ReturnsOrderID: apitypes.OptUUID(r.ReturnsOrderID), ReturnsOrderNumber: apitypes.OptString(r.ReturnsOrderNumber),
 		RequestDate: r.RequestDate, Reason: apitypes.OptString(r.Reason), Status: r.Status, RejectionReason: apitypes.OptString(r.RejectionReason),
-		Currency: r.Currency, NetAmount: amount(r.Net), Items: make([]gen.CreditMemoRequestItem, len(r.Items))}
+		Currency: r.Currency, NetAmount: amount(r.Net), PostingDate: apitypes.OptDate(r.PostingDate), CustomerInvoiceID: apitypes.OptUUID(r.InvoiceID),
+		CustomerInvoiceNumber: apitypes.OptString(r.InvoiceNumber), JournalEntryID: apitypes.OptUUID(r.EntryID), Items: make([]gen.CreditMemoRequestItem, len(r.Items))}
+	if r.EntryID != nil { // posted: its credit memo's entry's year and number are known with it
+		out.JournalEntryYear.SetTo(int32(*r.EntryYear))
+		out.JournalEntryNumber.SetTo(refs.entries[*r.EntryID])
+	}
 	for i, it := range r.Items {
 		account := refs.accounts[it.AccountID]
 		item := gen.CreditMemoRequestItem{ItemNo: it.ItemNo, BillingItemNo: it.BillingItemNo, OrderItemNo: it.OrderItemNo,
@@ -99,7 +116,9 @@ func (e *Endpoints) GetCreditMemoRequest(ctx context.Context, params gen.GetCred
 }
 
 // ReleaseCreditMemoRequest implements POST
-// /v1/credit-memo-requests/{id}:release, the approval.
+// /v1/credit-memo-requests/{id}:release, the approval. Its 200 answer is
+// the type ogen generates once for every operation that answers a
+// CreditMemoRequest with an ETag (DeclineCreditMemoRequestOKHeaders).
 func (e *Endpoints) ReleaseCreditMemoRequest(ctx context.Context, params gen.ReleaseCreditMemoRequestParams) (gen.ReleaseCreditMemoRequestRes, error) {
 	r, err := e.ApproveCredit(ctx, params.ID, etag.IfMatch(params.IfMatch))
 	if err != nil {
@@ -168,4 +187,17 @@ func (e *Endpoints) ListCreditMemoRequests(ctx context.Context, params gen.ListC
 		return nil, err
 	}
 	return &gen.CreditMemoRequestPage{Items: items, NextPageToken: next}, nil
+}
+
+// PostCreditMemoRequest implements POST /v1/credit-memo-requests/{id}:post.
+func (e *Endpoints) PostCreditMemoRequest(ctx context.Context, req gen.OptCreditMemoRequestPost, params gen.PostCreditMemoRequestParams) (gen.PostCreditMemoRequestRes, error) {
+	r, err := e.PostCredit(ctx, params.ID, etag.IfMatch(params.IfMatch), apitypes.Ptr[time.Time](req.Value.PostingDate))
+	if err != nil {
+		return nil, err
+	}
+	out, err := e.creditAnswer(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.DeclineCreditMemoRequestOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: out}, nil
 }

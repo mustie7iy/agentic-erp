@@ -32570,9 +32570,13 @@ func (s *BillingDocumentItem) encodeFields(e *jx.Encoder) {
 		e.FieldStart("order_item_no")
 		e.Int32(s.OrderItemNo)
 	}
+	{
+		e.FieldStart("credited_amount")
+		s.CreditedAmount.Encode(e)
+	}
 }
 
-var jsonFieldsNameOfBillingDocumentItem = [14]string{
+var jsonFieldsNameOfBillingDocumentItem = [15]string{
 	0:  "item_no",
 	1:  "item_key",
 	2:  "description",
@@ -32587,6 +32591,7 @@ var jsonFieldsNameOfBillingDocumentItem = [14]string{
 	11: "account_name",
 	12: "tax_code",
 	13: "order_item_no",
+	14: "credited_amount",
 }
 
 // Decode decodes BillingDocumentItem from json.
@@ -32762,6 +32767,16 @@ func (s *BillingDocumentItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"order_item_no\"")
 			}
+		case "credited_amount":
+			requiredBitSet[1] |= 1 << 6
+			if err := func() error {
+				if err := s.CreditedAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"credited_amount\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -32773,7 +32788,7 @@ func (s *BillingDocumentItem) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11111101,
-		0b00101111,
+		0b01101111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -78109,6 +78124,42 @@ func (s *CreditMemoRequest) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.PostingDate.Set {
+			e.FieldStart("posting_date")
+			s.PostingDate.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		if s.CustomerInvoiceID.Set {
+			e.FieldStart("customer_invoice_id")
+			s.CustomerInvoiceID.Encode(e)
+		}
+	}
+	{
+		if s.CustomerInvoiceNumber.Set {
+			e.FieldStart("customer_invoice_number")
+			s.CustomerInvoiceNumber.Encode(e)
+		}
+	}
+	{
+		if s.JournalEntryID.Set {
+			e.FieldStart("journal_entry_id")
+			s.JournalEntryID.Encode(e)
+		}
+	}
+	{
+		if s.JournalEntryYear.Set {
+			e.FieldStart("journal_entry_year")
+			s.JournalEntryYear.Encode(e)
+		}
+	}
+	{
+		if s.JournalEntryNumber.Set {
+			e.FieldStart("journal_entry_number")
+			s.JournalEntryNumber.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("currency")
 		e.Str(s.Currency)
 	}
@@ -78126,7 +78177,7 @@ func (s *CreditMemoRequest) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfCreditMemoRequest = [26]string{
+var jsonFieldsNameOfCreditMemoRequest = [32]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -78150,9 +78201,15 @@ var jsonFieldsNameOfCreditMemoRequest = [26]string{
 	20: "reason",
 	21: "status",
 	22: "rejection_reason",
-	23: "currency",
-	24: "net_amount",
-	25: "items",
+	23: "posting_date",
+	24: "customer_invoice_id",
+	25: "customer_invoice_number",
+	26: "journal_entry_id",
+	27: "journal_entry_year",
+	28: "journal_entry_number",
+	29: "currency",
+	30: "net_amount",
+	31: "items",
 }
 
 // Decode decodes CreditMemoRequest from json.
@@ -78430,8 +78487,68 @@ func (s *CreditMemoRequest) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"rejection_reason\"")
 			}
+		case "posting_date":
+			if err := func() error {
+				s.PostingDate.Reset()
+				if err := s.PostingDate.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"posting_date\"")
+			}
+		case "customer_invoice_id":
+			if err := func() error {
+				s.CustomerInvoiceID.Reset()
+				if err := s.CustomerInvoiceID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"customer_invoice_id\"")
+			}
+		case "customer_invoice_number":
+			if err := func() error {
+				s.CustomerInvoiceNumber.Reset()
+				if err := s.CustomerInvoiceNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"customer_invoice_number\"")
+			}
+		case "journal_entry_id":
+			if err := func() error {
+				s.JournalEntryID.Reset()
+				if err := s.JournalEntryID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"journal_entry_id\"")
+			}
+		case "journal_entry_year":
+			if err := func() error {
+				s.JournalEntryYear.Reset()
+				if err := s.JournalEntryYear.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"journal_entry_year\"")
+			}
+		case "journal_entry_number":
+			if err := func() error {
+				s.JournalEntryNumber.Reset()
+				if err := s.JournalEntryNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"journal_entry_number\"")
+			}
 		case "currency":
-			requiredBitSet[2] |= 1 << 7
+			requiredBitSet[3] |= 1 << 5
 			if err := func() error {
 				v, err := d.Str()
 				s.Currency = string(v)
@@ -78443,7 +78560,7 @@ func (s *CreditMemoRequest) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"currency\"")
 			}
 		case "net_amount":
-			requiredBitSet[3] |= 1 << 0
+			requiredBitSet[3] |= 1 << 6
 			if err := func() error {
 				if err := s.NetAmount.Decode(d); err != nil {
 					return err
@@ -78453,7 +78570,7 @@ func (s *CreditMemoRequest) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"net_amount\"")
 			}
 		case "items":
-			requiredBitSet[3] |= 1 << 1
+			requiredBitSet[3] |= 1 << 7
 			if err := func() error {
 				s.Items = make([]CreditMemoRequestItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -78482,8 +78599,8 @@ func (s *CreditMemoRequest) Decode(d *jx.Decoder) error {
 	for i, mask := range [4]uint8{
 		0b11011111,
 		0b11111111,
-		0b10101001,
-		0b00000011,
+		0b00101001,
+		0b11100000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -79212,6 +79329,69 @@ func (s *CreditMemoRequestPage) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *CreditMemoRequestPage) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *CreditMemoRequestPost) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *CreditMemoRequestPost) encodeFields(e *jx.Encoder) {
+	{
+		if s.PostingDate.Set {
+			e.FieldStart("posting_date")
+			s.PostingDate.Encode(e, json.EncodeDate)
+		}
+	}
+}
+
+var jsonFieldsNameOfCreditMemoRequestPost = [1]string{
+	0: "posting_date",
+}
+
+// Decode decodes CreditMemoRequestPost from json.
+func (s *CreditMemoRequestPost) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CreditMemoRequestPost to nil")
+	}
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "posting_date":
+			if err := func() error {
+				s.PostingDate.Reset()
+				if err := s.PostingDate.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"posting_date\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode CreditMemoRequestPost")
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CreditMemoRequestPost) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CreditMemoRequestPost) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -152644,6 +152824,39 @@ func (s *OptCreditLimit) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes CreditMemoRequestPost as json.
+func (o OptCreditMemoRequestPost) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	o.Value.Encode(e)
+}
+
+// Decode decodes CreditMemoRequestPost from json.
+func (o *OptCreditMemoRequestPost) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptCreditMemoRequestPost to nil")
+	}
+	o.Set = true
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptCreditMemoRequestPost) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptCreditMemoRequestPost) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes CustomerInvoicePost as json.
 func (o OptCustomerInvoicePost) Encode(e *jx.Encoder) {
 	if !o.Set {
@@ -166622,6 +166835,234 @@ func (s *PostBillingDocumentUnprocessableEntity) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *PostBillingDocumentUnprocessableEntity) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes PostCreditMemoRequestBadRequest as json.
+func (s *PostCreditMemoRequestBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes PostCreditMemoRequestBadRequest from json.
+func (s *PostCreditMemoRequestBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode PostCreditMemoRequestBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = PostCreditMemoRequestBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *PostCreditMemoRequestBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *PostCreditMemoRequestBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes PostCreditMemoRequestForbidden as json.
+func (s *PostCreditMemoRequestForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes PostCreditMemoRequestForbidden from json.
+func (s *PostCreditMemoRequestForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode PostCreditMemoRequestForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = PostCreditMemoRequestForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *PostCreditMemoRequestForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *PostCreditMemoRequestForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes PostCreditMemoRequestNotFound as json.
+func (s *PostCreditMemoRequestNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes PostCreditMemoRequestNotFound from json.
+func (s *PostCreditMemoRequestNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode PostCreditMemoRequestNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = PostCreditMemoRequestNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *PostCreditMemoRequestNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *PostCreditMemoRequestNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes PostCreditMemoRequestPreconditionFailed as json.
+func (s *PostCreditMemoRequestPreconditionFailed) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes PostCreditMemoRequestPreconditionFailed from json.
+func (s *PostCreditMemoRequestPreconditionFailed) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode PostCreditMemoRequestPreconditionFailed to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = PostCreditMemoRequestPreconditionFailed(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *PostCreditMemoRequestPreconditionFailed) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *PostCreditMemoRequestPreconditionFailed) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes PostCreditMemoRequestPreconditionRequired as json.
+func (s *PostCreditMemoRequestPreconditionRequired) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes PostCreditMemoRequestPreconditionRequired from json.
+func (s *PostCreditMemoRequestPreconditionRequired) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode PostCreditMemoRequestPreconditionRequired to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = PostCreditMemoRequestPreconditionRequired(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *PostCreditMemoRequestPreconditionRequired) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *PostCreditMemoRequestPreconditionRequired) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes PostCreditMemoRequestUnprocessableEntity as json.
+func (s *PostCreditMemoRequestUnprocessableEntity) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes PostCreditMemoRequestUnprocessableEntity from json.
+func (s *PostCreditMemoRequestUnprocessableEntity) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode PostCreditMemoRequestUnprocessableEntity to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = PostCreditMemoRequestUnprocessableEntity(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *PostCreditMemoRequestUnprocessableEntity) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *PostCreditMemoRequestUnprocessableEntity) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

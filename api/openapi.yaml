@@ -19321,6 +19321,7 @@ paths:
               - open
               - approved
               - rejected
+              - posted
         - $ref: "#/components/parameters/DocumentNumber"
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
@@ -19524,6 +19525,135 @@ paths:
       responses:
         "200":
           description: "The credit memo request, rejected."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditMemoRequest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/credit-memo-requests/{id}:post":
+    post:
+      operationId: postCreditMemoRequest
+      tags:
+        - sales
+      summary: Post an approved credit memo request as a customer credit memo
+      description: "Posts an `approved` credit memo request, once (ADR-0067, As built T85d), at the version the caller read (`If-Match`): a customer credit memo is entered in accounts receivable and posted, in the same transaction as the request's change, so either all of it happens or none. The credit memo (`kind` `credit_memo`) has the billing document's company, customer and currency, names the billing document's customer invoice as the invoice it credits (`reference_invoice_id`) and the request as its source (`source_document_id`, `source_document_number`), and has the request's items one for one, each with the billing item's description, revenue account and output tax code and the request item's net amount. Its tax is what the billed invoice's item bore, shared out: of each billing item, the credits posted so far, this one included, bear the share of the item's tax that their net amounts are of the item's, shared out with money.Allocate, less what the earlier credits bore, so the credits of an item's whole billed amount give back its tax to the minor unit; the ledger holds that tax to the code's rate on the credit memo's date within a minor unit per line (422 `ledger.output_tax_mismatch` when the rate changed since billing). Its date, which is its tax date, and its posting date are the request's `posting_date`, else today, the company's date in its time zone, in an open period (409 `ledger.period_not_open`). Without a payment term of its own it keeps the invoice's term from the invoice's date (ADR-0063 §7). Accounts receivable posts the entry (document type `DG`, `source_context` `receivables`): it credits the customer's reconciliation account with the credit memo's gross, the customer's open credit item (`GET /v1/open-items`), and debits each item's revenue account with its amount and output tax per code. The credit reduces what the customer owes, and so its credit exposure; it clears against the invoice by the ledger's clearing or nets when an incoming payment is applied. The credit memos naming the invoice may not together exceed its gross (422 `receivables.credit_exceeds_invoice`, under the invoice's row lock). The request becomes `posted` and names its `posting_date`, its `customer_invoice_id` and `customer_invoice_number` and the credit memo's `journal_entry_id`, `journal_entry_year` and `journal_entry_number`; the billing document's items show the amount credited (`credited_amount`). An audit record and CreditMemoRequestPosted are written with it, beside the credit memo's own (CustomerInvoiceChanged, CustomerInvoicePosted). The request's row is read under a lock, then its billing document's sales order's, under which the credits of one order are counted: of two requests to post one request, one posts it and the other meets another version (412). One that is not `approved` is refused (409 `sales.invalid_status`); a retry with the same `Idempotency-Key` answers the posted request. What accounts receivable or the ledger refuses leaves the request `approved` and nothing posted, and is answered with their code, the request's number leading the detail and the request's own fields named: a customer that is not active, no longer a customer or blocked for posting (422 `receivables.customer_not_usable`, `customer_id`); an item's account that can no longer be posted (422 `receivables.account_not_postable`, `items[i].account_id`); a tax code that is no longer an output tax code of the company with a rate on the date (422 `receivables.unknown_tax_code`, `items[i].tax_code`); the credit above what is left of the invoice's gross (`net_amount`); a company without the `customer_invoice` or `journal_dg` number range (422 `config.no_number_range`). Revenue contracts are not touched. A posted request is not reversed or cancelled in the first version. Posting takes the billing clerk's permission, `sales.billing.post`; no permission of accounts receivable is needed. Human-only (`x-agent: false`)."
+      x-permission: sales.billing.post
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - receivables.account_not_postable
+        - receivables.amount_not_positive
+        - receivables.amount_too_large
+        - receivables.credit_exceeds_invoice
+        - receivables.currency_mismatch
+        - receivables.customer_not_usable
+        - receivables.invalid_reference_invoice
+        - receivables.invalid_status
+        - receivables.items_required
+        - receivables.no_tax_account
+        - receivables.reference_not_allowed
+        - receivables.tax_changed
+        - receivables.tax_jurisdiction_not_supported
+        - receivables.unknown_currency
+        - receivables.unknown_kind
+        - receivables.unknown_payment_term
+        - receivables.unknown_tax_code
+        - request.invalid_amount
+        - request.version_mismatch
+        - sales.invalid_status
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of postCreditMemoRequest.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreditMemoRequestPost"
+            examples:
+              post:
+                summary: Post on a date
+                value:
+                  posting_date: "2026-12-02"
+      responses:
+        "200":
+          description: "The credit memo request, posted."
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
@@ -50361,9 +50491,10 @@ components:
       allOf:
         - $ref: "#/components/schemas/SalesItem"
         - type: object
-          required: [order_item_no]
+          required: [order_item_no, credited_amount]
           properties:
             order_item_no: {type: integer, format: int32, description: "The number of the sales order's item this item bills.", readOnly: true}
+            credited_amount: {$ref: "#/components/schemas/Money", description: "The net amount credited of the item by the credit memo requests posted against it (`postCreditMemoRequest`): at most `net_amount`; zero when none is posted."}
     BillingDocument:
       description: "A billing document (sales, ADR-0067 §9): what is billed of one sales order, its delivered quantities not yet billed at the order's prices. Amounts are net. It posts nothing until it is posted (`postBillingDocument`): then it names the customer invoice it posted as, which carries the tax and is the customer's open item, and that invoice's journal entry."
       allOf:
@@ -50435,6 +50566,7 @@ components:
               account_name: Sales revenue
               tax_code: GO5
               order_item_no: 1
+              credited_amount: {amount: "0.00", currency: CAD}
     BillingDocumentPage:
       type: object
       description: One page of billing documents.
@@ -50679,7 +50811,7 @@ components:
         account_name: {type: string, description: "The account's name, as it is now.", readOnly: true}
         tax_code: {type: string, description: "The billing item's output tax code, which the credit memo's tax is calculated with; absent when the item has none.", readOnly: true}
     CreditMemoRequest:
-      description: "A credit memo request (sales, ADR-0067, As built T85c): what a sales administrator asks to be credited to the customer of a posted billing document's items, for a returns order's received quantities at their billed amount or as an amount per item with a reason. Amounts are net; the tax is the customer credit memo's. It is `open` until a sales manager approves or rejects it, once, and posts nothing by itself. Its `version` moves with the decision."
+      description: "A credit memo request (sales, ADR-0067, As built T85c, T85d): what a sales administrator asks to be credited to the customer of a posted billing document's items, for a returns order's received quantities at their billed amount or as an amount per item with a reason. Amounts are net; the tax is the customer credit memo's. It is `open` until a sales manager approves or rejects it, once; an approved request is posted once as a customer credit memo (`postCreditMemoRequest`), which it then names. Its `version` moves with the decision and the posting."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -50703,10 +50835,16 @@ components:
             reason: {type: string, description: "Why the customer is credited; absent when none was given with a returns order.", readOnly: true}
             status:
               type: string
-              x-extensible-enum: [open, approved, rejected]
-              description: "`open`: created, not decided; `approved`: approved, once (`:release`); `rejected`: rejected, once (`:decline`), with `rejection_reason`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [open, approved, rejected, posted]
+              description: "`open`: created, not decided; `approved`: approved, once (`:release`); `rejected`: rejected, once (`:decline`), with `rejection_reason`; `posted`: an approved request posted as a customer credit memo (`:post`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
             rejection_reason: {type: string, description: "Why the request was rejected. Absent unless it is `rejected`.", readOnly: true}
+            posting_date: {type: string, format: date, description: "The date the request posted on, its credit memo's date and posting date. Absent until posted.", readOnly: true}
+            customer_invoice_id: {type: string, format: uuid, description: "The customer credit memo the request posted as (`GET /v1/customer-invoices/{id}`): it shows the tax, the gross amount and the invoice it credits. Absent until posted.", readOnly: true}
+            customer_invoice_number: {type: string, description: "The credit memo's document number. Absent until posted.", readOnly: true}
+            journal_entry_id: {type: string, format: uuid, description: "The journal entry the credit memo posted (`GET /v1/journal-entries/{id}`). Absent until posted.", readOnly: true}
+            journal_entry_year: {type: integer, format: int32, description: "The entry's fiscal year. Absent until posted.", readOnly: true}
+            journal_entry_number: {type: string, description: "The entry's document number. Absent until posted.", readOnly: true}
             currency: {type: string, pattern: "^[A-Z]{3}$", description: "The request's currency (ISO 4217), the billing document's.", readOnly: true}
             net_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' amounts."}
             items:
@@ -50759,6 +50897,14 @@ components:
       additionalProperties: false
       properties:
         reason: {type: string, minLength: 1, maxLength: 500, description: "Why the request is rejected; never white space alone."}
+    CreditMemoRequestPost:
+      type: object
+      description: Options for posting a credit memo request.
+      additionalProperties: false
+      properties:
+        posting_date: {type: string, format: date, description: "The date and posting date of the customer credit memo the request posts as; absent: today, the company's date in its time zone (`companies[].time_zone`)."}
+      examples:
+        - posting_date: "2026-12-02"
     CreditMemoRequestPage:
       type: object
       description: One page of credit memo requests.

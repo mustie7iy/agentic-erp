@@ -60,6 +60,7 @@ func TestDatabaseFailures(t *testing.T) {
 	e.Must(201, "POST", receipts(creditFor.String()), `{"receipt_date": "2026-01-02", "items": [{"item_no": 1, "quantity": {"value": "1", "unit": "EA"}}]}`, "")
 	requested, _ := e.Must(201, "POST", creditRequests, byAmount(creditedFrom, "Goodwill", "1 0.10"), "")
 	request := uuid.MustParse(requested["id"].(string))
+	toPostCredit := uuid.MustParse(e.approvedRequest(t, byAmount(creditedFrom, "Goodwill", "1 0.20"))["id"].(string))
 	calls := map[string]func(ctx context.Context) error{
 		"request a credit for a return": func(ctx context.Context) error {
 			_, err := h.CreateCreditMemoRequest(ctx, &gen.CreditMemoRequestCreate{BillingDocumentID: creditDoc, ReturnsOrderID: gen.NewOptUUID(creditFor),
@@ -69,6 +70,10 @@ func TestDatabaseFailures(t *testing.T) {
 		"request a credit by amount": func(ctx context.Context) error {
 			_, err := h.CreateCreditMemoRequest(ctx, &gen.CreditMemoRequestCreate{BillingDocumentID: creditDoc, Reason: gen.NewOptString("Goodwill"),
 				Items: []gen.CreditMemoRequestItemCreate{{BillingItemNo: 1, NetAmount: gen.Money{Amount: "1.00", Currency: "EUR"}}}}, gen.CreateCreditMemoRequestParams{})
+			return err
+		},
+		"post a credit memo request": func(ctx context.Context) error {
+			_, err := h.PostCreditMemoRequest(ctx, gen.OptCreditMemoRequestPost{}, gen.PostCreditMemoRequestParams{ID: toPostCredit, IfMatch: `"2"`})
 			return err
 		},
 		"get a credit memo request": func(ctx context.Context) error {

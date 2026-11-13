@@ -1348,7 +1348,8 @@ final, so what is credited is what was billed, shared out with
   read, so they run as the caller; the decision's rule
   (`credit_memo_request_decided_once`) holds for the tables' owner too.
   Schema tests in `db/sales_credit_test.go`
-  (`TestCreditMemoRequestRules`), owner-level cases included.
+  (`TestCreditMemoRequestRules`), with a case run as the tables' owner
+  for each trigger.
 - `POST /v1/credit-memo-requests` (`billing_document_id` and either
   `returns_order_id` or `items` each a `billing_item_no` and a
   `net_amount`, with `reason`; 201 with `Location` and `ETag`,
@@ -1448,3 +1449,97 @@ final, so what is credited is what was billed, shared out with
   memo requests, a request without a billing document, approval tiers
   and a separate approver, restocking and handling charges, the credited
   amounts in the revenue contract and in rebates.
+
+### T85d Credit memo posted through receivables (migration 000306)
+
+`docs/design/plan-breadth-week3.md`, T85d, its default 3 and the
+product owner's decision of 2026-11-12 that what was billed is what is
+credited; T79b's posting is the pattern.
+
+- `internal/sales/credit_post.go` (`PostCredit`, `creditMemo`,
+  `creditTax`, `ItemCredit`), `credit_memo_api.go`
+  (`PostCreditMemoRequest`); `billing_post.go`'s refusal mapping is
+  shared (`asPosting`, with `asBilling` as the billing document's).
+  Nothing new is wired: the request posts through the `Invoices` port
+  T79b gave sales, and reads the billed invoice's items with
+  `receivables.GetInvoice`.
+- Migration 000306: on `sales.credit_memo_request` the status `posted`
+  with `posting_date`, `customer_invoice_id`, `customer_invoice_number`,
+  `journal_entry_year` and `journal_entry_id`, all of them once posted
+  and none before (`credit_memo_request_posted`), a credit memo one
+  request's (`credit_memo_request_invoice_once`), the change rule
+  admitting an approved request posted once (it holds for the owner too)
+  and the update grant on the columns posting sets. No new table. Schema
+  cases in `TestCreditMemoRequestRules`.
+- `POST /v1/credit-memo-requests/{id}:post` (`sales.billing.post`,
+  `If-Match`, idempotent, human-only; optional `posting_date`): 200 with
+  the request `posted` at version 3, naming `posting_date`,
+  `customer_invoice_id`, `customer_invoice_number`, `journal_entry_id`,
+  `journal_entry_year` and `journal_entry_number`. The credit memo is
+  receivables' (ADR-0063 §7, As built T85d): kind `credit_memo`,
+  `reference_invoice_id` the billing document's invoice, the request as
+  its source, the request's items one for one with the billing item's
+  description, revenue account and tax code; its DG entry credits the
+  customer's reconciliation account with the gross and debits each
+  item's account and output tax. Its date (the tax date) and posting
+  date are the request's `posting_date`, else the company's today; it
+  has no payment term of its own, so it keeps the invoice's from the
+  invoice's date, as T75d built.
+- **The tax.** Of each billing item, the posted credits so far, this
+  one included, bear the share of the tax the invoice's item bore that
+  their net amounts are of the item's (`share`, `money.Allocate`), less
+  what the earlier posted credits bore: the credits of an item's whole
+  billed amount give back its net and its tax to the minor unit, in one
+  request or in parts (`TestCreditsGiveBackWhatWasBilled`). Receivables
+  posts the tax it is given (ADR-0063, As built T85d); the ledger holds
+  it to the code's rate on the credit memo's date within a minor unit
+  per line, so a rate changed between billing and crediting refuses the
+  post (422 `ledger.output_tax_mismatch`).
+- The request's lock is taken first, then the sales order's (the lock
+  creation, returns and billing take), so the credits of one order's
+  billing items are counted one post after the other
+  (`TestCreditMemoRequestPostsRacing`); no path takes them the other way
+  round. A refusal by receivables or the ledger leaves the request
+  `approved`, leads the detail with the request's number and names its
+  own fields (`items[i]`, `customer_id`; the invoice limit's
+  `gross_amount` as the request's `net_amount`).
+- `CreditMemoRequestPosted` (not `x-webhook`): the request's net value,
+  the credit memo's tax and gross (positive), the customer by id and
+  number, the billing document, sales order, returns order, credit memo,
+  credited invoice and entry by id and number. The audit record
+  `sales.credit_memo_request.post`. Receivables' own events and audit
+  records are written in the same transaction.
+- The billing document's items show `credited_amount` (required in
+  `BillingDocumentItem`), what the posted requests credited of them; the
+  billing document's version does not move. `sales.Orders.Order` gives
+  each order item its posted credits (`ItemCredit`: the request, its
+  billing document, posting date, net amount, credit memo and entry; by
+  posting date, then number), for net revenue by segment (T92a).
+- **Credit exposure and revenue contract.** The credit memo's credit
+  line is an open item of the customer, so the exposure
+  (`getCreditExposure`, open items plus open orders) falls by its gross
+  as receivables already computes it; nothing in credit changed. Revenue
+  is not touched: the `revenue-contracts` consumer does not read the
+  event, and how a return enters a revenue contract stays the
+  accounting specialist's question 4.
+- Walkthrough `step_credit_memo_posting` (step 73): Ruth posts step 72's
+  request; the credit memo names the request and the invoice, net the
+  request's, tax the item's share of the GST billed; the DG entry moves
+  1200, 4000 and 2300 back by exactly its amounts; Northwind's open
+  amount falls by its gross; the billing item shows the amount credited;
+  a second post is refused.
+- **Decided by default:** (1) `:post` takes `sales.billing.post`, the
+  billing clerk's permission (the plan adds none); (2) the credit memo's
+  date is its posting date, the plan's "the company's date today unless
+  given"; (3) the tax is what was billed, shared out, not recalculated
+  (product owner 2026-11-12), which needed `ItemInput.Tax` in
+  receivables; (4) the credit memo is not cleared against the invoice
+  by the post: it stands as the customer's open credit item and clears
+  by the ledger's clearing or nets with a payment (ADR-0063 §7 as
+  built); (5) the request's version moves to 3 with the post; neither
+  the billing document's nor the order's moves; (6) the request is the
+  credit memo's source document (id and number), as the billing
+  document is its invoice's. Not built, by the plan's "Later": a credit
+  paid out to the customer, cancelling a posted request, the credit memo
+  as a document or an e-invoice, the credited amounts in the revenue
+  contract and in rebates.

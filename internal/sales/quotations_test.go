@@ -30,7 +30,7 @@ var perms = []string{"sales.quotation.read", "sales.quotation.write", "sales.ord
 	"sales.delivery.confirm", "sales.billing.read", "sales.billing.write", "sales.billing.post", "receivables.invoice.read",
 	"sales.price.read", "sales.price.write", "sales.order.credit_release", "credit.limit.read", "credit.limit.write",
 	"sales.return.read", "sales.return.write", "sales.return.confirm", "sales.return.receive",
-	"sales.credit_memo_request.read", "sales.credit_memo_request.write", "sales.credit_memo_request.approve"}
+	"sales.credit_memo_request.read", "sales.credit_memo_request.write", "sales.credit_memo_request.approve", "ledger.entry.read"}
 
 // far is a validity no run of the tests reaches.
 const far = "2099-12-31"
@@ -63,9 +63,10 @@ func outputCodes(doc *config.Config) {
 		return config.TaxCode{Code: code, Description: "Output tax " + code, Direction: config.TaxOutput, Components: []config.TaxComponent{c}}
 	}
 	de.TaxCodes = append(de.TaxCodes, output("A1", false), output("AJ", true))
-	// The entries customer invoices post draw their numbers from journal_dr (T79b).
+	// The entries customer invoices post draw their numbers from journal_dr (T79b), credit memos' from journal_dg (T85d).
 	for _, y := range fixture.Years() {
-		doc.NumberRanges = append(doc.NumberRanges, config.NumberRange{Company: "2000", DocumentType: "journal_dr", FiscalYear: y, First: 100000, Last: 999999})
+		doc.NumberRanges = append(doc.NumberRanges, config.NumberRange{Company: "2000", DocumentType: "journal_dr", FiscalYear: y, First: 100000, Last: 999999},
+			config.NumberRange{Company: "2000", DocumentType: "journal_dg", FiscalYear: y, First: 100000, Last: 999999})
 	}
 }
 

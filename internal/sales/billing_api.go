@@ -62,7 +62,8 @@ func billingAPI(b BillingDocument, refs references) gen.BillingDocument {
 		base := itemAPI(it.Item, b.Currency, b.Exponent, refs)
 		out.Items[i] = gen.BillingDocumentItem{ItemNo: base.ItemNo, ItemKey: base.ItemKey, Description: base.Description, Quantity: base.Quantity,
 			UnitPrice: base.UnitPrice, PriceUnit: base.PriceUnit, PriceSource: base.PriceSource, Conditions: base.Conditions, NetAmount: base.NetAmount, AccountID: base.AccountID,
-			AccountNumber: base.AccountNumber, AccountName: base.AccountName, TaxCode: base.TaxCode, OrderItemNo: it.OrderItemNo}
+			AccountNumber: base.AccountNumber, AccountName: base.AccountName, TaxCode: base.TaxCode, OrderItemNo: it.OrderItemNo,
+			CreditedAmount: apitypes.Money(it.Credited, b.Currency, b.Exponent)}
 	}
 	return out
 }

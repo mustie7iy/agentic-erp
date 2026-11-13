@@ -7855,6 +7855,68 @@ step_credit_memo_request() {
   passed
 }
 
+# step_credit_memo_posting is T85d (ADR-0067, As built T85d; ADR-0063,
+# As built T85d): Ruth, the billing clerk, posts step 72's approved
+# credit memo request. A customer credit memo naming the request and the
+# billing document's invoice is entered and posted in receivables in the
+# same transaction: its net is the request's and its tax the share of
+# the tax the invoice's item bore, so the entry moves 1200, 4000 and 2300
+# back by exactly its amounts. Northwind's open items gain the credit,
+# and its open amount falls by the credit memo's gross. A second post is
+# refused. Revenue contracts are not touched.
+step_credit_memo_posting() {
+  heading "Step 73 — Credit memo posted: the approved request posted as a customer credit memo naming the request and the invoice, receivables, revenue and output tax moved back by its amounts, the customer's open items lower by its gross"
+  local customer=$CUSTOMER doc=$BILLING_DOCUMENT request=$CREDIT_REQUEST invoice billed borne net tax gross memo entry before after tag day
+  [ -n "$request" ] || fail "step 72's credit memo request is not there"
+  as ruth
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  before=$(field '[.items[].amount.amount | sub("\\."; "") | tonumber] | add // 0')
+  QUIET=1 api 200 '' getBillingDocument -p "id=$doc"
+  invoice=$(field .customer_invoice_id)
+  billed=$(field '.items[0].net_amount.amount | sub("\\."; "") | tonumber')
+  QUIET=1 api 200 '' getCustomerInvoice -p "id=$invoice"
+  borne=$(field '.items[0].tax_amount.amount | sub("\\."; "") | tonumber')
+  QUIET=1 api 200 '' getCreditMemoRequest -p "id=$request"
+  tag=$ETAG
+  net=$(field '.net_amount.amount | sub("\\."; "") | tonumber')
+  # The share of the item's tax the credited net is of its billed amount, rounded half away from zero (money.Allocate).
+  tax=$(((borne * net * 2 + billed) / (2 * billed)))
+  gross=$((net + tax))
+  cents() { printf '%d.%02d' $(($1 / 100)) $(($1 % 100)); }
+  say "Ruth posts the approved request (ADR-0067, As built T85d). Accounts receivable enters and posts a customer credit"
+  say "memo for it in the same transaction, naming the invoice billing document step 64 posted as: $(cents "$net") CAD"
+  say "net, and of the $(cents "$borne") CAD of GST the invoice's item bore, the share that net is of $(cents "$billed"):"
+  day=$(company_day)
+  api 200 '"credit memo request \(.document_number): \(.status), posted \(.posting_date) as \(.customer_invoice_number), entry \(.journal_entry_number)"' \
+    postCreditMemoRequest -p "id=$request" -if-match "$tag"
+  expect "the posted request" "$(field '"\(.status) \(.version) \(.posting_date)"')" "posted 3 $day"
+  memo=$(field .customer_invoice_id)
+  entry=$(field .journal_entry_id)
+  api 200 '"customer credit memo \(.document_number) to \(.customer_number) \(.customer_name): \(.kind) \(.status), for \(.reference_invoice_number), from \(.source_document_number), dated \(.invoice_date), net \(.net_amount.amount), tax \(.tax_amount.amount), gross \(.gross_amount.amount) \(.currency)", (.items[] | "  item \(.item_no) \(.description): \(.net_amount.amount) on \(.account_number), \(.tax_code // "no tax code"), tax \(.tax_amount.amount)")' \
+    getCustomerInvoice -p "id=$memo"
+  expect "the credit memo names the invoice and the request" \
+    "$(field '"\(.kind) \(.status) \(.reference_invoice_id) \(.source_document_id)"')" "credit_memo posted $invoice $request"
+  expect "net, tax and gross" "$(field '"\(.net_amount.amount) \(.tax_amount.amount) \(.gross_amount.amount) \(.currency)"')" \
+    "$(cents "$net") $(cents "$tax") $(cents "$gross") CAD"
+  say "The DG entry credits Northwind on 1200 with the gross and debits 4000 Sales and 2300 GST/HST payable: receivables,"
+  say "revenue and output tax moved back by exactly the credit memo's amounts."
+  api 200 '"journal entry \(.document_number), \(.document_type), source \(.source_context)", (.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' \
+    getJournalEntry -p "id=$entry"
+  expect "the entry's type and source" "$(field '"\(.document_type) \(.source_context) \(.source_document_id)"')" "DG receivables $memo"
+  expect "the entry's amounts" "$(field '[.lines[].amount.amount] | join(" ")')" "-$(cents "$gross") $(cents "$net") $(cents "$tax")"
+  expect "the entry's accounts" "$(field '[.lines[].account_id] | join(" ")')" "$(account 1200) $(account 4000) $(account 2300)"
+  say "Northwind's open items now hold the credit, and its open amount fell by the credit memo's gross:"
+  api 200 '.items[] | "  \(.document_number // .journal_entry_id): \(.amount.amount) \(.amount.currency)"' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  after=$(field '[.items[].amount.amount | sub("\\."; "") | tonumber] | add // 0')
+  expect "the customer's open amount" "$after" "$((before - gross))"
+  say "The billing document's item shows what is credited of it; the request is posted once:"
+  QUIET=1 api 200 '' getBillingDocument -p "id=$doc"
+  expect "the billing item's credited amount" "$(field '.items[0].credited_amount.amount')" "$(cents "$net")"
+  QUIET=1 api 200 '' getCreditMemoRequest -p "id=$request"
+  refused 409 sales.invalid_status postCreditMemoRequest -p "id=$request" -if-match "$ETAG"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -9879,7 +9941,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_returns step_return_receipt step_credit_memo_request step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_close'
 
 main() {
   stop_unseen

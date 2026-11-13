@@ -22,7 +22,9 @@
 // memo request asks for a posted billing document's items to be
 // credited, for a returns order's received quantities at their billed
 // amount or for an amount per item, and is approved or rejected once
-// (credit_memo.go; As built T85c).
+// (credit_memo.go; As built T85c); an approved request posts as a
+// customer credit memo through receivables, naming the billing
+// document's invoice (credit_post.go; As built T85d).
 //
 // A sales document carries net amounts and posts nothing itself: tax is
 // calculated when the order is billed, and a billing document posts

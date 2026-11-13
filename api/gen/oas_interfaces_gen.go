@@ -1565,6 +1565,10 @@ type PostBillingDocumentRes interface {
 	postBillingDocumentRes()
 }
 
+type PostCreditMemoRequestRes interface {
+	postCreditMemoRequestRes()
+}
+
 type PostCustomerInvoiceRes interface {
 	postCustomerInvoiceRes()
 }

@@ -4934,6 +4934,52 @@ type Invoker interface {
 	//
 	// POST /v1/billing-documents/{id}:post
 	PostBillingDocument(ctx context.Context, request OptBillingDocumentPost, params PostBillingDocumentParams) (PostBillingDocumentRes, error)
+	// PostCreditMemoRequest invokes postCreditMemoRequest operation.
+	//
+	// Posts an `approved` credit memo request, once (ADR-0067, As built T85d), at the version the caller
+	// read (`If-Match`): a customer credit memo is entered in accounts receivable and posted, in the same
+	// transaction as the request's change, so either all of it happens or none. The credit memo (`kind`
+	// `credit_memo`) has the billing document's company, customer and currency, names the billing
+	// document's customer invoice as the invoice it credits (`reference_invoice_id`) and the request as
+	// its source (`source_document_id`, `source_document_number`), and has the request's items one for
+	// one, each with the billing item's description, revenue account and output tax code and the request
+	// item's net amount. Its tax is what the billed invoice's item bore, shared out: of each billing item,
+	// the credits posted so far, this one included, bear the share of the item's tax that their net
+	// amounts are of the item's, shared out with money.Allocate, less what the earlier credits bore, so
+	// the credits of an item's whole billed amount give back its tax to the minor unit; the ledger holds
+	// that tax to the code's rate on the credit memo's date within a minor unit per line (422
+	// `ledger.output_tax_mismatch` when the rate changed since billing). Its date, which is its tax date,
+	// and its posting date are the request's `posting_date`, else today, the company's date in its time
+	// zone, in an open period (409 `ledger.period_not_open`). Without a payment term of its own it keeps
+	// the invoice's term from the invoice's date (ADR-0063 §7). Accounts receivable posts the entry
+	// (document type `DG`, `source_context` `receivables`): it credits the customer's reconciliation
+	// account with the credit memo's gross, the customer's open credit item (`GET /v1/open-items`), and
+	// debits each item's revenue account with its amount and output tax per code. The credit reduces what
+	// the customer owes, and so its credit exposure; it clears against the invoice by the ledger's
+	// clearing or nets when an incoming payment is applied. The credit memos naming the invoice may not
+	// together exceed its gross (422 `receivables.credit_exceeds_invoice`, under the invoice's row lock).
+	// The request becomes `posted` and names its `posting_date`, its `customer_invoice_id` and
+	// `customer_invoice_number` and the credit memo's `journal_entry_id`, `journal_entry_year` and
+	// `journal_entry_number`; the billing document's items show the amount credited (`credited_amount`).
+	// An audit record and CreditMemoRequestPosted are written with it, beside the credit memo's own
+	// (CustomerInvoiceChanged, CustomerInvoicePosted). The request's row is read under a lock, then its
+	// billing document's sales order's, under which the credits of one order are counted: of two requests
+	// to post one request, one posts it and the other meets another version (412). One that is not
+	// `approved` is refused (409 `sales.invalid_status`); a retry with the same `Idempotency-Key` answers
+	// the posted request. What accounts receivable or the ledger refuses leaves the request `approved` and
+	// nothing posted, and is answered with their code, the request's number leading the detail and the
+	// request's own fields named: a customer that is not active, no longer a customer or blocked for
+	// posting (422 `receivables.customer_not_usable`, `customer_id`); an item's account that can no longer
+	// be posted (422 `receivables.account_not_postable`, `items[i].account_id`); a tax code that is no
+	// longer an output tax code of the company with a rate on the date (422
+	// `receivables.unknown_tax_code`, `items[i].tax_code`); the credit above what is left of the invoice's
+	// gross (`net_amount`); a company without the `customer_invoice` or `journal_dg` number range (422
+	// `config.no_number_range`). Revenue contracts are not touched. A posted request is not reversed or
+	// cancelled in the first version. Posting takes the billing clerk's permission, `sales.billing.post`;
+	// no permission of accounts receivable is needed. Human-only (`x-agent: false`).
+	//
+	// POST /v1/credit-memo-requests/{id}:post
+	PostCreditMemoRequest(ctx context.Context, request OptCreditMemoRequestPost, params PostCreditMemoRequestParams) (PostCreditMemoRequestRes, error)
 	// PostCustomerInvoice invokes postCustomerInvoice operation.
 	//
 	// Posts a draft customer invoice to the ledger, once (ADR-0063 §5, T75b): it debits the customer's
@@ -77530,6 +77576,206 @@ func (c *Client) sendPostBillingDocument(ctx context.Context, request OptBilling
 
 	stage = "DecodeResponse"
 	result, err := decodePostBillingDocumentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// PostCreditMemoRequest invokes postCreditMemoRequest operation.
+//
+// Posts an `approved` credit memo request, once (ADR-0067, As built T85d), at the version the caller
+// read (`If-Match`): a customer credit memo is entered in accounts receivable and posted, in the same
+// transaction as the request's change, so either all of it happens or none. The credit memo (`kind`
+// `credit_memo`) has the billing document's company, customer and currency, names the billing
+// document's customer invoice as the invoice it credits (`reference_invoice_id`) and the request as
+// its source (`source_document_id`, `source_document_number`), and has the request's items one for
+// one, each with the billing item's description, revenue account and output tax code and the request
+// item's net amount. Its tax is what the billed invoice's item bore, shared out: of each billing item,
+// the credits posted so far, this one included, bear the share of the item's tax that their net
+// amounts are of the item's, shared out with money.Allocate, less what the earlier credits bore, so
+// the credits of an item's whole billed amount give back its tax to the minor unit; the ledger holds
+// that tax to the code's rate on the credit memo's date within a minor unit per line (422
+// `ledger.output_tax_mismatch` when the rate changed since billing). Its date, which is its tax date,
+// and its posting date are the request's `posting_date`, else today, the company's date in its time
+// zone, in an open period (409 `ledger.period_not_open`). Without a payment term of its own it keeps
+// the invoice's term from the invoice's date (ADR-0063 §7). Accounts receivable posts the entry
+// (document type `DG`, `source_context` `receivables`): it credits the customer's reconciliation
+// account with the credit memo's gross, the customer's open credit item (`GET /v1/open-items`), and
+// debits each item's revenue account with its amount and output tax per code. The credit reduces what
+// the customer owes, and so its credit exposure; it clears against the invoice by the ledger's
+// clearing or nets when an incoming payment is applied. The credit memos naming the invoice may not
+// together exceed its gross (422 `receivables.credit_exceeds_invoice`, under the invoice's row lock).
+// The request becomes `posted` and names its `posting_date`, its `customer_invoice_id` and
+// `customer_invoice_number` and the credit memo's `journal_entry_id`, `journal_entry_year` and
+// `journal_entry_number`; the billing document's items show the amount credited (`credited_amount`).
+// An audit record and CreditMemoRequestPosted are written with it, beside the credit memo's own
+// (CustomerInvoiceChanged, CustomerInvoicePosted). The request's row is read under a lock, then its
+// billing document's sales order's, under which the credits of one order are counted: of two requests
+// to post one request, one posts it and the other meets another version (412). One that is not
+// `approved` is refused (409 `sales.invalid_status`); a retry with the same `Idempotency-Key` answers
+// the posted request. What accounts receivable or the ledger refuses leaves the request `approved` and
+// nothing posted, and is answered with their code, the request's number leading the detail and the
+// request's own fields named: a customer that is not active, no longer a customer or blocked for
+// posting (422 `receivables.customer_not_usable`, `customer_id`); an item's account that can no longer
+// be posted (422 `receivables.account_not_postable`, `items[i].account_id`); a tax code that is no
+// longer an output tax code of the company with a rate on the date (422
+// `receivables.unknown_tax_code`, `items[i].tax_code`); the credit above what is left of the invoice's
+// gross (`net_amount`); a company without the `customer_invoice` or `journal_dg` number range (422
+// `config.no_number_range`). Revenue contracts are not touched. A posted request is not reversed or
+// cancelled in the first version. Posting takes the billing clerk's permission, `sales.billing.post`;
+// no permission of accounts receivable is needed. Human-only (`x-agent: false`).
+//
+// POST /v1/credit-memo-requests/{id}:post
+func (c *Client) PostCreditMemoRequest(ctx context.Context, request OptCreditMemoRequestPost, params PostCreditMemoRequestParams) (PostCreditMemoRequestRes, error) {
+	res, err := c.sendPostCreditMemoRequest(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendPostCreditMemoRequest(ctx context.Context, request OptCreditMemoRequestPost, params PostCreditMemoRequestParams) (res PostCreditMemoRequestRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("postCreditMemoRequest"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/credit-memo-requests/{id}:post"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, PostCreditMemoRequestOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/credit-memo-requests/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":post"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodePostCreditMemoRequestRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, PostCreditMemoRequestOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodePostCreditMemoRequestResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

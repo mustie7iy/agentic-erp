@@ -578,6 +578,32 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   checks, the tax, the posting and the events are T75a's and T75b's.
   Receivables does not import sales.
 
+### T85d A credit memo entered by sales bears the tax it is given (no migration)
+- Sales posts an approved credit memo request as a customer credit memo
+  in process (ADR-0067, As built T85d): `CreateInvoice` with the kind
+  `credit_memo`, `reference_invoice_id` the billing document's invoice,
+  `Source` the request, and `PostInvoice`. Each `ItemInput` may give its
+  `Tax` (`givenTax`, `invoices.go`): the share of the tax the credited
+  invoice's item bore, so an invoice credited in parts gives back exactly
+  the tax it bore (product owner 2026-11-12). Only a credit memo entered
+  from a source document and naming its invoice gives a tax, zero or
+  more and zero without a code; anything else is a caller's error (500),
+  the API's request having no such field.
+- Posting a credit memo entered from a source document (`given`,
+  `tax.go`) posts the tax it was entered with: each item's tax is shared
+  out among its code's components as the calculator splits it
+  (`shareGiven`, `money.Allocate`) and summed per code and component; it
+  is not compared with what the code gives again, and a code that gives
+  no tax at all for an item with tax refuses it (409
+  `receivables.tax_changed`). The ledger holds the tax lines to the
+  code's rate on the memo's date within a minor unit per line (ADR-0049
+  §7). Every other document is calculated and checked as T75a and T75b
+  built it.
+- Terms, limit, events and clearing are T75d's: without a term of its
+  own the memo keeps the invoice's from the invoice's date; the limit is
+  the invoice's gross; the memo is the customer's open credit item.
+  Tests: `TestCreditMemoWithGivenTax` (`source_test.go`).
+
 ### T75c Incoming payment applied to a customer's invoices (migration 000272)
 - **The receipt.** A statement credit matched `incoming: true` posts Dr
   the house bank's main account, Cr its `incoming_gl_account`, with

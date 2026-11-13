@@ -443,7 +443,7 @@ channels:
   sales:
     address: 'erp.{cell}.sales.{tenant}.{event}'
     title: Sales events
-    description: Quotations, sales orders, their deliveries, their credit blocks, billing documents, returns orders, their receipts, credit memo requests and sales prices and discounts (ADR-0067 §6, §10, §11 and As built T85a, T85b, T85c; ADR-0066, T77b).
+    description: Quotations, sales orders, their deliveries, their credit blocks, billing documents, returns orders, their receipts, credit memo requests and sales prices and discounts (ADR-0067 §6, §10, §11 and As built T85a, T85b, T85c, T85d; ADR-0066, T77b).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
@@ -458,6 +458,7 @@ channels:
       ReturnsOrderChanged: {$ref: '#/components/messages/ReturnsOrderChanged'}
       ReturnReceived: {$ref: '#/components/messages/ReturnReceived'}
       CreditMemoRequestChanged: {$ref: '#/components/messages/CreditMemoRequestChanged'}
+      CreditMemoRequestPosted: {$ref: '#/components/messages/CreditMemoRequestPosted'}
   revenue:
     address: 'erp.{cell}.revenue.{tenant}.{event}'
     title: Revenue recognition events
@@ -769,6 +770,7 @@ operations:
       - $ref: '#/channels/sales/messages/ReturnsOrderChanged'
       - $ref: '#/channels/sales/messages/ReturnReceived'
       - $ref: '#/channels/sales/messages/CreditMemoRequestChanged'
+      - $ref: '#/channels/sales/messages/CreditMemoRequestPosted'
   publishRevenueEvents:
     action: send
     title: Revenue recognition publishes
@@ -4447,6 +4449,34 @@ components:
         - name: approved
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001108, source: /erp/eu-1/sales, type: com.example.erp.sales.credit_memo_request_changed.v1, subject: 0192a000-0000-7000-8000-000000001611, time: '2026-12-01T09:40:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {credit_memo_request_id: 0192a000-0000-7000-8000-000000001611, document_number: CR100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, billing_document_id: 0192a000-0000-7000-8000-000000001311, billing_document_number: BD100001, sales_order_id: 0192a000-0000-7000-8000-000000001211, sales_order_number: SO100001, returns_order_id: 0192a000-0000-7000-8000-000000001411, returns_order_number: RO100001, request_date: '2026-12-01', net_amount: {amount: '289.59', currency: CAD}, status: approved, status_before: open, version: 2}
+    CreditMemoRequestPosted:
+      name: CreditMemoRequestPosted
+      title: Credit memo request posted
+      summary: An approved credit memo request was posted as a customer credit memo.
+      description: |
+        Emitted when an approved credit memo request is posted (ADR-0067,
+        As built T85d): a customer credit memo naming the billing
+        document's invoice was entered and posted in accounts receivable
+        in the same transaction. It carries the request's net value and
+        the credit memo's tax and gross, positive, as the request and the
+        credit memo show them (CustomerInvoicePosted carries them
+        negative), names the customer by id and number, never by name,
+        the billing document, the sales order, the returns order when the
+        request is for one, the credit memo, the invoice it credits and
+        its journal entry by id and number. It is not offered as a
+        webhook event (product owner 2026-11-12: none until a consumer
+        asks). Subject is the request id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.sales.credit_memo_request_posted.v1}
+      payload: {$ref: '#/components/schemas/CreditMemoRequestPostedV1'}
+      examples:
+        - name: posted
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001109, source: /erp/eu-1/sales, type: com.example.erp.sales.credit_memo_request_posted.v1, subject: 0192a000-0000-7000-8000-000000001611, time: '2026-12-02T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {credit_memo_request_id: 0192a000-0000-7000-8000-000000001611, document_number: CR100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, billing_document_id: 0192a000-0000-7000-8000-000000001311, billing_document_number: BD100001, sales_order_id: 0192a000-0000-7000-8000-000000001211, sales_order_number: SO100001, returns_order_id: 0192a000-0000-7000-8000-000000001411, returns_order_number: RO100001, posting_date: '2026-12-02', net_amount: {amount: '289.59', currency: CAD}, tax_amount: {amount: '14.48', currency: CAD}, gross_amount: {amount: '304.07', currency: CAD}, customer_invoice_id: 0192a000-0000-7000-8000-000000001711, customer_invoice_number: CI100002, reference_invoice_id: 0192a000-0000-7000-8000-000000001321, reference_invoice_number: CI100001, journal_entry_id: 0192a000-0000-7000-8000-000000001721, journal_entry_year: 2026, journal_entry_number: '1600000001', status: posted, status_before: approved, version: 3}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -5397,6 +5427,36 @@ components:
         net_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' amounts, net of tax."}
         status: {type: string, description: "The request's status after the change. Open enum: open, approved, rejected."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
+        version: {type: integer, description: "The request's version after the change."}
+    CreditMemoRequestPostedV1:
+      type: object
+      required: [credit_memo_request_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, billing_document_id, billing_document_number, sales_order_id, sales_order_number, returns_order_id, returns_order_number, posting_date, net_amount, tax_amount, gross_amount, customer_invoice_id, customer_invoice_number, reference_invoice_id, reference_invoice_number, journal_entry_id, journal_entry_year, journal_entry_number, status, status_before, version]
+      properties:
+        credit_memo_request_id: {$ref: '#/components/schemas/Uuid', description: '`sales.credit_memo_request.id`.'}
+        document_number: {type: string, description: "The request's document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that credits.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        billing_document_id: {$ref: '#/components/schemas/Uuid', description: 'The billing document credited: `sales.billing_document.id`.'}
+        billing_document_number: {type: string, description: "The billing document's document number."}
+        sales_order_id: {$ref: '#/components/schemas/Uuid', description: 'The sales order that billing document billed: `sales.sales_order.id`.'}
+        sales_order_number: {type: string, description: "The sales order's document number."}
+        returns_order_id: {type: [string, 'null'], format: uuid, description: 'The returns order whose received quantities were credited; null for a request by amount.'}
+        returns_order_number: {type: [string, 'null'], description: "The returns order's document number; null for a request by amount."}
+        posting_date: {$ref: '#/components/schemas/Date', description: "The credit memo's date and posting date."}
+        net_amount: {$ref: '#/components/schemas/Money', description: "The request's net value, the credit memo's net amount."}
+        tax_amount: {$ref: '#/components/schemas/Money', description: "The credit memo's output tax, positive."}
+        gross_amount: {$ref: '#/components/schemas/Money', description: "The credit memo's gross amount, positive: what the customer's open items fell by."}
+        customer_invoice_id: {$ref: '#/components/schemas/Uuid', description: 'The customer credit memo: `receivables.customer_invoice.id`.'}
+        customer_invoice_number: {type: string, description: "The credit memo's document number."}
+        reference_invoice_id: {$ref: '#/components/schemas/Uuid', description: 'The customer invoice it credits, the billing document posted as.'}
+        reference_invoice_number: {type: string, description: "That invoice's document number."}
+        journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'The journal entry the credit memo posted.'}
+        journal_entry_year: {type: integer, description: "The entry's fiscal year."}
+        journal_entry_number: {type: string, description: "The entry's document number."}
+        status: {type: string, description: "The request's status after the change: posted."}
+        status_before: {type: string, description: 'Its status before: approved.'}
         version: {type: integer, description: "The request's version after the change."}
     ConsolidationRunChangedV1:
       type: object

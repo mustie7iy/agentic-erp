@@ -26,6 +26,8 @@ const (
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '2026-03-25', $9, $10, $11, $12, $12)`
 	creditLine = `INSERT INTO sales.credit_memo_request_item (tenant_id, request_id, item_no, billing_document_id, billing_item_no, returns_order_id,
 		quantity, net_amount) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+	creditPost = `UPDATE sales.credit_memo_request SET status = 'posted', posting_date = '2026-03-26', customer_invoice_id = gen_random_uuid(),
+		customer_invoice_number = 'CI1', journal_entry_year = 2026, journal_entry_id = gen_random_uuid(), version = version + 1, updated_by = tenant_id WHERE id = $1`
 	creditDecision = `UPDATE sales.credit_memo_request SET status = $2, rejection_reason = $3, version = version + 1, updated_by = tenant_id WHERE id = $1`
 )
 
@@ -52,7 +54,9 @@ func (s creditScene) header(request uuid.UUID, number string, returns *uuid.UUID
 func (s creditScene) byAmount() stmt { return s.header(s.request, "CR1", nil, "Goodwill", "open", nil) }
 
 // forReturns is the scene's request for its returns order, open.
-func (s creditScene) forReturns() stmt { return s.header(s.request, "CR1", &s.returns, nil, "open", nil) }
+func (s creditScene) forReturns() stmt {
+	return s.header(s.request, "CR1", &s.returns, nil, "open", nil)
+}
 
 // amount is an item of a request by amount: its number, the billing item and the amount.
 func (s creditScene) amount(request uuid.UUID, no, billingItem, net int) stmt {
@@ -175,6 +179,15 @@ func TestCreditMemoRequestRules(t *testing.T) {
 		{"a returns order of another billing document", func(tx pgx.Tx, s creditScene) error {
 			return all(tx, s.received(step(creditHeader, s.tenant, s.request, "CR1", s.company, s.customer, s.otherDoc, s.otherOrder, s.returns, nil, "open", nil, s.actor))...)
 		}, "credit_memo_request_returns_order_fkey"},
+		{"created approved, by the tables' owner", func(tx pgx.Tx, s creditScene) error {
+			return all(tx, s.received(step(`SET LOCAL ROLE erp_owner`), s.header(s.request, "CR1", nil, "x", "approved", nil))...)
+		}, "it is created open"},
+		{"more than was received, by the tables' owner", func(tx pgx.Tx, s creditScene) error {
+			return all(tx, s.received(step(`SET LOCAL ROLE erp_owner`), s.forReturns(), s.quantity(s.request, 1, 1, "2.000001", 40))...)
+		}, "received"},
+		{"an item of a request by amount naming the returns order, by the tables' owner", func(tx pgx.Tx, s creditScene) error {
+			return all(tx, s.received(step(`SET LOCAL ROLE erp_owner`), s.byAmount(), s.quantity(s.request, 1, 1, "1", 20))...)
+		}, "does not name the returns order its request is for"},
 		{"created approved", func(tx pgx.Tx, s creditScene) error {
 			return all(tx, s.received(s.header(s.request, "CR1", nil, "x", "approved", nil))...)
 		}, "it is created open"},
@@ -194,7 +207,7 @@ func TestCreditMemoRequestRules(t *testing.T) {
 			return all(tx, s.received(s.byAmount(), s.header(id(), "CR1", nil, "x", "open", nil))...)
 		}, "credit_memo_request_number_once"},
 		{"an unknown status", func(tx pgx.Tx, s creditScene) error {
-			return all(tx, s.received(s.header(s.request, "CR1", nil, "x", "posted", nil))...)
+			return all(tx, s.received(s.header(s.request, "CR1", nil, "x", "cancelled", nil))...)
 		}, "credit_memo_request_status_check"},
 		{"an open request with a rejection reason", func(tx pgx.Tx, s creditScene) error {
 			return all(tx, s.received(s.header(s.request, "CR1", nil, "x", "open", "No"))...)
@@ -218,6 +231,37 @@ func TestCreditMemoRequestRules(t *testing.T) {
 			return all(tx, s.received(s.byAmount(), step(creditDecision, s.request, "approved", nil), step(`SET LOCAL ROLE erp_owner`),
 				step(`UPDATE sales.credit_memo_request SET status = 'open' WHERE id = $1`, s.request))...)
 		}, "only an open one changes"},
+		{"an approved request posted (T85d, migration 000306)", func(tx pgx.Tx, s creditScene) error {
+			return all(tx, s.received(s.byAmount(), s.amount(s.request, 1, 1, 10), step(creditDecision, s.request, "approved", nil), step(creditPost, s.request))...)
+		}, ""},
+		{"an open request posted", func(tx pgx.Tx, s creditScene) error {
+			return all(tx, s.received(s.byAmount(), step(creditPost, s.request))...)
+		}, "only an open one changes"},
+		{"a rejected request posted", func(tx pgx.Tx, s creditScene) error {
+			return all(tx, s.received(s.byAmount(), step(creditDecision, s.request, "rejected", "No"), step(creditPost, s.request))...)
+		}, "only an open one changes"},
+		{"a posted request changed again, by the tables' owner", func(tx pgx.Tx, s creditScene) error {
+			return all(tx, s.received(s.byAmount(), step(creditDecision, s.request, "approved", nil), step(creditPost, s.request), step(`SET LOCAL ROLE erp_owner`),
+				step(`UPDATE sales.credit_memo_request SET status = 'approved', posting_date = NULL, customer_invoice_id = NULL, customer_invoice_number = NULL,
+					journal_entry_year = NULL, journal_entry_id = NULL WHERE id = $1`, s.request))...)
+		}, "only an open one changes"},
+		{"posted without its credit memo", func(tx pgx.Tx, s creditScene) error {
+			return all(tx, s.received(s.byAmount(), step(creditDecision, s.request, "approved", nil),
+				step(`UPDATE sales.credit_memo_request SET status = 'posted', posting_date = '2026-03-26', version = version + 1 WHERE id = $1`, s.request))...)
+		}, "credit_memo_request_posted"},
+		{"an open request naming a credit memo", func(tx pgx.Tx, s creditScene) error {
+			return all(tx, s.received(step(`INSERT INTO sales.credit_memo_request (tenant_id, id, document_number, legal_entity_id, customer_id, billing_document_id,
+				sales_order_id, request_date, reason, status, customer_invoice_id, created_by, updated_by)
+				VALUES ($1, $2, 'CR1', $3, $4, $5, $6, '2026-03-25', 'x', 'open', gen_random_uuid(), $7, $7)`, s.tenant, s.request, s.company, s.customer, s.doc, s.order, s.actor))...)
+		}, "credit_memo_request_posted"},
+		{"one credit memo for two requests", func(tx pgx.Tx, s creditScene) error {
+			second := id()
+			return all(tx, s.received(s.byAmount(), step(creditDecision, s.request, "approved", nil), step(creditPost, s.request),
+				s.header(second, "CR2", nil, "x", "open", nil), step(creditDecision, second, "approved", nil),
+				step(`UPDATE sales.credit_memo_request SET status = 'posted', posting_date = '2026-03-26', journal_entry_year = 2026, journal_entry_id = gen_random_uuid(),
+					customer_invoice_number = 'CI2', customer_invoice_id = (SELECT customer_invoice_id FROM sales.credit_memo_request WHERE id = $2),
+					version = version + 1 WHERE id = $1`, second, s.request))...)
+		}, "credit_memo_request_invoice_once"},
 		{"the reason changed", func(tx pgx.Tx, s creditScene) error {
 			return all(tx, s.received(s.byAmount(), step(`UPDATE sales.credit_memo_request SET reason = 'other'`))...)
 		}, "permission denied"},

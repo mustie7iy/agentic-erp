@@ -19,7 +19,7 @@ import (
 
 // Approved is the status of a credit memo request a sales manager
 // approved; it is created Open and may be Rejected instead (ADR-0067, As
-// built T85c).
+// built T85c). An approved request is posted once, then Posted (T85d).
 const Approved = "approved"
 
 // CreditMemoRequestRange is the document type credit memo requests draw
@@ -72,11 +72,19 @@ type CreditMemoRequest struct {
 	Exponent              int
 	Net                   money.Minor
 	Items                 []CreditItem
-	Version               int32
-	CreatedAt             time.Time
-	CreatedBy             uuid.UUID
-	UpdatedAt             time.Time
-	UpdatedBy             uuid.UUID
+	// PostingDate, InvoiceID and InvoiceNumber, EntryYear and EntryID
+	// name, once the request is posted, its date, the customer credit memo
+	// it posted as and that memo's journal entry (T85d); nil until then.
+	PostingDate   *time.Time
+	InvoiceID     *uuid.UUID
+	InvoiceNumber *string
+	EntryYear     *int16
+	EntryID       *uuid.UUID
+	Version       int32
+	CreatedAt     time.Time
+	CreatedBy     uuid.UUID
+	UpdatedAt     time.Time
+	UpdatedBy     uuid.UUID
 }
 
 // CreditAmount is an amount credited of one item of a billing document as
@@ -98,10 +106,10 @@ type CreditInput struct {
 }
 
 // creditSelect reads a request with its currency from its billing
-// document, which nothing changes, by subqueries and a lateral one, so
-// the keyset's bare id stays the request's (as returnsSelect does), and
-// each item with what its billing
-// item billed and what the sales order's item names.
+// document, which nothing changes, by subqueries and a lateral one, so the
+// keyset's bare id stays the request's (as returnsSelect does), and each
+// item with what its billing item billed and what the sales order's item
+// names.
 const creditSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.customer_id, r.billing_document_id,
 		(SELECT b.document_number FROM sales.billing_document b WHERE b.tenant_id = r.tenant_id AND b.id = r.billing_document_id), r.sales_order_id,
 		(SELECT o.document_number FROM sales.sales_order o WHERE o.tenant_id = r.tenant_id AND o.id = r.sales_order_id), r.returns_order_id,
@@ -116,6 +124,7 @@ const creditSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.custo
 		 JOIN sales.billing_document_item d ON d.tenant_id = i.tenant_id AND d.billing_document_id = i.billing_document_id AND d.item_no = i.billing_item_no
 		 JOIN sales.sales_order_item t ON t.tenant_id = d.tenant_id AND t.sales_order_id = d.sales_order_id AND t.item_no = d.order_item_no
 		 WHERE i.tenant_id = r.tenant_id AND i.request_id = r.id),
+		r.posting_date, r.customer_invoice_id, r.customer_invoice_number, r.journal_entry_year, r.journal_entry_id,
 		r.version, r.created_at, r.created_by, r.updated_at, r.updated_by
 	FROM sales.credit_memo_request r,
 		LATERAL (SELECT c.code, c.exponent FROM sales.billing_document b JOIN ref.currency c ON c.code = b.currency
@@ -125,7 +134,7 @@ const creditSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.custo
 func (r *CreditMemoRequest) columns() []any {
 	return []any{&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.CustomerID, &r.BillingDocumentID, &r.BillingDocumentNumber, &r.OrderID,
 		&r.OrderNumber, &r.ReturnsOrderID, &r.ReturnsOrderNumber, &r.RequestDate, &r.Reason, &r.Status, &r.RejectionReason, &r.Currency,
-		&r.Exponent, &r.Net, &r.Items, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy}
+		&r.Exponent, &r.Net, &r.Items, &r.PostingDate, &r.InvoiceID, &r.InvoiceNumber, &r.EntryYear, &r.EntryID, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy}
 }
 
 func scanCredit(row pgx.Row) (CreditMemoRequest, error) {

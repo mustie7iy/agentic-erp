@@ -397,6 +397,7 @@ const (
 	PlaceInHierarchyOperation                      OperationName = "PlaceInHierarchy"
 	PostBankStatementLineOperation                 OperationName = "PostBankStatementLine"
 	PostBillingDocumentOperation                   OperationName = "PostBillingDocument"
+	PostCreditMemoRequestOperation                 OperationName = "PostCreditMemoRequest"
 	PostCustomerInvoiceOperation                   OperationName = "PostCustomerInvoice"
 	PostGoodsReceiptOperation                      OperationName = "PostGoodsReceipt"
 	PostJournalEntryOperation                      OperationName = "PostJournalEntry"

@@ -443,6 +443,7 @@ var operationRolesOidc = map[string][]string{
 	PlaceInHierarchyOperation:                      []string{},
 	PostBankStatementLineOperation:                 []string{},
 	PostBillingDocumentOperation:                   []string{},
+	PostCreditMemoRequestOperation:                 []string{},
 	PostCustomerInvoiceOperation:                   []string{},
 	PostGoodsReceiptOperation:                      []string{},
 	PostJournalEntryOperation:                      []string{},

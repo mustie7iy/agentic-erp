@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
@@ -121,5 +122,52 @@ func (e *Endpoints) outputCode(ctx context.Context, le tenancy.Entity, date time
 		}
 	}
 	codes[code] = t
+	return nil
+}
+
+// given says whether the invoice's items bear the tax they were entered
+// with rather than what their codes give at posting: a credit memo
+// entered from a source document (givenTax; sales' credit memo request,
+// T85d), whose taxes are shares of what the credited invoice bore.
+func given(v Invoice) bool { return v.Kind == KindCreditMemo && v.SourceDocumentID != nil }
+
+// component names a code's component's tax in a jurisdiction, as the
+// calculator gives it on a line and on the document.
+type component struct{ code, key, jurisdiction string }
+
+// shareGiven makes the document's tax per code and component the items'
+// taxes as entered (given): each coded item's tax is shared out among
+// its code's components as the calculator splits that item's tax
+// (money.Allocate), and the shares are added up per component. A code
+// that gives no tax at all on the invoice date for an item entered with
+// tax is refused, 409 receivables.tax_changed, as a changed rate is.
+func (c *calculated) shareGiven(v Invoice) error {
+	sums := map[component]money.Minor{}
+	for j, i := range c.coded {
+		parts := c.res.Lines[j].Components
+		var total int64
+		for _, p := range parts {
+			total += int64(p.Tax) // each part is below the item's amount, and an item's tax adds up in range (itemTax)
+		}
+		it := v.Items[i]
+		if total == 0 {
+			if it.Tax != 0 {
+				return problem.Conflict("receivables.tax_changed", fmt.Sprintf("Item %d's tax code %s gives no tax on the invoice date; "+
+					"the credit memo was entered with %s %s.", it.ItemNo, *it.TaxCode, it.Tax.Plain(v.Exponent), v.Currency))
+			}
+			continue
+		}
+		exact := make([]*big.Rat, len(parts))
+		for k, p := range parts {
+			exact[k] = new(big.Rat).Mul(big.NewRat(int64(p.Tax), total), new(big.Rat).SetInt64(int64(it.Tax)))
+		}
+		shares, _ := money.Allocate(exact) // the shares add up to the item's tax, which is in range
+		for k, p := range parts {
+			sums[component{p.Code, p.Key, p.Jurisdiction}] += shares[k]
+		}
+	}
+	for k, t := range c.res.Items {
+		c.res.Items[k].Tax = sums[component{t.Code, t.Key, t.Jurisdiction}]
+	}
 	return nil
 }

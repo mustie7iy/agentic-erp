@@ -4565,7 +4565,8 @@ T85a (migration 000303) the returns order for a posted billing
 document's items, which moves no stock either and posts nothing, and
 T85b (migration 000304) the receipt of its quantities, a confirmation
 as the delivery's is, and T85c (migration 000305) the credit memo
-request, which posts nothing until T85d.
+request, which T85d (migration 000306) posts as a customer credit
+memo.
 There is no material
 master (§3.16's shared `material` joins the items when it is built): an
 item names what is sold by a description and an optional free-text
@@ -4705,8 +4706,9 @@ erDiagram
     uuid returns_order_id "optional: a returns order of that document"
     date request_date "the company's date when created"
     text reason "required without a returns order"
-    text status "open, approved, rejected"
+    text status "open, approved, rejected, posted"
     text rejection_reason "only when rejected"
+    uuid customer_invoice_id "receivables: the credit memo, once posted (T85d)"
     int version
   }
   credit_memo_request_item { uuid request_id PK
@@ -4915,7 +4917,12 @@ erDiagram
   rejection with its reason and only a rejection
   (`credit_memo_request_rejection`). Its currency is its billing
   document's. Indexes for the list: by date, customer, billing document,
-  sales order and returns order.
+  sales order and returns order. T85d (migration 000306) adds the
+  status `posted` with `posting_date`, `customer_invoice_id`,
+  `customer_invoice_number`, `journal_entry_year` and `journal_entry_id`,
+  all of them once posted and none before (`credit_memo_request_posted`),
+  a credit memo one request's (`credit_memo_request_invoice_once`), and
+  the change rule admits an approved request posted once.
 - `sales.credit_memo_request_item`: an amount above zero in minor units
   (`credit_memo_request_item_amount_positive`) credited of an item of
   the request's own billing document (`credit_memo_request_item_request_fkey`,

@@ -4961,9 +4961,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The billing clerk posts an approved credit memo request: a customer credit memo naming the billing document's invoice is entered and posted in receivables in the same transaction and clears against it (POST /v1/credit-memo-requests/{id}:post)",
-        "r": "T85d · docs/design/plan-breadth-week3.md §T85d",
+        "r": "T85d · docs/design/plan-breadth-week3.md §T85d · db/migrations/000306 · credit_memo_request posted columns · POST /v1/credit-memo-requests/{id}:post · CreditMemoRequestPosted · BillingDocumentItem.credited_amount · sales.Orders ItemCredit · receivables ItemInput.Tax · walkthrough step_credit_memo_posting · ADR-0067 and ADR-0063 As built",
         "src": "po:2026-11-12 · design:03 §3.16",
         "c": []
        },

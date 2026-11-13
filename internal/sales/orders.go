@@ -55,6 +55,7 @@ type OrderItem struct {
 	Returned   string         `json:"returned_quantity"`
 	Deliveries []ItemDelivery `json:"deliveries"`
 	Billings   []ItemBilling  `json:"billings"`
+	Credits    []ItemCredit   `json:"credits"`
 }
 
 // Order is a row of sales.sales_order with its items. Amounts are minor
@@ -118,7 +119,7 @@ func orderQuery(extra string) string {
 // orderSelect is what the API's reads of an order take; publishedSelect
 // adds what the other contexts read through Orders: each item's
 // deliveries (T78c) and its posted billings (T79b).
-var orderSelect, publishedSelect = orderQuery(""), orderQuery(itemDeliveries + itemBillings)
+var orderSelect, publishedSelect = orderQuery(""), orderQuery(itemDeliveries + itemBillings + itemCredits)
 
 func scanOrder(row pgx.Row) (Order, error) {
 	var o Order
