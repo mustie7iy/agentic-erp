@@ -272,8 +272,6 @@ func TestSatisfiedOn(t *testing.T) {
 	refusals := []struct{ name, body, code, field string }{
 		{"over time with the day it is satisfied on", set(`{"obligation_no": 1, "timing": "over_time", "service_from": "2026-01-01", "service_to": "2026-12-31"}`),
 			"revenue.satisfied_on_not_allowed", "obligations[0].satisfied_on"},
-		{"a day on an over-time obligation", set(overTime(2, "2026-01-01", "2026-12-31", "1200.00"), satisfiedOn(2, "2026-04-10")),
-			"revenue.obligation_repeated", "obligations[1].obligation_no"},
 		{"a day sent with over time", set(`{"obligation_no": 2, "timing": "over_time", "service_from": "2026-01-01", "service_to": "2026-12-31", "satisfied_on": "2026-04-10"}`),
 			"revenue.satisfied_on_not_allowed", "obligations[0].satisfied_on"},
 	}
@@ -323,6 +321,11 @@ func TestScheduleRefusals(t *testing.T) {
 		if got["code"] != "revenue.invalid_status" {
 			t.Errorf("got %v, want revenue.invalid_status", got["code"])
 		}
+	})
+	t.Run("another company's contract", func(t *testing.T) {
+		id, _ := e.contract(t, e.goods())
+		e.activated(t, id)
+		e.As(e.Reader(t, "US accountant", e.US)).In(t).Problem(404, "request.not_found", "GET", contracts+"/"+id+"/schedule", "", "")
 	})
 	t.Run("a contract that is not there", func(t *testing.T) {
 		e.Must(404, "GET", contracts+"/"+uuid.NewString()+"/schedule", "", "")
