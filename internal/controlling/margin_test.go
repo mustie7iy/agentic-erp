@@ -2,12 +2,14 @@ package controlling_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
@@ -237,7 +239,10 @@ func TestMarginReportIsExactOrFails(t *testing.T) {
 		_, err := h.GetMarginReport(ctx, gen.GetMarginReportParams{LegalEntityID: m.DE, FiscalYear: 2026})
 		return err
 	})
-	if err == nil {
-		t.Error("a margin that does not fit: got a report, want an error")
+	// The statement's own refusal (numeric_value_out_of_range), not another error.
+	var pg *pgconn.PgError
+	if !errors.As(err, &pg) {
+		t.Fatalf("a margin that does not fit: got %v, want the database's out-of-range error", err)
 	}
+	want(t, "the database's error code", pg.Code, "22003")
 }

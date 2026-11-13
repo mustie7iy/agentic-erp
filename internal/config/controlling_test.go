@@ -290,13 +290,23 @@ func TestMarginReportValid(t *testing.T) {
 		t.Fatalf("got %v, want no errors", fs)
 	}
 	numbers, named := c.CostOfSalesAccounts("1000")
-	if got, want := strings.Join(numbers, " "), "510000 520000 530000 540000"; got != want || !named {
-		t.Errorf("company 1000's cost of sales accounts: got %q named %v, want %q named true", got, named, want)
+	if got, want := strings.Join(numbers, " "), "510000 520000 530000 540000"; got != want {
+		t.Errorf("company 1000's cost of sales accounts: got %q, want %q", got, want)
+	}
+	if !named {
+		t.Error("company 1000's chart named: got false, want true")
 	}
 	for _, company := range []string{"2000", "9999"} {
 		t.Run("none named for "+company, func(t *testing.T) {
-			if numbers, named := c.CostOfSalesAccounts(company); numbers == nil || len(numbers) != 0 || named {
-				t.Errorf("got %v named %v, want an empty list, not named", numbers, named)
+			numbers, named := c.CostOfSalesAccounts(company)
+			if numbers == nil {
+				t.Error("accounts: got nil, want an empty list")
+			}
+			if len(numbers) != 0 {
+				t.Errorf("accounts: got %v, want none", numbers)
+			}
+			if named {
+				t.Error("chart named: got true, want false")
 			}
 		})
 	}
@@ -350,7 +360,13 @@ func TestMarginReportTier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(changes) != 1 || changes[0].Path != "controlling.margin_report[1000].cost_of_sales_accounts[1].from" || changes[0].Tier != TierOperational {
-		t.Errorf("got %v, want one operational change of controlling.margin_report[1000].cost_of_sales_accounts[1].from", changes)
+	if len(changes) != 1 {
+		t.Fatalf("changes: got %v, want one", changes)
+	}
+	if got, want := changes[0].Path, "controlling.margin_report[1000].cost_of_sales_accounts[1].from"; got != want {
+		t.Errorf("path: got %s, want %s", got, want)
+	}
+	if got := changes[0].Tier; got != TierOperational {
+		t.Errorf("tier: got %v, want %v", got, TierOperational)
 	}
 }
