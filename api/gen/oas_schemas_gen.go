@@ -24440,6 +24440,7 @@ func (*ConflictHeaders) createIncomingPaymentRes()                 {}
 func (*ConflictHeaders) createInternalOrderRes()                   {}
 func (*ConflictHeaders) createLegalEntityRes()                     {}
 func (*ConflictHeaders) createMemoRecordRes()                      {}
+func (*ConflictHeaders) createMetricWatcherRes()                   {}
 func (*ConflictHeaders) createMigrationRunRes()                    {}
 func (*ConflictHeaders) createOrgUnitRes()                         {}
 func (*ConflictHeaders) createPartnerChangeRes()                   {}
@@ -24479,6 +24480,7 @@ func (*ConflictHeaders) endCompanyAccessRes()                      {}
 func (*ConflictHeaders) endRoleAssignmentRes()                     {}
 func (*ConflictHeaders) endRolePermissionRes()                     {}
 func (*ConflictHeaders) endSodRuleRes()                            {}
+func (*ConflictHeaders) evaluateMetricWatcherRes()                 {}
 func (*ConflictHeaders) excludeBankStatementLineRes()              {}
 func (*ConflictHeaders) fetchEInvoicesRes()                        {}
 func (*ConflictHeaders) fileTaxReturnRes()                         {}
@@ -24570,6 +24572,7 @@ func (*ConflictHeaders) releaseSalesOrderCreditBlockRes()          {}
 func (*ConflictHeaders) releaseSupplierInvoiceRes()                {}
 func (*ConflictHeaders) removeControlLinkRes()                     {}
 func (*ConflictHeaders) removeHierarchyNodeRes()                   {}
+func (*ConflictHeaders) removeMetricWatcherRes()                   {}
 func (*ConflictHeaders) renameHierarchyNodeRes()                   {}
 func (*ConflictHeaders) renewContractRes()                         {}
 func (*ConflictHeaders) reopenCloseTaskRes()                       {}
@@ -31528,6 +31531,22 @@ type CreateMemoRecordUnprocessableEntity Problem
 
 func (*CreateMemoRecordUnprocessableEntity) createMemoRecordRes() {}
 
+type CreateMetricWatcherBadRequest Problem
+
+func (*CreateMetricWatcherBadRequest) createMetricWatcherRes() {}
+
+type CreateMetricWatcherForbidden Problem
+
+func (*CreateMetricWatcherForbidden) createMetricWatcherRes() {}
+
+type CreateMetricWatcherPreconditionRequired Problem
+
+func (*CreateMetricWatcherPreconditionRequired) createMetricWatcherRes() {}
+
+type CreateMetricWatcherUnprocessableEntity Problem
+
+func (*CreateMetricWatcherUnprocessableEntity) createMetricWatcherRes() {}
+
 type CreateMigrationRunBadRequest Problem
 
 func (*CreateMigrationRunBadRequest) createMigrationRunRes() {}
@@ -37980,6 +37999,30 @@ func (s *EntryTemplateUse) SetReference(val OptString) {
 	s.Reference = val
 }
 
+type EvaluateMetricWatcherBadRequest Problem
+
+func (*EvaluateMetricWatcherBadRequest) evaluateMetricWatcherRes() {}
+
+type EvaluateMetricWatcherForbidden Problem
+
+func (*EvaluateMetricWatcherForbidden) evaluateMetricWatcherRes() {}
+
+type EvaluateMetricWatcherNotFound Problem
+
+func (*EvaluateMetricWatcherNotFound) evaluateMetricWatcherRes() {}
+
+type EvaluateMetricWatcherPreconditionFailed Problem
+
+func (*EvaluateMetricWatcherPreconditionFailed) evaluateMetricWatcherRes() {}
+
+type EvaluateMetricWatcherPreconditionRequired Problem
+
+func (*EvaluateMetricWatcherPreconditionRequired) evaluateMetricWatcherRes() {}
+
+type EvaluateMetricWatcherUnprocessableEntity Problem
+
+func (*EvaluateMetricWatcherUnprocessableEntity) evaluateMetricWatcherRes() {}
+
 // Evidence supporting a change request; the latest per kind applies.
 // Ref: #/components/schemas/Evidence
 type Evidence struct {
@@ -41689,6 +41732,46 @@ func (*GetMemoRecordOKHeaders) getMemoRecordRes() {}
 type GetMemoRecordUnprocessableEntity Problem
 
 func (*GetMemoRecordUnprocessableEntity) getMemoRecordRes() {}
+
+type GetMetricWatcherBadRequest Problem
+
+func (*GetMetricWatcherBadRequest) getMetricWatcherRes() {}
+
+type GetMetricWatcherForbidden Problem
+
+func (*GetMetricWatcherForbidden) getMetricWatcherRes() {}
+
+type GetMetricWatcherNotFound Problem
+
+func (*GetMetricWatcherNotFound) getMetricWatcherRes() {}
+
+// GetMetricWatcherOKHeaders wraps MetricWatcher with response headers.
+type GetMetricWatcherOKHeaders struct {
+	ETag     OptString
+	Response MetricWatcher
+}
+
+// GetETag returns the value of ETag.
+func (s *GetMetricWatcherOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetMetricWatcherOKHeaders) GetResponse() MetricWatcher {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetMetricWatcherOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetMetricWatcherOKHeaders) SetResponse(val MetricWatcher) {
+	s.Response = val
+}
+
+func (*GetMetricWatcherOKHeaders) getMetricWatcherRes() {}
 
 type GetMigrationRunBadRequest Problem
 
@@ -53020,6 +53103,14 @@ type ListMemoRecordsForbidden Problem
 
 func (*ListMemoRecordsForbidden) listMemoRecordsRes() {}
 
+type ListMetricWatchersBadRequest Problem
+
+func (*ListMetricWatchersBadRequest) listMetricWatchersRes() {}
+
+type ListMetricWatchersForbidden Problem
+
+func (*ListMetricWatchersForbidden) listMetricWatchersRes() {}
+
 type ListMigrationRunsBadRequest Problem
 
 func (*ListMigrationRunsBadRequest) listMigrationRunsRes() {}
@@ -55282,6 +55373,847 @@ func (s *MemoRecurrence) SetUntil(val OptDate) {
 // SetCount sets the value of Count.
 func (s *MemoRecurrence) SetCount(val OptInt32) {
 	s.Count = val
+}
+
+// An alert a watcher raised for a period (ADR-0077 §3): one per watcher and period.
+// Ref: #/components/schemas/MetricAlert
+type MetricAlert struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag.
+	Version int32 `json:"version"`
+	// The watcher that raised it (`GET /v1/metric-watchers/{id}`, for its creator).
+	WatcherID uuid.UUID `json:"watcher_id"`
+	// The watcher's name.
+	WatcherName string `json:"watcher_name"`
+	// The governed metric watched.
+	Metric string `json:"metric"`
+	// `month` or `year`. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Grain     string                 `json:"grain"`
+	Condition MetricWatcherCondition `json:"condition"`
+	// The fiscal year of the period.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The fiscal month of the period; absent for a watcher by year.
+	FiscalPeriod OptInt32 `json:"fiscal_period"`
+	// The company codes whose figures held the condition, in order.
+	Companies []string `json:"companies"`
+	// A finding per company and currency that held the condition, by company and currency.
+	Findings []MetricAlertFinding `json:"findings"`
+	// `open`. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	Status string `json:"status"`
+	// When it was raised.
+	RaisedAt time.Time `json:"raised_at"`
+	// The watcher's creator the evaluation ran as (`GET /v1/principals/{id}`).
+	RaisedAs uuid.UUID `json:"raised_as"`
+}
+
+// GetID returns the value of ID.
+func (s *MetricAlert) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *MetricAlert) GetVersion() int32 {
+	return s.Version
+}
+
+// GetWatcherID returns the value of WatcherID.
+func (s *MetricAlert) GetWatcherID() uuid.UUID {
+	return s.WatcherID
+}
+
+// GetWatcherName returns the value of WatcherName.
+func (s *MetricAlert) GetWatcherName() string {
+	return s.WatcherName
+}
+
+// GetMetric returns the value of Metric.
+func (s *MetricAlert) GetMetric() string {
+	return s.Metric
+}
+
+// GetGrain returns the value of Grain.
+func (s *MetricAlert) GetGrain() string {
+	return s.Grain
+}
+
+// GetCondition returns the value of Condition.
+func (s *MetricAlert) GetCondition() MetricWatcherCondition {
+	return s.Condition
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *MetricAlert) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *MetricAlert) GetFiscalPeriod() OptInt32 {
+	return s.FiscalPeriod
+}
+
+// GetCompanies returns the value of Companies.
+func (s *MetricAlert) GetCompanies() []string {
+	return s.Companies
+}
+
+// GetFindings returns the value of Findings.
+func (s *MetricAlert) GetFindings() []MetricAlertFinding {
+	return s.Findings
+}
+
+// GetStatus returns the value of Status.
+func (s *MetricAlert) GetStatus() string {
+	return s.Status
+}
+
+// GetRaisedAt returns the value of RaisedAt.
+func (s *MetricAlert) GetRaisedAt() time.Time {
+	return s.RaisedAt
+}
+
+// GetRaisedAs returns the value of RaisedAs.
+func (s *MetricAlert) GetRaisedAs() uuid.UUID {
+	return s.RaisedAs
+}
+
+// SetID sets the value of ID.
+func (s *MetricAlert) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *MetricAlert) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetWatcherID sets the value of WatcherID.
+func (s *MetricAlert) SetWatcherID(val uuid.UUID) {
+	s.WatcherID = val
+}
+
+// SetWatcherName sets the value of WatcherName.
+func (s *MetricAlert) SetWatcherName(val string) {
+	s.WatcherName = val
+}
+
+// SetMetric sets the value of Metric.
+func (s *MetricAlert) SetMetric(val string) {
+	s.Metric = val
+}
+
+// SetGrain sets the value of Grain.
+func (s *MetricAlert) SetGrain(val string) {
+	s.Grain = val
+}
+
+// SetCondition sets the value of Condition.
+func (s *MetricAlert) SetCondition(val MetricWatcherCondition) {
+	s.Condition = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *MetricAlert) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *MetricAlert) SetFiscalPeriod(val OptInt32) {
+	s.FiscalPeriod = val
+}
+
+// SetCompanies sets the value of Companies.
+func (s *MetricAlert) SetCompanies(val []string) {
+	s.Companies = val
+}
+
+// SetFindings sets the value of Findings.
+func (s *MetricAlert) SetFindings(val []MetricAlertFinding) {
+	s.Findings = val
+}
+
+// SetStatus sets the value of Status.
+func (s *MetricAlert) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetRaisedAt sets the value of RaisedAt.
+func (s *MetricAlert) SetRaisedAt(val time.Time) {
+	s.RaisedAt = val
+}
+
+// SetRaisedAs sets the value of RaisedAs.
+func (s *MetricAlert) SetRaisedAs(val uuid.UUID) {
+	s.RaisedAs = val
+}
+
+// A series that held the condition in the alert's period.
+// Ref: #/components/schemas/MetricAlertFinding
+type MetricAlertFinding struct {
+	// The company code.
+	Company string `json:"company"`
+	// The figure's currency; absent for a count or a ratio.
+	Currency OptString `json:"currency"`
+	// The figure of the period, an exact decimal.
+	Figure string `json:"figure"`
+	// The condition's value, or the previous period's figure.
+	ComparedWith string `json:"compared_with"`
+	// For `change`: the change in percent, rounded to two decimals; absent for `above` and `below`.
+	Percent OptString `json:"percent"`
+}
+
+// GetCompany returns the value of Company.
+func (s *MetricAlertFinding) GetCompany() string {
+	return s.Company
+}
+
+// GetCurrency returns the value of Currency.
+func (s *MetricAlertFinding) GetCurrency() OptString {
+	return s.Currency
+}
+
+// GetFigure returns the value of Figure.
+func (s *MetricAlertFinding) GetFigure() string {
+	return s.Figure
+}
+
+// GetComparedWith returns the value of ComparedWith.
+func (s *MetricAlertFinding) GetComparedWith() string {
+	return s.ComparedWith
+}
+
+// GetPercent returns the value of Percent.
+func (s *MetricAlertFinding) GetPercent() OptString {
+	return s.Percent
+}
+
+// SetCompany sets the value of Company.
+func (s *MetricAlertFinding) SetCompany(val string) {
+	s.Company = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *MetricAlertFinding) SetCurrency(val OptString) {
+	s.Currency = val
+}
+
+// SetFigure sets the value of Figure.
+func (s *MetricAlertFinding) SetFigure(val string) {
+	s.Figure = val
+}
+
+// SetComparedWith sets the value of ComparedWith.
+func (s *MetricAlertFinding) SetComparedWith(val string) {
+	s.ComparedWith = val
+}
+
+// SetPercent sets the value of Percent.
+func (s *MetricAlertFinding) SetPercent(val OptString) {
+	s.Percent = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/MetricWatcher
+type MetricWatcher struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The watcher's name.
+	Name string `json:"name"`
+	// The governed metric watched.
+	Metric string `json:"metric"`
+	// The filters on the metric's dimensions; empty for none.
+	Filters []AnalyticsFilter `json:"filters"`
+	// The company watched, by its code; absent: every company the creator may read when it is evaluated.
+	Company OptString `json:"company"`
+	// `month` or `year`. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Grain     string                 `json:"grain"`
+	Condition MetricWatcherCondition `json:"condition"`
+	// `active`; `removed` for good (`removeMetricWatcher`); `failed` when its metric left the model
+	// (`failure_code`). Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Status string `json:"status"`
+	// A failed watcher's reason, a problem code: `analytics.watcher_metric_removed`.
+	FailureCode OptString `json:"failure_code"`
+	// A failed watcher's reason in words.
+	FailureDetail OptString `json:"failure_detail"`
+}
+
+// GetID returns the value of ID.
+func (s *MetricWatcher) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *MetricWatcher) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *MetricWatcher) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *MetricWatcher) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *MetricWatcher) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *MetricWatcher) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetName returns the value of Name.
+func (s *MetricWatcher) GetName() string {
+	return s.Name
+}
+
+// GetMetric returns the value of Metric.
+func (s *MetricWatcher) GetMetric() string {
+	return s.Metric
+}
+
+// GetFilters returns the value of Filters.
+func (s *MetricWatcher) GetFilters() []AnalyticsFilter {
+	return s.Filters
+}
+
+// GetCompany returns the value of Company.
+func (s *MetricWatcher) GetCompany() OptString {
+	return s.Company
+}
+
+// GetGrain returns the value of Grain.
+func (s *MetricWatcher) GetGrain() string {
+	return s.Grain
+}
+
+// GetCondition returns the value of Condition.
+func (s *MetricWatcher) GetCondition() MetricWatcherCondition {
+	return s.Condition
+}
+
+// GetStatus returns the value of Status.
+func (s *MetricWatcher) GetStatus() string {
+	return s.Status
+}
+
+// GetFailureCode returns the value of FailureCode.
+func (s *MetricWatcher) GetFailureCode() OptString {
+	return s.FailureCode
+}
+
+// GetFailureDetail returns the value of FailureDetail.
+func (s *MetricWatcher) GetFailureDetail() OptString {
+	return s.FailureDetail
+}
+
+// SetID sets the value of ID.
+func (s *MetricWatcher) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *MetricWatcher) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *MetricWatcher) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *MetricWatcher) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *MetricWatcher) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *MetricWatcher) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetName sets the value of Name.
+func (s *MetricWatcher) SetName(val string) {
+	s.Name = val
+}
+
+// SetMetric sets the value of Metric.
+func (s *MetricWatcher) SetMetric(val string) {
+	s.Metric = val
+}
+
+// SetFilters sets the value of Filters.
+func (s *MetricWatcher) SetFilters(val []AnalyticsFilter) {
+	s.Filters = val
+}
+
+// SetCompany sets the value of Company.
+func (s *MetricWatcher) SetCompany(val OptString) {
+	s.Company = val
+}
+
+// SetGrain sets the value of Grain.
+func (s *MetricWatcher) SetGrain(val string) {
+	s.Grain = val
+}
+
+// SetCondition sets the value of Condition.
+func (s *MetricWatcher) SetCondition(val MetricWatcherCondition) {
+	s.Condition = val
+}
+
+// SetStatus sets the value of Status.
+func (s *MetricWatcher) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetFailureCode sets the value of FailureCode.
+func (s *MetricWatcher) SetFailureCode(val OptString) {
+	s.FailureCode = val
+}
+
+// SetFailureDetail sets the value of FailureDetail.
+func (s *MetricWatcher) SetFailureDetail(val OptString) {
+	s.FailureDetail = val
+}
+
+// A watcher's condition (ADR-0077 §1): `above` or `below` a `value` (with the `currency` of a money
+// metric), or `change` by more than `percent` of the previous period's figure. Exactly the settings of
+// the kind are given.
+// Ref: #/components/schemas/MetricWatcherCondition
+type MetricWatcherCondition struct {
+	// The condition. Open enumeration: clients must accept and preserve values not listed here; values may
+	// be added within /v1.
+	Kind string `json:"kind"`
+	// For `above` and `below`: the value the figure is compared with, an exact decimal in the metric's
+	// unit.
+	Value OptString `json:"value"`
+	// For `above` and `below` on a money metric: the currency of `value`; only figures in it are compared.
+	// Not given for a count or a ratio.
+	Currency OptString `json:"currency"`
+	// For `change`: the percentage, `25` for 25 %, by which the figure must differ from the base, either
+	// way.
+	Percent OptString `json:"percent"`
+}
+
+// GetKind returns the value of Kind.
+func (s *MetricWatcherCondition) GetKind() string {
+	return s.Kind
+}
+
+// GetValue returns the value of Value.
+func (s *MetricWatcherCondition) GetValue() OptString {
+	return s.Value
+}
+
+// GetCurrency returns the value of Currency.
+func (s *MetricWatcherCondition) GetCurrency() OptString {
+	return s.Currency
+}
+
+// GetPercent returns the value of Percent.
+func (s *MetricWatcherCondition) GetPercent() OptString {
+	return s.Percent
+}
+
+// SetKind sets the value of Kind.
+func (s *MetricWatcherCondition) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetValue sets the value of Value.
+func (s *MetricWatcherCondition) SetValue(val OptString) {
+	s.Value = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *MetricWatcherCondition) SetCurrency(val OptString) {
+	s.Currency = val
+}
+
+// SetPercent sets the value of Percent.
+func (s *MetricWatcherCondition) SetPercent(val OptString) {
+	s.Percent = val
+}
+
+// Set a metric watcher. It is created `active`.
+// Ref: #/components/schemas/MetricWatcherCreate
+type MetricWatcherCreate struct {
+	// The watcher's name, not white space alone.
+	Name string `json:"name"`
+	// A governed metric of the active model (`getAnalyticsModel`).
+	Metric string `json:"metric"`
+	// Filters on the metric's dimensions, all of which a figure's data must meet, as a query's `where`.
+	// None when left out.
+	Filters []AnalyticsFilter `json:"filters"`
+	// One company by its code; left out, every company the creator may read when it is evaluated.
+	Company OptString `json:"company"`
+	// The period a figure is of: `month` (fiscal year and month) or `year` (fiscal year). Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Grain     string                 `json:"grain"`
+	Condition MetricWatcherCondition `json:"condition"`
+}
+
+// GetName returns the value of Name.
+func (s *MetricWatcherCreate) GetName() string {
+	return s.Name
+}
+
+// GetMetric returns the value of Metric.
+func (s *MetricWatcherCreate) GetMetric() string {
+	return s.Metric
+}
+
+// GetFilters returns the value of Filters.
+func (s *MetricWatcherCreate) GetFilters() []AnalyticsFilter {
+	return s.Filters
+}
+
+// GetCompany returns the value of Company.
+func (s *MetricWatcherCreate) GetCompany() OptString {
+	return s.Company
+}
+
+// GetGrain returns the value of Grain.
+func (s *MetricWatcherCreate) GetGrain() string {
+	return s.Grain
+}
+
+// GetCondition returns the value of Condition.
+func (s *MetricWatcherCreate) GetCondition() MetricWatcherCondition {
+	return s.Condition
+}
+
+// SetName sets the value of Name.
+func (s *MetricWatcherCreate) SetName(val string) {
+	s.Name = val
+}
+
+// SetMetric sets the value of Metric.
+func (s *MetricWatcherCreate) SetMetric(val string) {
+	s.Metric = val
+}
+
+// SetFilters sets the value of Filters.
+func (s *MetricWatcherCreate) SetFilters(val []AnalyticsFilter) {
+	s.Filters = val
+}
+
+// SetCompany sets the value of Company.
+func (s *MetricWatcherCreate) SetCompany(val OptString) {
+	s.Company = val
+}
+
+// SetGrain sets the value of Grain.
+func (s *MetricWatcherCreate) SetGrain(val string) {
+	s.Grain = val
+}
+
+// SetCondition sets the value of Condition.
+func (s *MetricWatcherCreate) SetCondition(val MetricWatcherCondition) {
+	s.Condition = val
+}
+
+// An evaluation of a watcher (ADR-0077 §2): the watcher after it, the period judged, each series'
+// figure and the alert of the period.
+// Ref: #/components/schemas/MetricWatcherEvaluation
+type MetricWatcherEvaluation struct {
+	Watcher MetricWatcher `json:"watcher"`
+	// The fiscal year of the period judged; absent when the answer had no figure or the watcher failed.
+	FiscalYear OptInt32 `json:"fiscal_year"`
+	// The fiscal month of the period judged; absent for a watcher by year or when nothing was judged.
+	FiscalPeriod OptInt32 `json:"fiscal_period"`
+	// Each company and currency with a figure in the period judged, by company and currency.
+	Series []MetricWatcherSeries `json:"series"`
+	Alert  OptMetricAlert        `json:"alert"`
+	// Whether this evaluation raised `alert`; false when it was raised before in the period, or none
+	// holds.
+	Raised bool `json:"raised"`
+}
+
+// GetWatcher returns the value of Watcher.
+func (s *MetricWatcherEvaluation) GetWatcher() MetricWatcher {
+	return s.Watcher
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *MetricWatcherEvaluation) GetFiscalYear() OptInt32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *MetricWatcherEvaluation) GetFiscalPeriod() OptInt32 {
+	return s.FiscalPeriod
+}
+
+// GetSeries returns the value of Series.
+func (s *MetricWatcherEvaluation) GetSeries() []MetricWatcherSeries {
+	return s.Series
+}
+
+// GetAlert returns the value of Alert.
+func (s *MetricWatcherEvaluation) GetAlert() OptMetricAlert {
+	return s.Alert
+}
+
+// GetRaised returns the value of Raised.
+func (s *MetricWatcherEvaluation) GetRaised() bool {
+	return s.Raised
+}
+
+// SetWatcher sets the value of Watcher.
+func (s *MetricWatcherEvaluation) SetWatcher(val MetricWatcher) {
+	s.Watcher = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *MetricWatcherEvaluation) SetFiscalYear(val OptInt32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *MetricWatcherEvaluation) SetFiscalPeriod(val OptInt32) {
+	s.FiscalPeriod = val
+}
+
+// SetSeries sets the value of Series.
+func (s *MetricWatcherEvaluation) SetSeries(val []MetricWatcherSeries) {
+	s.Series = val
+}
+
+// SetAlert sets the value of Alert.
+func (s *MetricWatcherEvaluation) SetAlert(val OptMetricAlert) {
+	s.Alert = val
+}
+
+// SetRaised sets the value of Raised.
+func (s *MetricWatcherEvaluation) SetRaised(val bool) {
+	s.Raised = val
+}
+
+// MetricWatcherEvaluationHeaders wraps MetricWatcherEvaluation with response headers.
+type MetricWatcherEvaluationHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           MetricWatcherEvaluation
+}
+
+// GetETag returns the value of ETag.
+func (s *MetricWatcherEvaluationHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *MetricWatcherEvaluationHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *MetricWatcherEvaluationHeaders) GetResponse() MetricWatcherEvaluation {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *MetricWatcherEvaluationHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *MetricWatcherEvaluationHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *MetricWatcherEvaluationHeaders) SetResponse(val MetricWatcherEvaluation) {
+	s.Response = val
+}
+
+func (*MetricWatcherEvaluationHeaders) evaluateMetricWatcherRes() {}
+
+// MetricWatcherHeaders wraps MetricWatcher with response headers.
+type MetricWatcherHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           MetricWatcher
+}
+
+// GetETag returns the value of ETag.
+func (s *MetricWatcherHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *MetricWatcherHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *MetricWatcherHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *MetricWatcherHeaders) GetResponse() MetricWatcher {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *MetricWatcherHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *MetricWatcherHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *MetricWatcherHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *MetricWatcherHeaders) SetResponse(val MetricWatcher) {
+	s.Response = val
+}
+
+func (*MetricWatcherHeaders) createMetricWatcherRes() {}
+
+// One page of the caller's metric watchers.
+// Ref: #/components/schemas/MetricWatcherPage
+type MetricWatcherPage struct {
+	// The watchers on this page.
+	Items []MetricWatcher `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *MetricWatcherPage) GetItems() []MetricWatcher {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *MetricWatcherPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *MetricWatcherPage) SetItems(val []MetricWatcher) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *MetricWatcherPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*MetricWatcherPage) listMetricWatchersRes() {}
+
+// One company's figure in one currency for the period judged, and whether it holds the condition.
+// Ref: #/components/schemas/MetricWatcherSeries
+type MetricWatcherSeries struct {
+	// The company code.
+	Company string `json:"company"`
+	// The figure's currency; absent for a count or a ratio.
+	Currency OptString `json:"currency"`
+	// The figure of the period, an exact decimal.
+	Figure string `json:"figure"`
+	// What the figure was compared with: the condition's value, or the previous period's figure; absent
+	// when the series judged nothing (a currency other than the value's, no previous figure, a base of
+	// zero).
+	ComparedWith OptString `json:"compared_with"`
+	// For `change`: the change in percent, rounded to two decimals; absent otherwise or when nothing was
+	// judged.
+	Percent OptString `json:"percent"`
+	// Whether the figure holds the condition.
+	Holds bool `json:"holds"`
+}
+
+// GetCompany returns the value of Company.
+func (s *MetricWatcherSeries) GetCompany() string {
+	return s.Company
+}
+
+// GetCurrency returns the value of Currency.
+func (s *MetricWatcherSeries) GetCurrency() OptString {
+	return s.Currency
+}
+
+// GetFigure returns the value of Figure.
+func (s *MetricWatcherSeries) GetFigure() string {
+	return s.Figure
+}
+
+// GetComparedWith returns the value of ComparedWith.
+func (s *MetricWatcherSeries) GetComparedWith() OptString {
+	return s.ComparedWith
+}
+
+// GetPercent returns the value of Percent.
+func (s *MetricWatcherSeries) GetPercent() OptString {
+	return s.Percent
+}
+
+// GetHolds returns the value of Holds.
+func (s *MetricWatcherSeries) GetHolds() bool {
+	return s.Holds
+}
+
+// SetCompany sets the value of Company.
+func (s *MetricWatcherSeries) SetCompany(val string) {
+	s.Company = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *MetricWatcherSeries) SetCurrency(val OptString) {
+	s.Currency = val
+}
+
+// SetFigure sets the value of Figure.
+func (s *MetricWatcherSeries) SetFigure(val string) {
+	s.Figure = val
+}
+
+// SetComparedWith sets the value of ComparedWith.
+func (s *MetricWatcherSeries) SetComparedWith(val OptString) {
+	s.ComparedWith = val
+}
+
+// SetPercent sets the value of Percent.
+func (s *MetricWatcherSeries) SetPercent(val OptString) {
+	s.Percent = val
+}
+
+// SetHolds sets the value of Holds.
+func (s *MetricWatcherSeries) SetHolds(val bool) {
+	s.Holds = val
 }
 
 // One reconciliation control for a company code.
@@ -60964,6 +61896,52 @@ func (o OptMemoRecurrence) Get() (v MemoRecurrence, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptMemoRecurrence) Or(d MemoRecurrence) MemoRecurrence {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptMetricAlert returns new OptMetricAlert with value set to v.
+func NewOptMetricAlert(v MetricAlert) OptMetricAlert {
+	return OptMetricAlert{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptMetricAlert is optional MetricAlert.
+type OptMetricAlert struct {
+	Value MetricAlert
+	Set   bool
+}
+
+// IsSet returns true if OptMetricAlert was set.
+func (o OptMetricAlert) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptMetricAlert) Reset() {
+	var v MetricAlert
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptMetricAlert) SetTo(v MetricAlert) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptMetricAlert) Get() (v MetricAlert, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptMetricAlert) Or(d MetricAlert) MetricAlert {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -73641,6 +74619,65 @@ type RemoveHierarchyNodeUnprocessableEntity Problem
 
 func (*RemoveHierarchyNodeUnprocessableEntity) removeHierarchyNodeRes() {}
 
+type RemoveMetricWatcherBadRequest Problem
+
+func (*RemoveMetricWatcherBadRequest) removeMetricWatcherRes() {}
+
+type RemoveMetricWatcherForbidden Problem
+
+func (*RemoveMetricWatcherForbidden) removeMetricWatcherRes() {}
+
+type RemoveMetricWatcherNotFound Problem
+
+func (*RemoveMetricWatcherNotFound) removeMetricWatcherRes() {}
+
+// RemoveMetricWatcherOKHeaders wraps MetricWatcher with response headers.
+type RemoveMetricWatcherOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           MetricWatcher
+}
+
+// GetETag returns the value of ETag.
+func (s *RemoveMetricWatcherOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *RemoveMetricWatcherOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *RemoveMetricWatcherOKHeaders) GetResponse() MetricWatcher {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *RemoveMetricWatcherOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *RemoveMetricWatcherOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RemoveMetricWatcherOKHeaders) SetResponse(val MetricWatcher) {
+	s.Response = val
+}
+
+func (*RemoveMetricWatcherOKHeaders) removeMetricWatcherRes() {}
+
+type RemoveMetricWatcherPreconditionFailed Problem
+
+func (*RemoveMetricWatcherPreconditionFailed) removeMetricWatcherRes() {}
+
+type RemoveMetricWatcherPreconditionRequired Problem
+
+func (*RemoveMetricWatcherPreconditionRequired) removeMetricWatcherRes() {}
+
 type RenameHierarchyNodeBadRequest Problem
 
 func (*RenameHierarchyNodeBadRequest) renameHierarchyNodeRes() {}
@@ -81795,6 +82832,7 @@ func (*ServiceUnavailableHeaders) endCompanyAccessRes()                      {}
 func (*ServiceUnavailableHeaders) endRoleAssignmentRes()                     {}
 func (*ServiceUnavailableHeaders) endRolePermissionRes()                     {}
 func (*ServiceUnavailableHeaders) endSodRuleRes()                            {}
+func (*ServiceUnavailableHeaders) evaluateMetricWatcherRes()                 {}
 func (*ServiceUnavailableHeaders) excludeBankStatementLineRes()              {}
 func (*ServiceUnavailableHeaders) fetchEInvoicesRes()                        {}
 func (*ServiceUnavailableHeaders) fileTaxReturnRes()                         {}
@@ -86892,6 +87930,7 @@ func (*TooManyRequestsHeaders) createIncomingPaymentRes()                 {}
 func (*TooManyRequestsHeaders) createInternalOrderRes()                   {}
 func (*TooManyRequestsHeaders) createLegalEntityRes()                     {}
 func (*TooManyRequestsHeaders) createMemoRecordRes()                      {}
+func (*TooManyRequestsHeaders) createMetricWatcherRes()                   {}
 func (*TooManyRequestsHeaders) createMigrationRunRes()                    {}
 func (*TooManyRequestsHeaders) createOrgUnitRes()                         {}
 func (*TooManyRequestsHeaders) createPartnerChangeRes()                   {}
@@ -86933,6 +87972,7 @@ func (*TooManyRequestsHeaders) endCurrentSessionRes()                     {}
 func (*TooManyRequestsHeaders) endRoleAssignmentRes()                     {}
 func (*TooManyRequestsHeaders) endRolePermissionRes()                     {}
 func (*TooManyRequestsHeaders) endSodRuleRes()                            {}
+func (*TooManyRequestsHeaders) evaluateMetricWatcherRes()                 {}
 func (*TooManyRequestsHeaders) excludeBankStatementLineRes()              {}
 func (*TooManyRequestsHeaders) fetchEInvoicesRes()                        {}
 func (*TooManyRequestsHeaders) fileTaxReturnRes()                         {}
@@ -87012,6 +88052,7 @@ func (*TooManyRequestsHeaders) getLiquidityForecastRes()                  {}
 func (*TooManyRequestsHeaders) getLiquidityForecastVarianceRes()          {}
 func (*TooManyRequestsHeaders) getMatchResultRes()                        {}
 func (*TooManyRequestsHeaders) getMemoRecordRes()                         {}
+func (*TooManyRequestsHeaders) getMetricWatcherRes()                      {}
 func (*TooManyRequestsHeaders) getMigrationRunRes()                       {}
 func (*TooManyRequestsHeaders) getNumberRangeRes()                        {}
 func (*TooManyRequestsHeaders) getOperationRes()                          {}
@@ -87137,6 +88178,7 @@ func (*TooManyRequestsHeaders) listLegalEntitiesRes()                     {}
 func (*TooManyRequestsHeaders) listLiquidityForecastFlowsRes()            {}
 func (*TooManyRequestsHeaders) listMatchResultsRes()                      {}
 func (*TooManyRequestsHeaders) listMemoRecordsRes()                       {}
+func (*TooManyRequestsHeaders) listMetricWatchersRes()                    {}
 func (*TooManyRequestsHeaders) listMigrationRunsRes()                     {}
 func (*TooManyRequestsHeaders) listNumberRangesRes()                      {}
 func (*TooManyRequestsHeaders) listOpenItemsRes()                         {}
@@ -87243,6 +88285,7 @@ func (*TooManyRequestsHeaders) releaseSalesOrderCreditBlockRes()          {}
 func (*TooManyRequestsHeaders) releaseSupplierInvoiceRes()                {}
 func (*TooManyRequestsHeaders) removeControlLinkRes()                     {}
 func (*TooManyRequestsHeaders) removeHierarchyNodeRes()                   {}
+func (*TooManyRequestsHeaders) removeMetricWatcherRes()                   {}
 func (*TooManyRequestsHeaders) renameHierarchyNodeRes()                   {}
 func (*TooManyRequestsHeaders) renewContractRes()                         {}
 func (*TooManyRequestsHeaders) reopenCloseTaskRes()                       {}
@@ -87699,6 +88742,7 @@ func (*UnauthorizedHeaders) createIncomingPaymentRes()                 {}
 func (*UnauthorizedHeaders) createInternalOrderRes()                   {}
 func (*UnauthorizedHeaders) createLegalEntityRes()                     {}
 func (*UnauthorizedHeaders) createMemoRecordRes()                      {}
+func (*UnauthorizedHeaders) createMetricWatcherRes()                   {}
 func (*UnauthorizedHeaders) createMigrationRunRes()                    {}
 func (*UnauthorizedHeaders) createOrgUnitRes()                         {}
 func (*UnauthorizedHeaders) createPartnerChangeRes()                   {}
@@ -87740,6 +88784,7 @@ func (*UnauthorizedHeaders) endCurrentSessionRes()                     {}
 func (*UnauthorizedHeaders) endRoleAssignmentRes()                     {}
 func (*UnauthorizedHeaders) endRolePermissionRes()                     {}
 func (*UnauthorizedHeaders) endSodRuleRes()                            {}
+func (*UnauthorizedHeaders) evaluateMetricWatcherRes()                 {}
 func (*UnauthorizedHeaders) excludeBankStatementLineRes()              {}
 func (*UnauthorizedHeaders) fetchEInvoicesRes()                        {}
 func (*UnauthorizedHeaders) fileTaxReturnRes()                         {}
@@ -87819,6 +88864,7 @@ func (*UnauthorizedHeaders) getLiquidityForecastRes()                  {}
 func (*UnauthorizedHeaders) getLiquidityForecastVarianceRes()          {}
 func (*UnauthorizedHeaders) getMatchResultRes()                        {}
 func (*UnauthorizedHeaders) getMemoRecordRes()                         {}
+func (*UnauthorizedHeaders) getMetricWatcherRes()                      {}
 func (*UnauthorizedHeaders) getMigrationRunRes()                       {}
 func (*UnauthorizedHeaders) getNumberRangeRes()                        {}
 func (*UnauthorizedHeaders) getOperationRes()                          {}
@@ -87944,6 +88990,7 @@ func (*UnauthorizedHeaders) listLegalEntitiesRes()                     {}
 func (*UnauthorizedHeaders) listLiquidityForecastFlowsRes()            {}
 func (*UnauthorizedHeaders) listMatchResultsRes()                      {}
 func (*UnauthorizedHeaders) listMemoRecordsRes()                       {}
+func (*UnauthorizedHeaders) listMetricWatchersRes()                    {}
 func (*UnauthorizedHeaders) listMigrationRunsRes()                     {}
 func (*UnauthorizedHeaders) listNumberRangesRes()                      {}
 func (*UnauthorizedHeaders) listOpenItemsRes()                         {}
@@ -88050,6 +89097,7 @@ func (*UnauthorizedHeaders) releaseSalesOrderCreditBlockRes()          {}
 func (*UnauthorizedHeaders) releaseSupplierInvoiceRes()                {}
 func (*UnauthorizedHeaders) removeControlLinkRes()                     {}
 func (*UnauthorizedHeaders) removeHierarchyNodeRes()                   {}
+func (*UnauthorizedHeaders) removeMetricWatcherRes()                   {}
 func (*UnauthorizedHeaders) renameHierarchyNodeRes()                   {}
 func (*UnauthorizedHeaders) renewContractRes()                         {}
 func (*UnauthorizedHeaders) reopenCloseTaskRes()                       {}

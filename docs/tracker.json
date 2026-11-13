@@ -6751,13 +6751,13 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Metric watchers",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An analyst sets a watcher on a governed metric (its filter, its period, and a condition: above or below a value, or changed against the previous period by more than a percentage) and evaluates it; a condition that holds raises an alert (POST /v1/metric-watchers, :evaluate)",
-        "r": "T96a · docs/design/plan-breadth-week3.md §T96a",
+        "r": "T96a · docs/design/plan-breadth-week3.md §T96a · db/migrations/000308 · analytics.metric_watcher, analytics.metric_alert · POST /v1/metric-watchers · GET /v1/metric-watchers · GET /v1/metric-watchers/{id} · POST /v1/metric-watchers/{id}:remove · POST /v1/metric-watchers/{id}:evaluate · MetricAlertRaised · analytics.watcher.read, .write · walkthrough step_metric_watch · ADR-0077 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

@@ -27,6 +27,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/analytics/endpoint"
 	"github.com/mustie7iy/agentic-erp/internal/analytics/store"
+	"github.com/mustie7iy/agentic-erp/internal/analytics/watchers"
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/assets"
 	"github.com/mustie7iy/agentic-erp/internal/audit"
@@ -97,6 +98,7 @@ type (
 	integrationAPI = integration.Endpoints
 	agentsAPI      = agents.Endpoints
 	analyticsAPI   = endpoint.Endpoints
+	watchersAPI    = watchers.Endpoints
 	cashAPI        = cash.Endpoints
 	assetsAPI      = assets.Endpoints
 	closingAPI     = closing.Endpoints
@@ -129,6 +131,7 @@ type handler struct {
 	*integrationAPI
 	*agentsAPI
 	*analyticsAPI
+	*watchersAPI
 	*cashAPI
 	*assetsAPI
 	*closingAPI
@@ -236,6 +239,7 @@ func New(cfg Config) (http.Handler, error) {
 	// endCurrentSession through the same instance, which forgets them.
 	sessions := &identity.Sessions{Pool: cfg.Pool, AppRole: cfg.AppRole, Now: cfg.Now}
 	selling, crediting := salesAndCredit(cfg)
+	queries := analyticsEndpoints(cfg, loopback).Init()
 	h := handler{
 		operationsAPI: &operations.Endpoints{Pages: cfg.Pages, Workflows: cfg.Workflows, Log: cfg.Log},
 		tenancyAPI:    &tenancy.Endpoints{Pages: cfg.Pages, Days: configuration.Settings{}, Now: cfg.Now},
@@ -258,7 +262,8 @@ func New(cfg Config) (http.Handler, error) {
 		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
 		integrationAPI: Integration(cfg),
 		agentsAPI:      &agents.Endpoints{Pages: cfg.Pages, Countries: tenancy.Countries, Certifications: certifications(cfg)},
-		analyticsAPI:   analyticsEndpoints(cfg, loopback).Init(),
+		analyticsAPI:   queries,
+		watchersAPI:    Watchers(cfg, queries),
 		cashAPI:        Cash(cfg),
 		assetsAPI:      Assets(cfg),
 		closingAPI:     Closing(cfg),

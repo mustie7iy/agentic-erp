@@ -321,6 +321,10 @@ type CreateMemoRecordRes interface {
 	createMemoRecordRes()
 }
 
+type CreateMetricWatcherRes interface {
+	createMetricWatcherRes()
+}
+
 type CreateMigrationRunRes interface {
 	createMigrationRunRes()
 }
@@ -483,6 +487,10 @@ type EndRolePermissionRes interface {
 
 type EndSodRuleRes interface {
 	endSodRuleRes()
+}
+
+type EvaluateMetricWatcherRes interface {
+	evaluateMetricWatcherRes()
 }
 
 type ExcludeBankStatementLineRes interface {
@@ -799,6 +807,10 @@ type GetMatchResultRes interface {
 
 type GetMemoRecordRes interface {
 	getMemoRecordRes()
+}
+
+type GetMetricWatcherRes interface {
+	getMetricWatcherRes()
 }
 
 type GetMigrationRunRes interface {
@@ -1301,6 +1313,10 @@ type ListMemoRecordsRes interface {
 	listMemoRecordsRes()
 }
 
+type ListMetricWatchersRes interface {
+	listMetricWatchersRes()
+}
+
 type ListMigrationRunsRes interface {
 	listMigrationRunsRes()
 }
@@ -1723,6 +1739,10 @@ type RemoveControlLinkRes interface {
 
 type RemoveHierarchyNodeRes interface {
 	removeHierarchyNodeRes()
+}
+
+type RemoveMetricWatcherRes interface {
+	removeMetricWatcherRes()
 }
 
 type RenameHierarchyNodeRes interface {

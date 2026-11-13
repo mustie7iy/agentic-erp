@@ -8305,6 +8305,51 @@ step_return_receipt() {
   passed
 }
 
+# step_metric_watch is T96a (ADR-0077): Ben, the buyer, watches Maple's
+# spend by month in one currency above a value, set just below the latest
+# month's figure the semantic layer gives him, so the condition holds;
+# evaluating the watcher runs its query as Ben, judges the latest month
+# with data and raises one alert naming the figure and the value; a second
+# evaluation raises none and answers the same alert.
+step_metric_watch() {
+  heading "Step 78 — Metric watchers: spend watched above a value, evaluated as its creator; the alert names the figure and the value, once per month"
+  local q year month cur figure cents value watcher alert
+  as ben
+  say "Ben asks the semantic layer for Maple's spend by currency and fiscal month, as step 71 read it by supplier:"
+  q="{\"measures\": [\"spend\"], \"by\": [\"currency\", \"fiscal_year\", \"fiscal_month\"], \"companies\": [\"$CC\"]}"
+  api 200 '(.rows[] | "  \(.[0].value) \(.[1].value)/\(.[2].value): \(.[3].value)")' runAnalyticsQuery -body "$q"
+  # The latest month with spend, and a currency with spend in it.
+  read -r year month cur figure < <(field '[.rows[] | select(.[3].value != null) | {c: .[0].value, y: (.[1].value | tonumber), m: (.[2].value | tonumber), v: .[3].value}]
+    | sort_by(.y, .m, .c) | last | "\(.y) \(.m) \(.c) \(.v)"')
+  [ -n "$figure" ] && [ "$figure" != null ] || fail "no spend: step 71's invoices are not there"
+  cents=$(($(cents "$figure") - 100))
+  value=$(amount "$cents")
+  say "The latest month is $year/$month, with spend of $figure $cur. Ben sets a watcher on spend in $cur above $value,"
+  say "by month, in company $CC: a watcher is his own, and its condition takes exactly its settings (ADR-0077 §1)."
+  refused 422 analytics.invalid_watcher createMetricWatcher \
+    -body "{\"name\": \"Spend above $value\", \"metric\": \"spend\", \"company\": \"$CC\", \"grain\": \"month\", \"condition\": {\"kind\": \"above\", \"value\": \"$value\"}}"
+  api 201 '"watcher \(.name): \(.metric) \(.condition.kind) \(.condition.value) \(.condition.currency) by \(.grain) in \(.company), \(.status)"' createMetricWatcher \
+    -body "{\"name\": \"Spend above $value\", \"metric\": \"spend\", \"company\": \"$CC\", \"grain\": \"month\", \"condition\": {\"kind\": \"above\", \"value\": \"$value\", \"currency\": \"$cur\"}}"
+  watcher=$(field .id)
+  expect "the watcher" "$(field '"\(.status) \(.version)"')" "active 1"
+  say "He evaluates it: the query runs as Ben, the latest month with data is judged, and the condition holds:"
+  api 200 '"period \(.fiscal_year)/\(.fiscal_period), raised \(.raised)", (.series[] | "  \(.company) \(.currency): \(.figure) against \(.compared_with // "-"), holds \(.holds)"),
+    "  alert \(.alert.watcher_name): \(.alert.findings | map("\(.company) \(.figure) \(.currency) above \(.compared_with)") | join("; "))"' \
+    evaluateMetricWatcher -p "id=$watcher" -if-match "$ETAG"
+  expect "the period judged" "$(field '"\(.fiscal_year)/\(.fiscal_period)"')" "$year/$month"
+  expect "the alert's finding" "$(field '.alert.findings | map("\(.company) \(.currency) \(.figure) \(.compared_with)") | join("; ")')" "$CC $cur $figure $value"
+  expect "raised now" "$(field '"\(.raised) \(.alert.status) \(.alert.metric)"')" "true open spend"
+  alert=$(field .alert.id)
+  say "Evaluated again in the same month, it raises no second alert and answers the one raised:"
+  api 200 '"raised \(.raised): alert \(.alert.id)"' evaluateMetricWatcher -p "id=$watcher" -if-match "$ETAG"
+  expect "the same alert" "$(field '"\(.raised) \(.alert.id)"')" "false $alert"
+  as olive
+  say "Olive, who holds the same permissions, does not see Ben's watcher: it is his alone."
+  refused 404 request.not_found getMetricWatcher -p "id=$watcher"
+  as ben
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -10329,7 +10374,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_metric_watch step_close'
 
 main() {
   stop_unseen

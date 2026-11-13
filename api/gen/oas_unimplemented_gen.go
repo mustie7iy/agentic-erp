@@ -1573,6 +1573,27 @@ func (UnimplementedHandler) CreateMemoRecord(ctx context.Context, req *MemoRecor
 	return r, ht.ErrNotImplemented
 }
 
+// CreateMetricWatcher implements createMetricWatcher operation.
+//
+// Sets a watcher on a governed metric of the active model (ADR-0077 §1, T96a), the caller's own: its
+// name, the metric, filters on the metric's dimensions in the query's form, one company by its code
+// (absent: every company the caller may read when it is evaluated), a period grain (`month` or `year`,
+// fiscal) and one condition: `above` or `below` a value (for a money metric with the currency it is
+// in, which only figures in that currency are compared with; for a count or a ratio without one, 422
+// `analytics.invalid_watcher` naming `condition.currency` otherwise), or `change`, the figure
+// differing from the previous period's by more than a percentage of it, either way. Each condition
+// takes exactly its settings (422 `analytics.invalid_watcher` naming the field). The watcher is
+// checked as the query it runs is checked: an unknown metric, a dimension the metric lacks or a
+// malformed filter is 422 `analytics.invalid_query`. It is created `active`, evaluated on
+// `evaluateMetricWatcher`. A tenant without a configuration is 409 `config.not_bootstrapped`. An audit
+// record is written with it. Human-only (`x-agent: false`): a watcher proposed by an agent is not
+// built yet. A retry with the same `Idempotency-Key` answers the watcher set.
+//
+// POST /v1/metric-watchers
+func (UnimplementedHandler) CreateMetricWatcher(ctx context.Context, req *MetricWatcherCreate, params CreateMetricWatcherParams) (r CreateMetricWatcherRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateMigrationRun implements createMigrationRun operation.
 //
 // Creates a migration run in status `queued`.
@@ -2191,6 +2212,28 @@ func (UnimplementedHandler) EndRolePermission(ctx context.Context, req *EndInput
 //
 // POST /v1/sod-rules/{id}:end
 func (UnimplementedHandler) EndSodRule(ctx context.Context, req *EndInput, params EndSodRuleParams) (r EndSodRuleRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// EvaluateMetricWatcher implements evaluateMetricWatcher operation.
+//
+// Evaluates one of the caller's active watchers now, at the version read (`If-Match`), as
+// `runAnalyticsQuery` answers the caller (ADR-0077 §2): the metric by company, by currency where the
+// metric has it, and by fiscal year and month (or year), under the watcher's filters, over its company
+// or the caller's companies, so it needs the permissions that query needs (403 as it is). Each company
+// and currency is a series, never added to another. The period judged is the latest with a figure in
+// the answer; a series without a figure in it, a change without the previous period's figure and a
+// change from zero judge nothing. Percentages are compared exactly; the one shown is rounded to two
+// decimals. A condition holding in at least one series raises one alert for the watcher and the
+// period, with a finding per series that holds, an audit record and MetricAlertRaised; evaluating
+// again in the same period raises none and answers the alert raised (`raised` false). A metric the
+// model no longer has fails the watcher (`failed`, `analytics.watcher_metric_removed`, with an audit
+// record), answered 200 with no alert; a watcher removed or failed is 409
+// `analytics.watcher_inactive`. An answer of more than 500 rows is 422
+// `analytics.watcher_too_many_series`. Human-only (`x-agent: false`).
+//
+// POST /v1/metric-watchers/{id}:evaluate
+func (UnimplementedHandler) EvaluateMetricWatcher(ctx context.Context, params EvaluateMetricWatcherParams) (r EvaluateMetricWatcherRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3547,6 +3590,15 @@ func (UnimplementedHandler) GetMatchResult(ctx context.Context, params GetMatchR
 //
 // GET /v1/memo-records/{id}
 func (UnimplementedHandler) GetMemoRecord(ctx context.Context, params GetMemoRecordParams) (r GetMemoRecordRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetMetricWatcher implements getMetricWatcher operation.
+//
+// One of the caller's metric watchers (ADR-0077 §1, T96a); another person's is not found (404).
+//
+// GET /v1/metric-watchers/{id}
+func (UnimplementedHandler) GetMetricWatcher(ctx context.Context, params GetMetricWatcherParams) (r GetMetricWatcherRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -5184,6 +5236,16 @@ func (UnimplementedHandler) ListMatchResults(ctx context.Context, params ListMat
 //
 // GET /v1/memo-records
 func (UnimplementedHandler) ListMemoRecords(ctx context.Context, params ListMemoRecordsParams) (r ListMemoRecordsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListMetricWatchers implements listMetricWatchers operation.
+//
+// The caller's own metric watchers (ADR-0077 §1, T96a), each as `getMetricWatcher` gives it; another
+// person's are never listed. Filtered by status and by metric. Sortable by: `name` (default).
+//
+// GET /v1/metric-watchers
+func (UnimplementedHandler) ListMetricWatchers(ctx context.Context, params ListMetricWatchersParams) (r ListMetricWatchersRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -6902,6 +6964,18 @@ func (UnimplementedHandler) RemoveControlLink(ctx context.Context, params Remove
 //
 // POST /v1/hierarchies/{id}/nodes/{node_id}:remove
 func (UnimplementedHandler) RemoveHierarchyNode(ctx context.Context, req *HierarchyNodeRemove, params RemoveHierarchyNodeParams) (r RemoveHierarchyNodeRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// RemoveMetricWatcher implements removeMetricWatcher operation.
+//
+// Removes one of the caller's active watchers for good (status `removed`), at the version read
+// (`If-Match`). Nothing is deleted (04 §4.3): the watcher and its alerts are kept, and it is
+// evaluated no more. A watcher already removed, or failed, is 409 `analytics.watcher_inactive`. An
+// audit record is written with it. Human-only (`x-agent: false`).
+//
+// POST /v1/metric-watchers/{id}:remove
+func (UnimplementedHandler) RemoveMetricWatcher(ctx context.Context, params RemoveMetricWatcherParams) (r RemoveMetricWatcherRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
