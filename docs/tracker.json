@@ -2787,14 +2787,14 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Recognition schedules",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The revenue accountant reads an active contract's recognition schedule: per obligation and fiscal period the revenue recognized so far and planned, a point-in-time obligation by its delivery confirmations and an over-time one on a straight line by days (GET /v1/revenue-contracts/{id}/schedule)",
-        "r": "T81c · docs/design/plan-breadth-week2.md §T81c",
+        "r": "T81c · docs/design/plan-breadth-week2.md §T81c · db/migrations/000303 · performance_obligation.satisfied_on · GET /v1/revenue-contracts/{id}/schedule · internal/revenue/schedule.go · ledger.Calendar · money.Allocate · walkthrough step_revenue_schedule · ADR-0068 §8 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

@@ -22,6 +22,12 @@ func TestDatabaseFailures(t *testing.T) {
 	created, _ := e.Must(201, "POST", contracts, forOrder(other), "")
 	id := uuid.MustParse(created["id"].(string))
 	day := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
+	// An active contract whose schedule reads both kinds of obligation: goods part delivered and a service over the year.
+	active, delivered := e.contract(t, e.goods(), e.support())
+	e.Must(200, "PATCH", contracts+"/"+active, set(overTime(2, "2026-01-01", "2026-12-31", "1200.00")), `"1"`)
+	e.activated(t, active)
+	e.delivered(t, delivered, 1, "50", "2026-01-15")
+	scheduled := uuid.MustParse(active)
 	calls := map[string]func(ctx context.Context) error{
 		"create": func(ctx context.Context) error {
 			_, err := h.CreateRevenueContract(ctx, &gen.RevenueContractCreate{SalesOrderID: uuid.MustParse(order)}, gen.CreateRevenueContractParams{})
@@ -41,6 +47,10 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"activate": func(ctx context.Context) error {
 			_, err := h.ActivateRevenueContract(ctx, gen.ActivateRevenueContractParams{ID: id, IfMatch: `"1"`})
+			return err
+		},
+		"schedule": func(ctx context.Context) error {
+			_, err := h.GetRevenueSchedule(ctx, gen.GetRevenueScheduleParams{ID: scheduled})
 			return err
 		},
 		"list": func(ctx context.Context) error {

@@ -265,6 +265,7 @@ var operationRolesOidc = map[string][]string{
 	GetRequisitionOperation:                        []string{},
 	GetRevaluationRunOperation:                     []string{},
 	GetRevenueContractOperation:                    []string{},
+	GetRevenueScheduleOperation:                    []string{},
 	GetRfqOperation:                                []string{},
 	GetRfqComparisonOperation:                      []string{},
 	GetRoleOperation:                               []string{},

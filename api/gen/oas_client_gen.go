@@ -2973,13 +2973,48 @@ type Invoker interface {
 	// One revenue contract (ADR-0068 §3, T81a) with its company's code and name, its customer's number
 	// and name, the sales order it stands for by id and number, its transaction price (the order's net
 	// value, without tax) and its performance obligations, each with the order item it is for, its timing,
-	// an over-time obligation's service period, its stand-alone selling price and, once the contract is
-	// `active`, its allocated amount. `created_by` is the person who asked for it, or the system's
-	// principal when the order's confirmation created it. One of a company the caller may not act in is
-	// not found (404), as one that does not exist.
+	// an over-time obligation's service period, the day a point-in-time obligation is satisfied when a
+	// person set one (`satisfied_on`), its stand-alone selling price and, once the contract is `active`,
+	// its allocated amount. `created_by` is the person who asked for it, or the system's principal when
+	// the order's confirmation created it. One of a company the caller may not act in is not found (404),
+	// as one that does not exist.
 	//
 	// GET /v1/revenue-contracts/{id}
 	GetRevenueContract(ctx context.Context, params GetRevenueContractParams) (GetRevenueContractRes, error)
+	// GetRevenueSchedule invokes getRevenueSchedule operation.
+	//
+	// The recognition schedule of an `active` revenue contract (ADR-0068 §8, T81c): per performance
+	// obligation and fiscal period of the company, the revenue the obligation's allocated amount gives the
+	// period. Nothing is stored: the schedule is computed at the read from the obligations as the contract
+	// fixed them and from the delivery confirmations of the contract's sales order as they are now, so it
+	// moves with each delivery. The system does the arithmetic only; when an obligation is satisfied is
+	// the person's judgement on the contract. A `point_in_time` obligation's amount falls in the fiscal
+	// periods of its order item's delivery confirmations, in proportion to the quantity delivered: after
+	// each delivery the amount scheduled so far is the allocated amount × the quantity delivered so far
+	// ÷ the quantity ordered, rounded to the minor unit, and the delivery takes what that adds, so the
+	// delivery that completes the item takes the remainder and the amounts add up to the allocated amount
+	// exactly; what is not delivered yet is `unscheduled_amount`, in no period. The delivery confirmation
+	// is the default evidence that the obligation is satisfied; an obligation whose contract names another
+	// day (`satisfied_on`) has its whole allocated amount in that day's fiscal period, whatever was
+	// delivered. An `over_time` obligation's amount is spread on a straight line by days over its service
+	// period, both days included: each fiscal period takes the allocated amount × its days of the service
+	// period ÷ the service period's days, rounded so that the periods' amounts add up to the allocated
+	// amount exactly, a minor unit left going to the largest remainder, the earlier period first. Each
+	// amount is split at `as_of`, the company's date today in its time zone: `recognized_amount` is what
+	// falls on days up to and including `as_of` (a delivery or `satisfied_on` on or before it; of an
+	// over-time period under way, the period's amount × its service days so far ÷ its service days),
+	// `planned_amount` what falls after it. Recognized here is what the schedule gives to that day, not
+	// what is posted: the recognition runs post it (`GET /v1/revenue-recognition-runs`). Per obligation
+	// and for the contract, `recognized_amount`, `planned_amount` and `unscheduled_amount` add up to the
+	// allocated amount and to the transaction price; `periods` on the contract are the obligations'
+	// periods added up. A contract that is still a `draft` has no allocated amounts and is refused (409
+	// `revenue.invalid_status`). A day the schedule needs a fiscal period for, a delivery's,
+	// `satisfied_on` or a day of a service period, that lies in no fiscal year set up for the company is
+	// refused naming the obligation (422 `revenue.no_fiscal_period`). A contract of a company the caller
+	// may not act in is not found (404).
+	//
+	// GET /v1/revenue-contracts/{id}/schedule
+	GetRevenueSchedule(ctx context.Context, params GetRevenueScheduleParams) (GetRevenueScheduleRes, error)
 	// GetRfq invokes getRfq operation.
 	//
 	// Returns one RFQ with its items and the suppliers invited. An RFQ of a legal entity the caller cannot
@@ -6245,12 +6280,15 @@ type Invoker interface {
 	// has both days of its service period (422 `revenue.service_period_required` naming the day missing),
 	// `service_from` not after `service_to` (422 `revenue.invalid_service_period`), and a `point_in_time`
 	// obligation has none (422 `revenue.service_period_not_allowed`: send the dates as null when setting
-	// it back); a stand-alone selling price is in the contract's currency (422
-	// `revenue.currency_mismatch`) and more than zero (422 `revenue.price_not_positive`). The contract is
-	// read under a row lock; one that is `active` is fixed and refused (409 `revenue.invalid_status`).
-	// Nothing is allocated before the contract is activated. The contract's `version` moves. Audited, and
-	// published as RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract as
-	// the first answered it. Human-only (`x-agent: false`).
+	// it back); a `point_in_time` obligation may name the day it is satisfied (`satisfied_on`, T81c) when
+	// that is not its delivery confirmations, an `over_time` obligation may not (422
+	// `revenue.satisfied_on_not_allowed`: send it as null when setting the timing to `over_time`); a
+	// stand-alone selling price is in the contract's currency (422 `revenue.currency_mismatch`) and more
+	// than zero (422 `revenue.price_not_positive`). The contract is read under a row lock; one that is
+	// `active` is fixed and refused (409 `revenue.invalid_status`). Nothing is allocated before the
+	// contract is activated. The contract's `version` moves. Audited, and published as
+	// RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract as the first
+	// answered it. Human-only (`x-agent: false`).
 	//
 	// PATCH /v1/revenue-contracts/{id}
 	UpdateRevenueContract(ctx context.Context, request *RevenueContractUpdate, params UpdateRevenueContractParams) (UpdateRevenueContractRes, error)
@@ -38625,10 +38663,11 @@ func (c *Client) sendGetRevaluationRun(ctx context.Context, params GetRevaluatio
 // One revenue contract (ADR-0068 §3, T81a) with its company's code and name, its customer's number
 // and name, the sales order it stands for by id and number, its transaction price (the order's net
 // value, without tax) and its performance obligations, each with the order item it is for, its timing,
-// an over-time obligation's service period, its stand-alone selling price and, once the contract is
-// `active`, its allocated amount. `created_by` is the person who asked for it, or the system's
-// principal when the order's confirmation created it. One of a company the caller may not act in is
-// not found (404), as one that does not exist.
+// an over-time obligation's service period, the day a point-in-time obligation is satisfied when a
+// person set one (`satisfied_on`), its stand-alone selling price and, once the contract is `active`,
+// its allocated amount. `created_by` is the person who asked for it, or the system's principal when
+// the order's confirmation created it. One of a company the caller may not act in is not found (404),
+// as one that does not exist.
 //
 // GET /v1/revenue-contracts/{id}
 func (c *Client) GetRevenueContract(ctx context.Context, params GetRevenueContractParams) (GetRevenueContractRes, error) {
@@ -38750,6 +38789,166 @@ func (c *Client) sendGetRevenueContract(ctx context.Context, params GetRevenueCo
 
 	stage = "DecodeResponse"
 	result, err := decodeGetRevenueContractResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetRevenueSchedule invokes getRevenueSchedule operation.
+//
+// The recognition schedule of an `active` revenue contract (ADR-0068 §8, T81c): per performance
+// obligation and fiscal period of the company, the revenue the obligation's allocated amount gives the
+// period. Nothing is stored: the schedule is computed at the read from the obligations as the contract
+// fixed them and from the delivery confirmations of the contract's sales order as they are now, so it
+// moves with each delivery. The system does the arithmetic only; when an obligation is satisfied is
+// the person's judgement on the contract. A `point_in_time` obligation's amount falls in the fiscal
+// periods of its order item's delivery confirmations, in proportion to the quantity delivered: after
+// each delivery the amount scheduled so far is the allocated amount × the quantity delivered so far
+// ÷ the quantity ordered, rounded to the minor unit, and the delivery takes what that adds, so the
+// delivery that completes the item takes the remainder and the amounts add up to the allocated amount
+// exactly; what is not delivered yet is `unscheduled_amount`, in no period. The delivery confirmation
+// is the default evidence that the obligation is satisfied; an obligation whose contract names another
+// day (`satisfied_on`) has its whole allocated amount in that day's fiscal period, whatever was
+// delivered. An `over_time` obligation's amount is spread on a straight line by days over its service
+// period, both days included: each fiscal period takes the allocated amount × its days of the service
+// period ÷ the service period's days, rounded so that the periods' amounts add up to the allocated
+// amount exactly, a minor unit left going to the largest remainder, the earlier period first. Each
+// amount is split at `as_of`, the company's date today in its time zone: `recognized_amount` is what
+// falls on days up to and including `as_of` (a delivery or `satisfied_on` on or before it; of an
+// over-time period under way, the period's amount × its service days so far ÷ its service days),
+// `planned_amount` what falls after it. Recognized here is what the schedule gives to that day, not
+// what is posted: the recognition runs post it (`GET /v1/revenue-recognition-runs`). Per obligation
+// and for the contract, `recognized_amount`, `planned_amount` and `unscheduled_amount` add up to the
+// allocated amount and to the transaction price; `periods` on the contract are the obligations'
+// periods added up. A contract that is still a `draft` has no allocated amounts and is refused (409
+// `revenue.invalid_status`). A day the schedule needs a fiscal period for, a delivery's,
+// `satisfied_on` or a day of a service period, that lies in no fiscal year set up for the company is
+// refused naming the obligation (422 `revenue.no_fiscal_period`). A contract of a company the caller
+// may not act in is not found (404).
+//
+// GET /v1/revenue-contracts/{id}/schedule
+func (c *Client) GetRevenueSchedule(ctx context.Context, params GetRevenueScheduleParams) (GetRevenueScheduleRes, error) {
+	res, err := c.sendGetRevenueSchedule(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetRevenueSchedule(ctx context.Context, params GetRevenueScheduleParams) (res GetRevenueScheduleRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getRevenueSchedule"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/revenue-contracts/{id}/schedule"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetRevenueScheduleOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/revenue-contracts/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/schedule"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetRevenueScheduleOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetRevenueScheduleResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -91436,12 +91635,15 @@ func (c *Client) sendUpdateRequisition(ctx context.Context, request *Requisition
 // has both days of its service period (422 `revenue.service_period_required` naming the day missing),
 // `service_from` not after `service_to` (422 `revenue.invalid_service_period`), and a `point_in_time`
 // obligation has none (422 `revenue.service_period_not_allowed`: send the dates as null when setting
-// it back); a stand-alone selling price is in the contract's currency (422
-// `revenue.currency_mismatch`) and more than zero (422 `revenue.price_not_positive`). The contract is
-// read under a row lock; one that is `active` is fixed and refused (409 `revenue.invalid_status`).
-// Nothing is allocated before the contract is activated. The contract's `version` moves. Audited, and
-// published as RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract as
-// the first answered it. Human-only (`x-agent: false`).
+// it back); a `point_in_time` obligation may name the day it is satisfied (`satisfied_on`, T81c) when
+// that is not its delivery confirmations, an `over_time` obligation may not (422
+// `revenue.satisfied_on_not_allowed`: send it as null when setting the timing to `over_time`); a
+// stand-alone selling price is in the contract's currency (422 `revenue.currency_mismatch`) and more
+// than zero (422 `revenue.price_not_positive`). The contract is read under a row lock; one that is
+// `active` is fixed and refused (409 `revenue.invalid_status`). Nothing is allocated before the
+// contract is activated. The contract's `version` moves. Audited, and published as
+// RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract as the first
+// answered it. Human-only (`x-agent: false`).
 //
 // PATCH /v1/revenue-contracts/{id}
 func (c *Client) UpdateRevenueContract(ctx context.Context, request *RevenueContractUpdate, params UpdateRevenueContractParams) (UpdateRevenueContractRes, error) {

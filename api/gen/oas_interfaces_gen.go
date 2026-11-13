@@ -853,6 +853,10 @@ type GetRevenueContractRes interface {
 	getRevenueContractRes()
 }
 
+type GetRevenueScheduleRes interface {
+	getRevenueScheduleRes()
+}
+
 type GetRfqComparisonRes interface {
 	getRfqComparisonRes()
 }

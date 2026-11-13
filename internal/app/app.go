@@ -478,9 +478,11 @@ func (c salesCredit) Check(ctx context.Context, legalEntity, customer uuid.UUID,
 
 // Revenue is the revenue recognition context as the API and the event
 // consumer wire it (ADR-0068 §1): a leaf reading the sales context's
-// orders, partners' names and tenancy through its ports.
+// orders, partners' names, tenancy, the ledger's calendar and the
+// configuration through its ports.
 func Revenue(cfg Config) *revenue.Endpoints {
-	return &revenue.Endpoints{Pages: cfg.Pages, SalesOrders: sales.Orders{}, LegalEntities: tenancy.Directory{}, Partners: partner.Payees{}}
+	return &revenue.Endpoints{Pages: cfg.Pages, SalesOrders: sales.Orders{}, LegalEntities: tenancy.Directory{}, Partners: partner.Payees{},
+		Calendar: calendar(), Settings: configuration.Settings{}, Now: cfg.Now}
 }
 
 // receivablesStatements gives receivables the statement lines behind its

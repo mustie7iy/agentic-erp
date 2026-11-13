@@ -19,9 +19,14 @@
 // it, once per order (ADR-0068 §4; ADR-0007). A person creates the same
 // contract on request for a confirmed order that has none yet.
 //
+// An active contract's recognition schedule is computed on read from its
+// obligations and its order's delivery confirmations (schedule.go;
+// ADR-0068 §8).
+//
 // The context is a leaf (ADR-0068 §1; ADR-0051 §2): it reads the sales
-// context's orders, the partner context's names and tenancy through the
-// ports below, posts nothing yet, and no context imports it.
+// context's orders, the partner context's names, tenancy, the ledger's
+// calendar and the configuration through the ports below, posts nothing
+// yet, and no context imports it.
 //
 // What the context takes IFRS 15 to say is ADR-0068 §2's six statements,
 // each from memory and not yet confirmed by the accounting specialist.
@@ -34,6 +39,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
@@ -69,12 +76,31 @@ type Partners interface {
 	Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]partner.Named, error)
 }
 
+// Calendar gives a company's regular fiscal periods (ledger context):
+// the one a day falls in and a fiscal year's, in order. A day or a year
+// that is not set up is the ledger's 422 ledger.no_fiscal_period.
+type Calendar interface {
+	Period(ctx context.Context, legalEntity uuid.UUID, date time.Time) (ledger.FiscalPeriod, error)
+	Periods(ctx context.Context, legalEntity uuid.UUID, year int16) ([]ledger.FiscalPeriod, error)
+}
+
+// Settings reads the active configuration: a company's time zone
+// (configuration context).
+type Settings interface {
+	Document(ctx context.Context) (*config.Config, int32, error)
+}
+
 // Endpoints implements the revenue part of the generated API.
 type Endpoints struct {
 	Pages         *pagination.Codec
 	SalesOrders   SalesOrders
 	LegalEntities LegalEntities
 	Partners      Partners
+	Calendar      Calendar
+	Settings      Settings
+	// Now is the clock a schedule's day is told by, in the company's time
+	// zone; nil: the wall clock.
+	Now func() time.Time
 }
 
 // Obligation is a row of revenue.performance_obligation: what one item
@@ -84,6 +110,9 @@ type Endpoints struct {
 // until the contract is activated: minor units of the contract's
 // currency. ServiceFrom and ServiceTo are the period an over-time
 // obligation is satisfied over, nil for a point-in-time obligation.
+// SatisfiedOn is the day a person says a point-in-time obligation is
+// satisfied, nil when its order item's delivery confirmations say it
+// (ADR-0068 §8).
 type Obligation struct {
 	No              int32        `json:"obligation_no"`
 	OrderItemNo     int32        `json:"order_item_no"`
@@ -93,6 +122,7 @@ type Obligation struct {
 	Timing          string       `json:"timing"`
 	ServiceFrom     *time.Time   `json:"service_from"`
 	ServiceTo       *time.Time   `json:"service_to"`
+	SatisfiedOn     *time.Time   `json:"satisfied_on"`
 	StandalonePrice money.Minor  `json:"standalone_selling_price"`
 	Allocated       *money.Minor `json:"allocated_amount"`
 }

@@ -22,7 +22,8 @@ import (
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
-var perms = []string{"sales.order.read", "sales.order.write", "sales.order.confirm", "revenue.contract.read", "revenue.contract.write", "revenue.contract.activate"}
+var perms = []string{"sales.order.read", "sales.order.write", "sales.order.confirm", "sales.delivery.confirm", "revenue.contract.read", "revenue.contract.write",
+	"revenue.contract.activate"}
 
 const contracts = "/v1/revenue-contracts"
 

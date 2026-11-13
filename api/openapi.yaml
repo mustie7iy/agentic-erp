@@ -18634,8 +18634,6 @@ paths:
       x-problem-codes:
         - revenue.contract_exists
         - revenue.foreign_currency
-        # The database's answer to an obligation written under an active contract (performance_obligation_fixed_once_active), which
-        # TestProblemCodes lists for every operation that writes obligations; creating cannot reach it, its contract being a new draft.
         - revenue.invalid_status
         - revenue.order_not_confirmed
       parameters:
@@ -18686,7 +18684,7 @@ paths:
       tags:
         - revenue
       summary: Get a revenue contract
-      description: "One revenue contract (ADR-0068 §3, T81a) with its company's code and name, its customer's number and name, the sales order it stands for by id and number, its transaction price (the order's net value, without tax) and its performance obligations, each with the order item it is for, its timing, an over-time obligation's service period, its stand-alone selling price and, once the contract is `active`, its allocated amount. `created_by` is the person who asked for it, or the system's principal when the order's confirmation created it. One of a company the caller may not act in is not found (404), as one that does not exist."
+      description: "One revenue contract (ADR-0068 §3, T81a) with its company's code and name, its customer's number and name, the sales order it stands for by id and number, its transaction price (the order's net value, without tax) and its performance obligations, each with the order item it is for, its timing, an over-time obligation's service period, the day a point-in-time obligation is satisfied when a person set one (`satisfied_on`), its stand-alone selling price and, once the contract is `active`, its allocated amount. `created_by` is the person who asked for it, or the system's principal when the order's confirmation created it. One of a company the caller may not act in is not found (404), as one that does not exist."
       x-permission: revenue.contract.read
       x-problem-codes: []
       parameters:
@@ -18716,7 +18714,7 @@ paths:
       tags:
         - revenue
       summary: Set a draft revenue contract's obligations
-      description: "Sets, on a `draft` revenue contract, what a person judges about its performance obligations (ADR-0068 §2, §7, T81b), at the version the caller read (`If-Match`): per obligation whether it is satisfied at a point in time or over time (`timing`), an over-time obligation's service period (`service_from`, `service_to`) and its stand-alone selling price. The system makes none of these judgements and checks only their form. Each element of `obligations` names an obligation of the contract by its number (422 `revenue.unknown_obligation` naming `obligations[i].obligation_no`), once (422 `revenue.obligation_repeated`); a field left out stays as it is. `timing` is `point_in_time` or `over_time` (422 `revenue.unknown_timing`). Afterwards an `over_time` obligation has both days of its service period (422 `revenue.service_period_required` naming the day missing), `service_from` not after `service_to` (422 `revenue.invalid_service_period`), and a `point_in_time` obligation has none (422 `revenue.service_period_not_allowed`: send the dates as null when setting it back); a stand-alone selling price is in the contract's currency (422 `revenue.currency_mismatch`) and more than zero (422 `revenue.price_not_positive`). The contract is read under a row lock; one that is `active` is fixed and refused (409 `revenue.invalid_status`). Nothing is allocated before the contract is activated. The contract's `version` moves. Audited, and published as RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract as the first answered it. Human-only (`x-agent: false`)."
+      description: "Sets, on a `draft` revenue contract, what a person judges about its performance obligations (ADR-0068 §2, §7, T81b), at the version the caller read (`If-Match`): per obligation whether it is satisfied at a point in time or over time (`timing`), an over-time obligation's service period (`service_from`, `service_to`) and its stand-alone selling price. The system makes none of these judgements and checks only their form. Each element of `obligations` names an obligation of the contract by its number (422 `revenue.unknown_obligation` naming `obligations[i].obligation_no`), once (422 `revenue.obligation_repeated`); a field left out stays as it is. `timing` is `point_in_time` or `over_time` (422 `revenue.unknown_timing`). Afterwards an `over_time` obligation has both days of its service period (422 `revenue.service_period_required` naming the day missing), `service_from` not after `service_to` (422 `revenue.invalid_service_period`), and a `point_in_time` obligation has none (422 `revenue.service_period_not_allowed`: send the dates as null when setting it back); a `point_in_time` obligation may name the day it is satisfied (`satisfied_on`, T81c) when that is not its delivery confirmations, an `over_time` obligation may not (422 `revenue.satisfied_on_not_allowed`: send it as null when setting the timing to `over_time`); a stand-alone selling price is in the contract's currency (422 `revenue.currency_mismatch`) and more than zero (422 `revenue.price_not_positive`). The contract is read under a row lock; one that is `active` is fixed and refused (409 `revenue.invalid_status`). Nothing is allocated before the contract is activated. The contract's `version` moves. Audited, and published as RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract as the first answered it. Human-only (`x-agent: false`)."
       x-permission: revenue.contract.write
       x-agent: false
       x-problem-codes:
@@ -18727,6 +18725,7 @@ paths:
         - revenue.invalid_status
         - revenue.obligation_repeated
         - revenue.price_not_positive
+        - revenue.satisfied_on_not_allowed
         - revenue.service_period_not_allowed
         - revenue.service_period_required
         - revenue.unknown_obligation
@@ -18828,6 +18827,42 @@ paths:
           $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/revenue-contracts/{id}/schedule":
+    get:
+      operationId: getRevenueSchedule
+      tags:
+        - revenue
+      summary: Get a revenue contract's recognition schedule
+      description: "The recognition schedule of an `active` revenue contract (ADR-0068 §8, T81c): per performance obligation and fiscal period of the company, the revenue the obligation's allocated amount gives the period. Nothing is stored: the schedule is computed at the read from the obligations as the contract fixed them and from the delivery confirmations of the contract's sales order as they are now, so it moves with each delivery. The system does the arithmetic only; when an obligation is satisfied is the person's judgement on the contract. A `point_in_time` obligation's amount falls in the fiscal periods of its order item's delivery confirmations, in proportion to the quantity delivered: after each delivery the amount scheduled so far is the allocated amount × the quantity delivered so far ÷ the quantity ordered, rounded to the minor unit, and the delivery takes what that adds, so the delivery that completes the item takes the remainder and the amounts add up to the allocated amount exactly; what is not delivered yet is `unscheduled_amount`, in no period. The delivery confirmation is the default evidence that the obligation is satisfied; an obligation whose contract names another day (`satisfied_on`) has its whole allocated amount in that day's fiscal period, whatever was delivered. An `over_time` obligation's amount is spread on a straight line by days over its service period, both days included: each fiscal period takes the allocated amount × its days of the service period ÷ the service period's days, rounded so that the periods' amounts add up to the allocated amount exactly, a minor unit left going to the largest remainder, the earlier period first. Each amount is split at `as_of`, the company's date today in its time zone: `recognized_amount` is what falls on days up to and including `as_of` (a delivery or `satisfied_on` on or before it; of an over-time period under way, the period's amount × its service days so far ÷ its service days), `planned_amount` what falls after it. Recognized here is what the schedule gives to that day, not what is posted: the recognition runs post it (`GET /v1/revenue-recognition-runs`). Per obligation and for the contract, `recognized_amount`, `planned_amount` and `unscheduled_amount` add up to the allocated amount and to the transaction price; `periods` on the contract are the obligations' periods added up. A contract that is still a `draft` has no allocated amounts and is refused (409 `revenue.invalid_status`). A day the schedule needs a fiscal period for, a delivery's, `satisfied_on` or a day of a service period, that lies in no fiscal year set up for the company is refused naming the obligation (422 `revenue.no_fiscal_period`). A contract of a company the caller may not act in is not found (404)."
+      x-permission: revenue.contract.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - ledger.no_fiscal_period
+        - revenue.invalid_status
+        - revenue.no_fiscal_period
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The contract's recognition schedule as of the company's date today.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevenueSchedule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/billing-documents/{id}:post":
     post:
       operationId: postBillingDocument
@@ -18894,9 +18929,6 @@ paths:
         - receivables.account_not_postable
         - receivables.amount_not_positive
         - receivables.amount_too_large
-        # receivables.credit_exceeds_invoice, .invalid_reference_invoice, .reference_not_allowed and .unknown_kind are a credit
-        # memo's refusals (T75d), which TestProblemCodes lists for every operation that enters a customer invoice; posting a
-        # billing document cannot reach them, its invoice being of the kind invoice and naming no invoice it credits.
         - receivables.credit_exceeds_invoice
         - receivables.currency_mismatch
         - receivables.customer_not_usable
@@ -49876,6 +49908,7 @@ components:
           readOnly: true
         service_from: {type: string, format: date, description: "The first day of the period an `over_time` obligation is satisfied over; absent for a `point_in_time` obligation.", readOnly: true}
         service_to: {type: string, format: date, description: "The last day of that period, not before `service_from`; absent for a `point_in_time` obligation.", readOnly: true}
+        satisfied_on: {type: string, format: date, description: "The day a `point_in_time` obligation is satisfied when that is not its order item's delivery confirmations, a person's judgement (ADR-0068 §8): the recognition schedule then has the whole allocated amount on this day. Absent when the delivery confirmations say it, which is how every obligation starts, and for an `over_time` obligation.", readOnly: true}
         standalone_selling_price: {$ref: "#/components/schemas/Money", description: "The obligation's stand-alone selling price, a person's judgement: it starts as the order item's net value."}
         allocated_amount: {$ref: "#/components/schemas/Money", description: "The obligation's share of the contract's transaction price, allocated in proportion to the stand-alone selling prices when the contract is activated; the obligations' shares add up to the transaction price exactly. Absent while the contract is a `draft`."}
     RevenueContractUpdate:
@@ -49913,6 +49946,12 @@ components:
             - "null"
           format: date
           description: "The last day of that period, not before `service_from`. Send null to remove it, with `timing` `point_in_time`."
+        satisfied_on:
+          type:
+            - string
+            - "null"
+          format: date
+          description: "The day a `point_in_time` obligation is satisfied, when the terms of sale make that another day than its order item's delivery confirmations: the recognition schedule then has the obligation's whole allocated amount on this day, whatever was delivered. A person's judgement; the system does not check it. Refused on an `over_time` obligation (422 `revenue.satisfied_on_not_allowed`). Send null to remove it: the delivery confirmations then say when the obligation is satisfied, as they do by default."
         standalone_selling_price: {$ref: "#/components/schemas/Money", description: "The obligation's stand-alone selling price: more than zero, in the contract's currency. A person's judgement; the system does not estimate it."}
     RevenueContract:
       description: "A revenue contract (revenue, ADR-0068 §3): the contract with a customer that one confirmed sales order stands for, with one performance obligation per order item. Amounts are without tax, in the company's local currency. Its `version` moves when its obligations are changed and when it is activated."
@@ -49976,6 +50015,116 @@ components:
               service_from: "2026-01-01"
               service_to: "2026-12-31"
               standalone_selling_price: {amount: "1300.00", currency: CAD}
+    RevenueSchedule:
+      type: object
+      description: "The recognition schedule of an active revenue contract (ADR-0068 §8), computed at the read. Amounts are in the contract's currency, the company's local currency, without tax. `recognized_amount`, `planned_amount` and `unscheduled_amount` add up to `transaction_price`."
+      required: [revenue_contract_id, sales_order_id, sales_order_number, legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name,
+        currency, as_of, transaction_price, recognized_amount, planned_amount, unscheduled_amount, obligations, periods]
+      properties:
+        revenue_contract_id: {type: string, format: uuid, description: "The revenue contract (`GET /v1/revenue-contracts/{id}`)."}
+        sales_order_id: {type: string, format: uuid, description: "The sales order the contract stands for (`GET /v1/sales-orders/{id}`), whose delivery confirmations the schedule reads."}
+        sales_order_number: {type: string, description: "The sales order's document number."}
+        legal_entity_id: {type: string, format: uuid, description: "The company whose contract it is; the fiscal periods are its calendar's."}
+        company_code: {type: string, description: "The company's code."}
+        company_name: {type: string, description: "The company's name, as it is now."}
+        customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`)."}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        customer_name: {type: string, description: "The customer's name, as it is now."}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The contract's currency (ISO 4217)."}
+        as_of: {type: string, format: date, description: "The company's date today in its time zone: what the schedule gives days up to and including it is `recognized_amount`, what it gives later days `planned_amount`."}
+        transaction_price: {$ref: "#/components/schemas/Money", description: "The contract's transaction price, the sum of the obligations' allocated amounts."}
+        recognized_amount: {$ref: "#/components/schemas/Money", description: "The obligations' `recognized_amount` added up."}
+        planned_amount: {$ref: "#/components/schemas/Money", description: "The obligations' `planned_amount` added up."}
+        unscheduled_amount: {$ref: "#/components/schemas/Money", description: "The obligations' `unscheduled_amount` added up: what waits for a delivery confirmation."}
+        obligations:
+          type: array
+          items: {$ref: "#/components/schemas/RevenueScheduleObligation"}
+          description: "The contract's performance obligations, by number, each with its fiscal periods."
+        periods:
+          type: array
+          items: {$ref: "#/components/schemas/RevenueSchedulePeriod"}
+          description: "The contract's totals per fiscal period, earliest first: the obligations' amounts of the period added up. Their amounts add up to `transaction_price` less `unscheduled_amount`."
+      examples:
+        - revenue_contract_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5da1"
+          sales_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          sales_order_number: SO100002
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          currency: CAD
+          as_of: "2026-11-20"
+          transaction_price: {amount: "1500.00", currency: CAD}
+          recognized_amount: {amount: "500.00", currency: CAD}
+          planned_amount: {amount: "0.00", currency: CAD}
+          unscheduled_amount: {amount: "1000.00", currency: CAD}
+          obligations:
+            - obligation_no: 1
+              order_item_no: 1
+              item_key: BRACKET-M8
+              description: Machined bracket M8
+              timing: point_in_time
+              allocated_amount: {amount: "1500.00", currency: CAD}
+              recognized_amount: {amount: "500.00", currency: CAD}
+              planned_amount: {amount: "0.00", currency: CAD}
+              unscheduled_amount: {amount: "1000.00", currency: CAD}
+              periods:
+                - fiscal_year: 2026
+                  fiscal_period: 11
+                  period_start: "2026-11-01"
+                  period_end: "2026-11-30"
+                  amount: {amount: "500.00", currency: CAD}
+                  recognized_amount: {amount: "500.00", currency: CAD}
+                  planned_amount: {amount: "0.00", currency: CAD}
+                  delivered_quantity: {value: "40", unit: EA}
+          periods:
+            - fiscal_year: 2026
+              fiscal_period: 11
+              period_start: "2026-11-01"
+              period_end: "2026-11-30"
+              amount: {amount: "500.00", currency: CAD}
+              recognized_amount: {amount: "500.00", currency: CAD}
+              planned_amount: {amount: "0.00", currency: CAD}
+    RevenueScheduleObligation:
+      type: object
+      description: "One performance obligation in a recognition schedule. `recognized_amount`, `planned_amount` and `unscheduled_amount` add up to `allocated_amount`."
+      required: [obligation_no, order_item_no, description, timing, allocated_amount, recognized_amount, planned_amount, unscheduled_amount, periods]
+      properties:
+        obligation_no: {type: integer, format: int32, description: "The obligation's number within the contract."}
+        order_item_no: {type: integer, format: int32, description: "The sales order's item the obligation is for."}
+        item_key: {type: string, description: "The order item's item key; absent when it has none."}
+        description: {type: string, description: "The order item's description: what was promised."}
+        timing:
+          type: string
+          x-extensible-enum: [point_in_time, over_time]
+          description: "When the obligation is satisfied, as the contract fixed it: `point_in_time` (scheduled by the delivery confirmations, or on `satisfied_on`) or `over_time` (a straight line by days over the service period). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+        service_from: {type: string, format: date, description: "The first day of an `over_time` obligation's service period; absent otherwise."}
+        service_to: {type: string, format: date, description: "The last day of an `over_time` obligation's service period; absent otherwise."}
+        satisfied_on: {type: string, format: date, description: "The day the contract says a `point_in_time` obligation is satisfied; absent when its delivery confirmations say it."}
+        allocated_amount: {$ref: "#/components/schemas/Money", description: "The obligation's share of the transaction price: what the schedule spreads."}
+        recognized_amount: {$ref: "#/components/schemas/Money", description: "What the schedule gives days up to and including `as_of`."}
+        planned_amount: {$ref: "#/components/schemas/Money", description: "What the schedule gives days after `as_of`."}
+        unscheduled_amount: {$ref: "#/components/schemas/Money", description: "What is in no period yet: a `point_in_time` obligation's share for the quantity not confirmed as delivered. Zero for an `over_time` obligation and one with `satisfied_on`."}
+        periods:
+          type: array
+          items: {$ref: "#/components/schemas/RevenueSchedulePeriod"}
+          description: "The fiscal periods the obligation's amount falls in, earliest first; none for an obligation nothing of which is delivered. Their amounts add up to `allocated_amount` less `unscheduled_amount`."
+    RevenueSchedulePeriod:
+      type: object
+      description: "What a recognition schedule gives one fiscal period of the company. `recognized_amount` and `planned_amount` add up to `amount`."
+      required: [fiscal_year, fiscal_period, period_start, period_end, amount, recognized_amount, planned_amount]
+      properties:
+        fiscal_year: {type: integer, format: int32, description: "The fiscal year of the company's calendar."}
+        fiscal_period: {type: integer, format: int32, description: "The regular posting period within the fiscal year."}
+        period_start: {type: string, format: date, description: "The fiscal period's first day."}
+        period_end: {type: string, format: date, description: "The fiscal period's last day."}
+        amount: {$ref: "#/components/schemas/Money", description: "The revenue the schedule gives the period."}
+        recognized_amount: {$ref: "#/components/schemas/Money", description: "The part of `amount` on days up to and including `as_of`."}
+        planned_amount: {$ref: "#/components/schemas/Money", description: "The part of `amount` on days after `as_of`."}
+        days: {type: integer, format: int32, description: "On an `over_time` obligation's period: the days of the service period that lie in the fiscal period, which give its share. Absent otherwise."}
+        delivered_quantity: {$ref: "#/components/schemas/Quantity", description: "On a period of a `point_in_time` obligation scheduled by its deliveries: the quantity confirmed as delivered in the period, in the order item's unit. Absent otherwise."}
     RevenueContractPage:
       type: object
       description: One page of revenue contracts.

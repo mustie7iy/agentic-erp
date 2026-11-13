@@ -4823,8 +4823,9 @@ erDiagram
 ## 3.30 Revenue recognition (`revenue`)
 
 ADR-0068, T81a-T81d. A leaf: it reads the sales context's orders (§3.29,
-`sales.Orders`), the partner context's names and tenancy through its
-ports and keeps no foreign key out of its schema (02 §2.1). T81a
+`sales.Orders`), the partner context's names, tenancy, the ledger's
+fiscal calendar and the configuration (a company's time zone) through
+its ports and keeps no foreign key out of its schema (02 §2.1). T81a
 (migration 000298) builds the schema with its outbox and inbox and the
 revenue contract: the contract with a customer that one confirmed sales
 order stands for, with one performance obligation per order item. The
@@ -4832,7 +4833,11 @@ inbox is in use: the context consumes the sales context's
 `SalesOrderChanged` and creates a confirmed order's contract, once
 (ADR-0068 §4). T81b (migration 000299) lets a person set a draft's
 obligations and activate the contract, which allocates its transaction
-price to them and fixes it. Nothing is posted before T81d.
+price to them and fixes it. T81c (migration 000303) adds the day a
+person says a point-in-time obligation is satisfied on, and the
+recognition schedule, which has no table: it is computed on read from
+the obligations and the order's delivery confirmations (ADR-0068 §8).
+Nothing is posted before T81d.
 
 ```mermaid
 erDiagram
@@ -4855,6 +4860,7 @@ erDiagram
     text timing "point_in_time, over_time"
     date service_from "over_time alone"
     date service_to "not before service_from"
+    date satisfied_on "point_in_time alone: a person's day, else the deliveries"
     bigint standalone_selling_price "above 0"
     bigint allocated_amount "set at activation; the shares are the transaction price" }
 ```
@@ -4886,15 +4892,19 @@ erDiagram
   judgement, and start as point in time and the item's net value
   (ADR-0068 §2). An over-time obligation has a service period, from not
   after to, and a point-in-time obligation none
-  (`performance_obligation_service_period`); `allocated_amount` is not
+  (`performance_obligation_service_period`); a point-in-time obligation
+  may name the day it is satisfied on, an over-time obligation may not
+  (`performance_obligation_satisfied_on`, T81c): absent, the order
+  item's delivery confirmations say when; `allocated_amount` is not
   negative (`performance_obligation_allocated_check`); the application
   leaves it absent until it activates the contract (the database holds
   the activation to the amounts, not a draft to their absence). An obligation is written and changed only
   while its contract is a draft
   (`performance_obligation_fixed_once_active`, which locks the
   contract's row, so a change and the activation wait for one another).
-  The application may set its timing, service period, stand-alone
-  selling price and allocated amount alone, and deletes nothing.
+  The application may set its timing, service period, the day it is
+  satisfied on, stand-alone selling price and allocated amount alone,
+  and deletes nothing.
 - `revenue.outbox`, `revenue.inbox`: the context's events
   (`RevenueContractChanged`), and the events its consumer
   `revenue-contracts` has read (the sales context's

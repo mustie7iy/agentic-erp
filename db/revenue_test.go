@@ -275,6 +275,81 @@ func TestRevenueAllocationRevert(t *testing.T) {
 	failsWith(t, exec(tx, down), "reverting would drop their service periods")
 }
 
+// TestRevenueSatisfiedOn (T81c, migration 000303; ADR-0068 §8): while a
+// contract is a draft a point-in-time obligation may name the day it is
+// satisfied on; an over-time obligation may not; an active contract's
+// obligation keeps what it has; the revert is refused, before it changes
+// anything, while an obligation names such a day.
+func TestRevenueSatisfiedOn(t *testing.T) {
+	need(t)
+	const header = `INSERT INTO revenue.contract (tenant_id, id, legal_entity_id, customer_id, sales_order_id, sales_order_number, currency,
+		transaction_price, status, created_by, updated_by)
+		VALUES ($1, $2, gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'SO1', 'EUR', 100, 'draft', $1, $1)`
+	const obligation = `INSERT INTO revenue.performance_obligation (tenant_id, contract_id, obligation_no, order_item_no, description, net_amount,
+		timing, standalone_selling_price) VALUES ($1, $2, 1, 1, 'Bracket', 100, 'point_in_time', 100)`
+	const on = `UPDATE revenue.performance_obligation SET satisfied_on = $1`
+	const activate = `UPDATE revenue.performance_obligation SET allocated_amount = 100`
+	const active = `UPDATE revenue.contract SET status = 'active', version = version + 1, updated_by = tenant_id`
+	var none *string
+	day := "2026-04-10"
+	cases := []struct {
+		name string
+		more []stmt
+		want string // empty: allowed
+	}{
+		{"a point-in-time obligation's day", []stmt{step(on, &day)}, ""},
+		{"the day removed", []stmt{step(on, &day), step(on, none)}, ""},
+		{"an over-time obligation's day", []stmt{step(on, &day),
+			step(`UPDATE revenue.performance_obligation SET timing = 'over_time', service_from = '2026-01-01', service_to = '2026-12-31'`)},
+			"performance_obligation_satisfied_on"},
+		{"a day set on an over-time obligation", []stmt{
+			step(`UPDATE revenue.performance_obligation SET timing = 'over_time', service_from = '2026-01-01', service_to = '2026-12-31'`), step(on, &day)},
+			"performance_obligation_satisfied_on"},
+		{"an active contract's obligation keeps its day", []stmt{step(on, &day), step(activate), step(active), step(on, none)},
+			"an active contract's obligations are fixed"},
+		{"an active contract's obligation takes no day", []stmt{step(activate), step(active), step(on, &day)},
+			"an active contract's obligations are fixed"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tenant, doc := id(), id()
+			err := asApp(t, tenant, func(tx pgx.Tx) error {
+				return all(tx, append([]stmt{step(header, tenant, doc), step(obligation, tenant, doc)}, c.more...)...)
+			})
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+	t.Run("the revert", func(t *testing.T) {
+		down := ""
+		for _, m := range Migrations() {
+			if strings.HasSuffix(m.Name, "_revenue_satisfied_on") {
+				down = m.Down
+			}
+		}
+		if down == "" {
+			t.Fatal("got no migration named …_revenue_satisfied_on in db/migrations, want the one the test is about")
+		}
+		ctx := context.Background()
+		tx, err := testDB.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		tenant, doc := id(), id()
+		if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, tenant.String()), step(header, tenant, doc), step(obligation, tenant, doc),
+			step(on+` WHERE tenant_id = $2`, &day, tenant)); err != nil { // the owner's transaction reads every tenant's rows
+			t.Fatal(err)
+		}
+		failsWith(t, exec(tx, down), "reverting would drop it")
+	})
+}
+
 // TestRevenueInbox (T81a, migration 000298; ADR-0068 §4; ADR-0007): the
 // consumer records an event once: a second record of it changes nothing.
 func TestRevenueInbox(t *testing.T) {

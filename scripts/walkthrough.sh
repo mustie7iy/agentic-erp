@@ -7643,6 +7643,73 @@ step_scheduling_agreement() {
   expect "the lines still to call off" "$(field '[.items[].line_no] | join(" ")')" "2"
   passed
 }
+# step_revenue_schedule is T81c (ADR-0068 §8): Nora reads the recognition
+# schedule of step 67's active contract. Nothing of it is stored: it is
+# computed from the obligations as the contract fixed them and from the
+# order's delivery confirmations. Before a delivery the brackets, a
+# point-in-time obligation, are in no period; the support, over time, is
+# spread on a straight line over the days of its service period, the
+# fiscal year, each fiscal period taking its days' share and the shares
+# adding up to the allocated amount to the cent. Sally confirms the
+# brackets as delivered today, and the schedule has their allocated
+# amount in today's fiscal period, recognized. The amounts follow from
+# the year's days, so the step holds in any year and on any day.
+step_revenue_schedule() {
+  heading "Step 70 — Recognition schedule: an active revenue contract's revenue per obligation and fiscal period, computed on read; goods in the period of their delivery confirmation, a service on a straight line by days over its service period, the shares adding up to the allocated amount"
+  local order=$REVENUE_ORDER contract=$REVENUE_CONTRACT day year yeardays show
+  [ -n "$order" ] && [ -n "$contract" ] || fail "step 67's order and revenue contract are not there"
+  day=$(company_day)
+  year=${day:0:4}
+  yeardays=$(jq -rn --arg y "$year" '($y | tonumber) as $n | if ($n % 4 == 0 and $n % 100 != 0) or $n % 400 == 0 then 366 else 365 end')
+  show='"recognition schedule of sales order \(.sales_order_number), \(.customer_number) \(.customer_name), as of \(.as_of): transaction price \(.transaction_price.amount) = recognized \(.recognized_amount.amount) + planned \(.planned_amount.amount) + not yet scheduled \(.unscheduled_amount.amount) \(.currency)", (.obligations[] | "  obligation \(.obligation_no) \(.description), \(.timing): allocated \(.allocated_amount.amount) = recognized \(.recognized_amount.amount) + planned \(.planned_amount.amount) + not yet scheduled \(.unscheduled_amount.amount)", (.periods[] | "    \(.fiscal_year)/\(.fiscal_period) \(.period_start) to \(.period_end): \(.amount.amount)" + (if .days then " for \(.days) days" else "" end) + (if .delivered_quantity then " for \(.delivered_quantity.value) \(.delivered_quantity.unit) delivered" else "" end) + ", recognized \(.recognized_amount.amount), planned \(.planned_amount.amount)"))'
+  as nora
+  say "Step 67's contract is active: 2700.00 allocated as 1446.43 to the brackets, satisfied at a point in time, and"
+  say "1253.57 to the year of support, satisfied over time. Nora reads its recognition schedule (ADR-0068 §8). It is"
+  say "computed at the read from the obligations and the order's delivery confirmations; nothing of it is stored and"
+  say "nothing is posted. Nothing is delivered yet, so the brackets' amount is in no period: not yet scheduled. The"
+  say "support is spread on a straight line over the $yeardays days of $year: each fiscal period takes 1253.57 x its days /"
+  say "$yeardays, rounded so that the periods add up to 1253.57 exactly. What falls on days up to today, $day, is"
+  say "recognized by the schedule; what falls later is planned:"
+  api 200 "$show" getRevenueSchedule -p "id=$contract"
+  expect "the schedule's contract, order and day" "$(field '"\(.revenue_contract_id) \(.sales_order_id) \(.as_of) \(.currency)"')" "$contract $order $day CAD"
+  expect "the brackets before a delivery: no period, all not yet scheduled" \
+    "$(field '.obligations[0] | "\(.timing) \(.periods | length) \(.recognized_amount.amount) \(.planned_amount.amount) \(.unscheduled_amount.amount)"')" \
+    "point_in_time 0 0.00 0.00 1446.43"
+  expect "the support's periods, the fiscal year's" "$(field '.obligations[1] | "\(.timing) \(.service_from) \(.service_to) \([.periods[].fiscal_period] | join(" "))"')" \
+    "over_time $year-01-01 $year-12-31 1 2 3 4 5 6 7 8 9 10 11 12"
+  expect "the periods' days, the year's" "$(field '[.obligations[1].periods[].days] | add')" "$yeardays"
+  expect "the periods' amounts in cents, the allocated amount's" "$(field '[.obligations[1].periods[].amount.amount | sub("\\."; "") | tonumber] | add')" 125357
+  expect "each period within a cent of 1253.57 x its days / $yeardays" \
+    "$(field "[.obligations[1].periods[] | ((.amount.amount | sub(\"\\\\.\"; \"\") | tonumber) - 125357 * .days / $yeardays) | fabs < 1] | all")" true
+  expect "every period before today's recognized, every later one planned" \
+    "$(field "[.obligations[1].periods[] | if .period_end < \"$day\" then .recognized_amount.amount == .amount.amount elif .period_start > \"$day\" then .planned_amount.amount == .amount.amount else true end] | all")" true
+  expect "the support: recognized and planned add up to its allocated amount, in cents" \
+    "$(field '.obligations[1] | [.recognized_amount.amount, .planned_amount.amount, .unscheduled_amount.amount] | map(sub("\\."; "") | tonumber) | add')" 125357
+  expect "the contract: recognized, planned and not yet scheduled add up to the transaction price, in cents" \
+    "$(field '[.recognized_amount.amount, .planned_amount.amount, .unscheduled_amount.amount] | map(sub("\\."; "") | tonumber) | add')" 270000
+  as sally
+  say "The brackets leave the warehouse today. Sally confirms the delivery of all 120 (T78c):"
+  api 201 '"delivery \(.delivery_no) of sales order \(.sales_order_number) on \(.delivery_date): " + ([.items[] | "item \(.item_no) \(.quantity.value) \(.quantity.unit)"] | join(", "))' \
+    confirmSalesDelivery -p "id=$order" -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"120\", \"unit\": \"EA\"}}]}"
+  as nora
+  say "The delivery confirmation is when a point-in-time obligation is satisfied, unless Nora names another day on the"
+  say "obligation: the schedule now has the brackets' whole allocated amount, 1446.43, in today's fiscal period,"
+  say "recognized. The support's line is as it was."
+  api 200 "$show" getRevenueSchedule -p "id=$contract"
+  expect "the brackets: their allocated amount in the delivery's period, recognized" \
+    "$(field ".obligations[0] | \"\\(.periods | length) \\(.periods[0].period_start <= \"$day\" and \"$day\" <= .periods[0].period_end) \\(.periods[0].amount.amount) \\(.periods[0].recognized_amount.amount) \\(.periods[0].delivered_quantity.value) \\(.periods[0].delivered_quantity.unit) \\(.unscheduled_amount.amount)\"")" \
+    "1 true 1446.43 1446.43 120 EA 0.00"
+  expect "nothing left unscheduled; the sums still the transaction price's, in cents" \
+    "$(field '"\(.unscheduled_amount.amount) \([.recognized_amount.amount, .planned_amount.amount] | map(sub("\\."; "") | tonumber) | add)"')" "0.00 270000"
+  expect "the contract's periods, the obligations' added up: today's holds the brackets and the support's share" \
+    "$(field "[.periods[] | select(.period_start <= \"$day\" and \"$day\" <= .period_end) | .amount.amount | sub(\"\\\\.\"; \"\") | tonumber] | add")" \
+    "$(field "[.obligations[].periods[] | select(.period_start <= \"$day\" and \"$day\" <= .period_end) | .amount.amount | sub(\"\\\\.\"; \"\") | tonumber] | add")"
+  say "A draft has no allocated amounts and so no schedule:"
+  QUIET=1 api 200 '' listRevenueContracts -p "legal_entity_id=$LE" -p status=draft
+  [ "$(field '.items | length')" -gt 0 ] || fail "no draft revenue contract to show"
+  refused 409 revenue.invalid_status getRevenueSchedule -p "id=$(field '.items[0].id')"
+  passed
+}
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -9667,7 +9734,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_close'
 
 main() {
   stop_unseen

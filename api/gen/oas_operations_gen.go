@@ -219,6 +219,7 @@ const (
 	GetRequisitionOperation                        OperationName = "GetRequisition"
 	GetRevaluationRunOperation                     OperationName = "GetRevaluationRun"
 	GetRevenueContractOperation                    OperationName = "GetRevenueContract"
+	GetRevenueScheduleOperation                    OperationName = "GetRevenueSchedule"
 	GetRfqOperation                                OperationName = "GetRfq"
 	GetRfqComparisonOperation                      OperationName = "GetRfqComparison"
 	GetRoleOperation                               OperationName = "GetRole"
