@@ -59,16 +59,17 @@ type (
 )
 
 // assignment is what an order item gives an invoice item on it: its
-// account, its cost center and the number of the contract its order was
-// made on, each "" for none.
-type assignment struct{ account, costCenter, contract string }
+// account and its cost center, each "" for none.
+type assignment struct{ account, costCenter string }
 
 // spendRefs is what names a legal entity's spend beside the invoices
-// themselves: its order items' assignments by order and item number, and
-// its cost centers' codes by id.
+// themselves: its order items' assignments by order and item number, the
+// number of the contract each order was made on by order ("" for none),
+// and its cost centers' codes by id.
 type spendRefs struct {
-	onOrder map[string]assignment
-	centers map[string]string
+	onOrder   map[string]assignment
+	contracts map[string]string
+	centers   map[string]string
 }
 
 // credits are the kinds whose amounts reduce spend.
@@ -100,7 +101,7 @@ func (s Source) addSpend(ctx context.Context, b *factBuilder, le legalEntity, by
 // spendRefs reads the legal entity's purchase orders, contracts and cost
 // centers as the caller, in that order.
 func (s Source) spendRefs(ctx context.Context, byLE url.Values) (spendRefs, error) {
-	refs := spendRefs{onOrder: map[string]assignment{}, centers: map[string]string{}}
+	refs := spendRefs{onOrder: map[string]assignment{}, contracts: map[string]string{}, centers: map[string]string{}}
 	orders, err := apitools.List[spendOrder](ctx, s.API, "/v1/purchase-orders", byLE)
 	if err != nil {
 		return refs, err
@@ -121,8 +122,9 @@ func (s Source) spendRefs(ctx context.Context, byLE url.Values) (spendRefs, erro
 		refs.centers[c.ID] = c.Code
 	}
 	for _, o := range orders {
+		refs.contracts[o.ID] = numbers[o.ContractID]
 		for _, it := range o.Items {
-			refs.onOrder[orderItem(o.ID, it.ItemNo)] = assignment{account: it.AccountID, costCenter: it.CostCenterID, contract: numbers[o.ContractID]}
+			refs.onOrder[orderItem(o.ID, it.ItemNo)] = assignment{account: it.AccountID, costCenter: it.CostCenterID}
 		}
 	}
 	return refs, nil
@@ -132,20 +134,22 @@ func (s Source) spendRefs(ctx context.Context, byLE url.Values) (spendRefs, erro
 func orderItem(order string, item int) string { return order + "/" + strconv.Itoa(item) }
 
 // addSpendInvoice adds one fact per item of the posted document. An item
-// on an order takes the order's contract, and the order item's account
-// and cost center where it names none of its own.
+// on an order takes the order's contract, whatever became of the order's
+// item, and the order item's account and cost center where it names none
+// of its own.
 func (b *factBuilder) addSpendInvoice(le legalEntity, inv spendInvoice, chart map[string]account, refs spendRefs) error {
 	v := b.vendors[inv.SupplierID]
 	for _, it := range inv.Items {
-		as := assignment{account: it.AccountID, costCenter: it.CostCenterID}
+		as, contract := assignment{account: it.AccountID, costCenter: it.CostCenterID}, ""
 		if it.PurchaseOrderID != "" {
 			of := refs.onOrder[orderItem(it.PurchaseOrderID, it.POItemNo)]
-			as = assignment{account: cmp.Or(as.account, of.account), costCenter: cmp.Or(as.costCenter, of.costCenter), contract: of.contract}
+			as = assignment{account: cmp.Or(as.account, of.account), costCenter: cmp.Or(as.costCenter, of.costCenter)}
+			contract = refs.contracts[it.PurchaseOrderID]
 		}
 		a := chart[as.account]
 		dims := map[string]string{"company": le.Code, "currency": it.Amount.Currency, "vendor": v.Number, "vendor_name": v.Name,
-			"account": a.Number, "account_name": a.Name, "cost_center": refs.centers[as.costCenter], "contract": as.contract,
-			"on_contract": strconv.FormatBool(as.contract != "")}
+			"account": a.Number, "account_name": a.Name, "cost_center": refs.centers[as.costCenter], "contract": contract,
+			"on_contract": strconv.FormatBool(contract != "")}
 		net, err := b.minor(it.Amount)
 		if err == nil {
 			err = b.calendar(dims, "posting_date", inv.PostingDate)

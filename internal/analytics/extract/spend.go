@@ -40,14 +40,15 @@ type spendLine struct {
 // spendLinesSQL reads the items in month order, then by document and
 // item. An item on a purchase order takes the order item's account and
 // cost center where it names none of its own (a removed order item is not
-// one the API returns), and the order's contract; a credit memo's and a
+// one the API returns, nor is a removed invoice item), and the order's
+// contract, whatever became of the order's item; a credit memo's and a
 // subsequent credit's amounts reduce spend. Only posted documents: a
 // reversed one is no longer spend.
 const spendLinesSQL = `SELECT i.tenant_id, i.id, it.item_no, le.code, i.posting_date, bp.number, a.number, cc.code, o.document_number,
 		ct.document_number, ct.id IS NOT NULL,
 		CASE WHEN i.kind IN ('credit_memo', 'subsequent_credit') THEN -it.amount ELSE it.amount END, i.currency, c.exponent
 	FROM payables.supplier_invoice i
-	JOIN payables.supplier_invoice_item it ON it.tenant_id = i.tenant_id AND it.supplier_invoice_id = i.id
+	JOIN payables.supplier_invoice_item it ON it.tenant_id = i.tenant_id AND it.supplier_invoice_id = i.id AND NOT it.is_removed
 	JOIN tenancy.legal_entity le ON le.tenant_id = i.tenant_id AND le.id = i.legal_entity_id
 	JOIN partner.business_partner bp ON bp.tenant_id = i.tenant_id AND bp.id = i.supplier_id
 	LEFT JOIN procurement.purchase_order o ON o.tenant_id = it.tenant_id AND o.id = it.purchase_order_id

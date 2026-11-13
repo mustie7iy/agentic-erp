@@ -10,8 +10,9 @@ import (
 )
 
 // spendPages are validPages with posted supplier documents: an invoice
-// with an item on an order made on a contract and one on an account and a
-// cost center of its own, a credit memo, and a subsequent credit on an
+// with an item on an order made on a contract, one on an account and a
+// cost center of its own and one on an item its order no longer lists, a
+// credit memo, and a subsequent credit on an
 // order made on no contract.
 func spendPages() map[string][]string {
 	usd := func(v string) map[string]any { return map[string]any{"amount": v, "currency": "USD"} }
@@ -19,7 +20,9 @@ func spendPages() map[string][]string {
 	pages["/v1/supplier-invoices"] = []string{items(
 		map[string]any{"id": "i1", "supplier_id": "p1", "posting_date": "2026-03-06", "kind": "invoice", "items": []any{
 			map[string]any{"purchase_order_id": "o1", "po_item_no": 10, "amount": usd("100.00")},
-			map[string]any{"amount": usd("40.00"), "account_id": "a2", "cost_center_id": "c1"}}},
+			map[string]any{"amount": usd("40.00"), "account_id": "a2", "cost_center_id": "c1"},
+			// On an item the order no longer lists: still the order's contract.
+			map[string]any{"purchase_order_id": "o1", "po_item_no": 20, "amount": usd("8.00")}}},
 		map[string]any{"id": "i2", "supplier_id": "p1", "posting_date": "2026-03-07", "kind": "credit_memo", "items": []any{
 			map[string]any{"amount": usd("15.00"), "account_id": "a2"}}},
 		map[string]any{"id": "i3", "supplier_id": "p2", "posting_date": "2026-04-01", "kind": "subsequent_credit", "items": []any{
@@ -69,23 +72,30 @@ func TestSourceReadsSpendLines(t *testing.T) {
 	want := []string{
 		"i1 1000 2026-03-06 BP1 Acme 520000 Office cc=2000 contract=CT-1 true USD 100.00",
 		"i1 1000 2026-03-06 BP1 Acme 520000 Office cc=1000 contract= false USD 40.00",
+		"i1 1000 2026-03-06 BP1 Acme   cc= contract=CT-1 true USD 8.00",
 		"i2 1000 2026-03-07 BP1 Acme 520000 Office cc= contract= false USD -15.00",
 		"i3 1000 2026-04-01 BP2 Beta 211000 AP cc= contract= false USD -5.00",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("spend lines:\n got %q\nwant %q", got, want)
 	}
-	for metric, want := range map[string]string{"spend": "120.00", "spend_under_contract": "100.00", "spend_off_contract": "20.00", "off_contract_share": "0.1667"} {
+	for metric, want := range map[string]string{"spend": "128.00", "spend_under_contract": "108.00", "spend_off_contract": "20.00", "off_contract_share": "0.1563"} {
 		res, err := Execute(m, f, Principal{}, Query{Measures: []string{metric}})
-		if err != nil || len(res.Rows) != 1 || fmt.Sprint(res.Rows[0][0]) != want {
-			t.Errorf("%s: got %v, %v; want %s", metric, res, err, want)
+		if err != nil {
+			t.Errorf("%s: got %v, want an answer", metric, err)
+			continue
+		}
+		if got := fmt.Sprint(res.Rows); got != "[["+want+"]]" {
+			t.Errorf("%s: got %s, want [[%s]]", metric, got, want)
 		}
 	}
-	// A supplier with no spend under contract has a share off contract of 1;
-	// one with none at all has no row.
+	// A supplier with no spend under contract has a share off contract of 1.
 	res, err := Execute(m, f, Principal{}, Query{Measures: []string{"off_contract_share", "spend_under_contract"}, By: []string{"vendor"}, OrderBy: "vendor"})
-	if err != nil || fmt.Sprint(res.Rows) != "[[BP1 0.2000 100.00] [BP2 1.0000 <nil>]]" {
-		t.Errorf("share by vendor: got %v, %v; want BP1 0.2000 of 125.00 and BP2 1.0000", res, err)
+	if err != nil {
+		t.Fatalf("share by vendor: got %v, want an answer", err)
+	}
+	if got := fmt.Sprint(res.Rows); got != "[[BP1 0.1880 108.00] [BP2 1.0000 <nil>]]" {
+		t.Errorf("share by vendor: got %s, want BP1 0.1880 of 133.00 and BP2 1.0000", got)
 	}
 }
 

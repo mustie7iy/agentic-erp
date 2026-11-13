@@ -105,7 +105,9 @@ func (r spendRow) String(names map[uuid.UUID]string, orders map[string]string) s
 // month, a credit's amount negative; an item on a purchase order takes the
 // order item's account and cost center and is under the order's contract;
 // an item without an order, or on an order made on no contract, is off
-// contract; a parked or reversed document has no row, and a posted one
+// contract; an item removed from the document has no row, and one on an
+// item its order no longer has keeps the order's contract and names no
+// account; a parked or reversed document has no row, and a posted one
 // loses its rows when it is reversed (T91b).
 func TestSpendLines(t *testing.T) {
 	e := setup(t)
@@ -115,7 +117,8 @@ func TestSpendLines(t *testing.T) {
 	onContract := e.ContractOrder(t, e.DE, e.Supplier, &contract, "EUR", "2026-03-01", paper, &center)
 	free := e.ContractOrder(t, e.DE, e.Supplier, nil, "EUR", "2026-03-01", paper, nil)
 	inv := e.SupplierDocument(t, e.DE, e.Supplier, "invoice", "posted", "EUR", "2026-03-06",
-		fixture.InvoiceItem{Net: 10000, Order: &onContract}, fixture.InvoiceItem{Net: 4000, Account: &office, CostCenter: &center})
+		fixture.InvoiceItem{Net: 10000, Order: &onContract}, fixture.InvoiceItem{Net: 4000, Account: &office, CostCenter: &center},
+		fixture.InvoiceItem{Net: 77700, Account: &office, Removed: true}, fixture.InvoiceItem{Net: 800, Order: &onContract, OrderItem: 20})
 	credit := e.SupplierDocument(t, e.DE, e.Supplier, "credit_memo", "posted", "EUR", "2026-03-07", fixture.InvoiceItem{Net: 1500, Account: &office})
 	later := e.SupplierDocument(t, e.DE, e.Supplier, "subsequent_credit", "posted", "EUR", "2026-04-01", fixture.InvoiceItem{Net: 500, Order: &free})
 	parked := e.SupplierDocument(t, e.DE, e.Supplier, "invoice", "parked", "EUR", "2026-03-08", fixture.InvoiceItem{Net: 99900, Account: &office})
@@ -141,6 +144,7 @@ func TestSpendLines(t *testing.T) {
 	want := []string{
 		"invoice/1 2000 2026-03-06 BP90000001 610000 cc=1000 order=on contract contract=CT-0001 true 10000 EUR e2",
 		"invoice/2 2000 2026-03-06 BP90000001 520000 cc=1000 order=- contract=- false 4000 EUR e2",
+		"invoice/4 2000 2026-03-06 BP90000001 - cc=- order=on contract contract=CT-0001 true 800 EUR e2",
 		"credit/1 2000 2026-03-07 BP90000001 520000 cc=- order=- contract=- false -1500 EUR e2",
 		"later/1 2000 2026-04-01 BP90000001 610000 cc=- order=free contract=- false -500 EUR e2",
 	}
@@ -155,8 +159,8 @@ func TestSpendLines(t *testing.T) {
 		pgtest.Exec(t, `UPDATE payables.supplier_invoice SET status = 'reversed', reversal_entry_year = 2026, reversal_entry_id = gen_random_uuid(),
 			version = version + 1 WHERE tenant_id = $1 AND id = $2`, e.Tenant.ID, inv)
 		rows, months := spend(e.manifest(t, e.run(t).ManifestKey))
-		if !slices.Equal(rows, want[2:]) {
-			t.Errorf("spend lines:\n got %q\nwant %q", rows, want[2:])
+		if !slices.Equal(rows, want[3:]) {
+			t.Errorf("spend lines:\n got %q\nwant %q", rows, want[3:])
 		}
 		if !slices.Equal(months, []string{"2026-03", "2026-04"}) {
 			t.Errorf("files: got months %v, want March's rewritten and April's kept", months)

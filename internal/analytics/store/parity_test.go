@@ -183,7 +183,10 @@ func (p parity) spend(t *testing.T) {
 		office, paper := p.Account(t, c.company, "520000"), p.Account(t, c.company, "610000")
 		order := p.ContractOrder(t, c.le, p.Supplier, &contract, c.cur, "2026-02-01", paper, &center)
 		p.SupplierDocument(t, c.le, p.Supplier, "invoice", "posted", c.cur, c.date,
-			fixture.InvoiceItem{Net: c.onOrder, Order: &order}, fixture.InvoiceItem{Net: c.free, Account: &office, CostCenter: &center})
+			fixture.InvoiceItem{Net: c.onOrder, Order: &order}, fixture.InvoiceItem{Net: c.free, Account: &office, CostCenter: &center},
+			// An item removed while the document was parked, in no spend, and
+			// one on an item its order no longer has, under the order's contract.
+			fixture.InvoiceItem{Net: 77700, Account: &office, Removed: true}, fixture.InvoiceItem{Net: 800, Order: &order, OrderItem: 20})
 	}
 	office, paper := p.Account(t, "2000", "520000"), p.Account(t, "2000", "610000")
 	free := p.ContractOrder(t, p.DE, p.Vendor, nil, "EUR", "2026-02-01", paper, nil)
@@ -340,9 +343,9 @@ func TestParity(t *testing.T) {
 		// The confirmed orders' items and the posted billing document's:
 		// the draft order and the document not posted are not counted.
 		for metric, want := range map[string]string{"order_intake": "1787.53", "billed_value": "1737.53", "billing_document_count": "1",
-			// The posted documents' items, the credits' negative: 100.00 on
+			// The posted documents' items, the credits' negative: 108.00 on
 			// the contract's order; 40.00 less 15.00 and 5.00 off contract.
-			"spend": "120.00", "spend_under_contract": "100.00", "spend_off_contract": "20.00", "off_contract_share": "0.1667"} {
+			"spend": "128.00", "spend_under_contract": "108.00", "spend_off_contract": "20.00", "off_contract_share": "0.1563"} {
 			res, err := analytics.Execute(m, dbFacts, analytics.Principal{Companies: []string{"2000"}}, analytics.Query{Measures: []string{metric}})
 			if err != nil {
 				t.Errorf("%s of 2000: got %v, want an answer", metric, err)
@@ -599,7 +602,7 @@ func (p parity) isolation(t *testing.T) {
 		// The confirmed orders' items and the posted billing documents'.
 		"sales_lines": {"1000 19800 USD", "2000 352506 EUR"},
 		// The posted documents' items, the credits' negative.
-		"spend_lines": {"1000 10000 USD", "2000 12000 EUR"},
+		"spend_lines": {"1000 10800 USD", "2000 12800 EUR"},
 	} {
 		t.Run(dataset, func(t *testing.T) { p.isolated(t, key, m, dataset, want) })
 	}

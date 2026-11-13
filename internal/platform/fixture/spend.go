@@ -1,6 +1,7 @@
 package fixture
 
 import (
+	"cmp"
 	"context"
 	"strings"
 	"testing"
@@ -52,8 +53,8 @@ func (e Env) Contract(tb testing.TB, legalEntity, supplier uuid.UUID, currency, 
 
 // ContractOrder writes a released purchase order of the legal entity with
 // the supplier, made on the contract (nil: on none), with one item, number
-// 10, of one unit on the account and the cost center (nil: none), and
-// returns its id.
+// 10, of one unit on the account and the cost center (nil: none), and a
+// removed item, number 20, and returns its id.
 func (e Env) ContractOrder(tb testing.TB, legalEntity, supplier uuid.UUID, contract *uuid.UUID, currency, date string, account uuid.UUID, costCenter *uuid.UUID) uuid.UUID {
 	tb.Helper()
 	id := uuid.Must(uuid.NewV7())
@@ -65,19 +66,26 @@ func (e Env) ContractOrder(tb testing.TB, legalEntity, supplier uuid.UUID, contr
 			account_assignment, cost_center_id)
 		VALUES ($1, $2, 10, 'Item', 1, 'EA', 100, $3, CASE WHEN $4::uuid IS NULL THEN 'none' ELSE 'cost_center' END, $4)`,
 		e.Tenant.ID, id, account, costCenter)
-	// Released once it has its item: a released order's items do not change.
+	// Item 20 was removed from the order, as a change of a draft leaves it.
+	pgtest.Exec(tb, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code, unit_price, account_id,
+			is_removed)
+		VALUES ($1, $2, 20, 'Removed', 1, 'EA', 100, $3, true)`, e.Tenant.ID, id, account)
+	// Released once it has its items: a released order's items do not change.
 	pgtest.Exec(tb, `UPDATE procurement.purchase_order SET status = 'released', version = version + 1 WHERE tenant_id = $1 AND id = $2`, e.Tenant.ID, id)
 	return id
 }
 
 // InvoiceItem is an item SupplierDocument writes: its net amount in minor
-// units and either the purchase order whose item 10 it invoices or its
-// own account and cost center (nil: none).
+// units and either the purchase order whose item it invoices (item 10,
+// or OrderItem) or its own account and cost center (nil: none). Removed
+// is an item removed from the document while it was parked.
 type InvoiceItem struct {
 	Net        int64
 	Order      *uuid.UUID
+	OrderItem  int
 	Account    *uuid.UUID
 	CostCenter *uuid.UUID
+	Removed    bool
 }
 
 // SupplierDocument writes a supplier document of the legal entity and the
@@ -91,7 +99,9 @@ func (e Env) SupplierDocument(tb testing.TB, legalEntity, supplier uuid.UUID, ki
 	id := uuid.Must(uuid.NewV7())
 	var net int64
 	for _, it := range items {
-		net += it.Net
+		if !it.Removed {
+			net += it.Net
+		}
 	}
 	// The document is on its first item's order, as one entered on an
 	// order is; a subsequent debit or credit must be on one.
@@ -116,11 +126,12 @@ func (e Env) SupplierDocument(tb testing.TB, legalEntity, supplier uuid.UUID, ki
 		var poItem *int
 		if it.Order != nil {
 			poItem = new(int)
-			*poItem = 10
+			*poItem = cmp.Or(it.OrderItem, 10)
 		}
 		pgtest.Exec(tb, `INSERT INTO payables.supplier_invoice_item (tenant_id, supplier_invoice_id, item_no, purchase_order_id, po_item_no, description,
-				quantity, uom_code, amount, account_id, cost_center_id)
-			VALUES ($1, $2, $3, $4, $5, 'Item', $9, 'EA', $6, $7, $8)`, e.Tenant.ID, id, i+1, it.Order, poItem, it.Net, it.Account, it.CostCenter, quantity)
+				quantity, uom_code, amount, account_id, cost_center_id, is_removed)
+			VALUES ($1, $2, $3, $4, $5, 'Item', $9, 'EA', $6, $7, $8, $10)`,
+			e.Tenant.ID, id, i+1, it.Order, poItem, it.Net, it.Account, it.CostCenter, quantity, it.Removed)
 	}
 	return id
 }

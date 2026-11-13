@@ -1034,7 +1034,9 @@ synonym). No migration. Decisions:
   An invoice item names its own account and cost center only when it is
   not on an order (ADR-0050 §6); for one on an order both are read from
   the purchase order's item, where the item still exists (a removed
-  order item is not one the API returns: the row then names neither).
+  order item is not one the API returns: the row then names neither,
+  and keeps the order's contract). An item removed from the document
+  while it was parked is not an item of it, on either path.
 - *Under contract by the order's contract.* An item is under contract
   when its purchase order names a contract (`purchase_order.contract_id`,
   set when the order was made on it), whatever the item's own
