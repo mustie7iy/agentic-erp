@@ -68,7 +68,9 @@ rest, the same way for every agent:
   recommending.
 
 An agent's package imports `apitools`, `llm` and `recommend`
-(`internal/layout`), and nothing imports it but `cmd/erp`.
+(`internal/layout`), and a library package where its check needs one
+(the regulatory agent `config`, for the configuration's paths, T107a);
+nothing imports it but `cmd/erp`.
 
 ### 2. Reads through the API, with the agent's own token
 
@@ -398,22 +400,29 @@ A later slice adds its row here and its section under "As built".
   `config_version`): `change_needed` or `no_change`. It fetches nothing:
   its tools are the API's reads, and no tool reaches outside it.
 - Its check (`regulatoryagent.reading.check`):
-  - every passage between double quotes, straight or typographic, is in
-    the notice character for character; a quotation left open runs to
-    the content's end and so fails;
+  - every passage between double quotes, straight or typographic, is
+    not empty and is in the notice character for character, as whole
+    words and numbers: it neither starts nor ends inside a word or a
+    number of the notice ("5 percent" is no quotation of "2.5 percent",
+    nor "9" of "2099"); a quotation left open runs to the content's end,
+    and so fails unless the notice ends with it;
   - the content carries the sentence `A person must check the notice
     against its source.` (`regulatoryagent.Caveat`);
-  - every number outside the quotations and the paths is one the run read
-    (§4), the notice being part of the run's prompt: a rate with a
-    fraction is therefore quoted, never restated;
+  - every number outside the quotations, and outside the paths of a
+    `change_needed`, is one the run read (§4), the notice being part of
+    the run's prompt: a rate with a fraction is therefore quoted, never
+    restated. A `no_change` has no paths: a line of it starting
+    `Paths: ` is held to the figures as any other;
   - `change_needed` starts with `Paths: ` and the paths affected, each one
     the version read before the session holds, then `Takes effect: ` and
     the notice's words in double quotes or `not stated`, and quotes the
-    notice. A path names fields and list items as configuration paths do
-    (`companies[3000].tax_codes[GO5]`, config.Diff); the agent does not
-    import the configuration's list keys (its package imports only the
-    pattern), so an item is found by any of its own values, and an item
-    keyed by several values at once (a number range) is not found.
+    notice. A path is one `config.Holds` finds in the version read before
+    the session: a setting as `config.Diff` names it
+    (`companies[3000].tax_codes[GO5]`), a list item named by its list's
+    key only, never by another of its values (`tax_codes[0]` is no path
+    of a code at rate 0). The agent's package imports `internal/config`
+    for this beside the pattern (`internal/layout`); a document the
+    binary cannot read as a configuration holds no path.
 - Its never list is every write of the configuration: the change
   request's operations, `applyCountryPack` and `createRegressionSuite`
   (`TestNever` keeps it whole against the contract's `config.*`

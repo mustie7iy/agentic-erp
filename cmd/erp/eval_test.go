@@ -258,7 +258,8 @@ func TestEvalSuites(t *testing.T) {
 // steps back from a weekend in company 2000's zone to the Friday before,
 // since its cases leave unpaid what was forecast for today, and every
 // forecast falls on a business day (evals/cash); the bid comparison
-// agent's stands at noon on 2026-11-16, since its RFQs take numbers of
+// agent's stands at noon on 2026-11-16 in company 3000's zone,
+// America/Toronto, since its RFQs take numbers of
 // fiscal year 2026 and are due and valid on dates of its own
 // (evals/bid_comparison); every other suite's is the time.
 func cellClock(t *testing.T, agent string) func() time.Time {

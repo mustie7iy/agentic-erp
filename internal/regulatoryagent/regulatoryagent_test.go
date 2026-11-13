@@ -162,19 +162,28 @@ func TestRead(t *testing.T) {
 }
 
 // TestReadNoChange: no_change needs no paths and no quotation; what it
-// quotes is the notice's, and it carries the caveat.
+// quotes is the notice's, whole words and numbers and never empty, a
+// quotation left open runs to the end, and a "Paths: " line of no_change
+// is held to the figures as any other line; it carries the caveat.
 func TestReadNoChange(t *testing.T) {
 	model := llmtest.New(t, versionRead,
 		rec("no_change", "The notice concerns \"Notice EX-2099-02\"."+caveat),
 		rec("no_change", "The notice concerns \"Notice EX-2099-01\" of an office the configuration names nowhere."),
-		rec("no_change", "The configuration holds no tax the notice changes: V0 is the notice's, but \"\" is quoted empty. "+caveat),
+		rec("no_change", "The notice is \"\" empty here. "+caveat),
+		rec("no_change", "It says \"5 percent\", a fragment of its rate. "+caveat),
+		rec("no_change", "Paths: XL to 9.75 percent from 2031\nNothing to change. "+caveat),
+		rec("no_change", "The configuration holds no tax the notice changes: V0 is the notice's. A trailing quote \""+caveat),
+		rec("no_change", "The configuration holds no tax the notice changes, though it names \"tax code V0\". "+caveat),
 		llmtest.Final("No change needed."))
 	res, err := (&regulatoryagent.Agent{LLM: model.Runner(), API: client(t, &fakeAPI{})}).Read(context.Background(), notice)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Recommendations) != 1 || res.Recommendations[0].Kind != "no_change" || res.Refused != 2 {
-		t.Errorf("got %v and %d refused, want one no_change and two refused", res.Recommendations, res.Refused)
+	if len(res.Recommendations) != 1 || res.Recommendations[0].Kind != "no_change" {
+		t.Errorf("recommendations: got %v, want one no_change", res.Recommendations)
+	}
+	if res.Refused != 6 {
+		t.Errorf("refused: got %d, want 6", res.Refused)
 	}
 }
 
@@ -234,4 +243,23 @@ func TestReadRefusals(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestReadUnreadableDocument: a version whose document this binary cannot
+// read as a configuration holds no path, so no change is recommended on
+// it.
+func TestReadUnreadableDocument(t *testing.T) {
+	a := &fakeAPI{versions: `{"items": [{"id": "` + version + `", "number": 3, "document": "not a configuration"}]}`}
+	model := llmtest.New(t, rec("change_needed", paths+effect+quote+caveat), llmtest.Final("Nothing."))
+	res, err := (&regulatoryagent.Agent{LLM: model.Runner(), API: client(t, a)}).Read(context.Background(), notice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Recommendations) != 0 {
+		t.Errorf("recommendations: got %v, want none", res.Recommendations)
+	}
+	if res.Refused != 1 {
+		t.Errorf("refused: got %d, want 1", res.Refused)
+	}
+	told(t, model.Requests, regulatoryagent.ErrPath.Error())
 }

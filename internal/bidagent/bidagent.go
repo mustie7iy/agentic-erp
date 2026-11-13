@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -122,7 +123,7 @@ var (
 // offers the model the tools and reports what it recommended, also when
 // the run fails after recommending.
 func (a *Agent) Compare(ctx context.Context, rfq string) (recommend.Result, error) {
-	resp, err := a.API.Do(ctx, http.MethodGet, "/v1/rfqs/"+rfq+"/comparison", nil, nil, "")
+	resp, err := a.API.Do(ctx, http.MethodGet, "/v1/rfqs/"+url.PathEscape(rfq)+"/comparison", nil, nil, "")
 	var c comparison
 	if err == nil {
 		err = resp.Decode(&c)

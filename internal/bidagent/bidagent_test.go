@@ -202,8 +202,8 @@ func TestCompareWithoutRanked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Recommendations) != 1 || res.Recommendations[0].Kind != "no_award" {
-		t.Errorf("recommendations: got %v, want one no_award", res.Recommendations)
+	if want := []recommend.Made{{ID: "r1", ObjectType: "rfq", ObjectID: rfq, Kind: "no_award"}}; !slices.Equal(res.Recommendations, want) {
+		t.Errorf("recommendations: got %v, want %v", res.Recommendations, want)
 	}
 	if res.Refused != 1 {
 		t.Errorf("refused: got %d, want 1: the award", res.Refused)
@@ -222,8 +222,11 @@ func TestCompareNotPublished(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Recommendations) != 1 || res.Recommendations[0].Kind != "no_award" || res.Refused != 1 {
-		t.Errorf("got %v and %d refused, want one no_award and the award refused", res.Recommendations, res.Refused)
+	if want := []recommend.Made{{ID: "r1", ObjectType: "rfq", ObjectID: rfq, Kind: "no_award"}}; !slices.Equal(res.Recommendations, want) {
+		t.Errorf("recommendations: got %v, want %v", res.Recommendations, want)
+	}
+	if res.Refused != 1 {
+		t.Errorf("refused: got %d, want 1: the award", res.Refused)
 	}
 	refusedWith(t, model.Requests, bidagent.ErrNotPublished)
 }

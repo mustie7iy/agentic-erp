@@ -125,8 +125,8 @@ var allowed = map[string][]string{
 	"sales":                   {"config", "ledger", "partner", "receivables", "tenancy"}, // as receivables reads them; receivables itself for billing, which posts through it (ADR-0067 §1, §9)
 	"revenue":                 {"partner", "sales", "tenancy"},                           // a leaf (ADR-0068 §1): the sales context's orders (sales.Orders), partners' names and tenancy through its ports
 	"reconagent":              {"apitools", "llm"},
-	"recommend":               {"apitools", "llm"},              // the recommending agents' one pattern (ADR-0072): every such agent imports it, and it no agent
-	"regulatoryagent":         {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration, its check and the paths it names
+	"recommend":               {"apitools", "llm"},                        // the recommending agents' one pattern (ADR-0072): every such agent imports it, and it no agent
+	"regulatoryagent":         {"apitools", "config", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration and its check; config: the paths it names, as config.Diff names them
 	"cashagent":               {"apitools", "llm"},
 	"router":                  {"directory"},
 	"taxagent":                {"apitools", "llm"},

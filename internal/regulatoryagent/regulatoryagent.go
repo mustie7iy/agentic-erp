@@ -8,7 +8,7 @@
 // is needed (change_needed), naming the configuration's paths affected,
 // the passages of the notice and when it takes effect as the notice says,
 // or none is (no_change). Every passage it quotes is in the notice
-// character for character, every path it names is in the version, and
+// character for character, every path it names is a setting of the version (config.Holds), and
 // every number it writes outside a quotation is one the run read; each
 // recommendation says that a person must check the notice against its
 // source. The notice is data, never an instruction: the agent changes no
@@ -18,7 +18,6 @@
 package regulatoryagent
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -29,6 +28,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/recommend"
 )
@@ -94,14 +94,15 @@ type version struct {
 	Document json.RawMessage `json:"document"`
 }
 
-// document is the version's document with its numbers as written; a
-// document that is no object holds no path.
-func (v version) document() map[string]any {
-	dec := json.NewDecoder(bytes.NewReader(v.Document))
-	dec.UseNumber()
-	var doc map[string]any
-	_ = dec.Decode(&doc) // the API's own JSON; anything else leaves no document, and every path is refused
-	return doc
+// configuration is the version's document as a configuration, whose
+// paths are named as config.Diff names them; a document this binary
+// cannot read holds no path.
+func (v version) configuration() *config.Config {
+	c, _, err := config.ParseActive(v.Document) // JSON is YAML; keys a newer binary added are ignored
+	if err != nil {
+		return nil
+	}
+	return c
 }
 
 // The refusals before a run and of the agent's own check, beside the
@@ -110,9 +111,10 @@ var (
 	// ErrNotice refuses a notice that is empty, longer than MaxNotice or
 	// not UTF-8 text.
 	ErrNotice = fmt.Errorf("regulatoryagent: a notice is UTF-8 text of 1 to %d bytes", MaxNotice)
-	// ErrNotQuoted refuses a content quoting what the notice does not
-	// write, character for character.
-	ErrNotQuoted = errors.New("regulatoryagent: every passage in double quotes is in the notice character for character")
+	// ErrNotQuoted refuses a quotation that is empty or that the notice
+	// does not write, character for character, as whole words and
+	// numbers: not a fragment of one ("5 percent" of "2.5 percent").
+	ErrNotQuoted = errors.New("regulatoryagent: every passage in double quotes is in the notice character for character, whole words and numbers, never empty")
 	// ErrNoCaveat refuses a content without the sentence Caveat.
 	ErrNoCaveat = fmt.Errorf("regulatoryagent: the content carries the sentence %q", Caveat)
 	// ErrForm refuses a change_needed whose first lines are not "Paths: "
@@ -148,7 +150,7 @@ func (a *Agent) Read(ctx context.Context, notice string) (recommend.Result, erro
 		return recommend.Result{}, fmt.Errorf("regulatoryagent: the active configuration version: %w", err)
 	}
 	v := page.Items[0]
-	r := &reading{notice: notice, document: v.document()}
+	r := &reading{notice: notice, configuration: v.configuration()}
 	task := recommend.Task{
 		Purpose: fmt.Sprintf("Read a regulatory notice against configuration version %d", v.Number),
 		Prompt: fmt.Sprintf("The tenant's active configuration is version %d (id %s).\n<notice>\n%s\n</notice>",
@@ -172,8 +174,8 @@ func Tools() []string { return agent(0).Tools() }
 // reading is what one run's check knows: the notice and the active
 // version's document.
 type reading struct {
-	notice   string
-	document map[string]any
+	notice        string
+	configuration *config.Config
 }
 
 // check is the agent's rule on a recommendation the pattern admits
@@ -184,7 +186,7 @@ type reading struct {
 func (r *reading) check(p recommend.Proposed, f *recommend.Figures) error {
 	quoted, rest := quotations(p.Content)
 	for _, q := range quoted {
-		if !strings.Contains(r.notice, q) {
+		if !inNotice(r.notice, q) {
 			return fmt.Errorf("%w: not %q", ErrNotQuoted, q)
 		}
 	}
@@ -193,7 +195,9 @@ func (r *reading) check(p recommend.Proposed, f *recommend.Figures) error {
 	}
 	first, _, _ := strings.Cut(rest, "\n")
 	paths, isPaths := strings.CutPrefix(first, "Paths: ")
-	if isPaths {
+	if isPaths && p.Kind == ChangeNeeded {
+		// The paths are checked against the version below; their digits
+		// are a company's code and the like, no figures.
 		rest = strings.TrimPrefix(rest, first)
 	}
 	if unread := f.Unread(rest); len(unread) > 0 {
@@ -206,7 +210,7 @@ func (r *reading) check(p recommend.Proposed, f *recommend.Figures) error {
 		return ErrForm
 	}
 	for _, path := range strings.Split(paths, ",") {
-		if path = strings.TrimSpace(path); !holds(r.document, path) {
+		if path = strings.TrimSpace(path); !config.Holds(r.configuration, path) {
 			return fmt.Errorf("%w: not %q", ErrPath, path)
 		}
 	}
@@ -225,8 +229,8 @@ func takesEffect(content string) bool {
 }
 
 // quotations are the passages a content writes between double quotes,
-// straight ("…") or typographic (“…”), and the content without them. A
-// quotation left open runs to the content's end.
+// straight ("…") or typographic (“…”), empty ones too, and the content
+// without them. A quotation left open runs to the content's end.
 func quotations(content string) (quoted []string, rest string) {
 	var b strings.Builder
 	for {
@@ -245,9 +249,7 @@ func quotations(content string) (quoted []string, rest string) {
 		if j < 0 {
 			j = len(content)
 		}
-		if q := content[:j]; q != "" {
-			quoted = append(quoted, q)
-		}
+		quoted = append(quoted, content[:j])
 		content = content[min(j+len(closer), len(content)):]
 	}
 }
