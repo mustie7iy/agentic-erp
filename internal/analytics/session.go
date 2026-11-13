@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
@@ -78,6 +79,10 @@ type Report struct {
 	Queries   map[string]Query `json:"queries"`
 	CreatedAt time.Time        `json:"created_at"`
 	CreatedBy string           `json:"created_by"`
+	// Exchange is the analysis's questions in the order asked, each with
+	// the agent's answer and the queries it used (T94a); absent on a
+	// report saved before it was kept.
+	Exchange []Turn `json:"exchange,omitempty"`
 	// Now is the clock the page is rendered with; nil reads the wall
 	// clock (clock.Now). It is not saved with the report.
 	Now func() time.Time `json:"-"`
@@ -173,26 +178,14 @@ func (s *Session) Rerun(ctx context.Context, rep *Report) (*Report, map[string]*
 		remap[id] = r.ID
 		out.Queries[r.ID] = q
 	}
-	spec := rep.Spec
-	spec.Tiles = append([]Tile(nil), rep.Spec.Tiles...)
-	spec.Charts = append([]Chart(nil), rep.Spec.Charts...)
-	spec.Tables = append([]Table(nil), rep.Spec.Tables...)
-	spec.Assumptions = append([]string(nil), rep.Spec.Assumptions...)
 	fix := func(id string) string {
 		if n, ok := remap[id]; ok {
 			return n
 		}
 		return id
 	}
-	for i := range spec.Tiles {
-		spec.Tiles[i].QueryID = fix(spec.Tiles[i].QueryID)
-	}
-	for i := range spec.Charts {
-		spec.Charts[i].QueryID = fix(spec.Charts[i].QueryID)
-	}
-	for i := range spec.Tables {
-		spec.Tables[i].QueryID = fix(spec.Tables[i].QueryID)
-	}
+	spec := remapSpec(rep.Spec, fix)
+	out.Exchange = remapTurns(rep.Exchange, fix)
 	if spec.Commentary != "" {
 		var list []*Result
 		for _, r := range results {
@@ -212,6 +205,40 @@ func (s *Session) Rerun(ctx context.Context, rep *Report) (*Report, map[string]*
 		out.ID = "rpt_" + QueryID(Query{Measures: []string{spec.Title}}, s.Principal)[2:]
 	}
 	return &out, results, nil
+}
+
+// remapSpec is a copy of spec whose tiles, charts and tables name their
+// queries as fix maps them.
+func remapSpec(in Spec, fix func(string) string) Spec {
+	spec := in
+	spec.Tiles = append([]Tile(nil), in.Tiles...)
+	spec.Charts = append([]Chart(nil), in.Charts...)
+	spec.Tables = append([]Table(nil), in.Tables...)
+	spec.Assumptions = append([]string(nil), in.Assumptions...)
+	for i := range spec.Tiles {
+		spec.Tiles[i].QueryID = fix(spec.Tiles[i].QueryID)
+	}
+	for i := range spec.Charts {
+		spec.Charts[i].QueryID = fix(spec.Charts[i].QueryID)
+	}
+	for i := range spec.Tables {
+		spec.Tables[i].QueryID = fix(spec.Tables[i].QueryID)
+	}
+	return spec
+}
+
+// remapTurns is the exchange with its query ids as fix maps them: a rerun
+// re-derives them for the current principal.
+func remapTurns(turns []Turn, fix func(string) string) []Turn {
+	out := make([]Turn, len(turns))
+	for i, turn := range turns {
+		turn.Queries = slices.Clone(turn.Queries)
+		for j := range turn.Queries {
+			turn.Queries[j] = fix(turn.Queries[j])
+		}
+		out[i] = turn
+	}
+	return out
 }
 
 // Save writes the report definition (JSON) and its rendered page (HTML).

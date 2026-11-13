@@ -121,6 +121,7 @@ const (
 	DeleteWebhookSubscriptionOperation             OperationName = "DeleteWebhookSubscription"
 	DisableConnectorOperation                      OperationName = "DisableConnector"
 	DiscardConsolidationRunOperation               OperationName = "DiscardConsolidationRun"
+	DrillAnalyticsQueryOperation                   OperationName = "DrillAnalyticsQuery"
 	EnableConnectorOperation                       OperationName = "EnableConnector"
 	EndAgentSessionOperation                       OperationName = "EndAgentSession"
 	EndCompanyAccessOperation                      OperationName = "EndCompanyAccess"

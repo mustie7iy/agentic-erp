@@ -48,7 +48,7 @@ func (r *Reader) run(ctx context.Context, req Request, c compiled, files map[str
 		return nil, "", fmt.Errorf("reader: query: %w", err)
 	}
 	defer rows.Close() //nolint:errcheck // rows.Err reports a failed read
-	out, err := r.scan(rows, len(req.Plan.By), c.sum)
+	out, err := r.scan(rows, len(req.Plan.By), c)
 	return out, through, err
 }
 
@@ -160,16 +160,19 @@ type scanner interface {
 
 // scan reads the groups, refusing an amount whose exponent is not its
 // currency's or whose sum leaves int64.
-func (r *Reader) scan(rows scanner, by int, sum bool) ([]Row, error) {
+func (r *Reader) scan(rows scanner, by int, c compiled) ([]Row, error) {
 	out := []Row{}
 	for rows.Next() {
 		row := Row{By: make([]string, by)}
-		dest := make([]any, 0, by+3)
+		dest := make([]any, 0, by+4)
 		for i := range row.By {
 			dest = append(dest, &row.By[i])
 		}
+		if c.document {
+			dest = append(dest, &row.Document)
+		}
 		var total *big.Int
-		if sum {
+		if c.sum {
 			dest = append(dest, &row.Currency, &row.Exponent, &total)
 		} else {
 			dest = append(dest, &row.Count)
@@ -177,7 +180,7 @@ func (r *Reader) scan(rows scanner, by int, sum bool) ([]Row, error) {
 		if err := rows.Scan(dest...); err != nil {
 			return nil, fmt.Errorf("reader: scan: %w", err)
 		}
-		if sum {
+		if c.sum {
 			if err := r.amount(&row, total); err != nil {
 				return nil, err
 			}

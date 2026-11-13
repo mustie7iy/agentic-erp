@@ -3997,6 +3997,254 @@ func (s *AnalyticsDerived) SetRight(val string) {
 	s.Right = val
 }
 
+// A document behind a figure: its part of the figure (`amount`, the metric's lines of it, signed as
+// the metric adds them) and how to read it.
+// Ref: #/components/schemas/AnalyticsDocument
+type AnalyticsDocument struct {
+	// What the document is, and so the operation that reads it.
+	Kind string `json:"kind"`
+	// The document's id.
+	ID uuid.UUID `json:"id"`
+	// The document's number.
+	Number string `json:"number"`
+	// The company code the document is of.
+	Company string `json:"company"`
+	Amount  Money  `json:"amount"`
+	// The path that reads the document, such as `/v1/journal-entries/{id}`.
+	Path string `json:"path"`
+}
+
+// GetKind returns the value of Kind.
+func (s *AnalyticsDocument) GetKind() string {
+	return s.Kind
+}
+
+// GetID returns the value of ID.
+func (s *AnalyticsDocument) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetNumber returns the value of Number.
+func (s *AnalyticsDocument) GetNumber() string {
+	return s.Number
+}
+
+// GetCompany returns the value of Company.
+func (s *AnalyticsDocument) GetCompany() string {
+	return s.Company
+}
+
+// GetAmount returns the value of Amount.
+func (s *AnalyticsDocument) GetAmount() Money {
+	return s.Amount
+}
+
+// GetPath returns the value of Path.
+func (s *AnalyticsDocument) GetPath() string {
+	return s.Path
+}
+
+// SetKind sets the value of Kind.
+func (s *AnalyticsDocument) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetID sets the value of ID.
+func (s *AnalyticsDocument) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *AnalyticsDocument) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetCompany sets the value of Company.
+func (s *AnalyticsDocument) SetCompany(val string) {
+	s.Company = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *AnalyticsDocument) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetPath sets the value of Path.
+func (s *AnalyticsDocument) SetPath(val string) {
+	s.Path = val
+}
+
+// A page of the documents behind a row's figure, with the figure itself and the answer's lineage.
+// Ref: #/components/schemas/AnalyticsDocuments
+type AnalyticsDocuments struct {
+	// The measure drilled.
+	Measure string        `json:"measure"`
+	Total   AnalyticsCell `json:"total"`
+	// The page's documents, by id and currency.
+	Documents []AnalyticsDocument `json:"documents"`
+	// The next page's token; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// `store` (the analytical store) or `database`, as for `runAnalyticsQuery`.
+	Source string `json:"source"`
+	// The state of the data answered: the store's snapshot, or the time of the database read.
+	AsOf time.Time `json:"as_of"`
+	// The configuration version whose metric definitions answered.
+	ConfigVersion int32 `json:"config_version"`
+}
+
+// GetMeasure returns the value of Measure.
+func (s *AnalyticsDocuments) GetMeasure() string {
+	return s.Measure
+}
+
+// GetTotal returns the value of Total.
+func (s *AnalyticsDocuments) GetTotal() AnalyticsCell {
+	return s.Total
+}
+
+// GetDocuments returns the value of Documents.
+func (s *AnalyticsDocuments) GetDocuments() []AnalyticsDocument {
+	return s.Documents
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AnalyticsDocuments) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetSource returns the value of Source.
+func (s *AnalyticsDocuments) GetSource() string {
+	return s.Source
+}
+
+// GetAsOf returns the value of AsOf.
+func (s *AnalyticsDocuments) GetAsOf() time.Time {
+	return s.AsOf
+}
+
+// GetConfigVersion returns the value of ConfigVersion.
+func (s *AnalyticsDocuments) GetConfigVersion() int32 {
+	return s.ConfigVersion
+}
+
+// SetMeasure sets the value of Measure.
+func (s *AnalyticsDocuments) SetMeasure(val string) {
+	s.Measure = val
+}
+
+// SetTotal sets the value of Total.
+func (s *AnalyticsDocuments) SetTotal(val AnalyticsCell) {
+	s.Total = val
+}
+
+// SetDocuments sets the value of Documents.
+func (s *AnalyticsDocuments) SetDocuments(val []AnalyticsDocument) {
+	s.Documents = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AnalyticsDocuments) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetSource sets the value of Source.
+func (s *AnalyticsDocuments) SetSource(val string) {
+	s.Source = val
+}
+
+// SetAsOf sets the value of AsOf.
+func (s *AnalyticsDocuments) SetAsOf(val time.Time) {
+	s.AsOf = val
+}
+
+// SetConfigVersion sets the value of ConfigVersion.
+func (s *AnalyticsDocuments) SetConfigVersion(val int32) {
+	s.ConfigVersion = val
+}
+
+// AnalyticsDocumentsHeaders wraps AnalyticsDocuments with response headers.
+type AnalyticsDocumentsHeaders struct {
+	IdempotentReplayed OptBool
+	Response           AnalyticsDocuments
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AnalyticsDocumentsHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *AnalyticsDocumentsHeaders) GetResponse() AnalyticsDocuments {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AnalyticsDocumentsHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AnalyticsDocumentsHeaders) SetResponse(val AnalyticsDocuments) {
+	s.Response = val
+}
+
+func (*AnalyticsDocumentsHeaders) drillAnalyticsQueryRes() {}
+
+// A drill-through: a query as `runAnalyticsQuery` takes it, the measure drilled and the row, by its
+// value of each dimension of the query's `by`.
+// Ref: #/components/schemas/AnalyticsDrill
+type AnalyticsDrill struct {
+	Query AnalyticsQuery `json:"query"`
+	// The measure drilled, one of the query's `measures`; the query's only one when omitted.
+	Measure OptString `json:"measure"`
+	// The row's value of each dimension of the query's `by`, as the result's cells wrote them (`""` for a
+	// blank); every one of them and no other. `{}` for a query without `by`.
+	Row AnalyticsDrillRow `json:"row"`
+}
+
+// GetQuery returns the value of Query.
+func (s *AnalyticsDrill) GetQuery() AnalyticsQuery {
+	return s.Query
+}
+
+// GetMeasure returns the value of Measure.
+func (s *AnalyticsDrill) GetMeasure() OptString {
+	return s.Measure
+}
+
+// GetRow returns the value of Row.
+func (s *AnalyticsDrill) GetRow() AnalyticsDrillRow {
+	return s.Row
+}
+
+// SetQuery sets the value of Query.
+func (s *AnalyticsDrill) SetQuery(val AnalyticsQuery) {
+	s.Query = val
+}
+
+// SetMeasure sets the value of Measure.
+func (s *AnalyticsDrill) SetMeasure(val OptString) {
+	s.Measure = val
+}
+
+// SetRow sets the value of Row.
+func (s *AnalyticsDrill) SetRow(val AnalyticsDrillRow) {
+	s.Row = val
+}
+
+// The row's value of each dimension of the query's `by`, as the result's cells wrote them (`""` for a
+// blank); every one of them and no other. `{}` for a query without `by`.
+type AnalyticsDrillRow map[string]string
+
+func (s *AnalyticsDrillRow) init() AnalyticsDrillRow {
+	m := *s
+	if m == nil {
+		m = map[string]string{}
+		*s = m
+	}
+	return m
+}
+
 // A filter on a dimension.
 // Ref: #/components/schemas/AnalyticsFilter
 type AnalyticsFilter struct {
@@ -24474,6 +24722,7 @@ func (*ConflictHeaders) declineQuotationRes()                      {}
 func (*ConflictHeaders) deleteWebhookSubscriptionRes()             {}
 func (*ConflictHeaders) disableConnectorRes()                      {}
 func (*ConflictHeaders) discardConsolidationRunRes()               {}
+func (*ConflictHeaders) drillAnalyticsQueryRes()                   {}
 func (*ConflictHeaders) enableConnectorRes()                       {}
 func (*ConflictHeaders) endAgentSessionRes()                       {}
 func (*ConflictHeaders) endCompanyAccessRes()                      {}
@@ -35960,6 +36209,22 @@ func (s *DownPaymentRequestPage) SetNextPageToken(val OptString) {
 }
 
 func (*DownPaymentRequestPage) listDownPaymentRequestsRes() {}
+
+type DrillAnalyticsQueryBadRequest Problem
+
+func (*DrillAnalyticsQueryBadRequest) drillAnalyticsQueryRes() {}
+
+type DrillAnalyticsQueryForbidden Problem
+
+func (*DrillAnalyticsQueryForbidden) drillAnalyticsQueryRes() {}
+
+type DrillAnalyticsQueryPreconditionRequired Problem
+
+func (*DrillAnalyticsQueryPreconditionRequired) drillAnalyticsQueryRes() {}
+
+type DrillAnalyticsQueryUnprocessableEntity Problem
+
+func (*DrillAnalyticsQueryUnprocessableEntity) drillAnalyticsQueryRes() {}
 
 // A dunning notice (collections, ADR-0065 §3): what a dunning run proposes for one customer.
 // Ref: #/components/schemas/DunningNotice
@@ -82197,6 +82462,7 @@ func (*ServiceUnavailableHeaders) createYearCloseRes()                       {}
 func (*ServiceUnavailableHeaders) decideRecommendationRes()                  {}
 func (*ServiceUnavailableHeaders) deleteWebhookSubscriptionRes()             {}
 func (*ServiceUnavailableHeaders) disableConnectorRes()                      {}
+func (*ServiceUnavailableHeaders) drillAnalyticsQueryRes()                   {}
 func (*ServiceUnavailableHeaders) enableConnectorRes()                       {}
 func (*ServiceUnavailableHeaders) endAgentSessionRes()                       {}
 func (*ServiceUnavailableHeaders) endCompanyAccessRes()                      {}
@@ -87335,6 +87601,7 @@ func (*TooManyRequestsHeaders) declineQuotationRes()                      {}
 func (*TooManyRequestsHeaders) deleteWebhookSubscriptionRes()             {}
 func (*TooManyRequestsHeaders) disableConnectorRes()                      {}
 func (*TooManyRequestsHeaders) discardConsolidationRunRes()               {}
+func (*TooManyRequestsHeaders) drillAnalyticsQueryRes()                   {}
 func (*TooManyRequestsHeaders) enableConnectorRes()                       {}
 func (*TooManyRequestsHeaders) endAgentSessionRes()                       {}
 func (*TooManyRequestsHeaders) endCompanyAccessRes()                      {}
@@ -88144,6 +88411,7 @@ func (*UnauthorizedHeaders) declineQuotationRes()                      {}
 func (*UnauthorizedHeaders) deleteWebhookSubscriptionRes()             {}
 func (*UnauthorizedHeaders) disableConnectorRes()                      {}
 func (*UnauthorizedHeaders) discardConsolidationRunRes()               {}
+func (*UnauthorizedHeaders) drillAnalyticsQueryRes()                   {}
 func (*UnauthorizedHeaders) enableConnectorRes()                       {}
 func (*UnauthorizedHeaders) endAgentSessionRes()                       {}
 func (*UnauthorizedHeaders) endCompanyAccessRes()                      {}

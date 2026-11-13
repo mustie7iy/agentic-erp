@@ -24483,6 +24483,234 @@ func (s *Server) handleDiscardConsolidationRunRequest(args [1]string, argsEscape
 	}
 }
 
+// handleDrillAnalyticsQueryRequest handles drillAnalyticsQuery operation.
+//
+// Drill-through (T94b, ADR-0044 As built T94b): the documents that make up one measure of one row of a
+// query's result, a page at a time. The request names the query as `runAnalyticsQuery` takes it, the
+// measure drilled (the query's only one when omitted) and the row by its value of each dimension of
+// the query's `by` (the cells the result wrote, `""` for a blank). The answer is the row's figure as
+// the query answers it (`total`) and the documents behind it, each with its kind, id, number, company,
+// its part of the figure in the figure's currency and the path that reads it: journal entries for the
+// general ledger's metrics, purchase orders, supplier invoices (the invoices' gross for
+// `invoice_value`, their items' net for the spend metrics), sales orders and billing documents. For a
+// sum, the documents' amounts add up to the figure; for a count (`purchase_order_count`,
+// `invoice_count`, `billing_document_count`) the documents are what is counted, each with the amount
+// of its lines the metric reads. A derived metric (a difference, ratio or complement) is 422
+// `analytics.invalid_query` naming the metrics to drill into instead, and so are the cash metrics,
+// whose documents are not listed. The query is checked and scoped as `runAnalyticsQuery` checks it
+// (the same permissions, company access and currency guard), and each document's number is read as the
+// caller from the document's own read (`getJournalEntry`, `getPurchaseOrder`, `getSupplierInvoice`,
+// `getSalesOrder`, `getBillingDocument`), so a figure the caller may see never lists a document they
+// may not read: such a read's refusal refuses the page with its problem. Pages are ordered by document
+// id and currency, and stay stable while documents are added; a page token is valid only for the same
+// request. Changes nothing: agents of any autonomy level may run it.
+//
+// POST /v1/analytics-documents
+func (s *Server) handleDrillAnalyticsQueryRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("drillAnalyticsQuery"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/analytics-documents"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), DrillAnalyticsQueryOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: DrillAnalyticsQueryOperation,
+			ID:   "drillAnalyticsQuery",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, DrillAnalyticsQueryOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeDrillAnalyticsQueryParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeDrillAnalyticsQueryRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response DrillAnalyticsQueryRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    DrillAnalyticsQueryOperation,
+			OperationSummary: "List the documents behind a row of a semantic analytics query",
+			OperationID:      "drillAnalyticsQuery",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *AnalyticsDrill
+			Params   = DrillAnalyticsQueryParams
+			Response = DrillAnalyticsQueryRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackDrillAnalyticsQueryParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.DrillAnalyticsQuery(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.DrillAnalyticsQuery(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeDrillAnalyticsQueryResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleEnableConnectorRequest handles enableConnector operation.
 //
 // Allows the connector to exchange messages again. Requires status `disabled`.

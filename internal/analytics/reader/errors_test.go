@@ -30,21 +30,27 @@ func TestCompileRefuses(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, p := range map[string]Plan{
-		"unknown dataset":   {Dataset: "nope", Aggregate: "sum"},
-		"dimension dataset": {Dataset: "accounts", Aggregate: "sum"},
-		"aggregate":         {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "avg"},
-		"unknown column":    {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", By: []string{"nope"}},
-		"a key":             {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", By: []string{"document_id"}},
-		"filter column":     {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "amount_minor", Op: "in", Values: []string{"1"}}}},
-		"range off date":    {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "company", Op: ">=", Values: []string{"2026-01-01"}}}},
-		"range not a date":  {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "posting_date", Op: "<=", Values: []string{"x"}}}},
-		"range count":       {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "posting_date", Op: "between", Values: []string{"2026-01-01"}}}},
-		"op":                {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "company", Op: "like", Values: []string{"1%"}}}},
-		"empty in":          {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "company", Op: "in"}}},
-		"no ledger":         {Dataset: "gl_lines", Aggregate: "sum"},
-		"bad ledger":        {Dataset: "gl_lines", Ledger: "leading", Aggregate: "sum"},
-		"calendar":          {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", FiscalYearStartMonth: 13},
-		"fiscal range":      {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "fiscal_year", Op: ">=", Values: []string{"2026-01-01"}}}},
+		"unknown dataset":    {Dataset: "nope", Aggregate: "sum"},
+		"dimension dataset":  {Dataset: "accounts", Aggregate: "sum"},
+		"aggregate":          {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "avg"},
+		"unknown column":     {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", By: []string{"nope"}},
+		"a key":              {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", By: []string{"document_id"}},
+		"filter column":      {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "amount_minor", Op: "in", Values: []string{"1"}}}},
+		"range off date":     {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "company", Op: ">=", Values: []string{"2026-01-01"}}}},
+		"range not a date":   {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "posting_date", Op: "<=", Values: []string{"x"}}}},
+		"range count":        {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "posting_date", Op: "between", Values: []string{"2026-01-01"}}}},
+		"op":                 {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "company", Op: "like", Values: []string{"1%"}}}},
+		"empty in":           {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "company", Op: "in"}}},
+		"no ledger":          {Dataset: "gl_lines", Aggregate: "sum"},
+		"bad ledger":         {Dataset: "gl_lines", Ledger: "leading", Aggregate: "sum"},
+		"calendar":           {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", FiscalYearStartMonth: 13},
+		"fiscal range":       {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "fiscal_year", Op: ">=", Values: []string{"2026-01-01"}}}},
+		"a sum paged":        {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Limit: 5},
+		"a count after":      {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "count_distinct", After: []string{"a", "EUR"}},
+		"documents unpaged":  {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "documents"},
+		"documents too many": {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "documents", Limit: 502},
+		"after no document":  {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "documents", Limit: 5, After: []string{"", "EUR"}},
+		"after no currency":  {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "documents", Limit: 5, After: []string{"a"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := compile(contract, everything, p)
@@ -378,7 +384,7 @@ func TestScanFailures(t *testing.T) {
 		"too big": {next: 1, total: new(big.Int).Lsh(big.NewInt(1), 64)},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := r.scan(f, 0, true); err == nil {
+			if _, err := r.scan(f, 0, compiled{sum: true}); err == nil {
 				t.Error("scan: got nil error, want one")
 			}
 		})

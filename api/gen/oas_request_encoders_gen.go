@@ -1400,6 +1400,20 @@ func encodeDisableConnectorRequest(
 	return nil
 }
 
+func encodeDrillAnalyticsQueryRequest(
+	req *AnalyticsDrill,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeEndAgentSessionRequest(
 	req *AgentSessionEnd,
 	r *http.Request,

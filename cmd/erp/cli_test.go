@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -991,4 +993,108 @@ func TestExternalAmounts(t *testing.T) {
 			}
 		})
 	}
+}
+
+// documentsAnswer is erp-server's drill-through answer: one page of one
+// journal entry of the row's revenue.
+const documentsAnswer = `{"measure": "revenue", "total": {"value": "500.00", "currency": "EUR"}, "documents": [{"kind": "journal_entry",
+	"id": "01a1d4dd-d392-797d-bffd-b507d4d774a4", "number": "100000042", "company": "2000", "amount": {"amount": "500.00", "currency": "EUR"},
+	"path": "/v1/journal-entries/01a1d4dd-d392-797d-bffd-b507d4d774a4"}], "source": "store", "as_of": "2026-10-20T12:00:00Z", "config_version": 1}`
+
+// TestQueryDocuments: erp query -documents lists the documents behind a
+// row and the row's figure (T94b); a row it cannot read, a refusal and
+// output that cannot be printed fail it.
+func TestQueryDocuments(t *testing.T) {
+	fakeAPI(t, routes{"POST /v1/analytics-documents": {ok(documentsAnswer)}})
+	got := must(t, "query", "-measures", "revenue", "-by", "company", "-companies", "2000", "-documents", "company=2000")
+	for _, want := range []string{"journal_entry  100000042  2000     500.00  EUR", "revenue of the row: 500.00 EUR · 1 documents · from the store"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("documents: got %s, want %q", got, want)
+		}
+	}
+	fakeAPI(t, routes{"POST /v1/analytics-documents": {ok(`{"measure": "revenue", "total": {"value": null}, "documents": [], "source": "database"}`)}})
+	if got := must(t, "query", "-measures", "revenue", "-documents", ""); !strings.Contains(got, "revenue of the row: none · 0 documents") {
+		t.Errorf("a row of no figure: got %s, want none", got)
+	}
+	fails(t, "want dim=value pairs", "query", "-measures", "revenue", "-documents", "company")
+	fakeAPI(t, routes{"POST /v1/analytics-documents": {refused}})
+	fails(t, "analytics.invalid_query", "query", "-measures", "nope", "-documents", "")
+	fakeAPI(t, routes{"POST /v1/analytics-documents": {ok(documentsAnswer)}})
+	t.Cleanup(func() { out = os.Stdout })
+	out = failing{}
+	pgtest.CheckErr(t, queryCmd(context.Background(), []string{"-measures", "revenue", "-documents", ""}), "device full")
+	out = documentsSummaryFails{}
+	pgtest.CheckErr(t, queryCmd(context.Background(), []string{"-measures", "revenue", "-documents", ""}), "device full")
+}
+
+// documentsSummaryFails prints the documents and fails on the line after
+// them.
+type documentsSummaryFails struct{}
+
+func (documentsSummaryFails) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), "of the row") {
+		return 0, errors.New("device full")
+	}
+	return len(p), nil
+}
+
+// TestAskContinue: erp ask -continue asks a follow-up in a saved report's
+// analysis, its queries rerun first, and saves the report with the whole
+// exchange under its id (T94a); a report it cannot read or rerun fails it.
+func TestAskContinue(t *testing.T) {
+	t.Chdir(t.TempDir())
+	fakeAPI(t, answers(ok(answer)))
+	dashboard := llmtest.ToolFn("build_dashboard", func(b string) any {
+		return map[string]any{"spec": analytics.Spec{Title: "Invoices", Tables: []analytics.Table{{Title: "t", QueryID: qidRe.FindString(b)}}}}
+	})
+	ask := llmtest.New(t,
+		llmtest.Tool("run_query", map[string]any{"measures": []string{"invoice_count"}, "by": []string{"fiscal_month"}}), dashboard, llmtest.Final("Done."),
+		llmtest.Step{Tool: "run_query", Input: func(string) any { return map[string]any{"measures": []string{"invoice_count"}} }, Expect: "how many"},
+		dashboard, llmtest.Final("Again."),
+		llmtest.Tool("run_query", map[string]any{"measures": []string{"invoice_count"}}), dashboard, llmtest.Final("Third."),
+		llmtest.Tool("run_query", map[string]any{"measures": []string{"invoice_count"}}), dashboard, llmtest.Final("All."))
+	newAgent = func(*apitools.Client) *analytics.Agent {
+		r := ask.Runner()
+		return &analytics.Agent{Client: r.Client, Model: r.Model}
+	}
+	t.Cleanup(func() { newAgent = defaultAgent })
+	got := must(t, "ask", "-companies", "2000", "-out", "reports", "how", "many")
+	id := regexp.MustCompile(`erp report -id (rpt_[0-9a-f]+)`).FindStringSubmatch(got)
+	if id == nil {
+		t.Fatalf("ask: got %s, want the report's id", got)
+	}
+	if !strings.Contains(got, "erp ask -continue "+id[1]) {
+		t.Errorf("ask: got %s, want how to continue the analysis", got)
+	}
+	fails(t, "an analysis of companies 2000:", "ask", "-continue", id[1], "-companies", "1000", "-out", "reports", "q")
+	// Without -companies the follow-up keeps the analysis's companies.
+	must(t, "ask", "-continue", id[1], "-out", "reports", "and", "by", "month?")
+	rep, err := analytics.LoadReport(filepath.Join("reports", id[1]+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Exchange) != 2 {
+		t.Fatalf("the exchange: got %d turns, want 2", len(rep.Exchange))
+	}
+	if rep.Exchange[1].Question != "and by month?" {
+		t.Errorf("the follow-up's question: got %q, want and by month?", rep.Exchange[1].Question)
+	}
+	if rep.Exchange[1].Answer != "Again." {
+		t.Errorf("the follow-up's answer: got %q, want Again.", rep.Exchange[1].Answer)
+	}
+	if got := strings.Join(rep.Principal.Companies, ","); got != "2000" {
+		t.Errorf("the analysis's companies: got %q, want 2000 kept", got)
+	}
+	// The same companies named again, as they were, continue it.
+	must(t, "ask", "-continue", id[1], "-companies", " 2000", "-out", "reports", "and", "again?")
+	// An analysis of every company refuses a narrower one.
+	all := must(t, "ask", "-out", "reports", "how", "many", "in", "all?")
+	allID := regexp.MustCompile(`erp report -id (rpt_[0-9a-f]+)`).FindStringSubmatch(all)
+	if allID == nil {
+		t.Fatalf("ask: got %s, want the report's id", all)
+	}
+	fails(t, "all the companies you may read", "ask", "-continue", allID[1], "-companies", "2000", "-out", "reports", "q")
+	fails(t, "no such file", "ask", "-continue", "rpt_missing", "-out", "reports", "q")
+	fakeAPI(t, answers(refused))
+	fails(t, "query", "ask", "-continue", id[1], "-out", "reports", "q")
 }

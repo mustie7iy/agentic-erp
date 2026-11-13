@@ -8450,6 +8450,124 @@ step_plan_version() {
   say "FC plans 1050.00 CAD for CC-1100 and 350.00 CAD for CC-1300, copied from PLAN at 105 percent."
   passed
 }
+# step_drill_through is T94b (ADR-0044 As built T94b): Carla drills from
+# the month's revenue, a row of a governed query, to the journal entries
+# behind it, a page at a time; their amounts add up to the figure, and
+# each number is the entry's own. A derived metric is refused naming its
+# bases, and Rita, who reads no supplier invoice, is refused the spend's.
+step_drill_through() {
+  heading "Step 80 — Drill-through: from the month's revenue to the journal entries behind it, a page at a time, adding up to the figure; a ratio refused naming its metrics; without the documents' read, none"
+  local month q figure body token total count entry number
+  as carla
+  month=$((10#${TODAY:5:2}))
+  say "Carla reads Maple's revenue by month of $YEAR, the governed metric of step 14:"
+  q="{\"measures\": [\"revenue\"], \"by\": [\"fiscal_year\", \"fiscal_month\"], \"where\": [{\"dim\": \"fiscal_year\", \"op\": \"in\", \"values\": [\"$YEAR\"]}], \"companies\": [\"$CC\"]}"
+  api 200 '(.rows[] | "  \(.[0].value)-\(.[1].value): \(.[2].value) \(.[2].currency)")' runAnalyticsQuery -body "$q"
+  figure=$(field "[.rows[] | select(.[1].value == \"$month\") | .[2].value] | first // \"\"")
+  [ -n "$figure" ] || fail "no revenue in month $month of $YEAR: the earlier steps' billing is not there"
+  say "She drills into month $month's $figure CAD (POST /v1/analytics-documents): the entries behind the"
+  say "figure, two to a page, each with its number, its part of the figure and the path that reads it:"
+  body="{\"query\": $q, \"row\": {\"fiscal_year\": \"$YEAR\", \"fiscal_month\": \"$month\"}}"
+  : >"$WORK/drill.jsonl"
+  token=''
+  while :; do
+    api 200 '"  total \(.total.value) \(.total.currency) from \(.source)", (.documents[] | "  \(.kind) \(.number) of \(.company): \(.amount.amount) \(.amount.currency)  \(.path | sub("[0-9a-f-]{36}$"; "…"))")' \
+      drillAnalyticsQuery -p page_size=2 ${token:+-p "page_token=$token"} -body "$body"
+    expect "the row's figure" "$(field .total.value)" "$figure"
+    jq -c '.documents[]' "$WORK/last.json" >>"$WORK/drill.jsonl"
+    token=$(field '.next_page_token // ""')
+    [ -n "$token" ] || break
+  done
+  total=$(jq -rs 'map(.amount.amount | sub("\\."; "") | tonumber) | add // 0' "$WORK/drill.jsonl")
+  count=$(jq -rs 'length' "$WORK/drill.jsonl")
+  expect "the documents' amounts added up" "$(amount "$total")" "$figure"
+  expect "every document a journal entry" "$(jq -rs 'map(.kind) | unique | join(" ")' "$WORK/drill.jsonl")" journal_entry
+  entry=$(jq -rs '.[0].id' "$WORK/drill.jsonl")
+  number=$(jq -rs '.[0].number' "$WORK/drill.jsonl")
+  say "Each number is the entry's own, read as Carla from the entry itself:"
+  api 200 '"journal entry \(.document_number) of \(.posting_date)"' getJournalEntry -p "id=$entry"
+  expect "the first document's number" "$(field .document_number)" "$number"
+  say "The same from the command line:"
+  show erp query -measures revenue -by fiscal_year,fiscal_month -where "fiscal_year in $YEAR" -companies "$CC" -documents "fiscal_year=$YEAR,fiscal_month=$month"
+  "$ERP" query -measures revenue -by fiscal_year,fiscal_month -where "fiscal_year in $YEAR" -companies "$CC" \
+    -documents "fiscal_year=$YEAR,fiscal_month=$month" >"$WORK/query.out" 2>&1 || { sed 's/^/     /' "$WORK/query.out"; fail "the drill-through failed"; }
+  sed 's/^/     /' "$WORK/query.out"
+  grep -q "revenue of the row: $figure CAD · $count documents" "$WORK/query.out" || fail "the command did not list the $count documents of $figure CAD"
+  say "A ratio has no documents of its own: drilling into it is refused, naming the metrics to drill into instead."
+  refused 422 analytics.invalid_query drillAnalyticsQuery -body "{\"query\": {\"measures\": [\"off_contract_share\"], \"companies\": [\"$CC\"]}, \"row\": {}}"
+  as rita
+  say "Rita reads no supplier invoice: the documents behind spend are not hers to list."
+  refused 403 identity.permission_missing drillAnalyticsQuery -body "{\"query\": {\"measures\": [\"spend\"], \"companies\": [\"$CC\"]}, \"row\": {}}"
+  as carla
+  say "$count journal entries make up month $month's $figure CAD of revenue."
+  passed
+}
+# step_follow_up is T94a (ADR-0044 As built T94a): an analytics agent
+# principal answers Carla's question with erp ask, then her follow-up
+# ("and by supplier?") with erp ask -continue: the agent is given the
+# earlier question, its answer and its results as data; its follow-up
+# query keeps the year the first question named, and the analysis keeps
+# the company its first erp ask was scoped to, neither named again. The model is the stand-in, answering from
+# a script of turns as the analytics suite's follow-up cases replay them
+# (evals/analytics). The saved report keeps both turns, and erp report
+# reruns every query of the exchange.
+step_follow_up() {
+  heading "Step 81 — A follow-up question in the same analysis: \"and by supplier?\" answered with the earlier question's year and the analysis's company, the report keeping the whole exchange"
+  local role got id report follow q
+  as ada
+  say "Ada sets up the analytics agent (agent type analytics, ADR-0044): it runs governed queries on what its role reads"
+  say "and builds dashboards; it writes nothing."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "analytics_agent", "name": "Analytics agent"}'
+  role=$(field .id)
+  grant "$role" analytics.query.run tenancy.org.read partner.supplier.read ledger.account.read payables.invoice.read procurement.order.read \
+    procurement.contract.read ledger.cost_center.read agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' createPrincipal \
+    -body '{"kind": "agent", "external_subject": "analytics-agent", "display_name": "Analytics agent", "all_companies": true, "agent_profile": {"autonomy_level": 0, "agent_type": "analytics", "model": "erp-analytics", "description": "Answers questions with governed metrics (ADR-0044)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token analytics-agent "Analytics agent"
+  q="{\"dim\": \"fiscal_year\", \"op\": \"in\", \"values\": [\"$YEAR\"]}"
+  jq -n --argjson year "$q" --arg y "$YEAR" '{vars: {query: "(q_[0-9a-f]{12})", latest: "(?s).*(q_[0-9a-f]{12})"}, turns: [
+    {tool: "run_query", input: {measures: ["spend"], by: ["fiscal_year", "currency"], where: [$year]}},
+    {tool: "build_dashboard", input: {spec: {title: ("Spend " + $y), tables: [{title: "By currency", query_id: "{{query}}"}]}}},
+    {final: ("The spend of " + $y + " is on the dashboard.")},
+    {tool: "run_query", input: {measures: ["spend"], by: ["vendor_name", "currency"], where: [$year]}},
+    {tool: "build_dashboard", input: {spec: {title: ("Spend " + $y + " by supplier"), assumptions: [("The follow-up keeps " + $y + " and the company of the first question.")],
+      tables: [{title: "By supplier", query_id: "{{latest}}"}]}}},
+    {final: ("The spend of " + $y + " by supplier is on the dashboard.")}]}' >"$WORK/model-script.json"
+  say "Carla asks through the agent (erp ask, the model a stand-in answering from a script of turns):"
+  show erp ask -companies "$CC" "What did we spend with suppliers this year?"
+  got=$(ERP_TOKEN=$(cat "$WORK/tokens/analytics-agent") "$ERP" ask -companies "$CC" -out "$WORK/reports" "What did we spend with suppliers this year?" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp ask failed ($(cat "$WORK/stderr"))"; }
+  printf '%s\n' "$got" | sed 's/^/     /'
+  id=$(printf '%s\n' "$got" | sed -nE 's/^Rerun later with: erp report -id (rpt_[0-9a-f]+)$/\1/p')
+  [ -n "$id" ] || { rm -f "$WORK/model-script.json"; fail "erp ask named no report"; }
+  say "Her follow-up names neither the year nor the company: the analysis keeps its company, and the agent answers with"
+  say "the earlier exchange in context."
+  show erp ask -continue "$id" "and by supplier?"
+  got=$(ERP_TOKEN=$(cat "$WORK/tokens/analytics-agent") "$ERP" ask -continue "$id" -out "$WORK/reports" "and by supplier?" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp ask -continue failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  report="$WORK/reports/$id.json"
+  say "The saved report keeps the whole exchange, each question with its answer and its queries:"
+  jq -r '.exchange[] | "  \(.question) -> \(.answer) (\(.queries | length) queries)"' "$report" | sed 's/^/   /'
+  expect "the exchange's questions" "$(jq -r '[.exchange[].question] | join(" | ")' "$report")" "What did we spend with suppliers this year? | and by supplier?"
+  follow=$(jq -c '[.queries[] | select(.by == ["vendor_name", "currency"])][0]' "$report")
+  expect "the follow-up's query keeps the year" "$(jq -r '.where[0] | "\(.dim) \(.op) \(.values | join(","))"' <<<"$follow")" "fiscal_year in $YEAR"
+  expect "the analysis keeps the company" "$(jq -r '.principal.companies | join(",")' "$report")" "$CC"
+  expect "the report's queries, both questions'" "$(jq -r '.queries | length' "$report")" 2
+  say "The follow-up's figures are the governed metric's, the same query run directly as Carla:"
+  as carla
+  api 200 '(.rows[] | "  \(.[0].value): \(.[2].value) \(.[2].currency)")' runAnalyticsQuery \
+    -body "{\"measures\": [\"spend\"], \"by\": [\"vendor_name\", \"currency\"], \"where\": [$q], \"companies\": [\"$CC\"]}"
+  say "Rerunning the report reruns every query of the exchange on current data:"
+  show erp report -id "$id" -companies "$CC"
+  ERP_TOKEN=$(cat "$WORK/tokens/analytics-agent") "$ERP" report -id "$id" -companies "$CC" -out "$WORK/reports" >"$WORK/report.out" 2>&1 ||
+    { sed 's/^/     /' "$WORK/report.out"; fail "erp report failed"; }
+  sed 's/^/     /' "$WORK/report.out"
+  grep -q "Refreshed \"Spend $YEAR by supplier\"" "$WORK/report.out" || fail "the report was not refreshed"
+  passed
+}
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -10474,7 +10592,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_margin step_plan_version step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_margin step_plan_version step_drill_through step_follow_up step_close'
 
 main() {
   stop_unseen

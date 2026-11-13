@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -92,6 +93,8 @@ func queryCmd(ctx context.Context, args []string) error {
 	var where multiFlag
 	fs.Var(&where, "where", `filter, repeatable: "dim in a,b", "dim not_in a", "dim <= v", "dim >= v", "dim between a,b"`)
 	csvOut := fs.String("csv", "", "also write the result as CSV to this file")
+	documents := fs.String("documents", "", `list the documents behind a row instead: "dim=value,..." for each -by dimension ("" without -by), of -measure`)
+	measure := fs.String("measure", "", "with -documents, the measure drilled (default: the only one)")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -106,6 +109,9 @@ func queryCmd(ctx context.Context, args []string) error {
 	c, err := client("ERP_TOKEN")
 	if err != nil {
 		return err
+	}
+	if flagSet(fs, "documents") {
+		return drillCmd(ctx, c, af, analytics.Drill{Query: q, Measure: *measure}, *documents)
 	}
 	sess, err := af.session(ctx, c)
 	if err != nil {
@@ -128,6 +134,50 @@ func queryCmd(ctx context.Context, args []string) error {
 		return writeCSV(*csvOut, r)
 	}
 	return nil
+}
+
+// flagSet reports whether the flag was given, empty or not.
+func flagSet(fs *flag.FlagSet, name string) bool {
+	set := false
+	fs.Visit(func(f *flag.Flag) { set = set || f.Name == name })
+	return set
+}
+
+// drillCmd lists the documents behind one row of the query (T94b): the
+// row named "dim=value,...", every page of them, and the row's figure.
+//
+//	erp query -measures revenue -by fiscal_month -where "fiscal_year in 2026" -documents fiscal_month=6
+func drillCmd(ctx context.Context, c *apitools.Client, af analyticsFlags, d analytics.Drill, row string) error {
+	d.Row = map[string]string{}
+	for _, pair := range splitList(row) {
+		dim, value, ok := strings.Cut(pair, "=")
+		if !ok {
+			return fmt.Errorf("-documents %q: want dim=value pairs separated by commas", row)
+		}
+		d.Row[strings.TrimSpace(dim)] = strings.TrimSpace(value)
+	}
+	remote := analytics.Remote{API: c}
+	if *af.companies != "" {
+		remote.Companies = strings.Split(*af.companies, ",")
+	}
+	got, err := remote.Documents(ctx, d)
+	if err != nil {
+		return err
+	}
+	tw := tabwriter.NewWriter(out, 2, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, "KIND\tNUMBER\tCOMPANY\tAMOUNT\tCURRENCY\tID")
+	for _, doc := range got.Documents {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", doc.Kind, doc.Number, doc.Company, analytics.Value{Units: doc.Amount, Scale: doc.Exponent}, doc.Currency, doc.ID)
+	}
+	if err := tw.Flush(); err != nil {
+		return fmt.Errorf("query: print: %w", err)
+	}
+	total := "none"
+	if got.Total != nil {
+		total = strings.TrimSpace(got.Total.String() + " " + got.Total.Currency)
+	}
+	return printf("query", "\n%s of the row: %s · %d documents · from the %s as of %s\n", got.Measure, total, len(got.Documents), got.Source,
+		got.AsOf.UTC().Format(time.RFC3339))
 }
 
 // writeCSV writes r to the file name. A failed close can mean the file was
@@ -165,12 +215,20 @@ func askCmd(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("ask", flag.ContinueOnError)
 	af := addAnalyticsFlags(fs)
 	outDir := fs.String("out", defaultReports, "directory for generated reports")
+	cont := fs.String("continue", "", "a saved report's id: ask a follow-up question in its analysis")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	question := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if question == "" {
 		return fmt.Errorf(`ask a question, e.g. erp ask "monthly sales vs last year this time"`)
+	}
+	var earlier *analytics.Report
+	var err error
+	if *cont != "" {
+		if earlier, err = continued(af, *outDir, *cont); err != nil {
+			return err
+		}
 	}
 	c, err := client("ERP_TOKEN")
 	if err != nil {
@@ -181,7 +239,7 @@ func askCmd(ctx context.Context, args []string) error {
 		return err
 	}
 	fmt.Fprintln(errOut, "Working on it...")
-	ans, err := newAgent(c).Ask(ctx, sess, question)
+	ans, err := askOrContinue(ctx, c, sess, earlier, question)
 	if err != nil {
 		return err
 	}
@@ -189,7 +247,45 @@ func askCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return printf("ask", "%s\n\nDashboard: %s\nRerun later with: erp report -id %s\n", ans.Summary, path, ans.Report.ID)
+	return printf("ask", "%s\n\nDashboard: %s\nRerun later with: erp report -id %s\nAsk a follow-up with: erp ask -continue %s \"...\"\n",
+		ans.Summary, path, ans.Report.ID, ans.Report.ID)
+}
+
+// continued is the saved report whose analysis a follow-up continues,
+// with its companies: the follow-up keeps the analysis's scope, so
+// -companies may be left out, and one naming other companies is refused
+// rather than answered over a scope the earlier answers were not.
+func continued(af analyticsFlags, outDir, id string) (*analytics.Report, error) {
+	rep, err := analytics.LoadReport(filepath.Join(outDir, filepath.Base(id)+".json"))
+	if err != nil {
+		return nil, err
+	}
+	saved := slices.Sorted(slices.Values(rep.Principal.Companies))
+	asked := slices.Sorted(slices.Values(splitList(*af.companies)))
+	switch {
+	case *af.companies == "", slices.Equal(asked, saved):
+		*af.companies = strings.Join(saved, ",")
+	case len(saved) == 0:
+		return nil, fmt.Errorf("report %s is an analysis of all the companies you may read: continue it without -companies, or ask anew", rep.ID)
+	default:
+		return nil, fmt.Errorf("report %s is an analysis of companies %s: continue it without -companies, or ask anew", rep.ID, strings.Join(saved, ","))
+	}
+	return rep, nil
+}
+
+// askOrContinue asks the agent the question, as a follow-up in the
+// analysis of the saved report earlier when there is one: its queries
+// rerun first, so the agent sees the earlier exchange on current data
+// (T94a).
+func askOrContinue(ctx context.Context, c *apitools.Client, sess *analytics.Session, earlier *analytics.Report, question string) (*analytics.Answer, error) {
+	if earlier == nil {
+		return newAgent(c).Ask(ctx, sess, question)
+	}
+	fresh, _, err := sess.Rerun(ctx, earlier)
+	if err != nil {
+		return nil, err
+	}
+	return newAgent(c).Continue(ctx, sess, fresh, question)
 }
 
 // reportCmd reruns a saved report (or a hand-written report file) on current data.

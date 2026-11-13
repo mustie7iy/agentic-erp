@@ -167,6 +167,7 @@ var operationRolesOidc = map[string][]string{
 	DeleteWebhookSubscriptionOperation:             []string{},
 	DisableConnectorOperation:                      []string{},
 	DiscardConsolidationRunOperation:               []string{},
+	DrillAnalyticsQueryOperation:                   []string{},
 	EnableConnectorOperation:                       []string{},
 	EndAgentSessionOperation:                       []string{},
 	EndCompanyAccessOperation:                      []string{},

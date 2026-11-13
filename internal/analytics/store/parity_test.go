@@ -314,6 +314,7 @@ func TestParity(t *testing.T) {
 		}
 	}
 	t.Run("endpoint", p.endpoint)
+	t.Run("documents", p.documents)
 	t.Run("permissions", p.permissions)
 	t.Run("permissions in read order", p.permissionsInReadOrder)
 	t.Run("metric change", p.metricChange) // last: it activates a configuration version

@@ -461,6 +461,10 @@ type DiscardConsolidationRunRes interface {
 	discardConsolidationRunRes()
 }
 
+type DrillAnalyticsQueryRes interface {
+	drillAnalyticsQueryRes()
+}
+
 type EnableConnectorRes interface {
 	enableConnectorRes()
 }

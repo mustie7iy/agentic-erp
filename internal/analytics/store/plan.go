@@ -25,15 +25,23 @@ func Plans(m *analytics.Model, q analytics.Query, ledger string) (map[string]wir
 		for _, b := range bases {
 			met := m.Metric(b)
 			p := wire.Plan{Dataset: met.Source, Aggregate: met.Aggregate, By: q.By, Ledger: ledger,
-				FiscalYearStartMonth: m.Calendar.FiscalYearStartMonth}
-			for _, d := range slices.Sorted(maps.Keys(met.Filter)) {
-				p.Where = append(p.Where, wire.Filter{Column: d, Op: "in", Values: met.Filter[d]})
-			}
-			for _, f := range q.Where {
-				p.Where = append(p.Where, wire.Filter{Column: f.Dim, Op: f.Op, Values: f.Values})
-			}
+				FiscalYearStartMonth: m.Calendar.FiscalYearStartMonth, Where: planWhere(met, q)}
 			plans[b] = p
 		}
 	}
 	return plans, nil
+}
+
+// planWhere is a plan's filters: the metric's, in the order of their
+// dimensions, then the query's, so a figure's plan and its documents'
+// select the same lines.
+func planWhere(met *analytics.Metric, q analytics.Query) []wire.Filter {
+	var where []wire.Filter
+	for _, d := range slices.Sorted(maps.Keys(met.Filter)) {
+		where = append(where, wire.Filter{Column: d, Op: "in", Values: met.Filter[d]})
+	}
+	for _, f := range q.Where {
+		where = append(where, wire.Filter{Column: f.Dim, Op: f.Op, Values: f.Values})
+	}
+	return where
 }
