@@ -141,6 +141,10 @@ func TestRiskRefusals(t *testing.T) {
 	e.Must(200, "POST", "/v1/controls/"+retired+":retire", "", tag)
 	me := e.Tenant.Human.ID
 	unknown := uuid.Must(uuid.NewV7()).String()
+	many := make([]string, 51) // the contract's limit is 50
+	for i := range many {
+		many[i] = uuid.Must(uuid.NewV7()).String()
+	}
 	for _, c := range []struct {
 		name, body string
 		status     int
@@ -157,6 +161,9 @@ func TestRiskRefusals(t *testing.T) {
 		{"a control the library does not have", riskOf("Fraud", "Payments", me, 1, 1, active, unknown), 422, "request.reference_not_found", "control_ids[1]"},
 		{"a retired control", riskOf("Fraud", "Payments", me, 1, 1, retired), 422, "grc.invalid_control", "control_ids[0]"},
 		{"a control named twice", riskOf("Fraud", "Payments", me, 1, 1, active, active), 422, "grc.invalid_control", "control_ids[1]"},
+		{"51 controls", riskOf("Fraud", "Payments", me, 1, 1, many...), 400, "request.invalid_body", ""},
+		{"a title of 201 characters", riskOf(strings.Repeat("t", 201), "Payments", me, 1, 1), 400, "request.invalid_body", ""},
+		{"a category of 101 characters", riskOf("Fraud", strings.Repeat("c", 101), me, 1, 1), 400, "request.invalid_body", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			m := e.in(t).Problem(c.status, c.code, "POST", "/v1/risks", c.body, "")
@@ -286,6 +293,7 @@ func TestCloseRisk(t *testing.T) {
 	_, tag := e.Must(200, "PATCH", path, `{"title": "Payments made twice"}`, first)
 	e.Problem(412, "request.version_mismatch", "POST", path+":close", `{"reason": "Mitigated."}`, `"7"`)
 	e.Problem(422, "grc.invalid_text", "POST", path+":close", `{"reason": "Mitigated. "}`, tag)
+	e.Problem(400, "request.invalid_body", "POST", path+":close", `{"reason": "`+strings.Repeat("r", 1001)+`"}`, tag)
 	got, next := e.Must(200, "POST", path+":close", `{"reason": "Mitigated by the duplicate check."}`, tag)
 	wantFields(t, got, map[string]any{"status": "closed", "close_reason": "Mitigated by the duplicate check.", "closed_by": e.Tenant.Human.ID.String(),
 		"closed_by_name": e.me(t), "version": float64(3)})
