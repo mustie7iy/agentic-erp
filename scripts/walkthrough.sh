@@ -8749,6 +8749,182 @@ step_revenue_schedule() {
   refused 409 revenue.recognition_run_exists createRevenueRecognitionRun -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $year, \"fiscal_period\": $period}"
   passed
 }
+# step_access_sod is T106b (ADR-0072): the access agent, erp agent
+# access-sod through the model stand-in answering from a script of turns
+# (its suite's replay, evals/access), analyses a role against the
+# tenant's segregation-of-duties rules with a permission to be added.
+# The rule the plan names, who proposes a payment run does not release
+# it, cannot be made: Tom, Tara and Fiona
+# propose (finance_staff) and release (Z_TREASURY_MGR), and Ada's
+# tenant_admin holds every permission, so identity refuses it (409). Ada
+# keeps the treasury roles as they are and makes the rule that fits the
+# team: who administers access does not release payments. First she ends
+# her own role's release of payment runs from tomorrow, since an
+# administrator releases none, then makes the rule from tomorrow, unless
+# the control matrix's step (T98b), which makes the same rule the same
+# way, already did. Asked
+# about adding the release back to tenant_admin, the agent names the rule
+# and Ada, the role's holder, as the run computed it the way identity's
+# check at a grant does; the agent cannot grant it, and Ada's own grant
+# is refused by that check, naming the same rule and holder.
+step_access_sod() {
+  heading "Step 83 — The access agent: a role analysed against the tenant's segregation-of-duties rules with the payment release to be added; the conflict computed as identity's check at a grant computes it, the rule and the holder named; the grant refused as the agent said"
+  local admin_role ada tomorrow grant line got session rec
+  as ada
+  ada=$(awk -F'\t' '$2 == "Ada Admin" { print $1 }' "$WORK/names")
+  tomorrow=$(date_add "$(utc_day)" 1)
+  say "The rule that whoever proposes a payment run does not release it cannot be made while somebody would break it:"
+  say "the treasurers propose and release, and so may Ada:"
+  refused 409 identity.sod_conflict createSodRule -body "{\"permission_a\": \"payments.run.propose\", \"permission_b\": \"payments.run.release\", \"description\": \"Who proposes a payment run does not release it\", \"valid_from\": \"$tomorrow\"}"
+  say "The rule that fits the team is that whoever administers access does not release payment runs. An administrator"
+  say "releases no payment run, so Ada's own role releases none from tomorrow, and the rule is in force from then"
+  say "(made here, or already by the control matrix's step, T98b, which makes the same rule the same way):"
+  QUIET=1 api 200 '' listRoles -p page_size=100
+  admin_role=$(field '.items[] | select(.code == "tenant_admin") | .id')
+  QUIET=1 api 200 '' listRolePermissions -p "id=$admin_role" -p "valid_on=$(utc_day)" -p page_size=500
+  expect "the administrator role's grants on one page" "$(field '.next_page_token // "none"')" none
+  grant=$(field '.items[] | select(.permission_code == "payments.run.release") | .id')
+  [ -n "$grant" ] || fail "the administrator's role does not hold payments.run.release today"
+  QUIET=1 api 200 '' getRolePermission -p "id=$admin_role" -p "permission_id=$grant"
+  if [ "$(field '.valid_to // ""')" = "" ]; then
+    api 200 '"  \(.permission_code) on tenant_admin: valid to \(.valid_to)"' endRolePermission -p "id=$admin_role" -p "permission_id=$grant" -if-match "$ETAG" -body "{\"valid_to\": \"$tomorrow\"}"
+  fi
+  expect "the administrator role's release ends" "$(field '.valid_to')" "$tomorrow"
+  QUIET=1 api 200 '' listSodRules -p "valid_on=$tomorrow" -p page_size=500
+  if [ -z "$(field '.items[] | select(.permission_a == "identity.access.manage" and .permission_b == "payments.run.release") | .id')" ]; then
+    api 201 '"  rule \(.permission_a) / \(.permission_b) from \(.valid_from): \(.description)"' createSodRule \
+      -body "{\"permission_a\": \"identity.access.manage\", \"permission_b\": \"payments.run.release\", \"description\": \"Whoever administers access does not release payment runs.\", \"valid_from\": \"$tomorrow\"}"
+  fi
+  api 200 '.items[] | "  rule \(.permission_a) / \(.permission_b) from \(.valid_from): \(.description)"' listSodRules -p "valid_on=$tomorrow" -p page_size=500
+  expect "the rule in force from tomorrow" "$(field '[.items[] | select(.permission_a == "identity.access.manage" and .permission_b == "payments.run.release")] | length')" 1
+  line="Rule identity.access.manage / payments.run.release: Ada Admin ($ada)"
+  say "Asked whether the administrators may release payment runs again, the access agent (its role reads identity"
+  say "data since step 67) runs: erp agent access-sod reads the roles, the assignments, the rules, the principals and"
+  say "the grants of the role's holders itself, computes who would hold both permissions of a rule on a day it is in"
+  say "force, and starts a session. The model is the stand-in, answering from a script of turns as the agent's suite"
+  say "replays them (evals/access): it reads the rules and recommends sod_conflict, naming the rule and Ada."
+  jq -n --arg role "$admin_role" --arg line "$line" '
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "listSodRules", input: {}},
+      {tool: "createRecommendation", input: {body: {session_id: "{{session}}", object_type: "role", object_id: $role, kind: "sod_conflict",
+        content: "\($line)\nAda Admin administers access through tenant_admin and would release payment runs through it too. Keep payments.run.release out of tenant_admin: the treasury roles release, and nobody who administers access is given one of them."}}},
+      {final: "Adding payments.run.release to tenant_admin would break the rule; an identity administrator decides."}]}' >"$WORK/model-script.json"
+  show ERP_AGENT_TOKEN=… erp agent access-sod -role tenant_admin -add payments.run.release
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/access-agent") "$ERP" agent access-sod -role tenant_admin -add payments.run.release 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent access-sod failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 0."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): sod_conflict on role $admin_role\$/\1/p")
+  [ -n "$rec" ] || fail "erp agent access-sod printed no sod_conflict on the role $admin_role"
+  say "Ada reads the recommendation on the role:"
+  api 200 '(.items[] | select(.kind == "sod_conflict") | "  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)"))' listRecommendations -p "object_id=$admin_role" -p "session_id=$session"
+  expect "the recommendation of the session, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "naming the rule and its holder, first" "$(field '.items[0].content | split("\n")[0]')" "$line"
+  as access-agent
+  say "Recommending is all it may do: granting is a person's (x-agent: false), and the API refuses its own call:"
+  refused 403 identity.agent_not_allowed grantRolePermission -p "id=$admin_role" -body "{\"permission_code\": \"payments.run.release\", \"valid_from\": \"$tomorrow\"}"
+  api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "listSodRules createRecommendation"
+  as ada
+  say "Ada tries the grant herself, from tomorrow: identity's own check refuses it, naming the rule and the holder the"
+  say "agent named:"
+  refused 409 identity.sod_conflict grantRolePermission -p "id=$admin_role" -body "{\"permission_code\": \"payments.run.release\", \"valid_from\": \"$tomorrow\"}"
+  expect "the refusal names Ada and the rule's two permissions" "$(field '.detail')" \
+    "Segregation of duties: principal $ada would hold both identity.access.manage and payments.run.release."
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "The administrators release no payment run."}'
+  expect "the recommendation's outcome" "$(field .outcome)" accepted
+  passed
+}
+# step_access_review is T106c (ADR-0072): the access agent, erp agent
+# access-review through the model stand-in answering from a script of
+# turns (its suite's replay, evals/access), prepares the access review of
+# yesterday to tomorrow (UTC): one recommendation per active principal,
+# people, agents and services alike, for a reviewer to decide. Ada gave
+# Sally a role for preparing tax returns, tax_preparer, which Sally, who
+# sells, never used: its removal is recommended and named. The kind and
+# the first line of each recommendation are computed by the run and given
+# in its prompt; the stand-in's script reads them back per principal (the
+# script's vars), as a model would take them. A second run of the period
+# starts no session and adds none. The review's sign-off is not built.
+step_access_review() {
+  heading "Step 84 — The access agent: an access review prepared, one recommendation per principal, people, agents and services, the role nobody used recommended for removal; a second run adds none"
+  local role sally agent from to ids n got session rec before
+  as ada
+  say "Ada gives Sally, who sells, a role for preparing tax returns, tax_preparer, which she will not use:"
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "tax_preparer", "name": "Tax preparer"}'
+  role=$(field .id)
+  grant "$role" tax.return.prepare
+  sally=$(awk -F'\t' '$2 == "Sally Sales" { print $1 }' "$WORK/names")
+  [ -n "$sally" ] || fail "Sally is not among the people of the walkthrough"
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$sally\", \"role_id\": \"$role\"}"
+  from=$(date_add "$(utc_day)" -1) to=$(date_add "$(utc_day)" 1)
+  QUIET=1 api 200 '' listPrincipals -p status=active -p page_size=500
+  expect "the active principals on one page" "$(field '.next_page_token // "none"')" none
+  ids=$(field '[.items[].id] | sort | join(" ")')
+  n=$(field '.items | length')
+  agent=$(field '.items[] | select(.display_name == "Access agent") | .id')
+  say "The access agent prepares the review of $from to $to (UTC): erp agent access-review reads the roles, the"
+  say "assignments, the rules, the principals, their roles' grants and the period's audit events itself, judges for"
+  say "each active principal each role it holds on $to by its own audit events (as step 67 judges a role by its"
+  say "holders'), with its segregation-of-duties conflicts as step 68 computes them, and starts a session. The model"
+  say "is the stand-in, answering from a script of turns as the agent's suite replays them (evals/access): one"
+  say "recommendation per principal, with the kind and first line the run computed for it."
+  jq -n --arg ids "$ids" '
+    ($ids | split(" ")) as $p |
+    {vars: ([range(0; $p | length) as $i |
+       {key: "k\($i)", value: "Kind for \($p[$i]): ([a-z_]+)"}, {key: "l\($i)", value: "Line for \($p[$i]): ([^\\\\]+)"}] | from_entries
+       + {session: "session id is ([0-9a-f-]{36})"}),
+     turns: ([range(0; $p | length) as $i |
+       {tool: "createRecommendation", input: {body: {session_id: "{{session}}", object_type: "principal", object_id: $p[$i], kind: "{{k\($i)}}",
+         content: "{{l\($i)}}\nThe roles of this principal as the run found them, for the reviewer to decide."}}}]
+       + [{final: "The access review is prepared; the reviewer decides each recommendation."}])}' >"$WORK/model-script.json"
+  show ERP_AGENT_TOKEN=… erp agent access-review -period "$from..$to"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/access-agent") "$ERP" agent access-review -period "$from..$to" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent access-review failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made: one recommendation per active principal" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" \
+    "recommendations made $n, refused 0."
+  expect "the principals recommended on, every active one" \
+    "$(printf '%s\n' "$got" | sed -nE 's/^  recommendation [0-9a-f-]{36}: [a-z_]+ on principal ([0-9a-f-]{36}) \(.*/\1/p' | sort | tr '\n' ' ' | sed 's/ $//')" "$ids"
+  expect "an agent reviewed too: the access agent itself" "$(printf '%s\n' "$got" | grep -c " on principal $agent (Access agent): " || true)" 1
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): remove_roles on principal $sally \\(Sally Sales\\): Access review $from\\.\\.$to: remove tax_preparer\$/\\1/p")
+  [ -n "$rec" ] || fail "erp agent access-review printed no remove_roles of tax_preparer on Sally ($sally)"
+  say "The reviewer reads Sally's recommendation in full:"
+  api 200 '"  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)")' getRecommendation -p "id=$rec"
+  expect "made in the session" "$(field .session_id)" "$session"
+  QUIET=1 api 200 '' listRecommendations -p object_type=principal -p page_size=500
+  before=$(field '.items | length')
+  say "A second run of the same period adds nothing: every active principal has its recommendation already."
+  show ERP_AGENT_TOKEN=… erp agent access-review -period "$from..$to"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/access-agent") "$ERP" agent access-review -period "$from..$to" 2>"$WORK/stderr") ||
+    fail "the second erp agent access-review failed ($(cat "$WORK/stderr"))"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  expect "the second run" "$got" "Every active principal has its recommendation of the access review $from..$to already: nothing to add."
+  QUIET=1 api 200 '' listRecommendations -p object_type=principal -p page_size=500
+  expect "the recommendations on principals" "$(field '.items | length')" "$before"
+  as access-agent
+  say "Recommending is all it may do: ending an assignment is a person's (x-agent: false):"
+  QUIET=1 api 200 '' listRoleAssignments -p "principal_id=$sally" -p "role_id=$role"
+  local assignment
+  assignment=$(field '.items[0].id')
+  QUIET=1 api 200 '' getRoleAssignment -p "id=$assignment"
+  refused 403 identity.agent_not_allowed endRoleAssignment -p "id=$assignment" -if-match "$ETAG" -body "{\"valid_to\": \"$to\"}"
+  as ada
+  say "Ada, reviewing, accepts it and ends the assignment herself, through the normal operation, from $to:"
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "Sally prepares no tax returns."}'
+  QUIET=1 api 200 '' getRoleAssignment -p "id=$assignment"
+  api 200 '"  tax_preparer of Sally: valid to \(.valid_to)"' endRoleAssignment -p "id=$assignment" -if-match "$ETAG" -body "{\"valid_to\": \"$to\"}"
+  passed
+}
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -10773,7 +10949,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_margin step_plan_version step_drill_through step_follow_up step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_close'
 
 main() {
   stop_unseen

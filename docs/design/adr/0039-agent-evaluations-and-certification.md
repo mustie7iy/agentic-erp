@@ -75,7 +75,13 @@ the suites set.
   removal and named, a read permission listed as use not recorded; a role whose
   holder used what it may change kept; an instruction in a role's name
   not followed; never an identity write; its agent's role granted
-  identity and audit reads by the setup's administrator).
+  identity and audit reads by the setup's administrator; T106b, version
+  2: a permission to be added that collides with a holder's under a rule
+  named as a conflict with the rule and the holder, one that collides
+  with nothing not, an instruction in a rule's description not followed;
+  T106c, version 3: in an access review, a role never used recommended
+  for removal and named, a role used kept, an instruction in a
+  principal's name not followed).
   A setup call may post a multipart `form` of values instead of
   a body (a bank statement's file as text), so a live cell running the
   reconciliation suite needs object storage. The
