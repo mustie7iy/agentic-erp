@@ -1545,6 +1545,30 @@ type Invoker interface {
 	//
 	// POST /v1/consolidation-runs/{id}:discard
 	DiscardConsolidationRun(ctx context.Context, params DiscardConsolidationRunParams) (DiscardConsolidationRunRes, error)
+	// DrillAnalyticsQuery invokes drillAnalyticsQuery operation.
+	//
+	// Drill-through (T94b, ADR-0044 As built T94b): the documents that make up one measure of one row of a
+	// query's result, a page at a time. The request names the query as `runAnalyticsQuery` takes it, the
+	// measure drilled (the query's only one when omitted) and the row by its value of each dimension of
+	// the query's `by` (the cells the result wrote, `""` for a blank). The answer is the row's figure as
+	// the query answers it (`total`) and the documents behind it, each with its kind, id, number, company,
+	// its part of the figure in the figure's currency and the path that reads it: journal entries for the
+	// general ledger's metrics, purchase orders, supplier invoices (the invoices' gross for
+	// `invoice_value`, their items' net for the spend metrics), sales orders and billing documents. For a
+	// sum, the documents' amounts add up to the figure; for a count (`purchase_order_count`,
+	// `invoice_count`, `billing_document_count`) the documents are what is counted, each with the amount
+	// of its lines the metric reads. A derived metric (a difference, ratio or complement) is 422
+	// `analytics.invalid_query` naming the metrics to drill into instead, and so are the cash metrics,
+	// whose documents are not listed. The query is checked and scoped as `runAnalyticsQuery` checks it
+	// (the same permissions, company access and currency guard), and each document's number is read as the
+	// caller from the document's own read (`getJournalEntry`, `getPurchaseOrder`, `getSupplierInvoice`,
+	// `getSalesOrder`, `getBillingDocument`), so a figure the caller may see never lists a document they
+	// may not read: such a read's refusal refuses the page with its problem. Pages are ordered by document
+	// id and currency, and stay stable while documents are added; a page token is valid only for the same
+	// request. Changes nothing: agents of any autonomy level may run it.
+	//
+	// POST /v1/analytics-documents
+	DrillAnalyticsQuery(ctx context.Context, request *AnalyticsDrill, params DrillAnalyticsQueryParams) (DrillAnalyticsQueryRes, error)
 	// EnableConnector invokes enableConnector operation.
 	//
 	// Allows the connector to exchange messages again. Requires status `disabled`.
@@ -22109,6 +22133,192 @@ func (c *Client) sendDiscardConsolidationRun(ctx context.Context, params Discard
 
 	stage = "DecodeResponse"
 	result, err := decodeDiscardConsolidationRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// DrillAnalyticsQuery invokes drillAnalyticsQuery operation.
+//
+// Drill-through (T94b, ADR-0044 As built T94b): the documents that make up one measure of one row of a
+// query's result, a page at a time. The request names the query as `runAnalyticsQuery` takes it, the
+// measure drilled (the query's only one when omitted) and the row by its value of each dimension of
+// the query's `by` (the cells the result wrote, `""` for a blank). The answer is the row's figure as
+// the query answers it (`total`) and the documents behind it, each with its kind, id, number, company,
+// its part of the figure in the figure's currency and the path that reads it: journal entries for the
+// general ledger's metrics, purchase orders, supplier invoices (the invoices' gross for
+// `invoice_value`, their items' net for the spend metrics), sales orders and billing documents. For a
+// sum, the documents' amounts add up to the figure; for a count (`purchase_order_count`,
+// `invoice_count`, `billing_document_count`) the documents are what is counted, each with the amount
+// of its lines the metric reads. A derived metric (a difference, ratio or complement) is 422
+// `analytics.invalid_query` naming the metrics to drill into instead, and so are the cash metrics,
+// whose documents are not listed. The query is checked and scoped as `runAnalyticsQuery` checks it
+// (the same permissions, company access and currency guard), and each document's number is read as the
+// caller from the document's own read (`getJournalEntry`, `getPurchaseOrder`, `getSupplierInvoice`,
+// `getSalesOrder`, `getBillingDocument`), so a figure the caller may see never lists a document they
+// may not read: such a read's refusal refuses the page with its problem. Pages are ordered by document
+// id and currency, and stay stable while documents are added; a page token is valid only for the same
+// request. Changes nothing: agents of any autonomy level may run it.
+//
+// POST /v1/analytics-documents
+func (c *Client) DrillAnalyticsQuery(ctx context.Context, request *AnalyticsDrill, params DrillAnalyticsQueryParams) (DrillAnalyticsQueryRes, error) {
+	res, err := c.sendDrillAnalyticsQuery(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendDrillAnalyticsQuery(ctx context.Context, request *AnalyticsDrill, params DrillAnalyticsQueryParams) (res DrillAnalyticsQueryRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("drillAnalyticsQuery"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/analytics-documents"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, DrillAnalyticsQueryOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/analytics-documents"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeDrillAnalyticsQueryRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, DrillAnalyticsQueryOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeDrillAnalyticsQueryResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

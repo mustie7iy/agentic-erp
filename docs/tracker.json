@@ -6569,13 +6569,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T59"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Drill-through to documents",
       "c": [
        {
-        "s": "T",
-        "t": "An analyst drills from a row of a query's result to the documents behind it: the journal entries, purchase orders or supplier invoices that make up the figure, paged, with the caller's company access (POST /v1/analytics-queries:documents)",
-        "r": "T94b · docs/design/plan-breadth-week3.md §T94b",
+        "s": "D",
+        "t": "An analyst drills from a row of a query's result to the documents behind it: the journal entries, purchase orders or supplier invoices that make up the figure, paged, with the caller's company access (POST /v1/analytics-documents)",
+        "r": "T94b · docs/design/plan-breadth-week3.md §T94b · ADR-0044 (As built, Drill-through to documents) · drillAnalyticsQuery (endpoint/drill.go) · analytics.RowQuery, DocumentsOf, PageOf, Source.Numbers, Remote.Documents (drill.go, remote.go) · store.Source.Documents, DocumentPlan (store/drill.go) · reader documents aggregate (wire.Plan After, Limit; wire.Row Document) · erp query -documents · TestRowQuery, TestDocumentsOf, TestPageOf, TestNumbers, TestRemoteDocuments, reader.TestDocuments, TestDocumentsFromTheStore, TestDocumentsFailures, TestParity documents, TestDrillThroughBudget, TestDrillThrough, TestDrillFailures, TestQueryDocuments · walkthrough step_drill_through",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

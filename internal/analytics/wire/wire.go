@@ -47,8 +47,10 @@ type Scope struct {
 // alone, so a request never carries SQL and cannot name a column the
 // contract does not list.
 type Plan struct {
-	Dataset   string   `json:"dataset"`   // a fact dataset
-	Aggregate string   `json:"aggregate"` // sum (of the amount, per currency) | count_distinct (of the document id)
+	Dataset string `json:"dataset"` // a fact dataset
+	// sum (of the amount, per currency) | count_distinct (of the document
+	// id) | documents (the sum per document and currency, T94b)
+	Aggregate string   `json:"aggregate"`
 	By        []string `json:"by,omitempty"`
 	Where     []Filter `json:"where,omitempty"`
 	// Ledger is the one ledger a dataset keyed by ledger is read in: the
@@ -60,6 +62,11 @@ type Plan struct {
 	// fiscal year, quarter and month are derived from the dataset's date
 	// with it at read time.
 	FiscalYearStartMonth int `json:"fiscal_year_start_month,omitempty"`
+	// After and Limit page a documents plan: its rows by document id, then
+	// currency, those after After ([id, currency]; none: from the first),
+	// at most Limit of them (1-501). Another plan names neither.
+	After []string `json:"after,omitempty"`
+	Limit int      `json:"limit,omitempty"`
 }
 
 // Filter restricts a column: in and not_in on any column the plan may
@@ -81,10 +88,11 @@ type Result struct {
 	Rows        []Row  `json:"rows"`
 }
 
-// Row is one group: the plan's By values in its order, then the sum per
-// currency or the count.
+// Row is one group: the plan's By values in its order, the document of a
+// documents plan, then the sum per currency or the count.
 type Row struct {
 	By       []string    `json:"by"`
+	Document string      `json:"document,omitempty"`
 	Currency string      `json:"currency,omitempty"`
 	Exponent int         `json:"exponent"` // 0 is a currency's exponent too (JPY)
 	Amount   money.Minor `json:"amount_minor"`

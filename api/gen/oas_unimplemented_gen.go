@@ -1841,6 +1841,33 @@ func (UnimplementedHandler) DiscardConsolidationRun(ctx context.Context, params 
 	return r, ht.ErrNotImplemented
 }
 
+// DrillAnalyticsQuery implements drillAnalyticsQuery operation.
+//
+// Drill-through (T94b, ADR-0044 As built T94b): the documents that make up one measure of one row of a
+// query's result, a page at a time. The request names the query as `runAnalyticsQuery` takes it, the
+// measure drilled (the query's only one when omitted) and the row by its value of each dimension of
+// the query's `by` (the cells the result wrote, `""` for a blank). The answer is the row's figure as
+// the query answers it (`total`) and the documents behind it, each with its kind, id, number, company,
+// its part of the figure in the figure's currency and the path that reads it: journal entries for the
+// general ledger's metrics, purchase orders, supplier invoices (the invoices' gross for
+// `invoice_value`, their items' net for the spend metrics), sales orders and billing documents. For a
+// sum, the documents' amounts add up to the figure; for a count (`purchase_order_count`,
+// `invoice_count`, `billing_document_count`) the documents are what is counted, each with the amount
+// of its lines the metric reads. A derived metric (a difference, ratio or complement) is 422
+// `analytics.invalid_query` naming the metrics to drill into instead, and so are the cash metrics,
+// whose documents are not listed. The query is checked and scoped as `runAnalyticsQuery` checks it
+// (the same permissions, company access and currency guard), and each document's number is read as the
+// caller from the document's own read (`getJournalEntry`, `getPurchaseOrder`, `getSupplierInvoice`,
+// `getSalesOrder`, `getBillingDocument`), so a figure the caller may see never lists a document they
+// may not read: such a read's refusal refuses the page with its problem. Pages are ordered by document
+// id and currency, and stay stable while documents are added; a page token is valid only for the same
+// request. Changes nothing: agents of any autonomy level may run it.
+//
+// POST /v1/analytics-documents
+func (UnimplementedHandler) DrillAnalyticsQuery(ctx context.Context, req *AnalyticsDrill, params DrillAnalyticsQueryParams) (r DrillAnalyticsQueryRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // EnableConnector implements enableConnector operation.
 //
 // Allows the connector to exchange messages again. Requires status `disabled`.

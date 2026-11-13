@@ -24,6 +24,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/analytics/store"
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -53,8 +54,10 @@ type Endpoints struct {
 	// its request's transaction while it reads the API in transactions of
 	// its own. Beyond it a query is 503 analytics.busy. Default 2.
 	Fallbacks int
-	Log       *slog.Logger
-	Now       func() time.Time
+	// Pages signs the drill-through's page tokens (04 §4.5).
+	Pages *pagination.Codec
+	Log   *slog.Logger
+	Now   func() time.Time
 
 	slots chan struct{}
 }

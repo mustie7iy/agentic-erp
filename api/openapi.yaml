@@ -25348,6 +25348,60 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/analytics-documents":
+    post:
+      operationId: drillAnalyticsQuery
+      tags:
+        - analytics
+      summary: List the documents behind a row of a semantic analytics query
+      description: "Drill-through (T94b, ADR-0044 As built T94b): the documents that make up one measure of one row of a query's result, a page at a time. The request names the query as `runAnalyticsQuery` takes it, the measure drilled (the query's only one when omitted) and the row by its value of each dimension of the query's `by` (the cells the result wrote, `\"\"` for a blank). The answer is the row's figure as the query answers it (`total`) and the documents behind it, each with its kind, id, number, company, its part of the figure in the figure's currency and the path that reads it: journal entries for the general ledger's metrics, purchase orders, supplier invoices (the invoices' gross for `invoice_value`, their items' net for the spend metrics), sales orders and billing documents. For a sum, the documents' amounts add up to the figure; for a count (`purchase_order_count`, `invoice_count`, `billing_document_count`) the documents are what is counted, each with the amount of its lines the metric reads. A derived metric (a difference, ratio or complement) is 422 `analytics.invalid_query` naming the metrics to drill into instead, and so are the cash metrics, whose documents are not listed. The query is checked and scoped as `runAnalyticsQuery` checks it (the same permissions, company access and currency guard), and each document's number is read as the caller from the document's own read (`getJournalEntry`, `getPurchaseOrder`, `getSupplierInvoice`, `getSalesOrder`, `getBillingDocument`), so a figure the caller may see never lists a document they may not read: such a read's refusal refuses the page with its problem. Pages are ordered by document id and currency, and stay stable while documents are added; a page token is valid only for the same request. Changes nothing: agents of any autonomy level may run it."
+      x-permission: analytics.query.run
+      x-autonomy: read
+      x-problem-codes:
+        - analytics.busy
+        - analytics.invalid_query
+        - cash.amount_too_large
+        - config.not_bootstrapped
+        - config.unknown_version
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      requestBody:
+        description: The query, the measure and the row drilled.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalyticsDrill"
+      responses:
+        "200":
+          description: A page of the documents behind the row's figure.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsDocuments"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/analytics-model:
     get:
       operationId: getAnalyticsModel
@@ -54409,6 +54463,110 @@ components:
         currency:
           type: string
           description: A money measure's currency.
+    AnalyticsDrill:
+      type: object
+      description: "A drill-through: a query as `runAnalyticsQuery` takes it, the measure drilled and the row, by its value of each dimension of the query's `by`."
+      required:
+        - query
+        - row
+      properties:
+        query:
+          $ref: "#/components/schemas/AnalyticsQuery"
+        measure:
+          type: string
+          description: "The measure drilled, one of the query's `measures`; the query's only one when omitted."
+          maxLength: 100
+        row:
+          type: object
+          description: "The row's value of each dimension of the query's `by`, as the result's cells wrote them (`\"\"` for a blank); every one of them and no other. `{}` for a query without `by`."
+          maxProperties: 10
+          additionalProperties:
+            type: string
+            maxLength: 200
+      additionalProperties: false
+      examples:
+        - query:
+            measures: [revenue]
+            by: [fiscal_year, fiscal_month]
+            companies: ["1000"]
+          row:
+            fiscal_year: "2026"
+            fiscal_month: "6"
+    AnalyticsDocuments:
+      type: object
+      description: "A page of the documents behind a row's figure, with the figure itself and the answer's lineage."
+      required:
+        - measure
+        - total
+        - documents
+        - source
+        - as_of
+        - config_version
+      properties:
+        measure:
+          type: string
+          description: The measure drilled.
+        total:
+          $ref: "#/components/schemas/AnalyticsCell"
+        documents:
+          type: array
+          description: The page's documents, by id and currency.
+          items:
+            $ref: "#/components/schemas/AnalyticsDocument"
+        next_page_token:
+          type: string
+          description: The next page's token; absent on the last page.
+        source:
+          type: string
+          description: "`store` (the analytical store) or `database`, as for `runAnalyticsQuery`."
+          x-extensible-enum:
+            - store
+            - database
+        as_of:
+          type: string
+          format: date-time
+          description: "The state of the data answered: the store's snapshot, or the time of the database read."
+        config_version:
+          type: integer
+          format: int32
+          description: The configuration version whose metric definitions answered.
+      additionalProperties: false
+    AnalyticsDocument:
+      type: object
+      description: "A document behind a figure: its part of the figure (`amount`, the metric's lines of it, signed as the metric adds them) and how to read it."
+      required:
+        - kind
+        - id
+        - number
+        - company
+        - amount
+        - path
+      properties:
+        kind:
+          type: string
+          description: "What the document is, and so the operation that reads it."
+          x-extensible-enum:
+            - journal_entry
+            - purchase_order
+            - supplier_invoice
+            - sales_order
+            - billing_document
+        id:
+          type: string
+          format: uuid
+          description: The document's id.
+        number:
+          type: string
+          description: The document's number.
+        company:
+          type: string
+          description: The company code the document is of.
+        amount:
+          $ref: "#/components/schemas/Money"
+        path:
+          type: string
+          description: "The path that reads the document, such as `/v1/journal-entries/{id}`."
+      additionalProperties: false
     AnalyticsDefinition:
       type: object
       description: The definition that produced a measure.

@@ -1092,6 +1092,101 @@ synonym). No migration. Decisions:
   tamper of `spend_lines`, figures in "not vacuous"),
   `TestSpendCubeBudget`; the walkthrough's step 67 (`step_spend`).
 
+**Drill-through to documents (T94b, `plan-breadth-week3.md`; decided by
+default).** `POST /v1/analytics-documents` (`drillAnalyticsQuery`,
+`analytics.query.run`, `x-autonomy: read`, an `Idempotency-Key` as for
+`runAnalyticsQuery`) takes a query as `runAnalyticsQuery` takes it, the
+measure drilled (the query's only one when omitted) and the row by its value
+of each dimension of the query's `by`, and answers a page (`page_size`,
+`page_token`) of the documents behind that measure of that row: each
+document's kind, id, number, company, its part of the figure (`amount`, in
+the figure's currency) and the path that reads it, beside the row's figure
+(`total`) and the answer's lineage. `erp query -documents "dim=value,..."`
+lists every page. No migration and no change to a dataset's contract.
+Decisions:
+- *`/v1/analytics-documents`, not `/v1/analytics-queries:documents`.* The
+  plan names the latter, but a custom method on a collection starts work
+  and answers 202 with an Operation (04 §4.8; `api`'s `TestOperations`),
+  and a drill-through answers at once, as `runAnalyticsQuery` does: it is
+  a POST read (`x-autonomy: read`) beside `/v1/analytics-queries`.
+- *The row is the query's filters and one per dimension.* The row's query
+  is the measure alone, without a breakdown, with the query's filters and
+  an `in` of the row's value for each dimension of `by` (`""` is a blank,
+  as a result writes it); a row that leaves one out or names another is
+  422 `analytics.invalid_query`. It is checked and scoped as any query
+  is: the same datasets and permissions (`Endpoints.datasets`), the
+  caller's companies, the ledger, the configuration version, the store or
+  the database as the freshness rule decides.
+- *Base metrics only.* A derived metric (a difference, a ratio or a
+  complement) is 422 naming its base metrics to drill into instead, as
+  the plan says. A count (`purchase_order_count`, `invoice_count`,
+  `billing_document_count`) is drilled too: its documents are what it
+  counts, each with the amount of its lines the metric reads. The cash
+  datasets' statements and snapshots are not listed (the plan's later
+  leaf): a metric of them is 422.
+- *Every fact names its document already.* The plan adds a document
+  reference to a dataset that lacks one; none does: `gl_lines`'
+  `document_id` (a journal entry), `po_lines`' `order_id` (a purchase
+  order), `ap_invoices`' and `spend_lines`' `invoice_id` (a supplier
+  invoice) and `sales_lines`' `document_id`, a sales order or a billing
+  document as its `sales_document` says. Numbers are not in the store.
+- *The figure and its documents from one source.* On the store path the
+  reader answers the figure's plan and a new aggregate, `documents`: the
+  amount summed per document id and currency, by company (and
+  `sales_document` for the sales lines), ordered by the id as text and
+  the currency, after the cursor (`Plan.After`) and at most `Plan.Limit`
+  rows (1 to 501: a page and one more, to know whether more follow); a
+  plan of another aggregate is refused a cursor or a limit. When the
+  store cannot answer either, both come from the database: the facts the
+  query needs, grouped by document and currency in memory
+  (`analytics.DocumentsOf`, the same order) and paged there
+  (`analytics.PageOf`). TestParity drills every row of every drillable
+  metric by company and by month a document a page from the store and
+  requires the database's documents. A document with lines in two
+  currencies is listed once in each; a sum over two currencies is
+  refused for the figure as the currency guard refuses it, so its
+  documents are never listed in one sum either.
+- *Signed as the metric adds them,* so a sum's documents add up to the
+  figure exactly: revenue's journal entries positive, a credit memo's
+  spend negative (`Document.Amount` is the lines times the metric's sign).
+- *Numbers from each document's own read, as the caller.* The page's
+  numbers are read in-process through `getJournalEntry`,
+  `getPurchaseOrder`, `getSupplierInvoice`, `getSalesOrder` and
+  `getBillingDocument` (`analytics.Source.Numbers`, the loopback the
+  database path reads through), so a document is listed only when the
+  caller may read it there; a refused read refuses the page with its
+  problem (fail closed: a figure the caller may see never lists a
+  document they may not read). The query's permission check already
+  requires each kind's read (a journal entry's `ledger.entry.read`, an
+  order's `procurement.order.read`, an invoice's `payables.invoice.read`,
+  a sales order's and billing document's `sales.order.read` and
+  `sales.billing.read`) and the company scope keeps other companies'
+  documents out, so the reads are the second guard, tested per kind
+  (`endpoint.TestDrillThrough`). One read per document of the page:
+  at most `page_size` (50 by default) in-process reads.
+- *Pages stable:* by document id and currency, the token signed
+  (`pagination.Codec`) and bound to the row's query, the companies asked
+  for, `as_of` and the configuration version, so a token of another
+  request is 400 `request.invalid_page_token`; a document posted since
+  falls in its place by id.
+- *The step in the walkthrough is a new one,* step 70
+  (`step_drill_through`, before the close), where the plan names step 14
+  extended: each slice of the lane adds a step of its own before the
+  close (coordinator), and by step 70 the month's revenue holds the
+  story's billing as well as step 14's entries.
+- *Budget.* `TestDrillThroughBudget`: see the figures in the slice's
+  commit; the drill of spend of one supplier over the year and of one
+  month a page at a time over 100,000 items of 50,000 posted invoices of
+  500 suppliers of one company, answered from the store: p95 3 s.
+- *No event.* Nothing is published: a drill-through changes nothing.
+- *Evidence.* `analytics.TestRowQuery`, `TestDocumentsOf`, `TestPageOf`,
+  `TestNumbers`, `TestRemoteDocuments`; `reader.TestDocuments`,
+  `TestCompileRefuses`; `store.TestDocumentsFromTheStore`,
+  `TestDocumentsFailures`, `TestParity` ("documents"),
+  `TestDrillThroughBudget`; `endpoint.TestDrillThrough`,
+  `TestDrillFailures`; `erp`'s `TestQueryDocuments`; the walkthrough's
+  step 70 (`step_drill_through`).
+
 **Steps.** T55a this ADR and the dataset contract; T55b the snapshot
 migration, extractor and Parquet writer for journal lines; T55c the other
 datasets and the scheduler (migration 000115); T55d `erp-analytics`, the guard and the

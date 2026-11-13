@@ -92,6 +92,8 @@ func queryCmd(ctx context.Context, args []string) error {
 	var where multiFlag
 	fs.Var(&where, "where", `filter, repeatable: "dim in a,b", "dim not_in a", "dim <= v", "dim >= v", "dim between a,b"`)
 	csvOut := fs.String("csv", "", "also write the result as CSV to this file")
+	documents := fs.String("documents", "", `list the documents behind a row instead: "dim=value,..." for each -by dimension ("" without -by), of -measure`)
+	measure := fs.String("measure", "", "with -documents, the measure drilled (default: the only one)")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -106,6 +108,9 @@ func queryCmd(ctx context.Context, args []string) error {
 	c, err := client("ERP_TOKEN")
 	if err != nil {
 		return err
+	}
+	if flagSet(fs, "documents") {
+		return drillCmd(ctx, c, af, analytics.Drill{Query: q, Measure: *measure}, *documents)
 	}
 	sess, err := af.session(ctx, c)
 	if err != nil {
@@ -128,6 +133,50 @@ func queryCmd(ctx context.Context, args []string) error {
 		return writeCSV(*csvOut, r)
 	}
 	return nil
+}
+
+// flagSet reports whether the flag was given, empty or not.
+func flagSet(fs *flag.FlagSet, name string) bool {
+	set := false
+	fs.Visit(func(f *flag.Flag) { set = set || f.Name == name })
+	return set
+}
+
+// drillCmd lists the documents behind one row of the query (T94b): the
+// row named "dim=value,...", every page of them, and the row's figure.
+//
+//	erp query -measures revenue -by fiscal_month -where "fiscal_year in 2026" -documents fiscal_month=6
+func drillCmd(ctx context.Context, c *apitools.Client, af analyticsFlags, d analytics.Drill, row string) error {
+	d.Row = map[string]string{}
+	for _, pair := range splitList(row) {
+		dim, value, ok := strings.Cut(pair, "=")
+		if !ok {
+			return fmt.Errorf("-documents %q: want dim=value pairs separated by commas", row)
+		}
+		d.Row[strings.TrimSpace(dim)] = strings.TrimSpace(value)
+	}
+	remote := analytics.Remote{API: c}
+	if *af.companies != "" {
+		remote.Companies = strings.Split(*af.companies, ",")
+	}
+	got, err := remote.Documents(ctx, d)
+	if err != nil {
+		return err
+	}
+	tw := tabwriter.NewWriter(out, 2, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, "KIND\tNUMBER\tCOMPANY\tAMOUNT\tCURRENCY\tID")
+	for _, doc := range got.Documents {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", doc.Kind, doc.Number, doc.Company, analytics.Value{Units: doc.Amount, Scale: doc.Exponent}, doc.Currency, doc.ID)
+	}
+	if err := tw.Flush(); err != nil {
+		return fmt.Errorf("query: print: %w", err)
+	}
+	total := "none"
+	if got.Total != nil {
+		total = strings.TrimSpace(got.Total.String() + " " + got.Total.Currency)
+	}
+	return printf("query", "\n%s of the row: %s · %d documents · from the %s as of %s\n", got.Measure, total, len(got.Documents), got.Source,
+		got.AsOf.UTC().Format(time.RFC3339))
 }
 
 // writeCSV writes r to the file name. A failed close can mean the file was

@@ -992,3 +992,46 @@ func TestExternalAmounts(t *testing.T) {
 		})
 	}
 }
+
+// documentsAnswer is erp-server's drill-through answer: one page of one
+// journal entry of the row's revenue.
+const documentsAnswer = `{"measure": "revenue", "total": {"value": "500.00", "currency": "EUR"}, "documents": [{"kind": "journal_entry",
+	"id": "01a1d4dd-d392-797d-bffd-b507d4d774a4", "number": "100000042", "company": "2000", "amount": {"amount": "500.00", "currency": "EUR"},
+	"path": "/v1/journal-entries/01a1d4dd-d392-797d-bffd-b507d4d774a4"}], "source": "store", "as_of": "2026-10-20T12:00:00Z", "config_version": 1}`
+
+// TestQueryDocuments: erp query -documents lists the documents behind a
+// row and the row's figure (T94b); a row it cannot read, a refusal and
+// output that cannot be printed fail it.
+func TestQueryDocuments(t *testing.T) {
+	fakeAPI(t, routes{"POST /v1/analytics-documents": {ok(documentsAnswer)}})
+	got := must(t, "query", "-measures", "revenue", "-by", "company", "-companies", "2000", "-documents", "company=2000")
+	for _, want := range []string{"journal_entry  100000042  2000     500.00  EUR", "revenue of the row: 500.00 EUR · 1 documents · from the store"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("documents: got %s, want %q", got, want)
+		}
+	}
+	fakeAPI(t, routes{"POST /v1/analytics-documents": {ok(`{"measure": "revenue", "total": {"value": null}, "documents": [], "source": "database"}`)}})
+	if got := must(t, "query", "-measures", "revenue", "-documents", ""); !strings.Contains(got, "revenue of the row: none · 0 documents") {
+		t.Errorf("a row of no figure: got %s, want none", got)
+	}
+	fails(t, "want dim=value pairs", "query", "-measures", "revenue", "-documents", "company")
+	fakeAPI(t, routes{"POST /v1/analytics-documents": {refused}})
+	fails(t, "analytics.invalid_query", "query", "-measures", "nope", "-documents", "")
+	fakeAPI(t, routes{"POST /v1/analytics-documents": {ok(documentsAnswer)}})
+	t.Cleanup(func() { out = os.Stdout })
+	out = failing{}
+	pgtest.CheckErr(t, queryCmd(context.Background(), []string{"-measures", "revenue", "-documents", ""}), "device full")
+	out = documentsSummaryFails{}
+	pgtest.CheckErr(t, queryCmd(context.Background(), []string{"-measures", "revenue", "-documents", ""}), "device full")
+}
+
+// documentsSummaryFails prints the documents and fails on the line after
+// them.
+type documentsSummaryFails struct{}
+
+func (documentsSummaryFails) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), "of the row") {
+		return 0, errors.New("device full")
+	}
+	return len(p), nil
+}

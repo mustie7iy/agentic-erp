@@ -7373,6 +7373,58 @@ step_plan_version() {
   say "FC plans 1050.00 CAD for CC-1100 and 350.00 CAD for CC-1300, copied from PLAN at 105 percent."
   passed
 }
+# step_drill_through is T94b (ADR-0044 As built T94b): Carla drills from
+# the month's revenue, a row of a governed query, to the journal entries
+# behind it, a page at a time; their amounts add up to the figure, and
+# each number is the entry's own. A derived metric is refused naming its
+# bases, and Rita, who reads no supplier invoice, is refused the spend's.
+step_drill_through() {
+  heading "Step 70 — Drill-through: from the month's revenue to the journal entries behind it, a page at a time, adding up to the figure; a ratio refused naming its metrics; without the documents' read, none"
+  local month q figure body token total count entry number
+  as carla
+  month=$((10#${TODAY:5:2}))
+  say "Carla reads Maple's revenue by month of $YEAR, the governed metric of step 14:"
+  q="{\"measures\": [\"revenue\"], \"by\": [\"fiscal_year\", \"fiscal_month\"], \"where\": [{\"dim\": \"fiscal_year\", \"op\": \"in\", \"values\": [\"$YEAR\"]}], \"companies\": [\"$CC\"]}"
+  api 200 '(.rows[] | "  \(.[0].value)-\(.[1].value): \(.[2].value) \(.[2].currency)")' runAnalyticsQuery -body "$q"
+  figure=$(field "[.rows[] | select(.[1].value == \"$month\") | .[2].value] | first // \"\"")
+  [ -n "$figure" ] || fail "no revenue in month $month of $YEAR: the earlier steps' billing is not there"
+  say "She drills into month $month's $figure CAD (POST /v1/analytics-documents): the entries behind the"
+  say "figure, two to a page, each with its number, its part of the figure and the path that reads it:"
+  body="{\"query\": $q, \"row\": {\"fiscal_year\": \"$YEAR\", \"fiscal_month\": \"$month\"}}"
+  : >"$WORK/drill.jsonl"
+  token=''
+  while :; do
+    api 200 '"  total \(.total.value) \(.total.currency) from \(.source)", (.documents[] | "  \(.kind) \(.number) of \(.company): \(.amount.amount) \(.amount.currency)  \(.path | sub("[0-9a-f-]{36}$"; "…"))")' \
+      drillAnalyticsQuery -p page_size=2 ${token:+-p "page_token=$token"} -body "$body"
+    expect "the row's figure" "$(field .total.value)" "$figure"
+    jq -c '.documents[]' "$WORK/last.json" >>"$WORK/drill.jsonl"
+    token=$(field '.next_page_token // ""')
+    [ -n "$token" ] || break
+  done
+  total=$(jq -rs 'map(.amount.amount | sub("\\."; "") | tonumber) | add // 0' "$WORK/drill.jsonl")
+  count=$(jq -rs 'length' "$WORK/drill.jsonl")
+  expect "the documents' amounts added up" "$(amount "$total")" "$figure"
+  expect "every document a journal entry" "$(jq -rs 'map(.kind) | unique | join(" ")' "$WORK/drill.jsonl")" journal_entry
+  entry=$(jq -rs '.[0].id' "$WORK/drill.jsonl")
+  number=$(jq -rs '.[0].number' "$WORK/drill.jsonl")
+  say "Each number is the entry's own, read as Carla from the entry itself:"
+  api 200 '"journal entry \(.document_number) of \(.posting_date)"' getJournalEntry -p "id=$entry"
+  expect "the first document's number" "$(field .document_number)" "$number"
+  say "The same from the command line:"
+  show erp query -measures revenue -by fiscal_year,fiscal_month -where "fiscal_year in $YEAR" -companies "$CC" -documents "fiscal_year=$YEAR,fiscal_month=$month"
+  "$ERP" query -measures revenue -by fiscal_year,fiscal_month -where "fiscal_year in $YEAR" -companies "$CC" \
+    -documents "fiscal_year=$YEAR,fiscal_month=$month" >"$WORK/query.out" 2>&1 || { sed 's/^/     /' "$WORK/query.out"; fail "the drill-through failed"; }
+  sed 's/^/     /' "$WORK/query.out"
+  grep -q "revenue of the row: $figure CAD · $count documents" "$WORK/query.out" || fail "the command did not list the $count documents of $figure CAD"
+  say "A ratio has no documents of its own: drilling into it is refused, naming the metrics to drill into instead."
+  refused 422 analytics.invalid_query drillAnalyticsQuery -body "{\"query\": {\"measures\": [\"off_contract_share\"], \"companies\": [\"$CC\"]}, \"row\": {}}"
+  as rita
+  say "Rita reads no supplier invoice: the documents behind spend are not hers to list."
+  refused 403 identity.permission_missing drillAnalyticsQuery -body "{\"query\": {\"measures\": [\"spend\"], \"companies\": [\"$CC\"]}, \"row\": {}}"
+  as carla
+  say "$count journal entries make up month $month's $figure CAD of revenue."
+  passed
+}
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -9397,7 +9449,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_sales_analytics step_spend step_margin step_plan_version step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_sales_analytics step_spend step_margin step_plan_version step_drill_through step_close'
 
 main() {
   stop_unseen

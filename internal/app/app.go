@@ -279,7 +279,7 @@ func New(cfg Config) (http.Handler, error) {
 // simulation worker wire it: the semantic model read from the tenant's
 // configuration (ADR-0044, T55g).
 func analyticsEndpoints(cfg Config, loopback http.RoundTripper) *endpoint.Endpoints {
-	return &endpoint.Endpoints{Configs: configuration.Settings{}, Companies: companyCodes{}, Reader: cfg.Analytics, Loopback: loopback,
+	return &endpoint.Endpoints{Configs: configuration.Settings{}, Companies: companyCodes{}, Reader: cfg.Analytics, Loopback: loopback, Pages: cfg.Pages,
 		Cash: NewAnalyticsCash(cfg), Log: cfg.Log, Now: cfg.Now}
 }
 

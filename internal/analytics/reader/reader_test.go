@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -252,6 +253,44 @@ func TestPlans(t *testing.T) {
 			t.Errorf("po_lines: got %+v, want one row counting 0", rows)
 		}
 	})
+}
+
+// TestDocuments: a documents plan sums each document's lines per
+// currency, with the plan's breakdown and filters, in the order of
+// document and currency, a page after the cursor at most the limit.
+func TestDocuments(t *testing.T) {
+	e := setup(t)
+	all := e.query(e.request(e.a, Plan{Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "documents", By: []string{"company"}, Limit: 10}))
+	if len(all) != 3 {
+		t.Fatalf("documents: got %+v, want the three entries", all)
+	}
+	for i, r := range all {
+		if _, err := uuid.Parse(r.Document); err != nil || r.Currency != "EUR" || r.Exponent != 2 || len(r.By) != 1 {
+			t.Errorf("row %d: got %+v, want an entry's id, its company and its sum in EUR", i, r)
+		}
+		if i > 0 && all[i-1].Document >= r.Document {
+			t.Errorf("order: got %s after %s, want ascending ids", r.Document, all[i-1].Document)
+		}
+	}
+	first := e.query(e.request(e.a, Plan{Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "documents", By: []string{"company"}, Limit: 1}))
+	rest := e.query(e.request(e.a, Plan{Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "documents", By: []string{"company"}, Limit: 10,
+		After: []string{first[0].Document, "EUR"}}))
+	if fmt.Sprint(append(first, rest...)) != fmt.Sprint(all) {
+		t.Errorf("pages: got %v then %v, want %v", first, rest, all)
+	}
+	sameID := e.query(e.request(e.a, Plan{Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "documents", Limit: 10, After: []string{all[1].Document, "AAA"}}))
+	if len(sameID) != 2 || sameID[0].Document != all[1].Document {
+		t.Errorf("after a currency before the document's: got %v, want the document and the next", sameID)
+	}
+	filtered := e.query(e.request(e.a, Plan{Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "documents", Limit: 10,
+		Where: []Filter{{Column: "company", Op: "in", Values: []string{"2000"}}}}))
+	if len(filtered) != 1 || filtered[0].Amount != 7 {
+		t.Errorf("2000's documents: got %+v, want its entry of 7", filtered)
+	}
+	// A dataset of no ledger, with the cursor its only condition.
+	if none := e.query(e.request(e.a, Plan{Dataset: "po_lines", Aggregate: "documents", Limit: 1, After: []string{"x", "EUR"}})); len(none) != 0 {
+		t.Errorf("orders' documents: got %+v, want none", none)
+	}
 }
 
 type openItemRow struct {
