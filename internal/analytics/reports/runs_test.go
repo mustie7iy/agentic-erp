@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics/reports"
@@ -22,6 +23,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 // stored is a tenant with revenue whose API keeps objects in a directory,
@@ -203,6 +205,14 @@ func TestScheduledRunFails(t *testing.T) {
 		"owner deactivated": {func(e stored, _ string) {
 			pgtest.Exec(t, `UPDATE identity.principal SET status = 'blocked', version = version + 1 WHERE id = $1`, e.Tenant.Human.ID)
 		}, "identity.principal_blocked"},
+		"its permission revoked": {func(e stored, _ string) {
+			pgtest.Exec(t, `DELETE FROM identity.role_permission WHERE tenant_id = $1 AND permission_code = 'analytics.query.run'`, e.Tenant.ID)
+		}, "identity.permission_missing"},
+		"barred by a segregation-of-duties rule": {func(e stored, _ string) {
+			pgtest.Exec(t, `INSERT INTO identity.sod_rule (tenant_id, id, permission_a, permission_b, description, valid_from, created_by)
+				VALUES ($1, gen_random_uuid(), 'analytics.report.read', 'analytics.report.write', 'Read or write', current_date - 1, $2)`,
+				e.Tenant.ID, e.Tenant.Human.ID)
+		}, "identity.sod_conflict"},
 		"a metric removed": {func(_ stored, report string) {
 			pgtest.Exec(t, `UPDATE analytics.report SET queries = '{"rev": {"measures": ["gone"]}}', version = version + 1 WHERE id = $1`, report)
 		}, "analytics.report_metric_removed"},
@@ -224,6 +234,21 @@ func TestScheduledRunFails(t *testing.T) {
 			}
 		})
 	}
+	t.Run("an agent the kill switch stops", func(t *testing.T) {
+		e := withObjects(t)
+		id := e.scheduled(t)
+		pgtest.Exec(t, `UPDATE analytics.report SET owner_id = $2, version = version + 1 WHERE id = $1`, id, e.Tenant.Agent.ID)
+		s := *e.s
+		s.Agents = func(context.Context, pgx.Tx) error { return problem.Forbidden("agents.ai_disabled", "AI is off.") }
+		if _, err := s.RunOnce(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		var code string
+		pgtest.Scan(t, `SELECT failure_code FROM analytics.report_run WHERE report_id = $1`, []any{id}, &code)
+		if code != "agents.ai_disabled" {
+			t.Errorf("run: got %q, want agents.ai_disabled", code)
+		}
+	})
 	t.Run("read back", func(t *testing.T) {
 		e := withObjects(t)
 		id := e.scheduled(t)
@@ -329,6 +354,9 @@ func TestSchedulerDatabaseFailures(t *testing.T) {
 		count := 0
 		s.Begin = func(ctx context.Context, sc database.Scope) (pgx.Tx, error) {
 			tx, err := pool.Begin(ctx, sc)
+			if sc.TenantID != e.Tenant.ID && sc.TenantID != uuid.Nil { // other tests' tenants' reports run as they are
+				return tx, err
+			}
 			return &pgtest.FailingTx{Tx: tx, FailAt: n, Count: &count}, err
 		}
 		_, err := s.RunOnce(context.Background())

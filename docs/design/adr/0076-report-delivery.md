@@ -123,9 +123,14 @@ tenants (`erp_worker`), and runs each one due in a transaction of its
 tenant as the report's owner (`uow.Act`), under a transaction-scoped
 advisory lock of the report, so replicas never run one report at once:
 
-- An owner no longer active is refused as their request would be
-  (`identity.Actors.MayAct`, 403 `identity.principal_blocked`); the run
-  is recorded as failed with that reason.
+- The run is authorized as the owner's own `:run` would be: an owner
+  no longer active is refused as their request would be
+  (`identity.Actors.MayAct`, 403 `identity.principal_blocked`), an
+  agent owner only while the tenant's AI kill switch admits agents
+  (`agents.Admit`), and the owner must hold `analytics.report.read` and
+  `analytics.query.run` with no segregation-of-duties rule barring them
+  (`authz.Require`, 403). A refusal is recorded as the run's failure
+  with its reason.
 - The queries run as the owner with the owner's access and permissions
   that day, as §2's run does. A query the semantic layer or the API
   refuses (a problem below 500) fails the run, recorded with the
@@ -137,6 +142,10 @@ advisory lock of the report, so replicas never run one report at once:
   read compares (409 `analytics.report_run_changed` when the bytes differ).
 - A run is recorded once per report and day (`report_run_once`): a second
   worker, or a second round, finds the day's run and makes none.
+- The results are written before the run's row: a round that fails
+  after the write (its transaction lost) leaves an object no row names,
+  under the run's own id, which a later round never reuses; no row or
+  event is ever without its object.
 - Each run is audited (`analytics.report_run.complete`) and published as
   `ReportRunCompleted` with its outcome, from the analytics context's
   outbox; it is no webhook event.

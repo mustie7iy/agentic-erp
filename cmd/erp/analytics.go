@@ -206,6 +206,9 @@ func reportCmd(ctx context.Context, args []string) error {
 		return err
 	}
 	if _, err := uuid.Parse(*id); err == nil && *file == "" {
+		if *save {
+			return fmt.Errorf("report %s is erp-server's already: -save takes erp ask's id or -file", *id)
+		}
 		return runSaved(ctx, *id, *outDir)
 	}
 	path := *file

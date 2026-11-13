@@ -65,6 +65,7 @@ func TestSavedReportsRefused(t *testing.T) {
 			fails(t, c.want, append([]string{"report"}, c.args...)...)
 		})
 	}
+	fails(t, "erp-server's already", "report", "-save", "-id", savedID)
 	fakeAPI(t, routes{}, "ERP_TOKEN", "")
 	fails(t, "ERP_TOKEN", "report", "-id", savedID)
 	fails(t, "ERP_TOKEN", "report", "-save", "-file", "r1.json")

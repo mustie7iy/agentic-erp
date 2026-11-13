@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/agents"
 	"github.com/mustie7iy/agentic-erp/internal/analytics/endpoint"
 	"github.com/mustie7iy/agentic-erp/internal/analytics/reports"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
@@ -22,7 +23,7 @@ func Reports(cfg Config, queries *endpoint.Endpoints) *reports.Endpoints {
 // their owners, reading the API in-process through cfg's loopback, which
 // New gave the API's handler.
 func ReportScheduler(cfg Config, workerRole string) *reports.Scheduler {
-	return &reports.Scheduler{Reports: Reports(cfg, analyticsEndpoints(cfg, cfg.Loopback).Init()), Actors: identity.Actors{},
+	return &reports.Scheduler{Reports: Reports(cfg, analyticsEndpoints(cfg, cfg.Loopback).Init()), Actors: identity.Actors{}, Agents: agents.Admit,
 		Begin: cfg.Pool.Begin, AppRole: cfg.AppRole, WorkerRole: workerRole, Log: cfg.Log}
 }
 

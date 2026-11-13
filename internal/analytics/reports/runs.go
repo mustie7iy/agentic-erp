@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/analytics/endpoint"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -50,7 +51,11 @@ type Scheduler struct {
 	AppRole    string        // erp_app: the run's transaction, as the owner
 	WorkerRole string        // erp_worker: finds the scheduled reports across tenants
 	Interval   time.Duration // idle wait between rounds; default 30 seconds
-	Log        worker.Logger
+	// Agents admits an agent owner's run in its transaction: the tenant's
+	// AI kill switch (agents.Admit), as the unit of work admits an agent's
+	// request; nil admits every agent.
+	Agents func(ctx context.Context, tx pgx.Tx) error
+	Log    worker.Logger
 }
 
 // scheduled is a report with a schedule.
@@ -185,7 +190,7 @@ type keptRun struct {
 // longer active, or a refusal of a query (below 500). Any other error is
 // returned, leaving the day due.
 func (s *Scheduler) execute(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run *keptRun) error {
-	if err := s.Actors.MayAct(ctx, tx, run.RunAs); err != nil {
+	if err := s.mayRun(ctx, tx, p); err != nil {
 		return failed(run, err)
 	}
 	sess, out, results, err := s.Reports.rerun(reqctx.WithActing(ctx, p), run.Report.Spec, run.Report.Queries)
@@ -207,6 +212,22 @@ func (s *Scheduler) execute(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	return nil
 }
 
+// mayRun authorizes the run as the owner's own runReport is authorized
+// (ADR-0076 §5): an owner still active, an agent the tenant's AI kill
+// switch admits, and the permissions of runReport, segregation-of-duties
+// rules applied.
+func (s *Scheduler) mayRun(ctx context.Context, tx pgx.Tx, p reqctx.Principal) error {
+	if err := s.Actors.MayAct(ctx, tx, p.ID); err != nil {
+		return err
+	}
+	if s.Agents != nil && p.Kind == reqctx.KindAgent {
+		if err := s.Agents(ctx, tx); err != nil {
+			return err
+		}
+	}
+	return authz.Require(ctx, "analytics.report.read", "analytics.query.run")
+}
+
 // failed records the problem of a refusal on the run; anything else is
 // returned.
 func failed(run *keptRun, err error) error {
@@ -221,7 +242,11 @@ func failed(run *keptRun, err error) error {
 	if utf8.RuneCountInString(d) > maxDetail {
 		d = string([]rune(d)[:maxDetail])
 	}
-	run.FailureCode, run.FailureDetail = p.Code, d
+	code := p.Code
+	if code == "" { // every problem the API answers has one; a run is kept with one whatever reached it
+		code = "analytics.report_run_refused"
+	}
+	run.FailureCode, run.FailureDetail = code, d
 	return nil
 }
 

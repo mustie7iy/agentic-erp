@@ -398,6 +398,7 @@ func TestSchedulerPorts(t *testing.T) {
 	}{
 		"no detail":   {problem.Unprocessable("x.refused", ""), len("Unprocessable request")},
 		"long detail": {problem.Unprocessable("x.refused", strings.Repeat("é", 2500)), 2000},
+		"no code":     {&problem.Problem{Status: 422, Title: "Refused", Detail: "Refused."}, len("Refused.")},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := withObjects(t)
