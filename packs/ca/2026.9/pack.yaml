@@ -5,13 +5,12 @@
 # entries they post (DR, DZ, DG). Only numbering.yaml and this file
 # differ: tax.yaml and returns.yaml, the tax codes, rates, tax settings
 # and the GST/HST return, and every other file are 2026.8's byte for
-# byte. It carries no sign_off: a sign-off is recorded per version, and
-# the tax specialist's of 2026-11-09 (2026.7, carried by 2026.8 with the
-# product owner's approval) was not given for this version; nobody has
-# approved carrying it here. Production refuses to apply it until a
-# signed-off version exists (409 config.pack_not_signed_off); 2026.8
-# stays the signed-off version. The FPZ-500 for a Quebec registrant is
-# not in the pack (its own tracker leaf).
+# byte. Its sign_off is the tax specialist's of 2026-11-09 (2026.7,
+# carried by 2026.8), carried here with the product owner's approval of
+# 2026-11-13: the sign-off covers this numbering-only version, whose tax
+# content is the content signed off, so production applies it. The
+# FPZ-500 for a Quebec registrant is not in the pack (its own tracker
+# leaf).
 country: CA
 version: "2026.9"
 name: Canada
@@ -47,3 +46,4 @@ sources:
   - title: "Canada Labour Code, R.S.C. 1985, c. L-2, s. 166: general holidays"
     url: https://laws-lois.justice.gc.ca/eng/acts/L-2/section-166.html
     retrieved: 2026-10-20
+sign_off: {tax_specialist: "Musto Ibrahim", date: 2026-11-09}

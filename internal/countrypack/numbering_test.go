@@ -37,9 +37,9 @@ var addedRanges = []NumberRange{
 // settings and returns are prev's, the manifest differs only in its
 // version and sign-off (its header comment aside), and the ranges are
 // prev's, unchanged and in order, then addedRanges. The tax specialist
-// signed prev off; next carries no sign-off, since one is recorded per
-// version and none was given for it. It returns the library and the two
-// packs.
+// signed prev off, and next carries the same sign-off (product owner,
+// 2026-11-13: the sign-off of 2026-11-09 covers the numbering-only
+// versions). It returns the library and the two packs.
 func numberingOnly(t *testing.T, country, prevVersion, nextVersion string) (*Library, *Pack, *Pack) {
 	t.Helper()
 	lib, err := LoadAll(packs.FS)
@@ -56,8 +56,8 @@ func numberingOnly(t *testing.T, country, prevVersion, nextVersion string) (*Lib
 	if !reflect.DeepEqual(next.Returns, prev.Returns) {
 		t.Errorf("returns: got other than %s's, want them unchanged", prev.Dir())
 	}
-	if !prev.SignedOff() || next.Manifest.SignOff != nil {
-		t.Errorf("sign-off: got %+v on %s and %+v on %s, want the first signed off and the second without one", prev.Manifest.SignOff, prev.Dir(), next.Manifest.SignOff, next.Dir())
+	if !prev.SignedOff() || !next.SignedOff() || !reflect.DeepEqual(next.Manifest.SignOff, prev.Manifest.SignOff) {
+		t.Errorf("sign-off: got %+v on %s and %+v on %s, want both signed off, the second with the first's", prev.Manifest.SignOff, prev.Dir(), next.Manifest.SignOff, next.Dir())
 	}
 	if got, want := next.Numbering.NumberRanges, append(slices.Clone(prev.Numbering.NumberRanges), addedRanges...); !slices.Equal(got, want) {
 		t.Errorf("number ranges: got %+v, want %+v", got, want)
@@ -88,8 +88,8 @@ func rangeKeys(c *config.Config) []string {
 // range. A company on prev upgrades by applying next: the document gains
 // the added ranges, after its own, and nothing else but the adoption
 // changes. A company on prev that already set one of the ranges up keeps
-// its own, with a conflict note for the reviewers. Unsigned, next brings
-// the note that says so.
+// its own, with a conflict note for the reviewers. Signed off, next
+// brings no note saying otherwise.
 func adoptsAddedRanges(t *testing.T, lib *Library, prev, next *Pack, currencyCode string) {
 	t.Helper()
 	o := Options{Company: "1000", On: time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC), FiscalYear: 2026}
@@ -102,8 +102,8 @@ func adoptsAddedRanges(t *testing.T, lib *Library, prev, next *Pack, currencyCod
 			t.Errorf("first adoption: finding %s: %s", f.Path, f.Message)
 		}
 	}
-	if !hasNote(notes, "packs[1000]", "no tax specialist has signed this pack off") {
-		t.Errorf("notes: got %v, want one saying the pack is not signed off", notes)
+	if hasNote(notes, "packs[1000]", "no tax specialist has signed this pack off") {
+		t.Errorf("notes: got %v, want none saying the pack is not signed off", notes)
 	}
 	var added []string
 	for _, r := range addedRanges {
@@ -148,7 +148,8 @@ func adoptsAddedRanges(t *testing.T, lib *Library, prev, next *Pack, currencyCod
 // Canada 2026.9 is 2026.8 plus the number ranges of the documents built
 // since (product owner, 2026-11-12): its tax codes, rates, tax settings
 // and GST/HST return are 2026.8's, the content the tax specialist signed
-// off. It is the latest Canada pack, unsigned.
+// off, and carries that sign-off (product owner, 2026-11-13). It is the
+// latest Canada pack.
 func TestCanadaPack2026_9(t *testing.T) {
 	lib, prev, next := numberingOnly(t, "CA", "2026.8", "2026.9")
 	adoptsAddedRanges(t, lib, prev, next, "CAD")
@@ -156,7 +157,8 @@ func TestCanadaPack2026_9(t *testing.T) {
 
 // UAE 2026.6 is 2026.5 plus the same number ranges: its VAT codes, rates,
 // tax settings and VAT 201 are 2026.5's, the content the tax specialist
-// signed off. It is the latest UAE pack, unsigned.
+// signed off, and carries that sign-off (product owner, 2026-11-13). It is
+// the latest UAE pack.
 func TestUAEPack2026_6(t *testing.T) {
 	lib, prev, next := numberingOnly(t, "AE", "2026.5", "2026.6")
 	adoptsAddedRanges(t, lib, prev, next, "AED")

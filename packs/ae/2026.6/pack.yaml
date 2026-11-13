@@ -5,12 +5,11 @@
 # journal ranges of the entries they post (DR, DZ, DG). Only
 # numbering.yaml and this file differ: tax.yaml and returns.yaml, the
 # VAT codes, rates, tax settings and the VAT 201, and every other file
-# are 2026.5's byte for byte. It carries no sign_off: a sign-off is
-# recorded per version, and the tax specialist's of 2026-11-09 (2026.4,
-# carried by 2026.5 with the product owner's approval) was not given for
-# this version; nobody has approved carrying it here. Production refuses
-# to apply it until a signed-off version exists (409
-# config.pack_not_signed_off); 2026.5 stays the signed-off version.
+# are 2026.5's byte for byte. Its sign_off is the tax specialist's of
+# 2026-11-09 (2026.4, carried by 2026.5), carried here with the product
+# owner's approval of 2026-11-13: the sign-off covers this numbering-only
+# version, whose tax content is the content signed off, so production
+# applies it.
 #
 # The sources below are those ADR-0049 records with a link, cited from its
 # proposal of 2026-10-20 and not fetched again in T62f, T61k or the guard.
@@ -39,3 +38,4 @@ sources:
   - title: "VAT 201 box descriptions, as summarised by ClearTax: secondary, as ADR-0049 cites it; not fetched again in T62f or T61k"
     url: https://cleartax.com/ae/vat-return-uae
     retrieved: 2026-10-20
+sign_off: {tax_specialist: "Musto Ibrahim", date: 2026-11-09}
