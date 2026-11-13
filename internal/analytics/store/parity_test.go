@@ -312,8 +312,12 @@ func TestParity(t *testing.T) {
 		// the draft order and the document not posted are not counted.
 		for metric, want := range map[string]string{"order_intake": "1787.53", "billed_value": "1737.53", "billing_document_count": "1"} {
 			res, err := analytics.Execute(m, dbFacts, analytics.Principal{Companies: []string{"2000"}}, analytics.Query{Measures: []string{metric}})
-			if err != nil || len(res.Rows) != 1 || fmt.Sprint(res.Rows[0][0]) != want {
-				t.Errorf("%s of 2000: got %v, %v; want %s", metric, res, err, want)
+			if err != nil {
+				t.Errorf("%s of 2000: got %v, want an answer", metric, err)
+				continue
+			}
+			if got := fmt.Sprint(res.Rows); got != "[["+want+"]]" {
+				t.Errorf("%s of 2000: got %s, want [[%s]]", metric, got, want)
 			}
 		}
 		for ledger, want := range map[string]string{"": "120.00", p.parallel.String(): "1119.00"} {

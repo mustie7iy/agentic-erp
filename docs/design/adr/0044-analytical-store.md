@@ -937,9 +937,14 @@ stays `revenue`, the general ledger's). No migration and no file in
   T79b's migration on a base without it).
 - *By billing date, not posting date,* as the plan states it: the
   document's own date, which a created document already has.
-- *Amounts are the documents' own, never converted.* An order is in the
-  currency it was made in, the company's when it sells in its own
-  currency. No rate is applied here, as nowhere in the semantic layer:
+- *Amounts are the documents' own, never converted; open for the
+  product owner.* The plan's acceptance says "in the company's
+  currency", which holds on the main path: an order is in the currency
+  it was made in, the company's when it sells in its own currency. An
+  order in another currency would need a rate (which type, on which
+  date), a money rule nothing settles, so it is put to the product owner
+  (T91a review round 1) and until then such an order is kept apart, not
+  converted and never added to the others. No rate is applied here, as nowhere in the semantic layer:
   the general ledger's `revenue` is the figure in company currency. A sum
   over two currencies is refused by the currency guard, so `currency` is
   a dimension of the three metrics, as it is of `actual`: a company that

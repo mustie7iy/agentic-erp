@@ -106,8 +106,12 @@ func TestSourceReadsSalesLines(t *testing.T) {
 	}
 	for metric, want := range map[string]string{"order_intake": "42.50", "billed_value": "20.00", "billing_document_count": "1"} {
 		res, err := Execute(m, f, Principal{}, Query{Measures: []string{metric}, By: []string{"customer_name"}})
-		if err != nil || len(res.Rows) != 1 || res.Rows[0][0] != "Beta" || fmt.Sprint(res.Rows[0][1]) != want {
-			t.Errorf("%s by customer: got %v, %v; want Beta %s", metric, res, err, want)
+		if err != nil {
+			t.Errorf("%s by customer: got %v, want an answer", metric, err)
+			continue
+		}
+		if got := fmt.Sprint(res.Rows); got != "[[Beta "+want+"]]" {
+			t.Errorf("%s by customer: got %s, want [[Beta %s]]", metric, got, want)
 		}
 	}
 }
