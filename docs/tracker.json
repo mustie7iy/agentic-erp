@@ -6231,13 +6231,13 @@
     "ph": 9,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Risk register",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A risk owner records a risk (title, category, owner, likelihood and impact from 1 to 5, the controls that mitigate it), rates it again and closes it; the register lists the risks by score (POST /v1/risks)",
-        "r": "T98c · docs/design/plan-breadth-week3.md §T98c",
+        "r": "T98c · docs/design/plan-breadth-week3.md §T98c · db/migrations/000308 · grc.risk, grc.risk_rating, grc.risk_control · POST /v1/risks · GET /v1/risks · GET /v1/risks/{id} · PATCH /v1/risks/{id} · POST /v1/risks/{id}:close · POST /v1/risks/{id}/ratings · GET /v1/risks/{id}/ratings · RiskChanged · grc.risk.read, .write · walkthrough step_risks · ADR-0078 §10-§13 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

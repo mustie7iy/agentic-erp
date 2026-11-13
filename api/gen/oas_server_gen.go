@@ -544,6 +544,17 @@ type Handler interface {
 	//
 	// POST /v1/purchase-orders/{id}:close
 	ClosePurchaseOrder(ctx context.Context, params ClosePurchaseOrderParams) (ClosePurchaseOrderRes, error)
+	// CloseRisk implements closeRisk operation.
+	//
+	// Closes an open risk for good (status `closed`), once (409 `grc.risk_closed` for a closed one), at
+	// the version read (`If-Match`), with the reason it is closed, a text without white space around it
+	// (422 `grc.invalid_text`, naming `reason`). A closed risk changes no more and takes no further
+	// rating; it, its ratings and its controls are still read, and it is listed with `status=closed` or
+	// without a status filter. An audit record and RiskChanged (`closed`) are written with it; neither
+	// carries the reason.
+	//
+	// POST /v1/risks/{id}:close
+	CloseRisk(ctx context.Context, req *RiskClose, params CloseRiskParams) (CloseRiskRes, error)
 	// CompleteCloseTask implements completeCloseTask operation.
 	//
 	// Marks an open manual task of a period close done, with an optional note (ADR-0058 §6, T64b):
@@ -1545,6 +1556,35 @@ type Handler interface {
 	//
 	// POST /v1/rfqs
 	CreateRfq(ctx context.Context, req *RfqCreate, params CreateRfqParams) (CreateRfqRes, error)
+	// CreateRisk implements createRisk operation.
+	//
+	// Records a risk in the tenant's risk register (ADR-0078 §10-§12, T98c): its title, its category in
+	// the tenant's own words, the person who owns it, its first rating (`likelihood` and `impact`, each a
+	// whole number from 1 to 5; its score is their product) and the controls of the library that mitigate
+	// it (`control_ids`, each once). It is created `open`, and its first rating is the first of its
+	// ratings (`listRiskRatings`), by the caller. The owner is a person of the tenant who is active (422
+	// `request.reference_not_found` naming `owner_id` for an unknown principal, `grc.invalid_owner` for an
+	// agent, a service or a person who is not active). The title and the category are texts without white
+	// space around them (422 `grc.invalid_text`, naming the field). A control must be one of the library
+	// (422 `request.reference_not_found` naming the entry of `control_ids`) and active, not retired, and
+	// is named once (422 `grc.invalid_control`, naming the entry). No register is shipped: every risk is
+	// the tenant's. An audit record and RiskChanged (`created`) are written with it. A retry with the same
+	// `Idempotency-Key` answers the risk recorded.
+	//
+	// POST /v1/risks
+	CreateRisk(ctx context.Context, req *RiskCreate, params CreateRiskParams) (CreateRiskRes, error)
+	// CreateRiskRating implements createRiskRating operation.
+	//
+	// Rates an open risk again (ADR-0078 §11, T98c): its likelihood and impact now, each a whole number
+	// from 1 to 5. The rater is the caller, and the rating is kept with who rated and when; it is never
+	// changed or removed. The rating becomes the risk's: its likelihood, impact and score are the latest
+	// rating's, so the risk's version moves (its ETag changes) and its place in the register too. A rating
+	// equal to the risk's is recorded as well: it says the risk was looked at again. A closed risk takes
+	// no rating (409 `grc.risk_closed`). An audit record and RiskChanged (`rated`) are written with it.
+	// The answer is the rating; `getRisk` gives the risk at its new version.
+	//
+	// POST /v1/risks/{id}/ratings
+	CreateRiskRating(ctx context.Context, req *RiskRatingCreate, params CreateRiskRatingParams) (CreateRiskRatingRes, error)
 	// CreateRole implements createRole operation.
 	//
 	// Creates a role without permissions.
@@ -3160,6 +3200,15 @@ type Handler interface {
 	//
 	// GET /v1/rfqs/{id}/comparison
 	GetRfqComparison(ctx context.Context, params GetRfqComparisonParams) (GetRfqComparisonRes, error)
+	// GetRisk implements getRisk operation.
+	//
+	// One risk of the register (ADR-0078 §10-§12, T98c) with its owner's name, the likelihood, impact
+	// and score of its latest rating and who rated it when, and the controls that mitigate it now, each
+	// with its code and status (a control retired after it was named stays, shown as retired). Every
+	// rating is read with `listRiskRatings`.
+	//
+	// GET /v1/risks/{id}
+	GetRisk(ctx context.Context, params GetRiskParams) (GetRiskRes, error)
 	// GetRole implements getRole operation.
 	//
 	// Returns one role.
@@ -4488,6 +4537,26 @@ type Handler interface {
 	//
 	// GET /v1/rfqs
 	ListRfqs(ctx context.Context, params ListRfqsParams) (ListRfqsRes, error)
+	// ListRiskRatings implements listRiskRatings operation.
+	//
+	// The ratings of one risk (ADR-0078 §11, T98c), the latest first: the first is the risk's. Each says
+	// the likelihood, the impact and their score, who rated and when; a rating is never changed.
+	//
+	// GET /v1/risks/{id}/ratings
+	ListRiskRatings(ctx context.Context, params ListRiskRatingsParams) (ListRiskRatingsRes, error)
+	// ListRisks implements listRisks operation.
+	//
+	// The tenant's risk register (ADR-0078 §10-§12, T98c): each risk as `getRisk` gives it, the highest
+	// score first and, among risks of one score, by title (then by id). The score is the likelihood times
+	// the impact of the risk's latest rating. Filtered by status, by category (the exact text), by owner
+	// and by a control that mitigates the risk (`control_id`: the risks that name it among their controls
+	// now). Closed risks are listed unless the status filter leaves them out. Paged by cursor in the
+	// register's order: each page continues after the last risk's score, title and id, so a risk rated
+	// again between two pages can be listed twice or not at all; a consumer that pages while risks are
+	// rated keys its rows by `id`.
+	//
+	// GET /v1/risks
+	ListRisks(ctx context.Context, params ListRisksParams) (ListRisksRes, error)
 	// ListRoleAssignments implements listRoleAssignments operation.
 	//
 	// Effective-dated role grants, including ended ones. Sortable by: `valid_from`.
@@ -6511,6 +6580,21 @@ type Handler interface {
 	//
 	// PATCH /v1/revenue-contracts/{id}
 	UpdateRevenueContract(ctx context.Context, req *RevenueContractUpdate, params UpdateRevenueContractParams) (UpdateRevenueContractRes, error)
+	// UpdateRisk implements updateRisk operation.
+	//
+	// Changes an open risk's title, category, owner or controls at once, with the caller's version of it
+	// (`If-Match`; 412 when another change or a rating came first). JSON Merge Patch (RFC 7396): absent
+	// fields are unchanged; `control_ids` replaces the risk's controls as a whole, and an empty list
+	// leaves it without any. A control left out is kept as removed, not deleted; one added is checked as
+	// `createRisk` checks it, and a control the risk keeps is not checked again, so a control retired
+	// after it was named stays. The owner is checked as `createRisk` checks it when the change names
+	// another, and the texts as it checks them. The rating is not changed here: a new rating is
+	// `createRiskRating`'s. A change that would leave the risk as it is is refused (422
+	// `grc.nothing_to_change`), as is a change of a closed risk (409 `grc.risk_closed`). An audit record
+	// naming the fields changed and RiskChanged (`changed`) are written with it.
+	//
+	// PATCH /v1/risks/{id}
+	UpdateRisk(ctx context.Context, req *RiskUpdate, params UpdateRiskParams) (UpdateRiskRes, error)
 	// UpdateRole implements updateRole operation.
 	//
 	// Changes the name or description of a role. JSON Merge Patch (RFC 7396): absent fields are unchanged,

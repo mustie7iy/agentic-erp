@@ -5040,20 +5040,44 @@ erDiagram
 
 ## 3.31 Governance, risk and compliance (`grc`)
 
-ADR-0078, T98a (migration 000304) and T98b (migration 000305). A leaf: it
+ADR-0078, T98a (migration 000304), T98b (migration 000305) and T98c
+(migration 000308). A leaf: it
 reads the identity context (principals, the permission catalog,
 segregation-of-duties rules) and the active configuration version through
 its ports, in types of its own, imports no other context, posts nothing
 and keeps no foreign key out of its schema (02 §2.1). It stores the
-tenant's control library, the results of testing its controls and each
-control's links to what enforces it. The library is the tenant's own: no
-control is shipped. The control matrix has no table: whether a link holds
+tenant's control library, the results of testing its controls, each
+control's links to what enforces it, and the risk register with the
+ratings of its risks and the controls that mitigate them. The library and
+the register are the tenant's own: no control or risk is shipped. The control matrix has no table: whether a link holds
 is computed on read (ADR-0078 §8).
 
 ```mermaid
 erDiagram
   control ||--o{ control_test : "tested"
   control ||--o{ control_link : "enforced by"
+  risk ||--o{ risk_rating : "rated"
+  risk ||--o{ risk_control : "mitigated by"
+  control ||--o{ risk_control : "mitigates"
+  risk { uuid id PK
+    text title
+    text category "free text"
+    uuid owner_id "identity: a person"
+    smallint likelihood "1-5, the latest rating's"
+    smallint impact "1-5, the latest rating's"
+    smallint score "generated: likelihood x impact"
+    text status "open | closed"
+    text close_reason
+    int version }
+  risk_rating { uuid id PK
+    uuid risk_id FK
+    smallint likelihood
+    smallint impact
+    uuid rated_by "identity: the person" }
+  risk_control { uuid id PK
+    uuid risk_id FK
+    uuid control_id FK
+    text status "active | removed" }
   control { uuid id PK
     text code "the tenant's, unique in any case, fixed"
     text objective
@@ -5133,6 +5157,40 @@ erDiagram
   order they were made (`control_link_by_control`). That the target is
   there when the link is made, and that the control is active, are the
   application's checks, under the control's row lock.
-- `grc.outbox`, `grc.inbox`: the context's events (`ControlChanged`).
-- Permissions `grc.control.read`, `grc.control.write` and
-  `grc.control.test`.
+- `grc.risk` (T98c): a risk of the register, with a title of up to 200
+  characters and a category of up to 100, each without white space
+  around it (`risk_title_check`, `risk_category_check`), the person who
+  owns it, and the likelihood and impact of its latest rating, each 1 to
+  5 (`risk_likelihood_check`, `risk_impact_check`); `score` is generated
+  as their product. The status is `open` or `closed`
+  (`risk_status_check`); a closed risk has a reason of up to 1,000
+  characters (`risk_close_reason_check`), when and by whom, and an open
+  one none (`risk_closed_check`), and a closed row is fixed
+  (`risk_closed_fixed`). A change, a rating and the closing move the
+  version by one (`platform.touch`); the application is granted the
+  update of what a risk says, its rating, its closing, `version` and
+  `updated_by`, and no delete. The register is read by score, the
+  highest first, then by title (`risk_by_score`). That the owner is an
+  active person, and that the risk's likelihood and impact are its
+  latest rating's, are the application's, in one transaction under the
+  risk's row lock.
+- `grc.risk_rating` (T98c): a rating of a risk (`risk_rating_risk_fkey`),
+  its likelihood and impact 1 to 5 (`risk_rating_likelihood_check`,
+  `risk_rating_impact_check`), who rated and when; insert-only
+  (`risk_rating_immutable`). The latest, by `id` (a UUIDv7), is the
+  risk's (`risk_rating_latest`).
+- `grc.risk_control` (T98c): a control of the library
+  (`risk_control_control_fkey`) that mitigates a risk
+  (`risk_control_risk_fkey`). A risk names a control once at a time
+  (`risk_control_once`); a control left out by a change is kept as
+  `removed`, with when and by whom (`risk_control_status_check`,
+  `risk_control_removed_check`), removing being its only change (the
+  application is granted the update of `status`, `removed_at` and
+  `removed_by`, and no delete) and a removed row fixed
+  (`risk_control_removed_fixed`). The register is filtered by a control
+  (`risk_control_by_control`). That a control named is active is the
+  application's check, under a share lock of the control.
+- `grc.outbox`, `grc.inbox`: the context's events (`ControlChanged`,
+  `RiskChanged`).
+- Permissions `grc.control.read`, `grc.control.write`,
+  `grc.control.test`, `grc.risk.read` and `grc.risk.write`.

@@ -66,7 +66,7 @@ tags:
   - name: credit
     description: "Credit management (ADR-0066): customers' credit limits, their credit exposure and the check of an amount against the limit."
   - name: grc
-    description: "Governance, risk and compliance (ADR-0078): the tenant's control library, the results of testing its controls, and the control matrix of what enforces each control."
+    description: "Governance, risk and compliance (ADR-0078): the tenant's control library, the results of testing its controls, the control matrix of what enforces each control, and the risk register with the ratings of its risks."
   - name: payments
     description: Payment runs, payments and bank files.
   - name: cash
@@ -17641,6 +17641,331 @@ paths:
           $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/risks:
+    get:
+      operationId: listRisks
+      tags:
+        - grc
+      summary: List the risk register
+      description: "The tenant's risk register (ADR-0078 §10-§12, T98c): each risk as `getRisk` gives it, the highest score first and, among risks of one score, by title (then by id). The score is the likelihood times the impact of the risk's latest rating. Filtered by status, by category (the exact text), by owner and by a control that mitigates the risk (`control_id`: the risks that name it among their controls now). Closed risks are listed unless the status filter leaves them out. Paged by cursor in the register's order: each page continues after the last risk's score, title and id, so a risk rated again between two pages can be listed twice or not at all; a consumer that pages while risks are rated keys its rows by `id`."
+      x-permission: grc.risk.read
+      x-problem-codes:
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Only risks in this status.
+          schema:
+            type: string
+            description: "Risk status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - open
+              - closed
+        - name: category
+          in: query
+          required: false
+          description: Only the risks of this category, by its exact text.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+        - name: owner_id
+          in: query
+          required: false
+          description: Only the risks this person owns.
+          schema:
+            type: string
+            format: uuid
+        - name: control_id
+          in: query
+          required: false
+          description: Only the risks this control mitigates now.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the risk register.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RiskPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createRisk
+      tags:
+        - grc
+      summary: Record a risk
+      description: "Records a risk in the tenant's risk register (ADR-0078 §10-§12, T98c): its title, its category in the tenant's own words, the person who owns it, its first rating (`likelihood` and `impact`, each a whole number from 1 to 5; its score is their product) and the controls of the library that mitigate it (`control_ids`, each once). It is created `open`, and its first rating is the first of its ratings (`listRiskRatings`), by the caller. The owner is a person of the tenant who is active (422 `request.reference_not_found` naming `owner_id` for an unknown principal, `grc.invalid_owner` for an agent, a service or a person who is not active). The title and the category are texts without white space around them (422 `grc.invalid_text`, naming the field). A control must be one of the library (422 `request.reference_not_found` naming the entry of `control_ids`) and active, not retired, and is named once (422 `grc.invalid_control`, naming the entry). No register is shipped: every risk is the tenant's. An audit record and RiskChanged (`created`) are written with it. A retry with the same `Idempotency-Key` answers the risk recorded."
+      x-permission: grc.risk.write
+      x-problem-codes:
+        - grc.invalid_control
+        - grc.invalid_owner
+        - grc.invalid_text
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The risk to record.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RiskCreate"
+      responses:
+        "201":
+          description: "Created; the risk."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Risk"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/risks/{id}":
+    get:
+      operationId: getRisk
+      tags:
+        - grc
+      summary: Get a risk
+      description: "One risk of the register (ADR-0078 §10-§12, T98c) with its owner's name, the likelihood, impact and score of its latest rating and who rated it when, and the controls that mitigate it now, each with its code and status (a control retired after it was named stays, shown as retired). Every rating is read with `listRiskRatings`."
+      x-permission: grc.risk.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The risk.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Risk"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateRisk
+      tags:
+        - grc
+      summary: Change a risk
+      description: "Changes an open risk's title, category, owner or controls at once, with the caller's version of it (`If-Match`; 412 when another change or a rating came first). JSON Merge Patch (RFC 7396): absent fields are unchanged; `control_ids` replaces the risk's controls as a whole, and an empty list leaves it without any. A control left out is kept as removed, not deleted; one added is checked as `createRisk` checks it, and a control the risk keeps is not checked again, so a control retired after it was named stays. The owner is checked as `createRisk` checks it when the change names another, and the texts as it checks them. The rating is not changed here: a new rating is `createRiskRating`'s. A change that would leave the risk as it is is refused (422 `grc.nothing_to_change`), as is a change of a closed risk (409 `grc.risk_closed`). An audit record naming the fields changed and RiskChanged (`changed`) are written with it."
+      x-permission: grc.risk.write
+      x-problem-codes:
+        - grc.invalid_control
+        - grc.invalid_owner
+        - grc.invalid_text
+        - grc.nothing_to_change
+        - grc.risk_closed
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the risk.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/RiskUpdate"
+      responses:
+        "200":
+          description: "Updated; the risk after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Risk"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/risks/{id}:close":
+    post:
+      operationId: closeRisk
+      tags:
+        - grc
+      summary: Close a risk
+      description: "Closes an open risk for good (status `closed`), once (409 `grc.risk_closed` for a closed one), at the version read (`If-Match`), with the reason it is closed, a text without white space around it (422 `grc.invalid_text`, naming `reason`). A closed risk changes no more and takes no further rating; it, its ratings and its controls are still read, and it is listed with `status=closed` or without a status filter. An audit record and RiskChanged (`closed`) are written with it; neither carries the reason."
+      x-permission: grc.risk.write
+      x-problem-codes:
+        - grc.invalid_text
+        - grc.risk_closed
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Why the risk is closed.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RiskClose"
+      responses:
+        "200":
+          description: The risk after closeRisk.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Risk"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/risks/{id}/ratings":
+    get:
+      operationId: listRiskRatings
+      tags:
+        - grc
+      summary: List a risk's ratings
+      description: "The ratings of one risk (ADR-0078 §11, T98c), the latest first: the first is the risk's. Each says the likelihood, the impact and their score, who rated and when; a rating is never changed."
+      x-permission: grc.risk.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the risk's ratings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RiskRatingPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createRiskRating
+      tags:
+        - grc
+      summary: Rate a risk again
+      description: "Rates an open risk again (ADR-0078 §11, T98c): its likelihood and impact now, each a whole number from 1 to 5. The rater is the caller, and the rating is kept with who rated and when; it is never changed or removed. The rating becomes the risk's: its likelihood, impact and score are the latest rating's, so the risk's version moves (its ETag changes) and its place in the register too. A rating equal to the risk's is recorded as well: it says the risk was looked at again. A closed risk takes no rating (409 `grc.risk_closed`). An audit record and RiskChanged (`rated`) are written with it. The answer is the rating; `getRisk` gives the risk at its new version."
+      x-permission: grc.risk.write
+      x-problem-codes:
+        - grc.risk_closed
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The rating.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RiskRatingCreate"
+      responses:
+        "201":
+          description: "Created; the rating."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RiskRating"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
         "429":
@@ -51442,6 +51767,170 @@ components:
           type: array
           items: {$ref: "#/components/schemas/ControlTest"}
           description: The tests on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    RiskCreate:
+      type: object
+      description: "Record a risk in the risk register with its first rating. It is created `open`."
+      required: [title, category, owner_id, likelihood, impact]
+      additionalProperties: false
+      properties:
+        title: {type: string, minLength: 1, maxLength: 200, description: "What the risk is, without white space around it."}
+        category: {type: string, minLength: 1, maxLength: 100, description: "The category of the risk, in the tenant's own words, without white space around it; the register is filtered by it."}
+        owner_id: {type: string, format: uuid, description: "The person who owns the risk: an active person of the tenant (`GET /v1/principals/{id}`)."}
+        likelihood: {type: integer, format: int32, minimum: 1, maximum: 5, description: "How likely the risk is to occur, from 1 (least) to 5 (most)."}
+        impact: {type: integer, format: int32, minimum: 1, maximum: 5, description: "How much it would weigh if it occurred, from 1 (least) to 5 (most)."}
+        control_ids:
+          type: array
+          maxItems: 50
+          items: {type: string, format: uuid}
+          description: "The active controls of the library that mitigate the risk (`GET /v1/controls/{id}`), each once. None when left out."
+      examples:
+        - title: Duplicate payments to suppliers
+          category: Payments
+          owner_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          likelihood: 2
+          impact: 4
+          control_ids: ["01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"]
+    RiskUpdate:
+      type: object
+      description: "Merge patch of a risk: its title, category, owner or controls. A new rating is `createRiskRating`'s."
+      additionalProperties: false
+      properties:
+        title: {type: string, minLength: 1, maxLength: 200, description: "What the risk is, without white space around it."}
+        category: {type: string, minLength: 1, maxLength: 100, description: "The category of the risk, without white space around it."}
+        owner_id: {type: string, format: uuid, description: "The person who owns the risk: an active person of the tenant."}
+        control_ids:
+          type: array
+          maxItems: 50
+          items: {type: string, format: uuid}
+          description: "The controls that mitigate the risk, each once. The list given replaces the risk's; a control added is an active one of the library; an empty list leaves the risk without controls."
+      examples:
+        - category: Treasury
+    RiskClose:
+      type: object
+      description: "Close a risk for good."
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason: {type: string, minLength: 1, maxLength: 1000, description: "Why the risk is closed, without white space around it."}
+      examples:
+        - reason: The supplier master is checked for duplicates when a supplier is created; no duplicate payment in four quarters.
+    RiskControl:
+      type: object
+      description: "A control that mitigates a risk."
+      required: [control_id, code, status]
+      properties:
+        control_id: {type: string, format: uuid, description: "The control (`GET /v1/controls/{id}`).", readOnly: true}
+        code: {type: string, description: "The control's code.", readOnly: true}
+        status:
+          type: string
+          description: "The control's status now: a control retired after the risk named it stays, shown as `retired`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [active, retired]
+          readOnly: true
+    Risk:
+      description: "A risk of the tenant's risk register (grc, ADR-0078 §10-§12), with its latest rating and the controls that mitigate it."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [title, category, owner_id, owner_name, likelihood, impact, score, rated_at, rated_by, rated_by_name, controls, status]
+          properties:
+            title: {type: string, description: "What the risk is."}
+            category: {type: string, description: "The category of the risk, in the tenant's own words."}
+            owner_id: {type: string, format: uuid, description: "The person who owns the risk (`GET /v1/principals/{id}`)."}
+            owner_name: {type: string, description: "The owner's name, as it is now.", readOnly: true}
+            likelihood: {type: integer, format: int32, description: "The likelihood of the latest rating, from 1 to 5.", readOnly: true}
+            impact: {type: integer, format: int32, description: "The impact of the latest rating, from 1 to 5.", readOnly: true}
+            score: {type: integer, format: int32, description: "The likelihood times the impact of the latest rating, from 1 to 25; the register is listed by it.", readOnly: true}
+            rated_at: {type: string, format: date-time, description: "When the latest rating was recorded (UTC).", readOnly: true}
+            rated_by: {type: string, format: uuid, description: "The person who recorded the latest rating (`GET /v1/principals/{id}`).", readOnly: true}
+            rated_by_name: {type: string, description: "The rater's name, as it is now.", readOnly: true}
+            controls:
+              type: array
+              items: {$ref: "#/components/schemas/RiskControl"}
+              description: "The controls that mitigate the risk now, by code; empty when it names none."
+            status:
+              type: string
+              description: "`open`, or `closed` for good (`closeRisk`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [open, closed]
+              readOnly: true
+            close_reason: {type: string, description: "Why the risk was closed; absent while it is open.", readOnly: true}
+            closed_at: {type: string, format: date-time, description: "When it was closed (UTC); absent while it is open.", readOnly: true}
+            closed_by: {type: string, format: uuid, description: "The person who closed it; absent while it is open.", readOnly: true}
+            closed_by_name: {type: string, description: "That person's name, as it is now; absent while it is open.", readOnly: true}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5f01"
+          version: 2
+          created_at: "2026-11-25T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-26T09:12:40Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          title: Duplicate payments to suppliers
+          category: Payments
+          owner_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          owner_name: Carla Controller
+          likelihood: 1
+          impact: 4
+          score: 4
+          rated_at: "2026-11-26T09:12:40Z"
+          rated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          rated_by_name: Carla Controller
+          controls:
+            - control_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+              code: PAY-01
+              status: active
+          status: open
+    RiskPage:
+      type: object
+      description: One page of the risk register.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Risk"}
+          description: The risks on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    RiskRatingCreate:
+      type: object
+      description: "Rate a risk again. The rater is the caller."
+      required: [likelihood, impact]
+      additionalProperties: false
+      properties:
+        likelihood: {type: integer, format: int32, minimum: 1, maximum: 5, description: "How likely the risk is to occur now, from 1 (least) to 5 (most)."}
+        impact: {type: integer, format: int32, minimum: 1, maximum: 5, description: "How much it would weigh now if it occurred, from 1 (least) to 5 (most)."}
+      examples:
+        - likelihood: 1
+          impact: 4
+    RiskRating:
+      type: object
+      description: "A rating of a risk (grc, ADR-0078 §11). It is never changed."
+      required: [id, risk_id, likelihood, impact, score, rated_by, rated_by_name, rated_at]
+      properties:
+        id: {type: string, format: uuid, description: "Identifier (UUIDv7).", readOnly: true}
+        risk_id: {type: string, format: uuid, description: "The risk rated (`GET /v1/risks/{id}`).", readOnly: true}
+        likelihood: {type: integer, format: int32, description: "The likelihood, from 1 to 5.", readOnly: true}
+        impact: {type: integer, format: int32, description: "The impact, from 1 to 5.", readOnly: true}
+        score: {type: integer, format: int32, description: "The likelihood times the impact.", readOnly: true}
+        rated_by: {type: string, format: uuid, description: "The person who rated (`GET /v1/principals/{id}`).", readOnly: true}
+        rated_by_name: {type: string, description: "The rater's name, as it is now.", readOnly: true}
+        rated_at: {type: string, format: date-time, description: "When the rating was recorded (UTC).", readOnly: true}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5f02"
+          risk_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5f01"
+          likelihood: 1
+          impact: 4
+          score: 4
+          rated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          rated_by_name: Carla Controller
+          rated_at: "2026-11-26T09:12:40Z"
+    RiskRatingPage:
+      type: object
+      description: One page of a risk's ratings.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/RiskRating"}
+          description: The ratings on this page, the latest first.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     EInvoiceFetch:
       type: object

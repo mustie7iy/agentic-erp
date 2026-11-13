@@ -165,6 +165,10 @@ type ClosePurchaseOrderRes interface {
 	closePurchaseOrderRes()
 }
 
+type CloseRiskRes interface {
+	closeRiskRes()
+}
+
 type CompleteCloseTaskRes interface {
 	completeCloseTaskRes()
 }
@@ -383,6 +387,14 @@ type CreateRevenueContractRes interface {
 
 type CreateRfqRes interface {
 	createRfqRes()
+}
+
+type CreateRiskRatingRes interface {
+	createRiskRatingRes()
+}
+
+type CreateRiskRes interface {
+	createRiskRes()
 }
 
 type CreateRoleAssignmentRes interface {
@@ -895,6 +907,10 @@ type GetRfqComparisonRes interface {
 
 type GetRfqRes interface {
 	getRfqRes()
+}
+
+type GetRiskRes interface {
+	getRiskRes()
 }
 
 type GetRoleAssignmentRes interface {
@@ -1423,6 +1439,14 @@ type ListRevenueContractsRes interface {
 
 type ListRfqsRes interface {
 	listRfqsRes()
+}
+
+type ListRiskRatingsRes interface {
+	listRiskRatingsRes()
+}
+
+type ListRisksRes interface {
+	listRisksRes()
 }
 
 type ListRoleAssignmentsRes interface {
@@ -1975,6 +1999,10 @@ type UpdateRequisitionRes interface {
 
 type UpdateRevenueContractRes interface {
 	updateRevenueContractRes()
+}
+
+type UpdateRiskRes interface {
+	updateRiskRes()
 }
 
 type UpdateRoleRes interface {

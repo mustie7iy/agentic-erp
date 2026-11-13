@@ -7825,6 +7825,67 @@ step_control_matrix() {
   passed
 }
 
+# step_risks is T98c (ADR-0078 §10-§13): Tara, the treasury manager,
+# records the risk of paying a supplier twice in Maple's risk register,
+# mitigated by step 76's control, and rates it 2 by 4. After a quarter
+# with the control in place she rates it again, 1 by 4: the rating is
+# kept with who rated and when, and the risk's score is the latest
+# rating's. A second risk, scored higher, lists first; it is closed with
+# a reason, and the register of open risks shows the first with its
+# score.
+step_risks() {
+  heading "Step 78 — The risk register: a risk of duplicate payments recorded with the control that mitigates it, rated 2 by 4, rated again 1 by 4, and listed by its score"
+  local owner risk other tag
+  [ -n "${CONTROL:-}" ] || fail "step 76's control is not there"
+  owner=$(awk -F'\t' '$2 == "Tara Treasury Manager" { print $1 }' "$WORK/names")
+  [ -n "$owner" ] || fail "step 1's Tara is not there"
+  as tara
+  say "Maple's risk register is its own: nothing is shipped, so it starts empty (ADR-0078 §10)."
+  api 200 '"risks in the register: \(.items | length)"' listRisks
+  expect "an empty register" "$(field '.items | length')" 0
+  say "Tara records the risk of paying a supplier twice, which she owns, and the control of step 76 that mitigates"
+  say "it. She rates it: likelihood 2 and impact 4, each from 1 to 5; the score is their product."
+  api 201 '"risk \(.title) (\(.category)), owned by \(.owner_name): likelihood \(.likelihood), impact \(.impact), score \(.score), \(.status)", (.controls[] | "  mitigated by \(.code) (\(.status))")' \
+    createRisk -body "{\"title\": \"Duplicate payments to suppliers\", \"category\": \"Payments\", \"owner_id\": \"$owner\", \"likelihood\": 2, \"impact\": 4, \"control_ids\": [\"$CONTROL\"]}"
+  risk=$(field .id)
+  expect "the risk" "$(field '"\(.owner_id) \(.likelihood) \(.impact) \(.score) \(.rated_by_name) \(.status) \(.version) \([.controls[] | "\(.control_id) \(.code)"] | join(","))"')" \
+    "$owner 2 4 8 Tara Treasury Manager open 1 $CONTROL PAY-01"
+  say "A control is named once, and a likelihood is from 1 to 5:"
+  refused 422 grc.invalid_control createRisk \
+    -body "{\"title\": \"Another risk\", \"category\": \"Payments\", \"owner_id\": \"$owner\", \"likelihood\": 1, \"impact\": 1, \"control_ids\": [\"$CONTROL\", \"$CONTROL\"]}"
+  refused 400 request.invalid_body createRisk \
+    -body "{\"title\": \"Another risk\", \"category\": \"Payments\", \"owner_id\": \"$owner\", \"likelihood\": 6, \"impact\": 1}"
+  say "A quarter later, with the control in place and no duplicate paid, she rates it again: likelihood 1, impact 4."
+  say "The rating is kept with who rated and when, and becomes the risk's:"
+  api 201 '"rating of the risk: likelihood \(.likelihood), impact \(.impact), score \(.score), by \(.rated_by_name) at \(.rated_at)"' \
+    createRiskRating -p "id=$risk" -body '{"likelihood": 1, "impact": 4}'
+  expect "the rating" "$(field '"\(.risk_id) \(.likelihood) \(.impact) \(.score) \(.rated_by)"')" "$risk 1 4 4 $owner"
+  api 200 '"risk \(.title): score \(.score), version \(.version)"' getRisk -p "id=$risk"
+  expect "the risk after its second rating" "$(field '"\(.likelihood) \(.impact) \(.score) \(.version)"')" "1 4 4 2"
+  QUIET=1 api 200 '' listRiskRatings -p "id=$risk"
+  expect "its ratings, the latest first" "$(field '[.items[] | "\(.score) \(.rated_by_name)"] | join(", ")')" \
+    "4 Tara Treasury Manager, 8 Tara Treasury Manager"
+  say "She records a second risk, a supplier's bank details changed by a fraudster, rated higher, 3 by 5. The register"
+  say "lists the risks by score, the highest first:"
+  QUIET=1 api 201 '' createRisk -body "{\"title\": \"Supplier bank details changed by fraud\", \"category\": \"Payments\", \"owner_id\": \"$owner\", \"likelihood\": 3, \"impact\": 5}"
+  other=$(field .id) tag=$ETAG
+  api 200 '.items[] | "  \(.score) \(.title) (\(.category)), owned by \(.owner_name), \(.status)"' listRisks
+  expect "the register by score" "$(field '[.items[] | "\(.id) \(.score)"] | join(", ")')" "$other 15, $risk 4"
+  say "The bank details change is covered by the vendor master's approval, so she closes that risk with the reason:"
+  api 200 '"risk \(.title): \(.status), \(.close_reason)"' closeRisk -p "id=$other" -if-match "$tag" \
+    -body '{"reason": "Bank details changes need the vendor master approver; no fraud in four quarters."}'
+  expect "the closed risk" "$(field '"\(.status) \(.closed_by_name) \(.version)"')" "closed Tara Treasury Manager 2"
+  refused 409 grc.risk_closed createRiskRating -p "id=$other" -body '{"likelihood": 1, "impact": 1}'
+  say "The open risks of the register, with their scores:"
+  api 200 '.items[] | "  \(.score) \(.title), mitigated by \([.controls[].code] | join(", "))"' listRisks -p status=open -p category=Payments
+  expect "the open register" "$(field '[.items[] | "\(.id) \(.score) \([.controls[].code] | join(","))"] | join(", ")')" "$risk 4 PAY-01"
+  QUIET=1 api 200 '' listRisks -p "control_id=$CONTROL"
+  expect "the risks the control mitigates" "$(field '[.items[].id] | join(" ")')" "$risk"
+  QUIET=1 api 200 '' listAuditEvents -p object_type=grc.risk -p "object_id=$risk"
+  expect "the risk's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "grc.risk.create grc.risk.rate"
+  passed
+}
+
 # step_sales_analytics is T91a (ADR-0044 As built T91a): Anna, a sales
 # analyst, asks the semantic layer for the month's order intake and billed
 # value by customer. Order intake is the confirmed sales orders' items by
@@ -10329,7 +10390,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_risks step_close'
 
 main() {
   stop_unseen

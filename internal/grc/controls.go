@@ -87,7 +87,7 @@ func (e *Endpoints) Record(ctx context.Context, in NewControl) (Control, error) 
 	if err := says(in); err != nil {
 		return Control{}, err
 	}
-	if err := e.owner(ctx, in.OwnerID); err != nil {
+	if err := e.owner(ctx, in.OwnerID, "control"); err != nil {
 		return Control{}, err
 	}
 	id := uuid.Must(uuid.NewV7())
@@ -181,7 +181,7 @@ func (e *Endpoints) Change(ctx context.Context, id uuid.UUID, ifMatch func(int32
 		return Control{}, err
 	}
 	if to.OwnerID != c.OwnerID {
-		if err := e.owner(ctx, to.OwnerID); err != nil {
+		if err := e.owner(ctx, to.OwnerID, "control"); err != nil {
 			return Control{}, err
 		}
 	}
