@@ -150,7 +150,7 @@ func TestArchiverWaits(t *testing.T) {
 		"the store refusing the manifest": func(w *records.Archiver) {
 			w.Endpoints.Objects = store{Store: e.objects, put: down, suffix: ".manifest.json"}
 		},
-		"no company": func(w *records.Archiver) { w.Endpoints.LegalEntities = entities{} },
+		"no company":           func(w *records.Archiver) { w.Endpoints.LegalEntities = entities{} },
 		"the company not read": func(w *records.Archiver) { w.Endpoints.LegalEntities = entities{err: down} },
 	} {
 		t.Run(name, func(t *testing.T) {

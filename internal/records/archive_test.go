@@ -238,7 +238,7 @@ func TestArchivingRunRefused(t *testing.T) {
 	c.Problem(422, "records.year_not_past_retention", "POST", "/v1/archiving-runs", body(e.DE, "journal_entry", 2031), "")
 	c.Problem(404, "request.not_found", "POST", "/v1/archiving-runs", body(uuid.Must(uuid.NewV7()), "journal_entry", 2026), "")
 	c.Problem(422, "records.year_not_past_retention", "POST", "/v1/archiving-runs", body(e.US, "journal_entry", 2026), "") // no rule for 1000
-	*e.now = e.now.AddDate(-1, 0, 0)                                                                                        // 2026 not ended
+	*e.now = e.now.AddDate(-1, 0, 0)                                                                                       // 2026 not ended
 	closeYear(t, e.Env, 2026)
 	c.Problem(422, "records.year_not_past_retention", "POST", "/v1/archiving-runs", body(e.DE, "journal_entry", 2026), "")
 	plain := apitest.NewWith(t, nil) // no object storage
