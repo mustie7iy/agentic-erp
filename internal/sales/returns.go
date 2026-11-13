@@ -28,8 +28,10 @@ var ReturnReasons = []string{"defective", "wrong_item", "not_wanted", "other"}
 
 // ReturnsItem is an item of a returns order: the quantity returned of the
 // billing document's item BillingItemNo, which billed Billed of the sales
-// order's item OrderItemNo. Quantities are decimal strings in Unit, the
-// order item's, whose key and description say what is returned.
+// order's item OrderItemNo, with what the receipts confirmed of it so far
+// (Received, T85b) and what is still expected (Open, Quantity less
+// Received). Quantities are decimal strings in Unit, the order item's,
+// whose key and description say what is returned.
 type ReturnsItem struct {
 	ItemNo        int32   `json:"item_no"`
 	BillingItemNo int32   `json:"billing_item_no"`
@@ -39,6 +41,8 @@ type ReturnsItem struct {
 	Unit          string  `json:"unit"`
 	Billed        string  `json:"billed_quantity"`
 	Quantity      string  `json:"quantity"`
+	Received      string  `json:"received_quantity"`
+	Open          string  `json:"open_quantity"`
 }
 
 // ReturnsOrder is a row of sales.returns_order with its items: quantities
@@ -88,7 +92,8 @@ const returnsSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.cust
 		r.returns_date, r.reason, r.reason_text, r.status,
 		(SELECT json_agg(json_build_object('item_no', i.item_no, 'billing_item_no', i.billing_item_no, 'order_item_no', b.order_item_no,
 			'item_key', t.item_key, 'description', t.description, 'unit', t.uom_code, 'billed_quantity', trim_scale(b.quantity)::text,
-			'quantity', trim_scale(i.quantity)::text) ORDER BY i.item_no)
+			'quantity', trim_scale(i.quantity)::text, 'received_quantity', trim_scale(i.received_quantity)::text,
+			'open_quantity', trim_scale(i.quantity - i.received_quantity)::text) ORDER BY i.item_no)
 		 FROM sales.returns_order_item i
 		 JOIN sales.billing_document_item b ON b.tenant_id = i.tenant_id AND b.billing_document_id = i.billing_document_id AND b.item_no = i.billing_item_no
 		 JOIN sales.sales_order_item t ON t.tenant_id = b.tenant_id AND t.sales_order_id = b.sales_order_id AND t.item_no = b.order_item_no
@@ -215,7 +220,7 @@ func returnable(ctx context.Context, tx pgx.Tx, b BillingDocument, in []ItemQuan
 	for _, it := range b.Items {
 		billed[it.ItemNo] = it
 	}
-	short, err := taking{document: "a returns order", noField: "billing_item_no",
+	short, err := taking{document: "A returns order", noField: "billing_item_no",
 		find: func(no int32) (string, *big.Rat, bool) {
 			it, ok := billed[no]
 			if !ok {

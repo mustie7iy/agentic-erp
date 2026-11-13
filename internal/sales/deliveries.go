@@ -184,7 +184,7 @@ func deliverable(o Order, in []DeliveryItemInput) error {
 	for _, it := range o.Items {
 		ordered[it.ItemNo] = it
 	}
-	short, err := taking{document: "a delivery", noField: "item_no",
+	short, err := taking{document: "A delivery", noField: "item_no",
 		find: func(no int32) (string, *big.Rat, bool) {
 			it, ok := ordered[no]
 			if !ok {
@@ -207,23 +207,17 @@ func deliverable(o Order, in []DeliveryItemInput) error {
 		short.no, o.DocumentNumber, money.PlainQuantity(short.open), it.Unit, it.Quantity, it.Delivered, short.quantity))
 }
 
+// deliveries are the tables a delivery is written to.
+var deliveries = confirmation{table: "delivery", document: "sales_order_id", number: "delivery_no", date: "delivery_date",
+	items: "delivery_item", parent: "delivery_id", item: "order_item_no"}
+
 // insertDelivery writes the delivery with its items and returns it as it
 // reads. Its number is the next within the order, which the caller holds
 // locked.
 func insertDelivery(ctx context.Context, tx pgx.Tx, p reqctx.Principal, orderID uuid.UUID, in DeliveryInput) (Delivery, error) {
-	id := uuid.Must(uuid.NewV7())
-	if _, err := tx.Exec(ctx, `INSERT INTO sales.delivery (tenant_id, id, sales_order_id, delivery_no, delivery_date, created_by)
-		SELECT $1, $2, $3, coalesce(max(delivery_no), 0) + 1, $4, $5 FROM sales.delivery WHERE sales_order_id = $3`,
-		p.TenantID, id, orderID, in.Date, p.ID); err != nil {
-		return Delivery{}, fmt.Errorf("sales: insert a delivery of sales order %s: %w", orderID, err)
-	}
-	nos, quantities := make([]int32, len(in.Items)), make([]string, len(in.Items))
-	for i, it := range in.Items {
-		nos[i], quantities[i] = it.ItemNo, it.Quantity
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO sales.delivery_item (tenant_id, delivery_id, sales_order_id, order_item_no, quantity)
-		SELECT $1, $2, $3, n, q::numeric FROM unnest($4::int[], $5::text[]) AS x(n, q)`, p.TenantID, id, orderID, nos, quantities); err != nil {
-		return Delivery{}, fmt.Errorf("sales: write items of delivery %s: %w", id, err)
+	id, err := deliveries.insert(ctx, tx, p, orderID, in.Date, in.Items)
+	if err != nil {
+		return Delivery{}, err
 	}
 	d, err := scanDelivery(tx.QueryRow(ctx, deliverySelect+` WHERE d.id = $1`, id))
 	if err != nil {

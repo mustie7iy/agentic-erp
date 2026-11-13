@@ -39,7 +39,8 @@ func returnsAPI(r ReturnsOrder, refs references) gen.ReturnsOrder {
 	for i, it := range r.Items {
 		out.Items[i] = gen.ReturnsOrderItem{ItemNo: it.ItemNo, BillingItemNo: it.BillingItemNo, OrderItemNo: it.OrderItemNo,
 			ItemKey: apitypes.OptString(it.ItemKey), Description: it.Description, BilledQuantity: gen.Quantity{Value: it.Billed, Unit: it.Unit},
-			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}}
+			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, ReceivedQuantity: gen.Quantity{Value: it.Received, Unit: it.Unit},
+			OpenQuantity: gen.Quantity{Value: it.Open, Unit: it.Unit}}
 	}
 	return out
 }

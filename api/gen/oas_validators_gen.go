@@ -19359,6 +19359,46 @@ func (s *ConfirmDunningRunUnprocessableEntity) Validate() error {
 	return nil
 }
 
+func (s *ConfirmReturnReceiptBadRequest) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *ConfirmReturnReceiptForbidden) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *ConfirmReturnReceiptNotFound) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *ConfirmReturnReceiptPreconditionRequired) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *ConfirmReturnReceiptUnprocessableEntity) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *ConfirmReturnsOrderBadRequest) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
@@ -44480,6 +44520,30 @@ func (s *ListRequisitionsForbidden) Validate() error {
 	return nil
 }
 
+func (s *ListReturnReceiptsBadRequest) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *ListReturnReceiptsForbidden) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *ListReturnReceiptsNotFound) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *ListReturnsOrdersBadRequest) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
@@ -60524,6 +60588,254 @@ func (s *RetireEntryTemplatePreconditionRequired) Validate() error {
 	return nil
 }
 
+func (s *ReturnReceipt) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if s.Items == nil {
+			return errors.New("nil is invalid value")
+		}
+		var failures []validate.FieldError
+		for i, elem := range s.Items {
+			if err := func() error {
+				if err := elem.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				failures = append(failures, validate.FieldError{
+					Name:  fmt.Sprintf("[%d]", i),
+					Error: err,
+				})
+			}
+		}
+		if len(failures) > 0 {
+			return &validate.Error{Fields: failures}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "items",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s *ReturnReceiptCreate) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if s.Items == nil {
+			return errors.New("nil is invalid value")
+		}
+		if err := (validate.Array{
+			MinLength:    1,
+			MinLengthSet: true,
+			MaxLength:    999,
+			MaxLengthSet: true,
+		}).ValidateLength(len(s.Items)); err != nil {
+			return errors.Wrap(err, "array")
+		}
+		var failures []validate.FieldError
+		for i, elem := range s.Items {
+			if err := func() error {
+				if err := elem.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				failures = append(failures, validate.FieldError{
+					Name:  fmt.Sprintf("[%d]", i),
+					Error: err,
+				})
+			}
+		}
+		if len(failures) > 0 {
+			return &validate.Error{Fields: failures}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "items",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s *ReturnReceiptHeaders) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if err := s.Response.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "Response",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s *ReturnReceiptItem) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if err := s.Quantity.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "quantity",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s *ReturnReceiptItemCreate) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if err := (validate.Int{
+			MinSet:        true,
+			Min:           1,
+			MaxSet:        false,
+			Max:           0,
+			MinExclusive:  false,
+			MaxExclusive:  false,
+			MultipleOfSet: false,
+			MultipleOf:    0,
+			Pattern:       nil,
+		}).Validate(int64(s.ItemNo)); err != nil {
+			return errors.Wrap(err, "int")
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "item_no",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Quantity.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "quantity",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s *ReturnReceiptPage) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if s.Items == nil {
+			return errors.New("nil is invalid value")
+		}
+		var failures []validate.FieldError
+		for i, elem := range s.Items {
+			if err := func() error {
+				if err := elem.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				failures = append(failures, validate.FieldError{
+					Name:  fmt.Sprintf("[%d]", i),
+					Error: err,
+				})
+			}
+		}
+		if len(failures) > 0 {
+			return &validate.Error{Fields: failures}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "items",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if value, ok := s.NextPageToken.Get(); ok {
+			if err := func() error {
+				if err := (validate.String{
+					MinLength:     0,
+					MinLengthSet:  false,
+					MaxLength:     2048,
+					MaxLengthSet:  true,
+					Email:         false,
+					Hostname:      false,
+					Regex:         nil,
+					MinNumeric:    0,
+					MinNumericSet: false,
+					MaxNumeric:    0,
+					MaxNumericSet: false,
+				}).Validate(string(value)); err != nil {
+					return errors.Wrap(err, "string")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "next_page_token",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
 func (s *ReturnsOrder) Validate() error {
 	if s == nil {
 		return validate.ErrNilPointer
@@ -60734,6 +61046,28 @@ func (s *ReturnsOrderItem) Validate() error {
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
 			Name:  "quantity",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ReceivedQuantity.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "received_quantity",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.OpenQuantity.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "open_quantity",
 			Error: err,
 		})
 	}

@@ -443,7 +443,7 @@ channels:
   sales:
     address: 'erp.{cell}.sales.{tenant}.{event}'
     title: Sales events
-    description: Quotations, sales orders, their deliveries, their credit blocks, billing documents, returns orders and sales prices and discounts (ADR-0067 §6, §10, §11 and As built T85a; ADR-0066, T77b).
+    description: Quotations, sales orders, their deliveries, their credit blocks, billing documents, returns orders, their receipts and sales prices and discounts (ADR-0067 §6, §10, §11 and As built T85a, T85b; ADR-0066, T77b).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
@@ -456,6 +456,7 @@ channels:
       SalesOrderCreditReleased: {$ref: '#/components/messages/SalesOrderCreditReleased'}
       BillingDocumentPosted: {$ref: '#/components/messages/BillingDocumentPosted'}
       ReturnsOrderChanged: {$ref: '#/components/messages/ReturnsOrderChanged'}
+      ReturnReceived: {$ref: '#/components/messages/ReturnReceived'}
   revenue:
     address: 'erp.{cell}.revenue.{tenant}.{event}'
     title: Revenue recognition events
@@ -765,6 +766,7 @@ operations:
       - $ref: '#/channels/sales/messages/SalesOrderCreditReleased'
       - $ref: '#/channels/sales/messages/BillingDocumentPosted'
       - $ref: '#/channels/sales/messages/ReturnsOrderChanged'
+      - $ref: '#/channels/sales/messages/ReturnReceived'
   publishRevenueEvents:
     action: send
     title: Revenue recognition publishes
@@ -4370,10 +4372,11 @@ components:
         confirmed (`confirmed`). It carries the reason, not the items,
         names the customer by id and number, never by name, and the
         billing document and the sales order by id and number. Nothing
-        was posted and no stock moved. It is not offered as a webhook
-        event (product owner 2026-11-12: none until a consumer asks).
-        `GET /v1/returns-orders/{id}` returns the returns order at
-        `version` or later. Subject is the returns order id.
+        was posted and no stock moved. A receipt against it emits
+        ReturnReceived alone, not this event. It is not offered as a
+        webhook event (product owner 2026-11-12: none until a consumer
+        asks). `GET /v1/returns-orders/{id}` returns the returns order
+        at `version` or later. Subject is the returns order id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -4385,6 +4388,35 @@ components:
         - name: confirmed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001106, source: /erp/eu-1/sales, type: com.example.erp.sales.returns_order_changed.v1, subject: 0192a000-0000-7000-8000-000000001411, time: '2026-11-27T10:20:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {returns_order_id: 0192a000-0000-7000-8000-000000001411, document_number: RO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, billing_document_id: 0192a000-0000-7000-8000-000000001311, billing_document_number: BD100001, sales_order_id: 0192a000-0000-7000-8000-000000001111, sales_order_number: SO100001, returns_date: '2026-11-27', reason: defective, status: confirmed, status_before: draft, version: 2}
+    ReturnReceived:
+      name: ReturnReceived
+      title: Return received
+      summary: A receipt was confirmed against a returns order.
+      description: |
+        Emitted when a person confirms that quantities of a confirmed
+        returns order's items arrived on a date (ADR-0067, As built
+        T85b). It carries the receipt's number within the returns order,
+        its date and the items received, each with the quantity of this
+        receipt and the returns order item's received quantity after it,
+        and names the customer by id and number, never by name, and the
+        billing document and the sales order by id and number. No stock
+        moved and nothing was posted. It is not offered as a webhook
+        event (product owner 2026-11-12: none until a consumer asks).
+        `version` is the returns order's after the receipt:
+        `GET /v1/returns-orders/{id}` returns the returns order at it or
+        later, and `GET /v1/returns-orders/{id}/receipts` its receipts.
+        Subject is the returns order id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.sales.return_received.v1}
+      payload: {$ref: '#/components/schemas/ReturnReceivedV1'}
+      examples:
+        - name: received
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001107, source: /erp/eu-1/sales, type: com.example.erp.sales.return_received.v1, subject: 0192a000-0000-7000-8000-000000001411, time: '2026-11-30T09:12:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {receipt_id: 0192a000-0000-7000-8000-000000001511, receipt_no: 1, returns_order_id: 0192a000-0000-7000-8000-000000001411, document_number: RO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, billing_document_id: 0192a000-0000-7000-8000-000000001311, billing_document_number: BD100001, sales_order_id: 0192a000-0000-7000-8000-000000001111, sales_order_number: SO100001, receipt_date: '2026-11-30', items: [{item_no: 1, billing_item_no: 1, quantity: {value: '20', unit: EA}, received_quantity: {value: '20', unit: EA}}], version: 3}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -5286,6 +5318,35 @@ components:
         status: {type: string, description: "The returns order's status after the change. Open enum: draft, confirmed."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
         version: {type: integer, description: "The returns order's version after the change."}
+    ReturnReceivedV1:
+      type: object
+      required: [receipt_id, receipt_no, returns_order_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, billing_document_id, billing_document_number, sales_order_id, sales_order_number, receipt_date, items, version]
+      properties:
+        receipt_id: {$ref: '#/components/schemas/Uuid', description: '`sales.return_receipt.id`.'}
+        receipt_no: {type: integer, description: "The receipt's number within its returns order, from 1."}
+        returns_order_id: {$ref: '#/components/schemas/Uuid', description: '`sales.returns_order.id`.'}
+        document_number: {type: string, description: "The returns order's document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that takes the return.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        billing_document_id: {$ref: '#/components/schemas/Uuid', description: 'The billing document whose items are returned: `sales.billing_document.id`.'}
+        billing_document_number: {type: string, description: "The billing document's document number."}
+        sales_order_id: {$ref: '#/components/schemas/Uuid', description: 'The sales order that billing document billed: `sales.sales_order.id`.'}
+        sales_order_number: {type: string, description: "The sales order's document number."}
+        receipt_date: {$ref: '#/components/schemas/Date', description: 'The day the quantities arrived.'}
+        items:
+          type: array
+          description: "The returns order's items received, by item number."
+          items:
+            type: object
+            required: [item_no, billing_item_no, quantity, received_quantity]
+            properties:
+              item_no: {type: integer, description: "The returns order item's number."}
+              billing_item_no: {type: integer, description: "The number of the billing document's item it returns from."}
+              quantity: {$ref: '#/components/schemas/Quantity', description: "The quantity of this receipt, in the item's unit."}
+              received_quantity: {$ref: '#/components/schemas/Quantity', description: 'What is received of the returns order item after this receipt.'}
+        version: {type: integer, description: "The returns order's version after the receipt."}
     ConsolidationRunChangedV1:
       type: object
       required: [run_id, group_code, fiscal_year, fiscal_period, status, status_before, problem, version]

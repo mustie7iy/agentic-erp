@@ -50,7 +50,19 @@ func TestDatabaseFailures(t *testing.T) {
 	billedDoc := uuid.MustParse(returnedFrom)
 	draftReturn, _ := e.Must(201, "POST", returnsOrders, returning(returnedFrom, "defective", "1 1 EA"), "")
 	returns := uuid.MustParse(draftReturn["id"].(string))
+	// A confirmed returns order of the document's second item with one receipt and more still expected.
+	receivedReturn := uuid.MustParse(e.returnedOrder(t, returnedFrom, "2 1.5 KG"))
+	e.Must(201, "POST", receipts(receivedReturn.String()), `{"receipt_date": "2026-01-02", "items": [{"item_no": 1, "quantity": {"value": "0.5", "unit": "KG"}}]}`, "")
 	calls := map[string]func(ctx context.Context) error{
+		"confirm a return receipt": func(ctx context.Context) error {
+			_, err := h.ConfirmReturnReceipt(ctx, &gen.ReturnReceiptCreate{ReceiptDate: instant(t, "2026-01-03T00:00:00Z"), Items: []gen.ReturnReceiptItemCreate{
+				{ItemNo: 1, Quantity: gen.Quantity{Value: "1", Unit: "KG"}}}}, gen.ConfirmReturnReceiptParams{ID: receivedReturn})
+			return err
+		},
+		"list return receipts": func(ctx context.Context) error {
+			_, err := h.ListReturnReceipts(ctx, gen.ListReturnReceiptsParams{ID: receivedReturn})
+			return err
+		},
 		"create a returns order": func(ctx context.Context) error {
 			_, err := h.CreateReturnsOrder(ctx, &gen.ReturnsOrderCreate{BillingDocumentID: billedDoc, Reason: "other", ReasonText: gen.NewOptString("Late"),
 				Items: []gen.ReturnsOrderItemCreate{{BillingItemNo: 1, Quantity: gen.Quantity{Value: "2", Unit: "EA"}},
@@ -169,6 +181,15 @@ func TestDatabaseFailures(t *testing.T) {
 	t.Run("list deliveries' page size", func(t *testing.T) {
 		err := e.inRequest(t, func(ctx context.Context) error {
 			_, err := h.ListSalesDeliveries(ctx, gen.ListSalesDeliveriesParams{ID: deliveredOrder, PageSize: gen.NewOptInt32(0)})
+			return err
+		})
+		if p := problem.From(err); p.Code != "request.invalid_page_size" {
+			t.Errorf("got %v, want request.invalid_page_size", p)
+		}
+	})
+	t.Run("list return receipts' page size", func(t *testing.T) {
+		err := e.inRequest(t, func(ctx context.Context) error {
+			_, err := h.ListReturnReceipts(ctx, gen.ListReturnReceiptsParams{ID: receivedReturn, PageSize: gen.NewOptInt32(0)})
 			return err
 		})
 		if p := problem.From(err); p.Code != "request.invalid_page_size" {

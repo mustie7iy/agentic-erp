@@ -612,6 +612,29 @@ type Invoker interface {
 	//
 	// POST /v1/dunning-runs/{id}:confirm
 	ConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (ConfirmDunningRunRes, error)
+	// ConfirmReturnReceipt invokes confirmReturnReceipt operation.
+	//
+	// Records that quantities of a `confirmed` returns order's items arrived on a date (ADR-0067, As built
+	// T85b). It is a confirmation by a person, kept in the sales context, as a delivery confirmation is
+	// (`confirmSalesDelivery`): no stock moves and nothing is posted; a credit memo request reads what was
+	// received. The returns order is read under a row lock, so two receipts of one returns order wait for
+	// one another. A returns order that is not confirmed takes none (409
+	// `sales.returns_order_not_confirmed`). `receipt_date` is not after the company's date today in its
+	// time zone (422 `sales.receipt_date_in_future`). Each item names an item of the returns order by its
+	// number (422 `sales.unknown_returns_item` naming `items[i].item_no`), once (422
+	// `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the item's
+	// unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what is returned less
+	// what earlier receipts confirmed (422 `sales.exceeds_open_quantity` naming `items[i].quantity.value`,
+	// with the item and its open quantity in the message): of two receipts racing for an item's last
+	// quantity, one is recorded. The receipt is numbered within its returns order and written once; it is
+	// not changed or reversed in the first version. Each returns order item's `received_quantity` rises by
+	// what was received, its `open_quantity` falls by it, and the returns order's `version` moves, so
+	// `getReturnsOrder` shows what is received and what is still expected. The sales order is not changed:
+	// its delivered, billed and returned quantities stay. Audited, and published as ReturnReceived. A
+	// retry with the same `Idempotency-Key` answers the receipt recorded. Human-only (`x-agent: false`).
+	//
+	// POST /v1/returns-orders/{id}/receipts
+	ConfirmReturnReceipt(ctx context.Context, request *ReturnReceiptCreate, params ConfirmReturnReceiptParams) (ConfirmReturnReceiptRes, error)
 	// ConfirmReturnsOrder invokes confirmReturnsOrder operation.
 	//
 	// Confirms a `draft` returns order (ADR-0067, As built T85a), at the version the caller read
@@ -619,9 +642,9 @@ type Invoker interface {
 	// not a draft is refused (409 `sales.invalid_status`). Confirming is by permission,
 	// `sales.return.confirm`, without an approval; no rule sets the person who confirms apart from the one
 	// who created the returns order. A confirmed returns order is not changed or cancelled in the first
-	// version. Nothing is checked again, nothing is posted and no stock moves. Audited, and published as
-	// ReturnsOrderChanged. A retry with the same `Idempotency-Key` answers the confirmed returns order.
-	// Human-only (`x-agent: false`).
+	// version; it takes receipts (`confirmReturnReceipt`). Nothing is checked again, nothing is posted and
+	// no stock moves. Audited, and published as ReturnsOrderChanged. A retry with the same
+	// `Idempotency-Key` answers the confirmed returns order. Human-only (`x-agent: false`).
 	//
 	// POST /v1/returns-orders/{id}:confirm
 	ConfirmReturnsOrder(ctx context.Context, params ConfirmReturnsOrderParams) (ConfirmReturnsOrderRes, error)
@@ -3007,9 +3030,9 @@ type Invoker interface {
 	// One returns order (ADR-0067, As built T85a) with its company's code and name, its customer's number
 	// and name, the billing document and the sales order it returns from by id and number, its date, its
 	// reason and its items, each naming the billing document's item and the sales order's item by number,
-	// what is sold by item key and description, the quantity billed by the billing document's item and the
-	// quantity being returned. One of a company the caller may not act in is not found (404), as one that
-	// does not exist.
+	// what is sold by item key and description, the quantity billed by the billing document's item, the
+	// quantity being returned, the quantity received so far and the quantity still expected. One of a
+	// company the caller may not act in is not found (404), as one that does not exist.
 	//
 	// GET /v1/returns-orders/{id}
 	GetReturnsOrder(ctx context.Context, params GetReturnsOrderParams) (GetReturnsOrderRes, error)
@@ -4319,13 +4342,25 @@ type Invoker interface {
 	//
 	// GET /v1/requisitions
 	ListRequisitions(ctx context.Context, params ListRequisitionsParams) (ListRequisitionsRes, error)
+	// ListReturnReceipts invokes listReturnReceipts operation.
+	//
+	// The receipts of a returns order (ADR-0067, As built T85b), each as `confirmReturnReceipt` answered
+	// it: its number within the returns order, its date and its items, each naming the returns order's
+	// item by number, the billing document's item, the item key and the description with the quantity
+	// received in the item's unit. The returns order's own items show the sum and what is still expected
+	// (`received_quantity`, `open_quantity`, `getReturnsOrder`). A returns order of a company the caller
+	// may not act in is not found (404), as one that does not exist. Sortable by: `receipt_date`.
+	//
+	// GET /v1/returns-orders/{id}/receipts
+	ListReturnReceipts(ctx context.Context, params ListReturnReceiptsParams) (ListReturnReceiptsRes, error)
 	// ListReturnsOrders invokes listReturnsOrders operation.
 	//
 	// The returns orders of the companies the caller may act in (ADR-0067, As built T85a), each as
 	// `getReturnsOrder` gives it: with its company's code and name, its customer's number and name, the
 	// billing document and the sales order it returns from by id and number, its reason and its items with
-	// their billed and returned quantities. Filtered by company, customer, billing document, sales order,
-	// status and document number. Sortable by: `returns_date`, `document_number`.
+	// their billed, returned, received and still expected quantities. Filtered by company, customer,
+	// billing document, sales order, status and document number. Sortable by: `returns_date`,
+	// `document_number`.
 	//
 	// GET /v1/returns-orders
 	ListReturnsOrders(ctx context.Context, params ListReturnsOrdersParams) (ListReturnsOrdersRes, error)
@@ -13836,6 +13871,172 @@ func (c *Client) sendConfirmDunningRun(ctx context.Context, params ConfirmDunnin
 	return result, nil
 }
 
+// ConfirmReturnReceipt invokes confirmReturnReceipt operation.
+//
+// Records that quantities of a `confirmed` returns order's items arrived on a date (ADR-0067, As built
+// T85b). It is a confirmation by a person, kept in the sales context, as a delivery confirmation is
+// (`confirmSalesDelivery`): no stock moves and nothing is posted; a credit memo request reads what was
+// received. The returns order is read under a row lock, so two receipts of one returns order wait for
+// one another. A returns order that is not confirmed takes none (409
+// `sales.returns_order_not_confirmed`). `receipt_date` is not after the company's date today in its
+// time zone (422 `sales.receipt_date_in_future`). Each item names an item of the returns order by its
+// number (422 `sales.unknown_returns_item` naming `items[i].item_no`), once (422
+// `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the item's
+// unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what is returned less
+// what earlier receipts confirmed (422 `sales.exceeds_open_quantity` naming `items[i].quantity.value`,
+// with the item and its open quantity in the message): of two receipts racing for an item's last
+// quantity, one is recorded. The receipt is numbered within its returns order and written once; it is
+// not changed or reversed in the first version. Each returns order item's `received_quantity` rises by
+// what was received, its `open_quantity` falls by it, and the returns order's `version` moves, so
+// `getReturnsOrder` shows what is received and what is still expected. The sales order is not changed:
+// its delivered, billed and returned quantities stay. Audited, and published as ReturnReceived. A
+// retry with the same `Idempotency-Key` answers the receipt recorded. Human-only (`x-agent: false`).
+//
+// POST /v1/returns-orders/{id}/receipts
+func (c *Client) ConfirmReturnReceipt(ctx context.Context, request *ReturnReceiptCreate, params ConfirmReturnReceiptParams) (ConfirmReturnReceiptRes, error) {
+	res, err := c.sendConfirmReturnReceipt(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendConfirmReturnReceipt(ctx context.Context, request *ReturnReceiptCreate, params ConfirmReturnReceiptParams) (res ConfirmReturnReceiptRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("confirmReturnReceipt"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/returns-orders/{id}/receipts"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ConfirmReturnReceiptOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/returns-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/receipts"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeConfirmReturnReceiptRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ConfirmReturnReceiptOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeConfirmReturnReceiptResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ConfirmReturnsOrder invokes confirmReturnsOrder operation.
 //
 // Confirms a `draft` returns order (ADR-0067, As built T85a), at the version the caller read
@@ -13843,9 +14044,9 @@ func (c *Client) sendConfirmDunningRun(ctx context.Context, params ConfirmDunnin
 // not a draft is refused (409 `sales.invalid_status`). Confirming is by permission,
 // `sales.return.confirm`, without an approval; no rule sets the person who confirms apart from the one
 // who created the returns order. A confirmed returns order is not changed or cancelled in the first
-// version. Nothing is checked again, nothing is posted and no stock moves. Audited, and published as
-// ReturnsOrderChanged. A retry with the same `Idempotency-Key` answers the confirmed returns order.
-// Human-only (`x-agent: false`).
+// version; it takes receipts (`confirmReturnReceipt`). Nothing is checked again, nothing is posted and
+// no stock moves. Audited, and published as ReturnsOrderChanged. A retry with the same
+// `Idempotency-Key` answers the confirmed returns order. Human-only (`x-agent: false`).
 //
 // POST /v1/returns-orders/{id}:confirm
 func (c *Client) ConfirmReturnsOrder(ctx context.Context, params ConfirmReturnsOrderParams) (ConfirmReturnsOrderRes, error) {
@@ -38870,9 +39071,9 @@ func (c *Client) sendGetRequisition(ctx context.Context, params GetRequisitionPa
 // One returns order (ADR-0067, As built T85a) with its company's code and name, its customer's number
 // and name, the billing document and the sales order it returns from by id and number, its date, its
 // reason and its items, each naming the billing document's item and the sales order's item by number,
-// what is sold by item key and description, the quantity billed by the billing document's item and the
-// quantity being returned. One of a company the caller may not act in is not found (404), as one that
-// does not exist.
+// what is sold by item key and description, the quantity billed by the billing document's item, the
+// quantity being returned, the quantity received so far and the quantity still expected. One of a
+// company the caller may not act in is not found (404), as one that does not exist.
 //
 // GET /v1/returns-orders/{id}
 func (c *Client) GetReturnsOrder(ctx context.Context, params GetReturnsOrderParams) (GetReturnsOrderRes, error) {
@@ -67679,13 +67880,206 @@ func (c *Client) sendListRequisitions(ctx context.Context, params ListRequisitio
 	return result, nil
 }
 
+// ListReturnReceipts invokes listReturnReceipts operation.
+//
+// The receipts of a returns order (ADR-0067, As built T85b), each as `confirmReturnReceipt` answered
+// it: its number within the returns order, its date and its items, each naming the returns order's
+// item by number, the billing document's item, the item key and the description with the quantity
+// received in the item's unit. The returns order's own items show the sum and what is still expected
+// (`received_quantity`, `open_quantity`, `getReturnsOrder`). A returns order of a company the caller
+// may not act in is not found (404), as one that does not exist. Sortable by: `receipt_date`.
+//
+// GET /v1/returns-orders/{id}/receipts
+func (c *Client) ListReturnReceipts(ctx context.Context, params ListReturnReceiptsParams) (ListReturnReceiptsRes, error) {
+	res, err := c.sendListReturnReceipts(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListReturnReceipts(ctx context.Context, params ListReturnReceiptsParams) (res ListReturnReceiptsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listReturnReceipts"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/returns-orders/{id}/receipts"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListReturnReceiptsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/returns-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/receipts"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListReturnReceiptsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListReturnReceiptsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListReturnsOrders invokes listReturnsOrders operation.
 //
 // The returns orders of the companies the caller may act in (ADR-0067, As built T85a), each as
 // `getReturnsOrder` gives it: with its company's code and name, its customer's number and name, the
 // billing document and the sales order it returns from by id and number, its reason and its items with
-// their billed and returned quantities. Filtered by company, customer, billing document, sales order,
-// status and document number. Sortable by: `returns_date`, `document_number`.
+// their billed, returned, received and still expected quantities. Filtered by company, customer,
+// billing document, sales order, status and document number. Sortable by: `returns_date`,
+// `document_number`.
 //
 // GET /v1/returns-orders
 func (c *Client) ListReturnsOrders(ctx context.Context, params ListReturnsOrdersParams) (ListReturnsOrdersRes, error) {

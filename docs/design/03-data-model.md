@@ -4562,7 +4562,9 @@ nothing until T79b, T80a (migration 000294) the price
 records an item without a price is priced from, T80b (migration
 000295) discounts among them and the conditions applied to an item, and
 T85a (migration 000303) the returns order for a posted billing
-document's items, which moves no stock either and posts nothing.
+document's items, which moves no stock either and posts nothing, and
+T85b (migration 000304) the receipt of its quantities, a confirmation
+as the delivery's is.
 There is no material
 master (§3.16's shared `material` joins the items when it is built): an
 item names what is sold by a description and an optional free-text
@@ -4675,6 +4677,20 @@ erDiagram
     int item_no PK
     uuid billing_document_id "the returns order's"
     int billing_item_no "once per returns order"
+    numeric quantity "above zero"
+    numeric received_quantity "at most quantity (T85b)"
+  }
+  returns_order ||--o{ return_receipt : "is received by"
+  return_receipt ||--|{ return_receipt_item : "has"
+  returns_order_item ||--o{ return_receipt_item : "is received by"
+  return_receipt { uuid id PK
+    uuid returns_order_id "a confirmed returns order"
+    int receipt_no "unique per returns order"
+    date receipt_date
+  }
+  return_receipt_item { uuid receipt_id PK
+    int item_no PK "the returns order's item"
+    uuid returns_order_id "the receipt's returns order"
     numeric quantity "above zero"
   }
   price { uuid id PK
@@ -4834,7 +4850,32 @@ erDiagram
   drafts included, never take more of one of its items than it billed
   (`returns_order_item_quantities`, the same trigger;
   `returns_order_item_by_billing_item` serves the sum). The application
-  may neither update nor delete an item.
+  may neither update nor delete an item. T85b (migration 000304) adds
+  `received_quantity`, 0 by default and at most `quantity`
+  (`returns_order_item_received`), moved by the receipt item's trigger
+  alone.
+- `sales.return_receipt` (T85b, migration 000304; ADR-0067, As built
+  T85b): a confirmation that quantities of a returns order's items
+  arrived on `receipt_date`, numbered within its returns order
+  (`return_receipt_no_positive`, `return_receipt_no_once`). Only a
+  confirmed returns order takes one (`return_receipt_order_confirmed`,
+  a trigger that also moves the returns order's `version` once per
+  receipt and sets its `updated_by`, running as the table's owner: the
+  application itself still changes a confirmed returns order in
+  nothing, and `sales.check_returns_order_change` admits a confirmed
+  returns order's version moved from a trigger alone). Insert-only
+  (`platform.forbid_mutation`); the list reads a returns order's
+  receipts by date (`return_receipt_by_date`). It moves no stock and
+  posts nothing, and the sales order is not touched.
+- `sales.return_receipt_item`: a quantity above zero
+  (`return_receipt_item_quantity_positive`) of an item of the receipt's
+  own returns order (`return_receipt_item_receipt_fkey`,
+  `return_receipt_item_order_item_fkey`), a returns order item at most
+  once per receipt (the primary key). Each insert adds its quantity to
+  the returns order item's `received_quantity`
+  (`return_receipt_item_received`, a trigger running as the table's
+  owner), so that quantity is the sum of the item's receipts and never
+  above what is returned (`returns_order_item_received`). Insert-only.
 - `sales.price` (T80a, migration 000294; ADR-0067 §10): the net price of
   an item key (`price_item_key_check`) in a company, for every customer
   (`customer_id` null) or for one, above zero (`price_positive`) per a
@@ -4872,12 +4913,13 @@ erDiagram
   (`QuotationChanged`, `SalesOrderChanged`, `SalesOrderDelivered`,
   `BillingDocumentChanged`, `BillingDocumentPosted`, `SalesPriceChanged`,
   `SalesOrderCreditBlocked`, `SalesOrderCreditReleased`,
-  `ReturnsOrderChanged`).
+  `ReturnsOrderChanged`, `ReturnReceived`).
 - Permissions `sales.quotation.read` and `.write`; `sales.order.read`,
   `.write`, `.confirm` and `.credit_release` (T77b);
   `sales.delivery.confirm`; `sales.billing.read`,
   `.write` and `.post` (posting comes with T79b); `sales.price.read` and
-  `.write`; `sales.return.read`, `.write` and `.confirm` (T85a).
+  `.write`; `sales.return.read`, `.write` and `.confirm` (T85a) and
+  `.receive` (T85b).
 
 ## 3.30 Revenue recognition (`revenue`)
 

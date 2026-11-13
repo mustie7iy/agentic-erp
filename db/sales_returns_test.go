@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -145,6 +146,21 @@ func TestReturnsOrderRules(t *testing.T) {
 		{"what is returned above what is billed, by the tables' owner", func(tx pgx.Tx, s returnsScene) error {
 			return all(tx, s.billed(step(`SET LOCAL ROLE erp_owner`), step(`UPDATE sales.sales_order_item SET returned_quantity = 5.5 WHERE sales_order_id = $1 AND item_no = 1`, s.order))...)
 		}, "sales_order_item_returned"},
+		{"what is returned below zero, by the tables' owner", func(tx pgx.Tx, s returnsScene) error {
+			return all(tx, s.billed(step(`SET LOCAL ROLE erp_owner`), step(`UPDATE sales.sales_order_item SET returned_quantity = -1 WHERE sales_order_id = $1 AND item_no = 1`, s.order))...)
+		}, "sales_order_item_returned"},
+		{"a number of 41 characters", func(tx pgx.Tx, s returnsScene) error {
+			return all(tx, s.billed(s.header(s.returns, strings.Repeat("1", 41), "defective", "draft"))...)
+		}, "returns_order_document_number_check"},
+		{"an empty number", func(tx pgx.Tx, s returnsScene) error {
+			return all(tx, s.billed(s.header(s.returns, "", "defective", "draft"))...)
+		}, "returns_order_document_number_check"},
+		{"a reason text of 501 characters", func(tx pgx.Tx, s returnsScene) error {
+			return all(tx, s.billed(step(returnsHeader, s.tenant, s.returns, "RO1", s.company, s.customer, s.doc, s.order, "other", strings.Repeat("x", 501), "draft", s.actor))...)
+		}, "returns_order_reason_text_check"},
+		{"an item numbered zero", func(tx pgx.Tx, s returnsScene) error {
+			return all(tx, s.billed(s.made(), s.line(s.returns, 0, 1, "1"))...)
+		}, "returns_order_item_item_no_check"},
 		{"a billing document that is not posted", func(tx pgx.Tx, s returnsScene) error {
 			return all(tx, append(s.billedOrder(s.order, s.doc, "1", "5", "2"), s.made())...)
 		}, "its billing document is not a posted one"},
@@ -239,4 +255,142 @@ func TestReturnsOrderRules(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+}
+
+// TestReturnReceiptRules (T85b, migration 000304; ADR-0067, As built
+// T85b): a receipt is of a confirmed returns order, numbered once within
+// it, and never changed or deleted; its items take quantities above zero
+// of the returns order's items, each once per receipt, and all the
+// receipts together at most what an item returns; each item adds to what
+// is received of the returns order's item, which only the database
+// moves, and each receipt moves the returns order's version once, the
+// one change of a confirmed returns order, which the application cannot
+// make itself; the sales order is not touched.
+func TestReturnReceiptRules(t *testing.T) {
+	need(t)
+	const confirm = `UPDATE sales.returns_order SET status = 'confirmed', version = version + 1, updated_by = tenant_id WHERE id = $1`
+	const receipt = `INSERT INTO sales.return_receipt (tenant_id, id, returns_order_id, receipt_no, receipt_date, created_by)
+		VALUES ($1, $2, $3, $4, '2026-03-22', $5)`
+	const line = `INSERT INTO sales.return_receipt_item (tenant_id, receipt_id, returns_order_id, item_no, quantity) VALUES ($1, $2, $3, $4, $5)`
+	// returned is the scene's returns order of 4 of billing item 1 and 2 of billing item 2, confirmed, and another, a
+	// draft, of 1 of billing item 1, followed by more.
+	returned := func(s returnsScene, draft uuid.UUID, more ...stmt) []stmt {
+		return s.billed(append([]stmt{s.made(), s.line(s.returns, 1, 1, "4"), s.line(s.returns, 2, 2, "2"), step(confirm, s.returns),
+			s.header(draft, "RO2", "other", "draft"), s.line(draft, 1, 1, "1")}, more...)...)
+	}
+	// shows fails unless the returns order's version, the actor who changed it last and its items' received quantities
+	// are these, and the sales order is at the version the two returns orders left it at.
+	shows := func(tx pgx.Tx, s returnsScene, version int, by uuid.UUID, received string) error {
+		var got string
+		want := fmt.Sprintf("version %d by %s, received %s, sales order version 6", version, by, received)
+		err := tx.QueryRow(context.Background(), `SELECT format('version %s by %s, received %s, sales order version %s', r.version, r.updated_by,
+				(SELECT string_agg(trim_scale(i.received_quantity)::text, ' ' ORDER BY i.item_no) FROM sales.returns_order_item i WHERE i.returns_order_id = r.id),
+				(SELECT o.version FROM sales.sales_order o WHERE o.id = r.sales_order_id))
+			FROM sales.returns_order r WHERE r.id = $1`, s.returns).Scan(&got)
+		if err == nil && got != want {
+			err = fmt.Errorf("the returns order: got %s, want %s", got, want)
+		}
+		return err
+	}
+	type scene struct {
+		returnsScene
+		draft, receipt, receiver uuid.UUID
+	}
+	made := func(s scene) stmt { return step(receipt, s.tenant, s.receipt, s.returns, 1, s.receiver) }
+	with := func(s scene, more ...stmt) []stmt {
+		return returned(s.returnsScene, s.draft, append([]stmt{made(s)}, more...)...)
+	}
+	cases := []struct {
+		name string
+		run  func(tx pgx.Tx, s scene) error
+		want string // empty: allowed
+	}{
+		{"a receipt adds to what is received and moves the returns order's version once", func(tx pgx.Tx, s scene) error {
+			if err := all(tx, with(s, step(line, s.tenant, s.receipt, s.returns, 1, "1.5"), step(line, s.tenant, s.receipt, s.returns, 2, "2"))...); err != nil {
+				return err
+			}
+			return shows(tx, s.returnsScene, 3, s.receiver, "1.5 2")
+		}, ""},
+		{"a second receipt adds to the first", func(tx pgx.Tx, s scene) error {
+			second := id()
+			if err := all(tx, with(s, step(line, s.tenant, s.receipt, s.returns, 1, "1.5"), step(receipt, s.tenant, second, s.returns, 2, s.receiver),
+				step(line, s.tenant, second, s.returns, 1, "2.5"))...); err != nil {
+				return err
+			}
+			return shows(tx, s.returnsScene, 4, s.receiver, "4 0")
+		}, ""},
+		{"more than is returned", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.receipt, s.returns, 1, "4.000001"))...)
+		}, "returns_order_item_received"},
+		{"more than is open after an earlier receipt", func(tx pgx.Tx, s scene) error {
+			second := id()
+			return all(tx, with(s, step(line, s.tenant, s.receipt, s.returns, 1, "3"), step(receipt, s.tenant, second, s.returns, 2, s.receiver),
+				step(line, s.tenant, second, s.returns, 1, "1.5"))...)
+		}, "returns_order_item_received"},
+		{"what is received below zero, by the tables' owner", func(tx pgx.Tx, s scene) error {
+			return all(tx, returned(s.returnsScene, s.draft, step(`SET LOCAL ROLE erp_owner`),
+				step(`UPDATE sales.returns_order_item SET received_quantity = -1 WHERE returns_order_id = $1 AND item_no = 1`, s.returns))...)
+		}, "returns_order_item_received"},
+		{"a receipt of a draft returns order", func(tx pgx.Tx, s scene) error {
+			return all(tx, returned(s.returnsScene, s.draft, step(receipt, s.tenant, s.receipt, s.draft, 1, s.receiver))...)
+		}, "its returns order is not confirmed"},
+		{"a receipt of no returns order", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(receipt, s.tenant, s.receipt, s.returns, 1, s.receiver))
+		}, "return_receipt_returns_order_fkey"},
+		{"a number used twice in the returns order", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(receipt, s.tenant, id(), s.returns, 1, s.receiver))...)
+		}, "return_receipt_no_once"},
+		{"a number of zero", func(tx pgx.Tx, s scene) error {
+			return all(tx, returned(s.returnsScene, s.draft, step(receipt, s.tenant, s.receipt, s.returns, 0, s.receiver))...)
+		}, "return_receipt_no_positive"},
+		{"a quantity of zero", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.receipt, s.returns, 1, "0"))...)
+		}, "return_receipt_item_quantity_positive"},
+		{"a returns order item twice in a receipt", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.receipt, s.returns, 1, "1"), step(line, s.tenant, s.receipt, s.returns, 1, "1"))...)
+		}, "return_receipt_item_pkey"},
+		{"an item the returns order does not have", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.receipt, s.returns, 3, "1"))...)
+		}, "return_receipt_item_order_item_fkey"},
+		{"an item of another returns order than the receipt's", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.receipt, s.draft, 1, "1"))...)
+		}, "return_receipt_item_receipt_fkey"},
+		{"an item of no receipt", func(tx pgx.Tx, s scene) error {
+			return all(tx, returned(s.returnsScene, s.draft, step(line, s.tenant, s.receipt, s.returns, 1, "1"))...)
+		}, "return_receipt_item_receipt_fkey"},
+		{"a receipt changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(`UPDATE sales.return_receipt SET receipt_date = '2026-03-23'`))...)
+		}, "permission denied"},
+		{"a receipt deleted", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(`DELETE FROM sales.return_receipt`))...)
+		}, "permission denied"},
+		{"a receipt's item changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.receipt, s.returns, 1, "1"), step(`UPDATE sales.return_receipt_item SET quantity = 2`))...)
+		}, "permission denied"},
+		{"a receipt's item deleted", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.receipt, s.returns, 1, "1"), step(`DELETE FROM sales.return_receipt_item`))...)
+		}, "permission denied"},
+		{"what is received set by the application itself", func(tx pgx.Tx, s scene) error {
+			return all(tx, returned(s.returnsScene, s.draft, step(`UPDATE sales.returns_order_item SET received_quantity = 1`))...)
+		}, "permission denied"},
+		{"a confirmed returns order's version moved by the application itself", func(tx pgx.Tx, s scene) error {
+			return all(tx, returned(s.returnsScene, s.draft, step(`UPDATE sales.returns_order SET version = version + 1 WHERE id = $1`, s.returns))...)
+		}, "only a draft changes"},
+		{"a receipt changed by the tables' owner", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(`SET LOCAL ROLE erp_owner`), step(`UPDATE sales.return_receipt SET receipt_date = '2026-03-23'`))...)
+		}, "is insert-only"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{returnsScene: newReturnsScene(), draft: id(), receipt: id(), receiver: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
 }

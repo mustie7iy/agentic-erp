@@ -15,9 +15,10 @@
 // taken off in the procedure's order, and the item keeps the conditions
 // applied (ADR-0067 §11). A returns order takes quantities of a posted
 // billing document's items that the customer sends back, with a reason,
-// and is confirmed once (returns.go; ADR-0067, As built T85a); it carries
-// no amounts and counts neither in the customer's credit exposure nor in
-// a revenue contract.
+// and is confirmed once (returns.go; ADR-0067, As built T85a); a person
+// confirms the quantities that arrived, as a delivery is confirmed
+// (receipts.go; As built T85b). It carries no amounts and counts neither
+// in the customer's credit exposure nor in a revenue contract.
 //
 // A sales document carries net amounts and posts nothing itself: tax is
 // calculated when the order is billed, and a billing document posts

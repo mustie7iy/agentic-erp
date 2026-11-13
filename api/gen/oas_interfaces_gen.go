@@ -177,6 +177,10 @@ type ConfirmDunningRunRes interface {
 	confirmDunningRunRes()
 }
 
+type ConfirmReturnReceiptRes interface {
+	confirmReturnReceiptRes()
+}
+
 type ConfirmReturnsOrderRes interface {
 	confirmReturnsOrderRes()
 }
@@ -1371,6 +1375,10 @@ type ListRegressionSuitesRes interface {
 
 type ListRequisitionsRes interface {
 	listRequisitionsRes()
+}
+
+type ListReturnReceiptsRes interface {
+	listReturnReceiptsRes()
 }
 
 type ListReturnsOrdersRes interface {
