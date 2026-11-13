@@ -138,27 +138,41 @@ type Answer struct {
 	Summary string
 }
 
-// Ask answers a question for the session's principal.
+// Ask answers a question for the session's principal. The report keeps
+// the exchange: this question, the answer and the queries it used.
 func (a *Agent) Ask(ctx context.Context, s *Session, question string) (*Answer, error) {
+	ans, err := a.answer(ctx, s, analystPrompt, question, "")
+	if err != nil {
+		return nil, err
+	}
+	ans.Report.Exchange = []Turn{ans.turn(s, question)}
+	return ans, nil
+}
+
+// answer runs the agent on a question, earlier the exchange it follows
+// ("" for none), until it has built a dashboard.
+func (a *Agent) answer(ctx context.Context, s *Session, prompt, question, earlier string) (*Answer, error) {
 	var built *Report
 	tools := a.tools(s, &built, "agent:analytics")
 	today := time.Now
 	if a.Today != nil {
 		today = a.Today
 	}
+	ask := fmt.Sprintf("Today is %s. Question from %s:\n%s", today().Format("2 January 2006"), s.Principal.ID, question)
+	if earlier != "" {
+		ask = fmt.Sprintf("Today is %s.\n<earlier_exchange>\n%s\n</earlier_exchange>\nFollow-up question from %s:\n%s",
+			today().Format("2 January 2006"), earlier, s.Principal.ID, question)
+	}
 	runner := a.Client.Beta.Messages.NewToolRunner(tools, anthropic.BetaToolRunnerParams{
 		BetaMessageNewParams: anthropic.BetaMessageNewParams{
 			Model:     anthropic.Model(a.Model),
 			MaxTokens: 16000,
 			System: []anthropic.BetaTextBlockParam{{
-				Text:         analystPrompt,
+				Text:         prompt,
 				CacheControl: anthropic.NewBetaCacheControlEphemeralParam(),
 			}},
 			OutputConfig: anthropic.BetaOutputConfigParam{Effort: anthropic.BetaOutputConfigEffortMedium},
-			Messages: []anthropic.BetaMessageParam{
-				anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(fmt.Sprintf(
-					"Today is %s. Question from %s:\n%s", today().Format("2 January 2006"), s.Principal.ID, question))),
-			},
+			Messages:     []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(ask))},
 		},
 		MaxIterations: 12,
 	})

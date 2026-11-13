@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
@@ -78,6 +79,10 @@ type Report struct {
 	Queries   map[string]Query `json:"queries"`
 	CreatedAt time.Time        `json:"created_at"`
 	CreatedBy string           `json:"created_by"`
+	// Exchange is the analysis's questions in the order asked, each with
+	// the agent's answer and the queries it used (T94a); absent on a
+	// report saved before it was kept.
+	Exchange []Turn `json:"exchange,omitempty"`
 	// Now is the clock the page is rendered with; nil reads the wall
 	// clock (clock.Now). It is not saved with the report.
 	Now func() time.Time `json:"-"`
@@ -193,6 +198,7 @@ func (s *Session) Rerun(ctx context.Context, rep *Report) (*Report, map[string]*
 	for i := range spec.Tables {
 		spec.Tables[i].QueryID = fix(spec.Tables[i].QueryID)
 	}
+	out.Exchange = remapTurns(rep.Exchange, fix)
 	if spec.Commentary != "" {
 		var list []*Result
 		for _, r := range results {
@@ -212,6 +218,20 @@ func (s *Session) Rerun(ctx context.Context, rep *Report) (*Report, map[string]*
 		out.ID = "rpt_" + QueryID(Query{Measures: []string{spec.Title}}, s.Principal)[2:]
 	}
 	return &out, results, nil
+}
+
+// remapTurns is the exchange with its query ids as fix maps them: a rerun
+// re-derives them for the current principal.
+func remapTurns(turns []Turn, fix func(string) string) []Turn {
+	out := make([]Turn, len(turns))
+	for i, turn := range turns {
+		turn.Queries = slices.Clone(turn.Queries)
+		for j := range turn.Queries {
+			turn.Queries[j] = fix(turn.Queries[j])
+		}
+		out[i] = turn
+	}
+	return out
 }
 
 // Save writes the report definition (JSON) and its rendered page (HTML).

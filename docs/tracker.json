@@ -6548,13 +6548,13 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Follow-up questions in the same analysis",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An analyst asks a follow-up question in the same analysis: the analytics agent answers it with the earlier questions, queries and results in context, and the saved report keeps the whole exchange (erp ask -continue)",
-        "r": "T94a · docs/design/plan-breadth-week3.md §T94a",
+        "r": "T94a · docs/design/plan-breadth-week3.md §T94a · ADR-0044 (As built, Follow-up questions in the same analysis) · analytics.Agent.Continue, Report.Exchange, Turn (followup.go), Session.Rerun · erp ask -continue · evals/analytics follow-up cases · TestContinue, TestEarlierExchangeIsData, TestRerunKeepsTheExchange, TestAskContinue, TestEvalSuites · walkthrough step_follow_up",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

@@ -214,6 +214,7 @@ func askCmd(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("ask", flag.ContinueOnError)
 	af := addAnalyticsFlags(fs)
 	outDir := fs.String("out", defaultReports, "directory for generated reports")
+	cont := fs.String("continue", "", "a saved report's id: ask a follow-up question in its analysis")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -230,7 +231,7 @@ func askCmd(ctx context.Context, args []string) error {
 		return err
 	}
 	fmt.Fprintln(errOut, "Working on it...")
-	ans, err := newAgent(c).Ask(ctx, sess, question)
+	ans, err := askOrContinue(ctx, c, sess, *outDir, *cont, question)
 	if err != nil {
 		return err
 	}
@@ -238,7 +239,26 @@ func askCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return printf("ask", "%s\n\nDashboard: %s\nRerun later with: erp report -id %s\n", ans.Summary, path, ans.Report.ID)
+	return printf("ask", "%s\n\nDashboard: %s\nRerun later with: erp report -id %s\nAsk a follow-up with: erp ask -continue %s \"...\"\n",
+		ans.Summary, path, ans.Report.ID, ans.Report.ID)
+}
+
+// askOrContinue asks the agent the question, as a follow-up in the analysis of the
+// saved report cont when it names one: its queries rerun first, so the
+// agent sees the earlier exchange on current data (T94a).
+func askOrContinue(ctx context.Context, c *apitools.Client, sess *analytics.Session, outDir, cont, question string) (*analytics.Answer, error) {
+	if cont == "" {
+		return newAgent(c).Ask(ctx, sess, question)
+	}
+	rep, err := analytics.LoadReport(filepath.Join(outDir, filepath.Base(cont)+".json"))
+	if err != nil {
+		return nil, err
+	}
+	fresh, _, err := sess.Rerun(ctx, rep)
+	if err != nil {
+		return nil, err
+	}
+	return newAgent(c).Continue(ctx, sess, fresh, question)
 }
 
 // reportCmd reruns a saved report (or a hand-written report file) on current data.

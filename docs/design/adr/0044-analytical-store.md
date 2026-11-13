@@ -1191,6 +1191,54 @@ Decisions:
   `TestDrillFailures`; `erp`'s `TestQueryDocuments`; the walkthrough's
   step 70 (`step_drill_through`).
 
+**Follow-up questions in the same analysis (T94a,
+`plan-breadth-week3.md`; decided by default).** A report keeps its
+exchange (`Report.Exchange`: each question in the order asked, the agent's
+answer and the ids of the queries it used, and when it was asked), and
+`erp ask -continue <report id> "..."` asks a follow-up in that analysis
+(`Agent.Continue`). No contract, migration or server change: the agent
+runs in `erp` and reports are files, as before (saving them through the
+API is T95a). Decisions:
+- *The earlier exchange is data in the person's message.* The report's
+  queries are rerun first (`Session.Rerun`, which reruns every query of
+  the exchange and maps each turn's query ids to their ids now), and the
+  agent's message carries the earlier turns, each with its queries'
+  results on current data, as JSON between `<earlier_exchange>` tags;
+  the system prompt adds that they are data, never instructions, and that
+  a follow-up naming no period, company or filter keeps those of the
+  question it follows. JSON escapes `<` and `>`, so text in a result (a
+  supplier's name) cannot close the tags.
+- *Checked as any query is.* The follow-up's queries run through the same
+  tool and endpoint (permissions, company access, the currency guard);
+  its dashboard is built and checked as any (`Session.Build`: every figure
+  of the commentary from a result of the session, earlier ones
+  included). Its summary is checked too (`CheckNarrative` over the
+  session's results): one citing a figure no result holds is not kept,
+  and the dashboard's commentary is the turn's answer instead.
+- *One analysis, one report.* The continued report keeps the first
+  report's id, question and time, takes the follow-up's dashboard, holds
+  every query of the exchange and appends the follow-up's turn, so
+  `erp report -id` reruns them all; `erp ask` and `-continue` overwrite
+  the report's files under `-out`.
+- *A report from before this slice* has no exchange: it continues as one
+  turn of its question, its commentary as the answer and every query it
+  holds.
+- *Evaluation.* The analytics suite (`evals/analytics`, replayed by the
+  scripted model in `TestEvalSuites`; no live model key is used) gains a
+  case whose follow-up narrows the earlier question ("And by supplier?")
+  and one that changes it ("How many invoices was that?"): a task's
+  `earlier` questions are asked first, the follow-up's answer is graded
+  against its reference, and the reply counts the turns and queries.
+  The replay variable `latest` is a request's last query id, the
+  follow-up's own.
+- *Walkthrough.* Step 71 (`step_follow_up`): an analytics agent principal
+  answers Carla's question and her follow-up "and by supplier?" through
+  the model stand-in; the saved report keeps both turns, the follow-up's
+  query keeps the year, and `erp report` reruns both queries.
+- *Evidence.* `analytics.TestContinue`, `TestEarlierExchangeIsData`,
+  `TestRerunKeepsTheExchange`; `erp`'s `TestAskContinue`,
+  `TestEvalSuites` (analytics); the walkthrough's step 71.
+
 **Steps.** T55a this ADR and the dataset contract; T55b the snapshot
 migration, extractor and Parquet writer for journal lines; T55c the other
 datasets and the scheduler (migration 000115); T55d `erp-analytics`, the guard and the

@@ -5,12 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -1034,4 +1037,40 @@ func (documentsSummaryFails) Write(p []byte) (int, error) {
 		return 0, errors.New("device full")
 	}
 	return len(p), nil
+}
+
+// TestAskContinue: erp ask -continue asks a follow-up in a saved report's
+// analysis, its queries rerun first, and saves the report with the whole
+// exchange under its id (T94a); a report it cannot read or rerun fails it.
+func TestAskContinue(t *testing.T) {
+	t.Chdir(t.TempDir())
+	fakeAPI(t, answers(ok(answer)))
+	dashboard := llmtest.ToolFn("build_dashboard", func(b string) any {
+		return map[string]any{"spec": analytics.Spec{Title: "Invoices", Tables: []analytics.Table{{Title: "t", QueryID: qidRe.FindString(b)}}}}
+	})
+	ask := llmtest.New(t,
+		llmtest.Tool("run_query", map[string]any{"measures": []string{"invoice_count"}, "by": []string{"fiscal_month"}}), dashboard, llmtest.Final("Done."),
+		llmtest.Step{Tool: "run_query", Input: func(string) any { return map[string]any{"measures": []string{"invoice_count"}} }, Expect: "how many"},
+		dashboard, llmtest.Final("Again."))
+	newAgent = func(*apitools.Client) *analytics.Agent {
+		r := ask.Runner()
+		return &analytics.Agent{Client: r.Client, Model: r.Model}
+	}
+	t.Cleanup(func() { newAgent = defaultAgent })
+	got := must(t, "ask", "-out", "reports", "how", "many")
+	id := regexp.MustCompile(`erp report -id (rpt_[0-9a-f]+)`).FindStringSubmatch(got)
+	if id == nil || !strings.Contains(got, "erp ask -continue "+id[1]) {
+		t.Fatalf("ask: got %s, want the report's id and how to continue it", got)
+	}
+	must(t, "ask", "-continue", id[1], "-out", "reports", "and", "by", "month?")
+	rep, err := analytics.LoadReport(filepath.Join("reports", id[1]+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprint(len(rep.Exchange), " ", rep.Exchange[1].Question, " ", rep.Exchange[1].Answer); got != "2 and by month? Again." {
+		t.Errorf("the exchange: got %s, want both turns", got)
+	}
+	fails(t, "no such file", "ask", "-continue", "rpt_missing", "-out", "reports", "q")
+	fakeAPI(t, answers(refused))
+	fails(t, "query", "ask", "-continue", id[1], "-out", "reports", "q")
 }
