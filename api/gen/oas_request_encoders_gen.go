@@ -700,6 +700,48 @@ func encodeCreateContractRequest(
 	return nil
 }
 
+func encodeCreateControlRequest(
+	req *ControlCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateControlLinkRequest(
+	req *ControlLinkCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateControlTestRequest(
+	req *ControlTestCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateCostCenterRequest(
 	req *CostCenterCreate,
 	r *http.Request,
@@ -2561,6 +2603,20 @@ func encodeUpdateConnectorRequest(
 
 func encodeUpdateContractRequest(
 	req *ContractUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateControlRequest(
+	req *ControlUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

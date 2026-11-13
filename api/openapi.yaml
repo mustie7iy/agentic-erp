@@ -65,6 +65,8 @@ tags:
     description: "Revenue recognition (ADR-0068): revenue contracts and their performance obligations."
   - name: credit
     description: "Credit management (ADR-0066): customers' credit limits, their credit exposure and the check of an amount against the limit."
+  - name: grc
+    description: "Governance, risk and compliance (ADR-0078): the tenant's control library, the results of testing its controls, and the control matrix of what enforces each control."
   - name: payments
     description: Payment runs, payments and bank files.
   - name: cash
@@ -17108,6 +17110,539 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/control-matrix:
+    get:
+      operationId: getControlMatrix
+      tags:
+        - grc
+      summary: Read the control matrix
+      description: "The control matrix (ADR-0078 §8, T98b): the tenant's active controls by code, each with its framework references, its last test and its links to what enforces it in the product, and for each link whether it still holds. A link to a permission holds while the permission is in the platform's permission catalog, which every operation's `x-permission` is taken from; a link to a segregation-of-duties rule holds while the rule is in force on the database's date today (`as_of`): started and not ended; a link to a path of the configuration holds while the tenant's active configuration version has a value there. A link that does not hold is shown with `holds` false and its `broken_reason`; it is never removed for that. Removed links and retired controls are left out. A tenant without a configuration whose controls have configuration path links is answered 409 `config.not_bootstrapped`. Filtered by process (the exact text), by one framework reference (the exact text) and by `link_state`: `broken` gives the controls with at least one link that does not hold, `holding` those whose links all hold, `none` those without a link. `totals` count the controls and links the filters select, over every page. The links are judged at the read and nothing is stored: the matrix is computed from one database state (a repeatable-read snapshot). It shows segregation-of-duties rules and whether configuration paths have a value, so besides `grc.control.read` the caller needs `identity.access.read` and `config.version.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Sortable by: `code` (default)."
+      x-permission: grc.control.read
+      x-also-permissions:
+        - identity.access.read
+        - config.version.read
+      x-slo-class: report
+      x-snapshot: true
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: process
+          in: query
+          required: false
+          description: Only the controls of this process, by its exact text.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+        - name: framework_reference
+          in: query
+          required: false
+          description: Only the controls that carry this framework reference, by its exact text.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: link_state
+          in: query
+          required: false
+          description: "Only the controls in this state of their links: `broken` (at least one link does not hold), `holding` (every link holds, and there is one) or `none` (no link)."
+          schema:
+            type: string
+            description: "State of a control's links. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - holding
+              - broken
+              - none
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of the control matrix, with its totals.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControlMatrix"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/controls:
+    get:
+      operationId: listControls
+      tags:
+        - grc
+      summary: List the control library
+      description: "The tenant's control library (ADR-0078 §2-§4, T98a): each control as `getControl` gives it, with its owner's name and its last test. Filtered by process (the exact text), by status, by owner and by the result of the last test: `last_result=passed` or `failed` gives the controls whose last test had that result, `last_result=none` those never tested. Sortable by: `code` (default)."
+      x-permission: grc.control.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: process
+          in: query
+          required: false
+          description: Only the controls of this process, by its exact text.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+        - name: status
+          in: query
+          required: false
+          description: Only controls in this status.
+          schema:
+            type: string
+            description: "Control status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - active
+              - retired
+        - name: owner_id
+          in: query
+          required: false
+          description: Only the controls this person owns.
+          schema:
+            type: string
+            format: uuid
+        - name: last_result
+          in: query
+          required: false
+          description: "Only the controls whose last test had this result; `none`: only those never tested."
+          schema:
+            type: string
+            description: "Result of a control's last test, or `none`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - passed
+              - failed
+              - none
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of controls.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControlPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createControl
+      tags:
+        - grc
+      summary: Record a control
+      description: "Records a control in the tenant's control library (ADR-0078 §2, T98a): its code, its objective, the process it belongs to, the person who owns it, how often it is performed and whether it is performed by a person (`manual`) or by the system (`automated`), and optionally the tenant's own references to a framework it names (`framework_references`: free text, each once and without white space around it, 422 `grc.invalid_framework_reference` naming the entry). It is created `active`. The code is the tenant's own and unique in the library, whatever its case (409 `grc.control_code_taken`); it never changes. The owner is a person of the tenant who is active (422 `request.reference_not_found` naming `owner_id` for an unknown principal, `grc.invalid_owner` for an agent, a service or a person who is not active). The objective and the process are texts, not white space alone, the process without white space around it (422 `grc.invalid_process`); a frequency or a nature the contract does not list is refused naming the field (422 `request.validation_failed`). No library is shipped: every control is the tenant's. An audit record and ControlChanged (`created`) are written with it. A retry with the same `Idempotency-Key` answers the control recorded."
+      x-permission: grc.control.write
+      x-problem-codes:
+        - grc.control_code_taken
+        - grc.invalid_framework_reference
+        - grc.invalid_owner
+        - grc.invalid_process
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The control to record.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ControlCreate"
+      responses:
+        "201":
+          description: "Created; the control."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Control"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/controls/{id}":
+    get:
+      operationId: getControl
+      tags:
+        - grc
+      summary: Get a control
+      description: "One control of the library (ADR-0078 §2, T98a) with its owner's name and its last test: the test with the latest test date, the one recorded last among several of one date; absent while the control was never tested. Every test is read with `listControlTests`."
+      x-permission: grc.control.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The control.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Control"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateControl
+      tags:
+        - grc
+      summary: Change a control
+      description: "Changes an active control's objective, process, owner, frequency, nature or framework references at once, with the caller's version of it (`If-Match`; 412 when another change came first). JSON Merge Patch (RFC 7396): absent fields are unchanged. The code does not change. The owner is checked as `createControl` checks it when the change names another, and the texts, the frequency and the nature as it checks them. A change that would leave the control as it is is refused (422 `grc.nothing_to_change`), as is a change of a retired control (409 `grc.control_retired`). The control's tests stay as they were recorded. An audit record naming the fields changed and ControlChanged (`changed`) are written with it."
+      x-permission: grc.control.write
+      x-problem-codes:
+        - grc.control_code_taken
+        - grc.control_retired
+        - grc.invalid_framework_reference
+        - grc.invalid_owner
+        - grc.invalid_process
+        - grc.nothing_to_change
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the control.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/ControlUpdate"
+      responses:
+        "200":
+          description: "Updated; the control after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Control"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/controls/{id}:retire":
+    post:
+      operationId: retireControl
+      tags:
+        - grc
+      summary: Retire a control
+      description: "Retires an active control for good (status `retired`), once (409 `grc.control_retired` for a retired one), at the version read (`If-Match`). A retired control changes no more and takes no further test; it and its tests are still read, and it is listed with `status=retired` or without a status filter. Its code stays taken. An audit record and ControlChanged (`retired`) are written with it."
+      x-permission: grc.control.write
+      x-problem-codes:
+        - grc.control_code_taken
+        - grc.control_retired
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The control after retireControl.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Control"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/controls/{id}/links":
+    post:
+      operationId: createControlLink
+      tags:
+        - grc
+      summary: Link a control to what enforces it
+      description: "Links an active control to what enforces it in the product (ADR-0078 §7, T98b): a permission (`kind` `permission` with `permission_code`), a segregation-of-duties rule (`sod_rule` with `sod_rule_id`) or a path of the configuration (`configuration_path` with `configuration_path`, written as a configuration change names a setting, for example `companies[3000].approvals`). Exactly the field of the kind is given (422 `grc.invalid_link`, naming the field). What is linked must be there when the link is made: a permission of the catalog (422 `grc.unknown_permission`), a rule of the tenant, whether or not it is in force yet (422 `request.reference_not_found` naming `sod_rule_id`), a path the active configuration version has a value at (422 `grc.configuration_path_without_value`; 409 `config.not_bootstrapped` for a tenant without a configuration). A control has one link to each target (409 `grc.control_link_exists`). A retired control takes no link (409 `grc.control_retired`). The answer is the link as the matrix shows it, with whether it holds. The control's version does not move. An audit record on the control and ControlChanged (`linked`) are written with it. Besides `grc.control.write` the caller needs `identity.access.read` and `config.version.read` (`x-also-permissions`), as for the matrix."
+      x-permission: grc.control.write
+      x-also-permissions:
+        - identity.access.read
+        - config.version.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - grc.configuration_path_without_value
+        - grc.control_link_exists
+        - grc.control_retired
+        - grc.invalid_link
+        - grc.unknown_permission
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The link to make.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ControlLinkCreate"
+            examples:
+              permission:
+                summary: The permission that gates the controlled operation
+                value: {kind: permission, permission_code: payments.run.release}
+              sod_rule:
+                summary: A segregation-of-duties rule of the tenant
+                value: {kind: sod_rule, sod_rule_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"}
+              configuration_path:
+                summary: A setting of the configuration
+                value: {kind: configuration_path, configuration_path: "companies[3000].approvals"}
+      responses:
+        "201":
+          description: "Created; the link, with whether it holds."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControlLink"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/controls/{id}/links/{link_id}:remove":
+    post:
+      operationId: removeControlLink
+      tags:
+        - grc
+      summary: Remove a control's link
+      description: "Removes a link of an active control (ADR-0078 §7, T98b), once (409 `grc.control_link_removed` after), at the link's version (`If-Match`, the ETag `createControlLink` answered and the `version` the matrix shows). Nothing is deleted (04 §4.3): the link is kept as `removed`, is left out of the matrix from then on, and the same target can be linked again. It is a person's or an agent's decision: a link that no longer holds is never removed by the system. A retired control's links stay as they are (409 `grc.control_retired`). A link of another control is not found (404). An audit record on the control and ControlChanged (`unlinked`) are written with it. Besides `grc.control.write` the caller needs `identity.access.read` and `config.version.read` (`x-also-permissions`): the answer is the link as the matrix shows it."
+      x-permission: grc.control.write
+      x-also-permissions:
+        - identity.access.read
+        - config.version.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - grc.control_link_exists
+        - grc.control_link_removed
+        - grc.control_retired
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: link_id
+          in: path
+          required: true
+          description: Control link identifier (UUIDv7).
+          schema:
+            type: string
+            format: uuid
+          example: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e11"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The link after removeControlLink.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControlLink"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/controls/{id}/tests":
+    get:
+      operationId: listControlTests
+      tags:
+        - grc
+      summary: List a control's tests
+      description: "The results of testing one control (ADR-0078 §3, T98a), the latest test date first and, among the tests of one date, the one recorded last first: the first is the control's last test. Filtered by result. Sortable by: `tested_on` (default, descending)."
+      x-permission: grc.control.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: result
+          in: query
+          required: false
+          description: Only the tests with this result.
+          schema:
+            type: string
+            description: "Result of a control test. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - passed
+              - failed
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of the control's tests.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControlTestPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createControlTest
+      tags:
+        - grc
+      summary: Record the result of testing a control
+      description: "Records that an active control was tested (ADR-0078 §3, T98a): the date of the test, its result (`passed` or `failed`) and a note of the evidence seen. The tester is the caller. A test is never changed or removed: a correction is another test. The test date is the database's date today or earlier (422 `grc.test_in_future`, naming `tested_on`); the note is a text, not white space alone, and a result the contract does not list is refused (422 `request.validation_failed`, naming the field). A retired control takes no test (409 `grc.control_retired`). The control's version does not move: its `last_test` does. An audit record and ControlChanged (`tested`) are written with it; neither carries the note. Human-only (`x-agent: false`): a test is a person's statement of what they saw."
+      x-permission: grc.control.test
+      x-agent: false
+      x-problem-codes:
+        - grc.control_retired
+        - grc.test_in_future
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The test to record.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ControlTestCreate"
+      responses:
+        "201":
+          description: "Created; the test."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControlTest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/credit-exposure:
@@ -50092,6 +50627,313 @@ components:
                 - {bucket: overdue, days_from: 1, days_to: 30, item_count: 2, amount: {amount: "1680.00", currency: CAD}}
                 - {bucket: overdue, days_from: 31, item_count: 0, amount: {amount: "0.00", currency: CAD}}
                 - {bucket: no_due_date, item_count: 0, amount: {amount: "0.00", currency: CAD}}
+    ControlCreate:
+      type: object
+      description: "Record a control in the control library. It is created `active`."
+      required: [code, objective, process, owner_id, frequency, nature]
+      additionalProperties: false
+      properties:
+        code: {type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$", description: "The tenant's own code of the control, unique in the library whatever its case; it never changes."}
+        objective: {type: string, minLength: 1, maxLength: 1000, description: "What the control is to achieve."}
+        process: {type: string, minLength: 1, maxLength: 100, description: "The process the control belongs to, in the tenant's own words, without leading or trailing white space; the library is filtered by it."}
+        owner_id: {type: string, format: uuid, description: "The person who owns the control: an active person of the tenant (`GET /v1/principals/{id}`)."}
+        frequency:
+          type: string
+          description: "How often the control is performed. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [continuous, daily, weekly, monthly, quarterly, yearly, ad_hoc]
+        nature:
+          type: string
+          description: "Whether a person performs the control (`manual`) or the system does (`automated`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [manual, automated]
+        framework_references: {type: array, maxItems: 50, items: {type: string, minLength: 1, maxLength: 200}, description: "The tenant's own references to a framework it names, free text without white space around it, each once, in the order given. None when left out."}
+      examples:
+        - code: PAY-01
+          objective: A payment run is released by a person other than the one who proposed it.
+          process: Payments
+          owner_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          frequency: continuous
+          nature: automated
+    ControlUpdate:
+      type: object
+      description: "Merge patch of a control: its objective, process, owner, frequency, nature or framework references. The code does not change."
+      additionalProperties: false
+      properties:
+        objective: {type: string, minLength: 1, maxLength: 1000, description: "What the control is to achieve."}
+        process: {type: string, minLength: 1, maxLength: 100, description: "The process the control belongs to, without leading or trailing white space."}
+        owner_id: {type: string, format: uuid, description: "The person who owns the control: an active person of the tenant."}
+        frequency:
+          type: string
+          description: "How often the control is performed. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [continuous, daily, weekly, monthly, quarterly, yearly, ad_hoc]
+        nature:
+          type: string
+          description: "Whether a person performs the control (`manual`) or the system does (`automated`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [manual, automated]
+        framework_references: {type: array, maxItems: 50, items: {type: string, minLength: 1, maxLength: 200}, description: "The tenant's own references to a framework it names, free text without white space around it, each once, in the order given. The list given replaces the control's; an empty list clears it."}
+      examples:
+        - frequency: monthly
+    Control:
+      description: "A control of the tenant's control library (grc, ADR-0078 §2), with its last test."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [code, objective, process, owner_id, owner_name, frequency, nature, status, framework_references]
+          properties:
+            code: {type: string, description: "The tenant's code of the control, unique in the library.", readOnly: true}
+            objective: {type: string, description: "What the control is to achieve."}
+            process: {type: string, description: "The process the control belongs to, in the tenant's own words."}
+            owner_id: {type: string, format: uuid, description: "The person who owns the control (`GET /v1/principals/{id}`)."}
+            owner_name: {type: string, description: "The owner's name, as it is now.", readOnly: true}
+            frequency:
+              type: string
+              description: "How often the control is performed. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [continuous, daily, weekly, monthly, quarterly, yearly, ad_hoc]
+            nature:
+              type: string
+              description: "Whether a person performs the control (`manual`) or the system does (`automated`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [manual, automated]
+            status:
+              type: string
+              description: "`active`, or `retired` for good (`retireControl`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [active, retired]
+              readOnly: true
+            framework_references: {type: array, items: {type: string}, description: "The tenant's own references to a framework it names, in the order it gave them; empty when it gave none. No framework's text or numbering is shipped."}
+            last_test: {$ref: "#/components/schemas/ControlTest", description: "The control's last test: the one with the latest test date, the one recorded last among several of one date. Absent while the control was never tested."}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+          version: 1
+          created_at: "2026-11-25T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-25T14:03:11Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          code: PAY-01
+          objective: A payment run is released by a person other than the one who proposed it.
+          process: Payments
+          owner_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          owner_name: Carla Controller
+          frequency: continuous
+          nature: automated
+          status: active
+          framework_references: ["ICFR 4.2 Payments"]
+          last_test:
+            id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e02"
+            control_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+            control_code: PAY-01
+            tested_on: "2026-11-25"
+            result: passed
+            note: "Run PR-2026-000012: proposed by T. Treasurer, release by the same person refused; released by T. Manager."
+            tested_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+            tested_by_name: Carla Controller
+            created_at: "2026-11-25T14:10:42Z"
+    ControlPage:
+      type: object
+      description: One page of the control library.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Control"}
+          description: The controls on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    ControlLinkCreate:
+      type: object
+      description: "Link a control to what enforces it: a permission, a segregation-of-duties rule or a path of the configuration. Exactly the field of `kind` is given."
+      required: [kind]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          description: "What the control is linked to. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [permission, sod_rule, configuration_path]
+        permission_code: {type: string, pattern: "^[a-z_]+(\\.[a-z_]+)+$", description: "For `permission`: a permission code of the platform's catalog, an operation's `x-permission`."}
+        sod_rule_id: {type: string, format: uuid, description: "For `sod_rule`: a segregation-of-duties rule of the tenant (`GET /v1/sod-rules/{id}`)."}
+        configuration_path: {type: string, minLength: 1, maxLength: 500, description: "For `configuration_path`: a path of the configuration as a configuration change names a setting (`companies[3000].approvals`), without white space around it: a setting, a list item or a section."}
+      examples:
+        - kind: permission
+          permission_code: payments.run.release
+    SodRuleSummary:
+      type: object
+      description: "A segregation-of-duties rule as a control link shows it: its two permissions, why they conflict and its validity."
+      required: [permission_a, permission_b, description, valid_from]
+      properties:
+        permission_a: {type: string, description: "The first permission of the pair.", readOnly: true}
+        permission_b: {type: string, description: "The second permission of the pair.", readOnly: true}
+        description: {type: string, description: "Why the combination is a conflict.", readOnly: true}
+        valid_from: {type: string, format: date, description: "The first day the rule is in force.", readOnly: true}
+        valid_to: {type: string, format: date, description: "The day the rule ends, exclusive; absent while it has no end.", readOnly: true}
+    ControlLink:
+      description: "A link from a control to what enforces it in the product (grc, ADR-0078 §7), with whether it holds now."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [control_id, control_code, kind, status, holds]
+          properties:
+            control_id: {type: string, format: uuid, description: "The control (`GET /v1/controls/{id}`).", readOnly: true}
+            control_code: {type: string, description: "The control's code.", readOnly: true}
+            kind:
+              type: string
+              description: "What the control is linked to. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [permission, sod_rule, configuration_path]
+              readOnly: true
+            permission_code: {type: string, description: "For `permission`: the permission code.", readOnly: true}
+            permission_description: {type: string, description: "For `permission`: what the permission allows, by the catalog; absent when the permission is no longer in it.", readOnly: true}
+            sod_rule_id: {type: string, format: uuid, description: "For `sod_rule`: the rule (`GET /v1/sod-rules/{id}`).", readOnly: true}
+            sod_rule: {$ref: "#/components/schemas/SodRuleSummary", description: "For `sod_rule`: the rule as it is now."}
+            configuration_path: {type: string, description: "For `configuration_path`: the path, as a configuration change names a setting.", readOnly: true}
+            configuration_version: {type: integer, format: int32, minimum: 1, description: "For `configuration_path`: the number of the active configuration version the path was looked up in (`GET /v1/config-versions`).", readOnly: true}
+            status:
+              type: string
+              description: "`active`, or `removed` (`removeControlLink`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [active, removed]
+              readOnly: true
+            holds: {type: boolean, description: "Whether what the link names is there now: the permission in the catalog, the rule in force today, a value at the path in the active configuration version.", readOnly: true}
+            broken_reason:
+              type: string
+              description: "Why the link does not hold; absent when it holds. `permission_not_in_catalog`, `sod_rule_not_started` (its first day is after today), `sod_rule_ended`, `configuration_path_without_value`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [permission_not_in_catalog, sod_rule_not_started, sod_rule_ended, configuration_path_without_value]
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e11"
+          version: 1
+          created_at: "2026-11-25T14:20:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-25T14:20:11Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          control_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+          control_code: PAY-01
+          kind: permission
+          permission_code: payments.run.release
+          permission_description: Release payment runs
+          status: active
+          holds: true
+    ControlMatrixRow:
+      type: object
+      description: "One control of the control matrix: the control with its framework references and last test, and its links with whether each holds."
+      required: [control, link_state, links]
+      properties:
+        control: {$ref: "#/components/schemas/Control", description: "The control, as `getControl` gives it."}
+        link_state:
+          type: string
+          description: "`holding` (every link holds, and there is one), `broken` (at least one link does not hold) or `none` (no link). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [holding, broken, none]
+          readOnly: true
+        links:
+          type: array
+          items: {$ref: "#/components/schemas/ControlLink"}
+          description: "The control's links, in the order they were made; removed links are left out."
+    ControlMatrixTotals:
+      type: object
+      description: "What the matrix's filters select, counted over every page."
+      required: [controls, controls_holding, controls_broken, controls_without_links, links, links_holding, links_broken]
+      properties:
+        controls: {type: integer, format: int32, minimum: 0, description: "The controls selected.", readOnly: true}
+        controls_holding: {type: integer, format: int32, minimum: 0, description: "Those whose links all hold, with at least one link.", readOnly: true}
+        controls_broken: {type: integer, format: int32, minimum: 0, description: "Those with at least one link that does not hold.", readOnly: true}
+        controls_without_links: {type: integer, format: int32, minimum: 0, description: "Those without a link.", readOnly: true}
+        links: {type: integer, format: int32, minimum: 0, description: "The links of the controls selected.", readOnly: true}
+        links_holding: {type: integer, format: int32, minimum: 0, description: "The links that hold.", readOnly: true}
+        links_broken: {type: integer, format: int32, minimum: 0, description: "The links that do not hold.", readOnly: true}
+    ControlMatrix:
+      type: object
+      description: "One page of the control matrix (grc, ADR-0078 §8) with its totals."
+      required: [as_of, totals, items]
+      properties:
+        as_of: {type: string, format: date, description: "The database's date the links were judged on: a segregation-of-duties rule is in force on it or not.", readOnly: true}
+        totals: {$ref: "#/components/schemas/ControlMatrixTotals", description: "The controls and links the filters select, over every page."}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ControlMatrixRow"}
+          description: The controls on this page, by code.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+      examples:
+        - as_of: "2026-11-25"
+          totals: {controls: 1, controls_holding: 1, controls_broken: 0, controls_without_links: 0, links: 1, links_holding: 1, links_broken: 0}
+          items:
+            - control:
+                id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+                version: 2
+                created_at: "2026-11-25T14:03:11Z"
+                created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+                updated_at: "2026-11-25T14:15:40Z"
+                updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+                code: PAY-01
+                objective: A payment run is released by a person other than the one who proposed it.
+                process: Payments
+                owner_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+                owner_name: Carla Controller
+                frequency: continuous
+                nature: automated
+                status: active
+                framework_references: ["ICFR 4.2 Payments"]
+              link_state: holding
+              links:
+                - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e11"
+                  version: 1
+                  created_at: "2026-11-25T14:20:11Z"
+                  created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+                  updated_at: "2026-11-25T14:20:11Z"
+                  updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+                  control_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+                  control_code: PAY-01
+                  kind: permission
+                  permission_code: payments.run.release
+                  permission_description: Release payment runs
+                  status: active
+                  holds: true
+    ControlTestCreate:
+      type: object
+      description: "Record the result of testing a control. The tester is the caller."
+      required: [tested_on, result, note]
+      additionalProperties: false
+      properties:
+        tested_on: {type: string, format: date, description: "The date of the test: the database's date today or earlier."}
+        result:
+          type: string
+          description: "The result of the test. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [passed, failed]
+        note: {type: string, minLength: 1, maxLength: 2000, description: "A note of the evidence seen: what was tested and where it is kept."}
+      examples:
+        - tested_on: "2026-11-25"
+          result: passed
+          note: "Run PR-2026-000012: proposed by T. Treasurer, release by the same person refused; released by T. Manager."
+    ControlTest:
+      type: object
+      description: "The result of testing a control once (grc, ADR-0078 §3). It is never changed."
+      required: [id, control_id, control_code, tested_on, result, note, tested_by, tested_by_name, created_at]
+      properties:
+        id: {type: string, format: uuid, description: "Identifier (UUIDv7).", readOnly: true}
+        control_id: {type: string, format: uuid, description: "The control tested (`GET /v1/controls/{id}`).", readOnly: true}
+        control_code: {type: string, description: "The control's code.", readOnly: true}
+        tested_on: {type: string, format: date, description: "The date of the test.", readOnly: true}
+        result:
+          type: string
+          description: "The result of the test. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [passed, failed]
+          readOnly: true
+        note: {type: string, description: "The note of the evidence seen.", readOnly: true}
+        tested_by: {type: string, format: uuid, description: "The person who tested and recorded it (`GET /v1/principals/{id}`).", readOnly: true}
+        tested_by_name: {type: string, description: "The tester's name, as it is now.", readOnly: true}
+        created_at: {type: string, format: date-time, description: "When the test was recorded (UTC).", readOnly: true}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e02"
+          control_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+          control_code: PAY-01
+          tested_on: "2026-11-25"
+          result: passed
+          note: "Run PR-2026-000012: proposed by T. Treasurer, release by the same person refused; released by T. Manager."
+          tested_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          tested_by_name: Carla Controller
+          created_at: "2026-11-25T14:10:42Z"
+    ControlTestPage:
+      type: object
+      description: One page of a control's tests.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ControlTest"}
+          description: The tests on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     EInvoiceFetch:
       type: object
       description: A fetch of e-invoices from a provider (ADR-0061 §4).

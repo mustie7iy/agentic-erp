@@ -987,6 +987,57 @@ type Handler interface {
 	//
 	// POST /v1/contracts
 	CreateContract(ctx context.Context, req *ContractCreate, params CreateContractParams) (CreateContractRes, error)
+	// CreateControl implements createControl operation.
+	//
+	// Records a control in the tenant's control library (ADR-0078 §2, T98a): its code, its objective, the
+	// process it belongs to, the person who owns it, how often it is performed and whether it is performed
+	// by a person (`manual`) or by the system (`automated`), and optionally the tenant's own references to
+	// a framework it names (`framework_references`: free text, each once and without white space around
+	// it, 422 `grc.invalid_framework_reference` naming the entry). It is created `active`. The code is the
+	// tenant's own and unique in the library, whatever its case (409 `grc.control_code_taken`); it never
+	// changes. The owner is a person of the tenant who is active (422 `request.reference_not_found` naming
+	// `owner_id` for an unknown principal, `grc.invalid_owner` for an agent, a service or a person who is
+	// not active). The objective and the process are texts, not white space alone, the process without
+	// white space around it (422 `grc.invalid_process`); a frequency or a nature the contract does not
+	// list is refused naming the field (422 `request.validation_failed`). No library is shipped: every
+	// control is the tenant's. An audit record and ControlChanged (`created`) are written with it. A retry
+	// with the same `Idempotency-Key` answers the control recorded.
+	//
+	// POST /v1/controls
+	CreateControl(ctx context.Context, req *ControlCreate, params CreateControlParams) (CreateControlRes, error)
+	// CreateControlLink implements createControlLink operation.
+	//
+	// Links an active control to what enforces it in the product (ADR-0078 §7, T98b): a permission
+	// (`kind` `permission` with `permission_code`), a segregation-of-duties rule (`sod_rule` with
+	// `sod_rule_id`) or a path of the configuration (`configuration_path` with `configuration_path`,
+	// written as a configuration change names a setting, for example `companies[3000].approvals`). Exactly
+	// the field of the kind is given (422 `grc.invalid_link`, naming the field). What is linked must be
+	// there when the link is made: a permission of the catalog (422 `grc.unknown_permission`), a rule of
+	// the tenant, whether or not it is in force yet (422 `request.reference_not_found` naming
+	// `sod_rule_id`), a path the active configuration version has a value at (422
+	// `grc.configuration_path_without_value`; 409 `config.not_bootstrapped` for a tenant without a
+	// configuration). A control has one link to each target (409 `grc.control_link_exists`). A retired
+	// control takes no link (409 `grc.control_retired`). The answer is the link as the matrix shows it,
+	// with whether it holds. The control's version does not move. An audit record on the control and
+	// ControlChanged (`linked`) are written with it. Besides `grc.control.write` the caller needs
+	// `identity.access.read` and `config.version.read` (`x-also-permissions`), as for the matrix.
+	//
+	// POST /v1/controls/{id}/links
+	CreateControlLink(ctx context.Context, req *ControlLinkCreate, params CreateControlLinkParams) (CreateControlLinkRes, error)
+	// CreateControlTest implements createControlTest operation.
+	//
+	// Records that an active control was tested (ADR-0078 §3, T98a): the date of the test, its result
+	// (`passed` or `failed`) and a note of the evidence seen. The tester is the caller. A test is never
+	// changed or removed: a correction is another test. The test date is the database's date today or
+	// earlier (422 `grc.test_in_future`, naming `tested_on`); the note is a text, not white space alone,
+	// and a result the contract does not list is refused (422 `request.validation_failed`, naming the
+	// field). A retired control takes no test (409 `grc.control_retired`). The control's version does not
+	// move: its `last_test` does. An audit record and ControlChanged (`tested`) are written with it;
+	// neither carries the note. Human-only (`x-agent: false`): a test is a person's statement of what they
+	// saw.
+	//
+	// POST /v1/controls/{id}/tests
+	CreateControlTest(ctx context.Context, req *ControlTestCreate, params CreateControlTestParams) (CreateControlTestRes, error)
 	// CreateCostCenter implements createCostCenter operation.
 	//
 	// Creates the cost center in status `pending` together with its center change of kind `create` and
@@ -2384,6 +2435,36 @@ type Handler interface {
 	//
 	// GET /v1/contracts/{id}
 	GetContract(ctx context.Context, params GetContractParams) (GetContractRes, error)
+	// GetControl implements getControl operation.
+	//
+	// One control of the library (ADR-0078 §2, T98a) with its owner's name and its last test: the test
+	// with the latest test date, the one recorded last among several of one date; absent while the control
+	// was never tested. Every test is read with `listControlTests`.
+	//
+	// GET /v1/controls/{id}
+	GetControl(ctx context.Context, params GetControlParams) (GetControlRes, error)
+	// GetControlMatrix implements getControlMatrix operation.
+	//
+	// The control matrix (ADR-0078 §8, T98b): the tenant's active controls by code, each with its
+	// framework references, its last test and its links to what enforces it in the product, and for each
+	// link whether it still holds. A link to a permission holds while the permission is in the platform's
+	// permission catalog, which every operation's `x-permission` is taken from; a link to a
+	// segregation-of-duties rule holds while the rule is in force on the database's date today (`as_of`):
+	// started and not ended; a link to a path of the configuration holds while the tenant's active
+	// configuration version has a value there. A link that does not hold is shown with `holds` false and
+	// its `broken_reason`; it is never removed for that. Removed links and retired controls are left out.
+	// A tenant without a configuration whose controls have configuration path links is answered 409
+	// `config.not_bootstrapped`. Filtered by process (the exact text), by one framework reference (the
+	// exact text) and by `link_state`: `broken` gives the controls with at least one link that does not
+	// hold, `holding` those whose links all hold, `none` those without a link. `totals` count the controls
+	// and links the filters select, over every page. The links are judged at the read and nothing is
+	// stored: the matrix is computed from one database state (a repeatable-read snapshot). It shows
+	// segregation-of-duties rules and whether configuration paths have a value, so besides
+	// `grc.control.read` the caller needs `identity.access.read` and `config.version.read`
+	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Sortable by: `code` (default).
+	//
+	// GET /v1/control-matrix
+	GetControlMatrix(ctx context.Context, params GetControlMatrixParams) (GetControlMatrixRes, error)
 	// GetCostCenter implements getCostCenter operation.
 	//
 	// Returns one cost center with its active periods.
@@ -3630,6 +3711,23 @@ type Handler interface {
 	//
 	// GET /v1/contracts
 	ListContracts(ctx context.Context, params ListContractsParams) (ListContractsRes, error)
+	// ListControlTests implements listControlTests operation.
+	//
+	// The results of testing one control (ADR-0078 §3, T98a), the latest test date first and, among the
+	// tests of one date, the one recorded last first: the first is the control's last test. Filtered by
+	// result. Sortable by: `tested_on` (default, descending).
+	//
+	// GET /v1/controls/{id}/tests
+	ListControlTests(ctx context.Context, params ListControlTestsParams) (ListControlTestsRes, error)
+	// ListControls implements listControls operation.
+	//
+	// The tenant's control library (ADR-0078 §2-§4, T98a): each control as `getControl` gives it, with
+	// its owner's name and its last test. Filtered by process (the exact text), by status, by owner and by
+	// the result of the last test: `last_result=passed` or `failed` gives the controls whose last test had
+	// that result, `last_result=none` those never tested. Sortable by: `code` (default).
+	//
+	// GET /v1/controls
+	ListControls(ctx context.Context, params ListControlsParams) (ListControlsRes, error)
 	// ListCostCenterBalances implements listCostCenterBalances operation.
 	//
 	// Actual period totals per cost center, account and transaction currency of one legal entity, ledger
@@ -5387,6 +5485,20 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices/{id}:release
 	ReleaseSupplierInvoice(ctx context.Context, req OptDecisionInput, params ReleaseSupplierInvoiceParams) (ReleaseSupplierInvoiceRes, error)
+	// RemoveControlLink implements removeControlLink operation.
+	//
+	// Removes a link of an active control (ADR-0078 §7, T98b), once (409 `grc.control_link_removed`
+	// after), at the link's version (`If-Match`, the ETag `createControlLink` answered and the `version`
+	// the matrix shows). Nothing is deleted (04 §4.3): the link is kept as `removed`, is left out of the
+	// matrix from then on, and the same target can be linked again. It is a person's or an agent's
+	// decision: a link that no longer holds is never removed by the system. A retired control's links stay
+	// as they are (409 `grc.control_retired`). A link of another control is not found (404). An audit
+	// record on the control and ControlChanged (`unlinked`) are written with it. Besides
+	// `grc.control.write` the caller needs `identity.access.read` and `config.version.read`
+	// (`x-also-permissions`): the answer is the link as the matrix shows it.
+	//
+	// POST /v1/controls/{id}/links/{link_id}:remove
+	RemoveControlLink(ctx context.Context, params RemoveControlLinkParams) (RemoveControlLinkRes, error)
 	// RemoveHierarchyNode implements removeHierarchyNode operation.
 	//
 	// Removes a node without child nodes or centers; the root is not removed (422
@@ -5504,6 +5616,15 @@ type Handler interface {
 	//
 	// POST /v1/catalog-items/{id}:retire
 	RetireCatalogItem(ctx context.Context, params RetireCatalogItemParams) (RetireCatalogItemRes, error)
+	// RetireControl implements retireControl operation.
+	//
+	// Retires an active control for good (status `retired`), once (409 `grc.control_retired` for a retired
+	// one), at the version read (`If-Match`). A retired control changes no more and takes no further test;
+	// it and its tests are still read, and it is listed with `status=retired` or without a status filter.
+	// Its code stays taken. An audit record and ControlChanged (`retired`) are written with it.
+	//
+	// POST /v1/controls/{id}:retire
+	RetireControl(ctx context.Context, params RetireControlParams) (RetireControlRes, error)
 	// RetireEntryTemplate implements retireEntryTemplate operation.
 	//
 	// Retires an active entry template for good (status `retired`, `EntryTemplateChanged`): it changes no
@@ -6093,6 +6214,19 @@ type Handler interface {
 	//
 	// PATCH /v1/contracts/{id}
 	UpdateContract(ctx context.Context, req *ContractUpdate, params UpdateContractParams) (UpdateContractRes, error)
+	// UpdateControl implements updateControl operation.
+	//
+	// Changes an active control's objective, process, owner, frequency, nature or framework references at
+	// once, with the caller's version of it (`If-Match`; 412 when another change came first). JSON Merge
+	// Patch (RFC 7396): absent fields are unchanged. The code does not change. The owner is checked as
+	// `createControl` checks it when the change names another, and the texts, the frequency and the nature
+	// as it checks them. A change that would leave the control as it is is refused (422
+	// `grc.nothing_to_change`), as is a change of a retired control (409 `grc.control_retired`). The
+	// control's tests stay as they were recorded. An audit record naming the fields changed and
+	// ControlChanged (`changed`) are written with it.
+	//
+	// PATCH /v1/controls/{id}
+	UpdateControl(ctx context.Context, req *ControlUpdate, params UpdateControlParams) (UpdateControlRes, error)
 	// UpdateCostCenter implements updateCostCenter operation.
 	//
 	// Changes name, description or person responsible at once: texts need no approval (ADR-0050 §11,

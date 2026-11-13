@@ -6175,13 +6175,13 @@
     "ph": 9,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Control library",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A compliance officer records a control (code, objective, process, owner, frequency, manual or automated) and the result of testing it (passed or failed, with a note of the evidence), and reads the library with each control's last test; the grc context and its ADR (POST /v1/controls, POST /v1/controls/{id}/tests)",
-        "r": "T98a · docs/design/plan-breadth-week3.md §T98a",
+        "r": "T98a · docs/design/plan-breadth-week3.md §T98a · db/migrations/000304 · grc.control, grc.control_test · POST /v1/controls · GET /v1/controls · GET /v1/controls/{id} · PATCH /v1/controls/{id} · POST /v1/controls/{id}:retire · POST /v1/controls/{id}/tests · GET /v1/controls/{id}/tests · ControlChanged · grc.control.read, .write, .test · walkthrough step_controls · ADR-0078 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -9734,13 +9734,13 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "SOX control mapping (ITGCs and application controls)",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The compliance officer links a control to what enforces it in the product (a permission, a segregation-of-duties rule, a path of the configuration) and to the references of a framework the tenant names, and reads the control matrix with whether each link still holds (GET /v1/control-matrix)",
-        "r": "T98b · docs/design/plan-breadth-week3.md §T98b",
+        "r": "T98b · docs/design/plan-breadth-week3.md §T98b · db/migrations/000305 · grc.control_link · framework_references on grc.control · POST /v1/controls/{id}/links · POST /v1/controls/{id}/links/{link_id}:remove (no DELETE, 04 §4.3) · GET /v1/control-matrix · ControlChanged (linked, unlinked) · identity.Catalog · config.Config.Present · TestMatrixBudget · walkthrough step_control_matrix · ADR-0078 §7-§9 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
