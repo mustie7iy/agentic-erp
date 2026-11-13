@@ -2801,21 +2801,21 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Recognition schedules",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The revenue accountant reads an active contract's recognition schedule: per obligation and fiscal period the revenue recognized so far and planned, a point-in-time obligation by its delivery confirmations and an over-time one on a straight line by days (GET /v1/revenue-contracts/{id}/schedule)",
-        "r": "T81c · docs/design/plan-breadth-week2.md §T81c",
+        "r": "T81c · docs/design/plan-breadth-week2.md §T81c · db/migrations/000303 · performance_obligation.satisfied_on · GET /v1/revenue-contracts/{id}/schedule · internal/revenue/schedule.go · ledger.Calendar · money.Allocate · walkthrough step_revenue_schedule · ADR-0068 §8 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The revenue accountant runs revenue recognition for a company and a period: per active contract revenue is brought to what is recognized to the period's end, and the contract's position, revenue recognized less revenue billed, stands as one contract asset or one contract liability (POST /v1/revenue-recognition-runs)",
-        "r": "T81d · docs/design/plan-breadth-week2.md §T81d",
+        "r": "T81d · docs/design/plan-breadth-week2.md §T81d · db/migrations/000311, 000312 · revenue.recognition_run, recognition_posting, recognition_posting_obligation · POST, GET /v1/revenue-recognition-runs · revenue.recognition.run · account_determination.contract_asset, contract_liability · RevenueRecognized · internal/revenue/run.go · walkthrough step_revenue_schedule · ADR-0068 §9 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

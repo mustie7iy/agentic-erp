@@ -4,8 +4,7 @@
 with the product owner's decisions of 2026-11-12; `go-reviewer` had no
 blocking finding on T81a's last commit). It decides the revenue context
 and the slices T81a-T81d (`docs/design/plan-breadth-week2.md`, Lane B).
-Each slice records what it built under "As built"; T81a's and T81b's
-are there now. **The six statements about IFRS 15 this ADR rests on (§2) are
+Each slice records what it built under "As built"; all four are there. **The six statements about IFRS 15 this ADR rests on (§2) are
 not yet confirmed by the accounting specialist.**
 
 ## Context
@@ -72,10 +71,13 @@ it, the sales context least of all. It reads
   with their net values and, from T81c, their deliveries and billing),
 - the partner context's numbers and names (`partner.Payees.Names`),
 - tenancy's legal entities and, from T81c, the ledger's calendar
+  (`ledger.Calendar`: a company's regular fiscal periods) and the
+  active configuration (a company's time zone, for its date today)
 
 through ports it declares, which the composition root wires
 (`app.Revenue`). It imports those contexts' published types
-(`sales.Order`, `partner.Named`, `tenancy.Entity`), as collections does
+(`sales.Order`, `partner.Named`, `tenancy.Entity`,
+`ledger.FiscalPeriod`, `config.Config`), as collections does
 (ADR-0065 §1). It posts nothing before T81d, which posts through
 `ledger.Postings` with `source_context` `revenue`.
 
@@ -230,25 +232,107 @@ are the order's item values.
 
 ### 8. The recognition schedule (T81c)
 
-Computed on read from the active contract's obligations: a
-point-in-time obligation's allocated amount falls in the fiscal periods
-of its order item's delivery confirmations, in proportion to the
-quantity delivered, the last delivery taking the remainder (the delivery
-confirmation is the default evidence that control passed, a planning
-default of the product owner, 2026-11-12, until the accounting
-specialist answers question 2; statement 1); an over-time obligation's
-amount is spread on
-a straight line by days over its service period, each fiscal period
-taking its days' share (statement 5). T81c records the detail when it
-builds it.
+Computed on read from the active contract's obligations, as activation
+fixed them, and from the delivery confirmations of its sales order as
+they are at the read; nothing of it is stored. A draft has no allocated
+amounts and no schedule.
+
+- **A point-in-time obligation**'s allocated amount falls in the fiscal
+  periods of its order item's delivery confirmations, in proportion to
+  the quantity delivered: after each delivery, what is scheduled so far
+  is the allocated amount × the quantity delivered so far ÷ the quantity
+  ordered, rounded to the minor unit, and the delivery takes what that
+  adds. The delivery that completes the item therefore takes the
+  remainder, and the amounts add up to the allocated amount exactly;
+  billing shares out an item's value the same way (ADR-0067 §9). What
+  is not delivered is **not yet scheduled**, in no period. The delivery
+  confirmation is the default evidence that control passed (statement
+  1): a planning default of the product owner, 2026-11-12, until the
+  accounting specialist answers question 2, not a confirmed reading of
+  the standard.
+- **The day a person names.** Where the terms of sale make another day
+  the one the obligation is satisfied on, the revenue accountant sets
+  that day on the obligation (`satisfied_on`) while the contract is a
+  draft (product owner, 2026-11-12: "let the revenue accountant set
+  another date on the obligation"). The schedule then has the
+  obligation's whole allocated amount on that day, whatever was
+  delivered. Which day it is is the person's judgement; the system
+  checks nothing about it. An over-time obligation has no such day.
+- **An over-time obligation**'s allocated amount is spread on a straight
+  line by days over its service period, both days included (statement
+  5): each fiscal period takes the amount × its days of the service
+  period ÷ the service period's days, and `money.Allocate` rounds the
+  shares so that they add up to the allocated amount to the minor unit,
+  a unit left going to the largest remainder, the earlier period first.
+- **Recognized and planned.** The schedule is told to a day: what it
+  gives days up to and including that day is recognized, what it gives
+  later days is planned. Of an over-time obligation's fiscal period
+  under way on that day, the recognized part is the period's amount ×
+  its service days so far ÷ its service days, rounded against the rest
+  so that the two add up to the period's amount. The read's day is the
+  company's date today in its time zone; the recognition run's (§9) is
+  its period's last day, so the run recognizes whole fiscal periods.
+  "Recognized" in the schedule is what the arithmetic gives to that
+  day, not what is posted.
+- **Fiscal periods** are the company's regular posting periods
+  (`ledger.Calendar`). A day the schedule needs a period for, a
+  delivery's, the day a person named or a day of a service period,
+  that lies in no fiscal year set up for the company is refused naming
+  the obligation (422 `revenue.no_fiscal_period`).
 
 ### 9. The recognition run (T81d)
 
-Per company and period, each active contract is brought to its
-cumulative position: revenue recognized to the period's end less revenue
-billed, as one contract asset when it is positive or one contract
-liability when it is negative, never both (statement 6), posted through
-`ledger.Postings`. T81d records the detail when it builds it.
+A revenue accountant runs revenue recognition for a company and one of
+its regular fiscal periods. The run is arithmetic on what the contracts
+and the sales documents say; it judges nothing.
+
+- **What is read.** Every active contract of the company. Per
+  obligation: the revenue **recognized** to the period's last day, which
+  is the schedule (§8) told to that day, so whole fiscal periods of an
+  over-time obligation and the deliveries dated up to it; and the
+  revenue **billed** to that day, the net amounts, without tax, of the
+  order item in billing documents posted on or before it (ADR-0067 §9).
+- **What billing already posted.** A billing document posts as a
+  customer invoice that credits each item's revenue account with what
+  was billed. So the ledger holds, per obligation, revenue as billed,
+  and the run corrects it to revenue as recognized.
+- **The entry, per contract.** Per obligation the order item's revenue
+  account is moved by recognized less billed, less what earlier runs
+  posted for the obligation: a credit when that is positive, a debit
+  when negative. The contract's **position** is the sum of its
+  obligations' recognized less billed. The entry takes the position the
+  last run left off its account and puts the new one on the company's
+  **contract asset** account when it is positive (a debit) or on its
+  **contract liability** account when it is negative (a credit), so a
+  contract shows one of the two and never both (statement 6). The entry
+  balances: the position's change is the obligations' movements added
+  up. The posted invoice stays the receivable. Output tax is not
+  touched: it is reported at the invoice date (ADR-0049 §4).
+- **Cumulative, so idempotent per contract and period.** A run keeps,
+  per contract it posted, the cumulative amounts per obligation; the
+  next run posts only the change. A contract whose recognized less
+  billed did not move posts nothing. A delivery or a billing document
+  dated into a period already run is caught up by the next run.
+- **One run per company and period, in order.** A second run of a
+  period is refused; a company's first run is for any open period, each
+  later run for a later period than its last. The company's runs are
+  held by one lock while a run reads what the runs before it posted, and
+  the database holds both rules too. A run is not reversed in the first
+  version.
+- **Posted as other period-end runs are.** Through `ledger.Postings`
+  with `source_context` `revenue`, document type `SA`, dated the
+  period's last day, in the company's local currency, to every ledger
+  the company keeps; the period must be open (the ledger's period
+  lock), also when nothing is to post. The run is one request and one
+  transaction: all of it is posted or none, and it reads at most 2,000
+  active contracts (`revenue.MaxRunContracts`, as a collection run is
+  bounded).
+- **The accounts.** `companies[].account_determination.contract_asset`,
+  an asset, and `.contract_liability`, a liability, neither a
+  reconciliation account; a company without both is refused.
+- **Event and audit.** One audit record and one `RevenueRecognized` per
+  run, with its counts and totals; not offered to webhooks until a
+  consumer asks (product owner, 2026-11-12).
 
 ## Alternatives
 
@@ -302,15 +386,95 @@ liability when it is negative, never both (statement 6), posted through
    first version).
 6. A remaining minor unit of the allocation goes to the largest
    remainder, the earlier obligation first (`money.Allocate`'s rule, §7).
+7. The schedule's "recognized so far" is what it gives days up to the
+   company's date today, and "planned" what it gives later days; a
+   fiscal period under way is split by its service days (§8).
+8. A point-in-time obligation's share per delivery is rounded on the
+   cumulative quantity, as billing rounds an item's value, not with
+   `money.Allocate`: the deliveries are not all known when the first is
+   scheduled, and an amount already shown for a delivery does not move
+   when a later-dated one is confirmed. A delivery confirmed afterwards
+   with an earlier date does move the later ones' amounts, by the
+   rounding and into the earlier period; the recognition run is
+   cumulative and catches that up (§8, §9).
+9. The day a person names for a point-in-time obligation is set while
+   the contract is a draft, as its other judgements are, and takes the
+   obligation's whole amount (§8). The plan listed "recognition at a
+   point other than the delivery confirmation" under later; the product
+   owner's decision of 2026-11-12 on question 2 brought this one form
+   of it forward. Changing it on an active contract, and a day per
+   delivery, stay later.
+10. The schedule's periods across fiscal years need each year set up in
+    the ledger's calendar; a service period reaching into a year that is
+    not is refused at the read, not at the change of the obligation or
+    at activation, since a year may be set up later (§8).
+11. The run reads billing by posting date and recognition by delivery
+    date or service day: both are compared at the period's last day (§9).
+12. A run's entry is per contract, with a line per obligation that
+    moved, and the position's change netted per account: one line on the
+    contract asset account and one on the contract liability account at
+    most (§9).
+13. A contract's lines carry no customer, cost object or tax code: the
+    two contract accounts are plain G/L accounts, and what the ledger
+    asks of a revenue account (a cost center, say) refuses the run with
+    the ledger's code. See "Gaps".
+14. Reading runs takes `revenue.contract.read`; the plan names one new
+    permission, `revenue.recognition.run` (§6).
+15. A run is kept also when no contract moved, with `posting_count` 0:
+    it says the period was run, and later runs follow it (§9).
+16. The plan's two tables became three: per run and contract the entry
+    and the contract's cumulative amounts, and per obligation the
+    amounts the next run takes off, which a row per contract cannot
+    hold.
 
 ## Questions
 
 The plan's questions 1 to 8 stand (`plan-breadth-week2.md`), asked of
-the accounting specialist on 2026-11-12; none blocks T81a or T81b.
+the accounting specialist on 2026-11-12; none blocks a slice. T81c and
+T81d add, for the accounting specialist (each a planning default until
+answered, none read from the standard):
+
+- **Billed means invoiced, not paid.** The run takes a contract
+  liability from billing ahead of recognition. Statement 6 speaks of the
+  customer having paid or payment being due. Is an invoice posted and
+  not yet due a contract liability, or only once it is due or paid?
+- **Net per contract across obligations.** One obligation billed ahead
+  and another delivered and not billed are netted into one position.
+  Confirm that netting is per contract, not per obligation.
+- **The asset as "contract asset".** What is delivered and not billed
+  is shown as a contract asset. When the right to payment is already
+  unconditional (only the invoice is missing), should it be a
+  receivable (unbilled receivable) instead?
+- **A day named on the obligation** takes the whole allocated amount,
+  whatever was delivered. Is a split (part on delivery, part on
+  acceptance) needed for the pilot's terms?
+- **Rounding.** Shares by days and by quantities are rounded to the
+  minor unit as §8 says. Any requirement on where a rounding unit goes?
+- **Periods run in order, none reversed.** A correction dated into a
+  period already run is recognized in the next run's period. Acceptable
+  for the pilot's close, or must the earlier period be reopened?
 Question 4 (should every confirmed order get a contract automatically)
 is answered by the product owner: yes.
 
 ## Gaps (not built; for the product owner)
+
+- A run's lines name no trading partner: the contract asset or
+  liability towards an affiliated customer is not marked intercompany
+  for consolidation.
+- A run that the ledger refuses for one contract (an obligation's
+  revenue account that asks for a cost center the line does not carry,
+  or is no longer postable) is refused as a whole, with the ledger's
+  code and the order's number in the log, not in the problem's detail.
+- The year-end carry-forward, the foreign currency valuation and the
+  liquidity forecast do not know the two contract accounts as anything
+  but G/L accounts.
+- A run cannot be reversed, and a company that ran a period cannot run
+  an earlier one (the plan's "later").
+- One active contract whose schedule reaches a fiscal year that is not
+  set up refuses the company's whole run until the year is set up
+  (default 10): the straight line's rounding needs every period of the
+  service period. Requiring only the periods up to the run's end would
+  place the rounding unit later.
 
 - No read lists confirmed orders without a revenue contract (those
   confirmed before the consumer ran, or in a foreign currency).
@@ -451,3 +615,150 @@ is answered by the product owner: yes.
   transaction price). The contract's `version` and
   `RevenueContractChanged` move with a change of the obligations, so a
   consumer following the contract sees it.
+
+### T81c Recognition schedule (migration 000310)
+
+- **Schema.** No table: the schedule is computed on read.
+  `revenue.performance_obligation` gains `satisfied_on`, the day a
+  person says a point-in-time obligation is satisfied on; an over-time
+  obligation has none (`performance_obligation_satisfied_on`). The
+  application may set it, while the contract is a draft as every
+  judgement (`performance_obligation_fixed_once_active`). The revert is
+  refused while an obligation names such a day. Schema tests in
+  `db/revenue_test.go` (`TestRevenueSatisfiedOn`).
+- **Ports.** The context reads the ledger's calendar
+  (`revenue.Calendar`: `ledger.Calendar.Period` and `.Periods`) and the
+  active configuration (`revenue.Settings`, for the company's date
+  today, `config.DocumentDay`), wired by `app.Revenue`; `internal/layout`
+  lists `config` and `ledger` among its imports. It stays a leaf.
+- **The read.** `GET /v1/revenue-contracts/{id}/schedule`
+  (`revenue.contract.read`): the contract's order, company and customer
+  by id, number or code, and name; `as_of`, the company's date today;
+  per obligation its timing, service period or `satisfied_on`, its
+  allocated amount and its `recognized_amount`, `planned_amount` and
+  `unscheduled_amount`, which add up to it, and its fiscal periods,
+  earliest first, each with its dates, its amount split into recognized
+  and planned, an over-time period's `days` and a delivery period's
+  `delivered_quantity`; the contract's sums, which add up to the
+  transaction price, and its `periods`, the obligations' added up. 409
+  `revenue.invalid_status` for a draft; 422 `revenue.no_fiscal_period`
+  naming the obligation, the day and the company; 404 for a contract of
+  a company the caller may not act in.
+- **Setting the day.** `PATCH /v1/revenue-contracts/{id}` takes
+  `obligations[].satisfied_on` (null removes it); 422
+  `revenue.satisfied_on_not_allowed` on an over-time obligation, naming
+  the request's field.
+- **The arithmetic** (`internal/revenue/schedule.go`). `straightLine`:
+  exact shares amount × days ÷ the service period's days per fiscal
+  period, rounded by `money.Allocate`; the period under way split the
+  same way. `byDeliveries`: the cumulative share amount × delivered ÷
+  ordered rounded half away from zero (`money.Round`), each delivery
+  taking the difference. `onDay`: the whole amount on the day named.
+  Fiscal years are read from the ledger once each per read.
+- **Tested.** A contract of three obligations, goods delivered in
+  parts across two periods, a service over the fiscal year and a kit
+  delivered later: each obligation's periods and sums at a day in
+  February and after the year, the contract's periods and sums; the
+  straight line over the fiscal year (1200.00 over 365 days: six cents
+  left go to the first six months of 31 days), one day, part of a
+  period and from the middle of one period to the middle of another;
+  for 300 fixed amounts and service periods of up to three years the
+  periods add up to the amount and what is recognized never falls from
+  one day to the next; for 200 fixed amounts delivered in up to six
+  parts the scheduled and the unscheduled amounts add up after every
+  delivery; the day a person names; the refusals; every database
+  statement failing.
+- **Budget.** None: the plan calls the schedule a read of one contract,
+  not a report; it reads the contract, its order and one fiscal year
+  per year its obligations touch.
+- **Walkthrough.** Step 82, `step_revenue_schedule`: before a delivery
+  the brackets of step 67's contract are not yet scheduled and the
+  support's 1253.57 is spread over the twelve fiscal periods by their
+  days, the days adding up to the year's and the amounts to 1253.57;
+  Sally confirms the 120 brackets as delivered and the schedule has
+  their 1446.43 in the delivery's period, recognized; a draft has no
+  schedule.
+- **Decided by default while building.** Defaults 7 to 10 above. The
+  schedule shows a period's `days` and `delivered_quantity` so that a
+  consumer can check each share without another call. A delivery dated
+  after the read's day would be planned; the sales context refuses a
+  delivery dated in the future, so today that arises only at a read
+  told for an earlier day (the recognition run's).
+
+### T81d Recognition run posted (migrations 000311, 000312)
+
+- **Schema.** `revenue.recognition_run`, `revenue.recognition_posting`
+  and `revenue.recognition_posting_obligation` under RLS, `tenant_id`
+  first, written once (no update or delete for the application). One
+  run per company and period (`recognition_run_once`); each for a later
+  period than the company's last (`recognition_run_in_order`, a trigger
+  that takes the company's advisory lock); a run's positions are what
+  it recognized less what it billed
+  (`recognition_run_positions_check`). It keeps what its entries moved
+  revenue by, zero when it posted nothing
+  (`recognition_run_revenue_check`). The account determination takes
+  the keys `contract_asset` and `contract_liability` and the journal
+  the source context `revenue`, both checks added NOT VALID in 000311
+  and validated in 000312, the journal's partition by partition. The
+  revert is refused while a run or one of the two keys exists. Schema
+  tests in `db/revenue_test.go` (`TestRevenueRecognitionRules`).
+- **Configuration.** `companies[].account_determination.contract_asset`
+  (an asset) and `.contract_liability` (a liability), neither a
+  reconciliation account (`config` validation), applied by
+  `ledger.Setup` and known to country packs' account determination and
+  to the automatic accounts' list. No pack ships them.
+- **Ports.** `revenue.Postings` (`ledger.Postings.Post`, `.Postable`)
+  and `revenue.Accounts` (`ledger.Accounts.Determination`,
+  `.AccountNumbers`), wired by `app.Revenue`.
+- **The run** (`internal/revenue/run.go`).
+  `POST /v1/revenue-recognition-runs` (`legal_entity_id`, `fiscal_year`,
+  `fiscal_period`; `revenue.recognition.run`; human-only; idempotent by
+  key). In order: the company is one the caller may act in (422
+  `request.reference_not_found`); the period is a regular one (422
+  `ledger.no_fiscal_period`, `revenue.period_not_regular`); both
+  accounts are determined (422 `revenue.no_contract_accounts`); the
+  company's lock is taken and the run follows the last (409
+  `revenue.recognition_run_exists`,
+  `revenue.recognition_period_not_later`); the period is open (409
+  `ledger.period_not_open`); at most 2,000 active contracts (422
+  `revenue.recognition_run_too_large`); each contract's schedule to the
+  period's last day (422 `revenue.no_fiscal_period` naming the order);
+  totals within an amount (422 `revenue.amount_too_large`). Then the run
+  is kept, each contract that moved posts its entry and keeps its
+  figures, and the audit record and the event are written, in one
+  transaction.
+- **Reads.** `GET /v1/revenue-recognition-runs` (company, fiscal year,
+  period; cursor paging by `posting_date`, latest first; without
+  postings) and `GET /v1/revenue-recognition-runs/{id}` with the
+  postings by sales order number (`revenue.contract.read`): the
+  company's code and name, the run's totals and `revenue_amount`, what
+  its entries moved revenue by on balance (review round 1: the run's
+  own total, which its consumer would otherwise add up from the
+  postings), per posting the order by id and number, the
+  customer's number and name, the cumulative amounts, the position as
+  contract asset or liability, the entry by id, year and number, and
+  per obligation its description, its revenue account by id and number
+  and its amounts; every amount with its currency.
+- **Tested.** Delivered and not billed is accrued (Dr contract asset,
+  Cr revenue), taken off once billed, and a third run posts nothing;
+  one contract goes from a contract liability (a service billed ahead)
+  to a contract asset in the next period and back, the entry taking the
+  old position off and putting the new one on, never both; a billing
+  document dated into a period already run is caught up; each entry is
+  in every ledger the company keeps; the refusals, after which nothing
+  is kept; a replay answers the run; two runs of a period at once end
+  with one; a draft is not read, and a contract of an order blocked for
+  credit, which takes no delivery, recognizes nothing; the database's
+  rules answer as the run's; every database statement failing.
+- **Budget.** None: the run is a posting, not a report, and the plan
+  names no budget for it.
+- **Walkthrough.** Step 82 extended: Maple gets accounts 1260 and 2460
+  by a governed change; step 67's order is delivered and billed in
+  full; the run for today's period posts two entries: for step 67's
+  contract Sales is debited by 53.57 for the brackets (allocated
+  1446.43, billed 1500.00) and by what the support is billed ahead, and
+  the contract liability credited with the sum; for step 68's released
+  order, delivered and not billed, Sales is credited and the contract
+  asset debited with 5000.00. Step 63's contract posts nothing; a
+  second run of the period is refused.
+- **Decided by default while building.** Defaults 11 to 16 above.

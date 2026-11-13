@@ -41,13 +41,14 @@ func notDraft() *problem.Problem {
 type Amount struct{ Value, Currency string }
 
 // ObligationChange is what a person sets on one obligation of a draft
-// contract, as a client sends it: a nil field is left as it is. A service
-// date pointing at nil is removed.
+// contract, as a client sends it: a nil field is left as it is. A date
+// pointing at nil is removed.
 type ObligationChange struct {
 	No          int32
 	Timing      *string
 	ServiceFrom **time.Time
 	ServiceTo   **time.Time
+	SatisfiedOn **time.Time
 	Price       *Amount
 }
 
@@ -82,11 +83,12 @@ func draft(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch func(int32) err
 
 // Update sets what a person judges on a draft contract's obligations
 // (ADR-0068 §2, §7): each change names an obligation by its number, once,
-// and gives its timing, its service period or its stand-alone selling
-// price; what it does not give stays. Afterwards an over-time obligation
-// has a service period, from not after to, a point-in-time obligation has
-// none, and every stand-alone selling price is more than zero, in the
-// contract's currency. The contract's version moves; its audit record and
+// and gives its timing, its service period, the day it is satisfied on
+// or its stand-alone selling price; what it does not give stays.
+// Afterwards an over-time obligation has a service period, from not after
+// to, and no day it is satisfied on, a point-in-time obligation has no
+// service period, and every stand-alone selling price is more than zero,
+// in the contract's currency. The contract's version moves; its audit record and
 // RevenueContractChanged are written in the same transaction. Nothing is
 // allocated before the contract is activated.
 func (e *Endpoints) Update(ctx context.Context, id uuid.UUID, changes []ObligationChange, ifMatch func(int32) error) (Contract, error) {
@@ -103,14 +105,15 @@ func (e *Endpoints) Update(ctx context.Context, id uuid.UUID, changes []Obligati
 		return Contract{}, err
 	}
 	numbers, timings := make([]int32, len(changed)), make([]string, len(changed))
-	from, to, prices := make([]*time.Time, len(changed)), make([]*time.Time, len(changed)), make([]int64, len(changed))
+	from, to, on, prices := make([]*time.Time, len(changed)), make([]*time.Time, len(changed)), make([]*time.Time, len(changed)), make([]int64, len(changed))
 	for i, o := range changed {
-		numbers[i], timings[i], from[i], to[i], prices[i] = o.No, o.Timing, o.ServiceFrom, o.ServiceTo, int64(o.StandalonePrice)
+		numbers[i], timings[i], from[i], to[i], on[i], prices[i] = o.No, o.Timing, o.ServiceFrom, o.ServiceTo, o.SatisfiedOn, int64(o.StandalonePrice)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE revenue.performance_obligation o
-		SET timing = n.timing, service_from = n.service_from, service_to = n.service_to, standalone_selling_price = n.price
-		FROM unnest($2::int[], $3::text[], $4::date[], $5::date[], $6::bigint[]) AS n (obligation_no, timing, service_from, service_to, price)
-		WHERE o.contract_id = $1 AND o.obligation_no = n.obligation_no`, id, numbers, timings, from, to, prices); err != nil {
+		SET timing = n.timing, service_from = n.service_from, service_to = n.service_to, satisfied_on = n.satisfied_on, standalone_selling_price = n.price
+		FROM unnest($2::int[], $3::text[], $4::date[], $5::date[], $6::date[], $7::bigint[])
+			AS n (obligation_no, timing, service_from, service_to, satisfied_on, price)
+		WHERE o.contract_id = $1 AND o.obligation_no = n.obligation_no`, id, numbers, timings, from, to, on, prices); err != nil {
 		return Contract{}, fmt.Errorf("revenue: set the obligations of contract %s: %w", id, err)
 	}
 	before := Draft
@@ -177,9 +180,13 @@ func applied(c Contract, changes []ObligationChange) ([]Obligation, error) {
 // revenue.currency_mismatch) and more than zero (422
 // revenue.price_not_positive); an over-time obligation with both days of
 // its service period (422 revenue.service_period_required), from not
-// after to (422 revenue.invalid_service_period); a point-in-time
-// obligation without one (422 revenue.service_period_not_allowed). Which
-// timing an obligation has is the person's judgement and is not checked.
+// after to (422 revenue.invalid_service_period) and without a day it is
+// satisfied on (422 revenue.satisfied_on_not_allowed); a point-in-time
+// obligation without a service period (422
+// revenue.service_period_not_allowed). Which timing an obligation has,
+// and the day a point-in-time obligation is satisfied on when a person
+// names one (ADR-0068 §8), are the person's judgement and are not
+// checked.
 func set(c Contract, o Obligation, ch ObligationChange, field string) (Obligation, error) {
 	if ch.Timing != nil {
 		if *ch.Timing != PointInTime && *ch.Timing != OverTime {
@@ -192,6 +199,9 @@ func set(c Contract, o Obligation, ch ObligationChange, field string) (Obligatio
 	}
 	if ch.ServiceTo != nil {
 		o.ServiceTo = *ch.ServiceTo
+	}
+	if ch.SatisfiedOn != nil {
+		o.SatisfiedOn = *ch.SatisfiedOn
 	}
 	if ch.Price != nil {
 		price, err := priced(c, *ch.Price, field+".standalone_selling_price")
@@ -233,6 +243,10 @@ func period(o Obligation, field string) error {
 			}
 		}
 		return nil
+	}
+	if o.SatisfiedOn != nil {
+		return problem.Invalid("revenue.satisfied_on_not_allowed", field+".satisfied_on",
+			fmt.Sprintf("Obligation %d is satisfied over time, over its service period, and has no day it is satisfied on; set timing to point_in_time, or send satisfied_on as null.", o.No))
 	}
 	if o.ServiceFrom == nil {
 		return problem.Invalid("revenue.service_period_required", field+".service_from",

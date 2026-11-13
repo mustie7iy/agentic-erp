@@ -20515,6 +20515,245 @@ func (s *Server) handleCreateRevenueContractRequest(args [0]string, argsEscaped 
 	}
 }
 
+// handleCreateRevenueRecognitionRunRequest handles createRevenueRecognitionRun operation.
+//
+// Runs revenue recognition for a company and one of its regular fiscal periods and posts it (ADR-0068
+// §9, T81d), in the request's transaction: either the whole run is posted or nothing. The system does
+// the arithmetic only; every judgement is the person's, on the contract. For each `active` revenue
+// contract of the company the run reads the recognition schedule to the period's last day
+// (`getRevenueSchedule`: a point-in-time obligation by its order item's delivery confirmations or the
+// day named on it, an over-time obligation on a straight line by days, whole fiscal periods) and the
+// order item's posted billing to that day (the net amounts of the billing documents posted on or
+// before it, without tax). Billing credited each item's revenue account with what was billed; per
+// obligation the run's entry moves that account by the revenue recognized to the period's end less the
+// revenue billed to it, less what earlier runs posted for the obligation: a credit when more is
+// recognized than billed and posted so far, a debit when less. The contract's position is the sum of
+// its obligations' recognized less billed amounts: the entry takes the position the last run left off
+// its account and puts the new one on the company's contract asset account
+// (`account_determination.contract_asset`) when revenue recognized exceeds revenue billed, a debit, or
+// on its contract liability account (`account_determination.contract_liability`) when revenue billed
+// exceeds revenue recognized, a credit, so a contract shows one of the two and never both; the posted
+// invoice stays the receivable, and output tax is not touched: it is reported at the invoice date. The
+// amounts are cumulative, so a delivery or a billing document dated into a period already run is
+// caught up by the next run, and a contract whose figures did not move since its last posting posts
+// nothing. Each contract that moved posts one balanced journal entry (document type `SA`,
+// `source_context` `revenue`, dated the period's last day, the sales order's number as its reference)
+// to every ledger the company keeps. One run per company and period: a second is refused (409
+// `revenue.recognition_run_exists`), and a retry with the same `Idempotency-Key` answers the run as
+// the first answered it. A company's first run is for any open period; each later run is for a later
+// period than its last (409 `revenue.recognition_period_not_later`): a run is not reversed or repeated
+// in the first version. `legal_entity_id` is a company the caller may act in (422
+// `request.reference_not_found`); `fiscal_period` is a regular posting period of `fiscal_year` in the
+// company's calendar (422 `ledger.no_fiscal_period` for a year that is not set up, 422
+// `revenue.period_not_regular`); the company has both accounts (422 `revenue.no_contract_accounts`);
+// the period is open in every ledger the company keeps (409 `ledger.period_not_open`), also when
+// nothing is to post; the company has at most 2,000 active contracts (422
+// `revenue.recognition_run_too_large`: larger runs are not supported yet). A day a contract's schedule
+// needs a fiscal period for that lies in no fiscal year set up is refused naming the contract's order
+// and the obligation (422 `revenue.no_fiscal_period`). What the ledger refuses of an entry refuses the
+// run (for example an obligation's revenue account that is no longer postable). The answer is the run
+// with its totals, what its entries moved revenue by on balance (`revenue_amount`) and its postings,
+// one per contract that moved, each naming its journal entry. Audited, and published as
+// RevenueRecognized. Human-only (`x-agent: false`).
+//
+// POST /v1/revenue-recognition-runs
+func (s *Server) handleCreateRevenueRecognitionRunRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createRevenueRecognitionRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/revenue-recognition-runs"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CreateRevenueRecognitionRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CreateRevenueRecognitionRunOperation,
+			ID:   "createRevenueRecognitionRun",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CreateRevenueRecognitionRunOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCreateRevenueRecognitionRunParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCreateRevenueRecognitionRunRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CreateRevenueRecognitionRunRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CreateRevenueRecognitionRunOperation,
+			OperationSummary: "Run revenue recognition for a company and a fiscal period",
+			OperationID:      "createRevenueRecognitionRun",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *RevenueRecognitionRunCreate
+			Params   = CreateRevenueRecognitionRunParams
+			Response = CreateRevenueRecognitionRunRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCreateRevenueRecognitionRunParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CreateRevenueRecognitionRun(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CreateRevenueRecognitionRun(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCreateRevenueRecognitionRunResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCreateRfqRequest handles createRfq operation.
 //
 // Creates a draft RFQ of a legal entity (ADR-0069 §1-§2): the currency quotations are given in, the
@@ -46072,10 +46311,11 @@ func (s *Server) handleGetRevaluationRunRequest(args [1]string, argsEscaped bool
 // One revenue contract (ADR-0068 §3, T81a) with its company's code and name, its customer's number
 // and name, the sales order it stands for by id and number, its transaction price (the order's net
 // value, without tax) and its performance obligations, each with the order item it is for, its timing,
-// an over-time obligation's service period, its stand-alone selling price and, once the contract is
-// `active`, its allocated amount. `created_by` is the person who asked for it, or the system's
-// principal when the order's confirmation created it. One of a company the caller may not act in is
-// not found (404), as one that does not exist.
+// an over-time obligation's service period, the day a point-in-time obligation is satisfied when a
+// person set one (`satisfied_on`), its stand-alone selling price and, once the contract is `active`,
+// its allocated amount. `created_by` is the person who asked for it, or the system's principal when
+// the order's confirmation created it. One of a company the caller may not act in is not found (404),
+// as one that does not exist.
 //
 // GET /v1/revenue-contracts/{id}
 func (s *Server) handleGetRevenueContractRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -46252,6 +46492,415 @@ func (s *Server) handleGetRevenueContractRequest(args [1]string, argsEscaped boo
 	}
 
 	if err := encodeGetRevenueContractResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetRevenueRecognitionRunRequest handles getRevenueRecognitionRun operation.
+//
+// One revenue recognition run (ADR-0068 §9, T81d) with its company's code and name, its fiscal period
+// and posting date, the number of active contracts it read and of contracts it posted, the company's
+// totals to the period's end over the contracts it read (revenue recognized, revenue billed, contract
+// assets, contract liabilities), what its entries moved revenue by (`revenue_amount`) and its
+// `postings`, one per contract that moved, by sales order number: the contract's order and customer,
+// its cumulative amounts, its position as a contract asset or a contract liability, what the entry
+// moved revenue by, its journal entry, and per obligation the revenue account and the amounts. One of
+// a company the caller may not act in is not found (404), as one that does not exist.
+//
+// GET /v1/revenue-recognition-runs/{id}
+func (s *Server) handleGetRevenueRecognitionRunRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getRevenueRecognitionRun"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/revenue-recognition-runs/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetRevenueRecognitionRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetRevenueRecognitionRunOperation,
+			ID:   "getRevenueRecognitionRun",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetRevenueRecognitionRunOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetRevenueRecognitionRunParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetRevenueRecognitionRunRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetRevenueRecognitionRunOperation,
+			OperationSummary: "Get a revenue recognition run",
+			OperationID:      "getRevenueRecognitionRun",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetRevenueRecognitionRunParams
+			Response = GetRevenueRecognitionRunRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetRevenueRecognitionRunParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetRevenueRecognitionRun(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetRevenueRecognitionRun(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetRevenueRecognitionRunResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetRevenueScheduleRequest handles getRevenueSchedule operation.
+//
+// The recognition schedule of an `active` revenue contract (ADR-0068 §8, T81c): per performance
+// obligation and fiscal period of the company, the revenue the obligation's allocated amount gives the
+// period. Nothing is stored: the schedule is computed at the read from the obligations as the contract
+// fixed them and from the delivery confirmations of the contract's sales order as they are now, so it
+// moves with each delivery. The system does the arithmetic only; when an obligation is satisfied is
+// the person's judgement on the contract. A `point_in_time` obligation's amount falls in the fiscal
+// periods of its order item's delivery confirmations, in proportion to the quantity delivered: after
+// each delivery the amount scheduled so far is the allocated amount × the quantity delivered so far
+// ÷ the quantity ordered, rounded to the minor unit, and the delivery takes what that adds, so the
+// delivery that completes the item takes the remainder and the amounts add up to the allocated amount
+// exactly; what is not delivered yet is `unscheduled_amount`, in no period. The delivery confirmation
+// is the default evidence that the obligation is satisfied; an obligation whose contract names another
+// day (`satisfied_on`) has its whole allocated amount in that day's fiscal period, whatever was
+// delivered. An `over_time` obligation's amount is spread on a straight line by days over its service
+// period, both days included: each fiscal period takes the allocated amount × its days of the service
+// period ÷ the service period's days, rounded so that the periods' amounts add up to the allocated
+// amount exactly, a minor unit left going to the largest remainder, the earlier period first. Each
+// amount is split at `as_of`, the company's date today in its time zone: `recognized_amount` is what
+// falls on days up to and including `as_of` (a delivery or `satisfied_on` on or before it; of an
+// over-time period under way, the period's amount × its service days so far ÷ its service days),
+// `planned_amount` what falls after it. Recognized here is what the schedule gives to that day, not
+// what is posted: the recognition runs post it (`GET /v1/revenue-recognition-runs`). Per obligation
+// and for the contract, `recognized_amount`, `planned_amount` and `unscheduled_amount` add up to the
+// allocated amount and to the transaction price; `periods` on the contract are the obligations'
+// periods added up. A contract that is still a `draft` has no allocated amounts and is refused (409
+// `revenue.invalid_status`). A day the schedule needs a fiscal period for, a delivery's,
+// `satisfied_on` or a day of a service period, that lies in no fiscal year set up for the company is
+// refused naming the obligation (422 `revenue.no_fiscal_period`). A contract of a company the caller
+// may not act in is not found (404).
+//
+// GET /v1/revenue-contracts/{id}/schedule
+func (s *Server) handleGetRevenueScheduleRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getRevenueSchedule"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/revenue-contracts/{id}/schedule"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetRevenueScheduleOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetRevenueScheduleOperation,
+			ID:   "getRevenueSchedule",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetRevenueScheduleOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetRevenueScheduleParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetRevenueScheduleRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetRevenueScheduleOperation,
+			OperationSummary: "Get a revenue contract's recognition schedule",
+			OperationID:      "getRevenueSchedule",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetRevenueScheduleParams
+			Response = GetRevenueScheduleRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetRevenueScheduleParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetRevenueSchedule(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetRevenueSchedule(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetRevenueScheduleResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -74412,6 +75061,216 @@ func (s *Server) handleListRevenueContractsRequest(args [0]string, argsEscaped b
 	}
 
 	if err := encodeListRevenueContractsResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleListRevenueRecognitionRunsRequest handles listRevenueRecognitionRuns operation.
+//
+// The revenue recognition runs of the companies the caller may act in (ADR-0068 §9, T81d), latest
+// posting date first, each with its company's code and name, its fiscal period, its counts, its totals
+// and what it moved revenue by, without its postings, which `getRevenueRecognitionRun` gives. Filtered
+// by company, fiscal year and fiscal period. Sortable by: `posting_date`.
+//
+// GET /v1/revenue-recognition-runs
+func (s *Server) handleListRevenueRecognitionRunsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listRevenueRecognitionRuns"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/revenue-recognition-runs"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListRevenueRecognitionRunsOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListRevenueRecognitionRunsOperation,
+			ID:   "listRevenueRecognitionRuns",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListRevenueRecognitionRunsOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListRevenueRecognitionRunsParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListRevenueRecognitionRunsRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListRevenueRecognitionRunsOperation,
+			OperationSummary: "List revenue recognition runs",
+			OperationID:      "listRevenueRecognitionRuns",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "legal_entity_id",
+					In:   "query",
+				}: params.LegalEntityID,
+				{
+					Name: "fiscal_year",
+					In:   "query",
+				}: params.FiscalYear,
+				{
+					Name: "fiscal_period",
+					In:   "query",
+				}: params.FiscalPeriod,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListRevenueRecognitionRunsParams
+			Response = ListRevenueRecognitionRunsRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListRevenueRecognitionRunsParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListRevenueRecognitionRuns(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListRevenueRecognitionRuns(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListRevenueRecognitionRunsResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -104030,12 +104889,15 @@ func (s *Server) handleUpdateRequisitionRequest(args [1]string, argsEscaped bool
 // has both days of its service period (422 `revenue.service_period_required` naming the day missing),
 // `service_from` not after `service_to` (422 `revenue.invalid_service_period`), and a `point_in_time`
 // obligation has none (422 `revenue.service_period_not_allowed`: send the dates as null when setting
-// it back); a stand-alone selling price is in the contract's currency (422
-// `revenue.currency_mismatch`) and more than zero (422 `revenue.price_not_positive`). The contract is
-// read under a row lock; one that is `active` is fixed and refused (409 `revenue.invalid_status`).
-// Nothing is allocated before the contract is activated. The contract's `version` moves. Audited, and
-// published as RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract as
-// the first answered it. Human-only (`x-agent: false`).
+// it back); a `point_in_time` obligation may name the day it is satisfied (`satisfied_on`, T81c) when
+// that is not its delivery confirmations, an `over_time` obligation may not (422
+// `revenue.satisfied_on_not_allowed`: send it as null when setting the timing to `over_time`); a
+// stand-alone selling price is in the contract's currency (422 `revenue.currency_mismatch`) and more
+// than zero (422 `revenue.price_not_positive`). The contract is read under a row lock; one that is
+// `active` is fixed and refused (409 `revenue.invalid_status`). Nothing is allocated before the
+// contract is activated. The contract's `version` moves. Audited, and published as
+// RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract as the first
+// answered it. Human-only (`x-agent: false`).
 //
 // PATCH /v1/revenue-contracts/{id}
 func (s *Server) handleUpdateRevenueContractRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
