@@ -19773,7 +19773,8 @@ type CatalogItemCreate struct {
 	// The contract whose item `contract_item_no` prices an order of the item; given with
 	// `contract_item_no`.
 	ContractID OptUUID `json:"contract_id"`
-	// The item of `contract_id`, in the catalog item's unit; given with `contract_id`.
+	// The item of `contract_id`, in the catalog item's unit and at its `unit_price` per `price_unit` (422
+	// `procurement.catalog_item_price` otherwise); given with `contract_id`.
 	ContractItemNo OptInt32 `json:"contract_item_no"`
 }
 
@@ -72826,9 +72827,11 @@ func (s *RequisitionItem) SetItemKey(val OptString) {
 // A requisition item as it is sent: described and priced by the requester, or taken from the company's
 // catalog by `catalog_item_id` (ADR-0071 §6, T84b). An item from the catalog sends its quantity, in
 // the catalog item's unit, and its account; its description, price and price unit are the catalog
-// item's and may not be sent (422 `procurement.catalog_item_override`), so an item read back from a
-// requisition is sent again without them (and without the read-only `item_key`) when the items are
-// replaced. An item that names no catalog item sends its `description` and `unit_price` (422
+// item's: it sends none, or the catalog item's own, and another is refused (422
+// `procurement.catalog_item_override` on the field, naming the catalog item; product owner,
+// 2026-11-12, T84d). So an item read back from a requisition can be sent again as it was read when the
+// items are replaced, while its catalog item is still `active`; the read-only `item_key` is ignored.
+// An item that names no catalog item sends its `description` and `unit_price` (422
 // `request.validation_failed` without).
 // Ref: #/components/schemas/RequisitionItemInput
 type RequisitionItemInput struct {
@@ -72844,15 +72847,18 @@ type RequisitionItemInput struct {
 	CatalogItemID OptUUID `json:"catalog_item_id"`
 	// Material (product context, later phases).
 	MaterialID OptUUID `json:"material_id"`
-	// What is needed. Required unless the item names a catalog item, whose description it then takes.
+	// What is needed. Required unless the item names a catalog item, whose description it then takes; sent
+	// with one, it is the catalog item's (422 `procurement.catalog_item_override` otherwise).
 	Description OptString `json:"description"`
 	// Quantity; positive. For an item from the catalog, in the catalog item's unit.
 	Quantity Quantity `json:"quantity"`
 	// Estimated price per `price_unit`, in the requisition currency. Required unless the item names a
-	// catalog item, whose price it then takes.
+	// catalog item, whose price it then takes; sent with one, it is the catalog item's price, the same
+	// amount as the catalog item shows it and the same currency (422 `procurement.catalog_item_override`
+	// otherwise).
 	UnitPrice OptMoney `json:"unit_price"`
-	// Quantity the unit price refers to; 1 when absent. Not sent for an item from the catalog, which takes
-	// the catalog item's.
+	// Quantity the unit price refers to; 1 when absent. An item from the catalog takes the catalog item's:
+	// sent with one, it is the catalog item's (422 `procurement.catalog_item_override` otherwise).
 	PriceUnit OptInt32 `json:"price_unit"`
 	// General ledger account to charge.
 	AccountID uuid.UUID `json:"account_id"`

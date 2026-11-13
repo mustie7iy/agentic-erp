@@ -6804,11 +6804,12 @@ step_rfq_award() {
 # own table: nothing is fetched from a supplier's system. Then (T84b) Ben
 # raises a requisition from the chair with a quantity: its description,
 # unit, price and supplier are the catalog's, and it is submitted and
-# approved as any other.
+# approved as any other. Read back, its item is sent again as it was
+# read, at the catalog's price; another price is refused (T84d).
 step_catalog() {
   heading "Step 61 — Catalog items: two items of a supplier loaded into the company's catalog and found by a search on a word of their description; a retired item is no longer found; a requisition from a catalog item takes its price and supplier"
   as priya
-  local chair desk arm req request expense
+  local chair desk arm req request expense read tag
   say "Priya loads Tyrell's items into Maple's catalog, one at a time: an item key, a description, a unit and one"
   say "price each (ADR-0071). The supplier must be one Maple can order from, as a purchase order's must be."
   api 201 '"catalog item \(.item_key) of \(.supplier_number) \(.supplier_name): \(.description), \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit), \(.status)"' createCatalogItem \
@@ -6862,6 +6863,18 @@ step_catalog() {
     "$(field '.items[0] | "\(.catalog_item_id) \(.item_key) \(.description) \(.quantity.value) \(.quantity.unit) \(.unit_price.amount) \(.unit_price.currency)"')" \
     "$chair CHAIR-ERGO Ergonomic office chair, mesh back 2 EA 450.00 CAD"
   expect "the requisition's supplier and total" "$(field '"\(.supplier_id) \(.total_amount.amount) \(.total_amount.currency)"')" "$SUPPLIER 900.00 CAD"
+  say "Ben sends the item back as he read it, with the catalog's price: that is accepted. The same item at a"
+  say "price of his own is refused (product owner, 2026-11-12):"
+  read=$(jq -c '.items[0]' "$WORK/last.json")
+  tag=$ETAG
+  refused 422 procurement.catalog_item_override updateRequisition -p "id=$req" -if-match "$tag" \
+    -body "{\"items\": [$(jq -c '.unit_price.amount = "400.00"' <<<"$read")]}"
+  expect "the refused field" "$(field '[.errors[].field] | join(" ")')" "items[0].unit_price"
+  api 200 '"requisition \(.document_number): \(.items[0].quantity.value) \(.items[0].quantity.unit) of \(.items[0].item_key) at \(.items[0].unit_price.amount) \(.items[0].unit_price.currency), sent back as read"' \
+    updateRequisition -p "id=$req" -if-match "$tag" -body "{\"items\": [$read]}"
+  expect "the item sent back as read" \
+    "$(field '.items[0] | "\(.catalog_item_id) \(.item_key) \(.quantity.value) \(.unit_price.amount) \(.unit_price.currency)"') $(field .total_amount.amount)" \
+    "$chair CHAIR-ERGO 2 450.00 CAD 900.00"
   say "Ben submits it; it goes to approval as any other requisition, and Priya approves it:"
   api 200 '"\(.status): approval request \(.workflow_request_id)"' submitRequisition -p "id=$req" -if-match "$ETAG"
   expect "the submitted requisition" "$(field .status)" pending_approval

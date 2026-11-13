@@ -910,8 +910,11 @@ type Invoker interface {
 	// items (409 `procurement.catalog_item_exists`); a retired item frees its key. `contract_id` with
 	// `contract_item_no` names the contract item that prices an order of the item: an item of an `active`
 	// contract of the company and the supplier in the item's currency (422
-	// `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`); the
-	// catalog item keeps its own price, which a requisition takes. What an item offers is not changed
+	// `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`) and at
+	// the item's price: the same amount per the same `price_unit`, compared as written (422
+	// `procurement.catalog_item_price` on `unit_price.amount` or `price_unit`, naming the item, the
+	// contract item and both prices; product owner, 2026-11-12), so the price a requisition takes from the
+	// catalog is the one an order on the contract item takes. What an item offers is not changed
 	// afterwards: a new price is a new item after the old one is retired. `CatalogItemChanged` is
 	// published. The catalog is the tenant's own data: nothing is fetched from a supplier's system.
 	//
@@ -6244,10 +6247,11 @@ type Invoker interface {
 	// Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged,
 	// `null` clears an optional field, arrays are replaced as a whole. Items taken from the catalog are
 	// sent as when the requisition is created (`catalog_item_id` with a quantity and an account, without
-	// description or price) and checked again against the catalog; while the requisition has such items
-	// its supplier, and its contract if a catalog item names one, stay the catalog items': clearing one
-	// takes it from them again, and another is refused (422 `procurement.catalog_item_supplier`,
-	// `procurement.catalog_item_contract`).
+	// description or price or with the catalog item's own, so the items read back can be sent again as
+	// they were read; another price is refused, 422 `procurement.catalog_item_override`) and checked again
+	// against the catalog; while the requisition has such items its supplier, and its contract if a
+	// catalog item names one, stay the catalog items': clearing one takes it from them again, and another
+	// is refused (422 `procurement.catalog_item_supplier`, `procurement.catalog_item_contract`).
 	//
 	// PATCH /v1/requisitions/{id}
 	UpdateRequisition(ctx context.Context, request *RequisitionUpdate, params UpdateRequisitionParams) (UpdateRequisitionRes, error)
@@ -15397,8 +15401,11 @@ func (c *Client) sendCreateCashExport(ctx context.Context, request *CashExportCr
 // items (409 `procurement.catalog_item_exists`); a retired item frees its key. `contract_id` with
 // `contract_item_no` names the contract item that prices an order of the item: an item of an `active`
 // contract of the company and the supplier in the item's currency (422
-// `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`); the
-// catalog item keeps its own price, which a requisition takes. What an item offers is not changed
+// `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`) and at
+// the item's price: the same amount per the same `price_unit`, compared as written (422
+// `procurement.catalog_item_price` on `unit_price.amount` or `price_unit`, naming the item, the
+// contract item and both prices; product owner, 2026-11-12), so the price a requisition takes from the
+// catalog is the one an order on the contract item takes. What an item offers is not changed
 // afterwards: a new price is a new item after the old one is retired. `CatalogItemChanged` is
 // published. The catalog is the tenant's own data: nothing is fetched from a supplier's system.
 //
@@ -91301,10 +91308,11 @@ func (c *Client) sendUpdatePurchaseOrderChange(ctx context.Context, request *Pur
 // Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged,
 // `null` clears an optional field, arrays are replaced as a whole. Items taken from the catalog are
 // sent as when the requisition is created (`catalog_item_id` with a quantity and an account, without
-// description or price) and checked again against the catalog; while the requisition has such items
-// its supplier, and its contract if a catalog item names one, stay the catalog items': clearing one
-// takes it from them again, and another is refused (422 `procurement.catalog_item_supplier`,
-// `procurement.catalog_item_contract`).
+// description or price or with the catalog item's own, so the items read back can be sent again as
+// they were read; another price is refused, 422 `procurement.catalog_item_override`) and checked again
+// against the catalog; while the requisition has such items its supplier, and its contract if a
+// catalog item names one, stay the catalog items': clearing one takes it from them again, and another
+// is refused (422 `procurement.catalog_item_supplier`, `procurement.catalog_item_contract`).
 //
 // PATCH /v1/requisitions/{id}
 func (c *Client) UpdateRequisition(ctx context.Context, request *RequisitionUpdate, params UpdateRequisitionParams) (UpdateRequisitionRes, error) {

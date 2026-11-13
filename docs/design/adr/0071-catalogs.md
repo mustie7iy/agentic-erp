@@ -75,9 +75,11 @@ as ADR-0038 and ADR-0061 build theirs).
 An item may name the contract item that prices an order of it
 (`contract_id` with `contract_item_no`, both or neither): an item of an
 `active` contract of the same company and supplier, in the catalog
-item's currency and unit. The catalog item keeps its own price, which a
-requisition takes as its estimate; an order that names the contract item
-takes the contract's price, as today (question 1).
+item's currency and unit, at the catalog item's price: the same amount
+per the same price unit, compared as written (422
+`procurement.catalog_item_price`; product owner, 2026-11-12, T84c). So
+the estimate a requisition takes from the catalog is the price an order
+that names the contract item takes.
 The contract's state is checked when the item is loaded and not held
 afterwards: a contract terminated or expired later leaves the catalog
 item naming it, and the requisition and the order that use it check the
@@ -140,11 +142,13 @@ A requisition item may name a catalog item (`catalog_item_id`), sent
 with a quantity and the account to charge:
 
 - It takes the catalog item's description, price and price unit and
-  shows its item key. It may send none of the three itself (422
-  `procurement.catalog_item_override`, the plan's "a price sent with it
-  is refused"), and its quantity is in the catalog item's unit: the
-  shared `Quantity` keeps its unit, and another unit is refused by the
-  same code rather than converted or silently replaced.
+  shows its item key. It sends none of the three, or the catalog item's
+  own: another is refused (422 `procurement.catalog_item_override`;
+  first built as the plan's "a price sent with it is refused", changed
+  by the product owner on 2026-11-12 so that a requisition read back
+  can be sent again, T84d), and its quantity is in the catalog item's
+  unit: the shared `Quantity` keeps its unit, and another unit is
+  refused by the same code rather than converted or silently replaced.
 - The catalog item is an `active` one of the requisition's legal entity
   that the caller may act in, priced in the requisition's currency (422
   `procurement.invalid_catalog_item` on `items[i].catalog_item_id`, the
@@ -200,13 +204,16 @@ other; the order's items are the buyer's, as today.
    whatever the case, with no ranking; it requires the company and
    returns active items unless `status=retired` is asked.
 5. A catalog item naming a contract item keeps its own price.
+   Overruled by the product owner on 2026-11-12: its price is the
+   contract item's, or the load is refused (T84c).
 6. Loading and retiring are by permission, without approval; agents are
    not excluded, as from a contract's creation.
 7. `CatalogItemChanged` names the supplier by id and number and carries
    no description.
 8. An item from the catalog sends no description, price or price unit
    and is in the catalog item's unit; another unit is refused, not
-   converted.
+   converted. Changed by the product owner on 2026-11-12: one equal to
+   the catalog item's is accepted, another refused (T84d).
 9. A requisition has catalog items of one supplier and at most one
    contract; what it does not name it takes from them.
 10. Taking an item from the catalog needs `procurement.catalog.read`.
@@ -219,6 +226,7 @@ other; the order's items are the buyer's, as today.
    catalog item's own price is used on the requisition; when it names a
    contract item, the order takes the contract's price as today. Should
    the catalog refuse a price that differs from its contract item's?
+   **Answered 2026-11-12: yes** (T84c, below).
 
 ## As built
 
@@ -290,3 +298,80 @@ other; the order's items are the buyer's, as today.
   two chairs from the catalog item; a price of his own and the retired
   arm are refused; read back it has the catalog's price, CAD 450.00, and
   Tyrell as its supplier; he submits it and Priya approves it.
+
+### T84c A catalog price is its contract item's (no migration)
+
+Product owner, 2026-11-12 (row 8 of that day's decisions): a catalog item
+that names a contract item and whose price differs from that contract
+item's is refused when it is loaded. Question 1 is answered and default 5
+overruled.
+
+- **Rule.** `catalogContractPrice` (`catalog.go`), called by
+  `catalogContractItem` once the contract item is found: the catalog
+  item's amount and price unit (1 when absent) are the contract item's,
+  compared as written and not as a ratio, so 10.00 per 2 is refused
+  against 5.00 per 1. The currency was already the contract's (422
+  `procurement.invalid_contract` on `contract_id`, unchanged). The refusal
+  is 422 `procurement.catalog_item_price` on `unit_price.amount`, or on
+  `price_unit` when only that differs, and its detail names the catalog
+  item by its key, the contract item and both prices.
+- **Every path.** `POST /v1/catalog-items` is the only path that creates
+  a catalog item or sets its price: an item's price is not changed
+  afterwards (the application may update its status alone, §2), and
+  retiring changes no price. No other code writes the table.
+- **Items already stored when the contract item's price changes later
+  (decided by default).** It cannot: a contract's items are changed only
+  while it is a draft (`updateContract`), a catalog item may name only an
+  `active` contract, and neither an active contract's items nor a catalog
+  item's price change afterwards. So the prices agree for as long as both
+  exist and nothing is checked again. A contract terminated or expired
+  later leaves the catalog item naming it, as before (§2). When changing
+  a contract's or a catalog item's price is built (both "later" leaves),
+  that change must keep the rule.
+- **Items loaded before this rule.** Not rechecked and not migrated: no
+  catalog exists outside tests and the walkthrough before the pilot, and
+  the rule is the load's. No schema change: the rule compares two tables'
+  rows at load and is kept by the two being immutable, not by a
+  constraint.
+- **Walkthrough.** Step 61 loads no contract-priced item (the story has
+  no contract), so it is unchanged and keeps passing; the rule's evidence
+  is `TestCatalogItemContract`.
+
+### T84d A requisition sent back with the catalog's price (no migration)
+
+Product owner, 2026-11-12 (row 9): a requisition created from a catalog
+item and sent back with a price equal to the catalog's is accepted; one
+with a different price is refused. Before, any price sent with a catalog
+item was refused, so the items of a requisition read back could not be
+sent again as they were read.
+
+- **Rule.** `noOverride` (`catalog_requisition.go`), which `fromCatalog`
+  calls for every item that names a catalog item, on both paths that
+  send items (`POST /v1/requisitions`, and `PATCH /v1/requisitions/{id}`
+  with `items`): a `unit_price` sent is the catalog item's, the amount
+  as the API shows it (the plain amount with the currency's decimals) in
+  the same currency; anything else is 422
+  `procurement.catalog_item_override` on `items[i].unit_price`, the
+  detail naming the catalog item by its key with its price. The stored
+  item is still filled from the catalog item, never from what was sent.
+- **Price unit and description too (decided by default).** A requisition
+  read back carries the item's `price_unit` and `description` beside its
+  price, and the price is an amount per price unit. So the same rule
+  holds for both: the catalog item's own is accepted, another refused
+  on its field with the same code. Without it a requisition sent back
+  as read would still be refused. The read-only `item_key` is not part
+  of the request and is ignored, as before.
+- **Compared with the catalog item, not the stored copy (decided by
+  default).** The two are equal, since a catalog item's price does not
+  change and the stored item is a copy of it. A change that sends items
+  still resolves them from the catalog, so the items of a draft whose
+  catalog item was retired since are refused when sent back
+  (`procurement.invalid_catalog_item`, §6, unchanged); a change that
+  leaves the items is not.
+- **Contract.** No schema change: `RequisitionItemInput` already had the
+  three fields; their descriptions and the two operations' say the rule.
+  No new problem code.
+- **Walkthrough.** `step_catalog` (step 61) extended: before submitting,
+  Ben sends the requisition's item back as he read it, accepted at the
+  catalog's price; the same item at a price of his own is refused, as
+  it is on creation.

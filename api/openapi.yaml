@@ -10200,7 +10200,7 @@ paths:
       tags:
         - procurement
       summary: Update a draft requisition
-      description: "Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears an optional field, arrays are replaced as a whole. Items taken from the catalog are sent as when the requisition is created (`catalog_item_id` with a quantity and an account, without description or price) and checked again against the catalog; while the requisition has such items its supplier, and its contract if a catalog item names one, stay the catalog items': clearing one takes it from them again, and another is refused (422 `procurement.catalog_item_supplier`, `procurement.catalog_item_contract`)."
+      description: "Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears an optional field, arrays are replaced as a whole. Items taken from the catalog are sent as when the requisition is created (`catalog_item_id` with a quantity and an account, without description or price or with the catalog item's own, so the items read back can be sent again as they were read; another price is refused, 422 `procurement.catalog_item_override`) and checked again against the catalog; while the requisition has such items its supplier, and its contract if a catalog item names one, stay the catalog items': clearing one takes it from them again, and another is refused (422 `procurement.catalog_item_supplier`, `procurement.catalog_item_contract`)."
       x-permission: procurement.requisition.create
       x-autonomy: propose
       x-problem-codes:
@@ -11370,10 +11370,11 @@ paths:
       tags:
         - procurement
       summary: Load a catalog item
-      description: "Loads one item of a supplier into a company's catalog (ADR-0071 §2, T84a), `active` at once: its item key, description, unit and price per `price_unit`, in the price's currency. The supplier must be one that can be ordered from in the company, as a purchase order's must be (422 `procurement.supplier_not_usable`). An item key is the supplier's once among the company's active items (409 `procurement.catalog_item_exists`); a retired item frees its key. `contract_id` with `contract_item_no` names the contract item that prices an order of the item: an item of an `active` contract of the company and the supplier in the item's currency (422 `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`); the catalog item keeps its own price, which a requisition takes. What an item offers is not changed afterwards: a new price is a new item after the old one is retired. `CatalogItemChanged` is published. The catalog is the tenant's own data: nothing is fetched from a supplier's system."
+      description: "Loads one item of a supplier into a company's catalog (ADR-0071 §2, T84a), `active` at once: its item key, description, unit and price per `price_unit`, in the price's currency. The supplier must be one that can be ordered from in the company, as a purchase order's must be (422 `procurement.supplier_not_usable`). An item key is the supplier's once among the company's active items (409 `procurement.catalog_item_exists`); a retired item frees its key. `contract_id` with `contract_item_no` names the contract item that prices an order of the item: an item of an `active` contract of the company and the supplier in the item's currency (422 `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`) and at the item's price: the same amount per the same `price_unit`, compared as written (422 `procurement.catalog_item_price` on `unit_price.amount` or `price_unit`, naming the item, the contract item and both prices; product owner, 2026-11-12), so the price a requisition takes from the catalog is the one an order on the contract item takes. What an item offers is not changed afterwards: a new price is a new item after the old one is retired. `CatalogItemChanged` is published. The catalog is the tenant's own data: nothing is fetched from a supplier's system."
       x-permission: procurement.catalog.manage
       x-problem-codes:
         - procurement.catalog_item_exists
+        - procurement.catalog_item_price
         - procurement.currency_mismatch
         - procurement.invalid_amount
         - procurement.invalid_contract
@@ -40414,7 +40415,7 @@ components:
           account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
     RequisitionItemInput:
       type: object
-      description: "A requisition item as it is sent: described and priced by the requester, or taken from the company's catalog by `catalog_item_id` (ADR-0071 §6, T84b). An item from the catalog sends its quantity, in the catalog item's unit, and its account; its description, price and price unit are the catalog item's and may not be sent (422 `procurement.catalog_item_override`), so an item read back from a requisition is sent again without them (and without the read-only `item_key`) when the items are replaced. An item that names no catalog item sends its `description` and `unit_price` (422 `request.validation_failed` without)."
+      description: "A requisition item as it is sent: described and priced by the requester, or taken from the company's catalog by `catalog_item_id` (ADR-0071 §6, T84b). An item from the catalog sends its quantity, in the catalog item's unit, and its account; its description, price and price unit are the catalog item's: it sends none, or the catalog item's own, and another is refused (422 `procurement.catalog_item_override` on the field, naming the catalog item; product owner, 2026-11-12, T84d). So an item read back from a requisition can be sent again as it was read when the items are replaced, while its catalog item is still `active`; the read-only `item_key` is ignored. An item that names no catalog item sends its `description` and `unit_price` (422 `request.validation_failed` without)."
       required:
         - quantity
         - account_id
@@ -40434,7 +40435,7 @@ components:
           description: Material (product context, later phases).
         description:
           type: string
-          description: "What is needed. Required unless the item names a catalog item, whose description it then takes."
+          description: "What is needed. Required unless the item names a catalog item, whose description it then takes; sent with one, it is the catalog item's (422 `procurement.catalog_item_override` otherwise)."
           minLength: 1
           maxLength: 200
         quantity:
@@ -40442,11 +40443,11 @@ components:
           description: "Quantity; positive. For an item from the catalog, in the catalog item's unit."
         unit_price:
           $ref: "#/components/schemas/Money"
-          description: "Estimated price per `price_unit`, in the requisition currency. Required unless the item names a catalog item, whose price it then takes."
+          description: "Estimated price per `price_unit`, in the requisition currency. Required unless the item names a catalog item, whose price it then takes; sent with one, it is the catalog item's price, the same amount as the catalog item shows it and the same currency (422 `procurement.catalog_item_override` otherwise)."
         price_unit:
           type: integer
           format: int32
-          description: "Quantity the unit price refers to; 1 when absent. Not sent for an item from the catalog, which takes the catalog item's."
+          description: "Quantity the unit price refers to; 1 when absent. An item from the catalog takes the catalog item's: sent with one, it is the catalog item's (422 `procurement.catalog_item_override` otherwise)."
           minimum: 1
         account_id:
           type: string
@@ -41301,7 +41302,7 @@ components:
         unit_price: {$ref: "#/components/schemas/Money", description: "The price per `price_unit`, in its own currency; positive."}
         price_unit: {type: integer, format: int32, minimum: 1, default: 1, description: "Quantity the unit price refers to."}
         contract_id: {type: string, format: uuid, description: "The contract whose item `contract_item_no` prices an order of the item; given with `contract_item_no`."}
-        contract_item_no: {type: integer, format: int32, minimum: 1, description: "The item of `contract_id`, in the catalog item's unit; given with `contract_id`."}
+        contract_item_no: {type: integer, format: int32, minimum: 1, description: "The item of `contract_id`, in the catalog item's unit and at its `unit_price` per `price_unit` (422 `procurement.catalog_item_price` otherwise); given with `contract_id`."}
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
           supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"

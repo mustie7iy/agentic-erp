@@ -4509,6 +4509,13 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Fix: a catalog item that names a contract item is loaded only at that contract item's price (the same amount per the same price unit); another price is refused naming the item, the contract item and both prices (422 procurement.catalog_item_price)",
+        "r": "T84c · internal/procurement/catalog.go catalogContractPrice · POST /v1/catalog-items · TestCatalogItemContract · ADR-0071 §2 and As built T84c",
+        "src": "po:2026-11-12",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "later: catalog variants: punch-out to a supplier's catalog (cXML PunchOut, OCI) and its connector, loading a catalog file in bulk and by schedule, changing an item's price with validity dates, categories and their default accounts, images and attachments, a catalog shared by several companies or kept per purchasing organization, search ranking (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T84a, Later",
@@ -4527,6 +4534,13 @@
         "t": "A requester adds a catalog item to a requisition with a quantity: description, unit, price and supplier come from the catalog, and the requisition goes through approval to a purchase order as any other (catalog_item_id on the requisition item)",
         "r": "T84b · docs/design/plan-breadth-week2.md §T84b · db/migrations/000288-000289 · procurement.requisition_item.catalog_item_id · RequisitionItemInput.catalog_item_id, RequisitionItem.catalog_item_id and item_key · POST /v1/requisitions · PATCH /v1/requisitions/{id} · walkthrough step_catalog · ADR-0071 §6 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Fix: a requisition item from the catalog may send the catalog item's own price (and price unit and description), so a requisition read back is sent again as read; another price is refused naming the catalog item (422 procurement.catalog_item_override), on creation and on a change",
+        "r": "T84d · internal/procurement/catalog_requisition.go noOverride · POST /v1/requisitions · PATCH /v1/requisitions/{id} · TestRequisitionCatalogSentBack · walkthrough step_catalog · ADR-0071 §6 and As built T84d",
+        "src": "po:2026-11-12",
         "c": []
        },
        {
