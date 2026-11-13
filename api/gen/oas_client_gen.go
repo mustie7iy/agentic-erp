@@ -163,6 +163,24 @@ type Invoker interface {
 	//
 	// POST /v1/org-units/{id}:activate
 	ActivateOrgUnit(ctx context.Context, params ActivateOrgUnitParams) (ActivateOrgUnitRes, error)
+	// ActivateRevenueContract invokes activateRevenueContract operation.
+	//
+	// Activates a `draft` revenue contract (ADR-0068 §7, T81b), at the version the caller read
+	// (`If-Match`): the contract is read under a row lock and moves to `active` once. Its transaction
+	// price is allocated to its performance obligations in proportion to their stand-alone selling prices:
+	// an obligation's share is the transaction price × its stand-alone selling price ÷ the sum of the
+	// stand-alone selling prices, rounded so that the shares (`allocated_amount`) add up to the
+	// transaction price exactly; a minor unit left by the rounding goes to the obligations with the
+	// largest remainders, the earlier one first, so the same contract always allocates the same way. With
+	// the prices a contract starts with, the order items' net values, each share is its order item's
+	// value. Activating fixes the obligations and their amounts: a later change or a second activation is
+	// refused (409 `revenue.invalid_status`). The system does the arithmetic only: the obligations, their
+	// timing and their stand-alone selling prices are the person's judgement as they stand. Nothing is
+	// posted. Audited, and published as RevenueContractChanged. A retry with the same `Idempotency-Key`
+	// answers the active contract. Human-only (`x-agent: false`).
+	//
+	// POST /v1/revenue-contracts/{id}:activate
+	ActivateRevenueContract(ctx context.Context, params ActivateRevenueContractParams) (ActivateRevenueContractRes, error)
 	// AddHierarchyNode invokes addHierarchyNode operation.
 	//
 	// Adds a node below the node, which may hold centers, at most 12 levels deep; the code is unique in
@@ -247,6 +265,33 @@ type Invoker interface {
 	//
 	// POST /v1/profit-centers/{id}:assign
 	AssignProfitCenter(ctx context.Context, request *ProfitCenterAssign, params AssignProfitCenterParams) (AssignProfitCenterRes, error)
+	// AwardRfq invokes awardRfq operation.
+	//
+	// Awards a `published` RFQ to one of its quotations as a whole, at the version the caller read
+	// (`If-Match`), once (ADR-0069 §7): the RFQ is read under a row lock, so of two awards one succeeds
+	// and the other finds the RFQ `awarded` (409 `procurement.invalid_status`, as for a draft), while the
+	// same request with its `Idempotency-Key` again answers the same RFQ and contract. The quotation must
+	// be one of this RFQ (422 `procurement.quotation_not_of_rfq`) that the comparison ranks: it prices
+	// every RFQ item (422 `procurement.quotation_incomplete`) and is valid on the legal entity's date
+	// today in its company's time zone (422 `procurement.quotation_expired`, naming that date and zone);
+	// it need not be the lowest. Its supplier must still be one an order could be placed with (422
+	// `procurement.supplier_not_usable`). Each of these refusals names `quotation_id`. The award creates a
+	// draft contract with the quotation's supplier, as `POST /v1/contracts` would with its checks, number
+	// and audit record: in the RFQ's currency, valid from `valid_from` to `valid_to` (422
+	// `procurement.invalid_validity`), its items the RFQ's items at the quoted prices and its target value
+	// the quotation's total; what the contract's own checks refuse is refused as there, naming the
+	// contract's field: an item's account the legal entity can no longer post to (422
+	// `procurement.account_not_postable`, `items[i].account_id`, the RFQ's item) and a quotation whose
+	// total rounds to zero, since a contract's target value is above zero (422
+	// `procurement.invalid_amount`, `target_value.amount`). The RFQ becomes `awarded` and names the
+	// contract (`contract_id`, `contract_document_number`), the quotation becomes `awarded` and the RFQ's
+	// other quotations `not_awarded`, all in one transaction. The contract is a draft: it is released with
+	// `contracts/{id}:release` as any other. No approval is asked for. Human-only: an award commits the
+	// company to a supplier. Audited, and published as RfqAwarded, which names the supplier by id and
+	// number, and RfqChanged.
+	//
+	// POST /v1/rfqs/{id}:award
+	AwardRfq(ctx context.Context, request *RfqAward, params AwardRfqParams) (AwardRfqRes, error)
 	// BlockBusinessPartner invokes blockBusinessPartner operation.
 	//
 	// Blocks the partner for postings and payments immediately (blocking reduces risk, so it needs no
@@ -273,6 +318,37 @@ type Invoker interface {
 	//
 	// POST /v1/principals/{id}:block
 	BlockPrincipal(ctx context.Context, request *ReasonInput, params BlockPrincipalParams) (BlockPrincipalRes, error)
+	// CallOffScheduleLine invokes callOffScheduleLine operation.
+	//
+	// Calls off one line of a scheduling agreement's delivery schedule (ADR-0070 §4), at the version of
+	// the line the caller read (`If-Match`), once: it creates a draft purchase order against the agreement
+	// through the purchase order's own path, as `POST /v1/purchase-orders` would with its checks,
+	// validation rules, number and audit record, and the line then names that order (`purchase_order_id`,
+	// `purchase_order_document_number`, `status` `called_off`). The order is of the agreement's legal
+	// entity, supplier and currency, dated the legal entity's date today in its company's time zone, with
+	// the supplier's payment terms, the agreement as its contract and one item: the agreement's item (its
+	// description, unit, account and price) in the line's quantity, due on the line's delivery date. The
+	// contract and the line are read under their row locks, so of two call-offs of one line one creates
+	// the order and the other finds the line called off (409 `procurement.schedule_line_called_off`,
+	// naming the order; a line called off is refused so whatever `If-Match` carries, since both callers
+	// read the same version), while the same request with its `Idempotency-Key` again answers the same
+	// line and order. The contract must be a scheduling agreement (409
+	// `procurement.not_a_scheduling_agreement`) that is `active` (409 `procurement.invalid_status`) and
+	// valid on the legal entity's date today (409 `procurement.agreement_not_valid`, naming the validity,
+	// that date and the zone); a line number the agreement lacks is answered as missing (404). What the
+	// order's own checks refuse is refused as there, naming the order's field: the agreement's supplier no
+	// longer one an order can be placed with (422 `procurement.supplier_not_usable`, `supplier_id`), the
+	// item's account no longer postable (422 `procurement.account_not_postable`, `items[0].account_id`), a
+	// validation rule of the tenant (422 `request.rule_refused`). The order is a draft and from there any
+	// purchase order: it is changed, released (the release strategy and its approvals apply, and the
+	// release consumes the agreement's target value, refused with 409 `procurement.contract_exceeded` when
+	// the order exceeds what remains), received and invoiced as one created directly; a line whose order
+	// is cancelled stays called off. An agent needs autonomy level 2: a call-off reserves the line.
+	// Audited, and published as ScheduleLineCalledOff, which names the supplier by id and number, and
+	// ScheduleLineChanged.
+	//
+	// POST /v1/contracts/{id}/schedule-lines/{line_no}:callOff
+	CallOffScheduleLine(ctx context.Context, params CallOffScheduleLineParams) (CallOffScheduleLineRes, error)
 	// CancelApprovalRequest invokes cancelApprovalRequest operation.
 	//
 	// Withdraws a pending request. Only the requester may cancel, with a comment; agents and services may
@@ -542,19 +618,21 @@ type Invoker interface {
 	// available, on a date (ADR-0067 §8, T78c). It is a confirmation by a person, kept in the sales
 	// context: no stock moves and nothing is posted; billing and revenue recognition read it. The order is
 	// read under a row lock, so two confirmations of one order wait for one another. An order that is not
-	// confirmed takes none (409 `sales.order_not_confirmed`). `delivery_date` is not after the company's
-	// date today in its time zone (422 `sales.delivery_date_in_future`). Each item names an item of the
-	// order by its number (422 `sales.unknown_order_item` naming `items[i].item_no`), once (422
-	// `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the order
-	// item's unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what was ordered
-	// less what earlier deliveries confirmed (422 `sales.exceeds_open_quantity` naming
-	// `items[i].quantity.value`, with the item and its open quantity in the message): of two confirmations
-	// racing for an item's last quantity, one is recorded. The delivery is numbered within its order and
-	// written once; it is not changed or reversed in the first version. Each order item's
-	// `delivered_quantity` rises by what was delivered and the order's `version` moves, so `getSalesOrder`
-	// shows what is delivered and what is open. Audited, and published as SalesOrderDelivered. A retry
-	// with the same `Idempotency-Key` answers the delivery recorded; the order's deliveries are listed by
-	// `listSalesDeliveries`. Human-only (`x-agent: false`).
+	// confirmed takes none (409 `sales.order_not_confirmed`), nor does one blocked for credit until its
+	// block is released (409 `sales.order_credit_blocked`, `releaseSalesOrderCreditBlock`).
+	// `delivery_date` is not after the company's date today in its time zone (422
+	// `sales.delivery_date_in_future`). Each item names an item of the order by its number (422
+	// `sales.unknown_order_item` naming `items[i].item_no`), once (422 `sales.item_repeated`), with a
+	// quantity more than zero (422 `sales.invalid_quantity`) in the order item's unit (422
+	// `sales.unit_mismatch`) that is at most the item's open quantity, what was ordered less what earlier
+	// deliveries confirmed (422 `sales.exceeds_open_quantity` naming `items[i].quantity.value`, with the
+	// item and its open quantity in the message): of two confirmations racing for an item's last quantity,
+	// one is recorded. The delivery is numbered within its order and written once; it is not changed or
+	// reversed in the first version. Each order item's `delivered_quantity` rises by what was delivered
+	// and the order's `version` moves, so `getSalesOrder` shows what is delivered and what is open.
+	// Audited, and published as SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the
+	// delivery recorded; the order's deliveries are listed by `listSalesDeliveries`. Human-only
+	// (`x-agent: false`).
 	//
 	// POST /v1/sales-orders/{id}/deliveries
 	ConfirmSalesDelivery(ctx context.Context, request *SalesDeliveryCreate, params ConfirmSalesDeliveryParams) (ConfirmSalesDeliveryRes, error)
@@ -563,9 +641,26 @@ type Invoker interface {
 	// Confirms a `draft` sales order (ADR-0067 §5, T78b), at the version the caller read (`If-Match`):
 	// the order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused
 	// (409 `sales.invalid_status`). Confirming is by permission, without an approval; a confirmed order is
-	// not changed or cancelled in the first version. Nothing is posted. Audited, and published as
-	// SalesOrderChanged. A retry with the same `Idempotency-Key` answers the confirmed order. Human-only
-	// (`x-agent: false`).
+	// not changed or cancelled in the first version. Nothing is posted. The confirmation checks the
+	// customer's credit (ADR-0066, T77b), once: the order's gross value, its net value plus the output tax
+	// its items' tax codes give on the order's date, in the company's currency (an order in another
+	// currency at the average rate valid on its date), is compared with the customer's credit limit in the
+	// company less its exposure, its open items and its other confirmed orders not yet billed, as
+	// `getCreditExposure` gives them. An order that is within the limit, and every order of a customer
+	// without a limit, is confirmed with `credit_block` `none`. One that is not is confirmed all the same,
+	// with `credit_block` `blocked`: it takes no delivery, and so no billing, until a person holding
+	// `sales.order.credit_release` releases it (`releaseSalesOrderCreditBlock`). Two orders of one
+	// customer confirmed at once are checked one after the other, so they cannot both take the room only
+	// one fits. The order is not checked again after its confirmation. The value must be calculable: a tax
+	// code that is no longer an output tax code on the order's date (422 `sales.unknown_tax_code`), an
+	// order in another currency without a rate into the company's on its date (422
+	// `ledger.no_exchange_rate`) or a value with its tax too large for an amount (422
+	// `sales.amount_too_large`) refuses the confirmation, whether the customer has a limit or not, since a
+	// confirmed order counts in its exposure. An exposure that adds up, with the order, to more than an
+	// amount holds is refused too (422 `credit.amount_too_large`). Audited, with the amount checked, the
+	// limit and the exposure when the customer has a limit, and published as SalesOrderChanged, and as
+	// SalesOrderCreditBlocked when the order is blocked. A retry with the same `Idempotency-Key` answers
+	// the confirmed order. Human-only (`x-agent: false`).
 	//
 	// POST /v1/sales-orders/{id}:confirm
 	ConfirmSalesOrder(ctx context.Context, params ConfirmSalesOrderParams) (ConfirmSalesOrderRes, error)
@@ -773,9 +868,9 @@ type Invoker interface {
 	// output tax code of the company with a rate on the billing date, cannot be billed on that date (422
 	// `sales.order_item_not_billable` naming `sales_order_id`, with the item in the message). The document
 	// is created `created`; each order item's `billed_quantity` rises by what was billed and the order's
-	// `version` moves. Amounts are net; nothing is posted (posting it as a customer invoice comes with
-	// T79b). Audited, and published as BillingDocumentChanged. A retry with the same `Idempotency-Key`
-	// answers the document created. Human-only (`x-agent: false`).
+	// `version` moves. Amounts are net; nothing is posted until the document is posted
+	// (`postBillingDocument`). Audited, and published as BillingDocumentChanged. A retry with the same
+	// `Idempotency-Key` answers the document created. Human-only (`x-agent: false`).
 	//
 	// POST /v1/billing-documents
 	CreateBillingDocument(ctx context.Context, request *BillingDocumentCreate, params CreateBillingDocumentParams) (CreateBillingDocumentRes, error)
@@ -898,7 +993,11 @@ type Invoker interface {
 	CreateConsolidationRun(ctx context.Context, request *ConsolidationRunStart, params CreateConsolidationRunParams) (CreateConsolidationRunRes, error)
 	// CreateContract invokes createContract operation.
 	//
-	// Creates a draft contract.
+	// Creates a draft contract of the `kind` given: a `contract` (the default), against which purchase
+	// orders are created at its prices, or a `scheduling_agreement` (ADR-0070), whose delivery schedule is
+	// entered once it is released (`contracts/{id}/schedule-lines`). Another kind is refused (422
+	// `procurement.invalid_kind`). Both are numbered from the company's `contract` number range and are
+	// changed, released, cancelled, terminated, renewed and expire alike; a contract keeps its kind.
 	//
 	// POST /v1/contracts
 	CreateContract(ctx context.Context, request *ContractCreate, params CreateContractParams) (CreateContractRes, error)
@@ -1245,25 +1344,28 @@ type Invoker interface {
 	// `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure
 	// of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`,
 	// `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per
-	// `price_unit`, or without one the price recorded for its `item_key` that is valid on the quotation's
-	// date in the item's unit and the quotation's currency, the customer's before the general one and then
-	// the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price
-	// nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue
-	// account its billing credits, one that can be posted in the company (422 `sales.account_not_postable`
-	// naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force
-	// on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies
-	// the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`, as a customer
-	// invoice refuses it). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half
-	// away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive`
-	// naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not
-	// give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a
-	// pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key
-	// and valid on the quotation's date, the customer's before the general one, is taken off in the
-	// procedure's order, as a percentage of the value before it rounded half away from zero; `conditions`
-	// lists the price and the discounts applied, and `net_amount` is the value less the discounts, still
-	// more than zero (ADR-0067 §11). Amounts are net: the tax is calculated when the order is billed, at
-	// the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
-	// (`x-agent: false`).
+	// `price_unit` (1 when absent; sent without a unit price it is refused, 422
+	// `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its
+	// `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency,
+	// the customer's before the general one and then the latest `valid_from` (`createSalesPrice`;
+	// `price_source` says which; an item with neither a price nor such a record is refused, 422
+	// `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that
+	// can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and
+	// optionally an output tax code of the company with a rate in force on the quotation's date (422
+	// `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines
+	// name is refused, 422 `sales.tax_jurisdiction_not_supported`, as a customer invoice refuses it). An
+	// item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the
+	// currency's minor unit and more than zero (422 `sales.amount_not_positive` naming
+	// `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give);
+	// the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing
+	// procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and
+	// valid on the quotation's date, the customer's before the general one, is taken off an item priced
+	// from the price records, in the procedure's order, as a percentage of the value before it rounded
+	// half away from zero; `conditions` lists the price and the discounts applied, and `net_amount` is the
+	// value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item
+	// is its final net price: no discount is taken off it, and its price is its only condition. Amounts
+	// are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same
+	// `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`).
 	//
 	// POST /v1/quotations
 	CreateQuotation(ctx context.Context, request *QuotationCreate, params CreateQuotationParams) (CreateQuotationRes, error)
@@ -1297,6 +1399,27 @@ type Invoker interface {
 	//
 	// POST /v1/requisitions
 	CreateRequisition(ctx context.Context, request *RequisitionCreate, params CreateRequisitionParams) (CreateRequisitionRes, error)
+	// CreateRevenueContract invokes createRevenueContract operation.
+	//
+	// Creates the revenue contract of a confirmed sales order that has none yet (ADR-0068 §3-§4, T81a).
+	// Every sales order gets its revenue contract by itself shortly after it is confirmed: the revenue
+	// context reads the order's SalesOrderChanged event and creates the contract, once. This operation
+	// creates the same contract on request, for an order confirmed before that was so or whose event has
+	// not been read yet; either way an order has one contract, and a request for an order that has one is
+	// refused (409 `revenue.contract_exists`; `GET /v1/revenue-contracts?sales_order_id=` finds it). The
+	// order is one of a company the caller may act in (422 `request.reference_not_found` naming
+	// `sales_order_id`), `confirmed` (422 `revenue.order_not_confirmed`) and in its company's local
+	// currency (422 `revenue.foreign_currency`: contracts in a foreign currency are not supported yet).
+	// The contract is created `draft`. Its transaction price is the order's net value, without tax. It has
+	// one performance obligation per order item, numbered as the items are, each starting as satisfied at
+	// a point in time (`point_in_time`) with the order item's net value as its stand-alone selling price:
+	// what is a distinct obligation, when it is satisfied and its stand-alone selling price are a person's
+	// judgement, which the system does not make. Nothing is posted. Audited, and published as
+	// RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract created.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/revenue-contracts
+	CreateRevenueContract(ctx context.Context, request *RevenueContractCreate, params CreateRevenueContractParams) (CreateRevenueContractRes, error)
 	// CreateRfq invokes createRfq operation.
 	//
 	// Creates a draft RFQ of a legal entity (ADR-0069 §1-§2): the currency quotations are given in, the
@@ -1369,14 +1492,36 @@ type Invoker interface {
 	// one of kind `discount_percent` a discount, which gives `percent`, more than 0 and less than 100 (422
 	// `sales.invalid_percent`), and no unit, price or price unit; a price gives no percent (422
 	// `sales.price_or_percent` naming the field given or missing). A discount is taken off an item of the
-	// item key when the pricing procedure names its type, the customer's before the general one as a price
-	// is found (ADR-0067 §11). A record is never changed or deleted: a new price is recorded with a later
+	// item key that is priced from the price records when the pricing procedure names its type, the
+	// customer's before the general one as a price is found (ADR-0067 §11); an item whose `unit_price`
+	// was entered has none. A record is never changed or deleted: a new price is recorded with a later
 	// `valid_from`, and the items priced before keep their price. Audited, and published as
 	// SalesPriceChanged. A retry with the same `Idempotency-Key` answers the record created. Human-only
 	// (`x-agent: false`).
 	//
 	// POST /v1/sales-prices
 	CreateSalesPrice(ctx context.Context, request *SalesPriceCreate, params CreateSalesPriceParams) (CreateSalesPriceRes, error)
+	// CreateScheduleLine invokes createScheduleLine operation.
+	//
+	// Enters one line of a scheduling agreement's delivery schedule (ADR-0070 §3): a quantity of one of
+	// the agreement's items due on a date. The contract is read under its row lock: it must be a
+	// scheduling agreement (409 `procurement.not_a_scheduling_agreement` for a contract of the kind
+	// `contract`) that is `active` (409 `procurement.invalid_status` for a draft, or one cancelled,
+	// terminated or expired). The line names an item of the agreement by `contract_item_no`, with its
+	// quantity in that item's unit (422 `procurement.invalid_contract_item`, naming `contract_item_no`,
+	// for an item the agreement lacks or another unit), positive (422 `procurement.invalid_quantity`), due
+	// on a date within the agreement's validity (422 `procurement.schedule_line_outside_validity`, naming
+	// `delivery_date` and the validity). Its value is quantity × the item's unit price ÷ price unit,
+	// rounded half away from zero to the currency's minor unit, and must be in the range of an amount (422
+	// `procurement.amount_too_large`). Lines are numbered 1 to n per agreement in the order entered
+	// (`line_no`); the same request with its `Idempotency-Key` again answers the same line. A line is
+	// `scheduled` until it is called off as a purchase order (`schedule-lines/{line_no}:callOff`), and is
+	// not otherwise changed or deleted in the first version. The line has no address of its own:
+	// `Location` is the agreement's schedule filtered to it. Audited, and published as
+	// ScheduleLineChanged, which names the supplier by id and number.
+	//
+	// POST /v1/contracts/{id}/schedule-lines
+	CreateScheduleLine(ctx context.Context, request *ScheduleLineCreate, params CreateScheduleLineParams) (CreateScheduleLineRes, error)
 	// CreateSegment invokes createSegment operation.
 	//
 	// Creates a segment at once: a segment changes nothing until a profit center names it, which is an
@@ -1400,18 +1545,18 @@ type Invoker interface {
 	// CreateSupplierQuotation invokes createSupplierQuotation operation.
 	//
 	// Records the quotation an invited supplier gave for a `published` RFQ (409
-	// `procurement.invalid_status` for a draft), read under the RFQ's row lock (ADR-0069 §7): the
-	// supplier's reference, the date the quotation is valid until, and a price per RFQ item, in the RFQ's
-	// currency (422 `procurement.currency_mismatch`), positive, per `price_unit` of the RFQ item's unit of
-	// measure. The supplier must be one the RFQ invites (422 `procurement.supplier_not_invited`) and has
-	// one quotation per RFQ: a second is refused (409 `procurement.quotation_exists`), while the same
-	// request with its `Idempotency-Key` again answers what it answered. Each item names an item of the
-	// RFQ by `rfq_item_no` (422 `procurement.unknown_rfq_item`), once (422
-	// `procurement.quotation_item_repeated`). A quotation may leave RFQ items out: it is then not
-	// `complete`, and `unquoted_item_nos` names them. Its `total` is the sum over its items of the RFQ
-	// item's quantity × unit price ÷ price unit, each rounded half away from zero to the currency's
-	// minor unit. Audited, and published as SupplierQuotationRecorded, which names the supplier by id and
-	// number.
+	// `procurement.invalid_status` for a draft or an awarded one), read under the RFQ's row lock (ADR-0069
+	// §7): the supplier's reference, the date the quotation is valid until, and a price per RFQ item, in
+	// the RFQ's currency (422 `procurement.currency_mismatch`), positive, per `price_unit` of the RFQ
+	// item's unit of measure. The supplier must be one the RFQ invites (422
+	// `procurement.supplier_not_invited`) and has one quotation per RFQ: a second is refused (409
+	// `procurement.quotation_exists`), while the same request with its `Idempotency-Key` again answers
+	// what it answered. Each item names an item of the RFQ by `rfq_item_no` (422
+	// `procurement.unknown_rfq_item`), once (422 `procurement.quotation_item_repeated`). A quotation may
+	// leave RFQ items out: it is then not `complete`, and `unquoted_item_nos` names them. Its `total` is
+	// the sum over its items of the RFQ item's quantity × unit price ÷ price unit, each rounded half
+	// away from zero to the currency's minor unit. Audited, and published as SupplierQuotationRecorded,
+	// which names the supplier by id and number.
 	//
 	// POST /v1/rfqs/{id}/quotations
 	CreateSupplierQuotation(ctx context.Context, request *SupplierQuotationCreate, params CreateSupplierQuotationParams) (CreateSupplierQuotationRes, error)
@@ -1989,8 +2134,10 @@ type Invoker interface {
 	// One billing document (ADR-0067 §9, T79a) with its company's code and name, its customer's number
 	// and name, the sales order it bills by id and number with the order's payment term, its billing date,
 	// its net value and its items, each with the order item it bills, the quantity billed, the order's
-	// unit price, its amount and its revenue account's number and name. One of a company the caller may
-	// not act in is not found (404), as one that does not exist.
+	// unit price, its amount and its revenue account's number and name; once posted
+	// (`postBillingDocument`), its posting date, the customer invoice it posted as by id and number and
+	// that invoice's journal entry by id, year and number. One of a company the caller may not act in is
+	// not found (404), as one that does not exist.
 	//
 	// GET /v1/billing-documents/{id}
 	GetBillingDocument(ctx context.Context, params GetBillingDocumentParams) (GetBillingDocumentRes, error)
@@ -2250,23 +2397,34 @@ type Invoker interface {
 	// GetCreditExposure invokes getCreditExposure operation.
 	//
 	// A customer's credit exposure in a company and whether an amount is within its credit limit (ADR-0066
-	// §3-§4, T77a). The exposure is what the customer's open items add up to: the items open now on the
-	// company's customer reconciliation accounts in the leading ledger, whoever posted them, in the
-	// company's currency as they were booked; credit items (a credit memo, a payment on account) reduce
-	// it, so it is negative when the customer's credits exceed what it owes. Open orders, deliveries and
-	// billing do not count yet. With a credit limit set for the customer in the company (`has_limit`
-	// true), `limit` is the limit and `available` the limit less the exposure, negative when the exposure
-	// exceeds it. `amount` is an amount to check, zero or more, in the company's currency; without it
-	// nothing is added. `is_within_limit` says whether the exposure and the amount together are no more
-	// than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit` and
-	// `available` are absent and `is_within_limit` is true. The check changes nothing and blocks nothing:
-	// what a consumer does with the answer is its own. It is computed at the read from one database state
-	// (a repeatable-read snapshot) and stores nothing. Any business partner can be asked about; one
-	// without open items in the company has an exposure of zero. An amount below zero is refused (422
-	// `credit.invalid_amount`, naming `amount`), and one without exactly the currency's minor-unit digits
-	// is 400 `request.invalid_amount`. Open items that add up, alone or with the limit or the amount, to
-	// more than an amount holds are refused too (422 `credit.amount_too_large`). A legal entity the caller
-	// cannot act in is 404, as a business partner that does not exist.
+	// §3-§4, T77a, T77b). The exposure has two parts, each given beside their sum. `open_items` is what
+	// the customer's open items add up to: the items open now on the company's customer reconciliation
+	// accounts in the leading ledger, whoever posted them, in the company's currency as they were booked;
+	// credit items (a credit memo, a payment on account) reduce it, so it is negative when the customer's
+	// credits exceed what it owes. `open_orders` is the value of the customer's confirmed sales orders not
+	// yet billed: of each order of the company that is confirmed and not blocked for credit, the part not
+	// yet posted as a customer invoice, at its net value plus the output tax its items' tax codes give on
+	// the order's date, converted into the company's currency at the average rate valid on the order's
+	// date when the order is in another; what is posted as an invoice counts as an open item from then on,
+	// never twice. `exposure` is the two together. With a credit limit set for the customer in the company
+	// (`has_limit` true), `limit` is the limit and `available` the limit less the exposure, negative when
+	// the exposure exceeds it. `amount` is an amount to check, zero or more, in the company's currency;
+	// without it nothing is added. `is_within_limit` says whether the exposure and the amount together are
+	// no more than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit`
+	// and `available` are absent and `is_within_limit` is true. The check changes nothing and blocks
+	// nothing: what a consumer does with the answer is its own; confirming a sales order makes the same
+	// check on the order's gross value and blocks the order when it is not within the limit
+	// (`confirmSalesOrder`). It is computed at the read from one database state (a repeatable-read
+	// snapshot) and stores nothing. Any business partner can be asked about; one without open items or
+	// orders in the company has an exposure of zero. An open order whose value cannot be calculated
+	// refuses the read rather than being left out: one whose tax code is no longer an output tax code on
+	// the order's date (422 `sales.unknown_tax_code`), one in another currency without a rate into the
+	// company's on its date (422 `ledger.no_exchange_rate`), one too large for an amount (422
+	// `sales.amount_too_large`). An amount below zero is refused (422 `credit.invalid_amount`, naming
+	// `amount`), and one without exactly the currency's minor-unit digits is 400 `request.invalid_amount`.
+	// Open items and orders that add up, alone or with the limit or the amount, to more than an amount
+	// holds are refused too (422 `credit.amount_too_large`). A legal entity the caller cannot act in is
+	// 404, as a business partner that does not exist.
 	//
 	// GET /v1/credit-exposure
 	GetCreditExposure(ctx context.Context, params GetCreditExposureParams) (GetCreditExposureRes, error)
@@ -2810,6 +2968,18 @@ type Invoker interface {
 	//
 	// GET /v1/revaluation-runs/{id}
 	GetRevaluationRun(ctx context.Context, params GetRevaluationRunParams) (GetRevaluationRunRes, error)
+	// GetRevenueContract invokes getRevenueContract operation.
+	//
+	// One revenue contract (ADR-0068 §3, T81a) with its company's code and name, its customer's number
+	// and name, the sales order it stands for by id and number, its transaction price (the order's net
+	// value, without tax) and its performance obligations, each with the order item it is for, its timing,
+	// an over-time obligation's service period, its stand-alone selling price and, once the contract is
+	// `active`, its allocated amount. `created_by` is the person who asked for it, or the system's
+	// principal when the order's confirmation created it. One of a company the caller may not act in is
+	// not found (404), as one that does not exist.
+	//
+	// GET /v1/revenue-contracts/{id}
+	GetRevenueContract(ctx context.Context, params GetRevenueContractParams) (GetRevenueContractRes, error)
 	// GetRfq invokes getRfq operation.
 	//
 	// Returns one RFQ with its items and the suppliers invited. An RFQ of a legal entity the caller cannot
@@ -2817,6 +2987,25 @@ type Invoker interface {
 	//
 	// GET /v1/rfqs/{id}
 	GetRfq(ctx context.Context, params GetRfqParams) (GetRfqRes, error)
+	// GetRfqComparison invokes getRfqComparison operation.
+	//
+	// The comparison of one RFQ's quotations by price (ADR-0069 §7), computed on each read and stored
+	// nowhere: one row per supplier invited, with its quotation's total and its price and amount of each
+	// RFQ item. A quotation that prices every RFQ item and is valid on the legal entity's date today in
+	// its company's time zone (`as_of`) is ranked by its total, the lowest first; equal totals share a
+	// rank and stand in the order the suppliers were invited. After the ranked rows come the quotations
+	// that are not ranked, in the order invited: one that leaves RFQ items out (`complete` false,
+	// `unquoted_item_nos` naming them) and one whose `valid_until` is before `as_of` (`expired`). Last
+	// come the suppliers invited that have no quotation (`answered` false). Amounts are compared exactly,
+	// in the currency's minor units. Of each RFQ item the lowest amount among the quotations not expired
+	// is given (`items[].lowest_amount`), and every price at that amount is marked (`lowest`), also in a
+	// quotation that is not ranked for leaving other items out. The comparison is not paged: its rows are
+	// bounded by the suppliers an RFQ can invite (100) and each row's prices by the items an RFQ can hold
+	// (1,000), the bounds of a page of `rfqs/{id}/quotations`. An RFQ of a legal entity the caller cannot
+	// act in is answered as missing (404).
+	//
+	// GET /v1/rfqs/{id}/comparison
+	GetRfqComparison(ctx context.Context, params GetRfqComparisonParams) (GetRfqComparisonRes, error)
 	// GetRole invokes getRole operation.
 	//
 	// Returns one role.
@@ -2838,10 +3027,11 @@ type Invoker interface {
 	// GetSalesOrder invokes getSalesOrder operation.
 	//
 	// One sales order (ADR-0067 §5, T78b) with its company's code and name, its customer's number and
-	// name, the quotation it was created from by id and number, its payment term, its net value and its
-	// items, each with its ordered, delivered and billed quantities, its unit price, its net value and its
-	// revenue account's number and name. One of a company the caller may not act in is not found (404), as
-	// one that does not exist.
+	// name, the quotation it was created from by id and number, its payment term, its net value, its
+	// credit block (with who released it and when, once it is released) and its items, each with its
+	// ordered, delivered and billed quantities, its unit price, its net value and its revenue account's
+	// number and name. One of a company the caller may not act in is not found (404), as one that does not
+	// exist.
 	//
 	// GET /v1/sales-orders/{id}
 	GetSalesOrder(ctx context.Context, params GetSalesOrderParams) (GetSalesOrderRes, error)
@@ -3231,8 +3421,9 @@ type Invoker interface {
 	//
 	// The billing documents of the companies the caller may act in (ADR-0067 §9, T79a), each as
 	// `getBillingDocument` gives it: with its company's code and name, its customer's number and name, the
-	// sales order it bills by id and number, its net value and its items. Filtered by company, customer,
-	// sales order, status and document number. Sortable by: `billing_date`, `document_number`.
+	// sales order it bills by id and number, its net value and its items and, once posted, its customer
+	// invoice and journal entry. Filtered by company, customer, sales order, status and document number.
+	// Sortable by: `billing_date`, `document_number`.
 	//
 	// GET /v1/billing-documents
 	ListBillingDocuments(ctx context.Context, params ListBillingDocumentsParams) (ListBillingDocumentsRes, error)
@@ -3435,7 +3626,8 @@ type Invoker interface {
 	ListConsolidationRuns(ctx context.Context, params ListConsolidationRunsParams) (ListConsolidationRunsRes, error)
 	// ListContracts invokes listContracts operation.
 	//
-	// Purchasing contracts. Sortable by: `valid_from`, `document_number`.
+	// Purchasing contracts and scheduling agreements (`kind`). Sortable by: `valid_from`,
+	// `document_number`.
 	//
 	// GET /v1/contracts
 	ListContracts(ctx context.Context, params ListContractsParams) (ListContractsRes, error)
@@ -4083,6 +4275,16 @@ type Invoker interface {
 	//
 	// GET /v1/revaluation-runs
 	ListRevaluationRuns(ctx context.Context, params ListRevaluationRunsParams) (ListRevaluationRunsRes, error)
+	// ListRevenueContracts invokes listRevenueContracts operation.
+	//
+	// The revenue contracts of the companies the caller may act in (ADR-0068 §3, T81a), each as
+	// `getRevenueContract` gives it: with its company's code and name, its customer's number and name, the
+	// sales order it stands for by id and number, its transaction price and its performance obligations.
+	// Filtered by company, customer, sales order and status; `sales_order_id` finds the one contract of an
+	// order. Sortable by: `sales_order_number`.
+	//
+	// GET /v1/revenue-contracts
+	ListRevenueContracts(ctx context.Context, params ListRevenueContractsParams) (ListRevenueContractsRes, error)
 	// ListRfqs invokes listRfqs operation.
 	//
 	// Requests for quotation (RFQs, ADR-0069) of the legal entities the caller may act in, each with its
@@ -4123,9 +4325,9 @@ type Invoker interface {
 	//
 	// The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as
 	// `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the
-	// quotation it came from, its net value and its items with their ordered, delivered and billed
-	// quantities. Filtered by company, customer, status, document number and quotation. Sortable by:
-	// `order_date`, `document_number`.
+	// quotation it came from, its net value, its credit block and its items with their ordered, delivered
+	// and billed quantities. Filtered by company, customer, status, credit block, document number and
+	// quotation. Sortable by: `order_date`, `document_number`.
 	//
 	// GET /v1/sales-orders
 	ListSalesOrders(ctx context.Context, params ListSalesOrdersParams) (ListSalesOrdersRes, error)
@@ -4140,6 +4342,18 @@ type Invoker interface {
 	//
 	// GET /v1/sales-prices
 	ListSalesPrices(ctx context.Context, params ListSalesPricesParams) (ListSalesPricesRes, error)
+	// ListScheduleLines invokes listScheduleLines operation.
+	//
+	// The delivery schedule of one scheduling agreement (ADR-0070 §3), by delivery date, lines of one
+	// date in the order entered: each line with the agreement's number, the agreement item it asks for
+	// (its material key and description), its quantity in that item's unit, the item's price and the
+	// line's value, its `status` and, once it is called off (`schedule-lines/{line_no}:callOff`), the
+	// purchase order by id and number. A contract of the kind `contract` has none and answers an empty
+	// page. A contract of a legal entity the caller cannot act in is answered as missing (404). Sortable
+	// by: `delivery_date`.
+	//
+	// GET /v1/contracts/{id}/schedule-lines
+	ListScheduleLines(ctx context.Context, params ListScheduleLinesParams) (ListScheduleLinesRes, error)
 	// ListSegments invokes listSegments operation.
 	//
 	// Segments of the tenant (IFRS 8 operating segments). Sortable by: `code`.
@@ -4510,6 +4724,45 @@ type Invoker interface {
 	//
 	// POST /v1/bank-statements/{id}/lines/{line_no}:post
 	PostBankStatementLine(ctx context.Context, request OptStatementLinePostInput, params PostBankStatementLineParams) (PostBankStatementLineRes, error)
+	// PostBillingDocument invokes postBillingDocument operation.
+	//
+	// Posts a `created` billing document, once (ADR-0067 §9, T79b), at the version the caller read
+	// (`If-Match`): a customer invoice is entered in accounts receivable and posted, in the same
+	// transaction as the document's change, so either all of it happens or none. The invoice has the
+	// document's company, customer and currency, the billing date as its invoice date, which is its tax
+	// date, the sales order's payment term, and the document's items one for one, each with its
+	// description, account, amount and tax code; it names the billing document as its source
+	// (`source_document_id`, `source_document_number`). Accounts receivable calculates the output tax at
+	// the billing date's rates and posts the entry (document type `DR`, `source_context` `receivables`):
+	// it debits the customer's reconciliation account in the company with the invoice's gross amount,
+	// which is the customer's open item (`GET /v1/open-items`) with the order's payment term, and credits
+	// each item's account with its amount and output tax per tax code. The invoice's net amount is the
+	// document's to the minor unit, and its gross is net and tax exactly. Revenue is recognized as billed.
+	// The posting date is the request's, else today, the company's date in its time zone; it must be in an
+	// open period (409 `ledger.period_not_open`). The document becomes `posted` and names its
+	// `posting_date`, its `customer_invoice_id` and `customer_invoice_number` and the invoice's
+	// `journal_entry_id`, `journal_entry_year` and `journal_entry_number`; an audit record and
+	// BillingDocumentPosted are written with it, beside the invoice's own (CustomerInvoiceChanged,
+	// CustomerInvoicePosted). The document's row is read under a lock: of two requests to post one
+	// document, one posts it and the other meets another version (412). One that is not `created` is
+	// refused (409 `sales.invalid_status`); a retry with the same `Idempotency-Key` answers the posted
+	// document. What accounts receivable or the ledger refuses leaves the document `created` and nothing
+	// posted, and is answered with their code, the document's number leading the detail and the document's
+	// own fields named: a customer that is not active, no longer a customer or blocked for posting in the
+	// company (422 `receivables.customer_not_usable`, `customer_id`) or whose data in the company is no
+	// longer there (the same code, without a field); an item's account that can no longer be posted (422
+	// `receivables.account_not_postable`, `items[i].account_id`) or asks for a cost center the item does
+	// not carry (422 `ledger.cost_center_required`, `items[i].account_id`); a tax code that is no longer
+	// an output tax code of the company with a rate on the billing date (422
+	// `receivables.unknown_tax_code`, `items[i].tax_code`); a company without the `customer_invoice` or
+	// `journal_dr` number range (422 `config.no_number_range`). An order's items are not changed in the
+	// first version, so a document refused for an item's account or tax code cannot be posted until the
+	// configuration allows it again. A posted billing document is not reversed or cancelled in the first
+	// version: the ledger's `reverseJournalEntry` refuses its entry (409 `ledger.entry_owned_elsewhere`).
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/billing-documents/{id}:post
+	PostBillingDocument(ctx context.Context, request OptBillingDocumentPost, params PostBillingDocumentParams) (PostBillingDocumentRes, error)
 	// PostCustomerInvoice invokes postCustomerInvoice operation.
 	//
 	// Posts a draft customer invoice to the ledger, once (ADR-0063 §5, T75b): it debits the customer's
@@ -4864,12 +5117,12 @@ type Invoker interface {
 	//
 	// Publishes a `draft` RFQ at the version the caller read (`If-Match`): the RFQ is read under a row
 	// lock and moves to `published` once (409 `procurement.invalid_status` for one already published),
-	// after which quotations are recorded against it and nothing changes it. The RFQ is checked again as
-	// it was when created: every supplier invited must still be one an order could be placed with (422
-	// `procurement.supplier_not_usable`, the field error naming `suppliers[i].supplier_id`), and the due
-	// date not before the legal entity's date today in its company's time zone (422
-	// `procurement.rfq_due_date_past`). Audited, and published as RfqPublished, which names the suppliers
-	// invited by id and number.
+	// after which quotations are recorded against it and nothing changes it until it is awarded
+	// (`:award`). The RFQ is checked again as it was when created: every supplier invited must still be
+	// one an order could be placed with (422 `procurement.supplier_not_usable`, the field error naming
+	// `suppliers[i].supplier_id`), and the due date not before the legal entity's date today in its
+	// company's time zone (422 `procurement.rfq_due_date_past`). Audited, and published as RfqPublished,
+	// which names the suppliers invited by id and number.
 	//
 	// POST /v1/rfqs/{id}:publish
 	PublishRfq(ctx context.Context, params PublishRfqParams) (PublishRfqRes, error)
@@ -5104,6 +5357,23 @@ type Invoker interface {
 	//
 	// POST /v1/purchase-orders/{id}:release
 	ReleasePurchaseOrder(ctx context.Context, params ReleasePurchaseOrderParams) (ReleasePurchaseOrderRes, error)
+	// ReleaseSalesOrderCreditBlock invokes releaseSalesOrderCreditBlock operation.
+	//
+	// Releases the credit block of a sales order that was confirmed over its customer's credit limit
+	// (ADR-0066, T77b), at the version the caller read (`If-Match`): the order is read under a row lock
+	// and its `credit_block` moves from `blocked` to `released`, once, with who released it, by id and
+	// name, and when (`credit_released_by`, `credit_released_by_name`, `credit_released_at`). From then on
+	// the order takes deliveries and is billed as any confirmed order, and it counts in the customer's
+	// exposure, which may then exceed the limit: the release is the credit manager's decision, whatever
+	// the amount. An order without a block, or whose block is already released, is refused (409
+	// `sales.order_not_credit_blocked`). The release is by its own permission,
+	// `sales.order.credit_release`; no rule sets the person who releases apart from the one who confirmed
+	// the order. Nothing is checked again and nothing is posted. Audited, and published as
+	// SalesOrderCreditReleased. A retry with the same `Idempotency-Key` answers the released order.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/sales-orders/{id}:releaseCreditBlock
+	ReleaseSalesOrderCreditBlock(ctx context.Context, params ReleaseSalesOrderCreditBlockParams) (ReleaseSalesOrderCreditBlockRes, error)
 	// ReleaseSupplierInvoice invokes releaseSupplierInvoice operation.
 	//
 	// Returns an invoice on hold to `parked`. Requires status `on_hold`.
@@ -5962,6 +6232,28 @@ type Invoker interface {
 	//
 	// PATCH /v1/requisitions/{id}
 	UpdateRequisition(ctx context.Context, request *RequisitionUpdate, params UpdateRequisitionParams) (UpdateRequisitionRes, error)
+	// UpdateRevenueContract invokes updateRevenueContract operation.
+	//
+	// Sets, on a `draft` revenue contract, what a person judges about its performance obligations
+	// (ADR-0068 §2, §7, T81b), at the version the caller read (`If-Match`): per obligation whether it is
+	// satisfied at a point in time or over time (`timing`), an over-time obligation's service period
+	// (`service_from`, `service_to`) and its stand-alone selling price. The system makes none of these
+	// judgements and checks only their form. Each element of `obligations` names an obligation of the
+	// contract by its number (422 `revenue.unknown_obligation` naming `obligations[i].obligation_no`),
+	// once (422 `revenue.obligation_repeated`); a field left out stays as it is. `timing` is
+	// `point_in_time` or `over_time` (422 `revenue.unknown_timing`). Afterwards an `over_time` obligation
+	// has both days of its service period (422 `revenue.service_period_required` naming the day missing),
+	// `service_from` not after `service_to` (422 `revenue.invalid_service_period`), and a `point_in_time`
+	// obligation has none (422 `revenue.service_period_not_allowed`: send the dates as null when setting
+	// it back); a stand-alone selling price is in the contract's currency (422
+	// `revenue.currency_mismatch`) and more than zero (422 `revenue.price_not_positive`). The contract is
+	// read under a row lock; one that is `active` is fixed and refused (409 `revenue.invalid_status`).
+	// Nothing is allocated before the contract is activated. The contract's `version` moves. Audited, and
+	// published as RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract as
+	// the first answered it. Human-only (`x-agent: false`).
+	//
+	// PATCH /v1/revenue-contracts/{id}
+	UpdateRevenueContract(ctx context.Context, request *RevenueContractUpdate, params UpdateRevenueContractParams) (UpdateRevenueContractRes, error)
 	// UpdateRole invokes updateRole operation.
 	//
 	// Changes the name or description of a role. JSON Merge Patch (RFC 7396): absent fields are unchanged,
@@ -7797,6 +8089,175 @@ func (c *Client) sendActivateOrgUnit(ctx context.Context, params ActivateOrgUnit
 	return result, nil
 }
 
+// ActivateRevenueContract invokes activateRevenueContract operation.
+//
+// Activates a `draft` revenue contract (ADR-0068 §7, T81b), at the version the caller read
+// (`If-Match`): the contract is read under a row lock and moves to `active` once. Its transaction
+// price is allocated to its performance obligations in proportion to their stand-alone selling prices:
+// an obligation's share is the transaction price × its stand-alone selling price ÷ the sum of the
+// stand-alone selling prices, rounded so that the shares (`allocated_amount`) add up to the
+// transaction price exactly; a minor unit left by the rounding goes to the obligations with the
+// largest remainders, the earlier one first, so the same contract always allocates the same way. With
+// the prices a contract starts with, the order items' net values, each share is its order item's
+// value. Activating fixes the obligations and their amounts: a later change or a second activation is
+// refused (409 `revenue.invalid_status`). The system does the arithmetic only: the obligations, their
+// timing and their stand-alone selling prices are the person's judgement as they stand. Nothing is
+// posted. Audited, and published as RevenueContractChanged. A retry with the same `Idempotency-Key`
+// answers the active contract. Human-only (`x-agent: false`).
+//
+// POST /v1/revenue-contracts/{id}:activate
+func (c *Client) ActivateRevenueContract(ctx context.Context, params ActivateRevenueContractParams) (ActivateRevenueContractRes, error) {
+	res, err := c.sendActivateRevenueContract(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendActivateRevenueContract(ctx context.Context, params ActivateRevenueContractParams) (res ActivateRevenueContractRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("activateRevenueContract"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/revenue-contracts/{id}:activate"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ActivateRevenueContractOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/revenue-contracts/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":activate"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ActivateRevenueContractOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeActivateRevenueContractResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // AddHierarchyNode invokes addHierarchyNode operation.
 //
 // Adds a node below the node, which may hold centers, at most 12 levels deep; the code is unique in
@@ -8610,6 +9071,187 @@ func (c *Client) sendAssignProfitCenter(ctx context.Context, request *ProfitCent
 	return result, nil
 }
 
+// AwardRfq invokes awardRfq operation.
+//
+// Awards a `published` RFQ to one of its quotations as a whole, at the version the caller read
+// (`If-Match`), once (ADR-0069 §7): the RFQ is read under a row lock, so of two awards one succeeds
+// and the other finds the RFQ `awarded` (409 `procurement.invalid_status`, as for a draft), while the
+// same request with its `Idempotency-Key` again answers the same RFQ and contract. The quotation must
+// be one of this RFQ (422 `procurement.quotation_not_of_rfq`) that the comparison ranks: it prices
+// every RFQ item (422 `procurement.quotation_incomplete`) and is valid on the legal entity's date
+// today in its company's time zone (422 `procurement.quotation_expired`, naming that date and zone);
+// it need not be the lowest. Its supplier must still be one an order could be placed with (422
+// `procurement.supplier_not_usable`). Each of these refusals names `quotation_id`. The award creates a
+// draft contract with the quotation's supplier, as `POST /v1/contracts` would with its checks, number
+// and audit record: in the RFQ's currency, valid from `valid_from` to `valid_to` (422
+// `procurement.invalid_validity`), its items the RFQ's items at the quoted prices and its target value
+// the quotation's total; what the contract's own checks refuse is refused as there, naming the
+// contract's field: an item's account the legal entity can no longer post to (422
+// `procurement.account_not_postable`, `items[i].account_id`, the RFQ's item) and a quotation whose
+// total rounds to zero, since a contract's target value is above zero (422
+// `procurement.invalid_amount`, `target_value.amount`). The RFQ becomes `awarded` and names the
+// contract (`contract_id`, `contract_document_number`), the quotation becomes `awarded` and the RFQ's
+// other quotations `not_awarded`, all in one transaction. The contract is a draft: it is released with
+// `contracts/{id}:release` as any other. No approval is asked for. Human-only: an award commits the
+// company to a supplier. Audited, and published as RfqAwarded, which names the supplier by id and
+// number, and RfqChanged.
+//
+// POST /v1/rfqs/{id}:award
+func (c *Client) AwardRfq(ctx context.Context, request *RfqAward, params AwardRfqParams) (AwardRfqRes, error) {
+	res, err := c.sendAwardRfq(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendAwardRfq(ctx context.Context, request *RfqAward, params AwardRfqParams) (res AwardRfqRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("awardRfq"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/rfqs/{id}:award"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, AwardRfqOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/rfqs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":award"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeAwardRfqRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, AwardRfqOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeAwardRfqResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // BlockBusinessPartner invokes blockBusinessPartner operation.
 //
 // Blocks the partner for postings and payments immediately (blocking reduces risk, so it needs no
@@ -9245,6 +9887,207 @@ func (c *Client) sendBlockPrincipal(ctx context.Context, request *ReasonInput, p
 
 	stage = "DecodeResponse"
 	result, err := decodeBlockPrincipalResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CallOffScheduleLine invokes callOffScheduleLine operation.
+//
+// Calls off one line of a scheduling agreement's delivery schedule (ADR-0070 §4), at the version of
+// the line the caller read (`If-Match`), once: it creates a draft purchase order against the agreement
+// through the purchase order's own path, as `POST /v1/purchase-orders` would with its checks,
+// validation rules, number and audit record, and the line then names that order (`purchase_order_id`,
+// `purchase_order_document_number`, `status` `called_off`). The order is of the agreement's legal
+// entity, supplier and currency, dated the legal entity's date today in its company's time zone, with
+// the supplier's payment terms, the agreement as its contract and one item: the agreement's item (its
+// description, unit, account and price) in the line's quantity, due on the line's delivery date. The
+// contract and the line are read under their row locks, so of two call-offs of one line one creates
+// the order and the other finds the line called off (409 `procurement.schedule_line_called_off`,
+// naming the order; a line called off is refused so whatever `If-Match` carries, since both callers
+// read the same version), while the same request with its `Idempotency-Key` again answers the same
+// line and order. The contract must be a scheduling agreement (409
+// `procurement.not_a_scheduling_agreement`) that is `active` (409 `procurement.invalid_status`) and
+// valid on the legal entity's date today (409 `procurement.agreement_not_valid`, naming the validity,
+// that date and the zone); a line number the agreement lacks is answered as missing (404). What the
+// order's own checks refuse is refused as there, naming the order's field: the agreement's supplier no
+// longer one an order can be placed with (422 `procurement.supplier_not_usable`, `supplier_id`), the
+// item's account no longer postable (422 `procurement.account_not_postable`, `items[0].account_id`), a
+// validation rule of the tenant (422 `request.rule_refused`). The order is a draft and from there any
+// purchase order: it is changed, released (the release strategy and its approvals apply, and the
+// release consumes the agreement's target value, refused with 409 `procurement.contract_exceeded` when
+// the order exceeds what remains), received and invoiced as one created directly; a line whose order
+// is cancelled stays called off. An agent needs autonomy level 2: a call-off reserves the line.
+// Audited, and published as ScheduleLineCalledOff, which names the supplier by id and number, and
+// ScheduleLineChanged.
+//
+// POST /v1/contracts/{id}/schedule-lines/{line_no}:callOff
+func (c *Client) CallOffScheduleLine(ctx context.Context, params CallOffScheduleLineParams) (CallOffScheduleLineRes, error) {
+	res, err := c.sendCallOffScheduleLine(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendCallOffScheduleLine(ctx context.Context, params CallOffScheduleLineParams) (res CallOffScheduleLineRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("callOffScheduleLine"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/contracts/{id}/schedule-lines/{line_no}:callOff"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CallOffScheduleLineOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/contracts/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/schedule-lines/"
+	{
+		// Encode "line_no" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "line_no",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.Int32ToString(params.LineNo))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":callOff"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CallOffScheduleLineOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCallOffScheduleLineResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -12938,19 +13781,21 @@ func (c *Client) sendConfirmDunningRun(ctx context.Context, params ConfirmDunnin
 // available, on a date (ADR-0067 §8, T78c). It is a confirmation by a person, kept in the sales
 // context: no stock moves and nothing is posted; billing and revenue recognition read it. The order is
 // read under a row lock, so two confirmations of one order wait for one another. An order that is not
-// confirmed takes none (409 `sales.order_not_confirmed`). `delivery_date` is not after the company's
-// date today in its time zone (422 `sales.delivery_date_in_future`). Each item names an item of the
-// order by its number (422 `sales.unknown_order_item` naming `items[i].item_no`), once (422
-// `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the order
-// item's unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what was ordered
-// less what earlier deliveries confirmed (422 `sales.exceeds_open_quantity` naming
-// `items[i].quantity.value`, with the item and its open quantity in the message): of two confirmations
-// racing for an item's last quantity, one is recorded. The delivery is numbered within its order and
-// written once; it is not changed or reversed in the first version. Each order item's
-// `delivered_quantity` rises by what was delivered and the order's `version` moves, so `getSalesOrder`
-// shows what is delivered and what is open. Audited, and published as SalesOrderDelivered. A retry
-// with the same `Idempotency-Key` answers the delivery recorded; the order's deliveries are listed by
-// `listSalesDeliveries`. Human-only (`x-agent: false`).
+// confirmed takes none (409 `sales.order_not_confirmed`), nor does one blocked for credit until its
+// block is released (409 `sales.order_credit_blocked`, `releaseSalesOrderCreditBlock`).
+// `delivery_date` is not after the company's date today in its time zone (422
+// `sales.delivery_date_in_future`). Each item names an item of the order by its number (422
+// `sales.unknown_order_item` naming `items[i].item_no`), once (422 `sales.item_repeated`), with a
+// quantity more than zero (422 `sales.invalid_quantity`) in the order item's unit (422
+// `sales.unit_mismatch`) that is at most the item's open quantity, what was ordered less what earlier
+// deliveries confirmed (422 `sales.exceeds_open_quantity` naming `items[i].quantity.value`, with the
+// item and its open quantity in the message): of two confirmations racing for an item's last quantity,
+// one is recorded. The delivery is numbered within its order and written once; it is not changed or
+// reversed in the first version. Each order item's `delivered_quantity` rises by what was delivered
+// and the order's `version` moves, so `getSalesOrder` shows what is delivered and what is open.
+// Audited, and published as SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the
+// delivery recorded; the order's deliveries are listed by `listSalesDeliveries`. Human-only
+// (`x-agent: false`).
 //
 // POST /v1/sales-orders/{id}/deliveries
 func (c *Client) ConfirmSalesDelivery(ctx context.Context, request *SalesDeliveryCreate, params ConfirmSalesDeliveryParams) (ConfirmSalesDeliveryRes, error) {
@@ -13102,9 +13947,26 @@ func (c *Client) sendConfirmSalesDelivery(ctx context.Context, request *SalesDel
 // Confirms a `draft` sales order (ADR-0067 §5, T78b), at the version the caller read (`If-Match`):
 // the order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused
 // (409 `sales.invalid_status`). Confirming is by permission, without an approval; a confirmed order is
-// not changed or cancelled in the first version. Nothing is posted. Audited, and published as
-// SalesOrderChanged. A retry with the same `Idempotency-Key` answers the confirmed order. Human-only
-// (`x-agent: false`).
+// not changed or cancelled in the first version. Nothing is posted. The confirmation checks the
+// customer's credit (ADR-0066, T77b), once: the order's gross value, its net value plus the output tax
+// its items' tax codes give on the order's date, in the company's currency (an order in another
+// currency at the average rate valid on its date), is compared with the customer's credit limit in the
+// company less its exposure, its open items and its other confirmed orders not yet billed, as
+// `getCreditExposure` gives them. An order that is within the limit, and every order of a customer
+// without a limit, is confirmed with `credit_block` `none`. One that is not is confirmed all the same,
+// with `credit_block` `blocked`: it takes no delivery, and so no billing, until a person holding
+// `sales.order.credit_release` releases it (`releaseSalesOrderCreditBlock`). Two orders of one
+// customer confirmed at once are checked one after the other, so they cannot both take the room only
+// one fits. The order is not checked again after its confirmation. The value must be calculable: a tax
+// code that is no longer an output tax code on the order's date (422 `sales.unknown_tax_code`), an
+// order in another currency without a rate into the company's on its date (422
+// `ledger.no_exchange_rate`) or a value with its tax too large for an amount (422
+// `sales.amount_too_large`) refuses the confirmation, whether the customer has a limit or not, since a
+// confirmed order counts in its exposure. An exposure that adds up, with the order, to more than an
+// amount holds is refused too (422 `credit.amount_too_large`). Audited, with the amount checked, the
+// limit and the exposure when the customer has a limit, and published as SalesOrderChanged, and as
+// SalesOrderCreditBlocked when the order is blocked. A retry with the same `Idempotency-Key` answers
+// the confirmed order. Human-only (`x-agent: false`).
 //
 // POST /v1/sales-orders/{id}:confirm
 func (c *Client) ConfirmSalesOrder(ctx context.Context, params ConfirmSalesOrderParams) (ConfirmSalesOrderRes, error) {
@@ -14083,9 +14945,9 @@ func (c *Client) sendCreateAssetTransfer(ctx context.Context, request *AssetTran
 // output tax code of the company with a rate on the billing date, cannot be billed on that date (422
 // `sales.order_item_not_billable` naming `sales_order_id`, with the item in the message). The document
 // is created `created`; each order item's `billed_quantity` rises by what was billed and the order's
-// `version` moves. Amounts are net; nothing is posted (posting it as a customer invoice comes with
-// T79b). Audited, and published as BillingDocumentChanged. A retry with the same `Idempotency-Key`
-// answers the document created. Human-only (`x-agent: false`).
+// `version` moves. Amounts are net; nothing is posted until the document is posted
+// (`postBillingDocument`). Audited, and published as BillingDocumentChanged. A retry with the same
+// `Idempotency-Key` answers the document created. Human-only (`x-agent: false`).
 //
 // POST /v1/billing-documents
 func (c *Client) CreateBillingDocument(ctx context.Context, request *BillingDocumentCreate, params CreateBillingDocumentParams) (CreateBillingDocumentRes, error) {
@@ -15343,7 +16205,11 @@ func (c *Client) sendCreateConsolidationRun(ctx context.Context, request *Consol
 
 // CreateContract invokes createContract operation.
 //
-// Creates a draft contract.
+// Creates a draft contract of the `kind` given: a `contract` (the default), against which purchase
+// orders are created at its prices, or a `scheduling_agreement` (ADR-0070), whose delivery schedule is
+// entered once it is released (`contracts/{id}/schedule-lines`). Another kind is refused (422
+// `procurement.invalid_kind`). Both are numbered from the company's `contract` number range and are
+// changed, released, cancelled, terminated, renewed and expire alike; a contract keeps its kind.
 //
 // POST /v1/contracts
 func (c *Client) CreateContract(ctx context.Context, request *ContractCreate, params CreateContractParams) (CreateContractRes, error) {
@@ -18704,25 +19570,28 @@ func (c *Client) sendCreatePurchaseOrderChange(ctx context.Context, request *Pur
 // `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure
 // of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`,
 // `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per
-// `price_unit`, or without one the price recorded for its `item_key` that is valid on the quotation's
-// date in the item's unit and the quotation's currency, the customer's before the general one and then
-// the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price
-// nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue
-// account its billing credits, one that can be posted in the company (422 `sales.account_not_postable`
-// naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force
-// on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies
-// the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`, as a customer
-// invoice refuses it). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half
-// away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive`
-// naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not
-// give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a
-// pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key
-// and valid on the quotation's date, the customer's before the general one, is taken off in the
-// procedure's order, as a percentage of the value before it rounded half away from zero; `conditions`
-// lists the price and the discounts applied, and `net_amount` is the value less the discounts, still
-// more than zero (ADR-0067 §11). Amounts are net: the tax is calculated when the order is billed, at
-// the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
-// (`x-agent: false`).
+// `price_unit` (1 when absent; sent without a unit price it is refused, 422
+// `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its
+// `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency,
+// the customer's before the general one and then the latest `valid_from` (`createSalesPrice`;
+// `price_source` says which; an item with neither a price nor such a record is refused, 422
+// `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that
+// can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and
+// optionally an output tax code of the company with a rate in force on the quotation's date (422
+// `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines
+// name is refused, 422 `sales.tax_jurisdiction_not_supported`, as a customer invoice refuses it). An
+// item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the
+// currency's minor unit and more than zero (422 `sales.amount_not_positive` naming
+// `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give);
+// the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing
+// procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and
+// valid on the quotation's date, the customer's before the general one, is taken off an item priced
+// from the price records, in the procedure's order, as a percentage of the value before it rounded
+// half away from zero; `conditions` lists the price and the discounts applied, and `net_amount` is the
+// value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item
+// is its final net price: no discount is taken off it, and its price is its only condition. Amounts
+// are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same
+// `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`).
 //
 // POST /v1/quotations
 func (c *Client) CreateQuotation(ctx context.Context, request *QuotationCreate, params CreateQuotationParams) (CreateQuotationRes, error) {
@@ -19245,6 +20114,151 @@ func (c *Client) sendCreateRequisition(ctx context.Context, request *Requisition
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateRequisitionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateRevenueContract invokes createRevenueContract operation.
+//
+// Creates the revenue contract of a confirmed sales order that has none yet (ADR-0068 §3-§4, T81a).
+// Every sales order gets its revenue contract by itself shortly after it is confirmed: the revenue
+// context reads the order's SalesOrderChanged event and creates the contract, once. This operation
+// creates the same contract on request, for an order confirmed before that was so or whose event has
+// not been read yet; either way an order has one contract, and a request for an order that has one is
+// refused (409 `revenue.contract_exists`; `GET /v1/revenue-contracts?sales_order_id=` finds it). The
+// order is one of a company the caller may act in (422 `request.reference_not_found` naming
+// `sales_order_id`), `confirmed` (422 `revenue.order_not_confirmed`) and in its company's local
+// currency (422 `revenue.foreign_currency`: contracts in a foreign currency are not supported yet).
+// The contract is created `draft`. Its transaction price is the order's net value, without tax. It has
+// one performance obligation per order item, numbered as the items are, each starting as satisfied at
+// a point in time (`point_in_time`) with the order item's net value as its stand-alone selling price:
+// what is a distinct obligation, when it is satisfied and its stand-alone selling price are a person's
+// judgement, which the system does not make. Nothing is posted. Audited, and published as
+// RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract created.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/revenue-contracts
+func (c *Client) CreateRevenueContract(ctx context.Context, request *RevenueContractCreate, params CreateRevenueContractParams) (CreateRevenueContractRes, error) {
+	res, err := c.sendCreateRevenueContract(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateRevenueContract(ctx context.Context, request *RevenueContractCreate, params CreateRevenueContractParams) (res CreateRevenueContractRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createRevenueContract"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/revenue-contracts"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateRevenueContractOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/revenue-contracts"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateRevenueContractRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateRevenueContractOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateRevenueContractResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -19820,8 +20834,9 @@ func (c *Client) sendCreateSalesOrder(ctx context.Context, request *SalesOrderCr
 // one of kind `discount_percent` a discount, which gives `percent`, more than 0 and less than 100 (422
 // `sales.invalid_percent`), and no unit, price or price unit; a price gives no percent (422
 // `sales.price_or_percent` naming the field given or missing). A discount is taken off an item of the
-// item key when the pricing procedure names its type, the customer's before the general one as a price
-// is found (ADR-0067 §11). A record is never changed or deleted: a new price is recorded with a later
+// item key that is priced from the price records when the pricing procedure names its type, the
+// customer's before the general one as a price is found (ADR-0067 §11); an item whose `unit_price`
+// was entered has none. A record is never changed or deleted: a new price is recorded with a later
 // `valid_from`, and the items priced before keep their price. Audited, and published as
 // SalesPriceChanged. A retry with the same `Idempotency-Key` answers the record created. Human-only
 // (`x-agent: false`).
@@ -19945,6 +20960,170 @@ func (c *Client) sendCreateSalesPrice(ctx context.Context, request *SalesPriceCr
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateSalesPriceResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateScheduleLine invokes createScheduleLine operation.
+//
+// Enters one line of a scheduling agreement's delivery schedule (ADR-0070 §3): a quantity of one of
+// the agreement's items due on a date. The contract is read under its row lock: it must be a
+// scheduling agreement (409 `procurement.not_a_scheduling_agreement` for a contract of the kind
+// `contract`) that is `active` (409 `procurement.invalid_status` for a draft, or one cancelled,
+// terminated or expired). The line names an item of the agreement by `contract_item_no`, with its
+// quantity in that item's unit (422 `procurement.invalid_contract_item`, naming `contract_item_no`,
+// for an item the agreement lacks or another unit), positive (422 `procurement.invalid_quantity`), due
+// on a date within the agreement's validity (422 `procurement.schedule_line_outside_validity`, naming
+// `delivery_date` and the validity). Its value is quantity × the item's unit price ÷ price unit,
+// rounded half away from zero to the currency's minor unit, and must be in the range of an amount (422
+// `procurement.amount_too_large`). Lines are numbered 1 to n per agreement in the order entered
+// (`line_no`); the same request with its `Idempotency-Key` again answers the same line. A line is
+// `scheduled` until it is called off as a purchase order (`schedule-lines/{line_no}:callOff`), and is
+// not otherwise changed or deleted in the first version. The line has no address of its own:
+// `Location` is the agreement's schedule filtered to it. Audited, and published as
+// ScheduleLineChanged, which names the supplier by id and number.
+//
+// POST /v1/contracts/{id}/schedule-lines
+func (c *Client) CreateScheduleLine(ctx context.Context, request *ScheduleLineCreate, params CreateScheduleLineParams) (CreateScheduleLineRes, error) {
+	res, err := c.sendCreateScheduleLine(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateScheduleLine(ctx context.Context, request *ScheduleLineCreate, params CreateScheduleLineParams) (res CreateScheduleLineRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createScheduleLine"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/contracts/{id}/schedule-lines"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateScheduleLineOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/contracts/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/schedule-lines"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateScheduleLineRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateScheduleLineOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateScheduleLineResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -20347,18 +21526,18 @@ func (c *Client) sendCreateSupplierInvoice(ctx context.Context, request *Supplie
 // CreateSupplierQuotation invokes createSupplierQuotation operation.
 //
 // Records the quotation an invited supplier gave for a `published` RFQ (409
-// `procurement.invalid_status` for a draft), read under the RFQ's row lock (ADR-0069 §7): the
-// supplier's reference, the date the quotation is valid until, and a price per RFQ item, in the RFQ's
-// currency (422 `procurement.currency_mismatch`), positive, per `price_unit` of the RFQ item's unit of
-// measure. The supplier must be one the RFQ invites (422 `procurement.supplier_not_invited`) and has
-// one quotation per RFQ: a second is refused (409 `procurement.quotation_exists`), while the same
-// request with its `Idempotency-Key` again answers what it answered. Each item names an item of the
-// RFQ by `rfq_item_no` (422 `procurement.unknown_rfq_item`), once (422
-// `procurement.quotation_item_repeated`). A quotation may leave RFQ items out: it is then not
-// `complete`, and `unquoted_item_nos` names them. Its `total` is the sum over its items of the RFQ
-// item's quantity × unit price ÷ price unit, each rounded half away from zero to the currency's
-// minor unit. Audited, and published as SupplierQuotationRecorded, which names the supplier by id and
-// number.
+// `procurement.invalid_status` for a draft or an awarded one), read under the RFQ's row lock (ADR-0069
+// §7): the supplier's reference, the date the quotation is valid until, and a price per RFQ item, in
+// the RFQ's currency (422 `procurement.currency_mismatch`), positive, per `price_unit` of the RFQ
+// item's unit of measure. The supplier must be one the RFQ invites (422
+// `procurement.supplier_not_invited`) and has one quotation per RFQ: a second is refused (409
+// `procurement.quotation_exists`), while the same request with its `Idempotency-Key` again answers
+// what it answered. Each item names an item of the RFQ by `rfq_item_no` (422
+// `procurement.unknown_rfq_item`), once (422 `procurement.quotation_item_repeated`). A quotation may
+// leave RFQ items out: it is then not `complete`, and `unquoted_item_nos` names them. Its `total` is
+// the sum over its items of the RFQ item's quantity × unit price ÷ price unit, each rounded half
+// away from zero to the currency's minor unit. Audited, and published as SupplierQuotationRecorded,
+// which names the supplier by id and number.
 //
 // POST /v1/rfqs/{id}/quotations
 func (c *Client) CreateSupplierQuotation(ctx context.Context, request *SupplierQuotationCreate, params CreateSupplierQuotationParams) (CreateSupplierQuotationRes, error) {
@@ -27299,8 +28478,10 @@ func (c *Client) sendGetBankStatementRules(ctx context.Context, params GetBankSt
 // One billing document (ADR-0067 §9, T79a) with its company's code and name, its customer's number
 // and name, the sales order it bills by id and number with the order's payment term, its billing date,
 // its net value and its items, each with the order item it bills, the quantity billed, the order's
-// unit price, its amount and its revenue account's number and name. One of a company the caller may
-// not act in is not found (404), as one that does not exist.
+// unit price, its amount and its revenue account's number and name; once posted
+// (`postBillingDocument`), its posting date, the customer invoice it posted as by id and number and
+// that invoice's journal entry by id, year and number. One of a company the caller may not act in is
+// not found (404), as one that does not exist.
 //
 // GET /v1/billing-documents/{id}
 func (c *Client) GetBillingDocument(ctx context.Context, params GetBillingDocumentParams) (GetBillingDocumentRes, error) {
@@ -30275,23 +31456,34 @@ func (c *Client) sendGetCostCenter(ctx context.Context, params GetCostCenterPara
 // GetCreditExposure invokes getCreditExposure operation.
 //
 // A customer's credit exposure in a company and whether an amount is within its credit limit (ADR-0066
-// §3-§4, T77a). The exposure is what the customer's open items add up to: the items open now on the
-// company's customer reconciliation accounts in the leading ledger, whoever posted them, in the
-// company's currency as they were booked; credit items (a credit memo, a payment on account) reduce
-// it, so it is negative when the customer's credits exceed what it owes. Open orders, deliveries and
-// billing do not count yet. With a credit limit set for the customer in the company (`has_limit`
-// true), `limit` is the limit and `available` the limit less the exposure, negative when the exposure
-// exceeds it. `amount` is an amount to check, zero or more, in the company's currency; without it
-// nothing is added. `is_within_limit` says whether the exposure and the amount together are no more
-// than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit` and
-// `available` are absent and `is_within_limit` is true. The check changes nothing and blocks nothing:
-// what a consumer does with the answer is its own. It is computed at the read from one database state
-// (a repeatable-read snapshot) and stores nothing. Any business partner can be asked about; one
-// without open items in the company has an exposure of zero. An amount below zero is refused (422
-// `credit.invalid_amount`, naming `amount`), and one without exactly the currency's minor-unit digits
-// is 400 `request.invalid_amount`. Open items that add up, alone or with the limit or the amount, to
-// more than an amount holds are refused too (422 `credit.amount_too_large`). A legal entity the caller
-// cannot act in is 404, as a business partner that does not exist.
+// §3-§4, T77a, T77b). The exposure has two parts, each given beside their sum. `open_items` is what
+// the customer's open items add up to: the items open now on the company's customer reconciliation
+// accounts in the leading ledger, whoever posted them, in the company's currency as they were booked;
+// credit items (a credit memo, a payment on account) reduce it, so it is negative when the customer's
+// credits exceed what it owes. `open_orders` is the value of the customer's confirmed sales orders not
+// yet billed: of each order of the company that is confirmed and not blocked for credit, the part not
+// yet posted as a customer invoice, at its net value plus the output tax its items' tax codes give on
+// the order's date, converted into the company's currency at the average rate valid on the order's
+// date when the order is in another; what is posted as an invoice counts as an open item from then on,
+// never twice. `exposure` is the two together. With a credit limit set for the customer in the company
+// (`has_limit` true), `limit` is the limit and `available` the limit less the exposure, negative when
+// the exposure exceeds it. `amount` is an amount to check, zero or more, in the company's currency;
+// without it nothing is added. `is_within_limit` says whether the exposure and the amount together are
+// no more than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit`
+// and `available` are absent and `is_within_limit` is true. The check changes nothing and blocks
+// nothing: what a consumer does with the answer is its own; confirming a sales order makes the same
+// check on the order's gross value and blocks the order when it is not within the limit
+// (`confirmSalesOrder`). It is computed at the read from one database state (a repeatable-read
+// snapshot) and stores nothing. Any business partner can be asked about; one without open items or
+// orders in the company has an exposure of zero. An open order whose value cannot be calculated
+// refuses the read rather than being left out: one whose tax code is no longer an output tax code on
+// the order's date (422 `sales.unknown_tax_code`), one in another currency without a rate into the
+// company's on its date (422 `ledger.no_exchange_rate`), one too large for an amount (422
+// `sales.amount_too_large`). An amount below zero is refused (422 `credit.invalid_amount`, naming
+// `amount`), and one without exactly the currency's minor-unit digits is 400 `request.invalid_amount`.
+// Open items and orders that add up, alone or with the limit or the amount, to more than an amount
+// holds are refused too (422 `credit.amount_too_large`). A legal entity the caller cannot act in is
+// 404, as a business partner that does not exist.
 //
 // GET /v1/credit-exposure
 func (c *Client) GetCreditExposure(ctx context.Context, params GetCreditExposureParams) (GetCreditExposureRes, error) {
@@ -37428,6 +38620,143 @@ func (c *Client) sendGetRevaluationRun(ctx context.Context, params GetRevaluatio
 	return result, nil
 }
 
+// GetRevenueContract invokes getRevenueContract operation.
+//
+// One revenue contract (ADR-0068 §3, T81a) with its company's code and name, its customer's number
+// and name, the sales order it stands for by id and number, its transaction price (the order's net
+// value, without tax) and its performance obligations, each with the order item it is for, its timing,
+// an over-time obligation's service period, its stand-alone selling price and, once the contract is
+// `active`, its allocated amount. `created_by` is the person who asked for it, or the system's
+// principal when the order's confirmation created it. One of a company the caller may not act in is
+// not found (404), as one that does not exist.
+//
+// GET /v1/revenue-contracts/{id}
+func (c *Client) GetRevenueContract(ctx context.Context, params GetRevenueContractParams) (GetRevenueContractRes, error) {
+	res, err := c.sendGetRevenueContract(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetRevenueContract(ctx context.Context, params GetRevenueContractParams) (res GetRevenueContractRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getRevenueContract"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/revenue-contracts/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetRevenueContractOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/revenue-contracts/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetRevenueContractOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetRevenueContractResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetRfq invokes getRfq operation.
 //
 // Returns one RFQ with its items and the suppliers invited. An RFQ of a legal entity the caller cannot
@@ -37553,6 +38882,151 @@ func (c *Client) sendGetRfq(ctx context.Context, params GetRfqParams) (res GetRf
 
 	stage = "DecodeResponse"
 	result, err := decodeGetRfqResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetRfqComparison invokes getRfqComparison operation.
+//
+// The comparison of one RFQ's quotations by price (ADR-0069 §7), computed on each read and stored
+// nowhere: one row per supplier invited, with its quotation's total and its price and amount of each
+// RFQ item. A quotation that prices every RFQ item and is valid on the legal entity's date today in
+// its company's time zone (`as_of`) is ranked by its total, the lowest first; equal totals share a
+// rank and stand in the order the suppliers were invited. After the ranked rows come the quotations
+// that are not ranked, in the order invited: one that leaves RFQ items out (`complete` false,
+// `unquoted_item_nos` naming them) and one whose `valid_until` is before `as_of` (`expired`). Last
+// come the suppliers invited that have no quotation (`answered` false). Amounts are compared exactly,
+// in the currency's minor units. Of each RFQ item the lowest amount among the quotations not expired
+// is given (`items[].lowest_amount`), and every price at that amount is marked (`lowest`), also in a
+// quotation that is not ranked for leaving other items out. The comparison is not paged: its rows are
+// bounded by the suppliers an RFQ can invite (100) and each row's prices by the items an RFQ can hold
+// (1,000), the bounds of a page of `rfqs/{id}/quotations`. An RFQ of a legal entity the caller cannot
+// act in is answered as missing (404).
+//
+// GET /v1/rfqs/{id}/comparison
+func (c *Client) GetRfqComparison(ctx context.Context, params GetRfqComparisonParams) (GetRfqComparisonRes, error) {
+	res, err := c.sendGetRfqComparison(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetRfqComparison(ctx context.Context, params GetRfqComparisonParams) (res GetRfqComparisonRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getRfqComparison"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/rfqs/{id}/comparison"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetRfqComparisonOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/rfqs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/comparison"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetRfqComparisonOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetRfqComparisonResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -37975,10 +39449,11 @@ func (c *Client) sendGetRolePermission(ctx context.Context, params GetRolePermis
 // GetSalesOrder invokes getSalesOrder operation.
 //
 // One sales order (ADR-0067 §5, T78b) with its company's code and name, its customer's number and
-// name, the quotation it was created from by id and number, its payment term, its net value and its
-// items, each with its ordered, delivered and billed quantities, its unit price, its net value and its
-// revenue account's number and name. One of a company the caller may not act in is not found (404), as
-// one that does not exist.
+// name, the quotation it was created from by id and number, its payment term, its net value, its
+// credit block (with who released it and when, once it is released) and its items, each with its
+// ordered, delivered and billed quantities, its unit price, its net value and its revenue account's
+// number and name. One of a company the caller may not act in is not found (404), as one that does not
+// exist.
 //
 // GET /v1/sales-orders/{id}
 func (c *Client) GetSalesOrder(ctx context.Context, params GetSalesOrderParams) (GetSalesOrderRes, error) {
@@ -45796,8 +47271,9 @@ func (c *Client) sendListBankStatements(ctx context.Context, params ListBankStat
 //
 // The billing documents of the companies the caller may act in (ADR-0067 §9, T79a), each as
 // `getBillingDocument` gives it: with its company's code and name, its customer's number and name, the
-// sales order it bills by id and number, its net value and its items. Filtered by company, customer,
-// sales order, status and document number. Sortable by: `billing_date`, `document_number`.
+// sales order it bills by id and number, its net value and its items and, once posted, its customer
+// invoice and journal entry. Filtered by company, customer, sales order, status and document number.
+// Sortable by: `billing_date`, `document_number`.
 //
 // GET /v1/billing-documents
 func (c *Client) ListBillingDocuments(ctx context.Context, params ListBillingDocumentsParams) (ListBillingDocumentsRes, error) {
@@ -50052,7 +51528,8 @@ func (c *Client) sendListConsolidationRuns(ctx context.Context, params ListConso
 
 // ListContracts invokes listContracts operation.
 //
-// Purchasing contracts. Sortable by: `valid_from`, `document_number`.
+// Purchasing contracts and scheduling agreements (`kind`). Sortable by: `valid_from`,
+// `document_number`.
 //
 // GET /v1/contracts
 func (c *Client) ListContracts(ctx context.Context, params ListContractsParams) (ListContractsRes, error) {
@@ -50147,6 +51624,23 @@ func (c *Client) sendListContracts(ctx context.Context, params ListContractsPara
 
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "kind" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "kind",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Kind.Get(); ok {
 				return e.EncodeValue(conv.StringToString(val))
 			}
 			return nil
@@ -65859,6 +67353,246 @@ func (c *Client) sendListRevaluationRuns(ctx context.Context, params ListRevalua
 	return result, nil
 }
 
+// ListRevenueContracts invokes listRevenueContracts operation.
+//
+// The revenue contracts of the companies the caller may act in (ADR-0068 §3, T81a), each as
+// `getRevenueContract` gives it: with its company's code and name, its customer's number and name, the
+// sales order it stands for by id and number, its transaction price and its performance obligations.
+// Filtered by company, customer, sales order and status; `sales_order_id` finds the one contract of an
+// order. Sortable by: `sales_order_number`.
+//
+// GET /v1/revenue-contracts
+func (c *Client) ListRevenueContracts(ctx context.Context, params ListRevenueContractsParams) (ListRevenueContractsRes, error) {
+	res, err := c.sendListRevenueContracts(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListRevenueContracts(ctx context.Context, params ListRevenueContractsParams) (res ListRevenueContractsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listRevenueContracts"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/revenue-contracts"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListRevenueContractsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/revenue-contracts"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "sales_order_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "sales_order_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.SalesOrderID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListRevenueContractsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListRevenueContractsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListRfqs invokes listRfqs operation.
 //
 // Requests for quotation (RFQs, ADR-0069) of the legal entities the caller may act in, each with its
@@ -66934,9 +68668,9 @@ func (c *Client) sendListSalesDeliveries(ctx context.Context, params ListSalesDe
 //
 // The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as
 // `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the
-// quotation it came from, its net value and its items with their ordered, delivered and billed
-// quantities. Filtered by company, customer, status, document number and quotation. Sortable by:
-// `order_date`, `document_number`.
+// quotation it came from, its net value, its credit block and its items with their ordered, delivered
+// and billed quantities. Filtered by company, customer, status, credit block, document number and
+// quotation. Sortable by: `order_date`, `document_number`.
 //
 // GET /v1/sales-orders
 func (c *Client) ListSalesOrders(ctx context.Context, params ListSalesOrdersParams) (ListSalesOrdersRes, error) {
@@ -67031,6 +68765,23 @@ func (c *Client) sendListSalesOrders(ctx context.Context, params ListSalesOrders
 
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "credit_block" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "credit_block",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CreditBlock.Get(); ok {
 				return e.EncodeValue(conv.StringToString(val))
 			}
 			return nil
@@ -67438,6 +69189,267 @@ func (c *Client) sendListSalesPrices(ctx context.Context, params ListSalesPrices
 
 	stage = "DecodeResponse"
 	result, err := decodeListSalesPricesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListScheduleLines invokes listScheduleLines operation.
+//
+// The delivery schedule of one scheduling agreement (ADR-0070 §3), by delivery date, lines of one
+// date in the order entered: each line with the agreement's number, the agreement item it asks for
+// (its material key and description), its quantity in that item's unit, the item's price and the
+// line's value, its `status` and, once it is called off (`schedule-lines/{line_no}:callOff`), the
+// purchase order by id and number. A contract of the kind `contract` has none and answers an empty
+// page. A contract of a legal entity the caller cannot act in is answered as missing (404). Sortable
+// by: `delivery_date`.
+//
+// GET /v1/contracts/{id}/schedule-lines
+func (c *Client) ListScheduleLines(ctx context.Context, params ListScheduleLinesParams) (ListScheduleLinesRes, error) {
+	res, err := c.sendListScheduleLines(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListScheduleLines(ctx context.Context, params ListScheduleLinesParams) (res ListScheduleLinesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listScheduleLines"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/contracts/{id}/schedule-lines"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListScheduleLinesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/contracts/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/schedule-lines"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "contract_item_no" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "contract_item_no",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.ContractItemNo.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "line_no" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "line_no",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LineNo.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Include.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListScheduleLinesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListScheduleLinesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -73303,6 +75315,199 @@ func (c *Client) sendPostBankStatementLine(ctx context.Context, request OptState
 	return result, nil
 }
 
+// PostBillingDocument invokes postBillingDocument operation.
+//
+// Posts a `created` billing document, once (ADR-0067 §9, T79b), at the version the caller read
+// (`If-Match`): a customer invoice is entered in accounts receivable and posted, in the same
+// transaction as the document's change, so either all of it happens or none. The invoice has the
+// document's company, customer and currency, the billing date as its invoice date, which is its tax
+// date, the sales order's payment term, and the document's items one for one, each with its
+// description, account, amount and tax code; it names the billing document as its source
+// (`source_document_id`, `source_document_number`). Accounts receivable calculates the output tax at
+// the billing date's rates and posts the entry (document type `DR`, `source_context` `receivables`):
+// it debits the customer's reconciliation account in the company with the invoice's gross amount,
+// which is the customer's open item (`GET /v1/open-items`) with the order's payment term, and credits
+// each item's account with its amount and output tax per tax code. The invoice's net amount is the
+// document's to the minor unit, and its gross is net and tax exactly. Revenue is recognized as billed.
+// The posting date is the request's, else today, the company's date in its time zone; it must be in an
+// open period (409 `ledger.period_not_open`). The document becomes `posted` and names its
+// `posting_date`, its `customer_invoice_id` and `customer_invoice_number` and the invoice's
+// `journal_entry_id`, `journal_entry_year` and `journal_entry_number`; an audit record and
+// BillingDocumentPosted are written with it, beside the invoice's own (CustomerInvoiceChanged,
+// CustomerInvoicePosted). The document's row is read under a lock: of two requests to post one
+// document, one posts it and the other meets another version (412). One that is not `created` is
+// refused (409 `sales.invalid_status`); a retry with the same `Idempotency-Key` answers the posted
+// document. What accounts receivable or the ledger refuses leaves the document `created` and nothing
+// posted, and is answered with their code, the document's number leading the detail and the document's
+// own fields named: a customer that is not active, no longer a customer or blocked for posting in the
+// company (422 `receivables.customer_not_usable`, `customer_id`) or whose data in the company is no
+// longer there (the same code, without a field); an item's account that can no longer be posted (422
+// `receivables.account_not_postable`, `items[i].account_id`) or asks for a cost center the item does
+// not carry (422 `ledger.cost_center_required`, `items[i].account_id`); a tax code that is no longer
+// an output tax code of the company with a rate on the billing date (422
+// `receivables.unknown_tax_code`, `items[i].tax_code`); a company without the `customer_invoice` or
+// `journal_dr` number range (422 `config.no_number_range`). An order's items are not changed in the
+// first version, so a document refused for an item's account or tax code cannot be posted until the
+// configuration allows it again. A posted billing document is not reversed or cancelled in the first
+// version: the ledger's `reverseJournalEntry` refuses its entry (409 `ledger.entry_owned_elsewhere`).
+// Human-only (`x-agent: false`).
+//
+// POST /v1/billing-documents/{id}:post
+func (c *Client) PostBillingDocument(ctx context.Context, request OptBillingDocumentPost, params PostBillingDocumentParams) (PostBillingDocumentRes, error) {
+	res, err := c.sendPostBillingDocument(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendPostBillingDocument(ctx context.Context, request OptBillingDocumentPost, params PostBillingDocumentParams) (res PostBillingDocumentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("postBillingDocument"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/billing-documents/{id}:post"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, PostBillingDocumentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/billing-documents/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":post"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodePostBillingDocumentRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, PostBillingDocumentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodePostBillingDocumentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // PostCustomerInvoice invokes postCustomerInvoice operation.
 //
 // Posts a draft customer invoice to the ledger, once (ADR-0063 §5, T75b): it debits the customer's
@@ -75710,12 +77915,12 @@ func (c *Client) sendProposeVarianceComment(ctx context.Context, request *Varian
 //
 // Publishes a `draft` RFQ at the version the caller read (`If-Match`): the RFQ is read under a row
 // lock and moves to `published` once (409 `procurement.invalid_status` for one already published),
-// after which quotations are recorded against it and nothing changes it. The RFQ is checked again as
-// it was when created: every supplier invited must still be one an order could be placed with (422
-// `procurement.supplier_not_usable`, the field error naming `suppliers[i].supplier_id`), and the due
-// date not before the legal entity's date today in its company's time zone (422
-// `procurement.rfq_due_date_past`). Audited, and published as RfqPublished, which names the suppliers
-// invited by id and number.
+// after which quotations are recorded against it and nothing changes it until it is awarded
+// (`:award`). The RFQ is checked again as it was when created: every supplier invited must still be
+// one an order could be placed with (422 `procurement.supplier_not_usable`, the field error naming
+// `suppliers[i].supplier_id`), and the due date not before the legal entity's date today in its
+// company's time zone (422 `procurement.rfq_due_date_past`). Audited, and published as RfqPublished,
+// which names the suppliers invited by id and number.
 //
 // POST /v1/rfqs/{id}:publish
 func (c *Client) PublishRfq(ctx context.Context, params PublishRfqParams) (PublishRfqRes, error) {
@@ -78724,6 +80929,174 @@ func (c *Client) sendReleasePurchaseOrder(ctx context.Context, params ReleasePur
 
 	stage = "DecodeResponse"
 	result, err := decodeReleasePurchaseOrderResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ReleaseSalesOrderCreditBlock invokes releaseSalesOrderCreditBlock operation.
+//
+// Releases the credit block of a sales order that was confirmed over its customer's credit limit
+// (ADR-0066, T77b), at the version the caller read (`If-Match`): the order is read under a row lock
+// and its `credit_block` moves from `blocked` to `released`, once, with who released it, by id and
+// name, and when (`credit_released_by`, `credit_released_by_name`, `credit_released_at`). From then on
+// the order takes deliveries and is billed as any confirmed order, and it counts in the customer's
+// exposure, which may then exceed the limit: the release is the credit manager's decision, whatever
+// the amount. An order without a block, or whose block is already released, is refused (409
+// `sales.order_not_credit_blocked`). The release is by its own permission,
+// `sales.order.credit_release`; no rule sets the person who releases apart from the one who confirmed
+// the order. Nothing is checked again and nothing is posted. Audited, and published as
+// SalesOrderCreditReleased. A retry with the same `Idempotency-Key` answers the released order.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/sales-orders/{id}:releaseCreditBlock
+func (c *Client) ReleaseSalesOrderCreditBlock(ctx context.Context, params ReleaseSalesOrderCreditBlockParams) (ReleaseSalesOrderCreditBlockRes, error) {
+	res, err := c.sendReleaseSalesOrderCreditBlock(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendReleaseSalesOrderCreditBlock(ctx context.Context, params ReleaseSalesOrderCreditBlockParams) (res ReleaseSalesOrderCreditBlockRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("releaseSalesOrderCreditBlock"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/sales-orders/{id}:releaseCreditBlock"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ReleaseSalesOrderCreditBlockOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/sales-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":releaseCreditBlock"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ReleaseSalesOrderCreditBlockOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeReleaseSalesOrderCreditBlockResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -89043,6 +91416,181 @@ func (c *Client) sendUpdateRequisition(ctx context.Context, request *Requisition
 
 	stage = "DecodeResponse"
 	result, err := decodeUpdateRequisitionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UpdateRevenueContract invokes updateRevenueContract operation.
+//
+// Sets, on a `draft` revenue contract, what a person judges about its performance obligations
+// (ADR-0068 §2, §7, T81b), at the version the caller read (`If-Match`): per obligation whether it is
+// satisfied at a point in time or over time (`timing`), an over-time obligation's service period
+// (`service_from`, `service_to`) and its stand-alone selling price. The system makes none of these
+// judgements and checks only their form. Each element of `obligations` names an obligation of the
+// contract by its number (422 `revenue.unknown_obligation` naming `obligations[i].obligation_no`),
+// once (422 `revenue.obligation_repeated`); a field left out stays as it is. `timing` is
+// `point_in_time` or `over_time` (422 `revenue.unknown_timing`). Afterwards an `over_time` obligation
+// has both days of its service period (422 `revenue.service_period_required` naming the day missing),
+// `service_from` not after `service_to` (422 `revenue.invalid_service_period`), and a `point_in_time`
+// obligation has none (422 `revenue.service_period_not_allowed`: send the dates as null when setting
+// it back); a stand-alone selling price is in the contract's currency (422
+// `revenue.currency_mismatch`) and more than zero (422 `revenue.price_not_positive`). The contract is
+// read under a row lock; one that is `active` is fixed and refused (409 `revenue.invalid_status`).
+// Nothing is allocated before the contract is activated. The contract's `version` moves. Audited, and
+// published as RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract as
+// the first answered it. Human-only (`x-agent: false`).
+//
+// PATCH /v1/revenue-contracts/{id}
+func (c *Client) UpdateRevenueContract(ctx context.Context, request *RevenueContractUpdate, params UpdateRevenueContractParams) (UpdateRevenueContractRes, error) {
+	res, err := c.sendUpdateRevenueContract(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUpdateRevenueContract(ctx context.Context, request *RevenueContractUpdate, params UpdateRevenueContractParams) (res UpdateRevenueContractRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updateRevenueContract"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.URLTemplateKey.String("/v1/revenue-contracts/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UpdateRevenueContractOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/revenue-contracts/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUpdateRevenueContractRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UpdateRevenueContractOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUpdateRevenueContractResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

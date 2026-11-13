@@ -1608,8 +1608,12 @@ erDiagram
   rfq ||--|{ rfq_item : "asks for"
   rfq ||--|{ rfq_supplier : invites
   rfq_supplier ||--o| supplier_quotation : quotes
+  rfq |o--o| contract : "awarded to"
   supplier_quotation ||--|{ supplier_quotation_item : prices
   rfq_item ||--o{ supplier_quotation_item : "priced by"
+  contract ||--o{ schedule_line : schedules
+  contract_item ||--o{ schedule_line : "asked for by"
+  schedule_line |o--o| purchase_order : "called off as"
   requisition { uuid id PK
     text document_number
     uuid legal_entity_id
@@ -1632,6 +1636,7 @@ erDiagram
     uuid cost_center_id "T56e"
     uuid catalog_item_id "T84b" }
   contract { uuid id PK
+    text kind "contract, scheduling_agreement"
     uuid supplier_id
     date valid_from
     date valid_to
@@ -1652,6 +1657,14 @@ erDiagram
     int contract_item_no
     text status "active | retired"
     text search_text "generated"
+    int version }
+  schedule_line { uuid id PK
+    uuid contract_id
+    int line_no
+    int contract_item_no
+    date delivery_date
+    numeric quantity
+    uuid purchase_order_id
     int version }
   contract_release { uuid contract_id PK
     uuid purchase_order_id PK
@@ -1689,7 +1702,8 @@ erDiagram
     uuid legal_entity_id
     char currency
     date due_date
-    text status "draft | published"
+    text status "draft | published | awarded"
+    uuid contract_id FK "the contract an award created"
     int version }
   rfq_item { uuid rfq_id PK
     int item_no PK
@@ -1706,7 +1720,7 @@ erDiagram
     uuid supplier_id
     text supplier_reference
     date valid_until
-    text status "recorded"
+    text status "recorded | awarded | not_awarded"
     int version }
   supplier_quotation_item { uuid supplier_quotation_id PK
     int rfq_item_no PK
@@ -1956,6 +1970,42 @@ may leave RFQ items out. Neither table is changed or deleted. The
 quotation's total, the sum of quantity × unit price ÷ price unit over its
 items, is computed on read from its prices and the RFQ's quantities, which
 never change.
+
+An award (migration 000297, T82d, ADR-0069 §7) moves a published RFQ to
+`awarded`, once, and gives it `contract_id`, the draft contract the award
+created: an awarded RFQ names a contract and no other does
+(`rfq_awarded_to_contract`), a contract comes from one RFQ at most
+(`rfq_contract_once`, whose index also finds a contract's RFQ: the
+contract carries no column for it), and an awarded RFQ stays awarded to
+its contract (`rfq_lifecycle`). The trigger lets an RFQ be awarded only
+from `published`, with one of its quotations marked `awarded` and a
+contract of its company, in its currency, with that quotation's supplier.
+A quotation is written as `recorded` and its outcome, `awarded` or
+`not_awarded`, is set once, while its RFQ is still published (triggers
+`supplier_quotation_outcome` and `supplier_quotation_outcome_of_published`);
+one quotation of an RFQ is awarded (`supplier_quotation_one_awarded`). The
+application may update a quotation's status, version and `updated_by`
+and nothing else of it. Permission `procurement.rfq.award`.
+
+A contract has a kind (migration 000301, T83a, ADR-0070 §1): `contract`,
+the default, or `scheduling_agreement`, given when it is created and kept
+(trigger `contract_kind_kept`). A scheduling agreement is a contract in
+every other respect and has a delivery schedule: `schedule_line` asks for
+a quantity above zero of one of the agreement's items (a foreign key to
+`contract_item`), in that item's unit, due on a date. Trigger
+`schedule_line_checked` reads the contract `FOR SHARE` and takes a line
+only for a scheduling agreement that is `active`, for a live item, on a
+date within the agreement's validity, numbered after the agreement's last
+(`line_no` 1 to n, unique per contract). A line is not deleted, and what
+it asks for is not changed. Its value, quantity × the item's unit price ÷
+price unit, is computed on read: an active contract's items do not
+change. A line is called off once (migration 000302, T83b, ADR-0070 §4):
+`purchase_order_id` names the draft purchase order the call-off created
+against the agreement, one order per line (`schedule_line_order_once`);
+trigger `schedule_line_call_off` lets a line be entered only not called
+off and be called off once, to an order whose contract is the line's
+agreement. The order is any purchase order: receipts, GR/IR and invoices
+do not read schedule lines.
 
 An order item carries its expected delivery date (`delivery_date`, optional,
 SAP's EKET-EINDT; migration 000205, T53g, ADR-0051 §5): the one it is
@@ -3154,7 +3204,7 @@ line or reservation. An agent's budget is identity's
 
 ## 3.16 Later contexts
 
-`sales`, `receivables`, `inventory`, `manufacturing`, `maintenance`,
+`sales`, `receivables`, `revenue` (§3.30), `inventory`, `manufacturing`, `maintenance`,
 `projects`, `hr`, `controlling` (plan values from T56g, §3.19), `assets` (the asset master from T57b, §3.21) follow the same patterns:
 
 - documents as header + items with `document_number` from number ranges;
@@ -4259,6 +4309,8 @@ erDiagram
     date net_due_date "when posted"
     smallint journal_entry_year "when posted"
     uuid journal_entry_id "ledger, when posted"
+    uuid source_document_id "optional: sales, the billing document"
+    text source_document_number "with source_document_id"
     int version }
   customer_invoice_item { int item_no PK
     text description
@@ -4301,7 +4353,12 @@ erDiagram
   invoice's (`customer_invoice_entry_once`). Posting is the only change:
   the application may update the columns posting sets, and the trigger
   `customer_invoice_posted_once` refuses a change of anything but a
-  draft being posted. Nothing deletes an invoice.
+  draft being posted. Nothing deletes an invoice. An invoice another
+  context entered names the document it came from by id and number, both
+  or neither (`customer_invoice_source`; T79b, migration 000296: a
+  billing document of sales), and a document is invoiced once
+  (`customer_invoice_source_once`); the source is written with the
+  invoice and not among the columns the application may update.
 - `receivables.customer_invoice_item`: a net amount above zero
   (`customer_invoice_item_net_positive`) on an account, with the tax its
   output tax code gave at the invoice date, never negative and 0 without a
@@ -4453,7 +4510,14 @@ keeps no foreign key out of its schema (02 §2.1). It stores a customer's
 credit limit in a company and nothing else: the credit exposure, what
 the customer's open items add up to, is computed from the ledger when it
 is read (ADR-0066 §3), and the check of an amount against the limit
-writes nothing (ADR-0066 §4).
+writes nothing (ADR-0066 §4). From T77b the exposure has a second part,
+the customer's confirmed sales orders not yet billed, read from the
+sales context (§3.29) through a port and stored nowhere either; the
+check a sales order's confirmation asks reads the limit's row
+`FOR UPDATE` under an advisory lock on the customer in the company,
+which setting a limit takes too, so two orders of one customer are
+checked one after the other (ADR-0066, As built T77b). T77b adds no table and no column
+here.
 
 ```mermaid
 erDiagram
@@ -4574,7 +4638,12 @@ erDiagram
     date billing_date
     char currency "the order's"
     bigint net_amount "sum of the items'"
-    text status "created"
+    text status "created, posted"
+    date posting_date "when posted"
+    uuid customer_invoice_id "receivables, when posted"
+    text customer_invoice_number "when posted"
+    smallint journal_entry_year "when posted"
+    uuid journal_entry_id "ledger, when posted"
     int version
   }
   billing_document_item { uuid billing_document_id PK
@@ -4633,7 +4702,18 @@ erDiagram
   (`sales_order_confirmed_once`); the application may update `status`,
   `version` and `updated_by` alone and delete nothing. The list reads a
   company's orders by date and a customer's (`sales_order_by_date`,
-  `sales_order_by_customer`).
+  `sales_order_by_customer`). T77b (migration 000300) adds the credit
+  block: `credit_block` is `none`, `blocked` or `released`
+  (`sales_order_credit_block_check`), `none` for a draft
+  (`sales_order_credit_block_confirmed`); `credit_released_by`,
+  `credit_released_by_name` (the principal's display name then, as
+  identity holds it, with no rule of its own) and
+  `credit_released_at` are set exactly when it is `released`
+  (`sales_order_credit_release`). The change rule
+  (`sales_order_confirmed_once`) admits a draft confirmed with `none` or
+  `blocked`, and a blocked order released, once; the application may
+  also update these four columns. The credit exposure reads a
+  customer's confirmed, unblocked orders by `sales_order_by_customer`.
 - `sales.sales_order_item`: a quotation item's columns and rules, with
   `delivered_quantity` and `billed_quantity`, 0 when created:
   `0 <= billed_quantity <= delivered_quantity <= quantity`
@@ -4644,7 +4724,8 @@ erDiagram
 - `sales.delivery` (T78c, migration 000292): a confirmation that
   quantities of an order's items were delivered on `delivery_date`,
   numbered within its order (`delivery_no_positive`, `delivery_no_once`).
-  Only a confirmed order takes one (`delivery_order_confirmed`, a trigger
+  Only a confirmed order that is not blocked for credit (T77b) takes
+  one (`delivery_order_confirmed`, a trigger
   that also moves the order's `version` once per delivery and sets its
   `updated_by`, running as the table's owner: the application itself
   still changes a confirmed order in nothing, and
@@ -4665,12 +4746,18 @@ erDiagram
   one order, numbered once per company
   (`billing_document_number_once`), with its billing date and a net
   value above zero (`billing_document_net_positive`); the status is
-  `created` (`billing_document_status_check`; T79b adds `posted`). It is
+  `created` or `posted` (`billing_document_status_check`). It is
   of a confirmed order of its company, customer and currency
   (`billing_document_order_confirmed`, a trigger running as the table's
   owner that also moves the order's `version` once per document and sets
-  its `updated_by`). The application may neither change nor delete one
-  until T79b is granted what posting sets. The list reads a company's
+  its `updated_by`). A posted document (T79b, migration 000296) names
+  the customer invoice it posted as, by id and number, its posting date
+  and the invoice's journal entry with its year, and a created one none
+  of them (`billing_document_posted`); a customer invoice is one
+  document's (`billing_document_invoice_once`). Posting is the only
+  change: the application may update the columns posting sets, and the
+  trigger `billing_document_posted_once` refuses a change of anything
+  but a created document being posted. Nothing deletes one. The list reads a company's
   documents by date, a customer's and an order's
   (`billing_document_by_date`, `billing_document_by_customer`,
   `billing_document_by_order`).
@@ -4720,11 +4807,97 @@ erDiagram
   its order. Each has `condition_type`, `name`, `kind` and `amount`
   (minor units of the document's currency, a discount's negative); a
   price its `unit_price` and `price_unit`, a discount its `percent`. The
-  amounts add up to the item's `net_amount`.
+  amounts add up to the item's `net_amount`. An item whose price was
+  entered (`price_source` `manual`) has its price alone: an entered
+  price is the final net price (T80c, product owner 2026-11-12).
 - `sales.outbox`, `sales.inbox`: the context's events
   (`QuotationChanged`, `SalesOrderChanged`, `SalesOrderDelivered`,
-  `BillingDocumentChanged`, `SalesPriceChanged`).
+  `BillingDocumentChanged`, `BillingDocumentPosted`, `SalesPriceChanged`,
+  `SalesOrderCreditBlocked`, `SalesOrderCreditReleased`).
 - Permissions `sales.quotation.read` and `.write`; `sales.order.read`,
-  `.write` and `.confirm`; `sales.delivery.confirm`; `sales.billing.read`,
+  `.write`, `.confirm` and `.credit_release` (T77b);
+  `sales.delivery.confirm`; `sales.billing.read`,
   `.write` and `.post` (posting comes with T79b); `sales.price.read` and
   `.write`.
+
+## 3.30 Revenue recognition (`revenue`)
+
+ADR-0068, T81a-T81d. A leaf: it reads the sales context's orders (§3.29,
+`sales.Orders`), the partner context's names and tenancy through its
+ports and keeps no foreign key out of its schema (02 §2.1). T81a
+(migration 000298) builds the schema with its outbox and inbox and the
+revenue contract: the contract with a customer that one confirmed sales
+order stands for, with one performance obligation per order item. The
+inbox is in use: the context consumes the sales context's
+`SalesOrderChanged` and creates a confirmed order's contract, once
+(ADR-0068 §4). T81b (migration 000299) lets a person set a draft's
+obligations and activate the contract, which allocates its transaction
+price to them and fixes it. Nothing is posted before T81d.
+
+```mermaid
+erDiagram
+  contract ||--|{ performance_obligation : "has"
+  contract { uuid id PK
+    uuid legal_entity_id "tenancy"
+    uuid customer_id "partner"
+    uuid sales_order_id "sales, one contract per order"
+    text sales_order_number "when created"
+    char currency "the company's local currency"
+    bigint transaction_price "the order's net value, without tax"
+    text status "draft, active"
+    int version }
+  performance_obligation { int obligation_no PK
+    uuid contract_id FK
+    int order_item_no "sales: one obligation per order item"
+    text item_key
+    text description
+    bigint net_amount "the order item's net value"
+    text timing "point_in_time, over_time"
+    date service_from "over_time alone"
+    date service_to "not before service_from"
+    bigint standalone_selling_price "above 0"
+    bigint allocated_amount "set at activation; the shares are the transaction price" }
+```
+
+- `revenue.contract`: one per sales order
+  (`contract_one_per_sales_order`: the consumer's insert and a person's
+  request leave an existing one as it is); the status is `draft` or
+  `active` (`contract_status_check`); `transaction_price` is
+  above zero (`contract_transaction_price_positive`), minor units of
+  `currency`; it keeps its order's number
+  (`contract_sales_order_number_check`), which the list reads the
+  tenant's contracts by (`contract_by_order_number`,
+  `contract_by_customer`). A contract changes only while it is a draft
+  (`contract_fixed_once_active`: its version moves with each change of
+  its obligations, and activating it is its last change), and becomes
+  active only when every obligation holds its allocated amount and the
+  amounts add up to the transaction price
+  (`contract_allocated_in_full`). The application may set its status,
+  version and `updated_by` alone, and deletes nothing.
+- `revenue.performance_obligation`: numbered from 1 within its contract,
+  one per order item (`performance_obligation_one_per_order_item`), with
+  the item's key and description
+  (`performance_obligation_item_key_check`,
+  `performance_obligation_description_check`) and net value
+  (`performance_obligation_net_positive`); `timing` is `point_in_time`
+  or `over_time` (`performance_obligation_timing_check`) and
+  `standalone_selling_price` is above zero
+  (`performance_obligation_price_positive`): both are a person's
+  judgement, and start as point in time and the item's net value
+  (ADR-0068 §2). An over-time obligation has a service period, from not
+  after to, and a point-in-time obligation none
+  (`performance_obligation_service_period`); `allocated_amount` is not
+  negative (`performance_obligation_allocated_check`); the application
+  leaves it absent until it activates the contract (the database holds
+  the activation to the amounts, not a draft to their absence). An obligation is written and changed only
+  while its contract is a draft
+  (`performance_obligation_fixed_once_active`, which locks the
+  contract's row, so a change and the activation wait for one another).
+  The application may set its timing, service period, stand-alone
+  selling price and allocated amount alone, and deletes nothing.
+- `revenue.outbox`, `revenue.inbox`: the context's events
+  (`RevenueContractChanged`), and the events its consumer
+  `revenue-contracts` has read (the sales context's
+  `SalesOrderChanged`), each recorded in the transaction of what the
+  reading did.
+- Permissions `revenue.contract.read`, `.write` and `.activate`.

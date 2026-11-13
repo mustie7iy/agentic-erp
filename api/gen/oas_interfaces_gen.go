@@ -41,6 +41,10 @@ type ActivateOrgUnitRes interface {
 	activateOrgUnitRes()
 }
 
+type ActivateRevenueContractRes interface {
+	activateRevenueContractRes()
+}
+
 type AddHierarchyNodeRes interface {
 	addHierarchyNodeRes()
 }
@@ -61,6 +65,10 @@ type AssignProfitCenterRes interface {
 	assignProfitCenterRes()
 }
 
+type AwardRfqRes interface {
+	awardRfqRes()
+}
+
 type BlockBusinessPartnerRes interface {
 	blockBusinessPartnerRes()
 }
@@ -75,6 +83,10 @@ type BlockOrgUnitRes interface {
 
 type BlockPrincipalRes interface {
 	blockPrincipalRes()
+}
+
+type CallOffScheduleLineRes interface {
+	callOffScheduleLineRes()
 }
 
 type CancelApprovalRequestRes interface {
@@ -341,6 +353,10 @@ type CreateRequisitionRes interface {
 	createRequisitionRes()
 }
 
+type CreateRevenueContractRes interface {
+	createRevenueContractRes()
+}
+
 type CreateRfqRes interface {
 	createRfqRes()
 }
@@ -359,6 +375,10 @@ type CreateSalesOrderRes interface {
 
 type CreateSalesPriceRes interface {
 	createSalesPriceRes()
+}
+
+type CreateScheduleLineRes interface {
+	createScheduleLineRes()
 }
 
 type CreateSegmentRes interface {
@@ -827,6 +847,14 @@ type GetRequisitionRes interface {
 
 type GetRevaluationRunRes interface {
 	getRevaluationRunRes()
+}
+
+type GetRevenueContractRes interface {
+	getRevenueContractRes()
+}
+
+type GetRfqComparisonRes interface {
+	getRfqComparisonRes()
 }
 
 type GetRfqRes interface {
@@ -1337,6 +1365,10 @@ type ListRevaluationRunsRes interface {
 	listRevaluationRunsRes()
 }
 
+type ListRevenueContractsRes interface {
+	listRevenueContractsRes()
+}
+
 type ListRfqsRes interface {
 	listRfqsRes()
 }
@@ -1363,6 +1395,10 @@ type ListSalesOrdersRes interface {
 
 type ListSalesPricesRes interface {
 	listSalesPricesRes()
+}
+
+type ListScheduleLinesRes interface {
+	listScheduleLinesRes()
 }
 
 type ListSegmentsRes interface {
@@ -1483,6 +1519,10 @@ type PlaceInHierarchyRes interface {
 
 type PostBankStatementLineRes interface {
 	postBankStatementLineRes()
+}
+
+type PostBillingDocumentRes interface {
+	postBillingDocumentRes()
 }
 
 type PostCustomerInvoiceRes interface {
@@ -1615,6 +1655,10 @@ type ReleasePaymentRunRes interface {
 
 type ReleasePurchaseOrderRes interface {
 	releasePurchaseOrderRes()
+}
+
+type ReleaseSalesOrderCreditBlockRes interface {
+	releaseSalesOrderCreditBlockRes()
 }
 
 type ReleaseSupplierInvoiceRes interface {
@@ -1863,6 +1907,10 @@ type UpdatePurchaseOrderRes interface {
 
 type UpdateRequisitionRes interface {
 	updateRequisitionRes()
+}
+
+type UpdateRevenueContractRes interface {
+	updateRevenueContractRes()
 }
 
 type UpdateRoleRes interface {

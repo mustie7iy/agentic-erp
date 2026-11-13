@@ -94,6 +94,7 @@ info:
     - name: receivables
     - name: collections
     - name: sales
+    - name: revenue
     - name: credit
     - name: payments
     - name: workflow
@@ -266,6 +267,9 @@ channels:
       RfqChanged: {$ref: '#/components/messages/RfqChanged'}
       RfqPublished: {$ref: '#/components/messages/RfqPublished'}
       SupplierQuotationRecorded: {$ref: '#/components/messages/SupplierQuotationRecorded'}
+      RfqAwarded: {$ref: '#/components/messages/RfqAwarded'}
+      ScheduleLineChanged: {$ref: '#/components/messages/ScheduleLineChanged'}
+      ScheduleLineCalledOff: {$ref: '#/components/messages/ScheduleLineCalledOff'}
   payables:
     address: 'erp.{cell}.payables.{tenant}.{event}'
     title: Accounts payable events
@@ -439,7 +443,7 @@ channels:
   sales:
     address: 'erp.{cell}.sales.{tenant}.{event}'
     title: Sales events
-    description: Quotations, sales orders, their deliveries, billing documents and sales prices and discounts (ADR-0067 §6, §10, §11).
+    description: Quotations, sales orders, their deliveries, their credit blocks, billing documents and sales prices and discounts (ADR-0067 §6, §10, §11; ADR-0066, T77b).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
@@ -448,6 +452,17 @@ channels:
       SalesPriceChanged: {$ref: '#/components/messages/SalesPriceChanged'}
       SalesOrderDelivered: {$ref: '#/components/messages/SalesOrderDelivered'}
       BillingDocumentChanged: {$ref: '#/components/messages/BillingDocumentChanged'}
+      SalesOrderCreditBlocked: {$ref: '#/components/messages/SalesOrderCreditBlocked'}
+      SalesOrderCreditReleased: {$ref: '#/components/messages/SalesOrderCreditReleased'}
+      BillingDocumentPosted: {$ref: '#/components/messages/BillingDocumentPosted'}
+  revenue:
+    address: 'erp.{cell}.revenue.{tenant}.{event}'
+    title: Revenue recognition events
+    description: Revenue contracts (ADR-0068 §5).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      RevenueContractChanged: {$ref: '#/components/messages/RevenueContractChanged'}
   credit:
     address: 'erp.{cell}.credit.{tenant}.{event}'
     title: Credit management events
@@ -588,6 +603,9 @@ operations:
       - $ref: '#/channels/procurement/messages/RfqChanged'
       - $ref: '#/channels/procurement/messages/RfqPublished'
       - $ref: '#/channels/procurement/messages/SupplierQuotationRecorded'
+      - $ref: '#/channels/procurement/messages/RfqAwarded'
+      - $ref: '#/channels/procurement/messages/ScheduleLineChanged'
+      - $ref: '#/channels/procurement/messages/ScheduleLineCalledOff'
   publishPayablesEvents:
     action: send
     title: Payables publishes
@@ -742,6 +760,15 @@ operations:
       - $ref: '#/channels/sales/messages/SalesPriceChanged'
       - $ref: '#/channels/sales/messages/SalesOrderDelivered'
       - $ref: '#/channels/sales/messages/BillingDocumentChanged'
+      - $ref: '#/channels/sales/messages/SalesOrderCreditBlocked'
+      - $ref: '#/channels/sales/messages/SalesOrderCreditReleased'
+      - $ref: '#/channels/sales/messages/BillingDocumentPosted'
+  publishRevenueEvents:
+    action: send
+    title: Revenue recognition publishes
+    channel: {$ref: '#/channels/revenue'}
+    messages:
+      - $ref: '#/channels/revenue/messages/RevenueContractChanged'
   publishCreditEvents:
     action: send
     title: Credit management publishes
@@ -2904,11 +2931,11 @@ components:
     RfqChanged:
       name: RfqChanged
       title: Request for quotation changed
-      summary: "A request for quotation was created or published."
+      summary: "A request for quotation was created, published or awarded."
       description: |
-        Emitted by `rfqs` (POST, `created`) and its `:publish` (`published`),
-        ADR-0069 §5: the RFQ as it stands after the change. Subject is the
-        RFQ id.
+        Emitted by `rfqs` (POST, `created`), its `:publish` (`published`)
+        and its `:award` (`awarded`), ADR-0069 §5: the RFQ as it stands
+        after the change. Subject is the RFQ id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -2961,6 +2988,77 @@ components:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000703", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.supplier_quotation_recorded.v1", "subject": "0192a000-0000-7000-8000-000000000711", "time": "2026-11-20T10:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
           payload: {"supplier_quotation_id": "0192a000-0000-7000-8000-000000000711", "rfq_id": "0192a000-0000-7000-8000-000000000701", "document_number": "RQ100000", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "legal_entity_code": "2000", "supplier_id": "0192a000-0000-7000-8000-000000000301", "supplier_number": "BP90000001", "supplier_reference": "Q-2026-0457", "valid_until": "2027-01-31", "total": {"amount": "20666.67", "currency": "EUR"}, "complete": true, "item_count": 2}
+    RfqAwarded:
+      name: RfqAwarded
+      title: Request for quotation awarded
+      summary: "A request for quotation was awarded to one supplier's quotation, and a draft contract created from it."
+      description: |
+        Emitted by `rfqs/{id}:award`, ADR-0069 §7, once per RFQ: the
+        quotation that won, the draft contract created with its supplier
+        (the RFQ's items at the quoted prices, valid from `valid_from` to
+        `valid_to`) and the quotation's total, the contract's target value.
+        The supplier is named by id and number, never by name (a partner
+        may be a person; product owner, 2026-11-05). The RFQ's other
+        quotations are not awarded. Subject is the RFQ id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.rfq_awarded.v1}
+      payload: {$ref: '#/components/schemas/RfqAwardedV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000704", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.rfq_awarded.v1", "subject": "0192a000-0000-7000-8000-000000000701", "time": "2026-12-07T11:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
+          payload: {"rfq_id": "0192a000-0000-7000-8000-000000000701", "document_number": "RQ100000", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "legal_entity_code": "2000", "supplier_quotation_id": "0192a000-0000-7000-8000-000000000711", "supplier_id": "0192a000-0000-7000-8000-000000000301", "supplier_number": "BP90000001", "supplier_reference": "Q-2026-0457", "contract_id": "0192a000-0000-7000-8000-000000000721", "contract_document_number": "4600100000", "valid_from": "2027-01-01", "valid_to": "2027-12-31", "total": {"amount": "20666.67", "currency": "EUR"}}
+    ScheduleLineChanged:
+      name: ScheduleLineChanged
+      title: Schedule line changed
+      summary: "A line of a scheduling agreement's delivery schedule was entered or called off."
+      description: |
+        Emitted by `contracts/{id}/schedule-lines` (POST) and
+        `contracts/{id}/schedule-lines/{line_no}:callOff`, ADR-0070 §3-§5,
+        with the line as the change left it: the agreement, the item asked
+        for, the quantity in that item's unit, the date it is due, the
+        line's value in the agreement's currency and its status. `change`
+        says what happened: `created` or `called_off`; a line called off
+        names its purchase order. The supplier is named by id and number,
+        never by name (a partner may be a person; product owner,
+        2026-11-05). Subject is the schedule line id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.schedule_line_changed.v1}
+      payload: {$ref: '#/components/schemas/ScheduleLineChangedV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000705", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.schedule_line_changed.v1", "subject": "0192a000-0000-7000-8000-000000000731", "time": "2026-11-20T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
+          payload: {"schedule_line_id": "0192a000-0000-7000-8000-000000000731", "contract_id": "0192a000-0000-7000-8000-000000000721", "document_number": "CT100001", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "legal_entity_code": "2000", "supplier_id": "0192a000-0000-7000-8000-000000000301", "supplier_number": "BP90000001", "line_no": 1, "contract_item_no": 1, "material_key": "CHAIR-ERGO-01", "delivery_date": "2026-12-15", "quantity": {"value": "40", "unit": "EA"}, "amount": {"amount": "16500.00", "currency": "EUR"}, "status": "scheduled", "change": "created"}
+    ScheduleLineCalledOff:
+      name: ScheduleLineCalledOff
+      title: Schedule line called off
+      summary: "A schedule line of a scheduling agreement was called off as a draft purchase order."
+      description: |
+        Emitted by `contracts/{id}/schedule-lines/{line_no}:callOff`,
+        ADR-0070 §4, once per line: the line, and the draft purchase order
+        created against the agreement for its quantity at the agreement's
+        price, due on the line's date. The order is released, received and
+        invoiced as any order, with its own events. The supplier is named
+        by id and number, never by name (a partner may be a person; product
+        owner, 2026-11-05). Subject is the schedule line id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.schedule_line_called_off.v1}
+      payload: {$ref: '#/components/schemas/ScheduleLineCalledOffV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000706", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.schedule_line_called_off.v1", "subject": "0192a000-0000-7000-8000-000000000731", "time": "2026-12-01T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
+          payload: {"schedule_line_id": "0192a000-0000-7000-8000-000000000731", "contract_id": "0192a000-0000-7000-8000-000000000721", "document_number": "CT100001", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "legal_entity_code": "2000", "supplier_id": "0192a000-0000-7000-8000-000000000301", "supplier_number": "BP90000001", "line_no": 1, "contract_item_no": 1, "material_key": "CHAIR-ERGO-01", "delivery_date": "2026-12-15", "quantity": {"value": "40", "unit": "EA"}, "amount": {"amount": "16500.00", "currency": "EUR"}, "purchase_order_id": "0192a000-0000-7000-8000-000000000741", "purchase_order_document_number": "PO100007", "order_date": "2026-12-01"}
     ContractExpired:
       name: ContractExpired
       title: Contract expired
@@ -4039,7 +4137,10 @@ components:
         is confirmed (`confirmed`, status_before `draft`). It carries the
         order's net value, not its items, names the customer by id and
         number, never by name, and the quotation the order was created
-        from (null for an order created directly).
+        from (null for an order created directly). `credit_block` is the
+        order's credit block after the change: `none` for a draft, and
+        `none` or `blocked` for an order just confirmed (T77b); a blocked
+        one is also published as SalesOrderCreditBlocked.
         `GET /v1/sales-orders/{id}` returns the order at `version` or
         later. Subject is the sales order id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
@@ -4052,10 +4153,10 @@ components:
       examples:
         - name: created
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001101, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_order_changed.v1, subject: 0192a000-0000-7000-8000-000000001111, time: '2026-11-19T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {sales_order_id: 0192a000-0000-7000-8000-000000001111, document_number: SO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, quotation_id: 0192a000-0000-7000-8000-000000001011, order_date: '2026-11-19', payment_term_code: NT30, net_amount: {amount: '1500.00', currency: CAD}, status: draft, status_before: null, version: 1}
+          payload: {sales_order_id: 0192a000-0000-7000-8000-000000001111, document_number: SO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, quotation_id: 0192a000-0000-7000-8000-000000001011, order_date: '2026-11-19', payment_term_code: NT30, net_amount: {amount: '1500.00', currency: CAD}, status: draft, status_before: null, credit_block: none, version: 1}
         - name: confirmed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001102, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_order_changed.v1, subject: 0192a000-0000-7000-8000-000000001111, time: '2026-11-19T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {sales_order_id: 0192a000-0000-7000-8000-000000001111, document_number: SO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, quotation_id: 0192a000-0000-7000-8000-000000001011, order_date: '2026-11-19', payment_term_code: NT30, net_amount: {amount: '1500.00', currency: CAD}, status: confirmed, status_before: draft, version: 2}
+          payload: {sales_order_id: 0192a000-0000-7000-8000-000000001111, document_number: SO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, quotation_id: 0192a000-0000-7000-8000-000000001011, order_date: '2026-11-19', payment_term_code: NT30, net_amount: {amount: '1500.00', currency: CAD}, status: confirmed, status_before: draft, credit_block: none, version: 2}
     SalesPriceChanged:
       name: SalesPriceChanged
       x-webhook: true
@@ -4117,6 +4218,58 @@ components:
         - name: delivered
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001103, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_order_delivered.v1, subject: 0192a000-0000-7000-8000-000000001111, time: '2026-11-20T15:42:07Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {delivery_id: 0192a000-0000-7000-8000-000000001211, delivery_no: 1, sales_order_id: 0192a000-0000-7000-8000-000000001111, document_number: SO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, delivery_date: '2026-11-20', items: [{item_no: 1, quantity: {value: '120', unit: EA}, delivered_quantity: {value: '120', unit: EA}}], version: 3}
+    SalesOrderCreditBlocked:
+      name: SalesOrderCreditBlocked
+      x-webhook: true
+      title: Sales order blocked for credit
+      summary: A sales order was confirmed over its customer's credit limit and is blocked.
+      description: |
+        Emitted when a sales order is confirmed with a credit block
+        (ADR-0066, T77b): its gross value, in the company's currency, and
+        the customer's exposure together are more than the customer's
+        credit limit in the company. It carries the order's gross value,
+        the amount checked, the limit and the exposure the order was
+        checked against, and names the customer by id and number, never
+        by name. The order is confirmed (SalesOrderChanged says so, with
+        the same version) and takes no delivery until its block is
+        released (SalesOrderCreditReleased).
+        `GET /v1/sales-orders/{id}` returns the order at `version` or
+        later. Subject is the sales order id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.sales.sales_order_credit_blocked.v1}
+      payload: {$ref: '#/components/schemas/SalesOrderCreditBlockedV1'}
+      examples:
+        - name: blocked
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001104, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_order_credit_blocked.v1, subject: 0192a000-0000-7000-8000-000000001112, time: '2026-11-21T09:12:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {sales_order_id: 0192a000-0000-7000-8000-000000001112, document_number: SO100002, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, gross_amount: {amount: '5250.00', currency: CAD}, checked_amount: {amount: '5250.00', currency: CAD}, limit: {amount: '5000.00', currency: CAD}, exposure: {amount: '3045.00', currency: CAD}, version: 2}
+    SalesOrderCreditReleased:
+      name: SalesOrderCreditReleased
+      x-webhook: true
+      title: Sales order's credit block released
+      summary: The credit block of a sales order was released.
+      description: |
+        Emitted when a person holding `sales.order.credit_release`
+        releases the credit block of a sales order (ADR-0066, T77b), once.
+        It names who released it and when, and the customer by id and
+        number, never by name. From then on the order takes deliveries
+        and counts in the customer's exposure.
+        `GET /v1/sales-orders/{id}` returns the order at `version` or
+        later. Subject is the sales order id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.sales.sales_order_credit_released.v1}
+      payload: {$ref: '#/components/schemas/SalesOrderCreditReleasedV1'}
+      examples:
+        - name: released
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001105, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_order_credit_released.v1, subject: 0192a000-0000-7000-8000-000000001112, time: '2026-11-21T11:30:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
+          payload: {sales_order_id: 0192a000-0000-7000-8000-000000001112, document_number: SO100002, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, released_by: 0192a000-0000-7000-8000-000000000102, released_at: '2026-11-21T11:30:00Z', version: 3}
     BillingDocumentChanged:
       name: BillingDocumentChanged
       x-webhook: true
@@ -4128,7 +4281,8 @@ components:
         the delivered quantities of a sales order not yet billed. It
         carries the document's net value, not its items, names the
         customer by id and number, never by name, and the sales order it
-        bills by id and number. Nothing was posted.
+        bills by id and number. Nothing was posted. Posting the document
+        emits BillingDocumentPosted alone, not this event.
         `GET /v1/billing-documents/{id}` returns the document at
         `version` or later. Subject is the billing document id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
@@ -4142,6 +4296,67 @@ components:
         - name: created
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001104, source: /erp/eu-1/sales, type: com.example.erp.sales.billing_document_changed.v1, subject: 0192a000-0000-7000-8000-000000001311, time: '2026-11-20T16:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {billing_document_id: 0192a000-0000-7000-8000-000000001311, document_number: BD100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, sales_order_id: 0192a000-0000-7000-8000-000000001111, sales_order_number: SO100001, billing_date: '2026-11-20', net_amount: {amount: '1500.00', currency: CAD}, status: created, status_before: null, version: 1}
+    RevenueContractChanged:
+      name: RevenueContractChanged
+      x-webhook: true
+      title: Revenue contract changed
+      summary: A revenue contract was created, changed or activated.
+      description: |
+        Emitted at each change of a revenue contract (ADR-0068 §5, T81a,
+        T81b): when it is created (`draft`, status_before null), by the
+        system when its sales order is confirmed or by a person for a
+        confirmed order that had none (the event's `actorid` says which);
+        when a person changes its obligations' timing, service periods or
+        stand-alone selling prices (`draft`, status_before `draft`); and
+        when it is activated (`active`, status_before `draft`), which
+        allocates its transaction price and fixes its obligations.
+        It carries the contract's transaction price, the order's net value
+        without tax, and the number of its performance obligations, not the
+        obligations, and names the customer by id and number, never by name.
+        `GET /v1/revenue-contracts/{id}` returns the contract at `version`
+        or later. Subject is the contract id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.revenue.revenue_contract_changed.v1}
+      payload: {$ref: '#/components/schemas/RevenueContractChangedV1'}
+      examples:
+        - name: created
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001101, source: /erp/eu-1/revenue, type: com.example.erp.revenue.revenue_contract_changed.v1, subject: 0192a000-0000-7000-8000-000000001111, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {revenue_contract_id: 0192a000-0000-7000-8000-000000001111, sales_order_id: 0192a000-0000-7000-8000-000000001021, sales_order_number: SO100002, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, transaction_price: {amount: '2700.00', currency: CAD}, obligation_count: 2, status: draft, status_before: null, version: 1}
+        - name: activated
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001102, source: /erp/eu-1/revenue, type: com.example.erp.revenue.revenue_contract_changed.v1, subject: 0192a000-0000-7000-8000-000000001111, time: '2026-11-20T11:30:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {revenue_contract_id: 0192a000-0000-7000-8000-000000001111, sales_order_id: 0192a000-0000-7000-8000-000000001021, sales_order_number: SO100002, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, transaction_price: {amount: '2700.00', currency: CAD}, obligation_count: 2, status: active, status_before: draft, version: 3}
+    BillingDocumentPosted:
+      name: BillingDocumentPosted
+      x-webhook: true
+      title: Billing document posted
+      summary: A billing document was posted as a customer invoice.
+      description: |
+        Emitted when a billing document is posted (ADR-0067 §9, T79b): a
+        customer invoice was entered in accounts receivable with the
+        document's items and posted in the same transaction, and its
+        debit line is the customer's open item. It carries the document's
+        net value and the tax and gross amount of that customer invoice,
+        not the items, names the customer by id and number, never by
+        name, and names the customer invoice and the journal entry it
+        posted. The customer invoice's own events (CustomerInvoiceChanged,
+        CustomerInvoicePosted) are emitted beside it.
+        `GET /v1/billing-documents/{id}` returns the document at
+        `version` or later. Subject is the billing document id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.sales.billing_document_posted.v1}
+      payload: {$ref: '#/components/schemas/BillingDocumentPostedV1'}
+      examples:
+        - name: posted
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001105, source: /erp/eu-1/sales, type: com.example.erp.sales.billing_document_posted.v1, subject: 0192a000-0000-7000-8000-000000001311, time: '2026-11-20T16:20:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {billing_document_id: 0192a000-0000-7000-8000-000000001311, document_number: BD100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, sales_order_id: 0192a000-0000-7000-8000-000000001111, sales_order_number: SO100001, billing_date: '2026-11-20', posting_date: '2026-11-20', net_amount: {amount: '1500.00', currency: CAD}, tax_amount: {amount: '75.00', currency: CAD}, gross_amount: {amount: '1575.00', currency: CAD}, customer_invoice_id: 0192a000-0000-7000-8000-000000001411, customer_invoice_number: CI100007, journal_entry_id: 0192a000-0000-7000-8000-000000001511, journal_entry_year: 2026, journal_entry_number: DR100007, status: posted, status_before: created, version: 2}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -4894,7 +5109,36 @@ components:
         net_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' net values."}
         status: {type: string, description: "The order's status after the change. Open enum: draft, confirmed."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
+        credit_block: {type: string, description: "The order's credit block after the change. Open enum: none, blocked, released. Always given from T77b on; not among the required fields, since a field added to a published event is not required of it (ADR-0041)."}
         version: {type: integer, description: "The order's version after the change."}
+    SalesOrderCreditBlockedV1:
+      type: object
+      required: [sales_order_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, gross_amount, checked_amount, limit, exposure, version]
+      properties:
+        sales_order_id: {$ref: '#/components/schemas/Uuid', description: '`sales.sales_order.id`.'}
+        document_number: {type: string, description: "The sales order's document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that took the order.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        gross_amount: {$ref: '#/components/schemas/Money', description: "The order's gross value in its own currency: its net value plus the output tax on the order's date."}
+        checked_amount: {$ref: '#/components/schemas/Money', description: "The amount checked: `gross_amount` in the company's currency, converted at the average rate valid on the order's date when the order is in another."}
+        limit: {$ref: '#/components/schemas/Money', description: "The customer's credit limit in the company when the order was checked."}
+        exposure: {$ref: '#/components/schemas/Money', description: "The customer's exposure when the order was checked, without this order: its open items and its other confirmed orders not yet billed, in the company's currency. With `checked_amount` it is more than `limit`."}
+        version: {type: integer, description: "The order's version after the confirmation."}
+    SalesOrderCreditReleasedV1:
+      type: object
+      required: [sales_order_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, released_by, released_at, version]
+      properties:
+        sales_order_id: {$ref: '#/components/schemas/Uuid', description: '`sales.sales_order.id`.'}
+        document_number: {type: string, description: "The sales order's document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that took the order.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        released_by: {$ref: '#/components/schemas/Uuid', description: 'The principal who released the block: `identity.principal.id`.'}
+        released_at: {type: string, format: date-time, description: 'When the block was released.'}
+        version: {type: integer, description: "The order's version after the release."}
     SalesPriceChangedV1:
       type: object
       required: [price_id, legal_entity_id, legal_entity_code, item_key, customer_id, customer_number, kind, condition_type, unit, unit_price, price_unit, percent, valid_from, valid_to]
@@ -4953,6 +5197,47 @@ components:
         net_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' amounts."}
         status: {type: string, description: "The document's status after the change. Open enum: created."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
+        version: {type: integer, description: "The document's version after the change."}
+    RevenueContractChangedV1:
+      type: object
+      required: [revenue_contract_id, sales_order_id, sales_order_number, legal_entity_id, legal_entity_code, customer_id, customer_number, transaction_price, obligation_count, status, status_before, version]
+      properties:
+        revenue_contract_id: {$ref: '#/components/schemas/Uuid', description: '`revenue.contract.id`.'}
+        sales_order_id: {$ref: '#/components/schemas/Uuid', description: 'The confirmed sales order the contract stands for: `sales.sales_order.id`.'}
+        sales_order_number: {type: string, description: "The sales order's document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company whose contract it is.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        transaction_price: {$ref: '#/components/schemas/Money', description: "The contract's transaction price: the sales order's net value, without tax, in the company's local currency."}
+        obligation_count: {type: integer, description: "The contract's performance obligations, one per item of the sales order."}
+        status: {type: string, description: "The contract's status after the change. Open enum: draft, active."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was created, and `draft` again when a draft''s obligations were changed.'}
+        version: {type: integer, description: "The contract's version after the change."}
+    BillingDocumentPostedV1:
+      type: object
+      required: [billing_document_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, sales_order_id, sales_order_number, billing_date, posting_date, net_amount, tax_amount, gross_amount, customer_invoice_id, customer_invoice_number, journal_entry_id, journal_entry_year, journal_entry_number, status, status_before, version]
+      properties:
+        billing_document_id: {$ref: '#/components/schemas/Uuid', description: '`sales.billing_document.id`.'}
+        document_number: {type: string, description: "The document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that bills.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        sales_order_id: {$ref: '#/components/schemas/Uuid', description: 'The sales order billed: `sales.sales_order.id`.'}
+        sales_order_number: {type: string, description: "The sales order's document number."}
+        billing_date: {$ref: '#/components/schemas/Date', description: "The billing date: the customer invoice's invoice and tax date."}
+        posting_date: {$ref: '#/components/schemas/Date', description: The date it posted on.}
+        net_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' amounts: the customer invoice's net amount."}
+        tax_amount: {$ref: '#/components/schemas/Money', description: "The customer invoice's output tax, calculated at the billing date's rates."}
+        gross_amount: {$ref: '#/components/schemas/Money', description: "What the customer owes: net and tax, the open item's amount."}
+        customer_invoice_id: {$ref: '#/components/schemas/Uuid', description: '`receivables.customer_invoice.id` of the invoice it posted as.'}
+        customer_invoice_number: {type: string, description: "The customer invoice's document number."}
+        journal_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.journal_entry.id` of the entry the customer invoice posted.'}
+        journal_entry_year: {type: integer, description: "The entry's fiscal year."}
+        journal_entry_number: {type: string, description: "The entry's document number."}
+        status: {type: string, description: "The document's status after the change: posted."}
+        status_before: {type: string, description: 'Its status before: created.'}
         version: {type: integer, description: "The document's version after the change."}
     ConsolidationRunChangedV1:
       type: object
@@ -6499,8 +6784,8 @@ components:
         legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it."}
         currency: {"type": "string", "description": "The ISO 4217 currency quotations are given in."}
         due_date: {"$ref": "#/components/schemas/Date", "description": "The date quotations are due."}
-        status: {"type": "string", "description": "The status after the change. Open enum: draft, published."}
-        change: {"type": "string", "description": "Open enum: created, published."}
+        status: {"type": "string", "description": "The status after the change. Open enum: draft, published, awarded."}
+        change: {"type": "string", "description": "Open enum: created, published, awarded."}
         item_count: {"type": "integer", "description": "The items asked for."}
         supplier_count: {"type": "integer", "description": "The suppliers invited."}
     RfqPublishedV1:
@@ -6539,6 +6824,64 @@ components:
         total: {"$ref": "#/components/schemas/Money", "description": "The sum of the quoted items' values, in the RFQ's currency."}
         complete: {"type": "boolean", "description": "Whether the quotation prices every item of the RFQ."}
         item_count: {"type": "integer", "description": "The RFQ items the quotation prices."}
+    RfqAwardedV1:
+      type: object
+      required: ["rfq_id", "document_number", "legal_entity_id", "legal_entity_code", "supplier_quotation_id", "supplier_id", "supplier_number", "supplier_reference", "contract_id", "contract_document_number", "valid_from", "valid_to", "total"]
+      properties:
+        rfq_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.rfq.id`."}
+        document_number: {"type": "string", "description": "The RFQ's document number."}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it."}
+        supplier_quotation_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.supplier_quotation.id`: the quotation that won."}
+        supplier_id: {"$ref": "#/components/schemas/Uuid", "description": "`partner.business_partner.id`: the supplier awarded."}
+        supplier_number: {"type": "string", "description": "The business partner's number."}
+        supplier_reference: {"type": "string", "description": "The supplier's own reference of its quotation."}
+        contract_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.contract.id`: the draft contract the award created."}
+        contract_document_number: {"type": "string", "description": "The contract's document number."}
+        valid_from: {"$ref": "#/components/schemas/Date", "description": "The first day the contract is valid."}
+        valid_to: {"$ref": "#/components/schemas/Date", "description": "The last day the contract is valid."}
+        total: {"$ref": "#/components/schemas/Money", "description": "The quotation's total, the contract's target value, in the RFQ's currency."}
+    ScheduleLineChangedV1:
+      type: object
+      required: ["schedule_line_id", "contract_id", "document_number", "legal_entity_id", "legal_entity_code", "supplier_id", "supplier_number", "line_no", "contract_item_no", "material_key", "delivery_date", "quantity", "amount", "status", "change"]
+      properties:
+        schedule_line_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.schedule_line.id`."}
+        contract_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.contract.id`: the scheduling agreement."}
+        document_number: {"type": "string", "description": "The scheduling agreement's document number."}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it."}
+        supplier_id: {"$ref": "#/components/schemas/Uuid", "description": "`partner.business_partner.id`: the agreement's supplier."}
+        supplier_number: {"type": "string", "description": "The business partner's number."}
+        line_no: {"type": "integer", "description": "The line's number within the agreement."}
+        contract_item_no: {"type": "integer", "description": "The item of the agreement the line asks for."}
+        material_key: {"type": "string", "description": "That item's material key."}
+        delivery_date: {"$ref": "#/components/schemas/Date", "description": "The date the quantity is due."}
+        quantity: {"$ref": "#/components/schemas/Quantity", "description": "The quantity due, in the agreement item's unit."}
+        amount: {"$ref": "#/components/schemas/Money", "description": "The line's value at the agreement item's price, in the agreement's currency."}
+        status: {"type": "string", "description": "The line's status after the change. Open enum: scheduled, called_off."}
+        change: {"type": "string", "description": "What happened to the line. Open enum: created, called_off."}
+        purchase_order_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.purchase_order.id`: the order the line was called off as; absent while it is scheduled."}
+        purchase_order_document_number: {"type": "string", "description": "That purchase order's document number; absent when `purchase_order_id` is."}
+    ScheduleLineCalledOffV1:
+      type: object
+      required: ["schedule_line_id", "contract_id", "document_number", "legal_entity_id", "legal_entity_code", "supplier_id", "supplier_number", "line_no", "contract_item_no", "material_key", "delivery_date", "quantity", "amount", "purchase_order_id", "purchase_order_document_number", "order_date"]
+      properties:
+        schedule_line_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.schedule_line.id`."}
+        contract_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.contract.id`: the scheduling agreement."}
+        document_number: {"type": "string", "description": "The scheduling agreement's document number."}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it."}
+        supplier_id: {"$ref": "#/components/schemas/Uuid", "description": "`partner.business_partner.id`: the agreement's supplier, and the order's."}
+        supplier_number: {"type": "string", "description": "The business partner's number."}
+        line_no: {"type": "integer", "description": "The line's number within the agreement."}
+        contract_item_no: {"type": "integer", "description": "The item of the agreement the line asks for."}
+        material_key: {"type": "string", "description": "That item's material key."}
+        delivery_date: {"$ref": "#/components/schemas/Date", "description": "The date the quantity is due: the order item's delivery date."}
+        quantity: {"$ref": "#/components/schemas/Quantity", "description": "The quantity called off, in the agreement item's unit."}
+        amount: {"$ref": "#/components/schemas/Money", "description": "The line's value at the agreement item's price, the order's total, in the agreement's currency."}
+        purchase_order_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.purchase_order.id`: the draft order created."}
+        purchase_order_document_number: {"type": "string", "description": "The purchase order's document number."}
+        order_date: {"$ref": "#/components/schemas/Date", "description": "The order's date: the legal entity's date on the day of the call-off, in its company's time zone."}
     ContractExpiredV1:
       type: object
       required: ["contract_id", "document_number", "legal_entity_id", "supplier_id", "valid_to", "consumed_value", "previous_status", "status"]

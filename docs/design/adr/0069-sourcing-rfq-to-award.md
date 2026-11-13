@@ -3,8 +3,7 @@
 **Status:** accepted (T82a, 2026-11-12; decided by default under ADR-0053 d;
 `go-reviewer` had no blocking finding on T82a's last commit). It decides
 the slices T82a-T82d (`docs/design/plan-breadth-week2.md`, Lane C). Each
-slice records what it built under "As built"; T82a's and T82b's are
-there now. The defaults taken are listed at the end for the product
+slice records what it built under "As built"; all four are there now. The defaults taken are listed at the end for the product
 owner's digest.
 
 ## Context
@@ -175,6 +174,41 @@ as missing (04 §4.9). None is an approval permission in T82a and T82b.
    quotations are the "later" leaf's.
 9. A quotation's total is computed from its prices and the RFQ's
    quantities on each read, never stored.
+10. The comparison (T82c) is by price alone and compares amounts, exact
+    in minor units. Equal totals share a rank (1, 1, 3) and stand in the
+    order their suppliers were invited, as every other group of rows
+    does.
+11. The lowest price of an item is the lowest amount (the RFQ's quantity
+    at the quoted price) among the quotations not expired, an incomplete
+    one included; every price at that amount is marked. An expired
+    quotation's price is never marked: it no longer holds.
+12. A quotation valid until the company's date today is still valid that
+    day; it is expired from the next.
+13. The comparison is readable for an RFQ in any status and is not paged:
+    an RFQ invites at most 100 suppliers and holds at most 1,000 items,
+    so at most 100 rows of 1,000 prices each, the bounds of a page of
+    the RFQ's quotations (up to 500 quotations of 1,000 prices).
+14. An award (T82d) goes to any quotation the comparison ranks, not only
+    the lowest; no reason is recorded when it is another (the "later"
+    leaf's). It is by permission `procurement.rfq.award`, without an
+    approval request, and human-only (`x-agent: false`): an award commits
+    the company to a supplier, and the week 3 agent recommends, never
+    awards.
+15. The award asks for the contract's validity (`valid_from`, `valid_to`);
+    nothing in an RFQ or a quotation gives it. The quotation's `valid_until`
+    is how long the offer stands, not the contract's term.
+16. The winning supplier must still be one an order could be placed with,
+    and the RFQ's accounts still postable, when the RFQ is awarded: the
+    contract's own checks, run again.
+17. The award is one audit record on the RFQ (`procurement.rfq.award`,
+    naming the quotation awarded and those not awarded) beside the
+    contract's own (`procurement.contract.create`); the quotations get no
+    records of their own, their outcome being the award's.
+18. The link is kept once, as `contract_id` on the RFQ; the contract's
+    `rfq_id` is read through it.
+19. A quotation whose total rounds to zero cannot be awarded: a
+    contract's target value is above zero
+    (`procurement.invalid_amount`).
 
 ## As built
 
@@ -267,3 +301,102 @@ as missing (04 §4.9). None is an approval permission in T82a and T82b.
 - **Walkthrough.** `step_rfq` extended: a quotation recorded for each of
   the two suppliers, one of them cheaper in total, a second quotation of a
   supplier and a supplier not invited refused.
+
+### T82c Quotations compared (no migration)
+
+- **API.** `GET /v1/rfqs/{id}/comparison` (`procurement.rfq.read`; agents
+  may read it: the week 3 agent does) answers the comparison of one RFQ,
+  computed on the read and stored nowhere: the RFQ by id, number, company
+  (id, code, name), currency, status and due date; `as_of`, the legal
+  entity's date today in its company's time zone, the day validity is
+  judged on; `invited_count`, `answered_count` and `ranked_count`; the
+  RFQ's `items`, each with the lowest amount quoted for it
+  (`lowest_amount`, absent when no quotation that is not expired prices
+  it); and `suppliers`, one row per supplier invited (id, number, name).
+- **Rows.** A row carries `answered`, and for a quotation its id,
+  reference, `valid_until`, status, `complete`, `expired`,
+  `unquoted_item_nos`, `total` and `prices` (RFQ item number, unit price,
+  price unit, amount, `lowest`). The quotations that are complete and
+  not expired (`valid_until` not before `as_of`) are ranked by total, the
+  lowest first (`rank`); equal totals share a rank and the next is
+  skipped (1, 1, 3). After them come the quotations not ranked
+  (incomplete or expired, without a `rank`), then the suppliers without
+  a quotation (`answered` false, every item in `unquoted_item_nos`).
+  Within each group, and between equal totals, the rows stand in the
+  order the suppliers were invited, so the same data reads the same way
+  each time.
+- **Lowest.** Amounts are compared, not unit prices: quantity × unit
+  price ÷ price unit in minor units, so prices with different price
+  units compare exactly. The lowest amount of an RFQ item is taken over
+  the quotations not expired, an incomplete one included, and every
+  price at it is marked.
+- **Code.** `internal/procurement/rfq_comparison.go` (`compare`, pure;
+  `Compared.CanWin`, the rule T82d awards by); the handler in
+  `rfq_api.go`. One query reads the RFQ's quotations. `itemsTotal`'s loop
+  is `itemAmounts` (`common.go`), which the comparison shares. An amount
+  out of range, which recording refuses, fails the read rather than
+  ranking a wrong total.
+- **Budget.** `TestRFQComparisonBudget`: an RFQ of 50 items and 20
+  quotations (1,000 prices) within the budget of a list page (p95
+  150 ms; 01 §1.3), measured at a median of 14 ms. That is far above an
+  RFQ a buyer types quotations into, and far below the contract's bound
+  (100 suppliers of 1,000 items), which no requirement asks a budget
+  for.
+- **Walkthrough.** `step_rfq` extended: the comparison ranks the cheaper
+  supplier first and marks the lowest amount of each item.
+
+### T82d RFQ awarded to a contract (migration 000297)
+
+- **Schema.** `procurement.rfq` gains `contract_id` and the status
+  `awarded`: awarded exactly when it names a contract
+  (`rfq_awarded_to_contract`), a contract from one RFQ at most
+  (`rfq_contract_once`), a foreign key to the contract. `check_rfq` is
+  replaced: an RFQ is awarded only from published, only with one of its
+  quotations marked awarded and a contract of its company, in its
+  currency, with that quotation's supplier, and stays awarded to it.
+  `procurement.supplier_quotation` gains the statuses `awarded` and
+  `not_awarded`: written as recorded, the outcome set once, while the RFQ
+  is published, one awarded per RFQ (`supplier_quotation_one_awarded`).
+  The application is granted UPDATE of a quotation's `status`, `version`
+  and `updated_by` alone. Permission `procurement.rfq.award`. The revert
+  refuses while an awarded RFQ exists. Schema tests in
+  `db/rfq_award_test.go`.
+- **API.** `POST /v1/rfqs/{id}:award` (`procurement.rfq.award`,
+  `x-agent: false`, `If-Match`, idempotent by its key) with
+  `quotation_id`, `valid_from` and `valid_to`. The RFQ is read under its
+  row lock and must be published (409 `procurement.invalid_status`
+  otherwise, so of two awards one succeeds); the quotations are compared
+  as T82c compares them and the one named must be one it ranks
+  (`Compared.CanWin`): of this RFQ (422
+  `procurement.quotation_not_of_rfq`), complete (422
+  `procurement.quotation_incomplete`, naming the items left out) and
+  valid on the company's date today (422 `procurement.quotation_expired`,
+  naming the date and the zone); its supplier still usable (422
+  `procurement.supplier_not_usable`); each refusal names `quotation_id`.
+  The answer is the RFQ, `awarded`, with `contract_id` and
+  `contract_document_number`.
+- **Contract.** Created by `draftContract`, the code path of `POST
+  /v1/contracts`, with its checks, number (range `contract`) and audit
+  record: the quotation's supplier, the RFQ's currency, the validity
+  asked for, the RFQ's items (material key, description, unit, account)
+  at the quoted prices and price units, and the quotation's total as its
+  target value. It is a draft, released with `contracts/{id}:release`.
+  `Contract` shows `rfq_id` and `rfq_document_number`
+  (`contractSelect` reads the RFQ that names it through
+  `rfq_contract_once`'s index; no budgeted endpoint reads a contract).
+- **Outcome.** In the same transaction the quotation named becomes
+  `awarded` and the RFQ's others `not_awarded` (each update guarded by
+  the status it leaves), and the RFQ `awarded` with its contract. An
+  awarded RFQ takes no quotation (409) and no second award.
+- **Events and audit.** `RfqAwarded` (the RFQ, the quotation, the
+  supplier by id and number, the contract by id and number, its validity
+  and the total) and `RfqChanged` (`awarded`), in `api/asyncapi.yaml`;
+  neither is offered to webhooks. Audit `procurement.rfq.award`.
+- **Code.** `internal/procurement/rfq_award.go`; the handler in
+  `rfq_api.go`. `contractItems` and `rfqItems` share their loop
+  (`keyedItems`, `common.go`; T82a's review nit), which changed
+  `contracts.go` by that function, the contract's two fields and its
+  select; `api.go` changed by the two fields in `contractToAPI`.
+- **Walkthrough.** `step_rfq_award` (step 66): the RFQ of `step_rfq` is
+  awarded to the quotation ranked first; the draft contract carries its
+  prices and supplier, names the RFQ and is released.

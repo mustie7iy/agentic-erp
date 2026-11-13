@@ -56,8 +56,9 @@ type priced struct {
 // its item key on the document's date (determined). The item's value is
 // quantity × unit price ÷ price unit, rounded half away from zero to the
 // currency's minor unit (money.Scale) and more than zero. A tenant with a
-// pricing procedure then has its discounts taken off (conditioned); the
-// net value stays more than zero. The price is fixed here, when the item
+// pricing procedure then has its discounts taken off a determined price
+// (conditioned), never off an entered one; the net value stays more than
+// zero. The price is fixed here, when the item
 // is created: a later record does not change it.
 func price(ctx context.Context, tx pgx.Tx, doc document, i int, it ItemInput) (priced, error) {
 	p, field, err := unitPrice(ctx, tx, doc, i, it)
@@ -85,12 +86,20 @@ func price(ctx context.Context, tx pgx.Tx, doc document, i int, it ItemInput) (p
 }
 
 // unitPrice is item i's unit price and its price unit: the ones entered
-// with it, else the price record's. field is the request's field a net
-// value of zero is refused on: the price entered, or the quantity of an
-// item whose price was not the request's.
+// with it, per 1 when it gives no price unit, else the price record's.
+// A price unit sent without a unit price is refused naming it (422
+// request.validation_failed; PO 2026-11-12, T80d): the record's price
+// comes with its own, and ignoring the one sent would price the item per
+// another quantity than the request said. field is the request's field a
+// net value of zero is refused on: the price entered, or the quantity of
+// an item whose price was not the request's.
 func unitPrice(ctx context.Context, tx pgx.Tx, doc document, i int, it ItemInput) (priced, string, error) {
 	field := fmt.Sprintf("items[%d].unit_price", i)
 	if it.UnitPrice == nil {
+		if it.PriceUnit != 0 {
+			return priced{}, "", problem.Invalid("request.validation_failed", fmt.Sprintf("items[%d].price_unit", i),
+				"A price unit is sent with a unit price; an item without one takes the price record's price unit.")
+		}
 		p, err := determined(ctx, tx, doc, field, it)
 		return p, fmt.Sprintf("items[%d].quantity.value", i), err
 	}
@@ -101,7 +110,7 @@ func unitPrice(ctx context.Context, tx pgx.Tx, doc document, i int, it ItemInput
 	if err != nil {
 		return priced{}, "", fmt.Errorf("sales: unit price of item %d: %w", i+1, err)
 	}
-	return priced{UnitPrice: unit, PriceUnit: it.PriceUnit, Source: Manual}, field + ".amount", nil
+	return priced{UnitPrice: unit, PriceUnit: max(it.PriceUnit, 1), Source: Manual}, field + ".amount", nil
 }
 
 // validRecord is the SQL that picks, among an item key's records of the
@@ -155,12 +164,14 @@ func determined(ctx context.Context, tx pgx.Tx, doc document, field string, it I
 // (validRecord), if there is one, takes its percentage off the value
 // before it, rounded half away from zero to the currency's minor unit
 // (money.Scale). The conditions are listed in the procedure's order and
-// their amounts add up to the net value. An item without a key has no
-// discount: discounts are recorded by item key.
+// their amounts add up to the net value. A price entered with the item
+// is its final net price (PO 2026-11-12, T80c): no discount is taken off
+// it, and its price is its only condition. An item without a key has no
+// discount either: discounts are recorded by item key.
 func conditioned(ctx context.Context, tx pgx.Tx, doc document, it ItemInput, p priced) (priced, error) {
 	first, unit, per := doc.procedure[0], p.UnitPrice, p.PriceUnit
 	p.Conditions = []Condition{{Type: first.Code, Name: first.Name, Kind: first.Kind, UnitPrice: &unit, PriceUnit: &per, Amount: p.Net}}
-	if it.ItemKey == nil {
+	if it.ItemKey == nil || p.Source == Manual {
 		return p, nil
 	}
 	for _, step := range doc.procedure[1:] {

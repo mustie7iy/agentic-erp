@@ -2,6 +2,7 @@ package outbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -20,6 +21,23 @@ type Message struct {
 	Subject string            // erp.<cell>.<context>.<tenant>.<event>
 	Header  map[string]string // ce-* attributes and Content-Type
 	Data    []byte
+}
+
+// Tenant is the tenant a message of the context (its public name) is for:
+// the subject's, erp.<cell>.<context>.<tenant>.<event>, which must be the
+// message's tenantid. A consumer acts in that tenant alone, so a message
+// whose subject and tenantid disagree, or whose subject is another
+// context's, has none.
+func (m Message) Tenant(context string) (uuid.UUID, error) {
+	parts := strings.Split(m.Subject, ".")
+	if len(parts) != 5 || parts[2] != context {
+		return uuid.Nil, errors.New("subject is not erp.<cell>.<context>.<tenant>.<event> of the type's context")
+	}
+	tenant, err := uuid.Parse(parts[3])
+	if err != nil || parts[3] != m.Header["ce-tenantid"] {
+		return uuid.Nil, fmt.Errorf("the subject's tenant %q is not the event's tenantid %q", parts[3], m.Header["ce-tenantid"])
+	}
+	return tenant, nil
 }
 
 // Publisher sends messages to the bus. It must de-duplicate on Message.ID,

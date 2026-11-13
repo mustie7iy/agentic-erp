@@ -270,6 +270,63 @@ func TestCustomerCreditMemoRules(t *testing.T) {
 	}
 }
 
+// TestCustomerInvoiceSource (T79b, migration 000296; ADR-0063 §2,
+// ADR-0067 §9): an invoice names the document it was entered from by id
+// and number, or neither; a document is invoiced once; the source is
+// fixed with the invoice.
+func TestCustomerInvoiceSource(t *testing.T) {
+	need(t)
+	const draft = `INSERT INTO receivables.customer_invoice (tenant_id, id, document_number, legal_entity_id, customer_id, kind, invoice_date,
+		currency, net_amount, tax_amount, gross_amount, status, created_by, updated_by, source_document_id, source_document_number)
+		VALUES ($1, $2, $3, $4, gen_random_uuid(), 'invoice', '2026-03-10', 'EUR', 100, 0, 100, 'draft', $1, $1, $5, $6)`
+	type scene struct{ tenant, company, doc, source uuid.UUID }
+	var none *string
+	var noID *uuid.UUID
+	number := "BD100001"
+	cases := []struct {
+		name string
+		run  func(tx pgx.Tx, s scene) error
+		want string // empty: allowed
+	}{
+		{"an invoice of a document, by id and number", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(draft, s.tenant, s.doc, "CI1", s.company, &s.source, &number))
+		}, ""},
+		{"two invoices a person entered, of no document", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(draft, s.tenant, s.doc, "CI1", s.company, noID, none), step(draft, s.tenant, id(), "CI2", s.company, noID, none))
+		}, ""},
+		{"a source without its number", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(draft, s.tenant, s.doc, "CI1", s.company, &s.source, none))
+		}, "customer_invoice_source"},
+		{"a source's number without the source", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(draft, s.tenant, s.doc, "CI1", s.company, noID, &number))
+		}, "customer_invoice_source"},
+		{"a source's number of 41 characters", func(tx pgx.Tx, s scene) error {
+			long := strings.Repeat("1", 41)
+			return all(tx, step(draft, s.tenant, s.doc, "CI1", s.company, &s.source, &long))
+		}, "customer_invoice_source_document_number_check"},
+		{"two invoices of one document", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(draft, s.tenant, s.doc, "CI1", s.company, &s.source, &number), step(draft, s.tenant, id(), "CI2", s.company, &s.source, &number))
+		}, "customer_invoice_source_once"},
+		{"the source changed after the entry", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(draft, s.tenant, s.doc, "CI1", s.company, &s.source, &number),
+				step(`UPDATE receivables.customer_invoice SET source_document_id = gen_random_uuid(), version = version + 1`))
+		}, "permission denied"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), company: id(), doc: id(), source: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
 // TestCustomerInvoiceItemImmutable: the trigger itself refuses a change
 // or a deletion of an item, as the owner, whom the grants do not bind,
 // would make them.

@@ -60,6 +60,14 @@ func TestDatabaseFailures(t *testing.T) {
 			_, err := h.GetCreditExposure(ctx, gen.GetCreditExposureParams{LegalEntityID: e.DE, CustomerID: e.north, Amount: gen.NewOptString("1.00")})
 			return err
 		},
+		"check": func(ctx context.Context) error {
+			_, err := h.Check(ctx, e.DE, e.north, 100)
+			return err
+		},
+		"check without a limit": func(ctx context.Context) error {
+			_, err := h.Check(ctx, e.DE, e.east, 100)
+			return err
+		},
 		"exposure without a limit": func(ctx context.Context) error {
 			_, err := h.GetCreditExposure(ctx, gen.GetCreditExposureParams{LegalEntityID: e.DE, CustomerID: e.east})
 			return err
@@ -96,10 +104,10 @@ func (o owing) Receivable(_ context.Context, _ uuid.UUID, customers []uuid.UUID)
 	return out, nil
 }
 
-// TestAmountsOutOfRange: open items, a limit and an amount that add up
-// to more than an amount holds are refused, not compared wrongly: the
-// items' sum, the limit less a large credit, and the exposure with the
-// amount checked.
+// TestAmountsOutOfRange: open items, open orders, a limit and an amount
+// that add up to more than an amount holds are refused, not compared
+// wrongly: the items' sum, the items with the orders, the limit less a
+// large credit, and the exposure with the amount checked.
 func TestAmountsOutOfRange(t *testing.T) {
 	e := setup(t)
 	e.Must(201, "POST", "/v1/credit-limits", limitOf(e.DE, e.north, "500.00", "EUR"), "")
@@ -109,19 +117,22 @@ func TestAmountsOutOfRange(t *testing.T) {
 		name     string
 		customer uuid.UUID
 		items    owing
+		orders   money.Minor
 		amount   *string
 		code     string // empty: answered
 	}{
-		{"the items' sum, without a limit", e.east, owing{most, 1}, nil, "credit.amount_too_large"},
-		{"the items' sum", e.north, owing{most, 1}, nil, "credit.amount_too_large"},
-		{"the limit less a credit", e.north, owing{-most}, nil, "credit.amount_too_large"},
-		{"the exposure with the amount", e.north, owing{most}, &one, "credit.amount_too_large"},
-		{"the largest exposure alone", e.north, owing{most}, nil, ""},
-		{"the largest exposure without a limit, with an amount", e.east, owing{most}, &one, ""},
+		{"the items' sum, without a limit", e.east, owing{most, 1}, 0, nil, "credit.amount_too_large"},
+		{"the items' sum", e.north, owing{most, 1}, 0, nil, "credit.amount_too_large"},
+		{"the items with the open orders", e.north, owing{most}, 1, nil, "credit.amount_too_large"},
+		{"the limit less a credit", e.north, owing{-most}, 0, nil, "credit.amount_too_large"},
+		{"the exposure with the amount", e.north, owing{most}, 0, &one, "credit.amount_too_large"},
+		{"the largest exposure alone", e.north, owing{most}, 0, nil, ""},
+		{"the largest exposure without a limit, with an amount", e.east, owing{most}, 0, &one, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h := endpoints(t)
 			h.OpenItems = c.items
+			h.Orders = ordered{orders: 1, gross: c.orders}
 			var x credit.Exposure
 			err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
 				x, err = h.ExposureOf(ctx, e.DE, c.customer, c.amount)

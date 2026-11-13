@@ -26,6 +26,9 @@ type references struct {
 	companies map[uuid.UUID]tenancy.Entity
 	partners  map[uuid.UUID]partner.Named
 	accounts  map[uuid.UUID]ledger.AccountRef
+	// entries are the journal entries' document numbers, which posted
+	// billing documents alone name (billingRefs).
+	entries map[uuid.UUID]string
 }
 
 // named is what one document names by id: its company, its customer and
@@ -74,12 +77,13 @@ func (e *Endpoints) quotationRefs(ctx context.Context, quotations []Quotation) (
 	return e.references(ctx, docs)
 }
 
-// itemInputs are the items of a request.
+// itemInputs are the items of a request. A price unit the request did
+// not give stays 0, so that pricing can tell it from one sent (T80d).
 func itemInputs(items []gen.SalesItemCreate) []ItemInput {
 	out := make([]ItemInput, len(items))
 	for i, it := range items {
 		out[i] = ItemInput{ItemKey: apitypes.Ptr[string](it.ItemKey), Description: it.Description, Quantity: it.Quantity.Value, Unit: it.Quantity.Unit,
-			PriceUnit: it.PriceUnit.Or(1), AccountID: it.AccountID, TaxCode: apitypes.Ptr[string](it.TaxCode)}
+			PriceUnit: it.PriceUnit.Or(0), AccountID: it.AccountID, TaxCode: apitypes.Ptr[string](it.TaxCode)}
 		if p, ok := it.UnitPrice.Get(); ok {
 			out[i].UnitPrice = &Amount{Value: p.Amount, Currency: p.Currency}
 		}

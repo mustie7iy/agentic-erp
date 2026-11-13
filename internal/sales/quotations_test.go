@@ -27,8 +27,8 @@ import (
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
 var perms = []string{"sales.quotation.read", "sales.quotation.write", "sales.order.read", "sales.order.write", "sales.order.confirm",
-	"sales.delivery.confirm", "sales.billing.read", "sales.billing.write",
-	"sales.price.read", "sales.price.write"}
+	"sales.delivery.confirm", "sales.billing.read", "sales.billing.write", "sales.billing.post", "receivables.invoice.read",
+	"sales.price.read", "sales.price.write", "sales.order.credit_release", "credit.limit.read", "credit.limit.write"}
 
 // far is a validity no run of the tests reaches.
 const far = "2099-12-31"
@@ -36,8 +36,9 @@ const far = "2099-12-31"
 // env is a configured tenant whose company 2000 (EUR, dated in Toronto's
 // time zone) has the output tax codes A1 (19%) and AJ (levying its lines'
 // subdivision) on account 230000 beside the fixture's input code V1, the
-// customer reconciliation account 120000, and a customer set up in the
-// company on it with the payment term NT30.
+// customer reconciliation account 120000, the number range journal_dr of
+// the entries customer invoices post, and a customer set up in the
+// company on 120000 with the payment term NT30.
 type env struct {
 	fixture.Env
 	revenue, other uuid.UUID // accounts 400000 and 530000 of company 2000
@@ -60,6 +61,10 @@ func outputCodes(doc *config.Config) {
 		return config.TaxCode{Code: code, Description: "Output tax " + code, Direction: config.TaxOutput, Components: []config.TaxComponent{c}}
 	}
 	de.TaxCodes = append(de.TaxCodes, output("A1", false), output("AJ", true))
+	// The entries customer invoices post draw their numbers from journal_dr (T79b).
+	for _, y := range fixture.Years() {
+		doc.NumberRanges = append(doc.NumberRanges, config.NumberRange{Company: "2000", DocumentType: "journal_dr", FiscalYear: y, First: 100000, Last: 999999})
+	}
 }
 
 func setup(t *testing.T) env {

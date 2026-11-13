@@ -364,7 +364,8 @@ a credit manager releases it.
   T78c's delivery under the order's lock.
 - **Adds:** `credit_block` on `sales.sales_order` (none, blocked, released,
   with who released it and when);
-  `POST /v1/sales-orders/{id}:release-credit-block`; events
+  `POST /v1/sales-orders/{id}:release-credit-block` (built as
+  `:releaseCreditBlock`, the contract's form of an action); events
   `SalesOrderCreditBlocked`, `SalesOrderCreditReleased` (customer id and
   number, no name); permission `sales.order.credit_release`; a filter of
   the order list by credit block.
@@ -996,6 +997,10 @@ that makes the main path work, and the slice records it in its ADR.
     confirmed with a block and cannot be delivered; anyone holding
     `sales.order.credit_release` releases it. Open orders do not count in
     the exposure (week 1's question 4 is still open).
+    *Changed by the product owner on 2026-11-12, before T77b was built:
+    the order is checked at its gross value, net plus output tax, and
+    confirmed orders not yet billed count in the exposure; the rest
+    stands (ADR-0066, As built T77b).*
 11. A revenue contract is created by a person for one sales order in the
     company's local currency; its obligations are the order's items. An
     order without one is recognized as billed.
@@ -1060,11 +1065,11 @@ that makes the main path work, and the slice records it in its ADR.
    week 3 lists. First versions before 1 December, or after?
 10. **Credit check amount** (product owner): the order is checked at its
     net value, the open items at their gross. Add the order's tax to the
-    amount checked?
+    amount checked? *Answered 2026-11-12: yes, gross with gross.*
 11. **Who releases a credit block** (product owner, security posture): a
     permission of its own, with no rule that the releaser differs from
     the person who confirmed the order. Is a segregation of duties rule
-    wanted?
+    wanted? *Answered 2026-11-12: no.*
 12. **Award without approval** (product owner): an award creates a draft
     contract with no approval step; the contract's release is by
     permission, as today. Is an approval above an amount wanted before

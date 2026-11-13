@@ -86,6 +86,7 @@ func toAPI(v Invoice, refs references) gen.CustomerInvoice {
 		ReferenceInvoiceNumber: apitypes.OptString(v.ReferenceInvoiceNumber), InvoiceDate: v.InvoiceDate, PostingDate: apitypes.OptDate(v.PostingDate), Currency: v.Currency, NetAmount: m(v.Net),
 		TaxAmount: m(v.Tax), GrossAmount: m(v.Gross), Status: v.Status, PaymentTermCode: apitypes.OptString(v.PaymentTermCode),
 		NetDueDate: apitypes.OptDate(v.NetDueDate), JournalEntryID: apitypes.OptUUID(v.EntryID),
+		SourceDocumentID: apitypes.OptUUID(v.SourceDocumentID), SourceDocumentNumber: apitypes.OptString(v.SourceDocumentNumber),
 		Items: make([]gen.CustomerInvoiceItem, len(v.Items))}
 	if v.EntryID != nil { // posted: its entry's year and number are known with it
 		out.JournalEntryYear.SetTo(int32(*v.EntryYear))

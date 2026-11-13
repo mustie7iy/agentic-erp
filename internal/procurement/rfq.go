@@ -25,7 +25,8 @@ import (
 // suppliers' quotations are recorded against it.
 
 // RFQPublished is the status of an RFQ that was published to the suppliers
-// invited; before that it is a Draft.
+// invited; before that it is a Draft, and an award (rfq_award.go) makes
+// it RFQAwarded.
 const RFQPublished = "published"
 
 // rfqNumberRange is the document type RFQs draw their numbers from
@@ -54,6 +55,10 @@ type RFQ struct {
 	Status         string
 	Items          []Item
 	Suppliers      []RFQSupplier
+	// The draft contract an award created and its number (T82d); nil
+	// until the RFQ is awarded.
+	ContractID     *uuid.UUID
+	ContractNumber *string
 	Version        int32
 	CreatedAt      time.Time
 	CreatedBy      uuid.UUID
@@ -70,7 +75,8 @@ type RFQSupplier struct {
 }
 
 const rfqSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.currency, cu.exponent, r.due_date, r.status, r.version, r.created_at, r.created_by,
-		r.updated_at, r.updated_by,
+		r.updated_at, r.updated_by, r.contract_id,
+		(SELECT ct.document_number FROM procurement.contract ct WHERE ct.tenant_id = r.tenant_id AND ct.id = r.contract_id) AS contract_document_number,
 		coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'material_key', i.material_key, 'description', i.description,
 			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code, 'account_id', i.account_id) ORDER BY i.item_no)
 		 FROM procurement.rfq_item i WHERE i.tenant_id = r.tenant_id AND i.rfq_id = r.id), '[]'),
@@ -81,7 +87,7 @@ func scanRFQ(row pgx.Row) (RFQ, error) {
 	var r RFQ
 	var suppliers []uuid.UUID
 	if err := row.Scan(&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.Currency, &r.Exponent, &r.DueDate, &r.Status, &r.Version, &r.CreatedAt, &r.CreatedBy,
-		&r.UpdatedAt, &r.UpdatedBy, &r.Items, &suppliers); err != nil {
+		&r.UpdatedAt, &r.UpdatedBy, &r.ContractID, &r.ContractNumber, &r.Items, &suppliers); err != nil {
 		return RFQ{}, fmt.Errorf("scan RFQ: %w", err)
 	}
 	r.Suppliers = make([]RFQSupplier, len(suppliers))
@@ -195,30 +201,12 @@ type NewRFQ struct {
 // material key once, a described positive quantity, on an account the
 // legal entity can post to.
 func (e *Endpoints) rfqItems(ctx context.Context, le uuid.UUID, in []ItemInput) ([]Item, error) {
-	items := make([]Item, len(in))
-	keys := map[string]bool{}
-	for i, it := range in {
-		field := fmt.Sprintf("items[%d]", i)
-		if err := checkItemNo(it.No, i, field); err != nil {
-			return nil, err
-		}
-		if keys[it.MaterialKey] {
-			return nil, invalid("procurement.duplicate_material_key", field+".material_key", "each material key appears once per RFQ")
-		}
-		keys[it.MaterialKey] = true
+	return e.keyedItems(ctx, le, in, "RFQ", func(field string, it ItemInput) (Item, error) {
 		if err := problem.RequireText(field+".description", it.Description); err != nil {
-			return nil, err
+			return Item{}, err
 		}
-		if err := quantity(it.Quantity, field+".quantity"); err != nil {
-			return nil, err
-		}
-		if err := e.account(ctx, le, it.AccountID, field+".account_id"); err != nil {
-			return nil, err
-		}
-		items[i] = Item{No: int32(i + 1), MaterialKey: it.MaterialKey, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
-			AccountID: it.AccountID}
-	}
-	return items, nil
+		return Item{Quantity: it.Quantity}, quantity(it.Quantity, field+".quantity")
+	})
 }
 
 // once refuses a supplier named twice, by the place of its second naming.
@@ -333,11 +321,12 @@ func writeRFQ(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r RFQ) error {
 }
 
 // recorded reads the RFQ as the change left it, named as it is shown,
-// audits the change and publishes it: RfqChanged for every change, and
+// audits the change and publishes it: RfqChanged for every change,
 // RfqPublished beside it for a publication, with the suppliers invited by
-// id and number. A supplier's name goes into neither the events nor the
+// id and number, and what more gives of the RFQ as stored (an award's
+// RfqAwarded). A supplier's name goes into neither the events nor the
 // audit record (product owner 2026-11-05: a partner may be a person).
-func (e *Endpoints) recorded(ctx context.Context, tx pgx.Tx, id uuid.UUID, action, change string, detail map[string]any) (RFQ, error) {
+func (e *Endpoints) recorded(ctx context.Context, tx pgx.Tx, id uuid.UUID, action, change string, detail map[string]any, more ...func(RFQ) outbox.Event) (RFQ, error) {
 	read, err := getRFQ(ctx, tx, id, false)
 	if err != nil {
 		return RFQ{}, err
@@ -364,6 +353,9 @@ func (e *Endpoints) recorded(ctx context.Context, tx pgx.Tx, id uuid.UUID, actio
 		}
 		published["suppliers"] = invited
 		events = append(events, event("rfq_published", "rfq", stored.ID, published))
+	}
+	for _, m := range more {
+		events = append(events, m(stored))
 	}
 	return stored, audit.Record(ctx, "procurement.rfq."+action, "procurement.rfq", stored.ID, detail, events...)
 }

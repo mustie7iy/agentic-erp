@@ -4,7 +4,10 @@
 // described at a unit price with the revenue account and output tax code
 // its billing will post with. A sales order is created from an accepted
 // quotation or directly and confirmed once (orders.go); Orders is the
-// context's published read of one. An item's price is the one entered
+// context's published read of one. The confirmation checks the order's
+// gross value against the customer's credit limit and blocks an order
+// over it until a credit manager releases it (ADR-0066 and ADR-0067, As
+// built T77b; credit.go). An item's price is the one entered
 // with it, or the price record of its item key valid on the document's
 // date (ADR-0067 §10; prices.go the records, pricing.go the one function
 // that prices an item for both documents). A tenant whose configuration
@@ -12,17 +15,21 @@
 // taken off in the procedure's order, and the item keeps the conditions
 // applied (ADR-0067 §11).
 //
-// A sales document carries net amounts and posts nothing: tax is
-// calculated when the order is billed, and billing posts through
-// receivables (ADR-0067 §3; ADR-0063 §1). There is no material master: an
+// A sales document carries net amounts and posts nothing itself: tax is
+// calculated when the order is billed, and a billing document posts
+// through receivables, as a customer invoice entered and posted in the
+// billing's transaction (billing_post.go; ADR-0067 §3, §9; ADR-0063 §1). There is no material master: an
 // item names what is sold by a description and an optional free-text item
 // key (ADR-0067 §3). Quantities are decimal strings, amounts minor units
 // of the document's currency (ADR-0005).
 //
-// The context reads the ledger (accounts, tax codes), the partner context
-// (the customer by role, its company data and the payment terms), tenancy
-// and the configuration through the ports
-// below, as receivables does.
+// The context reads the ledger (accounts, tax codes, entries' numbers,
+// exchange rates), the partner context (the customer by role, its company
+// data and the payment terms), tenancy and the configuration through the
+// ports below, as receivables does, enters and posts customer invoices
+// through receivables' published API (Invoices), and asks the credit
+// context, a leaf, about a customer's limit through a port of its own
+// (Credit).
 package sales
 
 import (
@@ -39,6 +46,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/receivables"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -86,6 +94,20 @@ type References interface {
 	AccountNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]ledger.AccountRef, error)
 }
 
+// Invoices is receivables' published API as billing uses it (ADR-0067
+// §9; ADR-0063 §1): a customer invoice entered and posted, in the
+// request's transaction.
+type Invoices interface {
+	CreateInvoice(ctx context.Context, in receivables.Input) (receivables.Invoice, error)
+	PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, postingDate *time.Time) (receivables.Invoice, error)
+}
+
+// Entries names journal entries by their document numbers (ledger
+// context): the entry a posted billing document's invoice posted.
+type Entries interface {
+	Numbers(ctx context.Context, entries []uuid.UUID) (map[uuid.UUID]string, error)
+}
+
 // Numbers issues document numbers (configuration context).
 type Numbers interface {
 	Next(ctx context.Context, legalEntity uuid.UUID, documentType string, fiscalYear int16) (string, error)
@@ -112,9 +134,14 @@ type Endpoints struct {
 	Partners      Partners
 	Accounts      Accounts
 	References    References
+	Invoices      Invoices
+	Entries       Entries
 	Numbers       Numbers
 	Calendar      Calendar
 	Settings      Settings
+	Rates         Rates
+	Credit        Credit
+	People        People
 	// Now is the clock a document is dated by and a quotation's validity
 	// is judged on, in the company's time zone; nil: the wall clock.
 	Now func() time.Time

@@ -6,7 +6,7 @@ the sales context and the documents of T78a-T79b
 (`docs/design/plan-breadth-week2.md`, Lane A): quotation, sales order,
 delivery confirmation and billing document. Prices (T80a, T80b) and the
 order credit block (T77b) record what they build here too. Each slice
-records what it built under "As built"; T78a's to T79a's, T80a's and T80b's are there now. The defaults
+records what it built under "As built"; T78a's to T79b's, T80a's and T80b's are there now, with T80c's change of §11 (an entered price is the final net price) and T80d's of default 12 (a price unit without a unit price is refused), both the product owner's of 2026-11-12. The defaults
 taken and the questions left are listed at the end for the product owner's
 digest.
 
@@ -201,6 +201,25 @@ customer, a closed period, an account or code that lapsed after the
 document was created) leaves the document unposted, and a created
 document is not cancelled in the first version.
 
+**Posting (T79b).** `POST /v1/billing-documents/{id}:post` moves a
+created document to posted once, under its row lock with a state guard
+(ADR-0008). In the same transaction sales enters a customer invoice
+through receivables' published API (`CreateInvoice`) and posts it
+(`PostInvoice`), in process, through a port it declares: the document's
+company, customer and currency, the billing date as invoice date, the
+order's payment term, an item per item of the document with its
+description, account, amount and tax code, and the document as the
+invoice's source. Receivables calculates the tax and posts the entry
+(ADR-0063 §4, §5); sales posts nothing itself. The invoice's net amount
+is the document's to the minor unit and its gross is net and tax
+exactly. The document then names the invoice and the invoice's entry.
+Revenue is recognized as billed (plan default 11; revenue contracts are
+ADR-0068's). What receivables or the ledger refuses fails the whole
+transaction and is answered as a refusal of the document's post, with
+the refusing context's code, the document's number and the document's
+own fields. A posted document is not reversed or cancelled in the first
+version.
+
 ### 10. Prices and their determination (T80a)
 A price record is the net price of an item key in a company: for every
 customer, or for one; per a price unit of a unit of measure, in a
@@ -229,7 +248,10 @@ A record in another unit or another currency is not converted and does
 not count: the unit and the currency must be the item's. An item with
 neither a price nor such a record, or without an item key to look one
 up by, is refused naming the price it lacks (422 `sales.no_price`,
-`items[i].unit_price`). The item key is compared exactly, as it is
+`items[i].unit_price`). An item that sends a `price_unit` without a
+`unit_price` is refused naming it (422 `request.validation_failed`,
+`items[i].price_unit`; product owner 2026-11-12, T80d): the record's
+price comes with its own price unit. The item key is compared exactly, as it is
 stored.
 
 The price is fixed on the item when it is created: the item stores the
@@ -281,10 +303,13 @@ item keeps the conditions applied, each with its type, the type's name
 then, its rate (a price's unit price per price unit, a discount's
 percent) and its amount, a discount's negative: the amounts add up to
 the net value. They are fixed with the price when the item is created
-and copied to the order a quotation gives. A discount applies to an
-entered price as to a recorded one: the entered price takes the place of
-the price list's price, not of the customer's discount. An item without
-an item key has no discount, since discounts are recorded by key.
+and copied to the order a quotation gives. A price entered with the
+item is its final net price (product owner 2026-11-12, T80c): no
+discount is taken off it, its price is its only condition and its net
+value is its value. As T80b built it, a discount applied to an entered
+price as to a recorded one; that was default 15, which the product
+owner overruled. An item without an item key has no discount either,
+since discounts are recorded by key.
 
 ## Alternatives
 - **Discounts in a table of their own, with their own endpoint**: the
@@ -297,7 +322,8 @@ an item key has no discount, since discounts are recorded by key.
 - **An entered price as the final net value, with no discount**: it
   would make the entered price a way round the customer's discount in
   one direction and deny the customer its discount in the other. Not
-  taken (default 15, for the product owner).
+  taken in T80b (default 15); the product owner chose it on 2026-11-12
+  (T80c, §11).
 - **A price record changed in place, with versions**: the items priced
   from it would point at a row that no longer says what they took. An
   insert-only record with a validity is what the plan names, and the
@@ -363,7 +389,8 @@ Taken in T80a beside plan default 8:
     customer role, not blocked for posting in the company); `valid_from`
     may be any day, past or to come.
 12. `price_unit` sent without a `unit_price` is not read: a recorded
-    price comes with its own.
+    price comes with its own. Overruled by the product owner on
+    2026-11-12: it is refused naming the field (T80d).
 13. Recording prices is human-only, as every sales write (§7).
 
 Taken in T80b beside plan default 9:
@@ -373,6 +400,8 @@ Taken in T80b beside plan default 9:
     (an access sequence, which the plan leaves for later).
 15. With a procedure, the discounts found for an item's key are taken
     off an entered price too; an item without a key has none.
+    Overruled by the product owner on 2026-11-12: an entered price is
+    the final net price and has no discount (T80c).
 16. A discount is more than 0 and less than 100 percent: one of 100
     would leave an item no value, which no item may have (default 4).
 17. A price recorded without a condition type counts as the procedure's
@@ -391,7 +420,7 @@ Taken in T80b beside plan default 9:
 - **Discounts on an entered price** (product owner; a money rule):
   default 15 takes the customer's discount off a price the sales
   representative enters. Should an entered price be the final net value
-  instead?
+  instead? Answered 2026-11-12: yes (T80c).
 - **Billing at the order's prices** (product owner, T79a): once an item
   has discounts its net value is less than quantity × unit price ÷ price
   unit, so a billing document must take its share of the item's net
@@ -691,6 +720,130 @@ Taken in T80b beside plan default 9:
   intercompany billing, the billing due list, the invoice as a document
   or an e-invoice.
 
+### T79b Billing posted through receivables (migration 000296)
+- `internal/sales/billing_post.go` (`PostBilling`, `asBilling`),
+  `billing_api.go` (`PostBillingDocument`); `app.Sales` wires
+  `Invoices` to `app.Receivables` (receivables' `CreateInvoice` and
+  `PostInvoice`, in process) and `Entries` to `ledger.OpenItems` (an
+  entry's number); `internal/layout` allows sales to import
+  `receivables`, which does not import sales.
+- In `internal/receivables`, only the invoice's input and its source:
+  `Input.Source` (`Source{ID, Number}`, nil for an invoice a person
+  enters), written with the invoice in `CreateInvoice`
+  (`invoices.go`); `Invoice.SourceDocumentID` and
+  `SourceDocumentNumber`, read by `invoiceSelect` (`receivables.go`);
+  `source_document_id` and `source_document_number` on the
+  `CustomerInvoice` representation (`api.go`), absent for an invoice a
+  person entered. `createCustomerInvoice`'s request takes no source,
+  and the invoice's events are unchanged. Its tests are unchanged;
+  `source_test.go` is new.
+- Migration 000296: on `receivables.customer_invoice`
+  `source_document_id` and `source_document_number`, both or neither
+  (`customer_invoice_source`), a document invoiced once
+  (`customer_invoice_source_once`); on `sales.billing_document` the
+  status `posted` with `posting_date`, `customer_invoice_id`,
+  `customer_invoice_number`, `journal_entry_year` and
+  `journal_entry_id`, all of them when posted and none before
+  (`billing_document_posted`), a customer invoice one document's
+  (`billing_document_invoice_once`), the trigger
+  `billing_document_posted_once` (only a created document changes, and
+  only by being posted) and the update grant on the columns posting
+  sets. No new table. Schema tests in `db/sales_test.go`
+  (`TestBillingPostingRules`) and `db/receivables_test.go`
+  (`TestCustomerInvoiceSource`).
+- `POST /v1/billing-documents/{id}:post` (`sales.billing.post`,
+  `If-Match`, idempotent by `Idempotency-Key`, human-only; optional
+  `posting_date`): 200 with the document `posted` at version 2, naming
+  `posting_date`, `customer_invoice_id`, `customer_invoice_number`,
+  `journal_entry_id`, `journal_entry_year` and `journal_entry_number`.
+  The entry is receivables' (`DR`, `source_context` `receivables`, the
+  invoice as its source document): Dr the customer's reconciliation
+  account with the gross, Cr each item's account with its amount and
+  tax code, Cr output tax per code. The open item keeps the order's
+  payment term, counted from the billing date.
+- The document's lock is taken by a statement of its own and the
+  document read by the next (`billing`), as the order's is. Of two
+  posts of one document the second waits and then meets version 2: 412
+  `request.version_mismatch`, or 409 `sales.invalid_status` at the new
+  version. A replay with the same `Idempotency-Key` answers the posted
+  document.
+- **The refusals a post can still meet**, T79a having checked the
+  account and the tax code when the document was created (§9): the
+  customer not active, no longer a customer or blocked for posting
+  since (422 `receivables.customer_not_usable`, `customer_id`; without
+  a field when its data in the company is gone, which receivables
+  finds only as it posts); an item's account
+  that can no longer be posted (422 `receivables.account_not_postable`,
+  `items[i].account_id`) or that asks for a center the item does not
+  carry (the ledger's assignment refusals, `items[i].account_id`); a
+  tax code that is no longer an output tax code of the company with a
+  rate on the billing date (422 `receivables.unknown_tax_code`,
+  `items[i].tax_code`); a posting date in a period that is not open
+  (409 `ledger.period_not_open`); the customer's reconciliation account
+  or an output tax account blocked (422 `ledger.account_not_postable`,
+  `customer_id` or `items`); no `customer_invoice` or `journal_dr`
+  number range (422 `config.no_number_range`). Receivables checks the
+  customer, the accounts and the tax codes when the invoice is entered,
+  before the ledger sees an entry, so a lapsed account or code is
+  answered by receivables' refusal naming the item, not by a ledger
+  error about a line. The invoice's fields are the document's, its
+  items one for one, so its field errors stand; `asBilling` leads the
+  detail with the document's number, turns an item's center into its
+  account and the ledger's lines into what they are to the document
+  (line 0 the customer, lines 1 to n the items with the field refused
+  of them, the rest the output tax), and copies the problem rather than change it. Each refusal
+  rolls the invoice entered back with everything else: the document
+  stays `created` at version 1.
+- `BillingDocumentPosted` (`x-webhook`): the document's net value, the
+  invoice's tax and gross, the customer by id and number, the order,
+  the invoice and its entry by id and number, the billing and posting
+  dates. The audit record `sales.billing_document.post`. Receivables'
+  own `CustomerInvoiceChanged` and `CustomerInvoicePosted` and its two
+  audit records are written in the same transaction.
+- `sales.Orders.Order` gives each item's posted billings
+  (`ItemBilling`: the billing document by id and number, its posting
+  date, the amount billed of the item, the customer invoice and its
+  entry; by posting date, then document number), for T81d; a document
+  not yet posted is not among them, and the API's own reads of an order
+  do not read them. Posting does not move the order's version: nothing
+  the order's representation shows changes.
+- Walkthrough `step_billing` (step 64) extended: Ruth posts the
+  document; the customer invoice names it, dated the billing date on
+  NT30, net 1,737.53, tax 86.88, gross 1,824.41; the entry moves 1200,
+  4000 and 2300 by exactly those amounts; Northwind's open item shows
+  1,824.41; a second post (412, then 409) and the ledger's `:reverse`
+  are refused; Tom imports RBC's next statement with Northwind's
+  1,824.41, matches it as incoming and posts it, and Ruth applies it to
+  the invoice. The step compares Northwind's open items and the
+  unapplied receipts at its end with what it found at its start, and
+  reads the statement's sequence and opening balance from RBC's latest
+  statement, so it holds whatever earlier steps left open or imported.
+- **Decided by default:** (1) the posting date is the request's, else
+  the company's date today in its time zone, as for a customer invoice
+  a person posts (ADR-0063 §5): the billing date is the invoice and tax
+  date, not the posting date, so a document billed in a period closed
+  since still posts; (2) `:post` takes `If-Match`, as confirming an
+  order does; (3) a refusal keeps the refusing context's code, which
+  the operation lists, rather than a sales code of its own, and sales
+  does not check before receivables what receivables checks; (4)
+  posting emits `BillingDocumentPosted` alone, not also
+  `BillingDocumentChanged`, as a customer invoice's posting does; (5)
+  the tax and the gross stay the customer invoice's: the billing
+  document shows its net value and names the invoice, and the event
+  carries all three; (6) the invoice's source is an id and a number
+  without a type: billing documents are its only source today; it is
+  set in process only, and is unique, so the database too refuses a
+  second invoice of one document; (7) an invoice item's description is
+  the order item's, and it carries no cost center or profit center
+  (plan, "Later"): the account's default applies, and an account that
+  needs one without a default cannot be billed; (8) `sales.billing.post`
+  alone posts: the clerk needs none of receivables' permissions, the
+  invoice being entered in process; (9) the order's version does not
+  move. Not built, by the plan: revenue account determination, reversal
+  or cancellation of a posted billing document, credit and debit memos
+  from billing, posting to a profit center or segment, cost of goods
+  sold, rebate accruals, a tax date other than the billing date.
+
 ### T80a Prices and their determination (migration 000294)
 - `internal/sales/prices.go`, `price_api.go`; `pricing.go`'s `price`
   now takes the transaction and the document's customer
@@ -803,3 +956,136 @@ Taken in T80b beside plan default 9:
   conditions, condition exclusion, statistical conditions, tax as a
   condition, rebates, pricing configuration generated from SAP's
   condition tables.
+
+### T80c An entered price is the final net price (no migration)
+- **Decision (product owner, 2026-11-12, row 2):** a price entered with
+  a quotation or order item is the item's final net price. The pricing
+  procedure takes no discount off it; a price determined from the price
+  records has its discounts as before. This overrules default 15.
+- `internal/sales/pricing.go`: `conditioned` stops after the price for
+  an item whose source is `manual`, as it does for an item without a
+  key. With a procedure the item's `conditions` are its price alone,
+  whose amount is the net value; without one they are empty, as before.
+- `price_source` keeps its two values: `manual` is the entered price,
+  `price_list` the determined one. No new value, no schema change.
+- Items priced before the change keep the conditions and net value they
+  were stored with: an item is priced once, when it is created (§10),
+  and an order from a quotation copies the quotation's items.
+- Billing is unchanged: a billing document shares out the order item's
+  net value (§9), which for an entered price is now quantity × unit
+  price ÷ price unit, and shows the order item's conditions
+  (`TestBillingAnEnteredPrice`, beside
+  `TestBillingSharesOutTheDiscountedNet` for a determined price).
+- Contract: descriptions only (`createQuotation`, `createSalesPrice`,
+  `SalesItemCreate.unit_price`, `SalesItem.conditions`).
+- Walkthrough `step_price_list` (step 65) extended: after Northwind's
+  discount is recorded, Sally quotes the bracket at a price she enters,
+  11.00; the item reads `manual`, lists the price alone and keeps
+  2750.00, beside the item priced from the price list with its discount.
+
+### T80d A price unit without a unit price is refused (no migration)
+- **Decision (product owner, 2026-11-12, row 3):** `price_unit` sent
+  without `unit_price` is refused with a field error; it was silently
+  ignored (default 12), so an item could be priced per another quantity
+  than its request said.
+- `internal/sales/pricing.go`: `unitPrice` refuses the item, 422
+  `request.validation_failed` naming `items[i].price_unit`, before it
+  looks for a price record, whatever the price unit sent, 1 included.
+  `itemInputs` passes a price unit the request did not give as 0, and an
+  entered price without one is per 1, as before.
+- It applies wherever the pair is accepted: `SalesItemCreate`, the item
+  of `POST /v1/quotations` and of `POST /v1/sales-orders` with `items`.
+  No operation changes an item afterwards, and an order from a
+  quotation sends no items.
+- Contract: `SalesItemCreate.price_unit` loses its `default: 1`. With
+  it the generated decoder set the field on every request, so one sent
+  could not be told from one absent; the description says 1 when absent.
+  A request that sends no `price_unit` is read as before.
+- **Decided by default:** the code is `request.validation_failed`, as
+  procurement refuses a requisition item without the `unit_price` it
+  must send, not a new `sales.*` code: the request's shape is wrong, not
+  a rule of the sales context broken. Procurement's endpoints with the
+  pair were left alone and need no change: a purchase order, contract,
+  catalog, requisition and supplier quotation item require `unit_price`, and a
+  requisition item from the catalog refuses a `price_unit` sent (422
+  `procurement.catalog_item_override`).
+- Walkthrough `step_price_list` (step 65) extended: Sally's item with a
+  price unit of 100 and no price is refused naming
+  `items[0].price_unit`.
+
+### T77b Order credit block (migration 000300)
+
+The credit check joins the confirmation, as T78b left it to
+(`docs/design/plan-breadth-week2.md`, T77b; ADR-0066, As built T77b,
+which records what the check compares, the exposure and the lock).
+
+- `internal/sales/credit.go`: the ports `Credit` (the check, answered by
+  the credit context through the composition root, since credit is a
+  leaf) and `Rates` (`ledger.Rates`); the valuation of an order (net plus
+  output tax on the order's date, in the company's currency);
+  `Endpoints.OpenOrders`, the context's published read of a customer's
+  confirmed orders not yet billed, for the credit exposure;
+  `ReleaseCreditBlock`. `orders.go` checks at confirmation,
+  `deliveries.go` refuses a blocked order, `order_api.go` shows the
+  block, filters by it and releases it.
+- Migration 000300: on `sales.sales_order`, `credit_block` (`none`,
+  `blocked`, `released`; `sales_order_credit_block_check`),
+  `credit_released_by`, `credit_released_by_name` (the releaser's name
+  as it was then, as a close's sign-off keeps its signer's, with no
+  rule of its own beside identity's for a display name: review round 2)
+  and
+  `credit_released_at`, set exactly when it is released
+  (`sales_order_credit_release`); a draft has no block
+  (`sales_order_credit_block_confirmed`). The order's change rule
+  (`sales_order_confirmed_once`) admits a draft confirmed with or without
+  a block, never already released, and a blocked order released, once;
+  the application is granted the four columns. The delivery's trigger
+  refuses a blocked order (`delivery_order_confirmed`). The permission
+  `sales.order.credit_release`. Schema tests in `db/sales_test.go`.
+- `POST /v1/sales-orders/{id}:confirm` answers the order with its
+  `credit_block`: `none`, or `blocked` for an order over the customer's
+  limit. It is confirmed either way (200). It refuses an order whose
+  value cannot be calculated: 422 `sales.unknown_tax_code` (a tax code no
+  longer an output code on the order's date), 422
+  `ledger.no_exchange_rate` (another currency without a rate on the
+  order's date; the refusal is worded here, naming the order, since the
+  ledger's names a document field the confirmation does not have), 422 `sales.amount_too_large`.
+- `POST /v1/sales-orders/{id}/deliveries` refuses a blocked order, 409
+  `sales.order_credit_blocked` (the plan's status; a state the order is
+  in, as 409 `sales.order_not_confirmed` is). Billing bills what is
+  delivered, so a blocked order has nothing to bill (422
+  `sales.nothing_to_bill`).
+- `POST /v1/sales-orders/{id}:releaseCreditBlock`
+  (`sales.order.credit_release`, `If-Match`, idempotent, human-only):
+  `blocked` to `released`, once, under the order's row lock, with who
+  released it and when; 409 `sales.order_not_credit_blocked` for an order
+  without a block or already released. Nothing is checked again.
+- `GET /v1/sales-orders?credit_block=` filters by the block; the order
+  shows `credit_block`, `credit_released_by`, `credit_released_by_name`
+  and `credit_released_at`. The releaser's name is read from the
+  identity context through the port `People` (`app.LedgerPeople`);
+  events carry the id alone, as a sign-off's do.
+- Events and audit: `SalesOrderChanged` carries `credit_block`;
+  `SalesOrderCreditBlocked` (`x-webhook`; the order's gross value, the
+  amount checked, the limit and the exposure it was checked against) is
+  published with it when the order is blocked; the confirmation's audit
+  record holds the amount checked and, for a customer with a limit, the
+  limit and the exposure. `SalesOrderCreditReleased` (`x-webhook`; who
+  and when) and the audit record `sales.sales_order.release_credit_block`
+  for the release. Events name the customer by id and number.
+- Walkthrough `step_credit_block` (step 68): with Northwind's limit of
+  step 59, Sally confirms an order within what is available, without a
+  block, and a larger one, blocked; its delivery is refused; Sally may
+  not release it; Ruth, who holds the credit manager's role, releases
+  it, once, and the delivery is confirmed; the exposure shows the open
+  orders beside the open items throughout.
+- **Decided by default:** the action is `:releaseCreditBlock`, the
+  contract's form of an action's name (`:signOff`, `:acceptProposal`;
+  `api/spec_test.go`), where the plan wrote `:release-credit-block`; the
+  refusal of a delivery is 409, the plan's
+  status and the status of the order's other state refusals; `none` is
+  stored for an unblocked order and a draft rather than a null; the
+  release takes the caller's version (`If-Match`) as the confirmation
+  does; `SalesOrderChanged` gains `credit_block` rather than the
+  confirmation publishing a second kind of change event for an unblocked
+  order. Not built, by the plan's "Later": see ADR-0066, As built T77b.

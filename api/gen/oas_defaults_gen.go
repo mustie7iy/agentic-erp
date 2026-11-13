@@ -27,6 +27,14 @@ func (s *CatalogItemCreate) setDefaults() {
 }
 
 // setDefaults set default value of fields.
+func (s *ContractCreate) setDefaults() {
+	{
+		val := string("contract")
+		s.Kind.SetTo(val)
+	}
+}
+
+// setDefaults set default value of fields.
 func (s *ContractItem) setDefaults() {
 	{
 		val := int32(1)
@@ -132,14 +140,6 @@ func (s *RegressionSuiteCreate) setDefaults() {
 
 // setDefaults set default value of fields.
 func (s *RequisitionItem) setDefaults() {
-	{
-		val := int32(1)
-		s.PriceUnit.SetTo(val)
-	}
-}
-
-// setDefaults set default value of fields.
-func (s *SalesItemCreate) setDefaults() {
 	{
 		val := int32(1)
 		s.PriceUnit.SetTo(val)

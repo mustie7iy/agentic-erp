@@ -27,8 +27,10 @@ type ItemInput struct {
 	// UnitPrice is the price entered with the item; nil: the item takes
 	// the price recorded for its item key (ADR-0067 §10).
 	UnitPrice *Amount
-	// PriceUnit is the quantity an entered unit price refers to, at least
-	// 1; a recorded price comes with its own.
+	// PriceUnit is the quantity an entered unit price refers to; 0: the
+	// request gave none, and an entered price is per 1. A recorded price
+	// comes with its own, so one sent without a unit price is refused
+	// (unitPrice).
 	PriceUnit int32
 	AccountID uuid.UUID
 	TaxCode   *string

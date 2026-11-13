@@ -65,6 +65,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
+	"github.com/mustie7iy/agentic-erp/internal/revenue"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 	"github.com/mustie7iy/agentic-erp/internal/workflows"
 	"go.opentelemetry.io/otel"
@@ -940,14 +941,37 @@ func (s *server) connectBus() (*natsbus.Bus, error) {
 	return natsbus.Connect(s.cfg.NATSURL, natsbus.TLS(s.tls)...)
 }
 
-// startRelay makes sure the cell's streams exist and starts the outbox
-// relay on bus, when there is one.
+// startRelay makes sure the cell's streams exist and starts the bus's
+// consumers and then the outbox relay on bus, when there is one.
 func (s *server) startRelay(ctx, runCtx context.Context, bus *natsbus.Bus) error {
 	if bus == nil {
 		return nil
 	}
 	if err := bus.EnsureStreams(ctx, s.cfg.Cell); err != nil {
 		return err
+	}
+	// Events offered to webhooks become deliveries (ADR-0041), and a
+	// confirmed sales order's event its revenue contract (ADR-0068 §4),
+	// each in its tenant's transaction, so neither consumer needs a role
+	// beyond the app's. The durable consumers are created before the relay
+	// starts: a new one is given only the events published after it, so
+	// what the outbox still holds must not reach the bus before them.
+	fanout := &integration.Fanout{Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log}
+	contracts := &revenue.Consumer{Endpoints: app.Revenue(s.apiCfg), Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log}
+	for _, c := range []struct {
+		name, durable string
+		contexts      []string
+		handle        natsbus.Handler
+	}{
+		{"webhook fan-out", integration.FanoutConsumer, integration.WebhookContexts(), fanout.Handle},
+		{"revenue contracts", revenue.ContractConsumer, revenue.ConsumedContexts(), contracts.Handle},
+	} {
+		consumer, err := bus.Consume(ctx, s.cfg.Cell, c.durable, c.contexts, c.handle)
+		if err != nil {
+			return err
+		}
+		consumer.Log = s.log
+		s.spawn(c.name, func() { consumer.Run(runCtx) })
 	}
 	relay := &outbox.Relay{Pool: s.pool, Role: s.cfg.RelayRole, Publisher: bus, Cell: s.cfg.Cell, Log: s.log, Counter: s.metrics}
 	if s.store != nil {
@@ -956,15 +980,6 @@ func (s *server) startRelay(ctx, runCtx context.Context, bus *natsbus.Bus) error
 		relay.Relayed = extract.MarkChanged
 	}
 	s.spawn("relay", func() { relay.Run(runCtx) })
-	// Events offered to webhooks become deliveries (ADR-0041), each in its
-	// tenant's transaction, so the fan-out needs no role beyond the app's.
-	fanout := &integration.Fanout{Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log}
-	consumer, err := bus.Consume(ctx, s.cfg.Cell, integration.FanoutConsumer, integration.WebhookContexts(), fanout.Handle)
-	if err != nil {
-		return err
-	}
-	consumer.Log = s.log
-	s.spawn("webhook fan-out", func() { consumer.Run(runCtx) })
 	return nil
 }
 

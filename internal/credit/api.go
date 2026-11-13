@@ -145,7 +145,8 @@ func (e *Endpoints) ListCreditLimits(ctx context.Context, params gen.ListCreditL
 }
 
 // GetCreditExposure implements GET /v1/credit-exposure: what a customer
-// owes a company, its limit there and whether an amount is within it.
+// owes a company and has ordered of it, its limit there and whether an
+// amount is within it.
 func (e *Endpoints) GetCreditExposure(ctx context.Context, params gen.GetCreditExposureParams) (gen.GetCreditExposureRes, error) {
 	x, err := e.ExposureOf(ctx, params.LegalEntityID, params.CustomerID, apitypes.Ptr[string](params.Amount))
 	if err != nil {
@@ -154,7 +155,7 @@ func (e *Endpoints) GetCreditExposure(ctx context.Context, params gen.GetCreditE
 	amount := func(m money.Minor) gen.Money { return apitypes.Money(m, x.Company.LocalCurrency, x.Exponent) }
 	out := &gen.CreditExposure{LegalEntityID: x.Company.ID, CompanyCode: x.Company.Code, CompanyName: x.Company.Name, CustomerID: params.CustomerID,
 		CustomerNumber: x.Customer.Number, CustomerName: x.Customer.Name, Currency: x.Company.LocalCurrency, OpenItemCount: x.Items,
-		Exposure: amount(x.Owed), HasLimit: x.Limit != nil, IsWithinLimit: x.Within}
+		OpenItems: amount(x.Owed), OpenOrderCount: x.Orders, OpenOrders: amount(x.Ordered), Exposure: amount(x.Total), HasLimit: x.Limit != nil, IsWithinLimit: x.Within}
 	if x.Limit != nil {
 		out.CreditLimitID.SetTo(x.Limit.ID)
 		out.Limit.SetTo(amount(x.Limit.Amount))

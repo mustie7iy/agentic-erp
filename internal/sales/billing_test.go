@@ -483,3 +483,37 @@ func TestBillingSharesOutTheDiscountedNet(t *testing.T) {
 	}
 	e.In(t).Problem(422, "sales.nothing_to_bill", "POST", billings, bill(id, ""), "")
 }
+
+// TestBillingAnEnteredPrice: an order item whose price was entered is
+// its final net price (PO 2026-11-12, T80c): the customer's discount on
+// its key is not taken off, and the billing documents share out the
+// whole 10.05, each showing the price as the item's only condition.
+func TestBillingAnEnteredPrice(t *testing.T) {
+	e := setupPricing(t, "PR00", "K007")
+	e.priced(t, rec{amount: "3.00"})
+	e.priced(t, rec{condition: "K007", percent: "5", customer: e.customer})
+	id, today := e.confirmed(t, e.item(line{price: "3.35", quantity: "3", key: "BRACKET-M8"}))
+	const conditions = "PR00 Price 3.35 EUR per 1 = 10.05 EUR"
+	for i, want := range []string{"1: 1 EA = 3.35 EUR", "1: 2 EA = 6.70 EUR"} {
+		t.Run(fmt.Sprintf("document %d", i+1), func(t *testing.T) {
+			e.In(t).Must(201, "POST", deliveries(id), delivered(today, fmt.Sprintf("1 %d EA", i+1)), "")
+			got, _ := e.In(t).Must(201, "POST", billings, bill(id, ""), "")
+			if b := billed(t, got); b != want {
+				t.Errorf("items: got %s, want %s", b, want)
+			}
+			line := items(t, got)[0]
+			if line["price_source"] != "manual" {
+				t.Errorf("the item's price source: got %v, want manual", line["price_source"])
+			}
+			if c := applied(t, line); c != conditions {
+				t.Errorf("the item's conditions: got %s, want %s", c, conditions)
+			}
+		})
+	}
+	var total int64
+	pgtest.Scan(t, `SELECT sum(net_amount)::bigint FROM sales.billing_document_item
+		WHERE tenant_id = $1 AND sales_order_id = $2 AND order_item_no = 1`, []any{e.Tenant.ID, id}, &total)
+	if total != 1005 {
+		t.Errorf("billed of the item in all: got %d, want 1005, the entered price in full", total)
+	}
+}
