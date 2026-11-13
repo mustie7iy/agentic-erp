@@ -233,10 +233,7 @@ func New(cfg Config) (http.Handler, error) {
 		return nil, err
 	}
 	upload := uploads(cfg)
-	loopback := cfg.Loopback
-	if loopback == nil {
-		loopback = &httpapi.Loopback{}
-	}
+	loopback := loopbackOf(cfg)
 	// The seed of every tenant's semantic model until a change request
 	// gives it its own: unreadable, the API does not start.
 	if _, err := governedModel(); err != nil {
@@ -295,6 +292,14 @@ func New(cfg Config) (http.Handler, error) {
 		Model:              cfg.Model,
 		Loopback:           loopback,
 	})
+}
+
+// loopbackOf is cfg's loopback, or a new one.
+func loopbackOf(cfg Config) *httpapi.Loopback {
+	if cfg.Loopback != nil {
+		return cfg.Loopback
+	}
+	return &httpapi.Loopback{}
 }
 
 // analyticsEndpoints is the analytics context as the API and the
