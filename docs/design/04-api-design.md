@@ -972,6 +972,13 @@ people's. The bid comparison agent (`erp agent bid-compare -rfq ID`,
 agent type `bid_comparison`, T105c) recommends on an `rfq`: `award`, its
 content's first line naming a quotation the comparison ranks, or
 `no_award`; the award stays the buyer's (`x-agent: false`, ADR-0069 §7).
+The regulatory agent (`erp agent regulatory-notice -file F`, agent type
+`regulatory`, T107a) reads a notice a tax accountant gives it as text
+against the configuration and recommends on the active
+`config_version`: `change_needed`, naming the paths affected and when it
+takes effect and quoting the notice character for character, or
+`no_change`, each saying that a person must check the notice against its
+source; it fetches nothing and proposes no change.
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation

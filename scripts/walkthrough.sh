@@ -8382,6 +8382,93 @@ step_return_receipt() {
   passed
 }
 
+# step_regulatory_agent is T107a (ADR-0072): Fiona, who manages tax,
+# gives the regulatory agent a notice of a regulatory change as a file.
+# The notice is invented for the walkthrough and says so: no authority
+# issued it, and the product ships no regulatory content. It raises the
+# rate of tax code V0 of company 1000, the walkthrough's own invented
+# code. erp agent regulatory-notice, through the model stand-in answering
+# from a script of turns (its suite's replay, evals/regulatory), reads the
+# active configuration version; a passage it misquotes is refused by the
+# run first; it then recommends change_needed on the version, naming the
+# code's path and when the change takes effect, quoting the notice
+# character for character, and saying that a person must check the notice
+# against its source. Its role proposes no change: its own change request
+# is refused, and the configuration is as it was. The recommendation is
+# left open for the tax accountant (T107b drafts the change from it).
+step_regulatory_agent() {
+  heading "Step 78 — The regulatory agent: an invented notice read against the configuration; a misquoted passage refused; the tax code's path, the date it takes effect and the notice's own words recommended, for a person to check against the source; the configuration unchanged"
+  local role version number got session rec notice
+  as ada
+  say "Ada sets up the regulatory agent (ADR-0072): an agent principal of type regulatory at autonomy level 1 on"
+  say "erp-default. Its role reads the configuration, the country packs and the tax registrations, and records its"
+  say "sessions and recommendations; it holds no permission that proposes or activates a change."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "regulatory_agent", "name": "Regulatory agent"}'
+  role=$(field .id)
+  grant "$role" config.change.read config.version.read tax.registration.read agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model), budget \(.agent_profile.monthly_budget.amount) \(.agent_profile.monthly_budget.currency) a month"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "regulatory-agent", "display_name": "Regulatory agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "regulatory", "model": "erp-default", "description": "Reads regulatory notices against the configuration for a tax accountant to decide (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token regulatory-agent "Regulatory agent"
+  as fiona
+  say "What the agent will read, as Fiona reads it: the active configuration version and tax code V0 of company 1000:"
+  api 200 '.items[0] | "  version \(.number), active: \(.is_active)", (.document.companies[] | select(.code == "1000") | .tax_codes[] | select(.code == "V0") | "  company 1000, tax code \(.code) \(.description): \(.rate_percent)%")' \
+    listConfigVersions -p is_active=true
+  version=$(field '.items[0].id') number=$(field '.items[0].number')
+  expect "tax code V0 of company 1000" "$(field '.items[0].document.companies[] | select(.code == "1000") | .tax_codes[] | select(.code == "V0") | .rate_percent')" 0
+  notice="$WORK/notice.txt"
+  printf '%s\n' "INVENTED FOR THE WALKTHROUGH: no authority issued this notice and nothing in it is true." \
+    "Notice EX-2099-01 of the Example Revenue Office." \
+    "From 1 July 2099 purchases now exempt from input tax, tax code V0, are taxed at 2.5 percent." >"$notice"
+  say "Fiona has a notice of a change, as text. This one is invented, and says so: the product ships no regulatory"
+  say "content, and the agent fetches nothing. The notice:"
+  sed 's/^/     | /' "$notice"
+  say "The agent runs: erp agent regulatory-notice reads the notice from the file and the active version, starts a"
+  say "session on erp-default and recommends. The model is the stand-in, answering from a script of turns as the agent's"
+  say "evaluation suite replays them (evals/regulatory): it reads the version, quotes the notice wrongly (refused by the"
+  say "run: every quotation is the notice's, character for character), then recommends the change."
+  jq -n --arg v "$version" '
+    {session_id: "{{session}}", object_type: "config_version", object_id: $v, kind: "change_needed"} as $on |
+    "Paths: companies[1000].tax_codes[V0]\nTakes effect: \"From 1 July 2099\"\n" as $head |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "getConfigVersion", input: {id: $v}},
+      {tool: "createRecommendation", input: {body: ($on + {content: ($head + "The notice says \"V0 is taxed at 2.5 percent\". A person must check the notice against its source.")})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: ($head + "The notice says \"purchases now exempt from input tax, tax code V0, are taxed at 2.5 percent\". Tax code V0 of company 1000 is at rate 0 in the active version. A person must check the notice against its source.")})}},
+      {final: "Recommended a change of tax code V0 of company 1000 from the notice'"'"'s date; a person checks the notice against its source and decides."}]}' >"$WORK/model-script.json"
+  show ERP_AGENT_TOKEN=… erp agent regulatory-notice -file notice.txt
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/regulatory-agent") "$ERP" agent regulatory-notice -file "$notice" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent regulatory-notice failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): change_needed on config_version $version\$/\1/p")
+  [ -n "$rec" ] || fail "erp agent regulatory-notice printed no change_needed on the version $version"
+  say "Fiona reads the recommendation on the configuration version:"
+  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)"))' listRecommendations -p "object_id=$version"
+  expect "the recommendations on the version, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "made in its session" "$(field '.items[0].session_id')" "$session"
+  expect "naming the tax code's path" "$(field '.items[0].content | split("\n")[0]')" "Paths: companies[1000].tax_codes[V0]"
+  expect "when it takes effect, in the notice's words" "$(field '.items[0].content | split("\n")[1]')" 'Takes effect: "From 1 July 2099"'
+  expect "quoting the notice's passage, character for character" \
+    "$(jq -r --rawfile n "$notice" '.items[0].content | capture("says \"(?<q>[^\"]+)\"").q as $q | $n | contains($q)' "$WORK/last.json")" true
+  expect "saying a person must check the notice" "$(field '.items[0].content | endswith("A person must check the notice against its source.")')" true
+  as regulatory-agent
+  say "Recommending is all it may do: its role proposes no change, so the API refuses its own change request:"
+  refused 403 identity.permission_missing createChangeRequest -body "{\"title\": \"V0 at 2.5 percent\", \"base_version\": $number, \"proposed\": {}}"
+  api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "getConfigVersion createRecommendation createRecommendation"
+  as fiona
+  say "The configuration is as it was: the same version active, V0 at rate 0. The recommendation waits for Fiona, who"
+  say "checks the notice against its source before any change is drafted."
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  expect "the active version and V0" "$(field '.items[0] | "\(.id) \(.document.companies[] | select(.code == "1000") | .tax_codes[] | select(.code == "V0") | .rate_percent)"')" "$version 0"
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  expect "the recommendation, open" "$(field '.outcome // "open"')" open
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -10406,7 +10493,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_regulatory_agent step_close'
 
 main() {
   stop_unseen

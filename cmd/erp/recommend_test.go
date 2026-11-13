@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/eval"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
+	"github.com/mustie7iy/agentic-erp/internal/regulatoryagent"
 )
 
 // agentSession is the session the fake API starts for an agent's run.
@@ -133,6 +135,47 @@ func TestAgentBidCompare(t *testing.T) {
 	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "bid-compare", "-rfq", "q1")
 }
 
+// TestAgentRegulatoryNotice: erp agent regulatory-notice needs -file, a
+// readable notice of at most regulatoryagent.MaxNotice bytes, reads the
+// active configuration version, runs the regulatory agent's session and
+// prints what it recommended and the model's reply, also when the run
+// failed after starting its session (ADR-0072, T107a).
+func TestAgentRegulatoryNotice(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	notice := "INVENTED: no authority issued this notice. From 1 July 2099 tax code V0 rises from 0 percent to 2.5 percent."
+	if err := os.WriteFile("notice.txt", []byte(notice), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("long.txt", []byte(strings.Repeat("x", regulatoryagent.MaxNotice+10)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fails(t, "flag provided", "agent", "regulatory-notice", "-x")
+	fails(t, "want -file F", "agent", "regulatory-notice")
+	fails(t, "no such file", "agent", "regulatory-notice", "-file", "missing.txt")
+	fails(t, "is a directory", "agent", "regulatory-notice", "-file", ".")
+	fails(t, "a notice is UTF-8 text", "agent", "regulatory-notice", "-file", "long.txt")
+	fails(t, "404", "agent", "regulatory-notice", "-file", "notice.txt")
+	read := sessionRoutes(routes{"GET /v1/config-versions": {ok(`{"items": [{"id": "v1", "number": 3, "document": {"companies": [{"code": "1000",
+			"tax_codes": [{"code": "V0", "rate_percent": "0"}]}]}}]}`)},
+		"POST /v1/recommendations": {reply{201, `{"id": "r1", "object_type": "config_version", "object_id": "v1", "kind": "no_change"}`}}})
+	fakeAPI(t, read)
+	model(t, llmtest.Tool("createRecommendation", map[string]any{"body": map[string]any{"session_id": agentSession, "object_type": "config_version",
+		"object_id": "v1", "kind": "no_change", "content": "Nothing to change. " + regulatoryagent.Caveat}}),
+		llmtest.Final("No change needed; a person checks the notice."))
+	got := must(t, "agent", "regulatory-notice", "-file", "notice.txt")
+	if want := "Session " + agentSession + ": recommendations made 1, refused 0.\n  recommendation r1: no_change on config_version v1\n" +
+		"No change needed; a person checks the notice.\n"; got != want {
+		t.Errorf("agent regulatory-notice: got %q, want %q", got, want)
+	}
+	model(t)
+	// A failed run still names its session, then fails.
+	fails(t, "Session "+agentSession+": recommendations made 0, refused 0.", "agent", "regulatory-notice", "-file", "notice.txt")
+	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
+	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "regulatory-notice", "-file", "notice.txt")
+}
+
 // TestRecommendingAdapterFailures: a recommending agent's evaluation
 // adapter fails its case on a task without its values and on an agent
 // that could not run.
@@ -147,6 +190,8 @@ func TestRecommendingAdapterFailures(t *testing.T) {
 			Task: map[string]any{"role": "clerk", "from": "2026-04-01", "to": "2026-06-30"}}),
 		"bid_comparison without an RFQ":  bidComparisonEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
 		"bid_comparison without its API": bidComparisonEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"rfq": "q1"}}),
+		"regulatory without a notice":    regulatoryEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
+		"regulatory without its API":     regulatoryEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"notice": "A notice."}}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err == nil {

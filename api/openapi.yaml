@@ -30859,6 +30859,7 @@ components:
             - credit_scoring
             - access
             - bid_comparison
+            - regulatory
           maxLength: 50
         model:
           type: string

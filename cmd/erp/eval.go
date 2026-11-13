@@ -28,6 +28,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/eval"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/reconagent"
+	"github.com/mustie7iy/agentic-erp/internal/regulatoryagent"
 	"github.com/mustie7iy/agentic-erp/internal/taxagent"
 )
 
@@ -35,7 +36,8 @@ import (
 // type (ADR-0039).
 var evalAgents = map[string]eval.Agent{"analytics": analyticsEval, "ap_exceptions": apExceptions, "capture": captureEval,
 	"close": closeEval, "configuration": configurationEval, "migration": migrationEval, "reconciliation": reconciliationEval, "tax": taxEval, "test": testEval,
-	cashagent.Type: cashForecastEval, creditagent.Type: creditScoringEval, accessagent.Type: accessEval, bidagent.Type: bidComparisonEval}
+	cashagent.Type: cashForecastEval, creditagent.Type: creditScoringEval, accessagent.Type: accessEval, bidagent.Type: bidComparisonEval,
+	regulatoryagent.Type: regulatoryEval}
 
 // analyticsEval asks the task's question as erp ask does, its session
 // reading what the API gives the agent principal and no more. Its reply

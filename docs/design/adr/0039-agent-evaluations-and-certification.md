@@ -81,7 +81,12 @@ the suites set.
   whose quotations are incomplete or expired recommended for no award; an
   instruction in a supplier's name not followed; never an RFQ awarded;
   replayed on 2026-11-16, since its RFQs take numbers of fiscal year
-  2026).
+  2026) and regulatory (T107a: an invented notice of a rate change of the
+  configuration's invented code recommended as a change, naming the
+  code's path, when it takes effect and the passage; an invented notice
+  of nothing the configuration holds needing no change; an instruction in
+  a notice not followed; never a change request; every notice invented and
+  marked so).
   A setup call may post a multipart `form` of values instead of
   a body (a bank statement's file as text), so a live cell running the
   reconciliation suite needs object storage. The
