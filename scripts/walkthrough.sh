@@ -8397,7 +8397,7 @@ step_return_receipt() {
 # is refused, and the configuration is as it was. The recommendation is
 # left open for the tax accountant (T107b drafts the change from it).
 step_regulatory_agent() {
-  heading "Step 78 — The regulatory agent: an invented notice read against the configuration; a misquoted passage refused; the tax code's path, the date it takes effect and the notice's own words recommended, for a person to check against the source; the configuration unchanged"
+  heading "Step 78 — The regulatory agent: an invented notice read against the configuration; a misquoted passage refused; the tax code's path, the date it takes effect and the notice's own words recommended, for a person to check against the source; once accepted, the change drafted and simulated, a person submitting it; the configuration unchanged until it is approved"
   local role version number got session rec notice
   as ada
   say "Ada sets up the regulatory agent (ADR-0072): an agent principal of type regulatory at autonomy level 1 on"
@@ -8466,7 +8466,104 @@ step_regulatory_agent() {
   expect "the active version and V0" "$(field '.items[0] | "\(.id) \(.document.companies[] | select(.code == "1000") | .tax_codes[] | select(.code == "V0") | .rate_percent)"')" "$version 0"
   QUIET=1 api 200 '' getRecommendation -p "id=$rec"
   expect "the recommendation, open" "$(field '.outcome // "open"')" open
+  regulatory_draft "$role" "$rec" "$version" "$number"
   passed
+}
+
+# regulatory_draft ROLE RECOMMENDATION VERSION NUMBER is T107b,
+# step_regulatory_agent's second part: Fiona accepts the recommendation;
+# the agent, allowed to propose a change, drafts the change request of the
+# path it named, the new rate from the notice's date, and has the draft
+# simulated (a preview: no evidence, nothing moved); a draft that changes
+# another setting is refused by the run; it recommends ready_to_submit on
+# the draft. It submits nothing: Fiona submits it, its simulation as a
+# submitted request records the evidence, and the configuration's own
+# approval decides it; the active version is as it was.
+regulatory_draft() {
+  local role=$1 rec=$2 version=$3 number=$4 us first got session made cr
+  say "Fiona checks the notice against its source (here, the walkthrough's own invention) and accepts the recommendation."
+  say "Accepting changes nothing by itself: the configuration changes only through a change request a person submits."
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "Checked against its source (invented for the walkthrough)"}'
+  as ada
+  say "Ada lets the agent draft (T107b): its role may now propose a change (create, change and simulate a draft) and read"
+  say "the simulation's operation and the fiscal periods. The same permission submits a draft: the agent has no tool that does."
+  grant "$role" config.change.propose platform.operation.read ledger.period.read
+  as fiona
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  us=$(field '.items[] | select(.code == "1000") | .id')
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$us" -p page_size=500
+  first=$(field '[.items[].start_date] | min')
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  # The draft: V0's rate kept from the company's first period to the day
+  # before the notice's date, the notice's rate from it; and one that
+  # also changes the company's price tolerance, a path the
+  # recommendation did not name.
+  jq --arg first "$first" '.items[0].document | (.companies[] | select(.code == "1000") | .tax_codes[] | select(.code == "V0")) |=
+    (del(.rate_percent, .account) + {components: [{key: "tax", account_key: "input", account: "140000",
+      rates: [{rate_percent: "0", valid_from: $first, valid_to: "2099-06-30"}, {rate_percent: "2.5", valid_from: "2099-07-01"}]}]})' \
+    "$WORK/last.json" >"$WORK/proposed.json"
+  jq '.companies |= map(if .code == "1000" then .invoice_tolerance.price_percent = 3 else . end)' "$WORK/proposed.json" >"$WORK/outside.json"
+  # The ids the model reads in the API's answers: the draft's (version 1)
+  # and its simulation's operation.
+  # shellcheck disable=SC2016 # regular expressions, not expansions
+  jq -n --arg r "$rec" --arg v "$version" --argjson n "$number" --arg us "$us" --slurpfile p "$WORK/proposed.json" --slurpfile o "$WORK/outside.json" \
+    --arg cr '\\"body\\":\{\\"id\\":\\"([0-9a-f-]{36})\\",\\"version\\":1,\\"created_at' \
+    --arg op '\\"id\\":\\"([0-9a-f-]{36})\\",\\"kind\\":\\"config.simulate' '
+    {title: "V0 at 2.5 percent from 1 July 2099", base_version: $n,
+     rationale: "The notice says \"From 1 July 2099 purchases now exempt from input tax, tax code V0, are taxed at 2.5 percent\"."} as $req |
+    {vars: {session: "session id is ([0-9a-f-]{36})", cr: $cr, op: $op},
+     turns: [
+      {tool: "getRecommendation", input: {id: $r}},
+      {tool: "getConfigVersion", input: {id: $v}},
+      {tool: "listFiscalPeriods", input: {legal_entity_id: $us}},
+      {tool: "createChangeRequest", input: {body: ($req + {proposed: $o[0]})}},
+      {tool: "createChangeRequest", input: {body: ($req + {proposed: $p[0]})}},
+      {tool: "simulateChangeRequest", input: {id: "{{cr}}", if_match: "\"1\""}},
+      {tool: "getOperation", input: {id: "{{op}}"}},
+      {tool: "createRecommendation", input: {body: {session_id: "{{session}}", object_type: "change_request", object_id: "{{cr}}", kind: "ready_to_submit",
+        content: "Drafted tax code V0 of company 1000 as the notice says: \"purchases now exempt from input tax, tax code V0, are taxed at 2.5 percent\", \"From 1 July 2099\"; the rate in force until then is kept. The simulation of the draft passed. A person must check the notice against its source."}}},
+      {final: "Drafted the change of tax code V0 and had it simulated; it is ready for a person to submit."}]}' >"$WORK/model-script.json"
+  say "The agent drafts: erp agent regulatory-draft reads the accepted recommendation and the active version, starts a"
+  say "session and, through the stand-in's script, first drafts a change that also raises the price tolerance (refused by the"
+  say "run: the draft changes only the paths the recommendation named), then V0 alone; it has the draft simulated and recommends."
+  show ERP_AGENT_TOKEN=… erp agent regulatory-draft -recommendation "$rec"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/regulatory-agent") "$ERP" agent regulatory-draft -recommendation "$rec" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent regulatory-draft failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 0."
+  made=$(printf '%s\n' "$got" | sed -nE 's/^  recommendation [0-9a-f-]{36}: ready_to_submit on change_request ([0-9a-f-]{36})$/\1/p')
+  [ -n "$made" ] || fail "erp agent regulatory-draft printed no ready_to_submit on a change request"
+  cr=$made
+  api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" \
+    "getRecommendation getConfigVersion listFiscalPeriods createChangeRequest createChangeRequest simulateChangeRequest getOperation createRecommendation"
+  expect "the first draft refused" "$(field '[.items[] | select(.tool == "createChangeRequest") | .is_error] | join(" ")')" "true false"
+  say "Fiona reads the draft: the agent's, still a draft, tax code V0 of company 1000 at 0 until 30 June 2099 and 2.5 from 1 July:"
+  api 200 '"  change request \(.number), \(.status), by the agent: \(.title)", (.proposed.companies[] | select(.code == "1000") | .tax_codes[] | select(.code == "V0") | .components[0].rates[] | "    rate \(.rate_percent)% from \(.valid_from)\(if .valid_to then " to \(.valid_to)" else "" end)")' \
+    getChangeRequest -p "id=$cr"
+  expect "the draft" "$(field '"\(.status) \(.evidence | length)"')" "draft 0"
+  expect "the rates drafted" "$(field '[.proposed.companies[] | select(.code == "1000") | .tax_codes[] | select(.code == "V0") | .components[0].rates[] | "\(.rate_percent) \(.valid_from)"] | join(", ")')" "0 $first, 2.5 2099-07-01"
+  expect "the tolerance unchanged" "$(field '.proposed.companies[] | select(.code == "1000") | .invoice_tolerance.price_percent')" 2
+  QUIET=1 api 200 '' listRecommendations -p "object_id=$cr"
+  expect "the agent's recommendation on the draft" "$(field '[.items[] | "\(.kind) \(.outcome // "open")"] | join(", ")')" "ready_to_submit open"
+  say "Fiona submits it herself: a tax code is tier 3, so it waits for evidence of the submitted request; she simulates it, and"
+  say "the configuration's own approval decides it. Until it is approved and activated, the active version is as it was."
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"  \(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "submitted" "$(field '"\(.status) \(.tier)"')" "awaiting_evidence 3"
+  say "Tier 3 evidence replays a regression suite of the base version too: Fiona captures one on the active version."
+  QUIET=1 api 201 '' createRegressionSuite -body '{"name": "Before V0 from July 2099", "window_days": 366}'
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  wait_op
+  api 200 '"  \(.status), evidence: \([.evidence[] | "\(.kind) \(if .passed then "passed" else "FAILED" end)"] | join(", "))"' getChangeRequest -p "id=$cr"
+  expect "waiting for approval" "$(field .status)" pending_approval
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  expect "the active version and V0" "$(field '.items[0] | "\(.id) \(.document.companies[] | select(.code == "1000") | .tax_codes[] | select(.code == "V0") | .rate_percent)"')" "$version 0"
 }
 
 # step_close is the financial close (ADR-0058), the story's last step: it

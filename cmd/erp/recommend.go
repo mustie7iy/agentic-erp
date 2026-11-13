@@ -198,6 +198,27 @@ func readNotice(path string) (string, error) {
 	return string(b), errs.Wrapf(err, "agent regulatory-notice: read %s", path)
 }
 
+// agentRegulatoryDraft has the regulatory agent draft the configuration
+// change of a recommendation the tax accountant accepted, and have it
+// simulated (ADR-0072, T107b): it recommends on the draft, and a person
+// submits it, or not.
+func agentRegulatoryDraft(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("agent regulatory-draft", flag.ContinueOnError)
+	rec := fs.String("recommendation", "", "the accepted recommendation's id")
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	if *rec == "" {
+		return errors.New("agent regulatory-draft: want -recommendation ID")
+	}
+	c, err := client("ERP_AGENT_TOKEN")
+	if err != nil {
+		return err
+	}
+	res, runErr := (&regulatoryagent.Agent{LLM: newRunner(c), API: c}).Draft(ctx, *rec)
+	return recommended("agent regulatory-draft", res, runErr)
+}
+
 // regulatoryEval has the regulatory agent read the task's notice as erp
 // agent regulatory-notice does; what it recommended is the checks' to
 // judge, and its reply theirs too.

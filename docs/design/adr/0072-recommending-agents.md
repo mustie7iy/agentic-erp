@@ -79,7 +79,10 @@ refuses, before a session starts, a declaration whose `Reads` name
 anything but a `GET` of the contract (`recommend.ErrNotARead`), and
 `apitools` builds no tool of an operation closed to agents. So the
 permissions, company access and masking are the API's, and an agent of
-this pattern cannot be handed a write by mistake. What a run reads before
+this pattern cannot be handed a write by mistake. An agent whose slice
+gives it writes (T107b: a change request drafted) names them apart, in
+`Writes`, and `Agent.Run` refuses, before a session starts, a write its
+run does not hold to a guard of its own (`recommend.ErrUnguarded`). What a run reads before
 its session, to find what it is about (a company by its code, the object),
 goes through the same client and token.
 
@@ -200,6 +203,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `credit_scoring` | `internal/creditagent`, `erp agent credit-score -company CODE -customer ID` | `getCreditExposure`, `listCreditLimits`, `getReceivablesAging`, `listDunningRuns`, `listDunningNotices`, `listIncomingPayments`, `listCustomerInvoices`, `getBusinessPartner` | on `credit_limit`: `raise_limit`, `lower_limit`, `keep_limit`; on `business_partner` (a customer without a limit): `set_limit` | `createCreditLimit`, `updateCreditLimit`, the release of an order's credit block |
 | `access` | `internal/accessagent`, `erp agent access-roles -role CODE -period FROM..TO` | `listRoles`, `getRole`, `listRolePermissions`, `listRoleAssignments`, `listPrincipals`, `listAuditEvents` | on `role`: `remove_permissions`, `keep` | every identity write |
 | `regulatory` | `internal/regulatoryagent`, `erp agent regulatory-notice -file F` | `listCountryPacks`, `listConfigVersions`, `getConfigVersion`, `listTaxRegistrations`, `listTaxPeriods` | on `config_version`: `change_needed`, `no_change` | every write of the configuration (change requests, a pack applied, a regression suite) |
+| `regulatory` (drafting, T107b) | `erp agent regulatory-draft -recommendation ID` | `getRecommendation`, `listConfigVersions`, `getConfigVersion`, `listFiscalPeriods`, `getChangeRequest`, `getOperation`; writes `createChangeRequest`, `updateChangeRequest`, `simulateChangeRequest` | on `change_request`: `ready_to_submit`, `simulation_failed` | submitting, withdrawing or activating a change request, a pack applied, a regression suite, a decision on an approval or a recommendation |
 | `bid_comparison` | `internal/bidagent`, `erp agent bid-compare -rfq ID` | `getRfq`, `listSupplierQuotations`, `getRfqComparison`, `getBusinessPartner`, `listContracts`, `listPurchaseOrders` | on `rfq`: `award`, `no_award` | `awardRfq`, `publishRfq`, `createSupplierQuotation`, `createRfq` |
 
 A later slice adds its row here and its section under "As built".
@@ -450,6 +454,79 @@ A later slice adds its row here and its section under "As built".
   the change from an accepted one).
 - No migration, no new operation, permission, event or problem code.
 
+### T107b, the regulatory agent: the change request drafted
+
+- A second entry function of `internal/regulatoryagent`, `Agent.Draft`;
+  `erp agent regulatory-draft -recommendation ID`. Before its session the
+  run reads the recommendation (`getRecommendation`) and the active
+  version, and refuses (`ErrNotAccepted`, `ErrStale`) a recommendation
+  that is not an accepted `change_needed` on a `config_version` (T107a's
+  kind: an open or overridden one, or another kind or object), one made
+  on a version no longer active (the notice is read again against the
+  active one), and one whose first line's paths the active version does
+  not all hold. The recommendation's agent is not read: the kind and
+  object are the regulatory agent's alone.
+- **The pattern's writes (§2).** `recommend.Agent.Writes` names
+  operations beyond reads that an agent may call; `Agent.Run` refuses,
+  before a session starts, a write its task does not guard
+  (`Task.Guards`, `recommend.ErrUnguarded`), and runs every call through
+  the task's guard before the pattern's. An observer of a write may add
+  to the run's objects one the write made (`Task.Objects`, read under the
+  tools' lock): the drafting recommends on the change request it created.
+  The drafting's writes are `createChangeRequest`, `updateChangeRequest`
+  and `simulateChangeRequest`; its reads `getRecommendation`,
+  `listConfigVersions`, `getConfigVersion`, `listFiscalPeriods` (a code's
+  first rate starts with its company's first fiscal period),
+  `getChangeRequest`, `getOperation`. Its never list (`DraftNever`,
+  `TestDraftNever` against the contract's `config.*` writes) is every
+  other configuration write, `submitChangeRequest`,
+  `withdrawChangeRequest`, `activateChangeRequest` among them, and the
+  decisions on an approval and on a recommendation.
+- Its guards: one draft per run, based on the active version
+  (`ErrBase`); a proposal, on create or update, that is a configuration,
+  changes something and changes only settings at or under the paths the
+  recommendation named (`config.Diff` against the active version,
+  `ErrOutside`); an update or simulation only of the run's draft
+  (`ErrNotTheDraft`).
+- **A draft is simulated as a preview.** The plan has the agent simulate
+  the draft before a person submits it; `simulateChangeRequest` required
+  `awaiting_evidence`, a submitted request's status. It now also takes a
+  `draft`: the worker validates the proposal as submission does (a
+  finding fails the operation with `config.validation_failed`) and
+  replays it, records no evidence, moves nothing and audits
+  `config.change_request.preview`; the operation's result is the preview
+  (`passed`, `summary`, `status` `draft`, the draft's `version`,
+  `proposal_sha256`). A draft changes until it is submitted and its tier
+  is computed then, so submission still asks for evidence of the request
+  it fixes: the governed simulation, and with it the approval, are
+  unchanged. Validation no longer hands a document its own rules refuse
+  to the sections (`configuration.Dependencies.check`): the ledger's plan
+  of tax rates read an unparsable rate as valid and panicked, in a
+  submission's request and now in the worker.
+- The run waits for the simulation it started (`Agent.Poll`, default one
+  second, `Agent.Patience`, two minutes) and holds the recommendation to
+  its outcome: `ready_to_submit` only when the simulation of the draft's
+  last version passed, `simulation_failed` only when it failed or did not
+  pass (`ErrNotSimulated`); a simulation refused or unfinished admits
+  neither. Its check (`drafting.check`) also holds every quotation to the
+  accepted recommendation's text, character for character, the caveat and
+  every number outside the quotations to the figures the run read (§4).
+- No evaluation case drafts: a suite's setup cannot make a recommendation
+  an agent made and a person accepted; the run's guards and check are
+  tested in `internal/regulatoryagent` and the walkthrough.
+- Walkthrough `step_regulatory_agent` (step 78) extended: Fiona accepts
+  the recommendation; Ada grants the agent's role `config.change.propose`,
+  `platform.operation.read` and `ledger.period.read`; the agent's first
+  draft, also raising company 1000's price tolerance, is refused by the
+  run; it drafts V0 alone, at 0 from the company's first fiscal period to
+  30 June 2099 and at 2.5 from 1 July 2099, has the draft simulated and
+  recommends `ready_to_submit`; its tool calls hold no submission; Fiona
+  submits it (tier 3, awaiting evidence), simulates the submitted request
+  and it waits for approval; the active version is as it was.
+- No migration, no new operation, permission, event or problem code; the
+  contract's description of `simulateChangeRequest` says what a draft's
+  simulation does.
+
 ## Defaults taken (for the product owner's digest)
 
 1. The shared run is a package, `internal/recommend`, not a copy per
@@ -506,3 +583,10 @@ A later slice adds its row here and its section under "As built".
     notice is genuine, which the caveat leaves to a person, and the
     product ships no regulatory content: every notice of the suite and the
     walkthrough is invented and says so.
+13. (T107b) A draft is simulated before a person submits it as a preview
+    that records no evidence and moves nothing (`simulateChangeRequest` on
+    a `draft`); the submitted request is simulated again for its evidence,
+    so the governed path is unchanged. Only an accepted `change_needed` on
+    the version still active is drafted from; the draft is held to the
+    recommendation's paths, not to the notice's figures, which the person
+    submitting it checks.

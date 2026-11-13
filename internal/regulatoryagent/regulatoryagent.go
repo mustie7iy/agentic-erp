@@ -23,9 +23,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/url"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
@@ -80,12 +79,17 @@ quotes, each exactly as the notice writes it. no_change when the notice touches 
 quoting the notice where it helps. Write no number outside a quotation that a tool did not return or the notice does not
 write. End with the sentence: ` + Caveat
 
-// Agent reads a notice against the configuration.
+// Agent reads a notice against the configuration, and drafts the change
+// of a recommendation a person accepted.
 type Agent struct {
 	LLM *llm.Runner
 	API *apitools.Client
 	// MaxIterations bounds the model's requests in one run; default 30.
 	MaxIterations int
+	// Poll is how often a drafting run reads a simulation it waits for
+	// (T107b), and Patience how long it waits; defaults one second and
+	// two minutes.
+	Poll, Patience time.Duration
 }
 
 // version is the active configuration version, as read before the run.
@@ -139,18 +143,10 @@ func (a *Agent) Read(ctx context.Context, notice string) (recommend.Result, erro
 	if notice == "" || len(notice) > MaxNotice || !utf8.ValidString(notice) {
 		return recommend.Result{}, ErrNotice
 	}
-	resp, err := a.API.Do(ctx, http.MethodGet, "/v1/config-versions", url.Values{"is_active": {"true"}}, nil, "")
-	var page struct{ Items []version }
-	if err == nil {
-		err = resp.Decode(&page)
-	}
-	if err == nil && (len(page.Items) == 0 || page.Items[0].ID == "") {
-		err = errors.New("no active version")
-	}
+	v, err := a.active(ctx)
 	if err != nil {
-		return recommend.Result{}, fmt.Errorf("regulatoryagent: the active configuration version: %w", err)
+		return recommend.Result{}, err
 	}
-	v := page.Items[0]
 	r := &reading{notice: notice, configuration: v.configuration()}
 	task := recommend.Task{
 		Purpose: fmt.Sprintf("Read a regulatory notice against configuration version %d", v.Number),

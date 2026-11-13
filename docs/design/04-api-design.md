@@ -978,7 +978,13 @@ against the configuration and recommends on the active
 `config_version`: `change_needed`, naming the paths affected and when it
 takes effect and quoting the notice character for character, or
 `no_change`, each saying that a person must check the notice against its
-source; it fetches nothing and proposes no change.
+source; it fetches nothing and proposes no change. From a recommendation
+of its a person accepted, it drafts the change request
+(`erp agent regulatory-draft -recommendation ID`, T107b) of the paths
+named and no other, has the draft simulated (a preview of a `draft`,
+recording no evidence) and recommends on the `change_request`:
+`ready_to_submit` or `simulation_failed`; it never submits, withdraws
+or activates it.
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation

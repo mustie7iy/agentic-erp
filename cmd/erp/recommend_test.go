@@ -176,6 +176,34 @@ func TestAgentRegulatoryNotice(t *testing.T) {
 	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "regulatory-notice", "-file", "notice.txt")
 }
 
+// TestAgentRegulatoryDraft: erp agent regulatory-draft needs
+// -recommendation, refuses a recommendation that is not accepted before a
+// session, runs the drafting session on an accepted one and prints what
+// it recommended and the model's reply (ADR-0072, T107b).
+func TestAgentRegulatoryDraft(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	fails(t, "flag provided", "agent", "regulatory-draft", "-x")
+	fails(t, "want -recommendation ID", "agent", "regulatory-draft")
+	fails(t, "404", "agent", "regulatory-draft", "-recommendation", "r0")
+	rec := func(outcome string) reply {
+		return ok(`{"id": "r0", "object_type": "config_version", "object_id": "v1", "kind": "change_needed", "outcome": "` + outcome +
+			`", "content": "Paths: companies[1000].tax_codes[V0]\nTakes effect: not stated\n"}`)
+	}
+	versions := ok(`{"items": [{"id": "v1", "number": 3, "document": {"companies": [{"code": "1000", "tax_codes": [{"code": "V0", "rate_percent": "0"}]}]}}]}`)
+	fakeAPI(t, routes{"GET /v1/recommendations/r0": {rec("overridden")}})
+	fails(t, "is change_needed on config_version, overridden", "agent", "regulatory-draft", "-recommendation", "r0")
+	fakeAPI(t, sessionRoutes(routes{"GET /v1/recommendations/r0": {rec("accepted")}, "GET /v1/config-versions": {versions}}))
+	model(t, llmtest.Final("Nothing drafted: the configuration cannot hold the rate."))
+	got := must(t, "agent", "regulatory-draft", "-recommendation", "r0")
+	if want := "Session " + agentSession + ": recommendations made 0, refused 0.\nNothing drafted: the configuration cannot hold the rate.\n"; got != want {
+		t.Errorf("agent regulatory-draft: got %q, want %q", got, want)
+	}
+	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
+	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "regulatory-draft", "-recommendation", "r0")
+}
+
 // TestRecommendingAdapterFailures: a recommending agent's evaluation
 // adapter fails its case on a task without its values and on an agent
 // that could not run.

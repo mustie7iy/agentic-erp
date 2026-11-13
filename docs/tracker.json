@@ -10458,13 +10458,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T71"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Configuration and report updates",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "For a regulatory recommendation a person accepted, the regulatory agent drafts the configuration change request and has it simulated, for a person to submit and approve; it never submits or activates (erp agent regulatory-draft)",
-        "r": "T107b · docs/design/plan-breadth-week3.md §T107b",
+        "r": "T107b · docs/design/plan-breadth-week3.md §T107b · internal/regulatoryagent Draft · recommend writes held by the run's guards · simulateChangeRequest previews a draft · erp agent regulatory-draft -recommendation ID · walkthrough step_regulatory_agent · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

@@ -10,10 +10,12 @@
 // holds a recommendation to the run (its session, an object of the run
 // with that object's type, a kind of the agent's, one per object), the
 // numbers the run read, which a check may hold the content to, and the
-// result. An agent of this pattern is given no tool but reads and
-// createRecommendation: Run refuses a declaration that names anything
-// else, so it cannot perform the operation it recommends, and what a
-// customer, a supplier or a person wrote is data, never an instruction.
+// result. An agent of this pattern is given no tool but reads,
+// createRecommendation and the writes it declares, each held by its run's
+// own guard (T107b: a change request drafted): Run refuses a declaration
+// whose reads are not reads, or a write the run does not guard, so it
+// cannot perform the operation it recommends, and what a customer, a
+// supplier or a person wrote is data, never an instruction.
 // Nothing happens when a person accepts a recommendation: the person acts
 // through the normal operation.
 package recommend
@@ -60,6 +62,10 @@ type Agent struct {
 	// Reads are the operations the agent may call beside Proposer: reads
 	// (GET) of the contract that are open to agents.
 	Reads []string
+	// Writes are the operations beyond its reads and Proposer the agent
+	// may call (ADR-0072 §2, T107b): each is held by its run's guard of it
+	// (Task.Guards), and Run refuses a write the run does not guard.
+	Writes []string
 	// Kinds are the kinds the agent recommends, by the object type it
 	// recommends them on.
 	Kinds map[string][]string
@@ -70,8 +76,9 @@ type Agent struct {
 	MaxIterations int
 }
 
-// Tools are the operations the agent may call: its reads and Proposer.
-func (a Agent) Tools() []string { return append(slices.Clone(a.Reads), Proposer) }
+// Tools are the operations the agent may call: its reads, its writes and
+// Proposer.
+func (a Agent) Tools() []string { return append(slices.Concat(a.Reads, a.Writes), Proposer) }
 
 // Task is one run: what it is about and what it may recommend on.
 type Task struct {
@@ -81,11 +88,16 @@ type Task struct {
 	// session id are added to it.
 	Prompt string
 	// Objects are the objects the run may recommend on, one recommendation
-	// each: object id to object type, a type of the agent's Kinds.
+	// each: object id to object type, a type of the agent's Kinds. An
+	// observer of the run may add an object a write of the run created:
+	// the run reads the map under the lock its tools share.
 	Objects map[string]string
-	// Observe sees every answer of the read it names, for what a check
-	// needs to know the run read.
+	// Observe sees every answer of the operation it names, for what a
+	// check needs to know the run read or wrote.
 	Observe map[string]func(apitools.Response)
+	// Guards are the run's own guards of the operations they name, asked
+	// before the pattern's: every write of the agent's has one.
+	Guards map[string]func(map[string]any) error
 	// Check is the agent's own rule on a recommendation the pattern
 	// admits, with the figures the run has read; nil admits it.
 	Check func(Proposed, *Figures) error
@@ -124,18 +136,27 @@ var ErrNotThisRun = errors.New("recommend: a recommendation names this run's ses
 // decides one.
 var ErrSecond = errors.New("recommend: this run has already recommended on the object")
 
-// ErrNotARead refuses an agent whose declaration names an operation that
-// is not a read of the contract: the pattern gives no other tool.
-var ErrNotARead = errors.New("recommend: an agent's operations are reads (GET) of the contract")
+// ErrNotARead refuses an agent whose declaration names, among its reads,
+// an operation that is not a read of the contract.
+var ErrNotARead = errors.New("recommend: an agent's reads are reads (GET) of the contract")
+
+// ErrUnguarded refuses a run that does not guard a write of its agent's.
+var ErrUnguarded = errors.New("recommend: every write of an agent's is held by its run's guard")
 
 // Run runs one session of the agent on the task: it offers the model the
-// agent's reads and Proposer, holds every recommendation to the run and
-// to the task's check, and reports what was recorded, also when the run
-// fails after recommending. A declaration that names anything but reads
-// stops it before a session starts.
+// agent's reads, its writes and Proposer, holds every call to the task's
+// guards and every recommendation to the run and to the task's check, and
+// reports what was recorded, also when the run fails after recommending.
+// A declaration whose reads are not all reads, or a write the task does
+// not guard, stops it before a session starts.
 func (a Agent) Run(ctx context.Context, model *llm.Runner, client *apitools.Client, t Task) (Result, error) {
 	if err := a.readsOnly(); err != nil {
 		return Result{}, err
+	}
+	for _, w := range a.Writes {
+		if t.Guards[w] == nil {
+			return Result{}, fmt.Errorf("%w: %s of agent type %s", ErrUnguarded, w, a.Type)
+		}
 	}
 	s, err := apitools.StartSession(ctx, client, t.Purpose, model.Model)
 	if err != nil {
@@ -212,18 +233,26 @@ func (r *run) hold(tools []*apitools.Tool) {
 			t.Observe(r.made)
 			continue
 		}
-		t.Guard(r.asking)
+		t.Guard(r.asking(r.task.Guards[t.Name()]))
 		t.Observe(r.read(r.task.Observe[t.Name()]))
 	}
 }
 
-// asking keeps what a read's input supplied, for its answer's figures to
+// asking asks the run's own guard of an operation, if any, and keeps what
+// the input of a call it admits supplied, for its answer's figures to
 // leave out: an answer may echo it (an amount to check comes back as the
-// amount checked), and an amount the model supplied is not one the API
-// returned. It refuses nothing.
-func (r *run) asking(in map[string]any) error {
-	r.asked = supplied(in)
-	return nil
+// amount checked, a document written comes back whole), and an amount the
+// model supplied is not one the API returned.
+func (r *run) asking(guard func(map[string]any) error) func(map[string]any) error {
+	return func(in map[string]any) error {
+		if guard != nil {
+			if err := guard(in); err != nil {
+				return err
+			}
+		}
+		r.asked = supplied(in)
+		return nil
+	}
 }
 
 // read keeps the figures of a read's answer, but what its input supplied,

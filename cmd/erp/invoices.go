@@ -274,7 +274,7 @@ func agentInvoices(ctx context.Context) error {
 // agentCmd runs a delivery agent with the agents' token.
 func agentCmd(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("agent invoices | config | migration | test | reconcile | close-accruals | close-variances | cash-variance | tax-draft | credit-score | access-roles | bid-compare | regulatory-notice")
+		return errors.New("agent invoices | config | migration | test | reconcile | close-accruals | close-variances | cash-variance | tax-draft | credit-score | access-roles | bid-compare | regulatory-notice | regulatory-draft")
 	}
 	switch args[0] {
 	case "invoices":
@@ -303,6 +303,8 @@ func agentCmd(ctx context.Context, args []string) error {
 		return agentBidCompare(ctx, args[1:])
 	case "regulatory-notice":
 		return agentRegulatoryNotice(ctx, args[1:])
+	case "regulatory-draft":
+		return agentRegulatoryDraft(ctx, args[1:])
 	}
 	return fmt.Errorf("unknown agent %q", args[0])
 }
