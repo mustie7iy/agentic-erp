@@ -34,6 +34,9 @@ func conditionSettings(c Condition, money bool) error {
 		return problem.Invalid("analytics.invalid_watcher", "condition."+field, message)
 	}
 	compares := c.Kind == Above || c.Kind == Below
+	if err := periodSettings(c); err != nil {
+		return err
+	}
 	switch {
 	case !slices.Contains(kinds, c.Kind):
 		return invalid("kind", "The condition is one of "+strings.Join(kinds, ", ")+".")
@@ -53,8 +56,20 @@ func conditionSettings(c Condition, money bool) error {
 	return nil
 }
 
+// periodSettings checks that a deviation, and only a deviation, names how
+// many periods it averages, 1 to 12.
+func periodSettings(c Condition) error {
+	switch {
+	case c.Kind == Deviation && (c.Periods < 1 || c.Periods > 12):
+		return problem.Invalid("analytics.invalid_watcher", "condition.periods", "A deviation averages 1 to 12 previous periods.")
+	case c.Kind != Deviation && c.Periods != 0:
+		return problem.Invalid("analytics.invalid_watcher", "condition.periods", "Only a deviation averages previous periods.")
+	}
+	return nil
+}
+
 // kinds are the conditions a watcher may have (ADR-0077 §1).
-var kinds = []string{Above, Below, Change}
+var kinds = []string{Above, Below, Change, Deviation}
 
 // check refuses a watcher the model cannot evaluate: an unknown grain, a
 // condition without exactly its settings, and a query the semantic layer
@@ -97,9 +112,10 @@ func (e *Endpoints) Set(ctx context.Context, in NewWatcher) (Watcher, error) {
 	filters, _ := json.Marshal(append([]analytics.Filter{}, in.Filters...)) // plain data: always encodes
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO analytics.metric_watcher (tenant_id, id, name, metric, filters, company, grain, condition, threshold,
-			currency, percent, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, nullif($6, ''), $7, $8, nullif($9, ''), nullif($10, ''), nullif($11, ''), $12, $12)`,
+			currency, percent, periods, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, nullif($6, ''), $7, $8, nullif($9, ''), nullif($10, ''), nullif($11, ''), nullif($12, 0), $13, $13)`,
 		p.TenantID, id, in.Name, in.Metric, filters, in.Company, in.Grain, in.Condition.Kind, in.Condition.Value, in.Condition.Currency,
-		in.Condition.Percent, p.ID); err != nil {
+		in.Condition.Percent, in.Condition.Periods, p.ID); err != nil {
 		return Watcher{}, fmt.Errorf("analytics: set metric watcher %s: %w", in.Name, err)
 	}
 	w, err := watcher(ctx, tx, p.ID, id, false)

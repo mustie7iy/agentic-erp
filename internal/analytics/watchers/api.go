@@ -3,6 +3,7 @@ package watchers
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -32,12 +33,16 @@ func filtersToAPI(in []analytics.Filter) []gen.AnalyticsFilter {
 }
 
 func conditionFromAPI(c gen.MetricWatcherCondition) Condition {
-	return Condition{Kind: c.Kind, Value: c.Value.Value, Currency: c.Currency.Value, Percent: c.Percent.Value}
+	return Condition{Kind: c.Kind, Value: c.Value.Value, Currency: c.Currency.Value, Percent: c.Percent.Value, Periods: c.Periods.Value}
 }
 
 func conditionToAPI(c Condition) gen.MetricWatcherCondition {
-	return gen.MetricWatcherCondition{Kind: c.Kind, Value: apitypes.OptText(c.Value), Currency: apitypes.OptText(c.Currency),
+	out := gen.MetricWatcherCondition{Kind: c.Kind, Value: apitypes.OptText(c.Value), Currency: apitypes.OptText(c.Currency),
 		Percent: apitypes.OptText(c.Percent)}
+	if c.Periods != 0 {
+		out.Periods = gen.NewOptInt32(c.Periods)
+	}
+	return out
 }
 
 // toAPI is a watcher as the API gives it.
@@ -48,20 +53,26 @@ func toAPI(w Watcher) gen.MetricWatcher {
 		FailureCode: apitypes.OptText(w.FailureCode), FailureDetail: apitypes.OptText(w.FailureDetail)}
 }
 
-// alertToAPI is an alert as the API gives it.
-func alertToAPI(a Alert) gen.MetricAlert {
+// alertToAPI is an alert as the API gives it, with the names of its
+// creator and acknowledger.
+func alertToAPI(a Alert, names map[uuid.UUID]string) gen.MetricAlert {
 	findings := make([]gen.MetricAlertFinding, len(a.Findings))
 	for i, f := range a.Findings {
 		findings[i] = gen.MetricAlertFinding{Company: f.Company, Currency: apitypes.OptText(f.Currency), Figure: f.Figure,
 			ComparedWith: f.ComparedWith, Percent: apitypes.OptText(f.Percent)}
 	}
-	return gen.MetricAlert{ID: a.ID, Version: a.Version, WatcherID: a.WatcherID, WatcherName: a.WatcherName, Metric: a.Metric, Grain: a.Grain,
+	out := gen.MetricAlert{ID: a.ID, Version: a.Version, WatcherID: a.WatcherID, WatcherName: a.WatcherName, Metric: a.Metric, Grain: a.Grain,
 		Condition: conditionToAPI(a.Condition), FiscalYear: a.FiscalYear, FiscalPeriod: apitypes.OptInt32(a.FiscalPeriod),
-		Companies: a.Companies, Findings: findings, Status: a.Status, RaisedAt: a.RaisedAt, RaisedAs: a.RaisedAs}
+		Companies: a.Companies, Findings: findings, Status: a.Status, RaisedAt: a.RaisedAt, RaisedAs: a.RaisedAs, RaisedAsName: names[a.RaisedAs],
+		AcknowledgedAt: apitypes.OptDateTime(a.AcknowledgedAt), AcknowledgedBy: apitypes.OptUUID(a.AcknowledgedBy)}
+	if a.AcknowledgedBy != nil {
+		out.AcknowledgedByName = gen.NewOptString(names[*a.AcknowledgedBy])
+	}
+	return out
 }
 
 // evaluationToAPI is an evaluation as the API gives it.
-func evaluationToAPI(ev Evaluation) gen.MetricWatcherEvaluation {
+func evaluationToAPI(ev Evaluation, names map[uuid.UUID]string) gen.MetricWatcherEvaluation {
 	out := gen.MetricWatcherEvaluation{Watcher: toAPI(ev.Watcher), Series: make([]gen.MetricWatcherSeries, len(ev.Series)), Raised: ev.Raised}
 	if at := ev.At; at != nil {
 		out.FiscalYear = gen.NewOptInt32(int32(at.year)) //nolint:gosec // a fiscal year of four digits (metric_alert_fiscal_year_check)
@@ -74,7 +85,7 @@ func evaluationToAPI(ev Evaluation) gen.MetricWatcherEvaluation {
 			ComparedWith: apitypes.OptText(j.ComparedWith), Percent: apitypes.OptText(j.Percent), Holds: j.Holds}
 	}
 	if ev.Alert != nil {
-		out.Alert = gen.NewOptMetricAlert(alertToAPI(*ev.Alert))
+		out.Alert = gen.NewOptMetricAlert(alertToAPI(*ev.Alert, names))
 	}
 	return out
 }
@@ -119,7 +130,15 @@ func (e *Endpoints) EvaluateMetricWatcher(ctx context.Context, params gen.Evalua
 	if err != nil {
 		return nil, err
 	}
-	return &gen.MetricWatcherEvaluationHeaders{ETag: tagOf(ev.Watcher), Response: evaluationToAPI(ev)}, nil
+	var alerts []Alert
+	if ev.Alert != nil {
+		alerts = append(alerts, *ev.Alert)
+	}
+	names, err := e.names(ctx, alerts)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.MetricWatcherEvaluationHeaders{ETag: tagOf(ev.Watcher), Response: evaluationToAPI(ev, names)}, nil
 }
 
 var watcherSort = pagination.Sort{Default: "name", Fields: []pagination.Field{{Name: "name", Column: "name", Type: "text"}}}
@@ -146,4 +165,73 @@ func (e *Endpoints) ListMetricWatchers(ctx context.Context, params gen.ListMetri
 	}
 	items, next := apitypes.PageOf(ks, list, func(w Watcher) (string, uuid.UUID) { return w.Name, w.ID }, toAPI)
 	return &gen.MetricWatcherPage{Items: items, NextPageToken: next}, nil
+}
+
+// oneAlert is a single alert as the API gives it, with its ETag.
+func (e *Endpoints) oneAlert(ctx context.Context, a Alert, err error) (gen.MetricAlert, gen.OptString, error) {
+	if err != nil {
+		return gen.MetricAlert{}, gen.OptString{}, err
+	}
+	names, err := e.names(ctx, []Alert{a})
+	if err != nil {
+		return gen.MetricAlert{}, gen.OptString{}, err
+	}
+	return alertToAPI(a, names), gen.NewOptString(etag.Format(a.Version)), nil
+}
+
+// GetMetricAlert implements GET /v1/metric-alerts/{id}.
+func (e *Endpoints) GetMetricAlert(ctx context.Context, params gen.GetMetricAlertParams) (gen.GetMetricAlertRes, error) {
+	a, err := e.GetAlert(ctx, params.ID)
+	out, tag, err := e.oneAlert(ctx, a, err)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.MetricAlertHeaders{ETag: tag, Response: out}, nil
+}
+
+// AcknowledgeMetricAlert implements POST /v1/metric-alerts/{id}:acknowledge.
+func (e *Endpoints) AcknowledgeMetricAlert(ctx context.Context, params gen.AcknowledgeMetricAlertParams) (gen.AcknowledgeMetricAlertRes, error) {
+	a, err := e.Acknowledge(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	out, tag, err := e.oneAlert(ctx, a, err)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.AcknowledgeMetricAlertOKHeaders{ETag: tag, Response: out}, nil
+}
+
+var alertSort = pagination.Sort{Default: "raised_at", DefaultDesc: true,
+	Fields: []pagination.Field{{Name: "raised_at", Column: "raised_at", Type: "timestamptz"}}}
+
+// ListMetricAlerts implements GET /v1/metric-alerts: the alerts the
+// caller may see (ADR-0077 §5), the latest first, filtered by status and
+// watcher.
+func (e *Endpoints) ListMetricAlerts(ctx context.Context, params gen.ListMetricAlertsParams) (gen.ListMetricAlertsRes, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	v, err := e.viewer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	status, watcher := apitypes.Ptr[string](params.Status), apitypes.Ptr[uuid.UUID](params.WatcherID)
+	ks, err := e.Pages.Keyset(alertSort, fmt.Sprintf("listMetricAlerts|%s|%s", params.Status.Value, watcher),
+		apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
+	if err != nil {
+		return nil, fmt.Errorf("analytics: page of metric alerts: %w", err)
+	}
+	cond, args := v.visible(3)
+	q, args := ks.SQL(alertSelect+` WHERE ($1::text IS NULL OR status = $1) AND ($2::uuid IS NULL OR watcher_id = $2)`+cond,
+		append([]any{status, watcher}, args...))
+	rows, _ := tx.Query(ctx, q, args...)
+	alerts, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Alert, error) { return scanAlert(r) })
+	if err != nil {
+		return nil, fmt.Errorf("analytics: list metric alerts: %w", err)
+	}
+	items, next, err := apitypes.PageWith(ks, alerts, func(a Alert) (string, uuid.UUID) { return a.RaisedAt.UTC().Format(time.RFC3339Nano), a.ID },
+		func(page []Alert) (map[uuid.UUID]string, error) { return e.names(ctx, page) }, alertToAPI)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.MetricAlertPage{Items: items, NextPageToken: next}, nil
 }

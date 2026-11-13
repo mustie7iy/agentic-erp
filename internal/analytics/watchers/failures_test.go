@@ -13,12 +13,14 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/analytics/watchers"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // queries answers every watcher's query with the result, or fails.
@@ -57,16 +59,38 @@ func endpoints(t *testing.T, q watchers.Queries) *watchers.Endpoints {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &watchers.Endpoints{Pages: pages, Queries: q, Now: func() time.Time { return today }}
+	return &watchers.Endpoints{Pages: pages, Queries: q, People: people{}, Companies: codes{}, Now: func() time.Time { return today }}
+}
+
+// people names principals as erp-server does.
+type people struct{}
+
+func (people) Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	ns, err := identity.People{}.Named(ctx, ids)
+	out := map[uuid.UUID]string{}
+	for id, n := range ns {
+		out[id] = n.Name
+	}
+	return out, err
+}
+
+// codes names legal entities by their company codes, as erp-server does.
+type codes struct{}
+
+func (codes) CompanyCode(ctx context.Context, id uuid.UUID) (string, bool, error) {
+	le, ok, err := tenancy.Directory{}.Entity(ctx, id)
+	return le.Code, ok, err
 }
 
 // TestDatabaseFailures calls every handler outside a unit of work and
 // with each of its database statements failing in turn.
 func TestDatabaseFailures(t *testing.T) {
-	e := setup(t)
+	e := setup(t, alertPerms...)
 	h := endpoints(t, queries{m: model(t), res: march()})
 	w := watch(t, e.Client, `{"name": "Above", "metric": "revenue", "grain": "month", "condition": {"kind": "above", "value": "1", "currency": "EUR"}}`)
 	id := uuid.MustParse(apitest.String(t, w, "id"))
+	other := watch(t, e.Client, `{"name": "Other", "metric": "revenue", "grain": "month", "condition": {"kind": "above", "value": "1", "currency": "EUR"}}`)
+	alert := uuid.MustParse(apitest.String(t, evaluate(t, e.Client, other)["alert"].(map[string]any), "id"))
 	calls := map[string]func(ctx context.Context) error{
 		"create": func(ctx context.Context) error {
 			_, err := h.CreateMetricWatcher(ctx, &gen.MetricWatcherCreate{Name: "x", Metric: "revenue", Grain: "year",
@@ -89,6 +113,18 @@ func TestDatabaseFailures(t *testing.T) {
 			_, err := h.EvaluateMetricWatcher(ctx, gen.EvaluateMetricWatcherParams{ID: id, IfMatch: `"1"`})
 			return err
 		},
+		"list alerts": func(ctx context.Context) error {
+			_, err := h.ListMetricAlerts(ctx, gen.ListMetricAlertsParams{})
+			return err
+		},
+		"get an alert": func(ctx context.Context) error {
+			_, err := h.GetMetricAlert(ctx, gen.GetMetricAlertParams{ID: alert})
+			return err
+		},
+		"acknowledge": func(ctx context.Context) error {
+			_, err := h.AcknowledgeMetricAlert(ctx, gen.AcknowledgeMetricAlertParams{ID: alert, IfMatch: `"1"`})
+			return err
+		},
 		"fail": func(ctx context.Context) error {
 			_, err := endpoints(t, queries{m: &analytics.Model{}}).EvaluateMetricWatcher(ctx, gen.EvaluateMetricWatcherParams{ID: id, IfMatch: `"1"`})
 			return err
@@ -102,12 +138,22 @@ func TestDatabaseFailures(t *testing.T) {
 			apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
 		})
 	}
-	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-		_, err := h.ListMetricWatchers(ctx, gen.ListMetricWatchersParams{PageSize: gen.NewOptInt32(0)})
-		return err
-	})
-	if p := problem.From(err); p.Code != "request.invalid_page_size" {
-		t.Errorf("page size 0: got %v, want request.invalid_page_size", p)
+	// A reader of some companies has their codes read.
+	apitest.EveryFailure(t, e.Tenant, e.Reader(t, "Ria Reader", e.DE), "list alerts by company", calls["list alerts"])
+	for name, call := range map[string]func(ctx context.Context) error{
+		"watchers": func(ctx context.Context) error {
+			_, err := h.ListMetricWatchers(ctx, gen.ListMetricWatchersParams{PageSize: gen.NewOptInt32(0)})
+			return err
+		},
+		"alerts": func(ctx context.Context) error {
+			_, err := h.ListMetricAlerts(ctx, gen.ListMetricAlertsParams{PageSize: gen.NewOptInt32(0)})
+			return err
+		},
+	} {
+		err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, call)
+		if p := problem.From(err); p.Code != "request.invalid_page_size" {
+			t.Errorf("%s with page size 0: got %v, want request.invalid_page_size", name, p)
+		}
 	}
 }
 
@@ -171,7 +217,7 @@ func TestUnreadable(t *testing.T) {
 	e := setup(t)
 	w := watch(t, e.Client, `{"name": "Above", "metric": "revenue", "grain": "month", "condition": {"kind": "above", "value": "1", "currency": "EUR"}}`)
 	evaluate(t, e.Client, w)
-	pgtest.Exec(t, `UPDATE analytics.metric_alert SET findings = '[1]' WHERE tenant_id = $1`, e.Tenant.ID)
+	pgtest.Exec(t, `UPDATE analytics.metric_alert SET findings = '[1]', version = version + 1 WHERE tenant_id = $1`, e.Tenant.ID)
 	code, _, _ := e.Do("POST", "/v1/metric-watchers/"+apitest.String(t, w, "id")+":evaluate", "", etag(w))
 	if code != 500 {
 		t.Errorf("unreadable findings: got %d, want 500", code)
@@ -185,8 +231,9 @@ func TestUnreadable(t *testing.T) {
 // TestWithoutAuditBuffer: a change outside the unit of work's setup, with
 // no audit buffer, is refused, not left unrecorded.
 func TestWithoutAuditBuffer(t *testing.T) {
-	e := setup(t)
+	e := setup(t, alertPerms...)
 	w := watch(t, e.Client, `{"name": "Above", "metric": "revenue", "grain": "month", "condition": {"kind": "above", "value": "1", "currency": "EUR"}}`)
+	alert := uuid.MustParse(apitest.String(t, evaluate(t, e.Client, w)["alert"].(map[string]any), "id"))
 	ctx := context.Background()
 	tx, err := pgtest.Pool(t).Begin(ctx, database.Scope{Role: "erp_app", TenantID: e.Tenant.ID})
 	if err != nil {
@@ -199,5 +246,8 @@ func TestWithoutAuditBuffer(t *testing.T) {
 	bare := reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), reqctx.Principal{ID: e.Tenant.Human.ID, Kind: e.Tenant.Human.Kind, TenantID: e.Tenant.ID})
 	if _, err := watchers.Remove(bare, uuid.MustParse(apitest.String(t, w, "id")), func(int32) error { return nil }); !errors.Is(err, audit.ErrNoBuffer) {
 		t.Errorf("remove without an audit buffer: got %v, want %v", err, audit.ErrNoBuffer)
+	}
+	if _, err := endpoints(t, nil).Acknowledge(bare, alert, func(int32) error { return nil }); !errors.Is(err, audit.ErrNoBuffer) {
+		t.Errorf("acknowledge without an audit buffer: got %v, want %v", err, audit.ErrNoBuffer)
 	}
 }

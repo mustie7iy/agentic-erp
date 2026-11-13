@@ -6772,13 +6772,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Anomaly alerts in workspaces",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "Watchers are evaluated after each refresh of the analytical store, a deviation from the average of the earlier periods among their conditions; a controller lists the open alerts of the companies they may access and acknowledges one (GET /v1/metric-alerts, :acknowledge)",
-        "r": "T96b · docs/design/plan-breadth-week3.md §T96b",
+        "r": "T96b · docs/design/plan-breadth-week3.md §T96b · db/migrations/000309 · analytics.metric_watcher.periods, analytics.metric_alert acknowledgement · GET /v1/metric-alerts · GET /v1/metric-alerts/{id} · POST /v1/metric-alerts/{id}:acknowledge · extract.Scheduler.Refreshed · analytics.alert.read, .acknowledge · walkthrough step_metric_watch · ADR-0077 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

@@ -128,6 +128,15 @@ type Invoker interface {
 	//
 	// POST /v1/variance-comments/{id}:acceptProposal
 	AcceptVarianceComment(ctx context.Context, request OptVarianceCommentAccept, params AcceptVarianceCommentParams) (AcceptVarianceCommentRes, error)
+	// AcknowledgeMetricAlert invokes acknowledgeMetricAlert operation.
+	//
+	// Acknowledges an open alert the caller may see (ADR-0077 §5, T96b), once (409
+	// `analytics.alert_acknowledged` after), at the version read (`If-Match`): it is `acknowledged`, with
+	// who and when. Nothing else changes; the watcher goes on being evaluated, and its next period's alert
+	// is a new one. An audit record is written with it. Human-only (`x-agent: false`).
+	//
+	// POST /v1/metric-alerts/{id}:acknowledge
+	AcknowledgeMetricAlert(ctx context.Context, params AcknowledgeMetricAlertParams) (AcknowledgeMetricAlertRes, error)
 	// ActivateChangeRequest invokes activateChangeRequest operation.
 	//
 	// Creates and activates a new configuration version from an approved change request; each context
@@ -1356,14 +1365,18 @@ type Invoker interface {
 	// (absent: every company the caller may read when it is evaluated), a period grain (`month` or `year`,
 	// fiscal) and one condition: `above` or `below` a value (for a money metric with the currency it is
 	// in, which only figures in that currency are compared with; for a count or a ratio without one, 422
-	// `analytics.invalid_watcher` naming `condition.currency` otherwise), or `change`, the figure
-	// differing from the previous period's by more than a percentage of it, either way. Each condition
-	// takes exactly its settings (422 `analytics.invalid_watcher` naming the field). The watcher is
-	// checked as the query it runs is checked: an unknown metric, a dimension the metric lacks or a
-	// malformed filter is 422 `analytics.invalid_query`. It is created `active`, evaluated on
-	// `evaluateMetricWatcher`. A tenant without a configuration is 409 `config.not_bootstrapped`. An audit
-	// record is written with it. Human-only (`x-agent: false`): a watcher proposed by an agent is not
-	// built yet. A retry with the same `Idempotency-Key` answers the watcher set.
+	// `analytics.invalid_watcher` naming `condition.currency` otherwise), `change`, the figure differing
+	// from the previous period's by more than a percentage of it, either way, or `deviation` (T96b), the
+	// figure differing from the average of the previous `periods` periods (1 to 12) by more than a
+	// percentage of that average. Each condition takes exactly its settings (422
+	// `analytics.invalid_watcher` naming the field). The watcher is checked as the query it runs is
+	// checked: an unknown metric, a dimension the metric lacks or a malformed filter is 422
+	// `analytics.invalid_query`. It is created `active`, evaluated on `evaluateMetricWatcher` and, with
+	// the analytical store's reader configured, after each refresh of the store that changed its data,
+	// from the store, as its creator (ADR-0077 §4). A tenant without a configuration is 409
+	// `config.not_bootstrapped`. An audit record is written with it. Human-only (`x-agent: false`): a
+	// watcher proposed by an agent is not built yet. A retry with the same `Idempotency-Key` answers the
+	// watcher set.
 	//
 	// POST /v1/metric-watchers
 	CreateMetricWatcher(ctx context.Context, request *MetricWatcherCreate, params CreateMetricWatcherParams) (CreateMetricWatcherRes, error)
@@ -1872,15 +1885,15 @@ type Invoker interface {
 	// metric has it, and by fiscal year and month (or year), under the watcher's filters, over its company
 	// or the caller's companies, so it needs the permissions that query needs (403 as it is). Each company
 	// and currency is a series, never added to another. The period judged is the latest with a figure in
-	// the answer; a series without a figure in it, a change without the previous period's figure and a
-	// change from zero judge nothing. Percentages are compared exactly; the one shown is rounded to two
-	// decimals. A condition holding in at least one series raises one alert for the watcher and the
-	// period, with a finding per series that holds, an audit record and MetricAlertRaised; evaluating
-	// again in the same period raises none and answers the alert raised (`raised` false). A metric the
-	// model no longer has fails the watcher (`failed`, `analytics.watcher_metric_removed`, with an audit
-	// record), answered 200 with no alert; a watcher removed or failed is 409
-	// `analytics.watcher_inactive`. An answer of more than 500 rows is 422
-	// `analytics.watcher_too_many_series`. Human-only (`x-agent: false`).
+	// the answer; a series without a figure in it, a change without the previous period's figure, a
+	// deviation without a figure in each of its previous periods, and a base of zero judge nothing.
+	// Percentages are compared exactly; the one shown is rounded to two decimals. A condition holding in
+	// at least one series raises one alert for the watcher and the period, with a finding per series that
+	// holds, an audit record and MetricAlertRaised; evaluating again in the same period raises none and
+	// answers the alert raised (`raised` false). A metric the model no longer has fails the watcher
+	// (`failed`, `analytics.watcher_metric_removed`, with an audit record), answered 200 with no alert; a
+	// watcher removed or failed is 409 `analytics.watcher_inactive`. An answer of more than 500 rows is
+	// 422 `analytics.watcher_too_many_series`. Human-only (`x-agent: false`).
 	//
 	// POST /v1/metric-watchers/{id}:evaluate
 	EvaluateMetricWatcher(ctx context.Context, params EvaluateMetricWatcherParams) (EvaluateMetricWatcherRes, error)
@@ -3003,6 +3016,13 @@ type Invoker interface {
 	//
 	// GET /v1/memo-records/{id}
 	GetMemoRecord(ctx context.Context, params GetMemoRecordParams) (GetMemoRecordRes, error)
+	// GetMetricAlert invokes getMetricAlert operation.
+	//
+	// One alert (ADR-0077 §3, T96b), with its findings and its watcher's name, metric and condition; an
+	// alert the caller may not see, as `listMetricAlerts` decides it, is not found (404).
+	//
+	// GET /v1/metric-alerts/{id}
+	GetMetricAlert(ctx context.Context, params GetMetricAlertParams) (GetMetricAlertRes, error)
 	// GetMetricWatcher invokes getMetricWatcher operation.
 	//
 	// One of the caller's metric watchers (ADR-0077 §1, T96a); another person's is not found (404).
@@ -4271,6 +4291,16 @@ type Invoker interface {
 	//
 	// GET /v1/memo-records
 	ListMemoRecords(ctx context.Context, params ListMemoRecordsParams) (ListMemoRecordsRes, error)
+	// ListMetricAlerts invokes listMetricAlerts operation.
+	//
+	// The alerts metric watchers raised (ADR-0077 §3, §5, T96b), through the API or after a refresh of
+	// the analytical store, each as `getMetricAlert` gives it: only those whose every company the caller
+	// may access and whose metric's data the caller may read (the permissions its query needed when it was
+	// raised), so a figure reaches no one the query would refuse. Filtered by status and by watcher.
+	// Sortable by: `raised_at` (default, the latest first).
+	//
+	// GET /v1/metric-alerts
+	ListMetricAlerts(ctx context.Context, params ListMetricAlertsParams) (ListMetricAlertsRes, error)
 	// ListMetricWatchers invokes listMetricWatchers operation.
 	//
 	// The caller's own metric watchers (ADR-0077 §1, T96a), each as `getMetricWatcher` gives it; another
@@ -7931,6 +7961,166 @@ func (c *Client) sendAcceptVarianceComment(ctx context.Context, request OptVaria
 
 	stage = "DecodeResponse"
 	result, err := decodeAcceptVarianceCommentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// AcknowledgeMetricAlert invokes acknowledgeMetricAlert operation.
+//
+// Acknowledges an open alert the caller may see (ADR-0077 §5, T96b), once (409
+// `analytics.alert_acknowledged` after), at the version read (`If-Match`): it is `acknowledged`, with
+// who and when. Nothing else changes; the watcher goes on being evaluated, and its next period's alert
+// is a new one. An audit record is written with it. Human-only (`x-agent: false`).
+//
+// POST /v1/metric-alerts/{id}:acknowledge
+func (c *Client) AcknowledgeMetricAlert(ctx context.Context, params AcknowledgeMetricAlertParams) (AcknowledgeMetricAlertRes, error) {
+	res, err := c.sendAcknowledgeMetricAlert(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendAcknowledgeMetricAlert(ctx context.Context, params AcknowledgeMetricAlertParams) (res AcknowledgeMetricAlertRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("acknowledgeMetricAlert"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/metric-alerts/{id}:acknowledge"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, AcknowledgeMetricAlertOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/metric-alerts/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":acknowledge"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, AcknowledgeMetricAlertOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeAcknowledgeMetricAlertResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -19488,14 +19678,18 @@ func (c *Client) sendCreateMemoRecord(ctx context.Context, request *MemoRecordCr
 // (absent: every company the caller may read when it is evaluated), a period grain (`month` or `year`,
 // fiscal) and one condition: `above` or `below` a value (for a money metric with the currency it is
 // in, which only figures in that currency are compared with; for a count or a ratio without one, 422
-// `analytics.invalid_watcher` naming `condition.currency` otherwise), or `change`, the figure
-// differing from the previous period's by more than a percentage of it, either way. Each condition
-// takes exactly its settings (422 `analytics.invalid_watcher` naming the field). The watcher is
-// checked as the query it runs is checked: an unknown metric, a dimension the metric lacks or a
-// malformed filter is 422 `analytics.invalid_query`. It is created `active`, evaluated on
-// `evaluateMetricWatcher`. A tenant without a configuration is 409 `config.not_bootstrapped`. An audit
-// record is written with it. Human-only (`x-agent: false`): a watcher proposed by an agent is not
-// built yet. A retry with the same `Idempotency-Key` answers the watcher set.
+// `analytics.invalid_watcher` naming `condition.currency` otherwise), `change`, the figure differing
+// from the previous period's by more than a percentage of it, either way, or `deviation` (T96b), the
+// figure differing from the average of the previous `periods` periods (1 to 12) by more than a
+// percentage of that average. Each condition takes exactly its settings (422
+// `analytics.invalid_watcher` naming the field). The watcher is checked as the query it runs is
+// checked: an unknown metric, a dimension the metric lacks or a malformed filter is 422
+// `analytics.invalid_query`. It is created `active`, evaluated on `evaluateMetricWatcher` and, with
+// the analytical store's reader configured, after each refresh of the store that changed its data,
+// from the store, as its creator (ADR-0077 §4). A tenant without a configuration is 409
+// `config.not_bootstrapped`. An audit record is written with it. Human-only (`x-agent: false`): a
+// watcher proposed by an agent is not built yet. A retry with the same `Idempotency-Key` answers the
+// watcher set.
 //
 // POST /v1/metric-watchers
 func (c *Client) CreateMetricWatcher(ctx context.Context, request *MetricWatcherCreate, params CreateMetricWatcherParams) (CreateMetricWatcherRes, error) {
@@ -25603,15 +25797,15 @@ func (c *Client) sendEndSodRule(ctx context.Context, request *EndInput, params E
 // metric has it, and by fiscal year and month (or year), under the watcher's filters, over its company
 // or the caller's companies, so it needs the permissions that query needs (403 as it is). Each company
 // and currency is a series, never added to another. The period judged is the latest with a figure in
-// the answer; a series without a figure in it, a change without the previous period's figure and a
-// change from zero judge nothing. Percentages are compared exactly; the one shown is rounded to two
-// decimals. A condition holding in at least one series raises one alert for the watcher and the
-// period, with a finding per series that holds, an audit record and MetricAlertRaised; evaluating
-// again in the same period raises none and answers the alert raised (`raised` false). A metric the
-// model no longer has fails the watcher (`failed`, `analytics.watcher_metric_removed`, with an audit
-// record), answered 200 with no alert; a watcher removed or failed is 409
-// `analytics.watcher_inactive`. An answer of more than 500 rows is 422
-// `analytics.watcher_too_many_series`. Human-only (`x-agent: false`).
+// the answer; a series without a figure in it, a change without the previous period's figure, a
+// deviation without a figure in each of its previous periods, and a base of zero judge nothing.
+// Percentages are compared exactly; the one shown is rounded to two decimals. A condition holding in
+// at least one series raises one alert for the watcher and the period, with a finding per series that
+// holds, an audit record and MetricAlertRaised; evaluating again in the same period raises none and
+// answers the alert raised (`raised` false). A metric the model no longer has fails the watcher
+// (`failed`, `analytics.watcher_metric_removed`, with an audit record), answered 200 with no alert; a
+// watcher removed or failed is 409 `analytics.watcher_inactive`. An answer of more than 500 rows is
+// 422 `analytics.watcher_too_many_series`. Human-only (`x-agent: false`).
 //
 // POST /v1/metric-watchers/{id}:evaluate
 func (c *Client) EvaluateMetricWatcher(ctx context.Context, params EvaluateMetricWatcherParams) (EvaluateMetricWatcherRes, error) {
@@ -37725,6 +37919,138 @@ func (c *Client) sendGetMemoRecord(ctx context.Context, params GetMemoRecordPara
 
 	stage = "DecodeResponse"
 	result, err := decodeGetMemoRecordResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetMetricAlert invokes getMetricAlert operation.
+//
+// One alert (ADR-0077 §3, T96b), with its findings and its watcher's name, metric and condition; an
+// alert the caller may not see, as `listMetricAlerts` decides it, is not found (404).
+//
+// GET /v1/metric-alerts/{id}
+func (c *Client) GetMetricAlert(ctx context.Context, params GetMetricAlertParams) (GetMetricAlertRes, error) {
+	res, err := c.sendGetMetricAlert(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetMetricAlert(ctx context.Context, params GetMetricAlertParams) (res GetMetricAlertRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getMetricAlert"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/metric-alerts/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetMetricAlertOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/metric-alerts/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetMetricAlertOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetMetricAlertResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -63620,6 +63946,212 @@ func (c *Client) sendListMemoRecords(ctx context.Context, params ListMemoRecords
 
 	stage = "DecodeResponse"
 	result, err := decodeListMemoRecordsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListMetricAlerts invokes listMetricAlerts operation.
+//
+// The alerts metric watchers raised (ADR-0077 §3, §5, T96b), through the API or after a refresh of
+// the analytical store, each as `getMetricAlert` gives it: only those whose every company the caller
+// may access and whose metric's data the caller may read (the permissions its query needed when it was
+// raised), so a figure reaches no one the query would refuse. Filtered by status and by watcher.
+// Sortable by: `raised_at` (default, the latest first).
+//
+// GET /v1/metric-alerts
+func (c *Client) ListMetricAlerts(ctx context.Context, params ListMetricAlertsParams) (ListMetricAlertsRes, error) {
+	res, err := c.sendListMetricAlerts(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListMetricAlerts(ctx context.Context, params ListMetricAlertsParams) (res ListMetricAlertsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listMetricAlerts"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/metric-alerts"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListMetricAlertsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/metric-alerts"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "watcher_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "watcher_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.WatcherID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListMetricAlertsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListMetricAlertsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

@@ -258,3 +258,126 @@ func TestMetricAlertRules(t *testing.T) {
 		})
 	}
 }
+
+// TestMetricAlertPermissions (T96b, migration 000309; ADR-0077 §6): the
+// alerts' permissions are seeded and are no approval permissions.
+func TestMetricAlertPermissions(t *testing.T) {
+	need(t)
+	rows, err := testDB.Query(context.Background(), `SELECT code FROM ref.permission WHERE code LIKE 'analytics.alert.%' AND NOT is_approval ORDER BY code`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codes, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(codes, " "), "analytics.alert.acknowledge analytics.alert.read"; got != want {
+		t.Errorf("got %v, want %s", codes, want)
+	}
+}
+
+// TestDeviationRules (T96b, migration 000309; ADR-0077 §1): a deviation
+// has a percentage and 1 to 12 periods, and no other condition has
+// periods.
+func TestDeviationRules(t *testing.T) {
+	need(t)
+	const deviation = `INSERT INTO analytics.metric_watcher (tenant_id, id, name, metric, grain, condition, percent, periods, created_by, updated_by)
+		VALUES ($1, $2, 'x', 'revenue', 'month', $3, $4, $5, $1, $1)`
+	for name, c := range map[string]struct {
+		condition string
+		percent   *string
+		periods   any
+		want      string
+	}{
+		"a deviation of 12 periods":   {"deviation", text("50"), 12, ""},
+		"a deviation of 13 periods":   {"deviation", text("50"), 13, "metric_watcher_periods_check"},
+		"a deviation of 0 periods":    {"deviation", text("50"), 0, "metric_watcher_periods_check"},
+		"a deviation without periods": {"deviation", text("50"), nil, "metric_watcher_condition_whole"},
+		"a deviation without percent": {"deviation", nil, 3, "metric_watcher_condition_whole"},
+		"a change with periods":       {"change", text("50"), 3, "metric_watcher_condition_whole"},
+		"an unknown condition":        {"trend", text("50"), 3, "metric_watcher_condition_check"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := watcherScene{tenant: id(), watcher: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error {
+				return all(tx, step(deviation, s.tenant, s.watcher, c.condition, c.percent, c.periods))
+			})
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestAlertAcknowledgementRules (T96b, migration 000309; ADR-0077 §5): an
+// alert is acknowledged once, with who and when, at the next version, and
+// is fixed then; nothing else of it changes.
+func TestAlertAcknowledgementRules(t *testing.T) {
+	need(t)
+	const finding = `[{"company": "2000", "figure": "500.00", "compared_with": "400"}]`
+	raise := func(s watcherScene) stmt {
+		return step(alertInsert, s.tenant, s.watcher, 2026, 3, []string{"2000"}, finding)
+	}
+	ack := func(s watcherScene) stmt {
+		return step(`UPDATE analytics.metric_alert SET status = 'acknowledged', acknowledged_at = now(), acknowledged_by = $1, version = version + 1`, s.tenant)
+	}
+	cases := []struct {
+		name string
+		run  func(s watcherScene) []stmt
+		want string // empty: allowed
+	}{
+		{"acknowledged", func(s watcherScene) []stmt { return []stmt{s.above(), raise(s), ack(s)} }, ""},
+		{"acknowledged without who", func(s watcherScene) []stmt {
+			return []stmt{s.above(), raise(s), step(`UPDATE analytics.metric_alert SET status = 'acknowledged', acknowledged_at = now(), version = version + 1`)}
+		}, "metric_alert_acknowledged"},
+		{"open with who", func(s watcherScene) []stmt {
+			return []stmt{s.above(), raise(s), step(`UPDATE analytics.metric_alert SET acknowledged_at = now(), acknowledged_by = $1, version = version + 1`, s.tenant)}
+		}, "metric_alert_acknowledged"},
+		{"acknowledged twice", func(s watcherScene) []stmt { return []stmt{s.above(), raise(s), ack(s), ack(s)} }, "metric_alert_fixed"},
+		{"without the next version", func(s watcherScene) []stmt {
+			return []stmt{s.above(), raise(s), step(`UPDATE analytics.metric_alert SET status = 'acknowledged', acknowledged_at = now(), acknowledged_by = $1`, s.tenant)}
+		}, "optimistic lock"},
+		{"an unknown status", func(s watcherScene) []stmt {
+			return []stmt{s.above(), raise(s), step(`UPDATE analytics.metric_alert SET status = 'closed', version = version + 1`)}
+		}, "metric_alert_status_check"},
+		{"its findings changed", func(s watcherScene) []stmt {
+			return []stmt{s.above(), raise(s), step(`UPDATE analytics.metric_alert SET findings = '[{}]', version = version + 1`)}
+		}, "permission denied"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := watcherScene{tenant: id(), watcher: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, c.run(s)...) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestMetricAlertFixed (T96b, migration 000309): an acknowledged alert
+// stays as it is for the owner of the table too.
+func TestMetricAlertFixed(t *testing.T) {
+	need(t)
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	s := watcherScene{tenant: id(), watcher: id()}
+	if err := all(tx, s.above(), step(alertInsert, s.tenant, s.watcher, 2026, 3, []string{"2000"}, `[{"company": "2000"}]`),
+		step(`UPDATE analytics.metric_alert SET status = 'acknowledged', acknowledged_at = now(), acknowledged_by = $1, version = version + 1
+			WHERE watcher_id = $2`, s.tenant, s.watcher)); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, exec(tx, `UPDATE analytics.metric_alert SET companies = '{1000}', version = version + 1 WHERE watcher_id = $1`, s.watcher), "metric_alert_fixed")
+}

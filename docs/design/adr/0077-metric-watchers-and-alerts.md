@@ -197,3 +197,40 @@ the findings.
   it raises one alert naming the figure and the value; evaluated again, it
   answers the same alert; Olive does not see Ben's watcher.
 - Decided by default while building: the defaults 1 to 6 above.
+
+### T96b Alerts raised after each refresh, listed and acknowledged (migration 000309)
+
+- Migration 000309: the condition `deviation` with its `periods` (1 to
+  12); an alert's acknowledgement (`acknowledged_at`, `acknowledged_by`,
+  `metric_alert_acknowledged`), fixed once acknowledged and changed at the
+  next version alone (trigger `metric_alert_fixed`); the permissions
+  `analytics.alert.read` and `.acknowledge`. Schema tests in
+  `db/metric_watcher_test.go`.
+- `internal/analytics/watchers`: the deviation in the evaluation;
+  `GetAlert` and `Acknowledge` with the handlers of `GET /v1/metric-alerts`,
+  `GET /v1/metric-alerts/{id}` and `POST /v1/metric-alerts/{id}:acknowledge`;
+  `Worker.Refreshed`, which evaluates a tenant's active watchers, each in
+  a `uow.Job` acting as its creator (`identity.Actors`, refused once not
+  active). The ports `People` and `Companies` are wired by `app.Watchers`.
+- `extract.Scheduler.Refreshed` is called after each run that published a
+  manifest; erp-server sets it to `app.WatchEvaluator`'s worker when
+  erp-analytics is configured. That worker's semantic layer has a
+  transport that refuses every API read (`storeOnly`), so it answers from
+  the store or not at all (§4).
+- An alert shows its creator's and acknowledger's names
+  (`raised_as_name`, `acknowledged_by_name`, read now): the consumer of the
+  list needs them (ADR-0053 consumer classes).
+- Budget: `TestAlertListBudget`, a page of 12,000 alerts of 200 watchers
+  under 150 ms p95 (01-requirements' list with filters).
+- Walkthrough `step_metric_watch` (step 78) extended: a deviation watcher
+  on spend against the month before judges nothing, the month before
+  having no spend; Carla lists the open alerts and acknowledges Ben's,
+  once; Rita, granted the alerts' read but no invoice read, sees no alert
+  on spend. The walkthrough runs no erp-analytics, so the worker's
+  evaluation after a refresh, and a large invoice raising a deviation
+  alert there, are shown by `TestWorker` and `TestWorkerFromTheStore`
+  only (a gap reported for the product owner with the T95b question).
+- Decided by default while building: an evaluation runs after a refresh
+  only when the run published a manifest (its data changed); the alert
+  list's visibility uses the caller's usable permissions
+  (`authz.Effective`), so a segregation-of-duties bar hides an alert too.

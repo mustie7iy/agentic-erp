@@ -808,6 +808,12 @@ func (s *server) startAnalytics(runCtx context.Context) {
 	scheduler := &extract.Scheduler{Extractor: extract.Extractor{Replica: replica, Primary: s.pool.Begin, Role: s.cfg.AppRole, WorkerRole: s.cfg.WorkerRole, Store: s.store,
 		Cash: app.NewAnalyticsCash(s.apiCfg)},
 		Begin: s.pool.Begin, WorkerRole: s.cfg.WorkerRole, Log: s.log}
+	// Metric watchers are evaluated after each refresh from the store,
+	// which erp-analytics reads (ADR-0077 §4); without it, through the API
+	// alone.
+	if s.apiCfg.Analytics != nil {
+		scheduler.Refreshed = app.WatchEvaluator(s.apiCfg).Refreshed
+	}
 	s.spawn("analytics extract", func() { scheduler.Run(runCtx) })
 }
 

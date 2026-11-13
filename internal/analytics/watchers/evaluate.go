@@ -45,15 +45,20 @@ type Alert struct {
 	Version      int32
 	RaisedAt     time.Time
 	RaisedAs     uuid.UUID
+	// AcknowledgedAt and AcknowledgedBy are nil while it is open.
+	AcknowledgedAt *time.Time
+	AcknowledgedBy *uuid.UUID
 }
 
 // alertSelect reads alerts with their watchers' names and conditions, as
-// columns of one row source, so a list's keyset names them alone.
-const alertSelect = `SELECT id, watcher_id, watcher_name, metric, grain, condition, threshold, currency, percent, fiscal_year, fiscal_period,
-	companies, findings, status, version, raised_at, raised_as FROM (
+// columns of one row source, so a list's keyset names them alone; its
+// companies and permissions decide who sees one (visible).
+const alertSelect = `SELECT id, watcher_id, watcher_name, metric, grain, condition, threshold, currency, percent, periods, fiscal_year,
+	fiscal_period, companies, findings, status, version, raised_at, raised_as, acknowledged_at, acknowledged_by FROM (
 	SELECT a.id, a.watcher_id, w.name AS watcher_name, w.metric, w.grain, w.condition, coalesce(w.threshold, '') AS threshold,
-		coalesce(w.currency, '') AS currency, coalesce(w.percent, '') AS percent, a.fiscal_year, a.fiscal_period, a.companies,
-		a.permissions, a.findings, a.status, a.version, a.created_at AS raised_at, a.created_by AS raised_as
+		coalesce(w.currency, '') AS currency, coalesce(w.percent, '') AS percent, coalesce(w.periods, 0) AS periods, a.fiscal_year,
+		a.fiscal_period, a.companies, a.permissions, a.findings, a.status, a.version, a.created_at AS raised_at, a.created_by AS raised_as,
+		a.acknowledged_at, a.acknowledged_by
 	FROM analytics.metric_alert a JOIN analytics.metric_watcher w ON w.tenant_id = a.tenant_id AND w.id = a.watcher_id) x`
 
 func scanAlert(row pgx.Row) (Alert, error) {
@@ -62,7 +67,8 @@ func scanAlert(row pgx.Row) (Alert, error) {
 		findings []byte
 	)
 	if err := row.Scan(&a.ID, &a.WatcherID, &a.WatcherName, &a.Metric, &a.Grain, &a.Condition.Kind, &a.Condition.Value, &a.Condition.Currency,
-		&a.Condition.Percent, &a.FiscalYear, &a.FiscalPeriod, &a.Companies, &findings, &a.Status, &a.Version, &a.RaisedAt, &a.RaisedAs); err != nil {
+		&a.Condition.Percent, &a.Condition.Periods, &a.FiscalYear, &a.FiscalPeriod, &a.Companies, &findings, &a.Status, &a.Version, &a.RaisedAt,
+		&a.RaisedAs, &a.AcknowledgedAt, &a.AcknowledgedBy); err != nil {
 		return Alert{}, errs.Wrapf(err, "scan metric alert")
 	}
 	// The column holds what raise wrote from this type, and the database

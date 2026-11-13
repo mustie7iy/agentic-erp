@@ -141,8 +141,10 @@ func (w Watcher) judge(f figures, at period) []Judged {
 		switch w.Condition.Kind {
 		case Above, Below:
 			w.compare(&j)
-		default:
+		case Change:
 			w.changed(&j, f[k], at)
+		default:
+			w.deviated(&j, f[k], at)
 		}
 		out = append(out, j)
 	}
@@ -171,6 +173,31 @@ func (w Watcher) changed(j *Judged, s map[period]analytics.Value, at period) {
 	}
 	j.ComparedWith = base.String()
 	w.percentOf(j, rat(base))
+}
+
+// deviated judges a deviation from the average of the previous Periods
+// periods: one without a figure, or an average of zero, judges nothing.
+// The average shown is rounded half away from zero to the figure's
+// digits.
+func (w Watcher) deviated(j *Judged, s map[period]analytics.Value, at period) {
+	n := int(w.Condition.Periods)
+	sum := new(big.Rat)
+	for i := 1; i <= n; i++ {
+		v, ok := s[at.before(i)]
+		if !ok {
+			return
+		}
+		sum.Add(sum, rat(v))
+	}
+	avg := sum.Quo(sum, big.NewRat(int64(n), 1))
+	if avg.Sign() == 0 {
+		return
+	}
+	// The average of amounts lies between the least and the largest of
+	// them, so it rounds to an amount.
+	units, _ := money.Round(avg, j.Figure.Scale)
+	j.ComparedWith = units.Plain(j.Figure.Scale)
+	w.percentOf(j, avg)
 }
 
 // percentOf sets the change of the figure from base in percent of base's

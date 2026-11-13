@@ -29,6 +29,10 @@ type AcceptVarianceCommentRes interface {
 	acceptVarianceCommentRes()
 }
 
+type AcknowledgeMetricAlertRes interface {
+	acknowledgeMetricAlertRes()
+}
+
 type ActivateChangeRequestRes interface {
 	activateChangeRequestRes()
 }
@@ -809,6 +813,10 @@ type GetMemoRecordRes interface {
 	getMemoRecordRes()
 }
 
+type GetMetricAlertRes interface {
+	getMetricAlertRes()
+}
+
 type GetMetricWatcherRes interface {
 	getMetricWatcherRes()
 }
@@ -1311,6 +1319,10 @@ type ListMatchResultsRes interface {
 
 type ListMemoRecordsRes interface {
 	listMemoRecordsRes()
+}
+
+type ListMetricAlertsRes interface {
+	listMetricAlertsRes()
 }
 
 type ListMetricWatchersRes interface {

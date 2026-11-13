@@ -83,3 +83,45 @@ func TestChange(t *testing.T) {
 		})
 	}
 }
+
+// TestDeviation: a deviation compares with the average of the previous
+// periods, each with a figure; a missing one or an average of zero
+// judges nothing.
+func TestDeviation(t *testing.T) {
+	w := Watcher{Grain: Month, Condition: Condition{Kind: Deviation, Percent: "100", Periods: 2}}
+	for name, c := range map[string]struct {
+		s    map[period]analytics.Value
+		want string
+	}{
+		"above the average": {map[period]analytics.Value{{2026, 1}: eur(10000), {2026, 2}: eur(20001), {2026, 3}: eur(50000)}, "{2000 EUR 500.00 150.01 233.32 true}"},
+		"near the average":  {map[period]analytics.Value{{2026, 1}: eur(10000), {2026, 2}: eur(20000), {2026, 3}: eur(16000)}, "{2000 EUR 160.00 150.00 6.67 false}"},
+		"a period missing":  {map[period]analytics.Value{{2026, 2}: eur(20000), {2026, 3}: eur(50000)}, "{2000 EUR 500.00   false}"},
+		"an average of 0":   {map[period]analytics.Value{{2026, 1}: eur(-100), {2026, 2}: eur(100), {2026, 3}: eur(50000)}, "{2000 EUR 500.00   false}"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := fmt.Sprint(w.judge(figures{{"2000", "EUR"}: c.s}, period{2026, 3})); got != "["+c.want+"]" {
+				t.Errorf("got %s, want [%s]", got, c.want)
+			}
+		})
+	}
+}
+
+// TestPeriodSettings: a deviation averages 1 to 12 periods, and no other
+// condition names any.
+func TestPeriodSettings(t *testing.T) {
+	for name, c := range map[string]struct {
+		c    Condition
+		want bool
+	}{
+		"a deviation of 12":   {Condition{Kind: Deviation, Percent: "1", Periods: 12}, true},
+		"a deviation of 0":    {Condition{Kind: Deviation, Percent: "1"}, false},
+		"a deviation of 13":   {Condition{Kind: Deviation, Percent: "1", Periods: 13}, false},
+		"a change of periods": {Condition{Kind: Change, Percent: "1", Periods: 2}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := conditionSettings(c.c, true) == nil; got != c.want {
+				t.Errorf("accepted: got %v, want %v", got, c.want)
+			}
+		})
+	}
+}

@@ -4373,7 +4373,7 @@ components:
         figure, what it was compared with and the percentage. The creator
         the evaluation ran as is named by id, never by name. It is not
         offered as a webhook event. `GET /v1/metric-alerts/{id}` returns the
-        alert. Subject is the alert id.
+        alert to those who may see it (ADR-0077 §5). Subject is the alert id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -5385,7 +5385,7 @@ components:
         watcher_id: {$ref: '#/components/schemas/Uuid', description: '`analytics.metric_watcher.id`.'}
         watcher_name: {type: string, description: "The watcher's name."}
         metric: {type: string, description: The governed metric watched.}
-        condition: {type: string, description: 'above, below or change. Open enumeration.'}
+        condition: {type: string, description: 'above, below, change or deviation. Open enumeration.'}
         fiscal_year: {type: integer, description: The fiscal year of the period judged.}
         fiscal_period: {type: [integer, 'null'], description: 'The fiscal month of the period judged; null for a watcher by year.'}
         companies: {type: array, items: {type: string}, description: 'The company codes whose figures held the condition, in order.'}
@@ -5400,7 +5400,7 @@ components:
               currency: {type: [string, 'null'], description: "The figure's currency; null for a count or a ratio."}
               figure: {type: string, description: 'The figure of the period, an exact decimal.'}
               compared_with: {type: string, description: "The value, or the previous period's figure, it was compared with."}
-              percent: {type: [string, 'null'], description: 'The change in percent, two decimals; null for above and below.'}
+              percent: {type: [string, 'null'], description: 'The change in percent from the base, two decimals; null for above and below.'}
         raised_as: {$ref: '#/components/schemas/Uuid', description: "The watcher's creator the evaluation ran as: `identity.principal.id`."}
     RevenueContractChangedV1:
       type: object

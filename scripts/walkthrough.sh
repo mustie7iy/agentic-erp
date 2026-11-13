@@ -8310,9 +8310,12 @@ step_return_receipt() {
 # month's figure the semantic layer gives him, so the condition holds;
 # evaluating the watcher runs its query as Ben, judges the latest month
 # with data and raises one alert naming the figure and the value; a second
-# evaluation raises none and answers the same alert.
+# evaluation raises none and answers the same alert. T96b: a deviation
+# from the month before judges nothing without spend that month; Carla,
+# the controller, lists the open alerts of her companies and acknowledges
+# Ben's, once; Rita, who reads no supplier invoice, sees no alert on spend.
 step_metric_watch() {
-  heading "Step 78 — Metric watchers: spend watched above a value, evaluated as its creator; the alert names the figure and the value, once per month"
+  heading "Step 78 — Metric watchers: spend watched above a value, evaluated as its creator; the alert names the figure and the value, once per month; a deviation needs earlier months; the controller lists and acknowledges the alert"
   local q year month cur figure cents value watcher alert
   as ben
   say "Ben asks the semantic layer for Maple's spend by currency and fiscal month, as step 71 read it by supplier:"
@@ -8346,6 +8349,38 @@ step_metric_watch() {
   as olive
   say "Olive, who holds the same permissions, does not see Ben's watcher: it is his alone."
   refused 404 request.not_found getMetricWatcher -p "id=$watcher"
+  as ben
+  say "Ben also watches spend in $cur against the average of the month before, by more than half of it (T96b): the"
+  say "month before has no spend, and a deviation needs a figure in each earlier month it averages, so nothing is"
+  say "judged and nothing raised:"
+  api 201 '"watcher \(.name): \(.condition.kind) by more than \(.condition.percent)% of the average of \(.condition.periods) month(s)"' createMetricWatcher \
+    -body "{\"name\": \"Spend off its average\", \"metric\": \"spend\", \"company\": \"$CC\", \"grain\": \"month\", \"condition\": {\"kind\": \"deviation\", \"percent\": \"50\", \"periods\": 1}}"
+  api 200 '"period \(.fiscal_year)/\(.fiscal_period), raised \(.raised)", (.series[] | "  \(.company) \(.currency): \(.figure) against \(.compared_with // "-"), holds \(.holds)")' \
+    evaluateMetricWatcher -p "id=$(field .id)" -if-match "$ETAG"
+  expect "nothing judged without the month before" "$(field '"\(.raised) \([.series[] | select(.compared_with != null)] | length)"')" "false 0"
+  say "With erp-analytics, the analytical store's reader, a cell evaluates every active watcher after each refresh"
+  say "of its store that changed its data, from the store, as the watcher's creator (ADR-0077 §4); this walkthrough"
+  say "runs no erp-analytics, so watchers are evaluated through the API here, and the worker in the package's tests."
+  as carla
+  say "Carla, the controller, lists the open alerts of the companies she may access, each with its watcher, figures"
+  say "and whose evaluation raised it, and acknowledges Ben's:"
+  api 200 '.items[] | "  \(.watcher_name) \(.fiscal_year)/\(.fiscal_period), raised for \(.raised_as_name): \(.findings | map("\(.company) \(.figure) \(.currency) against \(.compared_with)") | join("; ")), \(.status)"' \
+    listMetricAlerts -p status=open
+  expect "the open alert of Ben's watcher" "$(jq -r --arg a "$alert" '[.items[] | select(.id == $a) | "\(.watcher_id) \(.status) \(.version)"] | join(" ")' "$WORK/last.json")" "$watcher open 1"
+  api 200 '"alert \(.watcher_name): \(.status) by \(.acknowledged_by_name)"' acknowledgeMetricAlert -p "id=$alert" -if-match '"1"'
+  expect "acknowledged" "$(field '"\(.status) \(.acknowledged_by_name) \(.version)"')" "acknowledged Carla Controller 2"
+  say "An alert is acknowledged once:"
+  refused 409 analytics.alert_acknowledged acknowledgeMetricAlert -p "id=$alert" -if-match '"2"'
+  QUIET=1 api 200 '' listMetricAlerts -p "watcher_id=$watcher"
+  expect "the watcher's alerts" "$(field '[.items[] | "\(.id) \(.status)"] | join(", ")')" "$alert acknowledged"
+  QUIET=1 api 200 '' listAuditEvents -p object_type=analytics.metric_alert -p "object_id=$alert"
+  expect "the alert's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "analytics.metric_alert.acknowledge analytics.metric_alert.raise"
+  as ada
+  say "Ada lets Rita read alerts; Rita reads no supplier invoice, so she sees no alert on spend (ADR-0077 §5):"
+  grant "$(role cash_reporting)" analytics.alert.read
+  as rita
+  api 200 '"alerts Rita sees: \(.items | length)"' listMetricAlerts
+  expect "no alert on spend for Rita" "$(jq -r --arg a "$alert" '[.items[] | select(.id == $a)] | length' "$WORK/last.json")" 0
   as ben
   passed
 }

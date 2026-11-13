@@ -9,7 +9,8 @@
 //
 // The package is part of the analytics context. It runs queries through
 // its Queries port, the semantic layer's endpoint, by the analytics
-// package's types.
+// package's types, and names principals and companies through its People
+// and Companies ports.
 package watchers
 
 import (
@@ -36,10 +37,24 @@ type Queries interface {
 	Answer(ctx context.Context, m *analytics.Model, q analytics.Query, companies []string) (*analytics.Result, error)
 }
 
+// People names principals (identity context), keyed by id; an id the
+// tenant has no principal of is absent.
+type People interface {
+	Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
+}
+
+// Companies names legal entities by their company codes (tenancy), which
+// an alert's companies are: who may see an alert (ADR-0077 §5).
+type Companies interface {
+	CompanyCode(ctx context.Context, id uuid.UUID) (code string, ok bool, err error)
+}
+
 // Endpoints implements the metric watchers' part of the generated API.
 type Endpoints struct {
-	Pages   *pagination.Codec
-	Queries Queries
+	Pages     *pagination.Codec
+	Queries   Queries
+	People    People
+	Companies Companies
 	// Now dates the evaluations: the fiscal years a query reads from
 	// (ADR-0077 §2); nil: the wall clock.
 	Now func() time.Time
@@ -54,20 +69,23 @@ const (
 
 // The grains and conditions of a watcher (ADR-0077 §1).
 const (
-	Month  = "month"
-	Year   = "year"
-	Above  = "above"
-	Below  = "below"
-	Change = "change"
+	Month     = "month"
+	Year      = "year"
+	Above     = "above"
+	Below     = "below"
+	Change    = "change"
+	Deviation = "deviation"
 )
 
 // Condition is a watcher's condition: a Value (with the Currency of a
-// money metric) for above and below, a Percent for change.
+// money metric) for above and below, a Percent for change and deviation,
+// and the Periods a deviation averages.
 type Condition struct {
 	Kind     string
 	Value    string
 	Currency string
 	Percent  string
+	Periods  int32
 }
 
 // Watcher is a row of analytics.metric_watcher.
@@ -90,7 +108,7 @@ type Watcher struct {
 }
 
 const watcherSelect = `SELECT id, name, metric, filters, coalesce(company, ''), grain, condition, coalesce(threshold, ''),
-	coalesce(currency, ''), coalesce(percent, ''), status, coalesce(failure_code, ''), coalesce(failure_detail, ''),
+	coalesce(currency, ''), coalesce(percent, ''), coalesce(periods, 0), status, coalesce(failure_code, ''), coalesce(failure_detail, ''),
 	version, created_at, created_by, updated_at, updated_by FROM analytics.metric_watcher`
 
 func scanWatcher(row pgx.Row) (Watcher, error) {
@@ -99,7 +117,7 @@ func scanWatcher(row pgx.Row) (Watcher, error) {
 		filters []byte
 	)
 	if err := row.Scan(&w.ID, &w.Name, &w.Metric, &filters, &w.Company, &w.Grain, &w.Condition.Kind, &w.Condition.Value,
-		&w.Condition.Currency, &w.Condition.Percent, &w.Status, &w.FailureCode, &w.FailureDetail,
+		&w.Condition.Currency, &w.Condition.Percent, &w.Condition.Periods, &w.Status, &w.FailureCode, &w.FailureDetail,
 		&w.Version, &w.CreatedAt, &w.CreatedBy, &w.UpdatedAt, &w.UpdatedBy); err != nil {
 		return Watcher{}, errs.Wrapf(err, "scan metric watcher")
 	}

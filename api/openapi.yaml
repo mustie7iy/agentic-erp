@@ -26900,6 +26900,131 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/metric-alerts:
+    get:
+      operationId: listMetricAlerts
+      tags:
+        - analytics
+      summary: List metric alerts
+      description: "The alerts metric watchers raised (ADR-0077 §3, §5, T96b), through the API or after a refresh of the analytical store, each as `getMetricAlert` gives it: only those whose every company the caller may access and whose metric's data the caller may read (the permissions its query needed when it was raised), so a figure reaches no one the query would refuse. Filtered by status and by watcher. Sortable by: `raised_at` (default, the latest first)."
+      x-permission: analytics.alert.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Only alerts in this status.
+          schema:
+            type: string
+            description: "Alert status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - open
+              - acknowledged
+        - name: watcher_id
+          in: query
+          required: false
+          description: Only the alerts of this watcher.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of alerts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricAlertPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/metric-alerts/{id}":
+    get:
+      operationId: getMetricAlert
+      tags:
+        - analytics
+      summary: Get a metric alert
+      description: "One alert (ADR-0077 §3, T96b), with its findings and its watcher's name, metric and condition; an alert the caller may not see, as `listMetricAlerts` decides it, is not found (404)."
+      x-permission: analytics.alert.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The alert.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricAlert"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/metric-alerts/{id}:acknowledge":
+    post:
+      operationId: acknowledgeMetricAlert
+      tags:
+        - analytics
+      summary: Acknowledge a metric alert
+      description: "Acknowledges an open alert the caller may see (ADR-0077 §5, T96b), once (409 `analytics.alert_acknowledged` after), at the version read (`If-Match`): it is `acknowledged`, with who and when. Nothing else changes; the watcher goes on being evaluated, and its next period's alert is a new one. An audit record is written with it. Human-only (`x-agent: false`)."
+      x-permission: analytics.alert.acknowledge
+      x-also-permissions:
+        - analytics.alert.read
+      x-agent: false
+      x-problem-codes:
+        - analytics.alert_acknowledged
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The alert after acknowledgeMetricAlert.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricAlert"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/metric-watchers:
     get:
       operationId: listMetricWatchers
@@ -26955,7 +27080,7 @@ paths:
       tags:
         - analytics
       summary: Set a metric watcher
-      description: "Sets a watcher on a governed metric of the active model (ADR-0077 §1, T96a), the caller's own: its name, the metric, filters on the metric's dimensions in the query's form, one company by its code (absent: every company the caller may read when it is evaluated), a period grain (`month` or `year`, fiscal) and one condition: `above` or `below` a value (for a money metric with the currency it is in, which only figures in that currency are compared with; for a count or a ratio without one, 422 `analytics.invalid_watcher` naming `condition.currency` otherwise), or `change`, the figure differing from the previous period's by more than a percentage of it, either way. Each condition takes exactly its settings (422 `analytics.invalid_watcher` naming the field). The watcher is checked as the query it runs is checked: an unknown metric, a dimension the metric lacks or a malformed filter is 422 `analytics.invalid_query`. It is created `active`, evaluated on `evaluateMetricWatcher`. A tenant without a configuration is 409 `config.not_bootstrapped`. An audit record is written with it. Human-only (`x-agent: false`): a watcher proposed by an agent is not built yet. A retry with the same `Idempotency-Key` answers the watcher set."
+      description: "Sets a watcher on a governed metric of the active model (ADR-0077 §1, T96a), the caller's own: its name, the metric, filters on the metric's dimensions in the query's form, one company by its code (absent: every company the caller may read when it is evaluated), a period grain (`month` or `year`, fiscal) and one condition: `above` or `below` a value (for a money metric with the currency it is in, which only figures in that currency are compared with; for a count or a ratio without one, 422 `analytics.invalid_watcher` naming `condition.currency` otherwise), `change`, the figure differing from the previous period's by more than a percentage of it, either way, or `deviation` (T96b), the figure differing from the average of the previous `periods` periods (1 to 12) by more than a percentage of that average. Each condition takes exactly its settings (422 `analytics.invalid_watcher` naming the field). The watcher is checked as the query it runs is checked: an unknown metric, a dimension the metric lacks or a malformed filter is 422 `analytics.invalid_query`. It is created `active`, evaluated on `evaluateMetricWatcher` and, with the analytical store's reader configured, after each refresh of the store that changed its data, from the store, as its creator (ADR-0077 §4). A tenant without a configuration is 409 `config.not_bootstrapped`. An audit record is written with it. Human-only (`x-agent: false`): a watcher proposed by an agent is not built yet. A retry with the same `Idempotency-Key` answers the watcher set."
       x-permission: analytics.watcher.write
       x-agent: false
       x-problem-codes:
@@ -27082,7 +27207,7 @@ paths:
       tags:
         - analytics
       summary: Evaluate a metric watcher
-      description: "Evaluates one of the caller's active watchers now, at the version read (`If-Match`), as `runAnalyticsQuery` answers the caller (ADR-0077 §2): the metric by company, by currency where the metric has it, and by fiscal year and month (or year), under the watcher's filters, over its company or the caller's companies, so it needs the permissions that query needs (403 as it is). Each company and currency is a series, never added to another. The period judged is the latest with a figure in the answer; a series without a figure in it, a change without the previous period's figure and a change from zero judge nothing. Percentages are compared exactly; the one shown is rounded to two decimals. A condition holding in at least one series raises one alert for the watcher and the period, with a finding per series that holds, an audit record and MetricAlertRaised; evaluating again in the same period raises none and answers the alert raised (`raised` false). A metric the model no longer has fails the watcher (`failed`, `analytics.watcher_metric_removed`, with an audit record), answered 200 with no alert; a watcher removed or failed is 409 `analytics.watcher_inactive`. An answer of more than 500 rows is 422 `analytics.watcher_too_many_series`. Human-only (`x-agent: false`)."
+      description: "Evaluates one of the caller's active watchers now, at the version read (`If-Match`), as `runAnalyticsQuery` answers the caller (ADR-0077 §2): the metric by company, by currency where the metric has it, and by fiscal year and month (or year), under the watcher's filters, over its company or the caller's companies, so it needs the permissions that query needs (403 as it is). Each company and currency is a series, never added to another. The period judged is the latest with a figure in the answer; a series without a figure in it, a change without the previous period's figure, a deviation without a figure in each of its previous periods, and a base of zero judge nothing. Percentages are compared exactly; the one shown is rounded to two decimals. A condition holding in at least one series raises one alert for the watcher and the period, with a finding per series that holds, an audit record and MetricAlertRaised; evaluating again in the same period raises none and answers the alert raised (`raised` false). A metric the model no longer has fails the watcher (`failed`, `analytics.watcher_metric_removed`, with an audit record), answered 200 with no alert; a watcher removed or failed is 409 `analytics.watcher_inactive`. An answer of more than 500 rows is 422 `analytics.watcher_too_many_series`. Human-only (`x-agent: false`)."
       x-permission: analytics.watcher.write
       x-also-permissions:
         - analytics.query.run
@@ -57005,17 +57130,18 @@ components:
       additionalProperties: false
     MetricWatcherCondition:
       type: object
-      description: "A watcher's condition (ADR-0077 §1): `above` or `below` a `value` (with the `currency` of a money metric), or `change` by more than `percent` of the previous period's figure. Exactly the settings of the kind are given."
+      description: "A watcher's condition (ADR-0077 §1): `above` or `below` a `value` (with the `currency` of a money metric), `change` by more than `percent` of the previous period's figure, or `deviation` by more than `percent` of the average of the previous `periods` periods. Exactly the settings of the kind are given."
       required: [kind]
       additionalProperties: false
       properties:
         kind:
           type: string
           description: "The condition. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-          x-extensible-enum: [above, below, change]
+          x-extensible-enum: [above, below, change, deviation]
         value: {type: string, pattern: "^-?[0-9]{1,18}(\\.[0-9]{1,6})?$", description: "For `above` and `below`: the value the figure is compared with, an exact decimal in the metric's unit."}
         currency: {type: string, pattern: "^[A-Z]{3}$", description: "For `above` and `below` on a money metric: the currency of `value`; only figures in it are compared. Not given for a count or a ratio."}
-        percent: {type: string, pattern: "^[0-9]{1,6}(\\.[0-9]{1,4})?$", description: "For `change`: the percentage, `25` for 25 %, by which the figure must differ from the base, either way."}
+        percent: {type: string, pattern: "^[0-9]{1,6}(\\.[0-9]{1,4})?$", description: "For `change` and `deviation`: the percentage, `25` for 25 %, by which the figure must differ from the base, either way."}
+        periods: {type: integer, format: int32, minimum: 1, maximum: 12, description: "For `deviation`: how many previous periods the average is of; each must have a figure, or the series judges nothing."}
       examples:
         - kind: above
           value: "50000.00"
@@ -57103,8 +57229,8 @@ components:
         company: {type: string, description: The company code.}
         currency: {type: string, description: "The figure's currency; absent for a count or a ratio."}
         figure: {type: string, description: "The figure of the period, an exact decimal."}
-        compared_with: {type: string, description: "What the figure was compared with: the condition's value, or the previous period's figure; absent when the series judged nothing (a currency other than the value's, no previous figure, a base of zero)."}
-        percent: {type: string, description: "For `change`: the change in percent, rounded to two decimals; absent otherwise or when nothing was judged."}
+        compared_with: {type: string, description: "What the figure was compared with: the condition's value, the previous period's figure, or the average of the previous periods at the figure's digits; absent when the series judged nothing (a currency other than the value's, a previous figure missing, a base of zero)."}
+        percent: {type: string, description: "For `change` and `deviation`: the change in percent from the base, rounded to two decimals; absent otherwise or when nothing was judged."}
         holds: {type: boolean, description: Whether the figure holds the condition.}
     MetricAlertFinding:
       type: object
@@ -57114,12 +57240,12 @@ components:
         company: {type: string, description: The company code.}
         currency: {type: string, description: "The figure's currency; absent for a count or a ratio."}
         figure: {type: string, description: "The figure of the period, an exact decimal."}
-        compared_with: {type: string, description: "The condition's value, or the previous period's figure."}
-        percent: {type: string, description: "For `change`: the change in percent, rounded to two decimals; absent for `above` and `below`."}
+        compared_with: {type: string, description: "The condition's value, the previous period's figure, or the average of the previous periods."}
+        percent: {type: string, description: "For `change` and `deviation`: the change in percent from the base, rounded to two decimals; absent for `above` and `below`."}
     MetricAlert:
       type: object
       description: "An alert a watcher raised for a period (ADR-0077 §3): one per watcher and period."
-      required: [id, version, watcher_id, watcher_name, metric, grain, condition, fiscal_year, companies, findings, status, raised_at, raised_as]
+      required: [id, version, watcher_id, watcher_name, metric, grain, condition, fiscal_year, companies, findings, status, raised_at, raised_as, raised_as_name]
       properties:
         id: {type: string, format: uuid, description: Identifier (UUIDv7).}
         version: {type: integer, format: int32, description: "Optimistic-lock version; equals the ETag."}
@@ -57140,10 +57266,24 @@ components:
           description: "A finding per company and currency that held the condition, by company and currency."
         status:
           type: string
-          description: "`open`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-          x-extensible-enum: [open]
+          description: "`open`, or `acknowledged` once (`acknowledgeMetricAlert`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [open, acknowledged]
         raised_at: {type: string, format: date-time, description: When it was raised.}
         raised_as: {type: string, format: uuid, description: "The watcher's creator the evaluation ran as (`GET /v1/principals/{id}`)."}
+        raised_as_name: {type: string, description: "The creator's name, as it is now."}
+        acknowledged_at: {type: string, format: date-time, description: "When it was acknowledged; absent while it is open."}
+        acknowledged_by: {type: string, format: uuid, description: "Who acknowledged it; absent while it is open."}
+        acknowledged_by_name: {type: string, description: "Their name, as it is now; absent while it is open."}
+    MetricAlertPage:
+      type: object
+      description: One page of metric alerts.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/MetricAlert"}
+          description: The alerts on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     MetricWatcherEvaluation:
       type: object
       description: "An evaluation of a watcher (ADR-0077 §2): the watcher after it, the period judged, each series' figure and the alert of the period."
