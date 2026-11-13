@@ -266,10 +266,10 @@ func (w *SimulationWorker) preview(ctx context.Context, tx pgx.Tx, c ChangeReque
 	// read the request; the preview tells its requester the outcome.
 	detail := map[string]any{"kind": "simulation", "passed": sim.Passed, "summary": sim.Summary, "status": Draft, "version": c.Version,
 		"proposal_sha256": sim.Detail["proposal_sha256"]}
-	if err := record(ctx, previewed, c.ID, map[string]any{"operation_id": operation, "passed": sim.Passed, "version": c.Version}); err != nil {
-		return err
+	err = record(ctx, previewed, c.ID, map[string]any{"operation_id": operation, "passed": sim.Passed, "version": c.Version})
+	if err == nil {
+		_, err = operations.Succeed(ctx, operation, "/v1/change-requests/"+c.ID.String(), detail)
 	}
-	_, err = operations.Succeed(ctx, operation, "/v1/change-requests/"+c.ID.String(), detail)
 	return err
 }
 
