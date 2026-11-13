@@ -353,7 +353,7 @@ limit.
   `grc.invalid_process`; a frequency, nature or result the contract does
   not list, and a text of white space alone, are 422
   `request.validation_failed` naming the field.
-- Walkthrough `step_controls` (step 66): Olive, the compliance officer,
+- Walkthrough `step_controls` (step 76): Olive, the compliance officer,
   records the control PAY-01 on the release of payment runs, owned by
   Tara; a second control with the code in another case is refused; she
   records a test as passed with a note; a test dated after today is
@@ -377,7 +377,7 @@ limit.
 - `ControlChanged` gains `link` and the changes `linked` and `unlinked`.
 - `TestMatrixBudget`: 2,000 active controls with 6,000 links and 20,000
   tests, each read within 3 s at p95.
-- Walkthrough `step_control_matrix` (step 67): Olive gives PAY-01 a
+- Walkthrough `step_control_matrix` (step 77): Olive gives PAY-01 a
   framework reference and links it to the permission
   `payments.run.release` and to the setting
   `companies[3000].release_dual_limit`, both holding. The walkthrough's

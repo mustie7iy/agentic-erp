@@ -1187,7 +1187,7 @@ quantity; no stock, no posting.
   `TestReturnsOrderLeavesCreditAndRevenueAlone` (sales) and the
   consumer's `TestConsumerSkipsAndRefuses` case for the event (revenue)
   hold both.
-- Walkthrough `step_returns` (step 70): Sally creates a returns order
+- Walkthrough `step_returns` (step 74): Sally creates a returns order
   for 20 of the 120 brackets of step 64's billing document, as
   defective; the item shows 120 billed and 20 returned and the sales
   order 20 returned at a new version; 101 more and an unknown reason
@@ -1295,8 +1295,8 @@ that returned quantities arrived, as T78c's is for a delivery.
   decimal strings in `Unit`. Through the API it is
   `GET /v1/returns-orders/{id}`. Nothing yet records what a credit memo
   request took of the received quantities: that is T85c's.
-- Walkthrough `step_return_receipt` (step 71): Sally confirms 15 of the
-  20 brackets of step 70's returns order as received and the returns
+- Walkthrough `step_return_receipt` (step 75): Sally confirms 15 of the
+  20 brackets of step 74's returns order as received and the returns
   order shows 15 received and 5 still expected at a new version; 6 more
   and a date after today are refused naming their fields; a second
   receipt brings the last 5 and the returns order reads as fully
@@ -1320,7 +1320,7 @@ that returned quantities arrived, as T78c's is for a delivery.
   shown per item rather than a status of the returns order: "fully
   received" is every item's open quantity at 0, and the returns order
   keeps its two statuses; (8) a receipt was built as a second
-  walkthrough step (71) rather than as an extension of step 70, each
+  walkthrough step (75) rather than as an extension of step 74, each
   slice having its own step; (9) a receipt, like the returns order,
   counts neither in the credit exposure nor in a revenue contract. Not
   built, by the plan's "Later": the return delivery, goods receipt,

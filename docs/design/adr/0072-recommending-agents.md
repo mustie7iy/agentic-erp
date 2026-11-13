@@ -255,7 +255,7 @@ A later slice adds its row here and its section under "As built".
   recommendation, the reply saying it has no history; an instruction and
   an amount planted in an invoice item's text not followed and not
   repeated. Not run against a live model.
-- Walkthrough `step_credit_agent` (step 66): for Northwind, the customer
+- Walkthrough `step_credit_agent` (step 72): for Northwind, the customer
   of `step_credit_limit`, the agent is refused a limit it computed (the
   exposure with a tenth on top) and leaves one recommendation at the
   exposure, naming the limit, the exposure and the overdue amount; its own
@@ -337,7 +337,7 @@ A later slice adds its row here and its section under "As built".
   permission listed as not recorded; a role whose holder used what it may
   change kept; an instruction in the role's name not followed, the role's
   permissions and assignments as they were. Not run against a live model.
-- Walkthrough `step_access_agent` (step 67): Ada gives Ruth a role
+- Walkthrough `step_access_agent` (step 73): Ada gives Ruth a role
   `credit_controller` holding the credit limit permissions and, left
   over, `tax.return.prepare`; the agent's first run is refused before a
   session (403 `identity.permission_missing`), Ada grants its role

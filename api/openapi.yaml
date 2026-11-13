@@ -19450,7 +19450,11 @@ paths:
         - receivables.no_tax_account
         - receivables.reference_not_allowed
         - receivables.tax_changed
-        - receivables.tax_jurisdiction_not_supported
+        # receivables.tax_jurisdiction_not_levied and .tax_jurisdiction_required are the item's jurisdiction's refusals (ADR-0063),
+        # listed for every operation that enters a customer invoice; posting a billing document cannot reach them, sales refusing
+        # an item whose code levies its lines' subdivision (sales.tax_jurisdiction_not_supported) and its items naming none.
+        - receivables.tax_jurisdiction_not_levied
+        - receivables.tax_jurisdiction_required
         - receivables.unknown_currency
         - receivables.unknown_kind
         - receivables.unknown_payment_term

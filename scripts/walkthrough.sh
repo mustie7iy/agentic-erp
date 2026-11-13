@@ -554,7 +554,7 @@ provider_stub() {
 
 # model_stub starts the stand-in for the model provider (step 18's capture,
 # the tax agent's run in step 11, the forecast agent's in step 39, the
-# recommending agents' in steps 66 and after, each writing and removing
+# recommending agents' in steps 72 and 73, each writing and removing
 # its own script, and the close agent's in step_close) and points erp-server's model gateway at it. While
 # model-script.json exists it answers each call with its next turn (the
 # tax agent's, which tax_agent writes and removes, the forecast agent's,
@@ -7676,7 +7676,7 @@ step_scheduling_agreement() {
 # control's last test; a test dated after today is refused, and a test is
 # never changed. CONTROL is the control, for step_control_matrix.
 step_controls() {
-  heading "Step 66 — Controls: a control on payment release recorded in the control library, tested as passed with a note of the evidence, and the library read with its last test"
+  heading "Step 76 — Controls: a control on payment release recorded in the control library, tested as passed with a note of the evidence, and the library read with its last test"
   local owner tag test later note
   as ada
   say "Ada adds Olive, the compliance officer, to the team:"
@@ -7727,7 +7727,7 @@ step_controls() {
   passed
 }
 
-# step_control_matrix is T98b (ADR-0078 §7-§9): Olive gives step 66's
+# step_control_matrix is T98b (ADR-0078 §7-§9): Olive gives step 76's
 # control Maple's own framework reference and links it to what enforces
 # it: the permission to release payment runs and the setting of the
 # release limit above which a second person approves, both holding; a
@@ -7741,9 +7741,9 @@ step_controls() {
 # test and its three links, and its totals; a link made by mistake is
 # removed at its version and kept as removed.
 step_control_matrix() {
-  heading "Step 67 — The control matrix: the control linked to the permission, the configuration setting and a segregation-of-duties rule that enforce it, with the tenant's framework reference; the matrix shows which links hold; a link is removed, never deleted"
+  heading "Step 77 — The control matrix: the control linked to the permission, the configuration setting and a segregation-of-duties rule that enforce it, with the tenant's framework reference; the matrix shows which links hold; a link is removed, never deleted"
   local admin grant tomorrow rule plink clink rlink wrong as_of rule_state links holding broken state
-  [ -n "${CONTROL:-}" ] || fail "step 66's control is not there"
+  [ -n "${CONTROL:-}" ] || fail "step 76's control is not there"
   as olive
   QUIET=1 api 200 '' getControl -p "id=$CONTROL"
   say "Olive gives the control Maple's own reference to its internal control framework. The references are the"
@@ -7844,7 +7844,7 @@ step_control_matrix() {
 # earlier steps created, as the API lists them; Rita, who reads no sales
 # document, gets no row.
 step_sales_analytics() {
-  heading "Step 66 — Sales metrics: the month's order intake and billed value by customer through the governed metrics order_intake and billed_value, equal to the confirmed orders and the posted billing documents; without the sales reads, no row"
+  heading "Step 70 — Sales metrics: the month's order intake and billed value by customer through the governed metrics order_intake and billed_value, equal to the confirmed orders and the posted billing documents; without the sales reads, no row"
   local day q got want cents
   as ada
   say "Ada adds Anna, the sales analyst, to the team:"
@@ -7899,7 +7899,7 @@ step_sales_analytics() {
 # the earlier steps left, as the API lists them; Rita, who reads no
 # supplier invoice, gets no row.
 step_spend() {
-  heading "Step 67 — Spend: spend by supplier through the governed metric spend, equal to the posted supplier invoices less the posted credit memos; all of it off contract, since no order names a contract; without the invoices' read, no row"
+  heading "Step 71 — Spend: spend by supplier through the governed metric spend, equal to the posted supplier invoices less the posted credit memos; all of it off contract, since no order names a contract; without the invoices' read, no row"
   local q got want ids token cents
   as ben
   say "Ben asks the semantic layer what Maple spent with each supplier: the governed metric spend, the net amounts of"
@@ -7959,7 +7959,7 @@ step_spend() {
 # manager, overrides the recommendation; the limit is as it was, and the
 # agent's own change of it is refused.
 step_credit_agent() {
-  heading "Step 66 — The credit scoring agent: a customer's limit reviewed from its exposure, aging, dunning notices and payments; one recommendation with the API's figures, a computed amount refused; the credit manager decides, the limit unchanged"
+  heading "Step 72 — The credit scoring agent: a customer's limit reviewed from its exposure, aging, dunning notices and payments; one recommendation with the API's figures, a computed amount refused; the credit manager decides, the limit unchanged"
   local customer=$CUSTOMER role id tag limit exposure overdue kind target why computed got session rec
   as ada
   say "Ada sets up the credit scoring agent (ADR-0072): an agent principal of type credit_scoring at autonomy level 1"
@@ -8087,7 +8087,7 @@ credit_agent_script() {
 # itself. Ada accepts, which changes nothing, and ends the grant herself.
 # The period is yesterday to tomorrow in UTC, the audit trail's days.
 step_access_agent() {
-  heading "Step 67 — The access agent: a role's permissions against what its holders did by the audit trail; identity and audit reads granted by the administrator, not by default; the permission nobody used recommended for removal and named, a read permission listed as not recorded; the administrator decides and ends the grant herself"
+  heading "Step 73 — The access agent: a role's permissions against what its holders did by the audit trail; identity and audit reads granted by the administrator, not by default; the permission nobody used recommended for removal and named, a read permission listed as not recorded; the administrator decides and ends the grant herself"
   local role agent_role ruth from to got session rec grant
   as ada
   say "Ada gives Ruth a role of her own for credit control, credit_controller: reading and changing credit limits and,"
@@ -8182,7 +8182,7 @@ step_access_agent() {
 # (the credit for a return is a credit memo request's). It keeps the
 # returns order (RETURNS_ORDER).
 step_returns() {
-  heading "Step 70 — Returns orders: a returns order for part of a posted billing document's quantity created with its reason, its item showing what was billed and what is returned; more than was billed refused; confirmed once; nothing posted"
+  heading "Step 74 — Returns orders: a returns order for part of a posted billing document's quantity created with its reason, its item showing what was billed and what is returned; more than was billed refused; confirmed once; nothing posted"
   local customer=$CUSTOMER order=$SALES_ORDER doc=$BILLING_DOCUMENT before version open exposure returns number tag
   [ -n "$doc" ] && [ -n "$order" ] || fail "the sales order of step 63 and the billing document of step 64 are not there"
   as sally
@@ -8259,9 +8259,9 @@ step_returns() {
 # delivery's is: the sales order's delivered, billed and returned
 # quantities and its version stay, nothing is posted and no stock moves.
 step_return_receipt() {
-  heading "Step 71 — Return receipts: returned quantities confirmed as received on a date against the confirmed returns order, up to what is still expected; the returns order showing what is received and what is still expected, then fully received; the sales order unchanged; nothing posted"
+  heading "Step 75 — Return receipts: returned quantities confirmed as received on a date against the confirmed returns order, up to what is still expected; the returns order showing what is received and what is still expected, then fully received; the sales order unchanged; nothing posted"
   local customer=$CUSTOMER order=$SALES_ORDER returns=$RETURNS_ORDER day number sold open
-  [ -n "$returns" ] || fail "step 70's returns order is not there"
+  [ -n "$returns" ] || fail "step 74's returns order is not there"
   as sally
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
   open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
@@ -10339,7 +10339,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_controls step_control_matrix step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_close'
 
 main() {
   stop_unseen

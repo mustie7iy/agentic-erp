@@ -994,7 +994,7 @@ stays `revenue`, the general ledger's). No migration and no file in
   `TestDatabaseFailures`; `store.TestParity` (every query of the three
   metrics, permissions `sales`, isolation and tamper of `sales_lines`,
   figures in "not vacuous"), `TestSalesMetricsBudget`; the walkthrough's
-  step 66 (`step_sales_analytics`).
+  step 70 (`step_sales_analytics`).
 
 **Spend cube (T91b, `plan-breadth-week3.md`; decided by default).**
 Dataset `spend_lines` v1 (`analytics/datasets/v1/spend_lines.yaml`), a
@@ -1090,7 +1090,7 @@ synonym). No migration. Decisions:
   `TestDatabaseFailures`; `endpoint.TestSpendMetrics`; `store.TestParity`
   (every query of the four metrics, permissions `spend`, isolation and
   tamper of `spend_lines`, figures in "not vacuous"),
-  `TestSpendCubeBudget`; the walkthrough's step 67 (`step_spend`).
+  `TestSpendCubeBudget`; the walkthrough's step 71 (`step_spend`).
 
 **Steps.** T55a this ADR and the dataset contract; T55b the snapshot
 migration, extractor and Parquet writer for journal lines; T55c the other
