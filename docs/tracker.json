@@ -4922,13 +4922,13 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Returns orders",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A sales administrator creates a returns order for quantities of a posted billing document's items, with a reason, and confirms it; the order's items show what was billed and what is being returned (POST /v1/returns-orders, :confirm)",
-        "r": "T85a · docs/design/plan-breadth-week3.md §T85a",
+        "r": "T85a · docs/design/plan-breadth-week3.md §T85a · db/migrations/000303 · sales.returns_order, returns_order_item · sales_order_item.returned_quantity · POST /v1/returns-orders · GET /v1/returns-orders · GET /v1/returns-orders/{id} · POST /v1/returns-orders/{id}:confirm · ReturnsOrderChanged · sales.return.read, .write, .confirm · walkthrough step_returns · ADR-0067 As built",
         "src": "po:2026-11-12 · design:03 §3.16",
         "c": []
        },

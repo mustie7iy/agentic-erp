@@ -48,7 +48,8 @@ func orderAPI(o Order, refs references) gen.SalesOrder {
 		out.Items[i] = gen.SalesOrderItem{ItemNo: base.ItemNo, ItemKey: base.ItemKey, Description: base.Description, Quantity: base.Quantity,
 			UnitPrice: base.UnitPrice, PriceUnit: base.PriceUnit, PriceSource: base.PriceSource, Conditions: base.Conditions, NetAmount: base.NetAmount, AccountID: base.AccountID,
 			AccountNumber: base.AccountNumber, AccountName: base.AccountName, TaxCode: base.TaxCode,
-			DeliveredQuantity: gen.Quantity{Value: it.Delivered, Unit: it.Unit}, BilledQuantity: gen.Quantity{Value: it.Billed, Unit: it.Unit}}
+			DeliveredQuantity: gen.Quantity{Value: it.Delivered, Unit: it.Unit}, BilledQuantity: gen.Quantity{Value: it.Billed, Unit: it.Unit},
+			ReturnedQuantity: gen.Quantity{Value: it.Returned, Unit: it.Unit}}
 	}
 	return out
 }

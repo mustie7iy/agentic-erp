@@ -591,6 +591,19 @@ type Handler interface {
 	//
 	// POST /v1/dunning-runs/{id}:confirm
 	ConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (ConfirmDunningRunRes, error)
+	// ConfirmReturnsOrder implements confirmReturnsOrder operation.
+	//
+	// Confirms a `draft` returns order (ADR-0067, As built T85a), at the version the caller read
+	// (`If-Match`): the returns order is read under a row lock and moves to `confirmed` once. One that is
+	// not a draft is refused (409 `sales.invalid_status`). Confirming is by permission,
+	// `sales.return.confirm`, without an approval; no rule sets the person who confirms apart from the one
+	// who created the returns order. A confirmed returns order is not changed or cancelled in the first
+	// version. Nothing is checked again, nothing is posted and no stock moves. Audited, and published as
+	// ReturnsOrderChanged. A retry with the same `Idempotency-Key` answers the confirmed returns order.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/returns-orders/{id}:confirm
+	ConfirmReturnsOrder(ctx context.Context, params ConfirmReturnsOrderParams) (ConfirmReturnsOrderRes, error)
 	// ConfirmSalesDelivery implements confirmSalesDelivery operation.
 	//
 	// Records that quantities of a `confirmed` sales order's items were delivered, or a service made
@@ -1378,6 +1391,33 @@ type Handler interface {
 	//
 	// POST /v1/requisitions
 	CreateRequisition(ctx context.Context, req *RequisitionCreate, params CreateRequisitionParams) (CreateRequisitionRes, error)
+	// CreateReturnsOrder implements createReturnsOrder operation.
+	//
+	// Creates a returns order (ADR-0067, As built T85a): the customer sends back quantities of a posted
+	// billing document's items, for a reason. The billing document is one of a company the caller may act
+	// in (422 `request.reference_not_found` naming `billing_document_id`) that is posted (409
+	// `sales.billing_document_not_posted`): what was not billed and posted is not returned in the first
+	// version. `reason` is one of `defective`, `wrong_item`, `not_wanted` and `other` (422
+	// `sales.unknown_return_reason`), with a free text in `reason_text` if wanted. Each item names an item
+	// of the billing document by its number (422 `sales.unknown_billing_item` naming
+	// `items[i].billing_item_no`), once (422 `sales.item_repeated`), with a quantity more than zero (422
+	// `sales.invalid_quantity`) in the billed item's unit (422 `sales.unit_mismatch`) that is at most what
+	// can still be returned of it: its billed quantity less what the document's other returns orders took,
+	// drafts included, since a returns order is not cancelled in the first version (422
+	// `sales.exceeds_returnable_quantity` naming `items[i].quantity.value`, with the item, what was billed
+	// and what was taken in the message). The billing document's sales order is read under a row lock, so
+	// two requests wait for one another and no quantity is returned twice. The returns order is created
+	// `draft`, dated the company's date today in its time zone, with a document number from the company's
+	// `returns_order` number range of that date's fiscal year (422 `config.no_number_range` for a company
+	// without the range). Each sales order item's `returned_quantity` rises by what the order takes and
+	// the sales order's `version` moves (`getSalesOrder`); its delivered and billed quantities stay. It is
+	// a document of the sales context alone: nothing is posted, no stock moves, the customer's open items
+	// and credit exposure are as they were, and the order's revenue contract is not changed; the credit
+	// for a return is a credit memo request's. Audited, and published as ReturnsOrderChanged. A retry with
+	// the same `Idempotency-Key` answers the returns order created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/returns-orders
+	CreateReturnsOrder(ctx context.Context, req *ReturnsOrderCreate, params CreateReturnsOrderParams) (CreateReturnsOrderRes, error)
 	// CreateRevenueContract implements createRevenueContract operation.
 	//
 	// Creates the revenue contract of a confirmed sales order that has none yet (ADR-0068 §3-§4, T81a).
@@ -2941,6 +2981,17 @@ type Handler interface {
 	//
 	// GET /v1/requisitions/{id}
 	GetRequisition(ctx context.Context, params GetRequisitionParams) (GetRequisitionRes, error)
+	// GetReturnsOrder implements getReturnsOrder operation.
+	//
+	// One returns order (ADR-0067, As built T85a) with its company's code and name, its customer's number
+	// and name, the billing document and the sales order it returns from by id and number, its date, its
+	// reason and its items, each naming the billing document's item and the sales order's item by number,
+	// what is sold by item key and description, the quantity billed by the billing document's item and the
+	// quantity being returned. One of a company the caller may not act in is not found (404), as one that
+	// does not exist.
+	//
+	// GET /v1/returns-orders/{id}
+	GetReturnsOrder(ctx context.Context, params GetReturnsOrderParams) (GetReturnsOrderRes, error)
 	// GetRevaluationRun implements getRevaluationRun operation.
 	//
 	// Returns one revaluation run with its items and totals.
@@ -3008,9 +3059,9 @@ type Handler interface {
 	// One sales order (ADR-0067 §5, T78b) with its company's code and name, its customer's number and
 	// name, the quotation it was created from by id and number, its payment term, its net value, its
 	// credit block (with who released it and when, once it is released) and its items, each with its
-	// ordered, delivered and billed quantities, its unit price, its net value and its revenue account's
-	// number and name. One of a company the caller may not act in is not found (404), as one that does not
-	// exist.
+	// ordered, delivered, billed and returned quantities, its unit price, its net value and its revenue
+	// account's number and name. One of a company the caller may not act in is not found (404), as one
+	// that does not exist.
 	//
 	// GET /v1/sales-orders/{id}
 	GetSalesOrder(ctx context.Context, params GetSalesOrderParams) (GetSalesOrderRes, error)
@@ -4247,6 +4298,16 @@ type Handler interface {
 	//
 	// GET /v1/requisitions
 	ListRequisitions(ctx context.Context, params ListRequisitionsParams) (ListRequisitionsRes, error)
+	// ListReturnsOrders implements listReturnsOrders operation.
+	//
+	// The returns orders of the companies the caller may act in (ADR-0067, As built T85a), each as
+	// `getReturnsOrder` gives it: with its company's code and name, its customer's number and name, the
+	// billing document and the sales order it returns from by id and number, its reason and its items with
+	// their billed and returned quantities. Filtered by company, customer, billing document, sales order,
+	// status and document number. Sortable by: `returns_date`, `document_number`.
+	//
+	// GET /v1/returns-orders
+	ListReturnsOrders(ctx context.Context, params ListReturnsOrdersParams) (ListReturnsOrdersRes, error)
 	// ListRevaluationRuns implements listRevaluationRuns operation.
 	//
 	// Foreign-currency revaluation runs (ADR-0042), without their items and totals (`getRevaluationRun`
@@ -4304,9 +4365,9 @@ type Handler interface {
 	//
 	// The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as
 	// `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the
-	// quotation it came from, its net value, its credit block and its items with their ordered, delivered
-	// and billed quantities. Filtered by company, customer, status, credit block, document number and
-	// quotation. Sortable by: `order_date`, `document_number`.
+	// quotation it came from, its net value, its credit block and its items with their ordered, delivered,
+	// billed and returned quantities. Filtered by company, customer, status, credit block, document number
+	// and quotation. Sortable by: `order_date`, `document_number`.
 	//
 	// GET /v1/sales-orders
 	ListSalesOrders(ctx context.Context, params ListSalesOrdersParams) (ListSalesOrdersRes, error)

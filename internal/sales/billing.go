@@ -2,7 +2,6 @@ package sales
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/big"
 	"time"
@@ -12,7 +11,6 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
-	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -116,28 +114,10 @@ func GetBilling(ctx context.Context, id uuid.UUID) (BillingDocument, error) {
 }
 
 // billing reads a billing document of a legal entity the caller may act
-// in, forUpdate under its row lock (ADR-0008). The lock is taken by a
-// statement of its own and the document read by the next, as an order's
-// is (loadOrder): the read then sees what the transaction it waited for
-// left.
+// in, forUpdate under its row lock (stored).
 func billing(ctx context.Context, tx pgx.Tx, id uuid.UUID, forUpdate bool) (BillingDocument, error) {
-	access, err := authz.Companies(ctx)
-	if err != nil {
-		return BillingDocument{}, fmt.Errorf("sales: company access for billing document %s: %w", id, err)
-	}
-	if forUpdate {
-		if _, err := tx.Exec(ctx, `SELECT FROM sales.billing_document WHERE id = $1 FOR UPDATE`, id); err != nil {
-			return BillingDocument{}, fmt.Errorf("sales: lock billing document %s: %w", id, err)
-		}
-	}
-	b, err := scanBilling(tx.QueryRow(ctx, billingSelect+` WHERE b.id = $1`, id))
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && !access.Allows(b.LegalEntityID) {
-		return BillingDocument{}, problem.NotFoundOf("billing document")
-	}
-	if err != nil {
-		return BillingDocument{}, fmt.Errorf("sales: read billing document %s: %w", id, err)
-	}
-	return b, nil
+	return stored[BillingDocument]{what: "billing document", table: "billing_document", query: billingSelect + ` WHERE b.id = $1`, scan: scanBilling,
+		company: func(b BillingDocument) uuid.UUID { return b.LegalEntityID }}.read(ctx, tx, id, forUpdate)
 }
 
 // CreateBilling creates a billing document for a sales order (ADR-0067
