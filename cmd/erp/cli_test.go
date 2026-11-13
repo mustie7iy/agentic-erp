@@ -1050,7 +1050,9 @@ func TestAskContinue(t *testing.T) {
 	ask := llmtest.New(t,
 		llmtest.Tool("run_query", map[string]any{"measures": []string{"invoice_count"}, "by": []string{"fiscal_month"}}), dashboard, llmtest.Final("Done."),
 		llmtest.Step{Tool: "run_query", Input: func(string) any { return map[string]any{"measures": []string{"invoice_count"}} }, Expect: "how many"},
-		dashboard, llmtest.Final("Again."))
+		dashboard, llmtest.Final("Again."),
+		llmtest.Tool("run_query", map[string]any{"measures": []string{"invoice_count"}}), dashboard, llmtest.Final("Third."),
+		llmtest.Tool("run_query", map[string]any{"measures": []string{"invoice_count"}}), dashboard, llmtest.Final("All."))
 	newAgent = func(*apitools.Client) *analytics.Agent {
 		r := ask.Runner()
 		return &analytics.Agent{Client: r.Client, Model: r.Model}
@@ -1064,7 +1066,7 @@ func TestAskContinue(t *testing.T) {
 	if !strings.Contains(got, "erp ask -continue "+id[1]) {
 		t.Errorf("ask: got %s, want how to continue the analysis", got)
 	}
-	fails(t, `an analysis of companies "2000"`, "ask", "-continue", id[1], "-companies", "1000", "-out", "reports", "q")
+	fails(t, "an analysis of companies 2000:", "ask", "-continue", id[1], "-companies", "1000", "-out", "reports", "q")
 	// Without -companies the follow-up keeps the analysis's companies.
 	must(t, "ask", "-continue", id[1], "-out", "reports", "and", "by", "month?")
 	rep, err := analytics.LoadReport(filepath.Join("reports", id[1]+".json"))
@@ -1083,6 +1085,15 @@ func TestAskContinue(t *testing.T) {
 	if got := strings.Join(rep.Principal.Companies, ","); got != "2000" {
 		t.Errorf("the analysis's companies: got %q, want 2000 kept", got)
 	}
+	// The same companies named again, as they were, continue it.
+	must(t, "ask", "-continue", id[1], "-companies", " 2000", "-out", "reports", "and", "again?")
+	// An analysis of every company refuses a narrower one.
+	all := must(t, "ask", "-out", "reports", "how", "many", "in", "all?")
+	allID := regexp.MustCompile(`erp report -id (rpt_[0-9a-f]+)`).FindStringSubmatch(all)
+	if allID == nil {
+		t.Fatalf("ask: got %s, want the report's id", all)
+	}
+	fails(t, "all the companies you may read", "ask", "-continue", allID[1], "-companies", "2000", "-out", "reports", "q")
 	fails(t, "no such file", "ask", "-continue", "rpt_missing", "-out", "reports", "q")
 	fakeAPI(t, answers(refused))
 	fails(t, "query", "ask", "-continue", id[1], "-out", "reports", "q")

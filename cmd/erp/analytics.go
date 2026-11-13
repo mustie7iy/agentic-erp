@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -259,13 +260,16 @@ func continued(af analyticsFlags, outDir, id string) (*analytics.Report, error) 
 	if err != nil {
 		return nil, err
 	}
-	saved := strings.Join(rep.Principal.Companies, ",")
-	switch *af.companies {
-	case "":
-		*af.companies = saved
-	case saved:
+	saved := slices.Sorted(slices.Values(rep.Principal.Companies))
+	asked := slices.Sorted(slices.Values(splitList(*af.companies)))
+	switch {
+	case *af.companies == "":
+		*af.companies = strings.Join(saved, ",")
+	case slices.Equal(asked, saved):
+	case len(saved) == 0:
+		return nil, fmt.Errorf("report %s is an analysis of all the companies you may read: continue it without -companies, or ask anew", rep.ID)
 	default:
-		return nil, fmt.Errorf("report %s is an analysis of companies %q: continue it without -companies, or ask anew", rep.ID, saved)
+		return nil, fmt.Errorf("report %s is an analysis of companies %s: continue it without -companies, or ask anew", rep.ID, strings.Join(saved, ","))
 	}
 	return rep, nil
 }

@@ -27,8 +27,8 @@ func revenueByYear() []llmtest.Step {
 	}
 }
 
-// want reports each check of a table that fails, one message each.
-func want(t *testing.T, checks map[string][2]any) {
+// checkEach reports each check of a table that fails, one message each.
+func checkEach(t *testing.T, checks map[string][2]any) {
 	t.Helper()
 	for name, c := range checks {
 		if c[0] != c[1] {
@@ -54,7 +54,7 @@ func TestContinue(t *testing.T) {
 	if len(first.Report.Exchange) != 1 {
 		t.Fatalf("the first answer's exchange: got %d turns, want 1", len(first.Report.Exchange))
 	}
-	want(t, map[string][2]any{
+	checkEach(t, map[string][2]any{
 		"the first turn's question":          {first.Report.Exchange[0].Question, "What was revenue in 2026?"},
 		"the first turn's answer, no figure": {first.Report.Exchange[0].Answer, `The answer is on the dashboard "Revenue 2026".`},
 		"the first turn's queries":           {len(first.Report.Exchange[0].Queries), 1},
@@ -78,7 +78,7 @@ func TestContinue(t *testing.T) {
 	if len(rep.Exchange) != 2 {
 		t.Fatalf("the analysis' exchange: got %d turns, want 2", len(rep.Exchange))
 	}
-	want(t, map[string][2]any{
+	checkEach(t, map[string][2]any{
 		"the analysis' id":                 {rep.ID, first.Report.ID},
 		"the analysis' question":           {rep.Question, "What was revenue in 2026?"},
 		"the analysis' queries":            {len(rep.Queries), 2},
@@ -115,7 +115,7 @@ func TestEarlierExchangeIsData(t *testing.T) {
 	if len(turns) != 1 {
 		t.Fatalf("an old report's exchange: got %d turns, want 1", len(turns))
 	}
-	want(t, map[string][2]any{
+	checkEach(t, map[string][2]any{
 		"an old report's question": {turns[0].Question, "q"},
 		"its answer":               {turns[0].Answer, "c"},
 		"its queries":              {strings.Join(turns[0].Queries, ","), "a,b"},

@@ -52,6 +52,10 @@ func analyticsEval(ctx context.Context, env eval.Env) error {
 		// Nothing to grade against would pass any figure.
 		return errors.New("analytics: the task names no reference queries")
 	}
+	var earlier []string
+	if err := retype(env.Task["earlier"], &earlier); err != nil {
+		return fmt.Errorf("analytics: the task's earlier questions: %w", err)
+	}
 	m, _ := analytics.DefaultModel() // embedded, and TestModelLoadsAndValidates proves it parses
 	facts, err := analytics.Source{API: env.Agent}.Facts(ctx, m, time.Now())
 	if err != nil {
@@ -64,10 +68,6 @@ func analyticsEval(ctx context.Context, env eval.Env) error {
 			return fmt.Errorf("analytics: the reference query %v: %w", q.Measures, err)
 		}
 		reference = append(reference, r)
-	}
-	var earlier []string
-	if err := retype(env.Task["earlier"], &earlier); err != nil {
-		return fmt.Errorf("analytics: the task's earlier questions: %w", err)
 	}
 	s := analytics.NewSession(m, facts, analytics.Principal{ID: "eval"})
 	ans, err := analyticsExchange(ctx, analytics.NewAgent(env.LLM.Client, env.LLM.Model), s, append(earlier, t["question"]))
@@ -86,7 +86,7 @@ func analyticsExchange(ctx context.Context, a *analytics.Agent, s *analytics.Ses
 	ans, err := a.Ask(ctx, s, questions[0])
 	for _, q := range questions[1:] {
 		if err != nil {
-			break
+			return nil, err
 		}
 		ans, err = a.Continue(ctx, s, ans.Report, q)
 	}

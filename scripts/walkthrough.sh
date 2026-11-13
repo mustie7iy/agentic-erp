@@ -7442,23 +7442,24 @@ step_follow_up() {
   say "and builds dashboards; it writes nothing."
   api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "analytics_agent", "name": "Analytics agent"}'
   role=$(field .id)
-  grant "$role" analytics.query.run tenancy.org.read partner.supplier.read ledger.account.read payables.invoice.read agents.model.invoke
+  grant "$role" analytics.query.run tenancy.org.read partner.supplier.read ledger.account.read payables.invoice.read procurement.order.read \
+    procurement.contract.read ledger.cost_center.read agents.model.invoke
   api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' createPrincipal \
     -body '{"kind": "agent", "external_subject": "analytics-agent", "display_name": "Analytics agent", "all_companies": true, "agent_profile": {"autonomy_level": 0, "agent_type": "analytics", "model": "erp-analytics", "description": "Answers questions with governed metrics (ADR-0044)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
   QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
   token analytics-agent "Analytics agent"
   q="{\"dim\": \"fiscal_year\", \"op\": \"in\", \"values\": [\"$YEAR\"]}"
   jq -n --argjson year "$q" --arg y "$YEAR" '{vars: {query: "(q_[0-9a-f]{12})", latest: "(?s).*(q_[0-9a-f]{12})"}, turns: [
-    {tool: "run_query", input: {measures: ["invoice_value"], by: ["fiscal_year", "currency"], where: [$year]}},
-    {tool: "build_dashboard", input: {spec: {title: ("Supplier invoices " + $y), tables: [{title: "By currency", query_id: "{{query}}"}]}}},
-    {final: ("The supplier invoices of " + $y + " are on the dashboard.")},
-    {tool: "run_query", input: {measures: ["invoice_value"], by: ["vendor_name", "currency"], where: [$year]}},
-    {tool: "build_dashboard", input: {spec: {title: ("Supplier invoices " + $y + " by supplier"), assumptions: [("The follow-up keeps " + $y + " and the company of the first question.")],
+    {tool: "run_query", input: {measures: ["spend"], by: ["fiscal_year", "currency"], where: [$year]}},
+    {tool: "build_dashboard", input: {spec: {title: ("Spend " + $y), tables: [{title: "By currency", query_id: "{{query}}"}]}}},
+    {final: ("The spend of " + $y + " is on the dashboard.")},
+    {tool: "run_query", input: {measures: ["spend"], by: ["vendor_name", "currency"], where: [$year]}},
+    {tool: "build_dashboard", input: {spec: {title: ("Spend " + $y + " by supplier"), assumptions: [("The follow-up keeps " + $y + " and the company of the first question.")],
       tables: [{title: "By supplier", query_id: "{{latest}}"}]}}},
-    {final: ("The supplier invoices of " + $y + " by supplier are on the dashboard.")}]}' >"$WORK/model-script.json"
+    {final: ("The spend of " + $y + " by supplier is on the dashboard.")}]}' >"$WORK/model-script.json"
   say "Carla asks through the agent (erp ask, the model a stand-in answering from a script of turns):"
-  show erp ask -companies "$CC" "What did suppliers invoice us this year?"
-  got=$(ERP_TOKEN=$(cat "$WORK/tokens/analytics-agent") "$ERP" ask -companies "$CC" -out "$WORK/reports" "What did suppliers invoice us this year?" 2>"$WORK/stderr") ||
+  show erp ask -companies "$CC" "What did we spend with suppliers this year?"
+  got=$(ERP_TOKEN=$(cat "$WORK/tokens/analytics-agent") "$ERP" ask -companies "$CC" -out "$WORK/reports" "What did we spend with suppliers this year?" 2>"$WORK/stderr") ||
     { rm -f "$WORK/model-script.json"; fail "erp ask failed ($(cat "$WORK/stderr"))"; }
   printf '%s\n' "$got" | sed 's/^/     /'
   id=$(printf '%s\n' "$got" | sed -nE 's/^Rerun later with: erp report -id (rpt_[0-9a-f]+)$/\1/p')
@@ -7473,7 +7474,7 @@ step_follow_up() {
   report="$WORK/reports/$id.json"
   say "The saved report keeps the whole exchange, each question with its answer and its queries:"
   jq -r '.exchange[] | "  \(.question) -> \(.answer) (\(.queries | length) queries)"' "$report" | sed 's/^/   /'
-  expect "the exchange's questions" "$(jq -r '[.exchange[].question] | join(" | ")' "$report")" "What did suppliers invoice us this year? | and by supplier?"
+  expect "the exchange's questions" "$(jq -r '[.exchange[].question] | join(" | ")' "$report")" "What did we spend with suppliers this year? | and by supplier?"
   follow=$(jq -c '[.queries[] | select(.by == ["vendor_name", "currency"])][0]' "$report")
   expect "the follow-up's query keeps the year" "$(jq -r '.where[0] | "\(.dim) \(.op) \(.values | join(","))"' <<<"$follow")" "fiscal_year in $YEAR"
   expect "the analysis keeps the company" "$(jq -r '.principal.companies | join(",")' "$report")" "$CC"
@@ -7481,13 +7482,13 @@ step_follow_up() {
   say "The follow-up's figures are the governed metric's, the same query run directly as Carla:"
   as carla
   api 200 '(.rows[] | "  \(.[0].value): \(.[2].value) \(.[2].currency)")' runAnalyticsQuery \
-    -body "{\"measures\": [\"invoice_value\"], \"by\": [\"vendor_name\", \"currency\"], \"where\": [$q], \"companies\": [\"$CC\"]}"
+    -body "{\"measures\": [\"spend\"], \"by\": [\"vendor_name\", \"currency\"], \"where\": [$q], \"companies\": [\"$CC\"]}"
   say "Rerunning the report reruns every query of the exchange on current data:"
   show erp report -id "$id" -companies "$CC"
   ERP_TOKEN=$(cat "$WORK/tokens/analytics-agent") "$ERP" report -id "$id" -companies "$CC" -out "$WORK/reports" >"$WORK/report.out" 2>&1 ||
     { sed 's/^/     /' "$WORK/report.out"; fail "erp report failed"; }
   sed 's/^/     /' "$WORK/report.out"
-  grep -q "Refreshed \"Supplier invoices $YEAR by supplier\"" "$WORK/report.out" || fail "the report was not refreshed"
+  grep -q "Refreshed \"Spend $YEAR by supplier\"" "$WORK/report.out" || fail "the report was not refreshed"
   passed
 }
 # step_close is the financial close (ADR-0058), the story's last step: it

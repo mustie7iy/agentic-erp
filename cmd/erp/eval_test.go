@@ -445,6 +445,10 @@ func TestAnalyticsAdapterFailures(t *testing.T) {
 		{"facts unreadable", eval.Env{Agent: gone, Task: map[string]any{"question": "q", "reference": revenue}}, "read the facts"},
 		{"a reference without a metric", eval.Env{Agent: api, Task: map[string]any{"question": "q", "reference": []any{map[string]any{"measures": []any{"nope"}}}}}, "reference query"},
 		{"no model answer", eval.Env{Agent: api, LLM: llmtest.New(t).Runner(), Task: map[string]any{"question": "q", "reference": revenue}}, "exhausted"},
+		{"earlier questions that are no list", eval.Env{Agent: api, Task: map[string]any{"question": "q", "reference": revenue, "earlier": "first"}},
+			"earlier questions"},
+		{"no answer to the earlier question", eval.Env{Agent: api, LLM: llmtest.New(t).Runner(),
+			Task: map[string]any{"question": "q", "reference": revenue, "earlier": []any{"first"}}}, "exhausted"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if err := analyticsEval(context.Background(), c.env); err == nil || !strings.Contains(err.Error(), c.cause) {
