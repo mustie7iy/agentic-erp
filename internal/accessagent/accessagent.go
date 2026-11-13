@@ -8,10 +8,11 @@
 // itself reads the usage before its session, page by page: a period's
 // audit events do not fit a model's context. What "used" means is the
 // ADR's: the trail names actions, not operations or permissions, so a
-// permission counts as used when a holder has an audit event in the
-// permission's context in the period, and only a permission whose
-// context shows none is unused; a permission only reads need leaves no
-// audit event and is listed as "use not recorded", never as unused. The
+// permission that only operations changing something need counts as used
+// when a holder has an audit event in a context those operations are
+// audited in, and is unused only when those contexts show none; a
+// permission a read needs leaves no audit event when it is used and is
+// listed as "use not recorded", never as unused. The
 // agent's check holds the recommendation to exactly that. It makes no
 // identity write: those are no tools of its (Never), and its role holds
 // identity and audit reads only where a tenant's administrator granted
@@ -65,11 +66,12 @@ const system = `You review a role's permissions against what its holders did in 
 
 You are given the role, the period, who held the role in it, and each of the role's permissions with what the audit trail of
 the period shows for it, as the run read it before you started:
-- "not used": the permission is needed by operations that change something, and no holder has an audit event in the
-  permission's context in the period;
-- "used": holders have audit events in the permission's context, listed with their counts. The audit trail names actions,
-  not the operation or the permission behind them, so the permissions of one context cannot be told apart: all count as used;
-- "use not recorded": only reads need the permission, and a read leaves no audit event. Such a permission is never unused.
+- "not used": the permission is needed only by operations that change something, and no holder has an audit event in a
+  context those operations are audited in during the period;
+- "used": holders have audit events in such a context, listed with their counts. The audit trail names actions, not the
+  operation or the permission behind them, so the permissions of one context cannot be told apart: all count as used;
+- "use not recorded": a read needs the permission, and a read leaves no audit event, or no operation names it. Such a
+  permission is never unused.
 
 Read further as you need: the role (getRole, listRoles), its permissions (listRolePermissions), who holds it
 (listRoleAssignments with role_id) and their names (listPrincipals), and audit events of the period (listAuditEvents with
@@ -128,11 +130,13 @@ type role struct {
 // shows for them, in the order of their codes.
 type review struct {
 	holders     []string            // principals that held the role in the period
-	unused      []string            // needed by writes, no holder acted in their context
-	unrecorded  []string            // only reads need them
-	used        []string            // needed by writes, holders acted in their context
+	unused      []string            // needed by writes only, no holder acted in their contexts
+	unrecorded  []string            // needed by a read, or by no operation the contract names
+	used        []string            // needed by writes only, holders acted in their contexts
 	actions     map[string]int      // the holders' audit events in the period, by action
 	operations  map[string][]string // a permission's writing operations
+	contexts    map[string][]string // the contexts those operations' audit records carry
+	reads       map[string]bool     // the permissions a read needs
 	removeLine  string
 	recordsLine string
 }
@@ -186,7 +190,7 @@ func (p Period) instants() (from, to string, err error) {
 func (a *Agent) role(ctx context.Context, ref string) (role, error) {
 	roles, err := apitools.List[role](ctx, a.API, "/v1/roles", nil)
 	if err != nil {
-		return role{}, err
+		return role{}, fmt.Errorf("accessagent: the roles: %w", err)
 	}
 	for _, r := range roles {
 		if r.ID == ref || r.Code == ref {
@@ -214,7 +218,7 @@ func (a *Agent) read(ctx context.Context, r role, p Period, from, to string) (*r
 	if err != nil {
 		return nil, err
 	}
-	rv := &review{actions: map[string]int{}, operations: map[string][]string{}}
+	rv := &review{actions: map[string]int{}, operations: map[string][]string{}, contexts: map[string][]string{}, reads: map[string]bool{}}
 	for _, as := range assignments {
 		// valid_to is the day validity ends, exclusive; ISO dates compare as text.
 		if as.ValidFrom <= p.To && (as.ValidTo == "" || as.ValidTo > p.From) && !slices.Contains(rv.holders, as.PrincipalID) {
@@ -274,30 +278,50 @@ func contextOf(code string) string {
 	return ctx
 }
 
-// sort puts each of the role's permissions where the trail puts it:
-// unrecorded when no operation that changes something needs it, used
-// when a holder acted in its context, unused otherwise; and words the
-// lines the content must carry.
-func (rv *review) sort(codes []string) {
+// contract reads from the contract what each permission is needed by:
+// reads, and operations that change something with the contexts their
+// audit records carry.
+func (rv *review) contract() {
 	ops, _ := api.Operations() // the embedded contract, which api's TestSpec keeps parsable; without it every permission is unrecorded
 	for _, id := range slices.Sorted(maps.Keys(ops)) {
 		op := ops[id]
-		if op.Method == http.MethodGet || op.Reads {
-			continue
-		}
-		for _, code := range needs(op) {
+		for _, code := range append([]string{op.Permission}, op.AlsoPermissions...) {
+			if op.Method == http.MethodGet || op.Reads {
+				rv.reads[code] = true
+				continue
+			}
 			rv.operations[code] = append(rv.operations[code], id)
+			for _, c := range []string{contextOf(code), contextOf(op.Permission)} {
+				if !slices.Contains(rv.contexts[code], c) {
+					rv.contexts[code] = append(rv.contexts[code], c)
+				}
+			}
 		}
 	}
+}
+
+// sort puts each of the role's permissions where the trail puts it, and
+// words the lines the content must carry. A permission's use is not
+// recorded when a read needs it, since a read leaves no audit event (a
+// holder may use it every day and show none), and when no operation of
+// the contract names it in x-permission or x-also-permissions (the
+// approval permissions, named by the object decided). Of the others,
+// needed by operations that change something only, one is used when a
+// holder acted in a context such an operation's audit record carries:
+// the permission's own, and that of the x-permission of each operation
+// that needs it beside its own (a close's accrual needs the ledger's
+// parking and is audited as closing's). It is unused otherwise.
+func (rv *review) sort(codes []string) {
+	rv.contract()
 	acted := map[string]bool{}
 	for action := range rv.actions {
 		acted[contextOf(action)] = true
 	}
 	for _, code := range codes {
 		switch {
-		case len(rv.operations[code]) == 0:
+		case rv.reads[code] || len(rv.operations[code]) == 0:
 			rv.unrecorded = append(rv.unrecorded, code)
-		case acted[contextOf(code)]:
+		case slices.ContainsFunc(rv.contexts[code], func(c string) bool { return acted[c] }):
 			rv.used = append(rv.used, code)
 		default:
 			rv.unused = append(rv.unused, code)
@@ -309,15 +333,6 @@ func (rv *review) sort(codes []string) {
 	if len(rv.unrecorded) > 0 {
 		rv.recordsLine = "Use not recorded: " + strings.Join(rv.unrecorded, ", ")
 	}
-}
-
-// needs are the permissions the contract names for an operation that
-// changes something: its own and those beside it. A permission named
-// another way (by the object decided, x-object-permissions: the approval
-// permissions) is none of them, so it counts as not recorded and is
-// never unused.
-func needs(op api.Operation) []string {
-	return append([]string{op.Permission}, op.AlsoPermissions...)
 }
 
 // prompt gives the model what the run read: the role, the period, the
@@ -332,10 +347,10 @@ func (rv *review) prompt(r role, p Period) string {
 		fmt.Fprintf(&b, "Its holders in the period, %d: %s.\n", len(rv.holders), strings.Join(rv.holders, ", "))
 	}
 	for _, code := range rv.unused {
-		fmt.Fprintf(&b, "- %s: not used: no holder has an audit event in %s (it is needed by %s)\n", code, contextOf(code), strings.Join(rv.operations[code], ", "))
+		fmt.Fprintf(&b, "- %s: not used: no holder has an audit event in %s (it is needed by %s)\n", code, strings.Join(rv.contexts[code], " or "), strings.Join(rv.operations[code], ", "))
 	}
 	for _, code := range rv.used {
-		fmt.Fprintf(&b, "- %s: used: the holders' audit events in %s: %s\n", code, contextOf(code), rv.acted(contextOf(code)))
+		fmt.Fprintf(&b, "- %s: used: the holders' audit events in %s: %s\n", code, strings.Join(rv.contexts[code], " and "), rv.acted(rv.contexts[code]))
 	}
 	for _, code := range rv.unrecorded {
 		fmt.Fprintf(&b, "- %s: use not recorded\n", code)
@@ -349,12 +364,12 @@ func (rv *review) prompt(r role, p Period) string {
 	return strings.TrimSuffix(b.String(), "\n")
 }
 
-// acted are the holders' actions in a context with their counts, in the
-// order of the actions.
-func (rv *review) acted(context string) string {
+// acted are the holders' actions in the contexts with their counts, in
+// the order of the actions.
+func (rv *review) acted(contexts []string) string {
 	var out []string
 	for _, action := range slices.Sorted(maps.Keys(rv.actions)) {
-		if contextOf(action) == context {
+		if slices.Contains(contexts, contextOf(action)) {
 			out = append(out, fmt.Sprintf("%s (%d)", action, rv.actions[action]))
 		}
 	}

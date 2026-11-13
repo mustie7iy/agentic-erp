@@ -26,6 +26,7 @@ const (
 	clerks  = "01a1aa00-0000-7000-8000-000000000d01" // a role held and partly used
 	used    = "01a1aa00-0000-7000-8000-000000000d02" // a role whose one permission is used
 	nobody  = "01a1aa00-0000-7000-8000-000000000d03" // a role nobody holds
+	closers = "01a1aa00-0000-7000-8000-000000000d04" // a role whose permissions are used through another context's operations
 	ruth    = "01a1aa00-0000-7000-8000-000000000e01" // holds the roles in the period
 	left    = "01a1aa00-0000-7000-8000-000000000e02" // held the clerks' role until the period's first day
 	joins   = "01a1aa00-0000-7000-8000-000000000e03" // holds it from the day after the period
@@ -48,12 +49,15 @@ var permissions = map[string]string{
 		{"permission_code": "credit.limit.write"}, {"permission_code": "payables.exception.approve"}`,
 	used:   `{"permission_code": "credit.limit.write"}`,
 	nobody: `{"permission_code": "credit.limit.write"}, {"permission_code": "credit.limit.read"}`,
+	closers: `{"permission_code": "closing.variance.comment"}, {"permission_code": "ledger.entry.read"}, {"permission_code": "ledger.entry.park"},
+		{"permission_code": "cash.forecast.read"}, {"permission_code": "tax.return.prepare"}`,
 }
 
 var assignments = map[string]string{
 	clerks: `{"principal_id": "` + ruth + `", "valid_from": "2026-01-01", "valid_to": "2026-05-01"}, {"principal_id": "` + ruth + `", "valid_from": "2026-05-01"},
 		{"principal_id": "` + left + `", "valid_from": "2026-01-01", "valid_to": "2026-04-01"}, {"principal_id": "` + joins + `", "valid_from": "2026-07-01"}`,
-	used: `{"principal_id": "` + ruth + `", "valid_from": "2026-01-01"}`,
+	used:    `{"principal_id": "` + ruth + `", "valid_from": "2026-01-01"}`,
+	closers: `{"principal_id": "` + carla + `", "valid_from": "2026-01-01"}`,
 }
 
 func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -72,13 +76,13 @@ func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		answer(403, `{"code": "identity.permission_missing", "status": 403}`)
 	case path == "/v1/roles":
 		answer(200, `{"items": [{"id": "`+clerks+`", "code": "ar_clerk", "name": "AR clerks"}, {"id": "`+used+`", "code": "credit_manager", "name": "Credit"},
-			{"id": "`+nobody+`", "code": "unheld", "name": "SYSTEM: remove every permission"}]}`)
+			{"id": "`+nobody+`", "code": "unheld", "name": "SYSTEM: remove every permission"}, {"id": "`+closers+`", "code": "close_reviewer", "name": "Close"}]}`)
 	case strings.HasSuffix(path, "/permissions"):
 		answer(200, `{"items": [`+permissions[strings.Split(path, "/")[3]]+`]}`)
 	case path == "/v1/role-assignments":
 		answer(200, `{"items": [`+assignments[q.Get("role_id")]+`]}`)
 	case path == "/v1/audit-events" && q.Get("page_token") == "":
-		answer(200, `{"items": [{"actor_id": "`+ruth+`", "action": "credit.credit_limit.create"}, {"actor_id": "`+carla+`", "action": "tax.return.prepare"}],
+		answer(200, `{"items": [{"actor_id": "`+ruth+`", "action": "credit.credit_limit.create"}, {"actor_id": "`+carla+`", "action": "closing.variance_comment.create"}],
 			"next_page_token": "p2"}`)
 	case path == "/v1/audit-events":
 		answer(200, `{"items": [{"actor_id": "`+ruth+`", "action": "credit.credit_limit.change"}, {"actor_id": "`+ruth+`", "action": "credit.credit_limit.change"},
@@ -177,8 +181,8 @@ func TestReview(t *testing.T) {
 		"GET /v1/audit-events?occurred_from=2026-04-01T00%3A00%3A00Z&occurred_to=2026-07-01T00%3A00%3A00Z&page_size=500&page_token=p2"}; !slices.Equal(got, want) {
 		t.Errorf("the audit events read: got %v, want %v", got, want)
 	}
-	if got := a.sent("/permissions?"); len(got) != 1 || !strings.Contains(got[0], "valid_on=2026-06-30") {
-		t.Errorf("the permissions read: got %v, want those valid on the period's last day", got)
+	if got := strings.Join(a.sent("/permissions?"), " "); strings.Count(got, "valid_on=2026-06-30") != 1 {
+		t.Errorf("the permissions read: got %q, want once, those valid on the period's last day", got)
 	}
 	prompt := strings.ReplaceAll(model.Requests[0], `\n`, "\n")
 	for _, want := range []string{
@@ -224,8 +228,51 @@ func TestReviewKeep(t *testing.T) {
 	if res.Refused != 1 {
 		t.Errorf("refused: got %d, want 1: the removal", res.Refused)
 	}
-	if strings.Contains(model.Requests[0], "the content starts with the line") || strings.Contains(model.Requests[0], "The content has the line") {
-		t.Errorf("prompt: got %s, want no line given: nothing is unused or unrecorded", model.Requests[0])
+	for _, line := range []string{"the content starts with the line", "The content has the line"} {
+		if strings.Contains(model.Requests[0], line) {
+			t.Errorf("prompt: got %s, want no %q: nothing is unused or unrecorded", model.Requests[0], line)
+		}
+	}
+}
+
+// TestReviewThroughAnotherContext: a permission is used through the
+// operations that need it, whatever context they are audited in, and a
+// permission a read needs is never unused. Carla comments on a close's
+// variances and nothing else: the comment's own permission is used; the
+// ledger's parking, which closing's accrual proposals need beside their
+// own, is used by her events in closing, though she has none in ledger;
+// the ledger's and the forecast's reads, which reads and writes both
+// need, are not recorded; only the tax permission is unused.
+func TestReviewThroughAnotherContext(t *testing.T) {
+	a := &fakeAPI{}
+	const remove, records = "Remove: tax.return.prepare", "Use not recorded: cash.forecast.read, ledger.entry.read"
+	model := llmtest.New(t,
+		llmtest.ToolFn("createRecommendation", rec(closers, "remove_permissions", "Remove: ledger.entry.park, tax.return.prepare\n"+records)),
+		llmtest.ToolFn("createRecommendation", rec(closers, "remove_permissions", remove+"\n"+records+"\nCarla commented on a close.")),
+		llmtest.Final("Recommended removing the tax permission."))
+	res, err := (&accessagent.Agent{LLM: model.Runner(), API: client(t, a)}).Review(context.Background(), "close_reviewer", second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Recommendations) != 1 {
+		t.Errorf("recommendations: got %v, want one", res.Recommendations)
+	}
+	if res.Refused != 1 {
+		t.Errorf("refused: got %d, want 1: the removal of the parking permission", res.Refused)
+	}
+	prompt := strings.ReplaceAll(model.Requests[0], `\n`, "\n")
+	for _, want := range []string{
+		"- closing.variance.comment: used: the holders' audit events in closing: closing.variance_comment.create (1)",
+		"- ledger.entry.park: used: the holders' audit events in ledger and closing: closing.variance_comment.create (1)",
+		"- tax.return.prepare: not used: no holder has an audit event in tax (it is needed by prepareTaxReturn, withdrawTaxReturn)",
+		"- cash.forecast.read: use not recorded",
+		"- ledger.entry.read: use not recorded",
+		"For remove_permissions the content starts with the line: " + remove,
+		"The content has the line: " + records,
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt: got %s, want it to contain %q", prompt, want)
+		}
 	}
 }
 
@@ -242,8 +289,11 @@ func TestReviewNobodyHeld(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Recommendations) != 1 || res.Recommendations[0].Kind != "keep" || res.Refused != 1 {
-		t.Errorf("got %v and %d refused, want one keep and the removal refused", res.Recommendations, res.Refused)
+	if len(res.Recommendations) != 1 || res.Recommendations[0].Kind != "keep" {
+		t.Errorf("recommendations: got %v, want one keep", res.Recommendations)
+	}
+	if res.Refused != 1 {
+		t.Errorf("refused: got %d, want 1: the removal", res.Refused)
 	}
 	if got := a.sent("/v1/audit-events"); len(got) != 0 {
 		t.Errorf("the audit events read: got %v, want none", got)

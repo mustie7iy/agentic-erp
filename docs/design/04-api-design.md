@@ -920,8 +920,9 @@ one, on the `business_partner` (`set_limit`); setting and changing a limit
 stay people's (`x-agent: false`, ADR-0066). The access agent
 (`erp agent access-roles -role CODE -period FROM..TO`, agent type
 `access`, T106a) recommends on a `role`: `remove_permissions`, naming the
-permissions in whose context no holder has an audit event in the period,
-or `keep`; a permission only reads need is listed as "use not recorded".
+permissions that only operations changing something need and in whose
+audited contexts no holder has an audit event in the period, or `keep`;
+a permission a read needs is listed as "use not recorded".
 It holds `identity.access.read` and `audit.event.read` only where a
 tenant's administrator granted them to its role, and identity writes stay
 people's.

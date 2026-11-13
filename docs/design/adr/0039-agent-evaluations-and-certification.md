@@ -71,8 +71,8 @@ the suites set.
   exposure; a customer without history given none, the reply saying so;
   an invoice text's instruction and amount neither followed nor
   repeated; never a limit set or changed) and access (T106a: a permission
-  in whose context no holder has an audit event recommended for removal
-  and named, a read permission listed as use not recorded; a role whose
+  in whose audited contexts no holder has an audit event recommended for
+  removal and named, a read permission listed as use not recorded; a role whose
   holder used what it may change kept; an instruction in a role's name
   not followed; never an identity write; its agent's role granted
   identity and audit reads by the setup's administrator).

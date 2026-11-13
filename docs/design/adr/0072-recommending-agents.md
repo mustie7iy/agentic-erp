@@ -288,22 +288,34 @@ A later slice adds its row here and its section under "As built".
   contract maps an action to an operation. So the first version tells use
   apart by context, the first segment of a permission's code and of an
   action:
-  - a permission **only reads need** (no operation of the contract that
-    changes something names it in `x-permission` or `x-also-permissions`)
-    leaves no audit event: its **use is not recorded**, and it is never
-    listed as unused. The approval permissions, which the contract names
-    by the object decided (`x-object-permissions`), fall here too;
-  - a permission needed by an operation that changes something is
-    **used** when a holder has an audit event in the permission's context
-    in the period, whatever the action and its outcome, and whichever of
-    the holder's roles allowed it: the permissions of one context are not
-    told apart;
-  - it is **unused** when no holder has an audit event in its context in
-    the period.
+  - a permission **a read needs** (a `GET`, or an operation marked
+    `x-autonomy: read`, names it in `x-permission` or
+    `x-also-permissions`) leaves no audit event when it is used that
+    way: its **use is not recorded**, and it is never listed as unused,
+    also when operations that change something need it too
+    (`ledger.entry.read`, `cash.forecast.read`). A permission no
+    operation of the contract names in those two places falls here as
+    well: the approval permissions, which the contract names by the
+    object decided (`x-object-permissions`);
+  - a permission that only operations changing something need is
+    **used** when a holder has an audit event, in the period, in a
+    context such an operation is audited in, whatever the action and its
+    outcome, and whichever of the holder's roles allowed it: the
+    permissions of one context are not told apart. Those contexts are
+    the permission's own and that of the `x-permission` of every
+    operation that needs it beside its own: an accrual proposal needs
+    `ledger.entry.park` and is audited as `closing`'s, so a holder's
+    events in closing count as use of the ledger's parking;
+  - it is **unused** when no holder has an audit event in any of those
+    contexts in the period.
   This errs towards keeping: a permission is recommended for removal
-  only when no holder acted in its whole context. It rests on an action
-  carrying the context of the permission its operation needs, which the
-  contexts' audit records do today.
+  only when no holder acted in any context its operations are audited
+  in. It rests on an operation's audit record carrying the context of
+  its `x-permission`, which holds for every operation of the contract
+  today (the configuration, tax filing, approvals and operations
+  packages write `config.*`, `tax.*`, `workflow.*` and `platform.*`, as
+  their permissions are named); nothing enforces it for a new
+  operation.
 - Its check (`accessagent.review.check`) holds the recommendation to
   that, computed by the run, not judged by the model:
   `remove_permissions` is admitted only when somebody held the role and
@@ -358,9 +370,10 @@ A later slice adds its row here and its section under "As built".
    of the company's time zone.
 9. (T106a) "Used" is told apart by context, since the audit trail names
    actions and not the operation or permission behind them: a permission
-   is unused only when no holder has an audit event in its whole context
-   in the period, and a permission only reads need (or one the contract
-   names by the object decided) is "use not recorded". Telling the
+   is unused only when no holder has an audit event, in the period, in
+   any context the operations that need it are audited in, and a
+   permission a read needs (or one the contract names by the object
+   decided) is "use not recorded", whatever else needs it. Telling the
    permissions of one context apart needs the audit record to name its
    operation, a change to ADR-0011 that no slice of this plan makes.
 10. (T106a) The run reads the usage itself before its session, up to
@@ -368,4 +381,6 @@ A later slice adds its row here and its section under "As built".
     computed, not judged by the model; a role nobody held in the period
     is kept; a holder is whoever held the role at any time in the period,
     and all the holder's events in the period count, whichever role
-    allowed them; the period's days are UTC days.
+    allowed them; the period's days are UTC days; the permissions
+    reviewed are those valid on the period's last day, judged over the
+    whole period even when granted during it.

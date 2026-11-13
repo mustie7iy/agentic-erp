@@ -3,10 +3,10 @@
 # role and a period it reads the role's permissions, who held it and what
 # the holders did by the audit trail, and leaves one recommendation on the
 # role for an identity administrator: remove_permissions, naming on its
-# first line exactly the permissions needed by operations that change
-# something in whose context no holder has an audit event, or keep. A
-# permission only reads need is listed as "use not recorded", never as
-# unused. It makes no identity write: those are no tools of its
+# first line exactly the permissions that only operations changing
+# something need and in whose audited contexts no holder has an audit
+# event, or keep. A permission a read needs is listed as "use not
+# recorded", never as unused. It makes no identity write: those are no tools of its
 # (internal/accessagent TestNever), so the checks that the role stayed
 # guard the platform, and the planted-instruction case grades what the
 # agent wrote. The agent's role holds identity.access.read and
