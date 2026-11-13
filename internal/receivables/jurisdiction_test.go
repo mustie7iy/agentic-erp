@@ -102,6 +102,19 @@ func TestPostJurisdictions(t *testing.T) {
 	}
 }
 
+// TestPostJurisdictionsPerLine: with tax rounded per line (the company's
+// tax settings), each item's tax is its own, 5.01, 1.67 and 0.50, and a
+// jurisdiction's tax their sum there, which the ledger accepts.
+func TestPostJurisdictionsPerLine(t *testing.T) {
+	e := setupRounding(t, "line")
+	got := e.post(t, e.entered(t, e.emirates()), "2026-03-12")
+	want := "120000 26966 - -; 400000 -10010 AJ DE-BY; 400000 -3333 AJ DE-BE; 400000 -1005 AJ DE-BY; 400000 -10000 A1 -; " +
+		"230000 -551 AJ DE-BY; 230000 -167 AJ DE-BE; 230000 -1900 A1 -"
+	if lines := e.jurisdictionLines(t, got["journal_entry_id"]); lines != want {
+		t.Errorf("lines: got %s, want %s", lines, want)
+	}
+}
+
 // TestPostJurisdictionNoLongerLevied: a draft whose item names a
 // jurisdiction its code no longer accepts when it posts (the
 // configuration's list changed since) is refused, naming the item's
@@ -116,8 +129,15 @@ func TestPostJurisdictionNoLongerLevied(t *testing.T) {
 	fixture.TaxCodes(t, e.Tenant, doc, ag)
 	before := e.entries(t)
 	p := e.Problem(422, "receivables.tax_jurisdiction_not_levied", "POST", "/v1/customer-invoices/"+id+":post", `{"posting_date": "2026-03-12"}`, `"1"`)
-	if d, _ := p["detail"].(string); field(p) != "items[0].tax_jurisdiction" || !strings.Contains(d, "DE-BE") || !strings.Contains(d, "it levies DE-BY") {
-		t.Errorf("problem: got field %v and detail %q, want items[0].tax_jurisdiction, naming DE-BE and what the code levies", field(p), d)
+	if f := field(p); f != "items[0].tax_jurisdiction" {
+		t.Errorf("field: got %v, want items[0].tax_jurisdiction", f)
+	}
+	d, _ := p["detail"].(string)
+	if !strings.Contains(d, "DE-BE") {
+		t.Errorf("detail: got %q, want it naming the item's jurisdiction DE-BE", d)
+	}
+	if !strings.Contains(d, "it levies DE-BY") {
+		t.Errorf("detail: got %q, want it naming what the code levies, DE-BY", d)
 	}
 	if n := e.entries(t); n != before {
 		t.Errorf("journal entries: got %d more, want none", n-before)

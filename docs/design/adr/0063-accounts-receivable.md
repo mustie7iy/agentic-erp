@@ -750,12 +750,13 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   carry totals, not items (§9), so neither names the jurisdiction. (4)
   The down migration drops the column: a posted invoice keeps its
   jurisdictions on its journal lines; a draft naming one is refused by
-  the previous version's posting (422 `ledger.jurisdiction_required`).
+  the previous version's posting, which refuses its tax code as it did
+  at entry (422 `receivables.tax_jurisdiction_not_supported`).
 - Rolling upgrade (06 §6.4): 000296 is additive. An instance of the
-  previous release still refuses such a code at entry, shows no
-  `tax_jurisdiction`, and posts a draft naming one without it, which the
-  ledger refuses (422 `ledger.jurisdiction_required`): nothing posts in
-  the wrong emirate.
+  previous release still refuses such a code at entry and at posting
+  (422 `receivables.tax_jurisdiction_not_supported`) and shows no
+  `tax_jurisdiction`: a draft naming one waits for the upgrade, and
+  nothing posts in the wrong emirate.
 - Tests: `TestItemJurisdiction`, `TestPostJurisdictions`,
   `TestPostJurisdictionNoLongerLevied`, `TestRefusals` (receivables);
   `TestCustomerInvoiceItemJurisdiction` (db). The walkthrough's customer

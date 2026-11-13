@@ -56,8 +56,10 @@ type PostingLine struct {
 	// TaxJurisdiction is the subdivision the line's tax is levied in
 	// (Line.TaxJurisdiction, ADR-0049 §7): on every line, base and tax,
 	// of a code whose component levies its lines' subdivision, and on no
-	// other (TaxCode.CheckJurisdiction). An entry with GR/IR items takes
-	// none: purchases' input codes levy no line's subdivision.
+	// other (TaxCode.CheckJurisdiction). An entry with GR/IR items keeps
+	// it on the line too, where the database holds it to the line's code
+	// (journal_line_tax_jurisdiction_code): purchases' input codes levy
+	// no line's subdivision, so none is expected there.
 	TaxJurisdiction *string
 	Quantity, Unit  *string
 	Text            *string
