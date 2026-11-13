@@ -922,7 +922,10 @@ stay people's (`x-agent: false`, ADR-0066). The access agent
 `access`, T106a) recommends on a `role`: `remove_permissions`, naming the
 permissions that only operations changing something need and in whose
 audited contexts no holder has an audit event in the period, or `keep`;
-a permission a read needs is listed as "use not recorded".
+a permission a read needs is listed as "use not recorded"; and
+(`erp agent access-sod -role CODE [-add P,...]`, T106b) `sod_conflict`,
+naming each segregation-of-duties rule the role's holders would break, as
+identity's check at a grant computes it, or `no_conflict`.
 It holds `identity.access.read` and `audit.event.read` only where a
 tenant's administrator granted them to its role, and identity writes stay
 people's.

@@ -101,6 +101,41 @@ func TestAgentAccessRoles(t *testing.T) {
 	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "access-roles", "-role", "clerk", "-period", period)
 }
 
+// TestAgentAccessSod: erp agent access-sod needs -role, reads the
+// roles, the assignments, the rules, the principals and the holders'
+// grants, runs the access agent's analysis with the permissions -add
+// names and prints what it recommended and the model's reply, also when
+// the run failed after starting its session (ADR-0072, T106b).
+func TestAgentAccessSod(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	fails(t, "flag provided", "agent", "access-sod", "-x")
+	fails(t, "want -role CODE [-add PERMISSION,...]", "agent", "access-sod", "-add", "payables.invoice.post")
+	fails(t, "404", "agent", "access-sod", "-role", "clerk")
+	analysed := sessionRoutes(routes{"GET /v1/roles": {ok(`{"items": [{"id": "r1", "code": "clerk", "name": "Clerks", "status": "active"}]}`)},
+		"GET /v1/role-assignments":     {ok(`{"items": [{"principal_id": "p1", "role_id": "r1", "valid_from": "2026-01-01"}]}`)},
+		"GET /v1/sod-rules":            {ok(`{"items": []}`)},
+		"GET /v1/principals":           {ok(`{"items": [{"id": "p1", "kind": "human", "display_name": "Ruth"}]}`)},
+		"GET /v1/roles/r1/permissions": {ok(`{"items": [{"permission_code": "payables.invoice.capture", "valid_from": "2026-01-01"}]}`)},
+		"POST /v1/recommendations":     {reply{201, `{"id": "rec1", "object_type": "role", "object_id": "r1", "kind": "no_conflict"}`}}})
+	fakeAPI(t, analysed)
+	model(t, llmtest.Tool("createRecommendation", map[string]any{"body": map[string]any{"session_id": agentSession, "object_type": "role",
+		"object_id": "r1", "kind": "no_conflict", "content": "The tenant has no rule to break."}}),
+		llmtest.Final("No conflict; an identity administrator decides."))
+	got := must(t, "agent", "access-sod", "-role", "clerk", "-add", "payables.invoice.post")
+	if want := "Session " + agentSession + ": recommendations made 1, refused 0.\n  recommendation rec1: no_conflict on role r1\n" +
+		"No conflict; an identity administrator decides.\n"; got != want {
+		t.Errorf("agent access-sod: got %q, want %q", got, want)
+	}
+	model(t, llmtest.Final("Nothing."))
+	printFails(t, "agent", "access-sod", "-role", "clerk")
+	model(t)
+	fails(t, "Session "+agentSession+": recommendations made 0, refused 0.", "agent", "access-sod", "-role", "clerk")
+	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
+	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "access-sod", "-role", "clerk")
+}
+
 // TestRecommendingAdapterFailures: a recommending agent's evaluation
 // adapter fails its case on a task without its values and on an agent
 // that could not run.
@@ -110,7 +145,10 @@ func TestRecommendingAdapterFailures(t *testing.T) {
 		"credit_scoring without a customer": creditScoringEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{"company": "3000"}}),
 		"credit_scoring without its API": creditScoringEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{},
 			Task: map[string]any{"company": "3000", "customer": "c1"}}),
-		"access without a period": accessEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{"role": "clerk", "from": "2026-04-01"}}),
+		"access without a period":   accessEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{"role": "clerk", "from": "2026-04-01"}}),
+		"access sod without a role": accessEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{"run": "sod"}}),
+		"access sod without its API": accessEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{},
+			Task: map[string]any{"run": "sod", "role": "clerk", "add": "payables.invoice.post"}}),
 		"access without its API": accessEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{},
 			Task: map[string]any{"role": "clerk", "from": "2026-04-01", "to": "2026-06-30"}}),
 	} {

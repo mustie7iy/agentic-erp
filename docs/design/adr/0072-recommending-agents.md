@@ -196,7 +196,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | Type | Package, command | Reads | Recommends | Never |
 |---|---|---|---|---|
 | `credit_scoring` | `internal/creditagent`, `erp agent credit-score -company CODE -customer ID` | `getCreditExposure`, `listCreditLimits`, `getReceivablesAging`, `listDunningRuns`, `listDunningNotices`, `listIncomingPayments`, `listCustomerInvoices`, `getBusinessPartner` | on `credit_limit`: `raise_limit`, `lower_limit`, `keep_limit`; on `business_partner` (a customer without a limit): `set_limit` | `createCreditLimit`, `updateCreditLimit`, the release of an order's credit block |
-| `access` | `internal/accessagent`, `erp agent access-roles -role CODE -period FROM..TO` | `listRoles`, `getRole`, `listRolePermissions`, `listRoleAssignments`, `listPrincipals`, `listAuditEvents` | on `role`: `remove_permissions`, `keep` | every identity write |
+| `access` | `internal/accessagent`, `erp agent access-roles -role CODE -period FROM..TO`, `erp agent access-sod -role CODE [-add P,...]` | `listRoles`, `getRole`, `listRolePermissions`, `listRoleAssignments`, `listPrincipals`, `listAuditEvents`, `listSodRules` | on `role`: `remove_permissions`, `keep` (T106a); `sod_conflict`, `no_conflict` (T106b) | every identity write (granting a permission, changing a rule among them) |
 
 A later slice adds its row here and its section under "As built".
 
@@ -347,6 +347,75 @@ A later slice adds its row here and its section under "As built".
   accepts, which changes nothing, and ends the grant herself.
 - No migration, no new operation, permission, event or problem code.
 
+### T106b, the access agent: SoD analysis of a role
+
+- A second entry function of the `access` agent, `Agent.Analyse`, as the
+  plan says ("a second entry function of the `access` agent"): same type,
+  same suite, same principal; `listSodRules` joins its reads, and its
+  `Never` list already held `grantRolePermission`, `createSodRule` and
+  `endSodRule`.
+- `erp agent access-sod -role CODE|ID [-add PERMISSION,...]`: without
+  `-add` the role as it stands, else with the permissions granted to it
+  from today. Before its session the run reads every role (with its
+  status), every role assignment past and to come, the rules
+  (`listSodRules`, every one, ended and to come included), the principals,
+  and the grants, past and to come, of every role a holder of the role is
+  assigned. Any of them the agent may not read stops the run before a
+  session.
+- **The conflicts are computed, not judged** (`standing.go`), as
+  identity's check at a grant computes them (`internal/identity`
+  `sodConflict`, which `grantRolePermission` and `createRoleAssignment`
+  run): a principal assigned the role at any time breaks a rule when, on
+  some day from today on that the rule is in force, it holds both of the
+  rule's permissions, each through an assignment of an **active** role
+  and a grant of that role, the assignment's and the grant's validity
+  both covering that day. So a permission reaches a holder through this
+  role or any other of theirs, an assignment or grant that starts later
+  counts from its first day, one ended (today included, `valid_to`
+  exclusive) does not, an inactive role gives nothing, and periods that do
+  not meet, or meet outside the rule's validity, make no conflict. The
+  permissions every principal holds whatever its roles cannot be named in
+  a rule (`identity.invalid_sod_rule`), and nothing else grants a
+  permission. A conflict that stands already (made before the rule, or
+  behind the API) is named too, and the prompt says it stands whatever is
+  added: identity's check refuses any grant to the role while it stands.
+  `TestAnalyseAgreesWithTheGrant` builds each of these cases on the real
+  API, analyses, then grants the permission and compares: refused where
+  the analysis named a conflict (the refusal's principal and rule on a
+  line of it), granted where it named none.
+- Its check (`analysis.check`): `sod_conflict` only when the run computed
+  a conflict, its content carrying, each on a line of its own, `Rule
+  <permission_a> / <permission_b>: <principal name> (<id>), ...` for every
+  rule broken (rules in the order of their pairs, principals of their
+  ids); `no_conflict` only otherwise; every number of the content one the
+  run read (§4). The model words through which roles each holder would
+  hold the two permissions and how to avoid it (a permission left out, or
+  a split of the role).
+- The run's "today" is UTC's, as T105a's (default 8); identity's check
+  takes the database's date. They differ only around midnight where the
+  database's zone is not UTC.
+- `evals/access`, version 2: three cases added (task `run: sod`), each
+  ending the tenant administrator's assignment on 2099-01-01 and making
+  the rule capture/post from that day, since an administrator holding
+  every permission blocks any rule: adding the posting permission to the
+  role whose holder captures is a conflict naming the rule and the holder;
+  adding capture to a reader's role is none; an instruction in the rule's
+  description not followed. Not run against a live model.
+- Walkthrough `step_access_sod` (step 68). The plan's story (the payment
+  release added to the role that proposes payment runs, "the tenant's SoD
+  rule" named) needs a rule the walkthrough's tenant does not have and
+  cannot make: its treasurers propose (`finance_staff`) and release
+  (`Z_TREASURY_MGR`), and the administrator holds every permission, so
+  identity refuses a propose/release rule (409, shown). Decided by default:
+  Ada ends her own role's release from tomorrow and makes the rule *who
+  administers access does not release payments*
+  (`identity.access.manage` / `payments.run.release`) from tomorrow; the
+  agent, asked about adding the release back to `tenant_admin`, names the
+  rule and Ada; its own grant is refused (403); Ada's grant is refused by
+  identity's check (409 `identity.sod_conflict`) naming the same principal
+  and rule; she accepts the recommendation.
+- No migration, no new operation, permission, event or problem code.
+
 ## Defaults taken (for the product owner's digest)
 
 1. The shared run is a package, `internal/recommend`, not a copy per
@@ -390,3 +459,14 @@ A later slice adds its row here and its section under "As built".
     allowed them; the period's days are UTC days; the permissions
     reviewed are those valid on the period's last day, judged over the
     whole period even when granted during it.
+11. (T106b) The SoD analysis is the access agent's second entry function
+    (the plan's words); its conflicts are computed by the run as
+    identity's check at a grant computes them (from today on, active
+    roles, every holder of the role whenever assigned, conflicts already
+    standing included) and the model only words them; its day is UTC's.
+12. (T106b) The walkthrough shows the rule *who administers access does
+    not release payments* rather than the plan's propose/release rule,
+    which its tenant cannot make while its treasurers hold both; making
+    any rule in a provisioned tenant first needs an administrator's grant
+    of one of its permissions ended, since `tenant_admin` holds every
+    permission (a gap for the product owner, reported, not built).

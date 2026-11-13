@@ -10339,13 +10339,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T67 · also the phase 1 GRC item \"Access agent: least-privilege roles from usage\" (triage, PO 2026-10-21)"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "SoD analysis on every role change",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The access agent analyses a role as it stands or with permissions to be added: which segregation-of-duties rules its holders would break and how to avoid it, as a recommendation on the role (erp agent access-sod)",
-        "r": "T106b · docs/design/plan-breadth-week3.md §T106b",
+        "r": "T106b · docs/design/plan-breadth-week3.md §T106b · internal/accessagent Analyse · agent type access · erp agent access-sod · evals/access version 2 · walkthrough step_access_sod · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

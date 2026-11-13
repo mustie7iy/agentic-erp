@@ -104,15 +104,55 @@ func agentAccessRoles(ctx context.Context, args []string) error {
 	return recommended("agent access-roles", res, runErr)
 }
 
-// accessEval has the access agent review the task's role over its period
-// as erp agent access-roles does; what it recommended is the checks' to
-// judge, and its reply theirs too.
-func accessEval(ctx context.Context, env eval.Env) error {
-	t, err := tasked(env, "role", "from", "to")
+// agentAccessSod has the access agent analyse a role against the
+// tenant's segregation-of-duties rules, as it stands or with the
+// permissions -add names (ADR-0072, T106b): an identity administrator
+// reads its recommendation and decides it, and grants the permissions,
+// splits the role, or not.
+func agentAccessSod(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("agent access-sod", flag.ContinueOnError)
+	role := fs.String("role", "", "role code or id")
+	add := fs.String("add", "", "permissions to be added, comma-separated (none: the role as it stands)")
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	if *role == "" {
+		return errors.New("agent access-sod: want -role CODE [-add PERMISSION,...]")
+	}
+	c, err := client("ERP_AGENT_TOKEN")
 	if err != nil {
 		return err
 	}
-	res, err := (&accessagent.Agent{LLM: env.LLM, API: env.Agent}).Review(ctx, t["role"], accessagent.Period{From: t["from"], To: t["to"]})
+	res, runErr := (&accessagent.Agent{LLM: newRunner(c), API: c}).Analyse(ctx, *role, strings.Split(*add, ","))
+	return recommended("agent access-sod", res, runErr)
+}
+
+// accessEval has the access agent run on the task as its command does:
+// with the task's run sod, the role's segregation-of-duties analysis
+// (erp agent access-sod, the task's add a comma-separated list), and
+// otherwise the review of its role over its period (erp agent
+// access-roles); what it recommended is the checks' to judge, and its
+// reply theirs too.
+func accessEval(ctx context.Context, env eval.Env) error {
+	a := &accessagent.Agent{LLM: env.LLM, API: env.Agent}
+	var (
+		res recommend.Result
+		err error
+	)
+	if run, _ := env.Task["run"].(string); run == "sod" { // a task without a run is the review of a role's use
+		t, terr := tasked(env, "role")
+		if terr != nil {
+			return terr
+		}
+		add, _ := env.Task["add"].(string) // no add: the role as it stands
+		res, err = a.Analyse(ctx, t["role"], strings.Split(add, ","))
+	} else {
+		t, terr := tasked(env, "role", "from", "to")
+		if terr != nil {
+			return terr
+		}
+		res, err = a.Review(ctx, t["role"], accessagent.Period{From: t["from"], To: t["to"]})
+	}
 	if err != nil {
 		return fmt.Errorf("access: %w", err)
 	}

@@ -7351,6 +7351,88 @@ step_access_agent() {
   expect "the grant ended" "$(field '.valid_to != null')" true
   passed
 }
+# step_access_sod is T106b (ADR-0072): the access agent, erp agent
+# access-sod through the model stand-in answering from a script of turns
+# (its suite's replay, evals/access), analyses a role against the
+# tenant's segregation-of-duties rules with a permission to be added.
+# The tenant has no rule yet, and the rule the plan names, who proposes a
+# payment run does not release it, cannot be made: Tom, Tara and Fiona
+# propose (finance_staff) and release (Z_TREASURY_MGR), and Ada's
+# tenant_admin holds every permission, so identity refuses it (409). Ada
+# keeps the treasury roles as they are and makes the rule that fits the
+# team: who administers access does not release payments. First she ends
+# her own role's release of payment runs from tomorrow, since an
+# administrator releases none, then makes the rule from tomorrow. Asked
+# about adding the release back to tenant_admin, the agent names the rule
+# and Ada, the role's holder, as the run computed it the way identity's
+# check at a grant does; the agent cannot grant it, and Ada's own grant
+# is refused by that check, naming the same rule and holder.
+step_access_sod() {
+  heading "Step 68 — The access agent: a role analysed against the tenant's segregation-of-duties rules with the payment release to be added; the conflict computed as identity's check at a grant computes it, the rule and the holder named; the grant refused as the agent said"
+  local admin_role ada tomorrow grant line got session rec
+  as ada
+  ada=$(awk -F'\t' '$2 == "Ada Admin" { print $1 }' "$WORK/names")
+  tomorrow=$(date_add "$(utc_day)" 1)
+  say "The tenant has no segregation-of-duties rule of its own yet (product owner, 2026-11-12: no rule is added for"
+  say "the pilot; the agent analyses the rules a tenant has). The rule that whoever proposes a payment run does not"
+  say "release it cannot be made while somebody would break it: the treasurers propose and release, and so may Ada."
+  api 200 '"  rules in force: \(.items | length)"' listSodRules
+  expect "the tenant's rules" "$(field '.items | length')" 0
+  refused 409 identity.sod_conflict createSodRule -body "{\"permission_a\": \"payments.run.propose\", \"permission_b\": \"payments.run.release\", \"description\": \"Who proposes a payment run does not release it\", \"valid_from\": \"$tomorrow\"}"
+  say "Ada makes the rule that fits the team instead: who administers access does not release payments. An"
+  say "administrator releases no payment run, so she first ends her own role's release from tomorrow:"
+  QUIET=1 api 200 '' listRoles -p page_size=100
+  admin_role=$(field '.items[] | select(.code == "tenant_admin") | .id')
+  QUIET=1 api 200 '' listRolePermissions -p "id=$admin_role" -p "valid_on=$(utc_day)" -p page_size=500
+  expect "the administrator role's grants on one page" "$(field '.next_page_token // "none"')" none
+  grant=$(field '.items[] | select(.permission_code == "payments.run.release") | .id')
+  QUIET=1 api 200 '' getRolePermission -p "id=$admin_role" -p "permission_id=$grant"
+  api 200 '"  \(.permission_code) on tenant_admin: valid to \(.valid_to)"' endRolePermission -p "id=$admin_role" -p "permission_id=$grant" -if-match "$ETAG" -body "{\"valid_to\": \"$tomorrow\"}"
+  api 201 '"  rule \(.permission_a) / \(.permission_b) from \(.valid_from): \(.description)"' createSodRule \
+    -body "{\"permission_a\": \"payments.run.release\", \"permission_b\": \"identity.access.manage\", \"description\": \"Who administers access does not release payments\", \"valid_from\": \"$tomorrow\"}"
+  line="Rule identity.access.manage / payments.run.release: Ada Admin ($ada)"
+  say "Asked whether the administrators may release payment runs again, the access agent (its role reads identity"
+  say "data since step 67) runs: erp agent access-sod reads the roles, the assignments, the rules, the principals and"
+  say "the grants of the role's holders itself, computes who would hold both permissions of a rule on a day it is in"
+  say "force, and starts a session. The model is the stand-in, answering from a script of turns as the agent's suite"
+  say "replays them (evals/access): it reads the rules and recommends sod_conflict, naming the rule and Ada."
+  jq -n --arg role "$admin_role" --arg line "$line" '
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "listSodRules", input: {}},
+      {tool: "createRecommendation", input: {body: {session_id: "{{session}}", object_type: "role", object_id: $role, kind: "sod_conflict",
+        content: "\($line)\nAda Admin administers access through tenant_admin and would release payment runs through it too. Keep payments.run.release out of tenant_admin: the treasury roles release, and nobody who administers access is given one of them."}}},
+      {final: "Adding payments.run.release to tenant_admin would break the rule; an identity administrator decides."}]}' >"$WORK/model-script.json"
+  show ERP_AGENT_TOKEN=… erp agent access-sod -role tenant_admin -add payments.run.release
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/access-agent") "$ERP" agent access-sod -role tenant_admin -add payments.run.release 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent access-sod failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 0."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): sod_conflict on role $admin_role\$/\1/p")
+  [ -n "$rec" ] || fail "erp agent access-sod printed no sod_conflict on the role $admin_role"
+  say "Ada reads the recommendation on the role:"
+  api 200 '(.items[] | select(.kind == "sod_conflict") | "  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)"))' listRecommendations -p "object_id=$admin_role" -p "session_id=$session"
+  expect "the recommendation of the session, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "naming the rule and its holder, first" "$(field '.items[0].content | split("\n")[0]')" "$line"
+  as access-agent
+  say "Recommending is all it may do: granting is a person's (x-agent: false), and the API refuses its own call:"
+  refused 403 identity.agent_not_allowed grantRolePermission -p "id=$admin_role" -body "{\"permission_code\": \"payments.run.release\", \"valid_from\": \"$tomorrow\"}"
+  api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "listSodRules createRecommendation"
+  as ada
+  say "Ada tries the grant herself, from tomorrow: identity's own check refuses it, naming the rule and the holder the"
+  say "agent named:"
+  refused 409 identity.sod_conflict grantRolePermission -p "id=$admin_role" -body "{\"permission_code\": \"payments.run.release\", \"valid_from\": \"$tomorrow\"}"
+  expect "the refusal names Ada and the rule's two permissions" "$(field '.detail')" \
+    "Segregation of duties: principal $ada would hold both identity.access.manage and payments.run.release."
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "The administrators release no payment run."}'
+  expect "the recommendation's outcome" "$(field .outcome)" accepted
+  passed
+}
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -9375,7 +9457,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_credit_agent step_access_agent step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_credit_agent step_access_agent step_access_sod step_close'
 
 main() {
   stop_unseen

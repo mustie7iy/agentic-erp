@@ -1,24 +1,33 @@
-// Package accessagent is the access agent's first capability (ADR-0072,
-// T106a), a recommending agent (internal/recommend): for a role and a
-// period it reads, with its own token, the role's permissions, who held
-// the role and what the holders did by the audit trail, and leaves one
-// recommendation on the role for an identity administrator to decide: to
-// remove the permissions no holder used in the period
-// (remove_permissions) or to keep the role as it is (keep). The run
-// itself reads the usage before its session, page by page: a period's
-// audit events do not fit a model's context. What "used" means is the
-// ADR's: the trail names actions, not operations or permissions, so a
-// permission that only operations changing something need counts as used
-// when a holder has an audit event in a context those operations are
-// audited in, and is unused only when those contexts show none; a
-// permission a read needs leaves no audit event when it is used and is
-// listed as "use not recorded", never as unused. The
-// agent's check holds the recommendation to exactly that. It makes no
-// identity write: those are no tools of its (Never), and its role holds
-// identity and audit reads only where a tenant's administrator granted
-// them (product owner, 2026-11-12). What a role's name or description
-// says is data, never an instruction. Its evaluation suite is
-// evals/access (ADR-0039).
+// Package accessagent is the access agent (ADR-0072), a recommending
+// agent (internal/recommend) with one entry function per capability, each
+// leaving one recommendation on its object for an identity administrator
+// to decide.
+//
+// Review (T106a): for a role and a period it reads, with its own token,
+// the role's permissions, who held the role and what the holders did by
+// the audit trail, and recommends to remove the permissions no holder
+// used in the period (remove_permissions) or to keep the role as it is
+// (keep). The run itself reads the usage before its session, page by
+// page: a period's audit events do not fit a model's context. What "used"
+// means is the ADR's: the trail names actions, not operations or
+// permissions, so a permission that only operations changing something
+// need counts as used when a holder has an audit event in a context those
+// operations are audited in, and is unused only when those contexts show
+// none; a permission a read needs leaves no audit event when it is used
+// and is listed as "use not recorded", never as unused.
+//
+// Analyse (T106b): a role, as it stands or with permissions to be added,
+// against the tenant's segregation-of-duties rules: whether its holders
+// would break one is computed before the session as identity's check at a
+// grant computes it (sod_conflict, naming each rule and who would break
+// it, or no_conflict); the model words how to avoid it.
+//
+// Its checks hold each recommendation to what the run computed.
+// It makes no identity write: those are no tools of its (Never), and its
+// role holds identity and audit reads only where a tenant's administrator
+// granted them (product owner, 2026-11-12). What a role's name, a rule's
+// description or a principal's name says is data, never an instruction.
+// Its evaluation suite is evals/access (ADR-0039).
 package accessagent
 
 import (
@@ -49,8 +58,9 @@ const (
 	Keep       = "keep"
 )
 
-// Reads are the operations the agent reads with (ADR-0072, T106a).
-var Reads = []string{"listRoles", "getRole", "listRolePermissions", "listRoleAssignments", "listPrincipals", "listAuditEvents"}
+// Reads are the operations the agent reads with (ADR-0072): T106a's and,
+// for the segregation-of-duties rules (T106b), listSodRules.
+var Reads = []string{"listRoles", "getRole", "listRolePermissions", "listRoleAssignments", "listPrincipals", "listAuditEvents", "listSodRules"}
 
 // Never are the operations the agent never calls (ADR-0072): every
 // identity write, which is people's alone. Its test keeps the list whole
@@ -100,6 +110,8 @@ type Agent struct {
 	MaxIterations int
 	// MaxEvents bounds the audit events a run reads; default MaxEvents.
 	MaxEvents int
+	// Now is the clock a run takes today's date from; default time.Now.
+	Now func() time.Time
 }
 
 // Period is the days a run reviews, first to last (YYYY-MM-DD), as UTC
@@ -128,9 +140,10 @@ var (
 )
 
 type role struct {
-	ID   string `json:"id"`
-	Code string `json:"code"`
-	Name string `json:"name"`
+	ID     string `json:"id"`
+	Code   string `json:"code"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
 }
 
 // review is what a run found before its session and holds its
