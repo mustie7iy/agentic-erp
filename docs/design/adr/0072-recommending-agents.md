@@ -405,7 +405,11 @@ A later slice adds its row here and its section under "As built".
     words and numbers: it neither starts nor ends inside a word or a
     number of the notice ("5 percent" is no quotation of "2.5 percent",
     nor "9" of "2099"); a quotation left open runs to the content's end,
-    and so fails unless the notice ends with it;
+    and so fails unless the notice ends with it. Only `.` and `,` are
+    taken as separators inside a number: a fragment of a number grouped
+    with a space or an apostrophe ("200,50" of "1 200,50") passes, a
+    known limit until notices in other languages (the "later" leaf), and
+    a sign is not part of a number, as in §4;
   - the content carries the sentence `A person must check the notice
     against its source.` (`regulatoryagent.Caveat`);
   - every number outside the quotations, and outside the paths of a

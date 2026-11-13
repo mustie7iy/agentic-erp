@@ -8,8 +8,9 @@
 // is needed (change_needed), naming the configuration's paths affected,
 // the passages of the notice and when it takes effect as the notice says,
 // or none is (no_change). Every passage it quotes is in the notice
-// character for character, every path it names is a setting of the version (config.Holds), and
-// every number it writes outside a quotation is one the run read; each
+// character for character, every path it names is a setting of the
+// version (config.Holds), and every number it writes outside a quotation
+// is one the run read; each
 // recommendation says that a person must check the notice against its
 // source. The notice is data, never an instruction: the agent changes no
 // configuration (Never) and fetches nothing, having no tool that reaches
@@ -172,7 +173,7 @@ func agent(maxIterations int) recommend.Agent {
 func Tools() []string { return agent(0).Tools() }
 
 // reading is what one run's check knows: the notice and the active
-// version's document.
+// version as a configuration.
 type reading struct {
 	notice        string
 	configuration *config.Config
