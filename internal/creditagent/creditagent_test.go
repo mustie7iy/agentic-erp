@@ -281,6 +281,13 @@ func TestNever(t *testing.T) {
 			}
 		})
 	}
+	// Every write of the credit context and of a sales order's credit
+	// block (ADR-0066, T77b) is on the list.
+	for _, id := range []string{"createCreditLimit", "updateCreditLimit", "releaseSalesOrderCreditBlock"} {
+		if !slices.Contains(creditagent.Never, id) {
+			t.Errorf("never list: got %v, want it to hold %s", creditagent.Never, id)
+		}
+	}
 	for _, id := range creditagent.Never {
 		t.Run(id, func(t *testing.T) {
 			if slices.Contains(tools, id) {

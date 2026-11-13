@@ -50,11 +50,10 @@ const (
 )
 
 // Never are the operations the agent never calls (ADR-0072): setting and
-// changing a limit, which its tools hold none of. The release of an
-// order's credit block (T77b) is not in the contract this was built on;
-// it is a write, and the pattern gives an agent no write but its
+// changing a limit and releasing an order's credit block (T77b), which
+// its tools hold none of: the pattern gives an agent no write but its
 // recommendation.
-var Never = []string{"createCreditLimit", "updateCreditLimit"}
+var Never = []string{"createCreditLimit", "updateCreditLimit", "releaseSalesOrderCreditBlock"}
 
 // history are the reads whose answers are the customer's history: its
 // invoices and the payments it made.
