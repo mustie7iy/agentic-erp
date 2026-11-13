@@ -228,6 +228,7 @@ const (
 	GetRecommendationOperation                     OperationName = "GetRecommendation"
 	GetRegressionSuiteOperation                    OperationName = "GetRegressionSuite"
 	GetRequisitionOperation                        OperationName = "GetRequisition"
+	GetRetentionStatusOperation                    OperationName = "GetRetentionStatus"
 	GetReturnsOrderOperation                       OperationName = "GetReturnsOrder"
 	GetRevaluationRunOperation                     OperationName = "GetRevaluationRun"
 	GetRevenueContractOperation                    OperationName = "GetRevenueContract"

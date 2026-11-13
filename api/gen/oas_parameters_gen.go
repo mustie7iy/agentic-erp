@@ -28546,6 +28546,109 @@ func decodeGetRequisitionParams(args [1]string, argsEscaped bool, r *http.Reques
 	return params, nil
 }
 
+// GetRetentionStatusParams is parameters of getRetentionStatus operation.
+type GetRetentionStatusParams struct {
+	// The company whose documents are meant.
+	LegalEntityID uuid.UUID
+	// The kind of document.
+	DocumentKind string
+}
+
+func unpackGetRetentionStatusParams(packed middleware.Parameters) (params GetRetentionStatusParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "legal_entity_id",
+			In:   "query",
+		}
+		params.LegalEntityID = packed[key].(uuid.UUID)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "document_kind",
+			In:   "query",
+		}
+		params.DocumentKind = packed[key].(string)
+	}
+	return params
+}
+
+func decodeGetRetentionStatusParams(args [0]string, argsEscaped bool, r *http.Request) (params GetRetentionStatusParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
+	// Decode query: legal_entity_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToUUID(val)
+				if err != nil {
+					return err
+				}
+
+				params.LegalEntityID = c
+				return nil
+			}); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "legal_entity_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: document_kind.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "document_kind",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToString(val)
+				if err != nil {
+					return err
+				}
+
+				params.DocumentKind = c
+				return nil
+			}); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "document_kind",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
 // GetReturnsOrderParams is parameters of getReturnsOrder operation.
 type GetReturnsOrderParams struct {
 	// Resource identifier (UUIDv7).

@@ -520,7 +520,7 @@ entry, by its debits, a service principal posts; above it the entry is
 parked for a person; without it the manual entry approval limit; posting-relevant) and its dunning levels
 (`dunning.levels`, optional, ADR-0065 §2: each a `level` numbered from 1 and
 the `days_overdue` an item must have reached for it, ascending, at most
-nine; operational, tier 2; a company without any has no dunning, §3.27). The amounts are read with the digits of the
+nine; operational, tier 2; a company without any has no dunning, §3.27). Its retention rules (`retention`, optional, ADR-0079 §2: per document kind, `journal_entry` or `personal_data`, once each, the whole `years` from 0 to 99 a document is kept after its fiscal year's last day; operational, tier 2; none shipped, and a kind without a rule has nothing past retention, §3.32). The amounts are read with the digits of the
 document's `companies[].currency`, and documents are converted into the
 legal entity's `local_currency`; the two are one currency because a
 configuration whose company currency differs from its legal entity's local
@@ -5194,3 +5194,15 @@ erDiagram
   `RiskChanged`).
 - Permissions `grc.control.read`, `grc.control.write`,
   `grc.control.test`, `grc.risk.read` and `grc.risk.write`.
+
+## 3.32 Records management (`records`)
+
+ADR-0079, T99a (migration 000309). A leaf: it reads tenancy's legal
+entities, the configuration's retention rules (`companies[].retention[]`, described
+with the configuration document above) and the ledger's fiscal years through
+its ports. It has no table yet: the retention status is computed on read
+from the fiscal periods' dates (`ledger.fiscal_period`, through
+`ledger.Calendar.Years`) and the rule's years, and the context's schema
+comes with the archiving runs (T99b).
+
+- Permission `records.retention.read`.

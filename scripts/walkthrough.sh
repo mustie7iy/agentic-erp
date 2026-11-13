@@ -7886,6 +7886,77 @@ step_risks() {
   passed
 }
 
+# retention_rule YEARS TITLE has Ada propose Maple's retention rule for
+# journal entries, YEARS after the fiscal year's end, through a change
+# request: tier 2, approved by the process owner, then activated.
+retention_rule() {
+  local years=$1 title=$2 base cr request
+  as ada
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq --arg cc "$CC" --argjson years "$years" --arg title "$title" --argjson base "$base" '{title: $title,
+    rationale: "Maple'"'"'s retention of journal entries (T99a)", base_version: $base,
+    proposed: (.items[0].document | .companies |= map(if .code == $cc then .retention = [{kind: "journal_entry", years: $years}] else . end))}' \
+    "$WORK/last.json" >"$WORK/retention.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @retention.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 2
+  request=$(field .workflow_request_id)
+  approve priya "$request" "The retention of journal entries, as the records administrator asked"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+}
+
+# step_retention is T99a (ADR-0079 §2-§4): Maple keeps no retention
+# rule, since none is shipped or defaulted for any jurisdiction, so
+# nothing of it is past retention. Ada sets a rule of ten years for
+# journal entries through a governed change; Rhea, the records
+# administrator, reads that the migrated prior year is kept until ten
+# years after its last day. A rule of zero years, activated the same
+# way, puts the ended prior year past retention and leaves the current
+# one within it. Nothing is archived or changed.
+step_retention() {
+  heading "Step 79 — Retention rules: a retention rule for journal entries set through a governed change; the retention status shows the migrated prior year within retention, and past it under a rule of zero years"
+  local prev_end
+  as ada
+  say "Ada adds Rhea, the records administrator, to the team:"
+  person rhea "Rhea Records Administrator" finance_staff
+  as rhea
+  say "No retention period of any jurisdiction is shipped (ADR-0079 §2): without a rule, nothing is past retention."
+  api 200 '"retention of \(.document_kind) in \(.company_code) \(.company_name): rule \(.has_rule), \(.past_retention_count) of \(.year_count) year(s) past retention"' \
+    getRetentionStatus -p "legal_entity_id=$LE" -p document_kind=journal_entry
+  expect "the status without a rule" "$(field '"\(.has_rule) \(.past_retention_count) \(has("retention_years"))"')" "false 0 false"
+  prev_end=$(field "[.years[] | select(.fiscal_year == $PREV) | .end_date] | first // \"\"")
+  [ -n "$prev_end" ] || fail "$PREV is not set up for $CC (step_year_end)"
+  say "Rhea asks Ada for Maple's rule: journal entries are kept ten years after their fiscal year ends. Retention"
+  say "rules are the tenant's configuration and change only through a change request and its approval:"
+  retention_rule 10 "Retention of journal entries: ten years"
+  as rhea
+  api 200 '"retention of \(.document_kind), \(.retention_years) years, as of \(.as_of) (configuration version \(.configuration_version)):", (.years[] | "  \(.fiscal_year): \(.start_date) to \(.end_date), kept until \(.retention_ends), past retention \(.past_retention)")' \
+    getRetentionStatus -p "legal_entity_id=$LE" -p document_kind=journal_entry
+  expect "the migrated prior year under ten years" "$(field "[.years[] | select(.fiscal_year == $PREV) | \"\(.end_date) \(.retention_ends) \(.past_retention)\"] | first")" \
+    "$prev_end $((PREV + 10))${prev_end:4} false"
+  expect "nothing past retention" "$(field '"\(.retention_years) \(.past_retention_count)"')" "10 0"
+  say "A rule of zero years keeps a document only until its fiscal year ends. Activated the same way, it puts the"
+  say "ended prior year past retention; the current year is within it until its last day:"
+  retention_rule 0 "Retention of journal entries: until the fiscal year ends"
+  as rhea
+  api 200 '"retention of \(.document_kind), \(.retention_years) years, as of \(.as_of):", (.years[] | "  \(.fiscal_year): kept until \(.retention_ends), past retention \(.past_retention)")' \
+    getRetentionStatus -p "legal_entity_id=$LE" -p document_kind=journal_entry
+  expect "the prior and the current year under zero years" \
+    "$(field "[.years[] | select(.fiscal_year == $PREV or .fiscal_year == $YEAR) | \"\(.fiscal_year) \(.retention_ends == .end_date) \(.past_retention)\"] | join(\", \")")" \
+    "$PREV true true, $YEAR true false"
+  expect "the totals" "$(field '"\(.past_retention_count) \(.year_count == (.years | length))"')" "$(field '[.years[] | select(.past_retention)] | length') true"
+  say "Personal data has no rule, so none of it is past retention, and a kind of the first version's list only is read:"
+  QUIET=1 api 200 '' getRetentionStatus -p "legal_entity_id=$LE" -p document_kind=personal_data
+  expect "personal data without a rule" "$(field '"\(.has_rule) \(.past_retention_count)"')" "false 0"
+  refused 422 request.validation_failed getRetentionStatus -p "legal_entity_id=$LE" -p document_kind=invoice
+  passed
+}
+
 # step_sales_analytics is T91a (ADR-0044 As built T91a): Anna, a sales
 # analyst, asks the semantic layer for the month's order intake and billed
 # value by customer. Order intake is the confirmed sales orders' items by
@@ -10390,7 +10461,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_risks step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_risks step_retention step_close'
 
 main() {
   stop_unseen

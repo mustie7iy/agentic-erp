@@ -67,6 +67,8 @@ tags:
     description: "Credit management (ADR-0066): customers' credit limits, their credit exposure and the check of an amount against the limit."
   - name: grc
     description: "Governance, risk and compliance (ADR-0078): the tenant's control library, the results of testing its controls, the control matrix of what enforces each control, and the risk register with the ratings of its risks."
+  - name: records
+    description: "Records management (ADR-0079): retention rules' status per fiscal year."
   - name: payments
     description: Payment runs, payments and bank files.
   - name: cash
@@ -17968,6 +17970,56 @@ paths:
           $ref: "#/components/responses/Conflict"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/retention-status:
+    get:
+      operationId: getRetentionStatus
+      tags:
+        - records
+      summary: Read which fiscal years of a document kind are past retention
+      description: "The retention status of a company's documents of one kind (ADR-0079 §2-§4, T99a): each fiscal year set up for the company, the earliest first, with its first and last day, the date its retention ends and whether it is past retention on the company's date today (`as_of`, in its time zone). The rule is the company's in the active configuration version (`companies[].retention[]`, set and changed only through the configuration's change requests and their approval): its `years`, a whole number from 0 to 99, are kept after the fiscal year's last day, so retention ends that many years later on the same day (the last day of February for a year ending on 29 February when the later year has none), and a year is past retention from the day after. No rule is shipped or defaulted for any jurisdiction: a company without a rule for the kind has nothing past retention (`has_rule` false, `retention_years` and each year's `retention_ends` absent). Document kinds: `journal_entry` (the company's journal entries) and `personal_data` (the personal data it holds); another is refused (422 `request.validation_failed`, naming `document_kind`). Whether a year is past retention says only that its documents may be archived or erased by a later step; nothing is archived, changed or removed here. `year_count` and `past_retention_count` are the totals of the years listed. A tenant without a configuration is answered 409 `config.not_bootstrapped`. A legal entity the caller cannot act in is 404, as one that does not exist."
+      x-permission: records.retention.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.validation_failed
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: The company whose documents are meant.
+          schema:
+            type: string
+            format: uuid
+        - name: document_kind
+          in: query
+          required: true
+          description: The kind of document.
+          schema:
+            type: string
+            description: "Kind of document a retention rule is for. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - journal_entry
+              - personal_data
+      responses:
+        "200":
+          description: The retention status of the company's documents of the kind.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetentionStatus"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/credit-exposure:
@@ -51932,6 +51984,52 @@ components:
           items: {$ref: "#/components/schemas/RiskRating"}
           description: The ratings on this page, the latest first.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    RetentionStatus:
+      type: object
+      description: "Which fiscal years of a company's documents of one kind are past retention (records, ADR-0079 §2-§4)."
+      required: [legal_entity_id, company_code, company_name, document_kind, has_rule, configuration_version, as_of, year_count, past_retention_count, years]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company (`GET /v1/legal-entities/{id}`)."}
+        company_code: {type: string, description: "The company's code."}
+        company_name: {type: string, description: "The company's name."}
+        document_kind:
+          type: string
+          description: "The kind of document. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [journal_entry, personal_data]
+        has_rule: {type: boolean, description: "Whether the company has a retention rule for the kind in the active configuration version; without one nothing is past retention."}
+        retention_years: {type: integer, format: int32, description: "The years the rule keeps a document after its fiscal year's last day, 0 to 99; absent without a rule."}
+        configuration_version: {type: integer, format: int32, description: "The number of the active configuration version the rule was read from (`GET /v1/config-versions`)."}
+        as_of: {type: string, format: date, description: "The company's date today in its time zone, by which a year is past retention."}
+        year_count: {type: integer, format: int32, description: "How many fiscal years are listed."}
+        past_retention_count: {type: integer, format: int32, description: "How many of them are past retention."}
+        years:
+          type: array
+          items: {$ref: "#/components/schemas/RetentionYear"}
+          description: "The fiscal years set up for the company, the earliest first."
+      examples:
+        - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          document_kind: journal_entry
+          has_rule: true
+          retention_years: 0
+          configuration_version: 7
+          as_of: "2026-11-25"
+          year_count: 2
+          past_retention_count: 1
+          years:
+            - {fiscal_year: 2025, start_date: "2025-01-01", end_date: "2025-12-31", retention_ends: "2025-12-31", past_retention: true}
+            - {fiscal_year: 2026, start_date: "2026-01-01", end_date: "2026-12-31", retention_ends: "2026-12-31", past_retention: false}
+    RetentionYear:
+      type: object
+      description: "A fiscal year of a company and whether its documents of a kind are past retention."
+      required: [fiscal_year, start_date, end_date, past_retention]
+      properties:
+        fiscal_year: {type: integer, format: int32, description: "The fiscal year."}
+        start_date: {type: string, format: date, description: "The first day of its first regular period."}
+        end_date: {type: string, format: date, description: "The last day of its last regular period, from which retention is counted."}
+        retention_ends: {type: string, format: date, description: "The last day its documents are kept under the rule; absent without a rule."}
+        past_retention: {type: boolean, description: "Whether `as_of` is after `retention_ends`; false without a rule."}
     EInvoiceFetch:
       type: object
       description: A fetch of e-invoices from a provider (ADR-0061 §4).

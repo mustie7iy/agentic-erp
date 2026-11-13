@@ -123,6 +123,7 @@ var allowed = map[string][]string{
 	"receivables":             {"config", "ledger", "partner", "tenancy"},                // as payables reads them (ADR-0063 §1)
 	"sales":                   {"config", "ledger", "partner", "receivables", "tenancy"}, // as receivables reads them; receivables itself for billing, which posts through it (ADR-0067 §1, §9)
 	"revenue":                 {"partner", "sales", "tenancy"},                           // a leaf (ADR-0068 §1): the sales context's orders (sales.Orders), partners' names and tenancy through its ports
+	"records":                 {"config", "ledger", "tenancy"},                           // a leaf (ADR-0079 §1): tenancy's legal entities, the configuration's retention rules and the ledger's fiscal years through its ports
 	"reconagent":              {"apitools", "llm"},
 	"recommend":               {"apitools", "llm"}, // the recommending agents' one pattern (ADR-0072): every such agent imports it, and it no agent
 	"cashagent":               {"apitools", "llm"},
@@ -142,7 +143,7 @@ var allowed = map[string][]string{
 // composition root and commands wire them like any context, and a context
 // may ask one a question through a port it declares itself, as partner
 // asks cash about planning groups.
-var leaves = map[string]bool{"assets": true, "cash": true, "closing": true, "collections": true, "consolidation": true, "credit": true, "einvoicing": true, "revenue": true, "grc": true}
+var leaves = map[string]bool{"assets": true, "cash": true, "closing": true, "collections": true, "consolidation": true, "credit": true, "einvoicing": true, "revenue": true, "grc": true, "records": true}
 
 // unit is the context a package under internal/ belongs to: its first path
 // segment, the platform package itself, a delivery agent (each agent under

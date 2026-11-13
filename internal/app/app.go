@@ -63,6 +63,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/receivables"
+	"github.com/mustie7iy/agentic-erp/internal/records"
 	"github.com/mustie7iy/agentic-erp/internal/revenue"
 	"github.com/mustie7iy/agentic-erp/internal/sales"
 	"github.com/mustie7iy/agentic-erp/internal/taxfiling"
@@ -92,6 +93,7 @@ type (
 	collectionsAPI = collections.Endpoints
 	creditAPI      = credit.Endpoints
 	grcAPI         = grc.Endpoints
+	recordsAPI     = records.Endpoints
 	paymentsAPI    = payments.Endpoints
 	auditAPI       = audit.Endpoints
 	integrationAPI = integration.Endpoints
@@ -124,6 +126,7 @@ type handler struct {
 	*collectionsAPI
 	*creditAPI
 	*grcAPI
+	*recordsAPI
 	*paymentsAPI
 	*auditAPI
 	*integrationAPI
@@ -254,6 +257,7 @@ func New(cfg Config) (http.Handler, error) {
 		collectionsAPI: Collections(cfg),
 		creditAPI:      crediting,
 		grcAPI:         GRC(cfg),
+		recordsAPI:     Records(cfg),
 		paymentsAPI:    Payments(cfg),
 		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
 		integrationAPI: Integration(cfg),
@@ -507,6 +511,13 @@ func (receivablesStatements) Lines(ctx context.Context, entries []ledger.ItemRef
 func Collections(cfg Config) *collections.Endpoints {
 	return &collections.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{}, Partners: partner.Payees{},
 		Settings: configuration.Settings{}}
+}
+
+// Records is the records management context as the API wires it
+// (ADR-0079 §1): a leaf that reads tenancy's legal entities, the active
+// configuration and the ledger's fiscal calendar through its ports.
+func Records(cfg Config) *records.Endpoints {
+	return &records.Endpoints{LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Calendar: calendar(), Now: cfg.Now}
 }
 
 // Credit is the credit management context as the API wires it (ADR-0066

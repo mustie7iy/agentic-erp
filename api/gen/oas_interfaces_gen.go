@@ -889,6 +889,10 @@ type GetRequisitionRes interface {
 	getRequisitionRes()
 }
 
+type GetRetentionStatusRes interface {
+	getRetentionStatusRes()
+}
+
 type GetReturnsOrderRes interface {
 	getReturnsOrderRes()
 }

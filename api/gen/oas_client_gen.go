@@ -3166,6 +3166,27 @@ type Invoker interface {
 	//
 	// GET /v1/requisitions/{id}
 	GetRequisition(ctx context.Context, params GetRequisitionParams) (GetRequisitionRes, error)
+	// GetRetentionStatus invokes getRetentionStatus operation.
+	//
+	// The retention status of a company's documents of one kind (ADR-0079 §2-§4, T99a): each fiscal year
+	// set up for the company, the earliest first, with its first and last day, the date its retention ends
+	// and whether it is past retention on the company's date today (`as_of`, in its time zone). The rule
+	// is the company's in the active configuration version (`companies[].retention[]`, set and changed
+	// only through the configuration's change requests and their approval): its `years`, a whole number
+	// from 0 to 99, are kept after the fiscal year's last day, so retention ends that many years later on
+	// the same day (the last day of February for a year ending on 29 February when the later year has
+	// none), and a year is past retention from the day after. No rule is shipped or defaulted for any
+	// jurisdiction: a company without a rule for the kind has nothing past retention (`has_rule` false,
+	// `retention_years` and each year's `retention_ends` absent). Document kinds: `journal_entry` (the
+	// company's journal entries) and `personal_data` (the personal data it holds); another is refused (422
+	// `request.validation_failed`, naming `document_kind`). Whether a year is past retention says only
+	// that its documents may be archived or erased by a later step; nothing is archived, changed or
+	// removed here. `year_count` and `past_retention_count` are the totals of the years listed. A tenant
+	// without a configuration is answered 409 `config.not_bootstrapped`. A legal entity the caller cannot
+	// act in is 404, as one that does not exist.
+	//
+	// GET /v1/retention-status
+	GetRetentionStatus(ctx context.Context, params GetRetentionStatusParams) (GetRetentionStatusRes, error)
 	// GetReturnsOrder invokes getReturnsOrder operation.
 	//
 	// One returns order (ADR-0067, As built T85a) with its company's code and name, its customer's number
@@ -40635,6 +40656,166 @@ func (c *Client) sendGetRequisition(ctx context.Context, params GetRequisitionPa
 
 	stage = "DecodeResponse"
 	result, err := decodeGetRequisitionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetRetentionStatus invokes getRetentionStatus operation.
+//
+// The retention status of a company's documents of one kind (ADR-0079 §2-§4, T99a): each fiscal year
+// set up for the company, the earliest first, with its first and last day, the date its retention ends
+// and whether it is past retention on the company's date today (`as_of`, in its time zone). The rule
+// is the company's in the active configuration version (`companies[].retention[]`, set and changed
+// only through the configuration's change requests and their approval): its `years`, a whole number
+// from 0 to 99, are kept after the fiscal year's last day, so retention ends that many years later on
+// the same day (the last day of February for a year ending on 29 February when the later year has
+// none), and a year is past retention from the day after. No rule is shipped or defaulted for any
+// jurisdiction: a company without a rule for the kind has nothing past retention (`has_rule` false,
+// `retention_years` and each year's `retention_ends` absent). Document kinds: `journal_entry` (the
+// company's journal entries) and `personal_data` (the personal data it holds); another is refused (422
+// `request.validation_failed`, naming `document_kind`). Whether a year is past retention says only
+// that its documents may be archived or erased by a later step; nothing is archived, changed or
+// removed here. `year_count` and `past_retention_count` are the totals of the years listed. A tenant
+// without a configuration is answered 409 `config.not_bootstrapped`. A legal entity the caller cannot
+// act in is 404, as one that does not exist.
+//
+// GET /v1/retention-status
+func (c *Client) GetRetentionStatus(ctx context.Context, params GetRetentionStatusParams) (GetRetentionStatusRes, error) {
+	res, err := c.sendGetRetentionStatus(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetRetentionStatus(ctx context.Context, params GetRetentionStatusParams) (res GetRetentionStatusRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getRetentionStatus"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/retention-status"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetRetentionStatusOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/retention-status"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "document_kind" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "document_kind",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.DocumentKind))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetRetentionStatusOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetRetentionStatusResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

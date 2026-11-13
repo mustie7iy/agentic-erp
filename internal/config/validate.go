@@ -291,6 +291,7 @@ func (v *validator) company(p string, co *Company) {
 func (v *validator) operations(p string, co *Company) {
 	v.companyCash(p, co)
 	v.dunning(p, co)
+	v.retention(p, co)
 }
 
 // closes checks how the company's periods and years are closed: the

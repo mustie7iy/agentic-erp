@@ -3816,6 +3816,30 @@ func (UnimplementedHandler) GetRequisition(ctx context.Context, params GetRequis
 	return r, ht.ErrNotImplemented
 }
 
+// GetRetentionStatus implements getRetentionStatus operation.
+//
+// The retention status of a company's documents of one kind (ADR-0079 §2-§4, T99a): each fiscal year
+// set up for the company, the earliest first, with its first and last day, the date its retention ends
+// and whether it is past retention on the company's date today (`as_of`, in its time zone). The rule
+// is the company's in the active configuration version (`companies[].retention[]`, set and changed
+// only through the configuration's change requests and their approval): its `years`, a whole number
+// from 0 to 99, are kept after the fiscal year's last day, so retention ends that many years later on
+// the same day (the last day of February for a year ending on 29 February when the later year has
+// none), and a year is past retention from the day after. No rule is shipped or defaulted for any
+// jurisdiction: a company without a rule for the kind has nothing past retention (`has_rule` false,
+// `retention_years` and each year's `retention_ends` absent). Document kinds: `journal_entry` (the
+// company's journal entries) and `personal_data` (the personal data it holds); another is refused (422
+// `request.validation_failed`, naming `document_kind`). Whether a year is past retention says only
+// that its documents may be archived or erased by a later step; nothing is archived, changed or
+// removed here. `year_count` and `past_retention_count` are the totals of the years listed. A tenant
+// without a configuration is answered 409 `config.not_bootstrapped`. A legal entity the caller cannot
+// act in is 404, as one that does not exist.
+//
+// GET /v1/retention-status
+func (UnimplementedHandler) GetRetentionStatus(ctx context.Context, params GetRetentionStatusParams) (r GetRetentionStatusRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetReturnsOrder implements getReturnsOrder operation.
 //
 // One returns order (ADR-0067, As built T85a) with its company's code and name, its customer's number

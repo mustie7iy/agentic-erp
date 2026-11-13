@@ -24522,6 +24522,7 @@ func (*ConflictHeaders) getLegalEntityTodayRes()                   {}
 func (*ConflictHeaders) getLiquidityForecastVarianceRes()          {}
 func (*ConflictHeaders) getPeriodCloseRes()                        {}
 func (*ConflictHeaders) getPurchaseOrderDocumentRes()              {}
+func (*ConflictHeaders) getRetentionStatusRes()                    {}
 func (*ConflictHeaders) getTaxReturnDraftRes()                     {}
 func (*ConflictHeaders) getVarianceCommentRes()                    {}
 func (*ConflictHeaders) getYearCloseRes()                          {}
@@ -42417,6 +42418,22 @@ func (s *GetRequisitionOKHeaders) SetResponse(val Requisition) {
 }
 
 func (*GetRequisitionOKHeaders) getRequisitionRes() {}
+
+type GetRetentionStatusBadRequest Problem
+
+func (*GetRetentionStatusBadRequest) getRetentionStatusRes() {}
+
+type GetRetentionStatusForbidden Problem
+
+func (*GetRetentionStatusForbidden) getRetentionStatusRes() {}
+
+type GetRetentionStatusNotFound Problem
+
+func (*GetRetentionStatusNotFound) getRetentionStatusRes() {}
+
+type GetRetentionStatusUnprocessableEntity Problem
+
+func (*GetRetentionStatusUnprocessableEntity) getRetentionStatusRes() {}
 
 type GetReturnsOrderBadRequest Problem
 
@@ -74853,6 +74870,214 @@ type ResumeWebhookSubscriptionUnprocessableEntity Problem
 
 func (*ResumeWebhookSubscriptionUnprocessableEntity) resumeWebhookSubscriptionRes() {}
 
+// Which fiscal years of a company's documents of one kind are past retention (records, ADR-0079
+// §2-§4).
+// Ref: #/components/schemas/RetentionStatus
+type RetentionStatus struct {
+	// The company (`GET /v1/legal-entities/{id}`).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// The kind of document. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	DocumentKind string `json:"document_kind"`
+	// Whether the company has a retention rule for the kind in the active configuration version; without
+	// one nothing is past retention.
+	HasRule bool `json:"has_rule"`
+	// The years the rule keeps a document after its fiscal year's last day, 0 to 99; absent without a
+	// rule.
+	RetentionYears OptInt32 `json:"retention_years"`
+	// The number of the active configuration version the rule was read from (`GET /v1/config-versions`).
+	ConfigurationVersion int32 `json:"configuration_version"`
+	// The company's date today in its time zone, by which a year is past retention.
+	AsOf time.Time `json:"as_of"`
+	// How many fiscal years are listed.
+	YearCount int32 `json:"year_count"`
+	// How many of them are past retention.
+	PastRetentionCount int32 `json:"past_retention_count"`
+	// The fiscal years set up for the company, the earliest first.
+	Years []RetentionYear `json:"years"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *RetentionStatus) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *RetentionStatus) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *RetentionStatus) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetDocumentKind returns the value of DocumentKind.
+func (s *RetentionStatus) GetDocumentKind() string {
+	return s.DocumentKind
+}
+
+// GetHasRule returns the value of HasRule.
+func (s *RetentionStatus) GetHasRule() bool {
+	return s.HasRule
+}
+
+// GetRetentionYears returns the value of RetentionYears.
+func (s *RetentionStatus) GetRetentionYears() OptInt32 {
+	return s.RetentionYears
+}
+
+// GetConfigurationVersion returns the value of ConfigurationVersion.
+func (s *RetentionStatus) GetConfigurationVersion() int32 {
+	return s.ConfigurationVersion
+}
+
+// GetAsOf returns the value of AsOf.
+func (s *RetentionStatus) GetAsOf() time.Time {
+	return s.AsOf
+}
+
+// GetYearCount returns the value of YearCount.
+func (s *RetentionStatus) GetYearCount() int32 {
+	return s.YearCount
+}
+
+// GetPastRetentionCount returns the value of PastRetentionCount.
+func (s *RetentionStatus) GetPastRetentionCount() int32 {
+	return s.PastRetentionCount
+}
+
+// GetYears returns the value of Years.
+func (s *RetentionStatus) GetYears() []RetentionYear {
+	return s.Years
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *RetentionStatus) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *RetentionStatus) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *RetentionStatus) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetDocumentKind sets the value of DocumentKind.
+func (s *RetentionStatus) SetDocumentKind(val string) {
+	s.DocumentKind = val
+}
+
+// SetHasRule sets the value of HasRule.
+func (s *RetentionStatus) SetHasRule(val bool) {
+	s.HasRule = val
+}
+
+// SetRetentionYears sets the value of RetentionYears.
+func (s *RetentionStatus) SetRetentionYears(val OptInt32) {
+	s.RetentionYears = val
+}
+
+// SetConfigurationVersion sets the value of ConfigurationVersion.
+func (s *RetentionStatus) SetConfigurationVersion(val int32) {
+	s.ConfigurationVersion = val
+}
+
+// SetAsOf sets the value of AsOf.
+func (s *RetentionStatus) SetAsOf(val time.Time) {
+	s.AsOf = val
+}
+
+// SetYearCount sets the value of YearCount.
+func (s *RetentionStatus) SetYearCount(val int32) {
+	s.YearCount = val
+}
+
+// SetPastRetentionCount sets the value of PastRetentionCount.
+func (s *RetentionStatus) SetPastRetentionCount(val int32) {
+	s.PastRetentionCount = val
+}
+
+// SetYears sets the value of Years.
+func (s *RetentionStatus) SetYears(val []RetentionYear) {
+	s.Years = val
+}
+
+func (*RetentionStatus) getRetentionStatusRes() {}
+
+// A fiscal year of a company and whether its documents of a kind are past retention.
+// Ref: #/components/schemas/RetentionYear
+type RetentionYear struct {
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The first day of its first regular period.
+	StartDate time.Time `json:"start_date"`
+	// The last day of its last regular period, from which retention is counted.
+	EndDate time.Time `json:"end_date"`
+	// The last day its documents are kept under the rule; absent without a rule.
+	RetentionEnds OptDate `json:"retention_ends"`
+	// Whether `as_of` is after `retention_ends`; false without a rule.
+	PastRetention bool `json:"past_retention"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *RetentionYear) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetStartDate returns the value of StartDate.
+func (s *RetentionYear) GetStartDate() time.Time {
+	return s.StartDate
+}
+
+// GetEndDate returns the value of EndDate.
+func (s *RetentionYear) GetEndDate() time.Time {
+	return s.EndDate
+}
+
+// GetRetentionEnds returns the value of RetentionEnds.
+func (s *RetentionYear) GetRetentionEnds() OptDate {
+	return s.RetentionEnds
+}
+
+// GetPastRetention returns the value of PastRetention.
+func (s *RetentionYear) GetPastRetention() bool {
+	return s.PastRetention
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *RetentionYear) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetStartDate sets the value of StartDate.
+func (s *RetentionYear) SetStartDate(val time.Time) {
+	s.StartDate = val
+}
+
+// SetEndDate sets the value of EndDate.
+func (s *RetentionYear) SetEndDate(val time.Time) {
+	s.EndDate = val
+}
+
+// SetRetentionEnds sets the value of RetentionEnds.
+func (s *RetentionYear) SetRetentionEnds(val OptDate) {
+	s.RetentionEnds = val
+}
+
+// SetPastRetention sets the value of PastRetention.
+func (s *RetentionYear) SetPastRetention(val bool) {
+	s.PastRetention = val
+}
+
 type RetireCatalogItemBadRequest Problem
 
 func (*RetireCatalogItemBadRequest) retireCatalogItemRes() {}
@@ -87886,6 +88111,7 @@ func (*TooManyRequestsHeaders) getReceivablesAgingRes()                   {}
 func (*TooManyRequestsHeaders) getRecommendationRes()                     {}
 func (*TooManyRequestsHeaders) getRegressionSuiteRes()                    {}
 func (*TooManyRequestsHeaders) getRequisitionRes()                        {}
+func (*TooManyRequestsHeaders) getRetentionStatusRes()                    {}
 func (*TooManyRequestsHeaders) getReturnsOrderRes()                       {}
 func (*TooManyRequestsHeaders) getRevaluationRunRes()                     {}
 func (*TooManyRequestsHeaders) getRevenueContractRes()                    {}
@@ -88700,6 +88926,7 @@ func (*UnauthorizedHeaders) getReceivablesAgingRes()                   {}
 func (*UnauthorizedHeaders) getRecommendationRes()                     {}
 func (*UnauthorizedHeaders) getRegressionSuiteRes()                    {}
 func (*UnauthorizedHeaders) getRequisitionRes()                        {}
+func (*UnauthorizedHeaders) getRetentionStatusRes()                    {}
 func (*UnauthorizedHeaders) getReturnsOrderRes()                       {}
 func (*UnauthorizedHeaders) getRevaluationRunRes()                     {}
 func (*UnauthorizedHeaders) getRevenueContractRes()                    {}

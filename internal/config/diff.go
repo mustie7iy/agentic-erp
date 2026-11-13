@@ -182,6 +182,10 @@ var tierRules = []struct {
 	// dunning run proposes and at which level (ADR-0065 §2), as payment
 	// terms' days decide what is due.
 	{rx(`^companies\[\*\]\.dunning(\.|$)`), TierOperational},
+	// Retention rules post nothing: they decide which fiscal years of a
+	// kind are past retention, which archiving runs read (ADR-0079 §2),
+	// and are approved by the process owner, as dunning levels are.
+	{rx(`^companies\[\*\]\.retention(\[|$)`), TierOperational},
 	// Condition types and the pricing procedure post nothing: they decide
 	// the net value new sales items take (ADR-0067 §11), as payment terms
 	// decide what is due. A type's name is a text.
@@ -242,6 +246,8 @@ var listKeys = map[string]string{
 	"net_investments": "company,account,partner",
 	// A company's dunning levels by their number (ADR-0065 §2).
 	"levels": "level",
+	// A company's retention rules by their document kind (ADR-0079 §2).
+	"retention": "kind",
 	// Condition types by code (ADR-0067 §11); the procedure's steps are
 	// listed by position, since their order is the setting.
 	"condition_types": "code",

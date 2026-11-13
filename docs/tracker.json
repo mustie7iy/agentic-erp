@@ -5953,13 +5953,13 @@
     "ph": 9,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Retention rules",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A records administrator sets retention rules in the configuration (per company and document kind, the years a document is kept after its fiscal year ends; none is shipped) and reads which fiscal years of a document kind are past retention (configuration section retention; GET /v1/retention-status)",
-        "r": "T99a · docs/design/plan-breadth-week3.md §T99a",
+        "r": "T99a · docs/design/plan-breadth-week3.md §T99a · companies[].retention[] (tier 2) · db/migrations/000309 · GET /v1/retention-status · records.retention.read · ledger.Calendar.Years · the leaf context records · walkthrough step_retention · ADR-0079 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
