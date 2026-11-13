@@ -3556,7 +3556,10 @@ take entries whose `source_context` is `controlling`). Migration 000283
 adds allocation cycles, their receivers and runs and the permissions
 `controlling.allocation.read`, `.write` and `.run`. Migration 000284 adds
 the cycle's kind `assessment` with its assessment account, and in the
-ledger the secondary cost element and its two rules (§3.7).
+ledger the secondary cost element and its two rules (§3.7). Migration
+000308 adds the permission `controlling.margin.read` of the margin report
+(ADR-0075, T92b), which has no table. Migration 000309 adds the origin of
+a plan batch written by a copy of another category's plan (T93a).
 
 ```mermaid
 erDiagram
@@ -3574,7 +3577,9 @@ erDiagram
     text batch_key "once per category, company and year"
     text digest "sha-256 of its lines"
     int line_count
-    int replaced_count }
+    int replaced_count
+    uuid copied_from_category_id "a copy's source category, else null"
+    numeric copy_percentage "a copy's percentage, else null" }
   plan_line { uuid id PK
     uuid batch_id FK
     uuid category_id
@@ -3639,7 +3644,7 @@ erDiagram
 | Table | Purpose |
 |---|---|
 | `controlling.plan_category` | A plan category (SAP's category for planning): code (`^[0-9A-Z_]{1,10}$`, unique), name, and `locked`; locked and unlocked by a person (`controlling.plan.lock`) with the caller's version, read FOR UPDATE; never deleted |
-| `controlling.plan_batch` | A batch applied, insert-only: its key once per category, company and year (`plan_batch_key_once`) and the digest of its lines, so the same batch again is recognised and changes nothing and the key with other lines is refused; at least one line; refused on a locked category (`plan_category_open`) |
+| `controlling.plan_batch` | A batch applied, insert-only: its key once per category, company and year (`plan_batch_key_once`) and the digest of its lines, so the same batch again is recognised and changes nothing and the key with other lines is refused; at least one line; refused on a locked category (`plan_category_open`). A batch written by a copy of another category's plan (`POST /v1/plan-categories/{id}:copy`, T93a, migration 000309; ADR-0050 §8 As built) names the category copied from and the percentage its amounts were multiplied by, both or neither (`plan_batch_copy_origin`): the percentage above 0 and at most 1000 (`plan_batch_copy_percentage`), the category an existing one (`plan_batch_copied_from`) and another than the batch's (`plan_batch_copy_other_category`); its key is generated (`copy-<id>`), and it replaces the target's whole plan of the company and year. A category that changes is held `FOR NO KEY UPDATE` (T93a), so the foreign key's check of the category copied from never waits for a batch, a copy or a lock of it |
 | `controlling.plan_line` | A line of a batch: one center (`plan_line_one_center`), a period 1-16, a P&L account, the amount in the company's local currency, an optional positive quantity with its unit (`plan_line_quantity_unit`); of its batch's category, company and year (foreign key). Never deleted: a later batch of the same category, company and year naming its center sets `replaced_by_batch_id` once (`plan_line_replaced_once`, `plan_line_replaced_later`), so the plan is the lines not replaced, one per category, company, year, center, account and period (`plan_line_once`, a partial unique index), and every earlier plan stays readable. Nothing is written or replaced on a locked category (`plan_category_open`, the category read FOR SHARE). A batch that would write or replace a cost center's line in a period sharing a day with a period of the center whose `ledger.cost_center_period.lock_plan` is set is refused (T56g2; checked in the service through the ledger's port, the centers held FOR KEY SHARE; no trigger reads across the context boundary) |
 | `controlling.internal_order` | An internal order (ADR-0064 §1, T60a): a cost object of one company with a code unique in it (`^[0-9A-Z_-]{1,12}$`, `internal_order_code_once`), a name, a responsible cost center (the ledger's; no foreign key crosses the schema: checked through `ledger.AssignmentBalances.CostCenterRefs` to be an active cost center of the company) and a status, `created` then `released` (`controlling.order.release`, read FOR UPDATE with the caller's version). It starts as `created`, keeps its company and code and stays released (`internal_order_lifecycle`, a trigger); never deleted. Journal lines name it (`ledger.journal_line.internal_order_id`, §3.7, T60b) without a foreign key: the ledger asks `controlling.CostObjects` (its port `ledger.CostObjects`) for the orders a posting names, which holds them `FOR SHARE`; the order's actual costs are those lines, read through `ledger.AssignmentBalances.OrderActuals` and stored nowhere else |
 | `controlling.order_budget` | An order's budget (ADR-0064 §3, T60c): at most one row per order (the primary key; `order_budget_order`, a foreign key to the order), one overall amount of zero or more (`order_budget_not_negative`) in minor units of the order's company's local currency, which a company keeps (000045). An order without a row has no budget. Replaced with the version its reader saw (`controlling.order.budget`; the order read FOR UPDATE, the version one more with every change, `platform.touch`), each change audited with the amounts before and after; never deleted. Nothing is refused for a budget: `GET /v1/internal-orders/{id}/budget` compares it with the order's balance in the leading ledger over every year (`ledger.AssignmentBalances.OrderBalance`) |
@@ -3657,6 +3662,22 @@ over the periods asked for and merged with the leading ledger's actuals,
 which the ledger reads as its cost center (or profit center) report does
 (§3.7, exact at the read; by profit center on profit and loss accounts
 only, the segments summed).
+
+The margin report (`GET /v1/margin-report`, ADR-0075, T92b) stores
+nothing either: per profit center of a company, over a range of periods
+of a fiscal year, the revenue (credits less debits on the accounts of type
+`revenue`), the cost of sales (debits less credits on the accounts the
+configuration names for the company's chart,
+`controlling.margin_report[].cost_of_sales_accounts`, single accounts or
+ranges of expense accounts; tier 2) and their difference, in the company's
+local currency, with the lines that carry no profit center as one
+`unassigned` row and the company's totals, which the rows add up to. The
+ledger reads all of it in one statement
+(`ledger.AssignmentBalances.Margin`): the company's balances as the trial
+balance reads them (`ledger.period_balance`) and the profit centers' as
+the profit center report does (`ledger.assignment_balance`), each with
+the lines of entries not yet projected, so the figures are of one
+database state and exact at the read.
 
 ## 3.20 Tax filing (`tax`)
 

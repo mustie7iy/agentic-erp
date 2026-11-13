@@ -1054,6 +1054,78 @@ As built in T56g (migration 000164):
   are its centers' rows, no subtotal (as decided for §7); no breakdown by
   segment, as plan lines carry none. No budget test, as the cost center
   report has none. No migration.
+- **Planning versions** (T93a, `docs/design/plan-breadth-week3.md`;
+  migration 000309). `POST /v1/plan-categories/{id}:copy`
+  (`controlling.plan.write`, `x-agent: false`) copies the category's
+  current lines of one company and fiscal year into another category,
+  each amount multiplied by a percentage and rounded half away from zero
+  (`money.Scale`), to the same center, account and period; a quantity is
+  copied as it is. The copy is one plan batch of the target, written by
+  the batch's own code (`replacePlan`: the ledger's check of what a plan
+  may name, the cost centers' plan locks, `write`, the audit record and
+  `PlanBatchApplied`), so a locked target (409
+  `controlling.plan_category_locked`) and a cost center locked for
+  planning (422 `controlling.cost_center_plan_locked`) refuse it as they
+  refuse a batch. `controlling.plan_batch` records the origin in two new
+  nullable columns, `copied_from_category_id` and `copy_percentage` (both
+  or neither, `plan_batch_copy_origin`; above 0 and at most 1000,
+  `plan_batch_copy_percentage`; another category than the batch's,
+  `plan_batch_copy_other_category`; a foreign key to the category); the
+  batch, the event and the audit record carry them. No new table.
+  Decided by default, where the plan left a choice:
+  - *One company per copy.* The plan names target, year and percentage; a
+    batch is one company's, and the copy is recorded as one batch, so the
+    request also names `legal_entity_id`.
+  - *The percentage* is a decimal string above 0 and at most 1000 with up
+    to four decimals (`100` copies the amounts unchanged). Zero or a
+    negative percentage would write a plan of zeros or turn costs into
+    revenue; neither was asked for.
+  - *Replace means the whole plan.* A target with current lines of the
+    company and year is refused (409
+    `controlling.plan_copy_target_planned`) unless `replace` is true; the
+    copy then replaces every current line of the target for the company
+    and year, also on centers the source does not plan, so the target is
+    the scaled source and nothing else. (An uploaded batch replaces only
+    the centers it names; a version that kept some old centers would be
+    neither plan.) The plan locks of those centers are checked too; a
+    locked one the copy has no line of is named as
+    `replaced_cost_centers[<cost center id>]`.
+  - *Refusals name source lines by id*: `source_lines[<plan line id>]`,
+    which `GET /v1/plan-lines` shows, where a batch names `lines[N]`.
+  - *The replay is the `Idempotency-Key`'s* (04 §4.7): the same key and
+    body answer the same batch. The batch's own key is generated
+    (`copy-<batch id>`), so a copy is not also idempotent by a
+    client-chosen batch key; a copy after the key's window meets a target
+    that has a plan and is refused unless it replaces it.
+  - *`If-Match`* is the source category's version, as every custom method
+    takes one (`TestOperations`): the caller copies the category as it
+    read it, locked or open. The copy does not move the version.
+  - *Only the target is held*, as a batch holds its category. The
+    source's lines are read in one statement, so a batch into the source
+    commits before or after the read. The batch names the source by a
+    foreign key, whose check takes the source's row `FOR KEY SHARE`; a
+    category was held `FOR UPDATE`, which that would wait for, so a copy
+    would have waited for any batch into its source or lock of it, and
+    two copies in opposite directions would have deadlocked (review round
+    1). A category is therefore held `FOR NO KEY UPDATE` from T93a on
+    (`getCategory`), the lock an update of it takes anyway: batches,
+    copies into it, its lock and unlock and the trigger's `FOR SHARE`
+    (`plan_category_open`) serialize as before, and a foreign key's check
+    does not wait. `TestOppositeCopiesDoNotWait` drives two copies in
+    opposite directions; `TestPlanLockWaitsForACopy` the target's lock.
+  - *A bound of 50,000 lines* per copy (ten uploads' worth), since the
+    copy reads and writes its lines in one request; a larger plan is 422
+    `controlling.plan_copy_invalid` (`too_many_lines`). An amount that
+    does not fit after scaling is refused the same way (`overflow`), as
+    are a source without lines of the company and year (`no_plan`) and
+    the target being the source (`same_category`).
+  - *The event's centers* are those of the lines copied and those of the
+    target's plan the copy replaced, in the plan's key order.
+  The plan against actual reports read the target as any category.
+  Walkthrough step 69 (`step_plan_version`). Not built (the plan's
+  "Later"): planning on accounts without a center, top-down distribution,
+  quantities and drivers scaled, approval of a version, comparison of two
+  versions, rolling forecasts, loads from a planning tool.
 - **Not built:** a profit center's `locked` is not read
   by batches; agents' plan uploads as drafts (§12, T56j); a category's
   rename.

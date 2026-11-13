@@ -14,6 +14,9 @@ type Controlling struct {
 	// CostCenterCategories are the categories a cost center may have (SAP
 	// KOSAR): what may be posted to it and the locks a new one starts with.
 	CostCenterCategories []CostCenterCategory `yaml:"cost_center_categories,omitempty" json:"cost_center_categories,omitempty"`
+	// MarginReport names, per chart of accounts, the accounts the margin
+	// report counts as cost of sales (ADR-0075 §2, T92b).
+	MarginReport []MarginChart `yaml:"margin_report,omitempty" json:"margin_report,omitempty"`
 }
 
 // CostCenterCategory is a kind of cost center, such as administration or
@@ -159,7 +162,7 @@ var (
 )
 
 // controlling checks the cost center categories: codes as cost centers
-// carry them, each once, with a name.
+// carry them, each once, with a name; and the margin report's charts.
 func (v *validator) controlling(c *Config) {
 	seen := map[string]bool{}
 	for _, cat := range c.Controlling.CostCenterCategories {
@@ -172,6 +175,7 @@ func (v *validator) controlling(c *Config) {
 			v.err(p+".name", "is required")
 		}
 	}
+	v.marginReport(c)
 }
 
 // companyControlling checks a company's controlling rules: cost elements,

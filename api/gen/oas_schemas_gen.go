@@ -24408,6 +24408,7 @@ func (*ConflictHeaders) confirmReturnReceiptRes()                  {}
 func (*ConflictHeaders) confirmReturnsOrderRes()                   {}
 func (*ConflictHeaders) confirmSalesDeliveryRes()                  {}
 func (*ConflictHeaders) confirmSalesOrderRes()                     {}
+func (*ConflictHeaders) copyPlanCategoryRes()                      {}
 func (*ConflictHeaders) createAllocationCycleRes()                 {}
 func (*ConflictHeaders) createAssetAcquisitionRes()                {}
 func (*ConflictHeaders) createAssetRes()                           {}
@@ -24494,6 +24495,7 @@ func (*ConflictHeaders) getControlMatrixRes()                      {}
 func (*ConflictHeaders) getEInvoiceContentRes()                    {}
 func (*ConflictHeaders) getLegalEntityTodayRes()                   {}
 func (*ConflictHeaders) getLiquidityForecastVarianceRes()          {}
+func (*ConflictHeaders) getMarginReportRes()                       {}
 func (*ConflictHeaders) getPeriodCloseRes()                        {}
 func (*ConflictHeaders) getPurchaseOrderDocumentRes()              {}
 func (*ConflictHeaders) getTaxReturnDraftRes()                     {}
@@ -28245,6 +28247,30 @@ func (s *ContractUpdate) SetTargetValue(val OptMoney) {
 func (s *ContractUpdate) SetItems(val []ContractItem) {
 	s.Items = val
 }
+
+type CopyPlanCategoryBadRequest Problem
+
+func (*CopyPlanCategoryBadRequest) copyPlanCategoryRes() {}
+
+type CopyPlanCategoryForbidden Problem
+
+func (*CopyPlanCategoryForbidden) copyPlanCategoryRes() {}
+
+type CopyPlanCategoryNotFound Problem
+
+func (*CopyPlanCategoryNotFound) copyPlanCategoryRes() {}
+
+type CopyPlanCategoryPreconditionFailed Problem
+
+func (*CopyPlanCategoryPreconditionFailed) copyPlanCategoryRes() {}
+
+type CopyPlanCategoryPreconditionRequired Problem
+
+func (*CopyPlanCategoryPreconditionRequired) copyPlanCategoryRes() {}
+
+type CopyPlanCategoryUnprocessableEntity Problem
+
+func (*CopyPlanCategoryUnprocessableEntity) copyPlanCategoryRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/Control
@@ -41634,6 +41660,18 @@ type GetLiquidityForecastVarianceUnprocessableEntity Problem
 
 func (*GetLiquidityForecastVarianceUnprocessableEntity) getLiquidityForecastVarianceRes() {}
 
+type GetMarginReportBadRequest Problem
+
+func (*GetMarginReportBadRequest) getMarginReportRes() {}
+
+type GetMarginReportForbidden Problem
+
+func (*GetMarginReportForbidden) getMarginReportRes() {}
+
+type GetMarginReportUnprocessableEntity Problem
+
+func (*GetMarginReportUnprocessableEntity) getMarginReportRes() {}
+
 type GetMatchResultBadRequest Problem
 
 func (*GetMatchResultBadRequest) getMatchResultRes() {}
@@ -53677,6 +53715,269 @@ func (*LockProfitCenterPreconditionRequired) lockProfitCenterRes() {}
 type LockProfitCenterUnprocessableEntity Problem
 
 func (*LockProfitCenterUnprocessableEntity) lockProfitCenterRes() {}
+
+// One page of a legal entity's margin report by profit center (ADR-0075), with the selection, the
+// accounts counted as cost of sales and the totals on every page.
+// Ref: #/components/schemas/MarginReport
+type MarginReport struct {
+	// The rows on this page: profit centers by code, then the `unassigned` row.
+	Items []MarginReportRow `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Fiscal year of the selection.
+	FiscalYear int32 `json:"fiscal_year"`
+	// First period of the selection.
+	FiscalPeriodFrom int32 `json:"fiscal_period_from"`
+	// Last period of the selection.
+	FiscalPeriodTo int32 `json:"fiscal_period_to"`
+	// The legal entity's local currency, which every amount is in.
+	Currency string `json:"currency"`
+	// Whether the configuration names cost of sales accounts for the legal entity's chart
+	// (`controlling.margin_report`); false: the cost of sales is zero and the margin is the revenue.
+	CostOfSalesNamed bool `json:"cost_of_sales_named"`
+	// The numbers of the chart's accounts counted as cost of sales, in number order; empty when none is
+	// named.
+	CostOfSalesAccounts []string `json:"cost_of_sales_accounts"`
+	// The whole selection's totals, the same on every page.
+	Totals MarginReportTotals `json:"totals"`
+}
+
+// GetItems returns the value of Items.
+func (s *MarginReport) GetItems() []MarginReportRow {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *MarginReport) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *MarginReport) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *MarginReport) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriodFrom returns the value of FiscalPeriodFrom.
+func (s *MarginReport) GetFiscalPeriodFrom() int32 {
+	return s.FiscalPeriodFrom
+}
+
+// GetFiscalPeriodTo returns the value of FiscalPeriodTo.
+func (s *MarginReport) GetFiscalPeriodTo() int32 {
+	return s.FiscalPeriodTo
+}
+
+// GetCurrency returns the value of Currency.
+func (s *MarginReport) GetCurrency() string {
+	return s.Currency
+}
+
+// GetCostOfSalesNamed returns the value of CostOfSalesNamed.
+func (s *MarginReport) GetCostOfSalesNamed() bool {
+	return s.CostOfSalesNamed
+}
+
+// GetCostOfSalesAccounts returns the value of CostOfSalesAccounts.
+func (s *MarginReport) GetCostOfSalesAccounts() []string {
+	return s.CostOfSalesAccounts
+}
+
+// GetTotals returns the value of Totals.
+func (s *MarginReport) GetTotals() MarginReportTotals {
+	return s.Totals
+}
+
+// SetItems sets the value of Items.
+func (s *MarginReport) SetItems(val []MarginReportRow) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *MarginReport) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *MarginReport) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *MarginReport) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriodFrom sets the value of FiscalPeriodFrom.
+func (s *MarginReport) SetFiscalPeriodFrom(val int32) {
+	s.FiscalPeriodFrom = val
+}
+
+// SetFiscalPeriodTo sets the value of FiscalPeriodTo.
+func (s *MarginReport) SetFiscalPeriodTo(val int32) {
+	s.FiscalPeriodTo = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *MarginReport) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetCostOfSalesNamed sets the value of CostOfSalesNamed.
+func (s *MarginReport) SetCostOfSalesNamed(val bool) {
+	s.CostOfSalesNamed = val
+}
+
+// SetCostOfSalesAccounts sets the value of CostOfSalesAccounts.
+func (s *MarginReport) SetCostOfSalesAccounts(val []string) {
+	s.CostOfSalesAccounts = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *MarginReport) SetTotals(val MarginReportTotals) {
+	s.Totals = val
+}
+
+func (*MarginReport) getMarginReportRes() {}
+
+// A row of the margin report (ADR-0075 §3): a profit center's revenue, cost of sales and margin in
+// the selection, or, as `unassigned`, those of the lines that carry no profit center; in the legal
+// entity's local currency.
+// Ref: #/components/schemas/MarginReportRow
+type MarginReportRow struct {
+	// Profit center; absent on the `unassigned` row.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// The profit center's code; absent on the `unassigned` row.
+	ProfitCenterCode OptString `json:"profit_center_code"`
+	// The profit center's name; absent on the `unassigned` row.
+	ProfitCenterName OptString `json:"profit_center_name"`
+	// True on the one row of the lines that carry no profit center.
+	Unassigned bool `json:"unassigned"`
+	// Credits less debits on the accounts of type `revenue`.
+	Revenue Money `json:"revenue"`
+	// Debits less credits on the cost of sales accounts.
+	CostOfSales Money `json:"cost_of_sales"`
+	// Revenue less cost of sales.
+	Margin Money `json:"margin"`
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *MarginReportRow) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// GetProfitCenterCode returns the value of ProfitCenterCode.
+func (s *MarginReportRow) GetProfitCenterCode() OptString {
+	return s.ProfitCenterCode
+}
+
+// GetProfitCenterName returns the value of ProfitCenterName.
+func (s *MarginReportRow) GetProfitCenterName() OptString {
+	return s.ProfitCenterName
+}
+
+// GetUnassigned returns the value of Unassigned.
+func (s *MarginReportRow) GetUnassigned() bool {
+	return s.Unassigned
+}
+
+// GetRevenue returns the value of Revenue.
+func (s *MarginReportRow) GetRevenue() Money {
+	return s.Revenue
+}
+
+// GetCostOfSales returns the value of CostOfSales.
+func (s *MarginReportRow) GetCostOfSales() Money {
+	return s.CostOfSales
+}
+
+// GetMargin returns the value of Margin.
+func (s *MarginReportRow) GetMargin() Money {
+	return s.Margin
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *MarginReportRow) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetProfitCenterCode sets the value of ProfitCenterCode.
+func (s *MarginReportRow) SetProfitCenterCode(val OptString) {
+	s.ProfitCenterCode = val
+}
+
+// SetProfitCenterName sets the value of ProfitCenterName.
+func (s *MarginReportRow) SetProfitCenterName(val OptString) {
+	s.ProfitCenterName = val
+}
+
+// SetUnassigned sets the value of Unassigned.
+func (s *MarginReportRow) SetUnassigned(val bool) {
+	s.Unassigned = val
+}
+
+// SetRevenue sets the value of Revenue.
+func (s *MarginReportRow) SetRevenue(val Money) {
+	s.Revenue = val
+}
+
+// SetCostOfSales sets the value of CostOfSales.
+func (s *MarginReportRow) SetCostOfSales(val Money) {
+	s.CostOfSales = val
+}
+
+// SetMargin sets the value of Margin.
+func (s *MarginReportRow) SetMargin(val Money) {
+	s.Margin = val
+}
+
+// The legal entity's revenue, cost of sales and margin over the whole selection, which the rows of
+// every page add up to; in the legal entity's local currency.
+// Ref: #/components/schemas/MarginReportTotals
+type MarginReportTotals struct {
+	// Revenue.
+	Revenue Money `json:"revenue"`
+	// Cost of sales.
+	CostOfSales Money `json:"cost_of_sales"`
+	// Revenue less cost of sales.
+	Margin Money `json:"margin"`
+}
+
+// GetRevenue returns the value of Revenue.
+func (s *MarginReportTotals) GetRevenue() Money {
+	return s.Revenue
+}
+
+// GetCostOfSales returns the value of CostOfSales.
+func (s *MarginReportTotals) GetCostOfSales() Money {
+	return s.CostOfSales
+}
+
+// GetMargin returns the value of Margin.
+func (s *MarginReportTotals) GetMargin() Money {
+	return s.Margin
+}
+
+// SetRevenue sets the value of Revenue.
+func (s *MarginReportTotals) SetRevenue(val Money) {
+	s.Revenue = val
+}
+
+// SetCostOfSales sets the value of CostOfSales.
+func (s *MarginReportTotals) SetCostOfSales(val Money) {
+	s.CostOfSales = val
+}
+
+// SetMargin sets the value of Margin.
+func (s *MarginReportTotals) SetMargin(val Money) {
+	s.Margin = val
+}
 
 type MatchBankStatementBadRequest Problem
 
@@ -67400,6 +67701,13 @@ type PlanBatch struct {
 	ReplacedCount int32 `json:"replaced_count"`
 	// Whether the batch key had already been applied with these lines, so nothing changed.
 	Replayed bool `json:"replayed"`
+	// The plan category the batch's lines were copied from (`POST /v1/plan-categories/{id}:copy`); absent
+	// on an uploaded batch.
+	CopiedFromPlanCategoryID OptUUID `json:"copied_from_plan_category_id"`
+	// The code of the category copied from; absent on an uploaded batch.
+	CopiedFromPlanCategoryCode OptString `json:"copied_from_plan_category_code"`
+	// The percentage the copied amounts were multiplied by; absent on an uploaded batch.
+	CopyPercentage OptString `json:"copy_percentage"`
 	// When the batch was applied (UTC).
 	CreatedAt time.Time `json:"created_at"`
 	// Principal that applied the batch.
@@ -67444,6 +67752,21 @@ func (s *PlanBatch) GetReplacedCount() int32 {
 // GetReplayed returns the value of Replayed.
 func (s *PlanBatch) GetReplayed() bool {
 	return s.Replayed
+}
+
+// GetCopiedFromPlanCategoryID returns the value of CopiedFromPlanCategoryID.
+func (s *PlanBatch) GetCopiedFromPlanCategoryID() OptUUID {
+	return s.CopiedFromPlanCategoryID
+}
+
+// GetCopiedFromPlanCategoryCode returns the value of CopiedFromPlanCategoryCode.
+func (s *PlanBatch) GetCopiedFromPlanCategoryCode() OptString {
+	return s.CopiedFromPlanCategoryCode
+}
+
+// GetCopyPercentage returns the value of CopyPercentage.
+func (s *PlanBatch) GetCopyPercentage() OptString {
+	return s.CopyPercentage
 }
 
 // GetCreatedAt returns the value of CreatedAt.
@@ -67494,6 +67817,21 @@ func (s *PlanBatch) SetReplacedCount(val int32) {
 // SetReplayed sets the value of Replayed.
 func (s *PlanBatch) SetReplayed(val bool) {
 	s.Replayed = val
+}
+
+// SetCopiedFromPlanCategoryID sets the value of CopiedFromPlanCategoryID.
+func (s *PlanBatch) SetCopiedFromPlanCategoryID(val OptUUID) {
+	s.CopiedFromPlanCategoryID = val
+}
+
+// SetCopiedFromPlanCategoryCode sets the value of CopiedFromPlanCategoryCode.
+func (s *PlanBatch) SetCopiedFromPlanCategoryCode(val OptString) {
+	s.CopiedFromPlanCategoryCode = val
+}
+
+// SetCopyPercentage sets the value of CopyPercentage.
+func (s *PlanBatch) SetCopyPercentage(val OptString) {
+	s.CopyPercentage = val
 }
 
 // SetCreatedAt sets the value of CreatedAt.
@@ -67599,7 +67937,8 @@ func (s *PlanBatchHeaders) SetResponse(val PlanBatch) {
 	s.Response = val
 }
 
-func (*PlanBatchHeaders) applyPlanBatchRes() {}
+func (*PlanBatchHeaders) applyPlanBatchRes()   {}
+func (*PlanBatchHeaders) copyPlanCategoryRes() {}
 
 // A line of a plan batch: the amount planned on a cost center or a profit center (exactly one) and an
 // account in a period.
@@ -67790,6 +68129,74 @@ func (s *PlanCategory) SetName(val string) {
 // SetLocked sets the value of Locked.
 func (s *PlanCategory) SetLocked(val bool) {
 	s.Locked = val
+}
+
+// A copy of a plan category's plan of one legal entity and fiscal year into another category, scaled
+// by a percentage.
+// Ref: #/components/schemas/PlanCategoryCopy
+type PlanCategoryCopy struct {
+	// The plan category the copy is written into: another one than the category copied, and open.
+	TargetPlanCategoryID uuid.UUID `json:"target_plan_category_id"`
+	// The legal entity whose plan is copied; a copy is one legal entity's, as a plan batch is.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year whose plan is copied, into the same year of the target.
+	FiscalYear int32 `json:"fiscal_year"`
+	// What each amount is multiplied by, in percent: above 0 and at most 1000, with up to four decimals;
+	// `100` copies the amounts as they are, `105` adds five percent.
+	Percentage string `json:"percentage"`
+	// Whether the copy may replace the target's current plan of the legal entity and year (all of it,
+	// every center's); false: a target that has one is refused.
+	Replace OptBool `json:"replace"`
+}
+
+// GetTargetPlanCategoryID returns the value of TargetPlanCategoryID.
+func (s *PlanCategoryCopy) GetTargetPlanCategoryID() uuid.UUID {
+	return s.TargetPlanCategoryID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *PlanCategoryCopy) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *PlanCategoryCopy) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPercentage returns the value of Percentage.
+func (s *PlanCategoryCopy) GetPercentage() string {
+	return s.Percentage
+}
+
+// GetReplace returns the value of Replace.
+func (s *PlanCategoryCopy) GetReplace() OptBool {
+	return s.Replace
+}
+
+// SetTargetPlanCategoryID sets the value of TargetPlanCategoryID.
+func (s *PlanCategoryCopy) SetTargetPlanCategoryID(val uuid.UUID) {
+	s.TargetPlanCategoryID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *PlanCategoryCopy) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *PlanCategoryCopy) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPercentage sets the value of Percentage.
+func (s *PlanCategoryCopy) SetPercentage(val string) {
+	s.Percentage = val
+}
+
+// SetReplace sets the value of Replace.
+func (s *PlanCategoryCopy) SetReplace(val OptBool) {
+	s.Replace = val
 }
 
 // A new plan category.
@@ -81739,6 +82146,7 @@ func (*ServiceUnavailableHeaders) closeInternalOrderRes()                    {}
 func (*ServiceUnavailableHeaders) closePurchaseOrderRes()                    {}
 func (*ServiceUnavailableHeaders) completeCloseTaskRes()                     {}
 func (*ServiceUnavailableHeaders) completeYearCloseTaskRes()                 {}
+func (*ServiceUnavailableHeaders) copyPlanCategoryRes()                      {}
 func (*ServiceUnavailableHeaders) createAllocationCycleRes()                 {}
 func (*ServiceUnavailableHeaders) createAssetAcquisitionRes()                {}
 func (*ServiceUnavailableHeaders) createAssetRes()                           {}
@@ -86860,6 +87268,7 @@ func (*TooManyRequestsHeaders) confirmReturnReceiptRes()                  {}
 func (*TooManyRequestsHeaders) confirmReturnsOrderRes()                   {}
 func (*TooManyRequestsHeaders) confirmSalesDeliveryRes()                  {}
 func (*TooManyRequestsHeaders) confirmSalesOrderRes()                     {}
+func (*TooManyRequestsHeaders) copyPlanCategoryRes()                      {}
 func (*TooManyRequestsHeaders) createAllocationCycleRes()                 {}
 func (*TooManyRequestsHeaders) createAssetAcquisitionRes()                {}
 func (*TooManyRequestsHeaders) createAssetRes()                           {}
@@ -87010,6 +87419,7 @@ func (*TooManyRequestsHeaders) getLegalEntityRes()                        {}
 func (*TooManyRequestsHeaders) getLegalEntityTodayRes()                   {}
 func (*TooManyRequestsHeaders) getLiquidityForecastRes()                  {}
 func (*TooManyRequestsHeaders) getLiquidityForecastVarianceRes()          {}
+func (*TooManyRequestsHeaders) getMarginReportRes()                       {}
 func (*TooManyRequestsHeaders) getMatchResultRes()                        {}
 func (*TooManyRequestsHeaders) getMemoRecordRes()                         {}
 func (*TooManyRequestsHeaders) getMigrationRunRes()                       {}
@@ -87667,6 +88077,7 @@ func (*UnauthorizedHeaders) confirmReturnReceiptRes()                  {}
 func (*UnauthorizedHeaders) confirmReturnsOrderRes()                   {}
 func (*UnauthorizedHeaders) confirmSalesDeliveryRes()                  {}
 func (*UnauthorizedHeaders) confirmSalesOrderRes()                     {}
+func (*UnauthorizedHeaders) copyPlanCategoryRes()                      {}
 func (*UnauthorizedHeaders) createAllocationCycleRes()                 {}
 func (*UnauthorizedHeaders) createAssetAcquisitionRes()                {}
 func (*UnauthorizedHeaders) createAssetRes()                           {}
@@ -87817,6 +88228,7 @@ func (*UnauthorizedHeaders) getLegalEntityRes()                        {}
 func (*UnauthorizedHeaders) getLegalEntityTodayRes()                   {}
 func (*UnauthorizedHeaders) getLiquidityForecastRes()                  {}
 func (*UnauthorizedHeaders) getLiquidityForecastVarianceRes()          {}
+func (*UnauthorizedHeaders) getMarginReportRes()                       {}
 func (*UnauthorizedHeaders) getMatchResultRes()                        {}
 func (*UnauthorizedHeaders) getMemoRecordRes()                         {}
 func (*UnauthorizedHeaders) getMigrationRunRes()                       {}

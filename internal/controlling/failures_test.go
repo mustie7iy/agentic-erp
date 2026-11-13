@@ -28,6 +28,9 @@ func TestPlanDatabaseFailures(t *testing.T) {
 	open := uuid.MustParse(c.category(t, "OPEN"))
 	locked := uuid.MustParse(c.category(t, "LOCKED"))
 	c.Must(200, "POST", "/v1/plan-categories/"+locked.String()+":lock", "", `"1"`)
+	// A category with a plan of a cost center, for a copy to replace.
+	copied := uuid.MustParse(c.category(t, "COPIED"))
+	c.batch(t, copied.String(), "old", line(c.c.Locked, c.office, 1, "1.00"))
 	amount := gen.Money{Amount: "1.00", Currency: "EUR"}
 	newBatch := func(key string) *gen.PlanBatchCreate {
 		return &gen.PlanBatchCreate{PlanCategoryID: open, LegalEntityID: c.DE, FiscalYear: 2026, BatchKey: key, Lines: []gen.PlanBatchLine{
@@ -246,6 +249,11 @@ func TestPlanDatabaseFailures(t *testing.T) {
 			_, err := h.ApplyPlanBatch(ctx, newBatch("new"), gen.ApplyPlanBatchParams{})
 			return err
 		},
+		"copy a category's plan over another's": func(ctx context.Context) error {
+			_, err := h.CopyPlanCategory(ctx, &gen.PlanCategoryCopy{TargetPlanCategoryID: copied, LegalEntityID: c.DE, FiscalYear: 2026, Percentage: "105",
+				Replace: gen.NewOptBool(true)}, gen.CopyPlanCategoryParams{ID: cat, IfMatch: `"1"`})
+			return err
+		},
 		"replay a batch": func(ctx context.Context) error {
 			b := newBatch("budget")
 			b.PlanCategoryID = cat
@@ -301,6 +309,24 @@ func TestPlanDatabaseFailures(t *testing.T) {
 		},
 		"the ledger's profit centers of a node": func(ctx context.Context) error {
 			_, _, err := ledger.AssignmentBalances{}.ProfitCenters(ctx, nil, &pcRoot)
+			return err
+		},
+		"read the margin report, every page": func(ctx context.Context) error {
+			page := gen.GetMarginReportParams{LegalEntityID: c.DE, FiscalYear: 2026, PageSize: gen.NewOptInt32(1)}
+			for {
+				res, err := h.GetMarginReport(ctx, page)
+				if err != nil {
+					return err
+				}
+				next, more := res.(*gen.MarginReport).NextPageToken.Get()
+				if !more {
+					return nil
+				}
+				page.PageToken = gen.NewOptString(next)
+			}
+		},
+		"the ledger's margin": func(ctx context.Context) error {
+			_, err := ledger.AssignmentBalances{}.Margin(ctx, ledger.MarginQuery{LegalEntityID: c.DE, FiscalYear: 2026, PeriodFrom: 1, PeriodTo: 16, Limit: 1})
 			return err
 		},
 		"the ledger's profit center actuals": func(ctx context.Context) error {

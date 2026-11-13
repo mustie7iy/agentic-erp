@@ -138,6 +138,10 @@ var tierRules = []struct {
 	// cost centers and the locks they start with do (ADR-0050 §11: the
 	// rules about centers are configuration at tier 3 or 4).
 	{rx(`^controlling\.cost_center_categories\[\*\]\.name$`), TierCosmetic},
+	// What the margin report counts as cost of sales posts nothing: it
+	// changes what a report says (ADR-0075 §2), as a metric's definition
+	// does.
+	{rx(`^controlling\.margin_report(\[|$)`), TierOperational},
 	{rx(`^controlling(\.|$)`), TierPostingRelated},
 	// Cash settings post nothing (ADR-0051 §4): names and the hierarchy
 	// are cosmetic; items, rules and a company's settings change how cash
@@ -229,6 +233,9 @@ var listKeys = map[string]string{
 	"liquidity_items": "code", "planning_groups": "code",
 	"value_days": "house_bank,method", "credit_lines": "house_bank",
 	"cost_center_categories": "code", "default_assignments": "account",
+	// The margin report's charts by chart (ADR-0075 §2); a chart's cost of
+	// sales accounts are listed by position.
+	"margin_report": "chart",
 	// Asset classes by code, their terms by ledger, a company's asset
 	// accounts by class (ADR-0057 §3).
 	"asset_classes": "code", "terms": "ledger", "asset_accounts": "class",

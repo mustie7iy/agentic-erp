@@ -8305,6 +8305,151 @@ step_return_receipt() {
   passed
 }
 
+# step_margin is T92b (ADR-0075): Carla, the controller, reads Maple's
+# margin report: per profit center the revenue (the accounts of type
+# revenue), the cost of sales (the accounts the configuration names for
+# the chart) and their difference, from the general ledger. Nothing posts
+# a cost of goods sold (no stock; planning default of 2026-11-12), so the
+# cost of sales is what a person posts: Alex posts it by journal entry.
+# The revenue is checked against the trial balance, which holds what the
+# earlier steps billed and invoiced; the rows add up to the totals.
+step_margin() {
+  heading "Step 78 — The margin report: the cost of sales accounts named through a governed change; Maple's revenue from the general ledger, a cost of sales posted by journal entry and their difference by profit center, the rows adding up to the company's totals"
+  local base cr request cogs bank cc revenue rows before after want
+  local row='"  \(if .unassigned then "no profit center" else "\(.profit_center_code) \(.profit_center_name)" end): revenue \(.revenue.amount), cost of sales \(.cost_of_sales.amount), margin \(.margin.amount) \(.margin.currency)"'
+  local report="\"margin report of $YEAR, periods \(.fiscal_period_from) to \(.fiscal_period_to), in \(.currency); cost of sales accounts: \(if .cost_of_sales_named then .cost_of_sales_accounts | join(\", \") else \"none named\" end)\", (.items[] | $row), \"  totals: revenue \(.totals.revenue.amount), cost of sales \(.totals.cost_of_sales.amount), margin \(.totals.margin.amount) \(.totals.margin.currency)\""
+  # The rows' three amounts added up, in cents, beside the totals'.
+  local sums='def cents: sub("\\."; "") | tonumber; "\([.items[].revenue.amount | cents] | add // 0) \([.items[].cost_of_sales.amount | cents] | add // 0) \([.items[].margin.amount | cents] | add // 0)"'
+  local totals='def cents: sub("\\."; "") | tonumber; "\(.totals.revenue.amount | cents) \(.totals.cost_of_sales.amount | cents) \(.totals.margin.amount | cents)"'
+  as carla
+  say "Carla reads Maple's margin report of $YEAR (ADR-0075): per profit center the revenue, the cost of sales and the"
+  say "margin, from the leading ledger's balances. The configuration names no cost of sales account for Maple's chart"
+  say "yet, and the report says so: the cost of sales is zero and the margin is the revenue."
+  api 200 "$report" getMarginReport -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p page_size=200
+  expect "no cost of sales accounts named" "$(field '"\(.cost_of_sales_named) \(.cost_of_sales_accounts | length) \(.totals.cost_of_sales.amount)"')" "false 0 0.00"
+  expect "the margin, the revenue" "$(field .totals.margin.amount)" "$(field .totals.revenue.amount)"
+  expect "the report on one page" "$(field '.next_page_token // ""')" ""
+  expect "the rows add up to the totals" "$(field "$sums")" "$(field "$totals")"
+  revenue=$(field '.totals.revenue.amount')
+  rows=$(field '.items | length')
+  [ "$rows" -gt 0 ] || fail "no revenue in the margin report: the earlier steps' customer invoices and billing documents are not there"
+  say "The revenue is the general ledger's: the credits less the debits on Maple's revenue accounts in the trial balance."
+  accounts
+  want=$(jq -c '[.items[] | select(.account_type == "revenue") | .id]' "$WORK/accounts.json")
+  QUIET=1 api 200 '' listBalances -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p page_size=500
+  expect "the balances on one page" "$(field '.next_page_token // ""')" ""
+  expect "the report's revenue, the trial balance's revenue accounts" "$(cents "$revenue")" \
+    "$(field "def cents: sub(\"\\\\.\"; \"\") | tonumber; [.items[] | select(.account_id as \$a | $want | index(\$a)) | (.credit_lc.amount | cents) - (.debit_lc.amount | cents)] | add // 0")"
+  as ada
+  say "Which accounts are cost of sales is the tenant's configuration (controlling.margin_report, ADR-0075 §2): single"
+  say "accounts or ranges of a chart's expense accounts. Ada names Maple's account 5000, purchases and cost of goods"
+  say "sold. The setting posts nothing, so the change is tier 2, approved by the process owner:"
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Cost of sales accounts\", rationale: \"Maple's margin report (T92b)\", base_version: $base,
+    proposed: (.items[0].document | .controlling.margin_report = [{chart: \"$CC\", cost_of_sales_accounts: [{from: \"5000\"}]}])}" "$WORK/last.json" >"$WORK/margin.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @margin.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 2
+  expect "the change" "$(field '[.items[].path] | join(" ")')" "controlling.margin_report[$CC]"
+  request=$(field .workflow_request_id)
+  approve priya "$request" "The cost of sales accounts, as agreed with the controller"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  as carla
+  say "Carla reads the report again. It counts account 5000 now, with whatever the ledger holds on it:"
+  api 200 "$report" getMarginReport -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p page_size=200
+  expect "the cost of sales accounts" "$(field '"\(.cost_of_sales_named) \(.cost_of_sales_accounts | join(" "))"')" "true 5000"
+  expect "the revenue as before" "$(field .totals.revenue.amount)" "$revenue"
+  before=$(field '[.items[] | select(.profit_center_code == "PC-MTL")] | if length == 0 then "0.00 0.00" else .[0] | "\(.revenue.amount) \(.cost_of_sales.amount)" end')
+  as alex
+  cogs=$(account 5000)
+  bank=$(account 100000)
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  cc=$(field '.items[0].id')
+  say "No stock is kept, so nothing posts a cost of goods sold. At period end Alex posts the cost of what Maple sold,"
+  say "CAD 700.00, by journal entry on cost center CC-1100, whose profit center is PC-MTL:"
+  api 201 '"journal entry \(.document_number): \([.lines[] | "\(.account_id | acct) \(.amount.amount) \(.amount.currency)\(if .cost_center_code then " on cost center \(.cost_center_code), profit center \(.profit_center_code)" else "" end)"] | join(" / "))"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"Cost of sales of the period\", \"lines\": [{\"account_id\": \"$cogs\", \"amount\": {\"amount\": \"700.00\", \"currency\": \"CAD\"}, \"cost_center_id\": \"$cc\"}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-700.00\", \"currency\": \"CAD\"}}]}"
+  expect "the cost line's profit center" "$(field '.lines[0].profit_center_code')" PC-MTL
+  as carla
+  say "The report is exact at the read, so it shows the entry at once: PC-MTL's cost of sales is CAD 700.00 more, its"
+  say "margin its revenue less its cost of sales, and the rows still add up to Maple's totals."
+  api 200 "$report" getMarginReport -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p page_size=200
+  after=$(field '.items[] | select(.profit_center_code == "PC-MTL") | "\(.revenue.amount) \(.cost_of_sales.amount) \(.margin.amount)"')
+  expect "PC-MTL's revenue, cost of sales and margin" "$after" \
+    "${before% *} $(amount $(($(cents "${before#* }") + 70000))) $(amount $(($(cents "${before% *}") - $(cents "${before#* }") - 70000)))"
+  expect "the rows add up to the totals" "$(field "$sums")" "$(field "$totals")"
+  expect "the totals' margin, revenue less cost of sales" "$(cents "$(field .totals.margin.amount)")" \
+    "$(($(cents "$(field .totals.revenue.amount)") - $(cents "$(field .totals.cost_of_sales.amount)")))"
+  say "PC-MTL: revenue ${after%% *}, cost of sales $(echo "$after" | cut -d' ' -f2), margin ${after##* } CAD."
+  as rita
+  say "Rita holds neither the margin report's permission nor the ledger's entry read:"
+  refused 403 identity.permission_missing getMarginReport -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  as carla
+  passed
+}
+# step_plan_version is T93a (ADR-0050 §8, As built T93a): Carla enters
+# Maple's budget for two cost centers as a plan batch of the category
+# PLAN (the story had no plan yet) and copies it into a new category, FC,
+# at 105 percent: a planning version. The copy is one plan batch of FC
+# naming its origin; each amount is scaled and rounded half away from
+# zero; PLAN is unchanged; a second copy into FC is refused unless it says
+# to replace; the cost center plan against actual report reads FC.
+step_plan_version() {
+  heading "Step 79 — A planning version: a budget entered for two cost centers and copied into a forecast category at 105 percent, each amount scaled and rounded; the budget unchanged; the plan against actual report reads the forecast"
+  local plan fc tag admin sales account month batch
+  local lines='[.items[] | "\(.cost_center_id) \(.fiscal_period) \(.amount.amount) \(.amount.currency)"] | sort | join("; ")'
+  month=$((10#${TODAY:5:2}))
+  as carla
+  accounts
+  account=$(account 6000)
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  admin=$(field '.items[0].id')
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1300
+  sales=$(field '.items[0].id')
+  say "Carla creates two plan categories (ADR-0050 §8): PLAN for the budget and FC for a forecast."
+  api 201 '"plan category \(.code) \(.name): \(if .locked then "locked" else "open" end)"' createPlanCategory -body "{\"code\": \"PLAN\", \"name\": \"Budget $YEAR\"}"
+  plan=$(field .id)
+  tag=$ETAG
+  api 201 '"plan category \(.code) \(.name): \(if .locked then "locked" else "open" end)"' createPlanCategory -body "{\"code\": \"FC\", \"name\": \"Forecast $YEAR\"}"
+  fc=$(field .id)
+  say "She uploads this month's budget of office expenses for the cost centers CC-1100 and CC-1300 as one plan batch:"
+  api 200 '"plan batch \(.batch_key): \(.line_count) lines written, \(.replaced_count) replaced"' applyPlanBatch \
+    -body "{\"plan_category_id\": \"$plan\", \"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"batch_key\": \"budget-$YEAR\", \"lines\": [
+      {\"cost_center_id\": \"$admin\", \"account_id\": \"$account\", \"fiscal_period\": $month, \"amount\": {\"amount\": \"1000.00\", \"currency\": \"CAD\"}},
+      {\"cost_center_id\": \"$sales\", \"account_id\": \"$account\", \"fiscal_period\": $month, \"amount\": {\"amount\": \"333.33\", \"currency\": \"CAD\"}}]}"
+  expect "the budget's lines" "$(field .line_count)" 2
+  say "The forecast starts as the budget plus five percent. Carla copies PLAN's plan of $YEAR into FC at 105 percent"
+  say "(T93a): every line to the same cost center, account and period, its amount scaled and rounded half away from"
+  say "zero to the cent. The copy is one plan batch of FC that names where it came from:"
+  api 200 '"plan batch \(.batch_key) of FC: \(.line_count) lines copied from \(.copied_from_plan_category_code) at \(.copy_percentage) percent, \(.replaced_count) replaced"' \
+    copyPlanCategory -p "id=$plan" -if-match "$tag" -body "{\"target_plan_category_id\": \"$fc\", \"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"percentage\": \"105\"}"
+  batch=$(field .id)
+  expect "the copy" "$(field '"\(.plan_category_id) \(.line_count) \(.replaced_count) \(.copied_from_plan_category_id) \(.copied_from_plan_category_code) \(.copy_percentage)"')" \
+    "$fc 2 0 $plan PLAN 105"
+  api 200 '.items[] | "  FC period \(.fiscal_period): \(.amount.amount) \(.amount.currency)"' listPlanLines -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "plan_batch_id=$batch"
+  # 1000.00 at 105 percent is 1050.00; 333.33 is 349.9965, rounded to 350.00.
+  expect "the forecast's lines, scaled and rounded" "$(field "$lines")" \
+    "$(printf '%s\n' "$admin $month 1050.00 CAD" "$sales $month 350.00 CAD" | sort | paste -sd';' - | sed 's/;/; /g')"
+  QUIET=1 api 200 '' listPlanLines -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "plan_category_id=$plan"
+  expect "the budget's lines, unchanged" "$(field "$lines")" \
+    "$(printf '%s\n' "$admin $month 1000.00 CAD" "$sales $month 333.33 CAD" | sort | paste -sd';' - | sed 's/;/; /g')"
+  say "FC has a plan of $YEAR now. A second copy into it is refused unless it says to replace that plan:"
+  refused 409 controlling.plan_copy_target_planned copyPlanCategory -p "id=$plan" -if-match "$tag" \
+    -body "{\"target_plan_category_id\": \"$fc\", \"legal_entity_id\": \"$LE\", \"fiscal_year\": $YEAR, \"percentage\": \"110\"}"
+  say "The cost center plan against actual report reads the forecast as it reads any category:"
+  api 200 '.items[] | select(.account_id == "'"$account"'") | "  cost center \(.cost_center_id | if . == "'"$admin"'" then "CC-1100" else "CC-1300" end): plan \(.plan.amount), actual \(.actual.amount), variance \(.variance.amount) \(.variance.currency)"' \
+    listCostCenterPlanActual -p "plan_category_id=$fc" -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "fiscal_period_from=$month" -p "fiscal_period_to=$month" -p page_size=200
+  expect "the report's plan, the forecast's" \
+    "$(field '[.items[] | select(.account_id == "'"$account"'" and (.cost_center_id == "'"$admin"'" or .cost_center_id == "'"$sales"'")) | "\(.cost_center_id) \(.plan.amount)"] | sort | join("; ")')" \
+    "$(printf '%s\n' "$admin 1050.00" "$sales 350.00" | sort | paste -sd';' - | sed 's/;/; /g')"
+  say "FC plans 1050.00 CAD for CC-1100 and 350.00 CAD for CC-1300, copied from PLAN at 105 percent."
+  passed
+}
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -10329,7 +10474,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_margin step_plan_version step_close'
 
 main() {
   stop_unseen

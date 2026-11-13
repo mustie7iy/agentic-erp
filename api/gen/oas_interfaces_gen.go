@@ -193,6 +193,10 @@ type ConfirmSalesOrderRes interface {
 	confirmSalesOrderRes()
 }
 
+type CopyPlanCategoryRes interface {
+	copyPlanCategoryRes()
+}
+
 type CreateAllocationCycleRes interface {
 	createAllocationCycleRes()
 }
@@ -791,6 +795,10 @@ type GetLiquidityForecastRes interface {
 
 type GetLiquidityForecastVarianceRes interface {
 	getLiquidityForecastVarianceRes()
+}
+
+type GetMarginReportRes interface {
+	getMarginReportRes()
 }
 
 type GetMatchResultRes interface {

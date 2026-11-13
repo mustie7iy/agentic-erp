@@ -9,8 +9,9 @@
 //
 // Plan categories (PLAN, FORECAST, ...) are open or locked; locking and
 // unlocking are a person's decision (controlling.plan.lock, an approval
-// permission agents cannot hold, ADR-0050 §12), read FOR UPDATE with the
-// caller's version (ADR-0008). Plan lines are written by batches: a batch
+// permission agents cannot hold, ADR-0050 §12), the category held
+// (getCategory: FOR NO KEY UPDATE) and read with the caller's version
+// (ADR-0008). Plan lines are written by batches: a batch
 // replaces the plan of its category, company, fiscal year and centers, and
 // its key, once applied, makes the same batch again a no-op that publishes
 // nothing. A batch that would write or replace a cost center's plan in a
@@ -68,6 +69,12 @@
 // to the minor unit. The cycle is held FOR UPDATE while it runs: one run
 // per cycle and period. Defining and running are a person's
 // (controlling.allocation.write, .run), audited and published.
+//
+// The margin report (ADR-0075, T92b) stores nothing: a company's revenue,
+// cost of sales and margin by profit center over a range of periods are
+// the ledger's balances, read through its port (ledger.AssignmentBalances
+// .Margin) with the cost of sales accounts the configuration names for
+// the company's chart (controlling.margin_report).
 package controlling
 
 import (
@@ -116,6 +123,7 @@ type Ledger interface {
 	CostCenterValidOn(ctx context.Context, id uuid.UUID, day time.Time) (bool, error)
 	OrderAccountBalances(ctx context.Context, le, order uuid.UUID, upTo *ledger.PeriodKey) ([]ledger.OrderAccountBalance, error)
 	CostAccounts(ctx context.Context, le uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]ledger.CostAccount, error)
+	Margin(ctx context.Context, q ledger.MarginQuery) (ledger.Margin, error)
 }
 
 // Postings is what controlling posts its entries through (ledger.Postings,
@@ -137,7 +145,9 @@ type LegalEntities interface {
 }
 
 // Settings reads the active configuration (configuration context): the
-// time zone a company's date is judged in (companies[].time_zone).
+// time zone a company's date is judged in (companies[].time_zone) and the
+// accounts the margin report counts as cost of sales
+// (controlling.margin_report).
 type Settings interface {
 	Document(ctx context.Context) (*config.Config, int32, error)
 }

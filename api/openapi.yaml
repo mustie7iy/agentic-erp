@@ -9063,6 +9063,77 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/margin-report:
+    get:
+      operationId: getMarginReport
+      x-slo-class: report
+      tags:
+        - controlling
+      summary: Read a company's margin report
+      description: "The margin report of one legal entity over a range of periods of a fiscal year (ADR-0075 §1-§4), from the general ledger's leading ledger, in the legal entity's local currency, exact at the moment of the read: per profit center the revenue (the credits less the debits on the accounts of type `revenue`), the cost of sales (the debits less the credits on the accounts the configuration names for the legal entity's chart, `controlling.margin_report[].cost_of_sales_accounts`) and the margin, the revenue less the cost of sales. Cost of sales is what the ledger holds: a person posts it by journal entry, and nothing is derived from stock. Rows are by the profit center's code; a profit center with neither revenue nor cost of sales in the periods has no row. The lines that carry no profit center are one last row, `unassigned`, present when their revenue or cost of sales is not zero, so the rows of every page add up to `totals`, the legal entity's revenue, cost of sales and margin in the periods, given on every page. `cost_of_sales_accounts` are the accounts of the chart counted as cost of sales; when the configuration names none for the chart, `cost_of_sales_named` is false and the cost of sales is zero, so the margin is the revenue. A legal entity that does not exist or that the caller cannot act in is answered as missing (422 `request.reference_not_found` on `legal_entity_id`). The figures are ledger amounts, so besides `controlling.margin.read` the caller needs `ledger.entry.read`, as for the trial balance (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: controlling.margin.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: Fiscal year (required).
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: fiscal_period_from
+          in: query
+          required: false
+          description: "Only periods from this one (default 1)."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: fiscal_period_to
+          in: query
+          required: false
+          description: "Only periods up to this one (default 16); before `fiscal_period_from`: 400 `request.invalid_parameter`."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the margin report's rows, with the selection's totals.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarginReport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/plan-categories:
     get:
       operationId: listPlanCategories
@@ -9273,6 +9344,63 @@ paths:
           $ref: "#/components/responses/Conflict"
         "412":
           $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/plan-categories/{id}:copy":
+    post:
+      operationId: copyPlanCategory
+      tags:
+        - controlling
+      summary: Copy a plan category's plan into another category
+      description: "Copies the current plan lines of the category, one legal entity and one fiscal year into another plan category as a new version, scaled by a percentage (ADR-0050 §8, As built T93a): each line goes to the same cost center or profit center, account and period, its amount multiplied by `percentage` / 100 and rounded half away from zero to the legal entity's minor unit; a quantity is copied as it is. The copy is one plan batch of the target (`copied_from_plan_category_id`, `copy_percentage`), whose lines `GET /v1/plan-lines?plan_batch_id=` lists and the plan against actual reports read under the target category. The category copied is not changed. A target that already has current lines of the legal entity and year is refused (409 `controlling.plan_copy_target_planned`) unless `replace` is true: the copy then replaces the target's whole plan of the legal entity and year, every center's, marking its current lines replaced (never deleted). Refused as a batch into the target is: a locked target (409 `controlling.plan_category_locked`); a line that names a center, account or period a plan of the legal entity's year may no longer name (422 `controlling.plan_batch_invalid`, `source_lines[<plan line id>].field`, at most 100); a cost center's line, copied or replaced, in a period the center is locked for planning in (422 `controlling.cost_center_plan_locked`: `source_lines[<plan line id>].cost_center_id` for a line copied or for the first line copied to a center whose current line would be replaced, `replaced_cost_centers[<cost center id>]` for a center of the target's plan the copy has no line of). Also refused (422 `controlling.plan_copy_invalid`, naming the field): the target the category itself, a percentage that is not above 0 and at most 1000 with up to four decimals, a legal entity and year the category has no current lines of, more than 50,000 lines, and an amount that does not fit after scaling. An unknown target, or a legal entity the caller cannot act in, is 422 `request.reference_not_found`. `If-Match` names the version of the category copied, as the caller read it (412 `request.version_mismatch`; a lock or unlock moves it, a batch does not); the copy does not change it. A repeat with the same `Idempotency-Key` answers the same batch. Audited and published as PlanBatchApplied, as a batch is. Agents may not copy a plan."
+      x-permission: controlling.plan.write
+      x-agent: false
+      x-problem-codes:
+        - controlling.cost_center_plan_locked
+        - controlling.plan_batch_invalid
+        - controlling.plan_category_locked
+        - controlling.plan_copy_invalid
+        - controlling.plan_copy_target_planned
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: What to copy and where to.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlanCategoryCopy"
+      responses:
+        "200":
+          description: The plan batch the copy wrote into the target category.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanBatch"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
         "429":
@@ -40045,6 +40173,183 @@ components:
           $ref: "#/components/schemas/InternalOrderBalanceTotals"
           description: "The whole selection's totals, the same on every page."
           readOnly: true
+    MarginReportRow:
+      type: object
+      description: "A row of the margin report (ADR-0075 §3): a profit center's revenue, cost of sales and margin in the selection, or, as `unassigned`, those of the lines that carry no profit center; in the legal entity's local currency."
+      required:
+        - unassigned
+        - revenue
+        - cost_of_sales
+        - margin
+      properties:
+        profit_center_id:
+          type: string
+          format: uuid
+          description: "Profit center; absent on the `unassigned` row."
+          readOnly: true
+        profit_center_code:
+          type: string
+          description: "The profit center's code; absent on the `unassigned` row."
+          readOnly: true
+        profit_center_name:
+          type: string
+          description: "The profit center's name; absent on the `unassigned` row."
+          readOnly: true
+        unassigned:
+          type: boolean
+          description: "True on the one row of the lines that carry no profit center."
+          readOnly: true
+        revenue:
+          $ref: "#/components/schemas/Money"
+          description: "Credits less debits on the accounts of type `revenue`."
+          readOnly: true
+        cost_of_sales:
+          $ref: "#/components/schemas/Money"
+          description: "Debits less credits on the cost of sales accounts."
+          readOnly: true
+        margin:
+          $ref: "#/components/schemas/Money"
+          description: Revenue less cost of sales.
+          readOnly: true
+      examples:
+        - profit_center_id: "0192a000-0000-7000-8000-000000000302"
+          profit_center_code: PC-EAST
+          profit_center_name: East region
+          unassigned: false
+          revenue:
+            amount: "12000.00"
+            currency: CAD
+          cost_of_sales:
+            amount: "7500.00"
+            currency: CAD
+          margin:
+            amount: "4500.00"
+            currency: CAD
+    MarginReportTotals:
+      type: object
+      description: "The legal entity's revenue, cost of sales and margin over the whole selection, which the rows of every page add up to; in the legal entity's local currency."
+      required:
+        - revenue
+        - cost_of_sales
+        - margin
+      properties:
+        revenue:
+          $ref: "#/components/schemas/Money"
+          description: Revenue.
+          readOnly: true
+        cost_of_sales:
+          $ref: "#/components/schemas/Money"
+          description: Cost of sales.
+          readOnly: true
+        margin:
+          $ref: "#/components/schemas/Money"
+          description: Revenue less cost of sales.
+          readOnly: true
+    MarginReport:
+      type: object
+      description: "One page of a legal entity's margin report by profit center (ADR-0075), with the selection, the accounts counted as cost of sales and the totals on every page."
+      required:
+        - items
+        - legal_entity_id
+        - fiscal_year
+        - fiscal_period_from
+        - fiscal_period_to
+        - currency
+        - cost_of_sales_named
+        - cost_of_sales_accounts
+        - totals
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarginReportRow"
+          description: "The rows on this page: profit centers by code, then the `unassigned` row."
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The legal entity.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year of the selection.
+          readOnly: true
+        fiscal_period_from:
+          type: integer
+          format: int32
+          description: First period of the selection.
+          readOnly: true
+        fiscal_period_to:
+          type: integer
+          format: int32
+          description: Last period of the selection.
+          readOnly: true
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+          description: "The legal entity's local currency, which every amount is in."
+          readOnly: true
+        cost_of_sales_named:
+          type: boolean
+          description: "Whether the configuration names cost of sales accounts for the legal entity's chart (`controlling.margin_report`); false: the cost of sales is zero and the margin is the revenue."
+          readOnly: true
+        cost_of_sales_accounts:
+          type: array
+          items:
+            type: string
+          description: "The numbers of the chart's accounts counted as cost of sales, in number order; empty when none is named."
+          readOnly: true
+        totals:
+          $ref: "#/components/schemas/MarginReportTotals"
+          description: "The whole selection's totals, the same on every page."
+          readOnly: true
+      examples:
+        - items:
+            - profit_center_id: "0192a000-0000-7000-8000-000000000302"
+              profit_center_code: PC-EAST
+              profit_center_name: East region
+              unassigned: false
+              revenue:
+                amount: "12000.00"
+                currency: CAD
+              cost_of_sales:
+                amount: "7500.00"
+                currency: CAD
+              margin:
+                amount: "4500.00"
+                currency: CAD
+            - unassigned: true
+              revenue:
+                amount: "500.00"
+                currency: CAD
+              cost_of_sales:
+                amount: "0.00"
+                currency: CAD
+              margin:
+                amount: "500.00"
+                currency: CAD
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          fiscal_year: 2026
+          fiscal_period_from: 1
+          fiscal_period_to: 16
+          currency: CAD
+          cost_of_sales_named: true
+          cost_of_sales_accounts:
+            - "5000"
+          totals:
+            revenue:
+              amount: "12500.00"
+              currency: CAD
+            cost_of_sales:
+              amount: "7500.00"
+              currency: CAD
+            margin:
+              amount: "5000.00"
+              currency: CAD
     PlanCategory:
       description: "A plan category (ADR-0050 §8, SAP's category for planning): plan values of one kind, such as the budget (`PLAN`) or a forecast, open or locked."
       allOf:
@@ -40210,6 +40515,43 @@ components:
               amount:
                 amount: "12000.00"
                 currency: EUR
+    PlanCategoryCopy:
+      type: object
+      description: "A copy of a plan category's plan of one legal entity and fiscal year into another category, scaled by a percentage."
+      required:
+        - target_plan_category_id
+        - legal_entity_id
+        - fiscal_year
+        - percentage
+      properties:
+        target_plan_category_id:
+          type: string
+          format: uuid
+          description: "The plan category the copy is written into: another one than the category copied, and open."
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: "The legal entity whose plan is copied; a copy is one legal entity's, as a plan batch is."
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          description: The fiscal year whose plan is copied, into the same year of the target.
+        percentage:
+          type: string
+          pattern: "^[0-9]{1,4}(\\.[0-9]{1,4})?$"
+          description: "What each amount is multiplied by, in percent: above 0 and at most 1000, with up to four decimals; `100` copies the amounts as they are, `105` adds five percent."
+        replace:
+          type: boolean
+          default: false
+          description: "Whether the copy may replace the target's current plan of the legal entity and year (all of it, every center's); false: a target that has one is refused."
+      additionalProperties: false
+      examples:
+        - target_plan_category_id: "0192a000-0000-7000-8000-000000000a02"
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          fiscal_year: 2027
+          percentage: "105"
     PlanBatch:
       type: object
       description: "A plan batch as applied."
@@ -40262,6 +40604,19 @@ components:
         replayed:
           type: boolean
           description: "Whether the batch key had already been applied with these lines, so nothing changed."
+          readOnly: true
+        copied_from_plan_category_id:
+          type: string
+          format: uuid
+          description: "The plan category the batch's lines were copied from (`POST /v1/plan-categories/{id}:copy`); absent on an uploaded batch."
+          readOnly: true
+        copied_from_plan_category_code:
+          type: string
+          description: "The code of the category copied from; absent on an uploaded batch."
+          readOnly: true
+        copy_percentage:
+          type: string
+          description: "The percentage the copied amounts were multiplied by; absent on an uploaded batch."
           readOnly: true
         created_at:
           type: string

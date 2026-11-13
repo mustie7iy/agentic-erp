@@ -3588,13 +3588,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Margin reporting",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A controller reads the margin report of a company and a period from the general ledger: per profit center the revenue, the cost of sales on the accounts the configuration names, and the margin (GET /v1/margin-report)",
-        "r": "T92b · docs/design/plan-breadth-week3.md §T92b",
+        "r": "T92b · docs/design/plan-breadth-week3.md §T92b · ADR-0075 · migration 000308 (controlling.margin.read) · config controlling.margin_report (config.MarginChart, AccountRange, Config.CostOfSalesAccounts, validator.marginReport, tier 2) · ledger.AssignmentBalances.Margin · controlling.Endpoints.GetMarginReport · TestMarginReport, TestMarginReportPages, TestMarginReportWithoutNamedAccounts, TestMarginReportRefusals, TestMarginReportIsExactOrFails, TestPlanDatabaseFailures, TestMarginReportValid, TestMarginReportRules, TestMarginReportTier, TestMarginReadPermission, TestMarginReportBudget · walkthrough step_margin · 03-data-model §3.19 · 04-api-design",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -3637,13 +3637,13 @@
     "ph": 9,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Planning versions",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A controller copies a plan category's lines of a fiscal year into another plan category as a new version, scaled by a percentage, and reads it in the plan and actual reports (POST /v1/plan-categories/{id}:copy)",
-        "r": "T93a · docs/design/plan-breadth-week3.md §T93a",
+        "r": "T93a · docs/design/plan-breadth-week3.md §T93a · ADR-0050 §8 (As built, Planning versions) · migration 000309 (plan_batch.copied_from_category_id, copy_percentage) · controlling.Endpoints.CopyPlanCategory (plancopy.go), replacePlan, planCenters · PlanBatch copied_from_plan_category_id, _code, copy_percentage · PlanBatchApplied copied_from_plan_category_id, copy_percentage · TestPlanCopy, TestPlanCopyReplaces, TestPlanCopyRefusals, TestPlanCopyOfAPlanItCannotTake, TestPlanCopyAndLockedCostCenters, TestPlanLockWaitsForACopy, TestPlanDatabaseFailures, TestPlanBatchCopyRules · walkthrough step_plan_version · 03-data-model §3.19 · 04-api-design",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
