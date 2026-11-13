@@ -8800,7 +8800,7 @@ step_access_sod() {
   expect "the rule in force from tomorrow" "$(field '[.items[] | select(.permission_a == "identity.access.manage" and .permission_b == "payments.run.release")] | length')" 1
   line="Rule identity.access.manage / payments.run.release: Ada Admin ($ada)"
   say "Asked whether the administrators may release payment runs again, the access agent (its role reads identity"
-  say "data since step 67) runs: erp agent access-sod reads the roles, the assignments, the rules, the principals and"
+  say "data since step 73) runs: erp agent access-sod reads the roles, the assignments, the rules, the principals and"
   say "the grants of the role's holders itself, computes who would hold both permissions of a rule on a day it is in"
   say "force, and starts a session. The model is the stand-in, answering from a script of turns as the agent's suite"
   say "replays them (evals/access): it reads the rules and recommends sod_conflict, naming the rule and Ada."
@@ -8871,8 +8871,8 @@ step_access_review() {
   agent=$(field '.items[] | select(.display_name == "Access agent") | .id')
   say "The access agent prepares the review of $from to $to (UTC): erp agent access-review reads the roles, the"
   say "assignments, the rules, the principals, their roles' grants and the period's audit events itself, judges for"
-  say "each active principal each role it holds on $to by its own audit events (as step 67 judges a role by its"
-  say "holders'), with its segregation-of-duties conflicts as step 68 computes them, and starts a session. The model"
+  say "each active principal each role it holds on $to by its own audit events (as step 73 judges a role by its"
+  say "holders'), with its segregation-of-duties conflicts as step 83 computes them, and starts a session. The model"
   say "is the stand-in, answering from a script of turns as the agent's suite replays them (evals/access): one"
   say "recommendation per principal, with the kind and first line the run computed for it."
   jq -n --arg ids "$ids" '
@@ -8939,7 +8939,7 @@ step_access_review() {
 step_credit_memo_request() {
   heading "Step 85 — Credit memo requests: a request for the returns order's received quantities at their billed amount, read back with the amount its quantity gives, more than was billed refused, approved once; nothing posted"
   local customer=$CUSTOMER doc=$BILLING_DOCUMENT returns=$RETURNS_ORDER open billed net want request tag before
-  [ -n "$returns" ] && [ -n "$doc" ] || fail "step 70's returns order and step 64's billing document are not there"
+  [ -n "$returns" ] && [ -n "$doc" ] || fail "step 74's returns order and step 64's billing document are not there"
   as sally
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
   open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
@@ -8950,7 +8950,7 @@ step_credit_memo_request() {
   # 20 of 120 of the billed amount, rounded half away from zero to the cent: what money.Allocate gives two positive shares.
   want=$(((net * 20 * 2 + 120) / 240))
   want=$(printf '%d.%02d' $((want / 100)) $((want % 100)))
-  say "All 20 brackets of the returns order arrived (step 71). Sally asks for Northwind to be credited them (ADR-0067,"
+  say "All 20 brackets of the returns order arrived (step 75). Sally asks for Northwind to be credited them (ADR-0067,"
   say "As built T85c): a credit memo request for the returns order takes what was received and not yet requested, at"
   say "the amount billed for it in full, with no charge: $billed CAD billed for 120 brackets, so 20 are $want CAD net."
   before=$(company_day)
@@ -8993,7 +8993,7 @@ step_credit_memo_request() {
 }
 
 # step_credit_memo_posting is T85d (ADR-0067, As built T85d; ADR-0063,
-# As built T85d): Ruth, the billing clerk, posts step 72's approved
+# As built T85d): Ruth, the billing clerk, posts step 85's approved
 # credit memo request. A customer credit memo naming the request and the
 # billing document's invoice is entered and posted in receivables in the
 # same transaction: its net is the request's and its tax the share of
@@ -9004,7 +9004,7 @@ step_credit_memo_request() {
 step_credit_memo_posting() {
   heading "Step 86 — Credit memo posted: the approved request posted as a customer credit memo naming the request and the invoice, receivables, revenue and output tax moved back by its amounts, the customer's open items lower by its gross"
   local customer=$CUSTOMER doc=$BILLING_DOCUMENT request=$CREDIT_REQUEST invoice billed borne net tax gross memo entry before after tag day
-  [ -n "$request" ] || fail "step 72's credit memo request is not there"
+  [ -n "$request" ] || fail "step 85's credit memo request is not there"
   as ruth
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer" -p page_size=200
   before=$(field '[.items[].amount.amount | sub("\\."; "") | tonumber] | add // 0')

@@ -36,7 +36,7 @@ CREATE TABLE sales.credit_memo_request (
   -- The billing document with its sales order (billing_document_of_order, 000293).
   CONSTRAINT credit_memo_request_billing_document_fkey FOREIGN KEY (tenant_id, billing_document_id, sales_order_id)
     REFERENCES sales.billing_document (tenant_id, id, sales_order_id),
-  -- A returns order of that billing document (returns_order_of_document, 000303).
+  -- A returns order of that billing document (returns_order_of_document, 000306).
   CONSTRAINT credit_memo_request_returns_order_fkey FOREIGN KEY (tenant_id, returns_order_id, billing_document_id)
     REFERENCES sales.returns_order (tenant_id, id, billing_document_id),
   -- A request by amount says why; one for a returns order has that order's reason.
@@ -116,7 +116,7 @@ CREATE TABLE sales.credit_memo_request_item (
     REFERENCES sales.credit_memo_request (tenant_id, id, billing_document_id),
   CONSTRAINT credit_memo_request_item_billing_item_fkey FOREIGN KEY (tenant_id, billing_document_id, billing_item_no)
     REFERENCES sales.billing_document_item (tenant_id, billing_document_id, item_no),
-  -- The returns order's item of that billing item (returns_order_item_once, 000303).
+  -- The returns order's item of that billing item (returns_order_item_once, 000306).
   CONSTRAINT credit_memo_request_item_returns_item_fkey FOREIGN KEY (tenant_id, returns_order_id, billing_item_no)
     REFERENCES sales.returns_order_item (tenant_id, returns_order_id, billing_item_no)
 );

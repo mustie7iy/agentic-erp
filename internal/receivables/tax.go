@@ -161,18 +161,13 @@ func jurisdiction(i int, it Item, code ledger.TaxCode) error {
 // T85d), whose taxes are shares of what the credited invoice bore.
 func given(v Invoice) bool { return v.Kind == KindCreditMemo && v.SourceDocumentID != nil }
 
-// component names a code's component's tax in a jurisdiction, as the
-// calculator gives it on a line and on the document.
-type component struct{ code, key, jurisdiction string }
-
 // shareGiven makes the document's tax per code and component the items'
 // taxes as entered (given): each coded item's tax is shared out among
 // its code's components as the calculator splits that item's tax
-// (money.Allocate), and the shares are added up per component. A code
+// (money.Allocate), and taxGroups adds the shares up per component. A code
 // that gives no tax at all on the invoice date for an item entered with
 // tax is refused, 409 receivables.tax_changed, as a changed rate is.
 func (c *calculated) shareGiven(v Invoice) error {
-	sums := map[component]money.Minor{}
 	for j, i := range c.coded {
 		parts := c.res.Lines[j].Components
 		var total int64
@@ -192,12 +187,9 @@ func (c *calculated) shareGiven(v Invoice) error {
 			exact[k] = new(big.Rat).Mul(big.NewRat(int64(p.Tax), total), new(big.Rat).SetInt64(int64(it.Tax)))
 		}
 		shares, _ := money.Allocate(exact) // the shares add up to the item's tax, which is in range
-		for k, p := range parts {
-			sums[component{p.Code, p.Key, p.Jurisdiction}] += shares[k]
+		for k := range parts {
+			parts[k].Tax = shares[k] // taxGroups adds the lines' components up per code, jurisdiction and component
 		}
-	}
-	for k, t := range c.res.Items {
-		c.res.Items[k].Tax = sums[component{t.Code, t.Key, t.Jurisdiction}]
 	}
 	return nil
 }

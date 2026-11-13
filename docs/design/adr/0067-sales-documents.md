@@ -1419,8 +1419,8 @@ final, so what is credited is what was billed, shared out with
   return enters a revenue contract is the accounting specialist's open
   question 4 (plan); revenue is not touched by this slice or by T85d.
 - Walkthrough `step_credit_memo_request` (step 85): Sally requests the
-  credit for step 70's returns order, all 20 brackets received in step
-  71: 20 of 120 at the billing item's amount in full; a second request
+  credit for step 74's returns order, all 20 brackets received in step
+  75: 20 of 120 at the billing item's amount in full; a second request
   finds nothing to credit and one by amount for the whole billed amount
   is refused naming the item; Carla approves it, once; Northwind's open
   items are as they were. The pilot's settings (step 2) add the
