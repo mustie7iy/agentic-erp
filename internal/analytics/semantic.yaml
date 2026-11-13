@@ -14,6 +14,8 @@ calendar:
 # What everyday words mean when a question doesn't name a metric exactly.
 defaults:
   sales: revenue
+  orders: order_intake
+  billing: billed_value
   spend: purchase_order_value
   profit: operating_profit
   forecast: forecast_lag_7
@@ -33,6 +35,9 @@ dimensions:
   - {name: vendor, label: Vendor}
   - {name: vendor_name, label: Vendor name}
   - {name: invoice_status, label: Invoice status, description: "parked, on_hold, posted, rejected"}
+  - {name: customer, label: Customer, description: "The customer's business partner number"}
+  - {name: customer_name, label: Customer name}
+  - {name: item_key, label: Item key, description: "The free-text key naming what is sold; empty for an item without one"}
   - {name: currency, label: Currency, description: "The currency of the amounts: a company's house banks may keep other currencies than its own"}
   - {name: value_date, label: Value date, description: "The day a bank statement line's money moved on the account"}
   - {name: house_bank, label: House bank, description: "The company's house bank by its code, never its account"}
@@ -128,6 +133,37 @@ metrics:
     source: ap_invoices
     aggregate: count_distinct
     dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, vendor, vendor_name, invoice_status]
+
+  - name: order_intake
+    label: Order intake
+    description: Net value of the items of confirmed sales orders by order date, in each order's currency. A draft order is not counted; an order counts whether or not it is delivered or billed.
+    synonyms: [orders, incoming orders, sales orders, order value]
+    type: money
+    source: sales_lines
+    aggregate: sum
+    sign: 1
+    filter: {sales_document: [order]}
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, customer, customer_name, item_key]
+
+  - name: billed_value
+    label: Billed value
+    description: Net amount of the items of posted billing documents by billing date, in each document's currency. A billing document created and not yet posted as a customer invoice is not counted.
+    synonyms: [billing, billed, invoiced sales, billings]
+    type: money
+    source: sales_lines
+    aggregate: sum
+    sign: 1
+    filter: {sales_document: [billing]}
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, customer, customer_name, item_key]
+
+  - name: billing_document_count
+    label: Billing documents
+    description: Number of posted billing documents by billing date.
+    type: count
+    source: sales_lines
+    aggregate: count_distinct
+    filter: {sales_document: [billing]}
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, customer, customer_name, item_key]
 
   - name: open_payables
     label: Open payables

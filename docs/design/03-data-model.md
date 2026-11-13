@@ -4120,6 +4120,16 @@ Saved reports, and the analytical store's bookkeeping in PostgreSQL
 | `analytics.extract_due` | The tenants due an extract (T55c, 000115), one row per tenant: the outbox relay marks a tenant changed (`changed_at`) in the transaction that publishes its events, once per batch; the scheduler claims a due tenant at most once per interval (`started_at`) and records the start of the last run that finished (`done_at`, never after the claim: `extract_due_done_at_claim`), so a change after it is still due; `claimed_lsn` (T55f, 000116) is the primary's WAL position at the claim, and the run reads on the replica only once it has replayed past it |
 | `analytics.superseded` | The manifests a publication replaced (T55f, 000116), kept seven days so a running query never loses a file, each with the keys it listed that its successor does not (`dropped`), which the lifecycle then deletes, but for what the current manifest or a later supersession lists, without reading other manifests. Bookkeeping of derived data: no audit record |
 
+T91a copies the sales documents into the analytical store (ADR-0044 As
+built T91a), storing nothing in PostgreSQL: dataset `sales_lines`, one row
+per `sales.sales_order_item` of a confirmed `sales.sales_order`, dated its
+`order_date`, and per `sales.billing_document_item` of a posted
+`sales.billing_document`, dated its `billing_date`, each at its
+`net_amount` in the document's `currency`, naming the customer
+(`partner.business_partner`) by number and name and the order item's
+`item_key`. No migration; querying it is `analytics.query.run`,
+`sales.order.read`, `sales.billing.read` and `partner.supplier.read`.
+
 ## 3.24 Consolidation (`consolidation`)
 
 ADR-0059, T68a-T68h. Consolidation is a leaf context: it reads tenancy,

@@ -6355,14 +6355,14 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Sales metrics as that module lands",
       "ph": 3,
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An analyst asks for order intake and billed value by customer, item key and month: sales metrics in the semantic model over a new dataset of sales order and billing document items (POST /v1/analytics-queries)",
-        "r": "T91a · docs/design/plan-breadth-week3.md §T91a",
+        "r": "T91a · docs/design/plan-breadth-week3.md §T91a · analytics/datasets/v1/sales_lines.yaml · semantic.yaml order_intake, billed_value, billing_document_count, customer, customer_name, item_key, defaults orders and billing · analytics.Source (addSales, namesPartners), FactDatasets (sales.order.read, sales.billing.read) · extract salesLines, changing sales · runAnalyticsQuery description · fixture.SalesOrder, BillingDocument, SalesVolume · TestSourceReadsSalesLines, TestSalesLines, TestParity (sales, permissions, isolation), TestSalesMetricsBudget · walkthrough step_sales_analytics · ADR-0044 (As built T91a) · 03-data-model §3.23",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

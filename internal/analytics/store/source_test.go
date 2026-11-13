@@ -81,7 +81,7 @@ func (d *fakeDatabase) Facts(context.Context, *analytics.Model, time.Time) (*ana
 }
 
 func source(r store.Querier, d store.Database) *store.Source {
-	return &store.Source{Reader: r, Database: d, Datasets: []string{"gl_lines", "po_lines", "ap_invoices", "cash_actuals", "cash_snapshots", "cash_accuracy"}, Log: slog.New(slog.DiscardHandler),
+	return &store.Source{Reader: r, Database: d, Datasets: []string{"gl_lines", "po_lines", "ap_invoices", "cash_actuals", "cash_snapshots", "cash_accuracy", "sales_lines"}, Log: slog.New(slog.DiscardHandler),
 		Now: func() time.Time { return storeAsOf }}
 }
 

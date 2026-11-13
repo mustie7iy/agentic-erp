@@ -7121,6 +7121,60 @@ step_price_list() {
   expect "the item's net value after the discount" "$(field '"\(.items[0].net_amount.amount) \(.net_amount.amount) \(.net_amount.currency)"')" "2790.61 2790.61 CAD"
   passed
 }
+# step_sales_analytics is T91a (ADR-0044 As built T91a): Anna, a sales
+# analyst, asks the semantic layer for the month's order intake and billed
+# value by customer. Order intake is the confirmed sales orders' items by
+# order date, billed value the posted billing documents' items by billing
+# date; a draft order and a billing document not posted are not counted.
+# The figures are checked against the orders and billing documents the
+# earlier steps created, as the API lists them; Rita, who reads no sales
+# document, gets no row.
+step_sales_analytics() {
+  heading "Step 66 — Sales metrics: the month's order intake and billed value by customer through the governed metrics order_intake and billed_value, equal to the confirmed orders and the posted billing documents; without the sales reads, no row"
+  local day q got want cents
+  as ada
+  say "Ada adds Anna, the sales analyst, to the team:"
+  person anna "Anna Analyst" finance_staff
+  as anna
+  day=$(company_day)
+  say "Anna asks the semantic layer what Maple's customers ordered and were billed in ${day:0:7}: the governed metrics"
+  say "order_intake, the items of confirmed sales orders by order date, billed_value, the items of posted billing"
+  say "documents by billing date, and billing_document_count, by customer (ADR-0044 As built T91a). Amounts are net,"
+  say "in the documents' currency, CAD; a draft order and a billing document not yet posted count in neither:"
+  q="{\"measures\": [\"order_intake\", \"billed_value\", \"billing_document_count\"], \"by\": [\"customer\", \"customer_name\"], \"companies\": [\"$CC\"], \"where\": [{\"dim\": \"fiscal_year\", \"op\": \"in\", \"values\": [\"${day:0:4}\"]}, {\"dim\": \"fiscal_month\", \"op\": \"in\", \"values\": [\"$((10#${day:5:2}))\"]}], \"order_by\": \"customer\"}"
+  api 200 '"answered from \(.source) as of \(.as_of), \(.columns | map(.name) | join(", "))", (.rows[] | "  " + (map(if .value == null then "-" else "\(.value)\(if .currency then " " + .currency else "" end)" end) | join("  ")))' \
+    runAnalyticsQuery -body "$q"
+  # Each row as "customer name: intake billed documents", amounts in cents, "-" for none.
+  cents='if . == null then "-" else (sub("\\."; "") | tonumber | tostring) end'
+  got=$(field "[.rows[] | \"\(.[0].value) \(.[1].value): \(.[2].value | $cents) \(.[3].value | $cents) \(.[4].value // \"-\")\"] | join(\"; \")")
+  expect "the amounts' currency" "$(field '[.rows[][2:4][] | .currency // empty] | unique | join(" ")')" CAD
+  expect "the measures' definitions" "$(field '[.definitions[].name] | join(" ")')" "order_intake billed_value billing_document_count"
+  say "The same figures from the documents themselves: Maple's sales orders and billing documents of the month."
+  api 200 '.items[] | "  sales order \(.document_number) \(.customer_number) \(.customer_name): \(.status), dated \(.order_date), net \(.net_amount.amount) \(.net_amount.currency)"' \
+    listSalesOrders -p "legal_entity_id=$LE" -p page_size=200
+  expect "the sales orders on one page" "$(field '.next_page_token // ""')" ""
+  cp "$WORK/last.json" "$WORK/sales-orders.json"
+  api 200 '.items[] | "  billing document \(.document_number) \(.customer_number) \(.customer_name): \(.status), dated \(.billing_date), net \(.net_amount.amount) \(.net_amount.currency)"' \
+    listBillingDocuments -p "legal_entity_id=$LE" -p page_size=200
+  expect "the billing documents on one page" "$(field '.next_page_token // ""')" ""
+  want=$(jq -r --arg month "${day:0:7}" --slurpfile orders "$WORK/sales-orders.json" '
+    def cents: sub("\\."; "") | tonumber;
+    def total: if length == 0 then "-" else (map(.net_amount.amount | cents) | add | tostring) end;
+    [$orders[0].items[] | select(.status == "confirmed" and (.order_date | startswith($month)))] as $ordered
+    | [.items[] | select(.status == "posted" and (.billing_date | startswith($month)))] as $billed
+    | [($ordered + $billed)[] | {customer_number, customer_name}] | unique_by(.customer_number)
+    | map(.customer_number as $c | "\($c) \(.customer_name): \([$ordered[] | select(.customer_number == $c)] | total) \([$billed[] | select(.customer_number == $c)] | total) \([$billed[] | select(.customer_number == $c)] | if length == 0 then "-" else length | tostring end)")
+    | join("; ")' "$WORK/last.json")
+  expect "order intake and billed value by customer, the documents' own" "$got" "$want"
+  [ -n "$want" ] || fail "no confirmed sales order this month: step 63's is not there"
+  say "They agree: $(jq -r '[.items[] | select(.status == "confirmed")] | length' "$WORK/sales-orders.json") confirmed of $(jq -r '.items | length' "$WORK/sales-orders.json") sales orders, $(field '[.items[] | select(.status == "posted")] | length') posted of $(field '.items | length') billing documents."
+  as rita
+  say "Rita holds the forecast's read and the query permission, and reads no sales order or billing document: the"
+  say "sales metrics give her no row, refused as the lists themselves would be."
+  refused 403 identity.permission_missing runAnalyticsQuery -body "$q"
+  as anna
+  passed
+}
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -9145,7 +9199,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_sales_analytics step_close'
 
 main() {
   stop_unseen

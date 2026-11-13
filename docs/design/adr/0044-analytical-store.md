@@ -7,7 +7,7 @@ manifests named by cutoff and digest, `checked_at`, the scheduler; T55d:
 the store, the ledger filter, the reader's limits; T55f: lifecycle,
 compaction, erasure, rebuild, the sweep, the replica wait, freshness
 metrics, the query endpoint; 2026-11-01: the image's runtime base on
-Debian 13)
+Debian 13; 2026-11-12, T91a: the sales lines and the sales metrics)
 
 ## Context
 The semantic layer (`internal/analytics`, `semantic.yaml`) answers every
@@ -904,6 +904,91 @@ the lag 7 ones, as `forecast` does. Decisions:
   (every query of the twelve metrics, permissions `accuracy`, isolation
   and tamper of `cash_accuracy`, figures in "not vacuous"); the
   walkthrough's step 38.
+
+**Sales metrics (T91a, `plan-breadth-week3.md`; decided by default).**
+Dataset `sales_lines` v1 (`analytics/datasets/v1/sales_lines.yaml`), a
+fact of load `snapshot` dated `document_date`: one row per item of a
+confirmed sales order, dated the order's date, and per item of a posted
+billing document, dated its billing date, with `document_id` (the order's
+or the billing document's id), `item_no`, `sales_document` (`order` or
+`billing`), `company`, `customer` (the business partner's number),
+`customer_name`, `item_key` (null for an item without one) and the item's
+net amount as `amount_minor`, `currency`, `exponent`; one file per month.
+Metrics `order_intake` and `billed_value` (sums, filtered on
+`sales_document`) and `billing_document_count` (the distinct posted
+billing documents), with the dimensions company, currency, the fiscal
+periods, `customer`, `customer_name` and `item_key`; the everyday words
+`orders` and `billing` mean `order_intake` and `billed_value` (`sales`
+stays `revenue`, the general ledger's). No migration and no file in
+`internal/sales`. Decisions:
+- *Read through the API and the tables, as orders and invoices are.* The
+  database path lists `/v1/sales-orders?status=confirmed` and
+  `/v1/billing-documents?status=posted` for each legal entity the caller
+  reads, so the API selects the status and a draft order or a billing
+  document not posted is never read; the run reads `sales.sales_order`,
+  `sales_order_item`, `billing_document` and `billing_document_item` with
+  the same two conditions. TestParity holds both to the same answer.
+- *Billing documents are counted once posted.* On the base T91a was built
+  on a billing document has the status `created` alone (posting it
+  through receivables is T79b, which adds `posted`), so `billed_value`
+  and `billing_document_count` are empty there until T79b is merged; both
+  paths already select `posted`, and the tests write a posted document
+  into the database (`fixture.BillingDocument`, which stands in for
+  T79b's migration on a base without it).
+- *By billing date, not posting date,* as the plan states it: the
+  document's own date, which a created document already has.
+- *Amounts are the documents' own, never converted.* An order is in the
+  currency it was made in, the company's when it sells in its own
+  currency. No rate is applied here, as nowhere in the semantic layer:
+  the general ledger's `revenue` is the figure in company currency. A sum
+  over two currencies is refused by the currency guard, so `currency` is
+  a dimension of the three metrics, as it is of `actual`: a company that
+  sells in a second currency can still read each.
+- *Customer names in the row.* `customer_name` is a column of the fact,
+  not a join to `partners`: the reader joins a dimension dataset on
+  columns of one name, and `partners` keys by `vendor`. The dataset is a
+  snapshot, so a renamed customer rewrites the months that name it at the
+  next run (`TestSalesLines`), and both paths show today's name, as the
+  API's sales order does.
+- *Permissions: both sales reads and the partners'.* `FactDatasets` names
+  `sales_lines` twice, for `sales.order.read` and `sales.billing.read`, in
+  the order the database path reads the lists: the dataset is one table
+  built from both, so a caller lacking either gets no row of it, also for
+  `order_intake` alone (403 `identity.permission_missing`, whichever path
+  answers). It names customers, and the rule above holds (customers are
+  named only under `partner.supplier.read`, there being no customer read
+  permission): the database path reads their numbers and names from
+  `/v1/business-partners`, and the store requires the same
+  (`Source.namesPartners`). That is stricter than `listSalesOrders`,
+  which shows a customer's name to `sales.order.read` alone; loosening it
+  is the product owner's (security posture).
+- *In the seed.* The metrics, the dimensions and the two words are in
+  `semantic.yaml`, which every tenant without an `analytics` section
+  reads. A tenant that has the section keeps its own model, and gets them
+  by a change request that adds them, simulated and approved as any
+  metric change is (T55g); the simulation breaks them down by company,
+  currency and fiscal year, since they list `currency`.
+- *Marked due.* The relay's batches of `sales` (an order confirmed, a
+  billing document created or posted) mark a tenant due, beside
+  `partner`'s for a rename.
+- *Held by month.* The run streams the rows in month order, one month in
+  memory, as the orders and invoices; the database path reads every
+  confirmed order and posted document of the caller's companies on each
+  query, which is the pilot's scale (Context, above).
+- *Budget.* `TestSalesMetricsBudget`: the three metrics by month, and by
+  customer and item key for one month, over 100,000 order items and
+  100,000 billing items of 2,000 customers of one company, answered from
+  the store: p95 3 s (01 §1.3). 01 names no sales volume; this is the
+  volume its other reports of one company are measured at.
+- *No event.* Nothing is published: a query changes nothing.
+- *Evidence.* `analytics.TestSourceReadsSalesLines`, `TestSourceErrors`,
+  `TestSourcePermissions`; `extract.TestSalesLines` (drafts and documents
+  not posted left out, two currencies, a file per month, a rename),
+  `TestColumnsAreTheContract`, `TestMarksTheCashChanged`,
+  `TestDatabaseFailures`; `store.TestParity` (every query of the three
+  metrics, permissions `sales`, isolation and tamper of `sales_lines`,
+  figures in "not vacuous"), `TestSalesMetricsBudget`; the walkthrough's
+  step 66 (`step_sales_analytics`).
 
 **Steps.** T55a this ADR and the dataset contract; T55b the snapshot
 migration, extractor and Parquet writer for journal lines; T55c the other
