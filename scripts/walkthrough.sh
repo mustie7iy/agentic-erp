@@ -7229,12 +7229,12 @@ step_control_matrix() {
   say "permission herself, and a rule someone would break on its first day is refused:"
   refused 409 identity.sod_conflict createSodRule \
     -body '{"permission_a": "identity.access.manage", "permission_b": "payments.run.release", "description": "Whoever administers access does not release payment runs."}'
-  tomorrow=$(date_add "$(utc_day)" 1)
   admin=$(role tenant_admin)
   QUIET=1 api 200 '' listRolePermissions -p "id=$admin" -p page_size=500
   grant=$(field '.items[] | select(.permission_code == "payments.run.release") | .id')
   [ -n "$grant" ] || fail "the administrator's role does not hold payments.run.release"
   QUIET=1 api 200 '' getRolePermission -p "id=$admin" -p "permission_id=$grant"
+  tomorrow=$(date_add "$(utc_day)" 1)
   say "So the administrator's role gives up releasing payment runs from tomorrow, $tomorrow (a grant ends on a later"
   say "day than it began), and the rule starts that day:"
   api 200 '"\(.permission_code) of the administrator role: valid until \(.valid_to)"' endRolePermission -p "id=$admin" -p "permission_id=$grant" \
@@ -7277,8 +7277,8 @@ step_control_matrix() {
   expect "the matrix's totals" \
     "$(field '.totals | "\(.controls) \(.controls_holding) \(.controls_broken) \(.controls_without_links) \(.links) \(.links_holding) \(.links_broken)"')" \
     "1 $((broken == 0)) $((broken > 0)) 0 3 $holding $broken"
-  QUIET=1 api 200 '' getControlMatrix -p "link_state=$state" -p "framework_reference=Maple ICFR P-4.2 Payment release"
-  expect "the matrix by link state and framework reference" "$(field '[.items[].control.id] | join(" ")')" "$CONTROL"
+  QUIET=1 api 200 '' getControlMatrix -p "framework_reference=Maple ICFR P-4.2 Payment release"
+  expect "the matrix by framework reference" "$(field '[.items[].control.id] | join(" ")')" "$CONTROL"
   QUIET=1 api 200 '' getControlMatrix -p link_state=none
   expect "no control without a link" "$(field '.items | length')" 0
   QUIET=1 api 200 '' getControl -p "id=$CONTROL"

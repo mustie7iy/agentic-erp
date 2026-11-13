@@ -169,6 +169,7 @@ func TestLinkRefusals(t *testing.T) {
 		{"a path link without its path", `{"kind": "configuration_path"}`, 422, "grc.invalid_link", "configuration_path"},
 		{"a path link with a permission too", `{"kind": "configuration_path", "configuration_path": "payments", "permission_code": "a.b"}`, 422, "grc.invalid_link", "permission_code"},
 		{"a path with white space around it", pathLink(" payments"), 422, "grc.invalid_link", "configuration_path"},
+		{"a path of 300 characters of two bytes, which is not there", pathLink(strings.Repeat("é", 300)), 422, "grc.configuration_path_without_value", "configuration_path"},
 		{"a permission the catalog does not hold", permissionLink("payments.run.vanish"), 422, "grc.unknown_permission", "permission_code"},
 		{"a rule the tenant does not have", ruleLink(uuid.Must(uuid.NewV7())), 422, "request.reference_not_found", "sod_rule_id"},
 		{"a path without a value", pathLink("companies[9999].currency"), 422, "grc.configuration_path_without_value", "configuration_path"},

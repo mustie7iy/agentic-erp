@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -74,6 +75,7 @@ type Link struct {
 	ControlCode string
 	Kind        string
 	Target      string
+	RuleID      uuid.UUID // the rule a sod_rule link names, Target as an id
 	Status      string
 	Version     int32
 	CreatedAt   time.Time
@@ -95,6 +97,9 @@ const linkSelect = `SELECT l.id, l.control_id, c.code, l.kind, l.target, l.statu
 func scanLink(row pgx.Row) (Link, error) {
 	var l Link
 	err := row.Scan(&l.ID, &l.ControlID, &l.ControlCode, &l.Kind, &l.Target, &l.Status, &l.Version, &l.CreatedAt, &l.CreatedBy, &l.UpdatedAt, &l.UpdatedBy)
+	if err == nil && l.Kind == KindSodRule {
+		l.RuleID, err = uuid.Parse(l.Target) // the column's check holds a rule's id
+	}
 	return l, errs.Wrapf(err, "scan control link")
 }
 
@@ -134,7 +139,7 @@ func (in NewLink) target() (string, error) {
 		return in.SodRuleID.String(), nil
 	}
 	path := *in.ConfigurationPath
-	if path == "" || path != strings.TrimSpace(path) || len(path) > maxPath {
+	if path == "" || path != strings.TrimSpace(path) || utf8.RuneCountInString(path) > maxPath {
 		return "", errLink("configuration_path", "A configuration path is given without white space around it, in at most 500 characters.")
 	}
 	return path, nil
@@ -157,7 +162,7 @@ func (e *Endpoints) judged(ctx context.Context, tx pgx.Tx, links []Link) ([]Link
 		case KindPermission:
 			codes = append(codes, l.Target)
 		case KindSodRule:
-			rules = append(rules, uuid.MustParse(l.Target)) // the column's check holds a rule's id
+			rules = append(rules, l.RuleID)
 		default:
 			paths = append(paths, l.Target)
 		}
@@ -216,7 +221,7 @@ func (t there) judge(l Link, today time.Time) Link {
 			l.Reason = ReasonNoPermission
 		}
 	case KindSodRule:
-		r, ok := t.rules[uuid.MustParse(l.Target)] // the column's check holds a rule's id
+		r, ok := t.rules[l.RuleID]
 		switch {
 		case !ok:
 			l.Reason = ReasonRuleNotFound
@@ -279,6 +284,9 @@ func (e *Endpoints) Link(ctx context.Context, controlID uuid.UUID, in NewLink) (
 	}
 	l := Link{ID: uuid.Must(uuid.NewV7()), ControlID: c.ID, ControlCode: c.Code, Kind: in.Kind, Target: target, Status: Active, Version: 1,
 		CreatedBy: p.ID, UpdatedBy: p.ID}
+	if in.SodRuleID != nil {
+		l.RuleID = *in.SodRuleID
+	}
 	judged, _, err := e.judged(ctx, tx, []Link{l})
 	if err != nil {
 		return Link{}, err

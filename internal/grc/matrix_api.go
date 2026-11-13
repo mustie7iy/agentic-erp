@@ -26,7 +26,7 @@ func linkToAPI(l Link) gen.ControlLink {
 		out.PermissionCode.SetTo(l.Target)
 		out.PermissionDescription = apitypes.OptString(l.Permission)
 	case KindSodRule:
-		out.SodRuleID.SetTo(uuid.MustParse(l.Target)) // the column's check holds a rule's id
+		out.SodRuleID.SetTo(l.RuleID)
 		if r := l.Rule; r != nil {
 			out.SodRule.SetTo(gen.SodRuleSummary{PermissionA: r.PermissionA, PermissionB: r.PermissionB, Description: r.Description,
 				ValidFrom: r.ValidFrom, ValidTo: apitypes.OptDate(r.ValidTo)})
