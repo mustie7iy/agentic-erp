@@ -4846,7 +4846,8 @@ type ArchiveFile struct {
 	SHA256 string `json:"sha256"`
 	// The file's size in bytes.
 	SizeBytes int64 `json:"size_bytes"`
-	// The SHA-256 of the manifest, `<run id>.manifest.json`, kept beside the file in object storage.
+	// The SHA-256 of the manifest, `<run id>.manifest.json`, kept beside the file in object storage; the
+	// API does not hand the manifest out, its figures are these fields.
 	ManifestSHA256 string `json:"manifest_sha256"`
 	// The journal entries in the file: every entry of the company's fiscal year, of every ledger.
 	EntryCount int32 `json:"entry_count"`
@@ -4957,8 +4958,10 @@ type ArchivingRun struct {
 	CompletedAt OptDateTime `json:"completed_at"`
 	// Who asked for the run.
 	RequestedBy uuid.UUID `json:"requested_by"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	// Their name, as the identity context gives it now.
+	RequestedByName string    `json:"requested_by_name"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // GetID returns the value of ID.
@@ -5019,6 +5022,11 @@ func (s *ArchivingRun) GetCompletedAt() OptDateTime {
 // GetRequestedBy returns the value of RequestedBy.
 func (s *ArchivingRun) GetRequestedBy() uuid.UUID {
 	return s.RequestedBy
+}
+
+// GetRequestedByName returns the value of RequestedByName.
+func (s *ArchivingRun) GetRequestedByName() string {
+	return s.RequestedByName
 }
 
 // GetCreatedAt returns the value of CreatedAt.
@@ -5089,6 +5097,11 @@ func (s *ArchivingRun) SetCompletedAt(val OptDateTime) {
 // SetRequestedBy sets the value of RequestedBy.
 func (s *ArchivingRun) SetRequestedBy(val uuid.UUID) {
 	s.RequestedBy = val
+}
+
+// SetRequestedByName sets the value of RequestedByName.
+func (s *ArchivingRun) SetRequestedByName(val string) {
+	s.RequestedByName = val
 }
 
 // SetCreatedAt sets the value of CreatedAt.

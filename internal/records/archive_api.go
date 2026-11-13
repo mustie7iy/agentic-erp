@@ -61,7 +61,7 @@ func runsToAPI(rs []Run) []gen.ArchivingRun {
 	for i, r := range rs {
 		out[i] = gen.ArchivingRun{ID: r.ID, LegalEntityID: r.LegalEntity, CompanyCode: r.CompanyCode, DocumentKind: r.Kind, FiscalYear: int32(r.FiscalYear),
 			RetentionYears: int32(r.RetentionYears), ConfigurationVersion: r.ConfigVersion, Status: r.Status, FailureCode: apitypes.OptString(r.FailureCode),
-			CompletedAt: apitypes.OptDateTime(r.CompletedAt), RequestedBy: r.RequestedBy, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
+			CompletedAt: apitypes.OptDateTime(r.CompletedAt), RequestedBy: r.RequestedBy, RequestedByName: r.RequestedByName, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
 		if r.ObjectKey != nil { // a completed run: the database check sets every figure with the key
 			out[i].File.SetTo(gen.ArchiveFile{Name: fileName(r.ID), SHA256: hexOf(r.SHA256), SizeBytes: *r.SizeBytes, ManifestSHA256: hexOf(r.ManifestSHA256),
 				EntryCount: *r.EntryCount, LineCount: *r.LineCount, DebitTotal: apitypes.Money(*r.DebitTotal, *r.Currency, r.exp)})

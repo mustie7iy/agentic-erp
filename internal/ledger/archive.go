@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,19 +21,26 @@ type Archive struct{}
 
 // YearClosed tells whether the company's fiscal year is closed: it has
 // posting periods, and none of them, regular or special, in any ledger,
-// is open. Postings go only into open periods, so the entries of a
-// closed year cannot change while it stays closed.
+// is open. It holds the year's period rows FOR SHARE until the caller's
+// transaction ends, in the order the carry-forward locks them (by year,
+// period, the leading ledger first, then by code), so no period is
+// reopened, and no entry posted into one, between this check and the
+// caller's read of the year's entries (ADR-0008): postings go only into
+// open periods and hold their period FOR SHARE, reopening takes it FOR
+// UPDATE.
 func (Archive) YearClosed(ctx context.Context, legalEntity uuid.UUID, year int16) (bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return false, err
 	}
-	var periods, open int
-	if err := tx.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE status = 'open') FROM ledger.period_status
-		WHERE legal_entity_id = $1 AND fiscal_year = $2`, legalEntity, year).Scan(&periods, &open); err != nil {
+	rows, _ := tx.Query(ctx, `SELECT ps.status FROM ledger.period_status ps JOIN ledger.ledger g ON g.tenant_id = ps.tenant_id AND g.id = ps.ledger_id
+		WHERE ps.legal_entity_id = $1 AND ps.fiscal_year = $2
+		ORDER BY ps.fiscal_year, ps.period, NOT g.is_leading, g.code FOR SHARE OF ps`, legalEntity, year)
+	statuses, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
 		return false, fmt.Errorf("ledger: periods of %s in %d: %w", legalEntity, year, err)
 	}
-	return periods > 0 && open == 0, nil
+	return len(statuses) > 0 && !slices.Contains(statuses, "open"), nil
 }
 
 // ArchivedEntry is a journal entry as an archive holds it, with its lines

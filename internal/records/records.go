@@ -59,12 +59,18 @@ type Requesters interface {
 	MayAct(ctx context.Context, tx pgx.Tx, id uuid.UUID) error
 }
 
+// People names principals (identity context): who asked for a run.
+type People interface {
+	PersonNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
+}
+
 // Endpoints implements the records part of the generated API.
 type Endpoints struct {
 	LegalEntities LegalEntities
 	Settings      Settings
 	Calendar      Calendar
 	Journal       Journal
+	People        People
 	Pages         *pagination.Codec
 	Objects       blobstore.Store  // archive files; nil: no run is asked for and no file is read
 	Now           func() time.Time // nil: the wall clock

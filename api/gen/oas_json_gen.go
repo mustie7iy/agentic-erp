@@ -12540,6 +12540,10 @@ func (s *ArchivingRun) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.RequestedBy)
 	}
 	{
+		e.FieldStart("requested_by_name")
+		e.Str(s.RequestedByName)
+	}
+	{
 		e.FieldStart("created_at")
 		json.EncodeDateTime(e, s.CreatedAt)
 	}
@@ -12549,7 +12553,7 @@ func (s *ArchivingRun) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfArchivingRun = [14]string{
+var jsonFieldsNameOfArchivingRun = [15]string{
 	0:  "id",
 	1:  "legal_entity_id",
 	2:  "company_code",
@@ -12562,8 +12566,9 @@ var jsonFieldsNameOfArchivingRun = [14]string{
 	9:  "failure_code",
 	10: "completed_at",
 	11: "requested_by",
-	12: "created_at",
-	13: "updated_at",
+	12: "requested_by_name",
+	13: "created_at",
+	14: "updated_at",
 }
 
 // Decode decodes ArchivingRun from json.
@@ -12713,8 +12718,20 @@ func (s *ArchivingRun) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"requested_by\"")
 			}
-		case "created_at":
+		case "requested_by_name":
 			requiredBitSet[1] |= 1 << 4
+			if err := func() error {
+				v, err := d.Str()
+				s.RequestedByName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"requested_by_name\"")
+			}
+		case "created_at":
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.CreatedAt = v
@@ -12726,7 +12743,7 @@ func (s *ArchivingRun) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_at\"")
 			}
 		case "updated_at":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.UpdatedAt = v
@@ -12748,7 +12765,7 @@ func (s *ArchivingRun) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11111111,
-		0b00111000,
+		0b01111000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

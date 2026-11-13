@@ -888,12 +888,12 @@ func (UnimplementedHandler) CreateAllocationCycle(ctx context.Context, req *Allo
 // `records.archive_changed` when the file store holds another file under the run's key,
 // `records.amount_too_large` when the year's debits add up to more than an amount holds). A company,
 // kind and year has one run that is queued or completed: asking again answers that run (200), whoever
-// asked; after a failed run another may be started (201). Nothing is changed or removed in the ledger
-// or anywhere else: archiving only writes the file. 503 while the server has no object storage to
-// write the file to. A tenant without a configuration is 409 `config.not_bootstrapped`; a legal entity
-// the caller cannot act in is 404, as one that does not exist. Audited
-// (`records.archiving_run.request`); the completion is audited and published as ArchivingRunCompleted.
-// Human-only (`x-agent: false`).
+// asked, before any of the checks above; after a failed run another may be started (201). Nothing is
+// changed or removed in the ledger or anywhere else: archiving only writes the file. 503 while the
+// server has no object storage to write the file to. A tenant without a configuration is 409
+// `config.not_bootstrapped`; a legal entity the caller cannot act in is 404, as one that does not
+// exist. Audited (`records.archiving_run.request`); the completion is audited and published as
+// ArchivingRunCompleted. Human-only (`x-agent: false`).
 //
 // POST /v1/archiving-runs
 func (UnimplementedHandler) CreateArchivingRun(ctx context.Context, req *ArchivingRunCreate, params CreateArchivingRunParams) (r CreateArchivingRunRes, _ error) {

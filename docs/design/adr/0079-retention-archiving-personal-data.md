@@ -146,15 +146,23 @@ by a person with `records.archive.run` and is accepted only when:
 - the year is closed: it has posting periods and none of them, regular
   or special, in any of the company's ledgers is open (422
   `records.year_not_closed`). Postings go only into open periods, so the
-  year's entries cannot change while it stays closed. A year-end close's
+  year's entries cannot change while it stays closed. The check holds the
+  year's period rows `FOR SHARE` to the end of its transaction
+  (`ledger.Archive.YearClosed`, in the carry-forward's order: by year,
+  period, the leading ledger first, then by code), so a reopening, which
+  takes its period `FOR UPDATE`, waits for the archiver's transaction and
+  no entry is posted between the check and the read of the entries
+  (ADR-0008). The archiver locks its run row first and the periods
+  after; reopening locks periods only, so the two do not deadlock. A year-end close's
   sign-off locks every period (ADR-0060 §8), which closes the year in this
   sense; a year whose periods were closed by other means is closed too.
 
 The run is queued (`records.archiving_run`, `queued`) in the request's
 transaction with the rule's years and the configuration version, and
 audited. A company, kind and year has one run that is queued or
-completed: a second request answers it (200), whoever asks; a failed run
-leaves room for another. The archiver (`records.Archiver`), a worker of
+completed: a second request answers it (200), whoever asks, before the
+checks above, so a completed run is answered after the rule or the
+periods changed; a failed run leaves room for another. The archiver (`records.Archiver`), a worker of
 every replica as the cash exporter is (ADR-0051 §14), claims a tenant's
 queued runs in order (`FOR UPDATE SKIP LOCKED`) and, in that one
 transaction: refuses a requester blocked or deprovisioned since the
@@ -166,7 +174,10 @@ object storage under the run's id; and completes the run with the file's
 SHA-256 and size, the manifest's SHA-256 and the counts and debit total,
 audited and published as ArchivingRunCompleted. A refusal fails the run
 with its problem code, audited; the store not answering leaves it queued
-for the next round. Objects are written once (ADR-0016): a round run again
+for the next round; as for the cash exporter, a run that keeps failing so
+(a year too large for the statement timeout) stays queued and is
+claimed first each round, which a later size bound or failure count
+addresses (Later). Objects are written once (ADR-0016): a round run again
 after a commit whose acknowledgement was lost finds the same bytes under
 the run's keys and takes them as written, so a run has one file and one
 event; other bytes there fail the run (`records.archive_changed`). No row
@@ -195,14 +206,17 @@ the year, the rule's years, the configuration version, who asked and when,
 the file's name, SHA-256 and size, the counts of entries and lines and the
 sum of the lines' debits in the company's currency (`debit_total`,
 `currency`). Every value of the manifest is the run's or the file's, so a
-run written again writes the same bytes.
+run written again writes the same bytes. The API gives the manifest's figures and
+its SHA-256 on the run; the manifest itself stays in object storage
+beside the file.
 
 ### 8. The API and its permission
 
 `POST /v1/archiving-runs` (201 queued, 200 for the run there already; 503
 while the server has no object storage), `GET /v1/archiving-runs`
 (filtered by company, kind, fiscal year and status, newest first),
-`GET /v1/archiving-runs/{id}` and `GET /v1/archiving-runs/{id}/file` (the
+`GET /v1/archiving-runs/{id}` (each run with its requester's id and name,
+read from the identity context) and `GET /v1/archiving-runs/{id}/file` (the
 file, checked against the run's SHA-256 before it is handed out, 409
 `records.archive_changed`; 409 `records.archive_not_completed` before the
 run completes; 503 without object storage). All need
@@ -226,10 +240,12 @@ names of people a document keeps as it was decided (a credit release, a
 year sign-off), the audit trail's client addresses (ADR-0026 keeps
 personal data out of the audit details, not this column), a proposed
 partner change's payload, output messages' recipients and subjects and
-bank statement lines' counterparties. Its tests hold it to the database:
+bank statement lines' counterparties, and a partner's tax identifier (a
+sole trader's social insurance number). Its tests hold it to the database:
 every entry and link is a column; every column whose name is of a known
 personal kind (names, addresses and contacts, bank details, subjects,
-client addresses) is named by the inventory or set aside with why (an
+client addresses, encrypted values and their fingerprints and last four
+characters) is named by the inventory or set aside with why (an
 account's or a cost center's name, the company's own house bank), so a
 migration adding one fails until it is; every schema has an entry or
 says why it holds none (`records.SchemasWithout`). Free text a person

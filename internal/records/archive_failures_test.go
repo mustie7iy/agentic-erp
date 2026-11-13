@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -397,12 +398,106 @@ func TestArchivingDatabaseFailures(t *testing.T) {
 	}); err == nil || !strings.Contains(err.Error(), "not held by the tenancy context") {
 		t.Errorf("a company the tenancy context does not hold: got %v", err)
 	}
+	bad.People = people{}
+	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		_, err := bad.Run(ctx, run)
+		return err
+	}); err == nil || !strings.Contains(err.Error(), "requesters") {
+		t.Errorf("requesters not named: got %v", err)
+	}
 	bad.LegalEntities = entities{err: errors.New("down")}
 	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 		_, err := bad.Run(ctx, run)
 		return err
 	}); err == nil || !strings.Contains(err.Error(), "down") {
 		t.Errorf("a company not read: got %v", err)
+	}
+}
+
+// people is an identity context that cannot be read.
+type people struct{}
+
+func (people) PersonNames(context.Context, []uuid.UUID) (map[uuid.UUID]string, error) {
+	return nil, errors.New("identity down")
+}
+
+// TestArchiveYearLocked: the check that a year is closed holds its
+// periods FOR SHARE until the transaction ends, so a reopening, which
+// takes a period FOR UPDATE, cannot come between the check and the read
+// of the year's entries (ADR-0008).
+func TestArchiveYearLocked(t *testing.T) {
+	e := setupArchive(t, false)
+	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		if closed, err := (ledger.Archive{}).YearClosed(ctx, e.DE, 2026); err != nil || !closed {
+			t.Fatalf("got closed %v, %v, want closed", closed, err)
+		}
+		other, err := pgtest.Pool(t).Begin(context.Background(), database.Scope{Role: "erp_app", TenantID: e.Tenant.ID})
+		if err != nil {
+			return err
+		}
+		defer func() { _ = other.Rollback(context.Background()) }() // the probe changes nothing
+		_, err = other.Exec(context.Background(), `SELECT 1 FROM ledger.period_status WHERE legal_entity_id = $1 AND fiscal_year = 2026 AND period = 12
+			FOR UPDATE NOWAIT`, e.DE)
+		if err == nil || !strings.Contains(err.Error(), "could not obtain lock") {
+			t.Errorf("a reopening's lock while the year is checked: got %v, want it refused", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestArchivingRunRace: two requests for a year at once queue one run:
+// the second waits for the first's insert and answers its run.
+func TestArchivingRunRace(t *testing.T) {
+	e := setupArchive(t, false)
+	ep := e.archiver().Endpoints
+	request := func(ctx context.Context) (records.Run, bool, error) {
+		return ep.RequestRun(ctx, e.DE, "journal_entry", 2026)
+	}
+	held, release := make(chan struct{}), make(chan struct{})
+	firstDone, secondDone := make(chan error, 1), make(chan error, 1)
+	letGo := sync.OnceFunc(func() { close(release) })
+	defer letGo()
+	var first, second records.Run
+	var created bool
+	go func() {
+		err := errors.New("transaction setup failed")
+		defer func() { firstDone <- err }()
+		err = apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+			var err error
+			first, _, err = request(ctx)
+			close(held)
+			<-release
+			return err
+		})
+	}()
+	<-held
+	go func() {
+		err := errors.New("transaction setup failed")
+		defer func() { secondDone <- err }()
+		err = apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+			var err error
+			second, created, err = request(ctx)
+			return err
+		})
+	}()
+	admin := pgtest.Admin(t)
+	pgtest.Eventually(t, 10*time.Second, func() bool {
+		var n int
+		if err := admin.QueryRow(context.Background(), `SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+			WHERE NOT l.granted AND a.query LIKE '%INSERT INTO records.archiving_run%'`).Scan(&n); err != nil {
+			t.Fatalf("read the lock waits: %v", err)
+		}
+		return n > 0
+	}, "the second request did not wait for the first's insert")
+	letGo()
+	if err := <-firstDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-secondDone; err != nil || created || second.ID != first.ID {
+		t.Errorf("the second request: got %v, created %v, run %s, want the first's run %s", err, created, second.ID, first.ID)
 	}
 }
 

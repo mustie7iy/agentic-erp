@@ -54,6 +54,7 @@ type Run struct {
 	CompletedAt                *time.Time
 	RequestedBy                uuid.UUID
 	CreatedAt, UpdatedAt       time.Time
+	RequestedByName            string
 	exp                        int // the minor-unit digits of Currency
 }
 
@@ -79,12 +80,16 @@ func noObjects() error {
 // RequestRun queues an archiving run of the company's documents of the
 // kind in the fiscal year (ADR-0079 §6) and reports whether it is new: a
 // run of the company, kind and year that is queued or completed already
-// is answered instead. The first version archives journal entries. The
-// year must be past retention, as the status reads it now, and closed.
+// is answered instead, whatever the rule or the year's periods say now.
+// The first version archives journal entries. A new run's year must be
+// past retention, as the status reads it now, and closed.
 func (e *Endpoints) RequestRun(ctx context.Context, legalEntity uuid.UUID, kind string, year int16) (Run, bool, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Run{}, false, err
+	}
+	if r, found, err := e.existing(ctx, tx, legalEntity, kind, year); err != nil || found {
+		return r, false, err
 	}
 	s, err := e.archivable(ctx, legalEntity, kind, year)
 	if err != nil {
@@ -95,17 +100,9 @@ func (e *Endpoints) RequestRun(ctx context.Context, legalEntity uuid.UUID, kind 
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (tenant_id, legal_entity_id, document_kind, fiscal_year) WHERE status <> 'failed' DO NOTHING RETURNING id`,
 		p.TenantID, uuid.Must(uuid.NewV7()), legalEntity, kind, year, *s.Years, s.Version, p.ID).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) { // a run queued or completed already answers
-		r, err := scanRun(tx.QueryRow(ctx, runSelect+` WHERE legal_entity_id = $1 AND document_kind = $2 AND fiscal_year = $3 AND status <> 'failed'`,
-			legalEntity, kind, year))
-		if err != nil {
-			return Run{}, false, fmt.Errorf("records: the archiving run of %s %d: %w", s.Company.Code, year, err)
-		}
-		rs := []Run{r}
-		if err := e.named(ctx, tx, rs); err != nil {
-			return Run{}, false, err
-		}
-		return rs[0], false, nil
+	if errors.Is(err, pgx.ErrNoRows) { // a run queued at the same moment answers
+		r, _, err := e.existing(ctx, tx, legalEntity, kind, year)
+		return r, false, err
 	}
 	if err != nil {
 		return Run{}, false, fmt.Errorf("records: queue the archiving run of %s %d: %w", s.Company.Code, year, err)
@@ -116,6 +113,31 @@ func (e *Endpoints) RequestRun(ctx context.Context, legalEntity uuid.UUID, kind 
 	}
 	return r, true, audit.Record(ctx, "records.archiving_run.request", "records.archiving_run", id, map[string]any{"legal_entity_id": legalEntity,
 		"document_kind": kind, "fiscal_year": year, "retention_years": *s.Years, "config_version": s.Version})
+}
+
+// existing is the run of the company, kind and year that is queued or
+// completed, if there is one and the caller may act in the company.
+func (e *Endpoints) existing(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, kind string, year int16) (Run, bool, error) {
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return Run{}, false, fmt.Errorf("records: company access for an archiving run: %w", err)
+	}
+	if !access.Allows(legalEntity) {
+		return Run{}, false, nil // archivable answers it as not found
+	}
+	r, err := scanRun(tx.QueryRow(ctx, runSelect+` WHERE legal_entity_id = $1 AND document_kind = $2 AND fiscal_year = $3 AND status <> 'failed'`,
+		legalEntity, kind, year))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Run{}, false, nil
+	}
+	if err != nil {
+		return Run{}, false, fmt.Errorf("records: the archiving run of %s %d: %w", legalEntity, year, err)
+	}
+	rs := []Run{r}
+	if err := e.named(ctx, tx, rs); err != nil {
+		return Run{}, false, err
+	}
+	return rs[0], true, nil
 }
 
 // archivable is the company's retention status of the kind once the
@@ -231,14 +253,20 @@ func (e *Endpoints) Runs(ctx context.Context, q RunsQuery) ([]Run, string, error
 	return rs, next, e.named(ctx, tx, rs)
 }
 
-// named gives each run its company's code, each read once, and the
-// digits of its currency.
+// named gives each run its company's code, each read once, its
+// requester's name and the digits of its currency.
 func (e *Endpoints) named(ctx context.Context, tx pgx.Tx, rs []Run) error {
 	var currencies []string
-	for _, r := range rs {
+	requesters := make([]uuid.UUID, len(rs))
+	for i, r := range rs {
+		requesters[i] = r.RequestedBy
 		if r.Currency != nil {
 			currencies = append(currencies, *r.Currency)
 		}
+	}
+	names, err := e.People.PersonNames(ctx, requesters)
+	if err != nil {
+		return fmt.Errorf("records: requesters of archiving runs: %w", err)
 	}
 	exps, err := currency.LoadCodes(ctx, tx, currencies...)
 	if err != nil {
@@ -256,7 +284,7 @@ func (e *Endpoints) named(ctx context.Context, tx pgx.Tx, rs []Run) error {
 			}
 			codes[r.LegalEntity] = le.Code
 		}
-		rs[i].CompanyCode = codes[r.LegalEntity]
+		rs[i].CompanyCode, rs[i].RequestedByName = codes[r.LegalEntity], names[r.RequestedBy]
 		if r.Currency != nil {
 			rs[i].exp = exps[*r.Currency]
 		}

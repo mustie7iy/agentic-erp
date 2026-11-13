@@ -18028,7 +18028,7 @@ paths:
       tags:
         - records
       summary: Start an archiving run of a fiscal year past retention
-      description: "Starts an archiving run (ADR-0079 §6-§8, T99b): a company's documents of one kind and one fiscal year are written to an archive file in object storage with a manifest, and the year reads as `archived` in the retention status. The first version archives journal entries (`document_kind` `journal_entry`); another kind is refused (422 `request.validation_failed`, naming `document_kind`). The year must be past retention under the company's rule in the active configuration version, as `getRetentionStatus` reads it on the company's date (422 `records.year_not_past_retention`; a year not set up, or a company without a rule, is not past retention), and closed: it has posting periods and none of them, regular or special, in any ledger is open (422 `records.year_not_closed`), so its entries cannot change. The run is queued (`queued`) and written by the archiver in the background, as `getArchivingRun` then shows: `completed` with its file's SHA-256, size and manifest, or `failed` with the problem code that stopped it (`identity.principal_blocked` when the requester was blocked or deprovisioned since, `records.year_not_closed` when a period of the year was opened since, `records.archive_changed` when the file store holds another file under the run's key, `records.amount_too_large` when the year's debits add up to more than an amount holds). A company, kind and year has one run that is queued or completed: asking again answers that run (200), whoever asked; after a failed run another may be started (201). Nothing is changed or removed in the ledger or anywhere else: archiving only writes the file. 503 while the server has no object storage to write the file to. A tenant without a configuration is 409 `config.not_bootstrapped`; a legal entity the caller cannot act in is 404, as one that does not exist. Audited (`records.archiving_run.request`); the completion is audited and published as ArchivingRunCompleted. Human-only (`x-agent: false`)."
+      description: "Starts an archiving run (ADR-0079 §6-§8, T99b): a company's documents of one kind and one fiscal year are written to an archive file in object storage with a manifest, and the year reads as `archived` in the retention status. The first version archives journal entries (`document_kind` `journal_entry`); another kind is refused (422 `request.validation_failed`, naming `document_kind`). The year must be past retention under the company's rule in the active configuration version, as `getRetentionStatus` reads it on the company's date (422 `records.year_not_past_retention`; a year not set up, or a company without a rule, is not past retention), and closed: it has posting periods and none of them, regular or special, in any ledger is open (422 `records.year_not_closed`), so its entries cannot change. The run is queued (`queued`) and written by the archiver in the background, as `getArchivingRun` then shows: `completed` with its file's SHA-256, size and manifest, or `failed` with the problem code that stopped it (`identity.principal_blocked` when the requester was blocked or deprovisioned since, `records.year_not_closed` when a period of the year was opened since, `records.archive_changed` when the file store holds another file under the run's key, `records.amount_too_large` when the year's debits add up to more than an amount holds). A company, kind and year has one run that is queued or completed: asking again answers that run (200), whoever asked, before any of the checks above; after a failed run another may be started (201). Nothing is changed or removed in the ledger or anywhere else: archiving only writes the file. 503 while the server has no object storage to write the file to. A tenant without a configuration is 409 `config.not_bootstrapped`; a legal entity the caller cannot act in is 404, as one that does not exist. Audited (`records.archiving_run.request`); the completion is audited and published as ArchivingRunCompleted. Human-only (`x-agent: false`)."
       x-permission: records.archive.run
       x-agent: false
       x-problem-codes:
@@ -52298,7 +52298,7 @@ components:
     ArchivingRun:
       type: object
       description: "An archiving run (records, ADR-0079 §6-§8, T99b): a company's documents of one kind and fiscal year written to an archive file in object storage with a manifest. Nothing is deleted."
-      required: [id, legal_entity_id, company_code, document_kind, fiscal_year, retention_years, configuration_version, status, requested_by, created_at, updated_at]
+      required: [id, legal_entity_id, company_code, document_kind, fiscal_year, retention_years, configuration_version, status, requested_by, requested_by_name, created_at, updated_at]
       properties:
         id: {type: string, format: uuid, description: Archiving run id., readOnly: true}
         legal_entity_id: {type: string, format: uuid, description: "The company (`GET /v1/legal-entities/{id}`).", readOnly: true}
@@ -52321,6 +52321,7 @@ components:
         failure_code: {type: string, description: "Failed: the problem code that stopped the run (`identity.principal_blocked`, `records.year_not_closed`, `records.archive_changed`, `records.amount_too_large` when the year's debits add up to more than an amount holds).", readOnly: true}
         completed_at: {type: string, format: date-time, description: "When the archiver completed it.", readOnly: true}
         requested_by: {type: string, format: uuid, description: "Who asked for the run.", readOnly: true}
+        requested_by_name: {type: string, description: "Their name, as the identity context gives it now.", readOnly: true}
         created_at: {type: string, format: date-time, readOnly: true}
         updated_at: {type: string, format: date-time, readOnly: true}
       examples:
@@ -52342,6 +52343,7 @@ components:
             debit_total: {amount: "1840522.17", currency: CAD}
           completed_at: "2026-11-25T10:00:04Z"
           requested_by: 0192a000-0000-7000-8000-000000000101
+          requested_by_name: Rhea Records Administrator
           created_at: "2026-11-25T10:00:00Z"
           updated_at: "2026-11-25T10:00:04Z"
     ArchiveFile:
@@ -52353,7 +52355,7 @@ components:
         name: {type: string, description: "The file's name, `<run id>.jsonl`; `GET /v1/archiving-runs/{id}/file` downloads it.", readOnly: true}
         sha256: {type: string, pattern: '^[0-9a-f]{64}$', description: "The SHA-256 of the file's content, in hexadecimal; the manifest names it too.", readOnly: true}
         size_bytes: {type: integer, format: int64, minimum: 0, description: "The file's size in bytes.", readOnly: true}
-        manifest_sha256: {type: string, pattern: '^[0-9a-f]{64}$', description: "The SHA-256 of the manifest, `<run id>.manifest.json`, kept beside the file in object storage.", readOnly: true}
+        manifest_sha256: {type: string, pattern: '^[0-9a-f]{64}$', description: "The SHA-256 of the manifest, `<run id>.manifest.json`, kept beside the file in object storage; the API does not hand the manifest out, its figures are these fields.", readOnly: true}
         entry_count: {type: integer, format: int32, minimum: 0, description: "The journal entries in the file: every entry of the company's fiscal year, of every ledger.", readOnly: true}
         line_count: {type: integer, format: int32, minimum: 0, description: "Their lines.", readOnly: true}
         debit_total: {$ref: "#/components/schemas/Money", description: "The sum of the lines' debits in the company's currency."}

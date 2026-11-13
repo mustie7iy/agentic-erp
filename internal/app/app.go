@@ -519,7 +519,7 @@ func Collections(cfg Config) *collections.Endpoints {
 // ports, and writes archive files to the object store (T99b).
 func Records(cfg Config) *records.Endpoints {
 	return &records.Endpoints{LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Calendar: calendar(), Journal: ledger.Archive{},
-		Pages: cfg.Pages, Objects: cfg.Objects, Now: cfg.Now}
+		People: LedgerPeople{}, Pages: cfg.Pages, Objects: cfg.Objects, Now: cfg.Now}
 }
 
 // Credit is the credit management context as the API wires it (ADR-0066

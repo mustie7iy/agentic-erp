@@ -173,6 +173,10 @@ func TestArchivingRun(t *testing.T) {
 	if y := st["years"].([]any)[0].(map[string]any); y["fiscal_year"] != float64(2026) || y["archived"] != true {
 		t.Errorf("the status: got %v, want 2026 archived", y)
 	}
+	if got["requested_by_name"] == "" || got["requested_by"] != e.Tenant.Human.ID.String() {
+		t.Errorf("the requester: got %v %v, want the person and their name", got["requested_by"], got["requested_by_name"])
+	}
+	*e.now = e.now.AddDate(-1, 0, 0) // 2026 within retention again: the completed run still answers
 	done, _ := e.as().Must(200, "POST", "/v1/archiving-runs", body(e.DE, "journal_entry", 2026), "")
 	if done["id"] != id || done["status"] != "completed" {
 		t.Errorf("a request after completion: got %v, want the completed run", done)
@@ -241,6 +245,8 @@ func TestArchivingRunRefused(t *testing.T) {
 	*e.now = e.now.AddDate(-1, 0, 0)                                                                                       // 2026 not ended
 	closeYear(t, e.Env, 2026)
 	c.Problem(422, "records.year_not_past_retention", "POST", "/v1/archiving-runs", body(e.DE, "journal_entry", 2026), "")
+	other := apitest.Client{T: t, API: e.api, Tenant: e.Tenant, As: e.Reader(t, "Rita Reader", e.US)}
+	other.Problem(404, "request.not_found", "POST", "/v1/archiving-runs", body(e.DE, "journal_entry", 2026), "")
 	plain := apitest.NewWith(t, nil) // no object storage
 	apitest.Client{T: t, API: plain, Tenant: e.Tenant, As: e.Tenant.Human}.Problem(503, "platform.unavailable", "POST", "/v1/archiving-runs", body(e.DE, "journal_entry", 2026), "")
 }
