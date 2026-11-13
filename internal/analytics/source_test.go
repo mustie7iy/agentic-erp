@@ -56,6 +56,8 @@ func validPages() map[string][]string {
 			map[string]any{"quantity": map[string]any{"value": "2"}, "unit_price": map[string]any{"amount": "5", "currency": "JPY"}, "price_unit": 1, "account_id": "a2"}}})},
 		"/v1/supplier-invoices": {items(map[string]any{"id": "i1", "supplier_id": "p2", "invoice_date": "2026-03-05", "status": "parked",
 			"gross_amount": map[string]any{"amount": "10.00", "currency": "USD"}})},
+		"/v1/contracts":    {`{"items": []}`},
+		"/v1/cost-centers": {`{"items": []}`},
 		"/v1/sales-orders": {items(map[string]any{"id": "s1", "customer_id": "p2", "order_date": "2026-03-03", "items": []any{
 			map[string]any{"item_key": "BRACKET", "net_amount": map[string]any{"amount": "30.00", "currency": "USD"}},
 			map[string]any{"net_amount": map[string]any{"amount": "12.50", "currency": "USD"}}}})},
@@ -239,7 +241,7 @@ func TestSourceReadsSixDecimalQuantities(t *testing.T) {
 func TestSourceErrors(t *testing.T) {
 	m, _ := DefaultModel()
 	for _, path := range []string{"/v1/legal-entities", "/v1/business-partners", "/v1/ledgers", "/v1/accounts", "/v1/open-items", "/v1/journal-entries",
-		"/v1/purchase-orders", "/v1/supplier-invoices", "/v1/sales-orders", "/v1/billing-documents"} {
+		"/v1/purchase-orders", "/v1/supplier-invoices", "/v1/contracts", "/v1/cost-centers", "/v1/sales-orders", "/v1/billing-documents"} {
 		t.Run("without "+path, func(t *testing.T) {
 			pages := validPages()
 			delete(pages, path)
@@ -296,7 +298,8 @@ func TestSourcePermissions(t *testing.T) {
 		datasets []string
 		want     string
 	}{
-		"every table":  {nil, "tenancy.org.read partner.supplier.read ledger.account.read ledger.entry.read procurement.order.read payables.invoice.read sales.order.read sales.billing.read cash.forecast.read"},
+		"every table":  {nil, "tenancy.org.read partner.supplier.read ledger.account.read ledger.entry.read procurement.order.read payables.invoice.read procurement.contract.read ledger.cost_center.read sales.order.read sales.billing.read cash.forecast.read"},
+		"spend":        {[]string{"spend_lines"}, "tenancy.org.read partner.supplier.read ledger.account.read payables.invoice.read procurement.order.read procurement.contract.read ledger.cost_center.read"},
 		"sales":        {[]string{"sales_lines"}, "tenancy.org.read partner.supplier.read sales.order.read sales.billing.read"},
 		"cash actuals": {[]string{"cash_actuals"}, "tenancy.org.read cash.forecast.read"},
 		"journal":      {[]string{"gl_lines"}, "tenancy.org.read partner.supplier.read ledger.account.read ledger.entry.read"},

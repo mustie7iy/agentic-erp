@@ -4130,6 +4130,20 @@ per `sales.sales_order_item` of a confirmed `sales.sales_order`, dated its
 `item_key`. No migration; querying it is `analytics.query.run`,
 `sales.order.read`, `sales.billing.read` and `partner.supplier.read`.
 
+T91b copies the supplier invoices' items into the analytical store
+(ADR-0044 As built T91b), storing nothing in PostgreSQL: dataset
+`spend_lines`, one row per `payables.supplier_invoice_item` of a posted
+`payables.supplier_invoice` of any kind, dated its `posting_date`, at its
+`amount` in the document's `currency` (negative for the kinds
+`credit_memo` and `subsequent_credit`), naming the supplier
+(`partner.business_partner`), the account (`ledger.gl_account`) and cost
+center (`ledger.cost_center`) of the item or, for an item on an order, of
+its `procurement.purchase_order_item`, and the `procurement.contract` the
+order names (`purchase_order.contract_id`). No migration; querying it is
+`analytics.query.run`, `payables.invoice.read`, `procurement.order.read`,
+`procurement.contract.read`, `ledger.cost_center.read`,
+`ledger.account.read` and `partner.supplier.read`.
+
 ## 3.24 Consolidation (`consolidation`)
 
 ADR-0059, T68a-T68h. Consolidation is a leaf context: it reads tenancy,

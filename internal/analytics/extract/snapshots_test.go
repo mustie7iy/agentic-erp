@@ -2,6 +2,7 @@ package extract_test
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -67,6 +68,101 @@ type (
 		Exponent      int32     `parquet:"exponent"`
 	}
 )
+
+// spendRow is what a reader sees of a spend_lines file.
+type spendRow struct {
+	InvoiceID     uuid.UUID `parquet:"invoice_id,uuid"`
+	ItemNo        int32     `parquet:"item_no"`
+	Company       string    `parquet:"company"`
+	PostingDate   int32     `parquet:"posting_date,date"`
+	Vendor        string    `parquet:"vendor"`
+	Account       *string   `parquet:"account,optional"`
+	CostCenter    *string   `parquet:"cost_center,optional"`
+	PurchaseOrder *string   `parquet:"purchase_order,optional"`
+	Contract      *string   `parquet:"contract,optional"`
+	OnContract    bool      `parquet:"on_contract"`
+	AmountMinor   int64     `parquet:"amount_minor"`
+	Currency      string    `parquet:"currency"`
+	Exponent      int32     `parquet:"exponent"`
+}
+
+// String is the row as the tests compare it: its invoice by name, its
+// order by the name of its number, "-" for what it does not name.
+func (r spendRow) String(names map[uuid.UUID]string, orders map[string]string) string {
+	opt := func(v *string) string {
+		if v == nil {
+			return "-"
+		}
+		return *v
+	}
+	return fmt.Sprintf("%s/%d %s %s %s %s cc=%s order=%s contract=%s %v %d %s e%d", names[r.InvoiceID], r.ItemNo, r.Company,
+		time.Unix(int64(r.PostingDate)*86400, 0).UTC().Format(time.DateOnly), r.Vendor, opt(r.Account), opt(r.CostCenter), cmp.Or(orders[opt(r.PurchaseOrder)], "-"), opt(r.Contract),
+		r.OnContract, r.AmountMinor, r.Currency, r.Exponent)
+}
+
+// TestSpendLines: the items of posted supplier invoices, credit memos and
+// subsequent credits by posting date are the spend lines, one file per
+// month, a credit's amount negative; an item on a purchase order takes the
+// order item's account and cost center and is under the order's contract;
+// an item without an order, or on an order made on no contract, is off
+// contract; a parked or reversed document has no row, and a posted one
+// loses its rows when it is reversed (T91b).
+func TestSpendLines(t *testing.T) {
+	e := setup(t)
+	center := e.CostCenter(t, e.DE, "1000")
+	contract := e.Contract(t, e.DE, e.Supplier, "EUR", "CT-0001")
+	office, paper := e.Account(t, "2000", "520000"), e.Account(t, "2000", "610000")
+	onContract := e.ContractOrder(t, e.DE, e.Supplier, &contract, "EUR", "2026-03-01", paper, &center)
+	free := e.ContractOrder(t, e.DE, e.Supplier, nil, "EUR", "2026-03-01", paper, nil)
+	inv := e.SupplierDocument(t, e.DE, e.Supplier, "invoice", "posted", "EUR", "2026-03-06",
+		fixture.InvoiceItem{Net: 10000, Order: &onContract}, fixture.InvoiceItem{Net: 4000, Account: &office, CostCenter: &center})
+	credit := e.SupplierDocument(t, e.DE, e.Supplier, "credit_memo", "posted", "EUR", "2026-03-07", fixture.InvoiceItem{Net: 1500, Account: &office})
+	later := e.SupplierDocument(t, e.DE, e.Supplier, "subsequent_credit", "posted", "EUR", "2026-04-01", fixture.InvoiceItem{Net: 500, Order: &free})
+	parked := e.SupplierDocument(t, e.DE, e.Supplier, "invoice", "parked", "EUR", "2026-03-08", fixture.InvoiceItem{Net: 99900, Account: &office})
+	reversed := e.SupplierDocument(t, e.DE, e.Supplier, "invoice", "reversed", "EUR", "2026-03-09", fixture.InvoiceItem{Net: 88800, Account: &office})
+	names := map[uuid.UUID]string{inv: "invoice", credit: "credit", later: "later", parked: "parked", reversed: "reversed"}
+	orders := map[string]string{}
+	for id, name := range map[uuid.UUID]string{onContract: "on contract", free: "free"} {
+		var number string
+		pgtest.Scan(t, `SELECT document_number FROM procurement.purchase_order WHERE tenant_id = $1 AND id = $2`, []any{e.Tenant.ID, id}, &number)
+		orders[number] = name
+	}
+	spend := func(m extract.Manifest) (rows, months []string) {
+		for _, r := range read[spendRow](t, e, m, "spend_lines") {
+			rows = append(rows, r.String(names, orders))
+		}
+		for _, f := range m.Datasets["spend_lines"].Files {
+			_, month, _ := strings.Cut(f.Key, "/spend_lines/month=")
+			months = append(months, month[:7])
+		}
+		return rows, months
+	}
+	rows, months := spend(e.manifest(t, e.run(t).ManifestKey))
+	want := []string{
+		"invoice/1 2000 2026-03-06 BP90000001 610000 cc=1000 order=on contract contract=CT-0001 true 10000 EUR e2",
+		"invoice/2 2000 2026-03-06 BP90000001 520000 cc=1000 order=- contract=- false 4000 EUR e2",
+		"credit/1 2000 2026-03-07 BP90000001 520000 cc=- order=- contract=- false -1500 EUR e2",
+		"later/1 2000 2026-04-01 BP90000001 610000 cc=- order=free contract=- false -500 EUR e2",
+	}
+	if !slices.Equal(rows, want) {
+		t.Errorf("spend lines:\n got %q\nwant %q", rows, want)
+	}
+	if !slices.Equal(months, []string{"2026-03", "2026-04"}) {
+		t.Errorf("files: got months %v, want one for March and one for April", months)
+	}
+
+	t.Run("reversed", func(t *testing.T) {
+		pgtest.Exec(t, `UPDATE payables.supplier_invoice SET status = 'reversed', reversal_entry_year = 2026, reversal_entry_id = gen_random_uuid(),
+			version = version + 1 WHERE tenant_id = $1 AND id = $2`, e.Tenant.ID, inv)
+		rows, months := spend(e.manifest(t, e.run(t).ManifestKey))
+		if !slices.Equal(rows, want[2:]) {
+			t.Errorf("spend lines:\n got %q\nwant %q", rows, want[2:])
+		}
+		if !slices.Equal(months, []string{"2026-03", "2026-04"}) {
+			t.Errorf("files: got months %v, want March's rewritten and April's kept", months)
+		}
+	})
+}
 
 // String is the row as the tests compare it: its document by name.
 func (r salesRow) String(names map[uuid.UUID]string) string {

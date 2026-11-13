@@ -4567,13 +4567,13 @@
     "ph": 9,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Spend cube in the semantic layer",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A buyer analyses spend by supplier, account, cost center and month, under a contract and outside one: spend metrics in the semantic model over supplier invoice items (POST /v1/analytics-queries)",
-        "r": "T91b · docs/design/plan-breadth-week3.md §T91b",
+        "r": "T91b · docs/design/plan-breadth-week3.md §T91b · analytics/datasets/v1/spend_lines.yaml · semantic.yaml spend, spend_under_contract, spend_off_contract, off_contract_share, cost_center, contract, default spend · analytics.Source (addSpend, namesAccounts), FactDatasets (payables.invoice.read, procurement.order.read, procurement.contract.read, ledger.cost_center.read) · extract spendLines · runAnalyticsQuery description · fixture.CostCenter, Contract, ContractOrder, SupplierDocument, SpendVolume · TestSourceReadsSpendLines, TestSourceSpendErrors, TestSpendLines, TestSpendMetrics, TestParity (spend, permissions, isolation), TestSpendCubeBudget · walkthrough step_spend · ADR-0044 (As built T91b) · 03-data-model §3.23",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
