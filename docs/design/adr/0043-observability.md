@@ -238,7 +238,7 @@ traces, and CPU and memory saturation.
 
 ## As built: the operation label's ceiling (batch 71)
 
-- Batch 71's lanes together took the contracts to 526 operation values
+- Batch 71's lanes together took the contracts to 525 operation values
   (503 operations of the API, 21 of the control plane and "unmatched"),
   past the `operation` label's ceiling of 512; `TestMetricsCatalog`
   (cmd/erp-server) caught it in the batch's integration, no lane alone

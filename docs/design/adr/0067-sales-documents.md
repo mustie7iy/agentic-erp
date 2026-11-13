@@ -354,8 +354,10 @@ since discounts are recorded by key.
 ## Consequences
 - A new schema, its permissions and the document types `quotation` and,
   from T78b, `sales_order` for number ranges; a company without the range
-  cannot create the document (422 `config.no_number_range`). The released
-  country packs bring none; a tenant adds it by a change request.
+  cannot create the document (422 `config.no_number_range`). The country
+  packs bring them from Canada 2026.9 and UAE 2026.6 (ADR-0048 As
+  built); a company on an earlier version adds them by applying one of
+  them or by a change request.
 - No cost of goods sold is posted by the sales chain (plan question 3).
 - An item's account and tax code are checked when the document is
   created; billing checks again when it posts, through receivables.

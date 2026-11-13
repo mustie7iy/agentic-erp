@@ -1548,10 +1548,9 @@ migrated_down_payment() {
 # the walkthrough's sales entry: GST at 5% (Excise Tax Act, Part IX, s. 165(1);
 # CRA, "Charge and collect the tax - Which rate to charge",
 # https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html),
-# a number range for the customer invoices of step 48 (T75a; the packs
-# number none yet), one for the quotations of step 62 (T78a), one for
-# the sales orders of step 63 (T78b) and one for the billing documents of
-# step 64 (T79a),
+# a number range for the returns orders of step 74 (T85a; the ranges of
+# customer invoices, incoming payments, quotations, sales orders, billing
+# documents and RFQs come from the pack since Canada 2026.9),
 # and two codes of tax alone for the return's adjustments (kind adjustment,
 # rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an

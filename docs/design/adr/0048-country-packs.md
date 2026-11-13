@@ -343,7 +343,7 @@ settings cannot simply overwrite their document.
   memos) and `journal_dz` (DZ, incoming payments), each from 1 to 9999999
   like the packs' other ranges. **How they were numbered before:** no
   pack had these ranges and nothing falls back: a company activated from
-  2026.8 or 2026.5 alone answered 409 `config.no_number_range` on its
+  2026.8 or 2026.5 alone answered 422 `config.no_number_range` on its
   first customer invoice, incoming payment, quotation, sales order,
   billing document or RFQ, and on posting a customer invoice or credit
   memo. The walkthrough's pilot company has them from the pack (step 2

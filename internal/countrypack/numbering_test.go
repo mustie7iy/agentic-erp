@@ -14,7 +14,7 @@ import (
 // addedRanges are the document types a numbering-only version adds
 // (product owner, 2026-11-12), in the pack's order: the ranges the
 // documents built after the first packs ask for, which a company
-// activated from the earlier version lacks (409 config.no_number_range).
+// activated from the earlier version lacks (422 config.no_number_range).
 // They are procurement's rfq, sales' quotation, sales_order and
 // billing_document, receivables' customer_invoice (credit memos too) and
 // incoming_payment, and the journal ranges of the entries receivables

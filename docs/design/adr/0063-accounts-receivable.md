@@ -226,8 +226,9 @@ is in the plan's "Later").
 ## Consequences
 - A new schema, three permissions and a document type for number ranges
   (`customer_invoice`); a company without that range cannot enter
-  invoices (422 `config.no_number_range`). The released country packs
-  bring none; a tenant adds it by a change request.
+  invoices (422 `config.no_number_range`). The country packs bring it
+  from Canada 2026.9 and UAE 2026.6 (ADR-0048 As built); a company on an
+  earlier version adds it by applying one of them or by a change request.
 - Customer invoices and manual sales entries exist side by side; the
   pilot's billing integration keeps posting journal entries until billing
   is built.
