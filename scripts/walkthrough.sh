@@ -7939,7 +7939,7 @@ wait_archive() {
 # retention under the zero-year rule and closed, and checks the file
 # against the run and the ledger; the current year is refused.
 retention_archive() {
-  local run sum count listed token
+  local run sum count listed token ledger
   say "The prior year is past retention and closed by its year-end close. Rhea starts an archiving run: the year's journal"
   say "entries, of every ledger, go to an archive file in object storage with a manifest; nothing is deleted. The run is"
   say "queued and the server's archiver writes the file in the background (ADR-0079 §6):"
@@ -7954,15 +7954,19 @@ retention_archive() {
   api 200 '' getArchivingRunFile -p "id=$run" -out "$WORK/archive-$PREV.jsonl"
   expect "the file's SHA-256, the run's" "$(shasum -a 256 "$WORK/archive-$PREV.jsonl" | cut -d' ' -f1)" "$sum"
   expect "one line per entry" "$(wc -l <"$WORK/archive-$PREV.jsonl" | tr -d ' ')" "$count"
-  listed=0 token=''
-  while :; do
-    QUIET=1 api 200 '' listJournalEntries -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=500 ${token:+-p "page_token=$token"}
-    listed=$((listed + $(field '.items | length')))
-    token=$(field '.next_page_token // ""')
-    [ -n "$token" ] || break
+  listed=0
+  QUIET=1 api 200 '' listLedgers
+  for ledger in $(field '.items[].id'); do
+    token=''
+    while :; do
+      QUIET=1 api 200 '' listJournalEntries -p "legal_entity_id=$LE" -p "ledger_id=$ledger" -p "fiscal_year=$PREV" -p page_size=500 ${token:+-p "page_token=$token"}
+      listed=$((listed + $(field '.items | length')))
+      token=$(field '.next_page_token // ""')
+      [ -n "$token" ] || break
+    done
   done
-  say "  the ledger lists $listed journal entries of $PREV; the manifest counts $count"
-  expect "the manifest's count, the ledger's" "$count" "$listed"
+  say "  the ledgers list $listed journal entries of $PREV, the leading and the parallel ones; the manifest counts $count"
+  expect "the manifest's count, the ledgers'" "$count" "$listed"
   QUIET=1 api 200 '' createArchivingRun -body "{\"legal_entity_id\": \"$LE\", \"document_kind\": \"journal_entry\", \"fiscal_year\": $PREV}"
   expect "a second request answers the run" "$(field '"\(.id) \(.status)"')" "$run completed"
   api 200 '(.years[] | select(.fiscal_year == '"$PREV"') | "  \(.fiscal_year): past retention \(.past_retention), archived \(.archived)")' \

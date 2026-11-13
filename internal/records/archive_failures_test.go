@@ -462,13 +462,14 @@ func TestArchivingRunRace(t *testing.T) {
 	defer letGo()
 	var first, second records.Run
 	var created bool
+	hold := sync.OnceFunc(func() { close(held) })
 	go func() {
 		err := errors.New("transaction setup failed")
-		defer func() { firstDone <- err }()
+		defer func() { hold(); firstDone <- err }() // the main goroutine never waits on a body that did not run
 		err = apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 			var err error
 			first, _, err = request(ctx)
-			close(held)
+			hold()
 			<-release
 			return err
 		})
