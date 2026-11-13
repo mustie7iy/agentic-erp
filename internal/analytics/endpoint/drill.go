@@ -3,8 +3,8 @@ package endpoint
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
@@ -86,7 +86,7 @@ func (e *Endpoints) checkDrill(ctx context.Context, req *gen.AnalyticsDrill, par
 		Version   int32
 	}{row, req.Query.Companies, req.Query.AsOf.Or(time.Time{}), version})
 	sum := sha256.Sum256(b)
-	d := drill{model: m, version: version, row: row, scope: "analytics-documents:" + hex.EncodeToString(sum[:]), size: size}
+	d := drill{model: m, version: version, row: row, scope: fmt.Sprintf("analytics-documents:%x", sum), size: size}
 	if token, ok := params.PageToken.Get(); ok {
 		d.after = &analytics.DocumentCursor{}
 		if err := e.Pages.Decode(d.scope, token, d.after); err != nil {

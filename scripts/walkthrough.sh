@@ -7428,14 +7428,14 @@ step_drill_through() {
 # step_follow_up is T94a (ADR-0044 As built T94a): an analytics agent
 # principal answers Carla's question with erp ask, then her follow-up
 # ("and by supplier?") with erp ask -continue: the agent is given the
-# earlier question, its answer and its results as data, and its follow-up
-# query keeps the year and the company the first named, which the
-# follow-up does not name again. The model is the stand-in, answering from
+# earlier question, its answer and its results as data; its follow-up
+# query keeps the year the first question named, and the analysis keeps
+# the company its first erp ask was scoped to, neither named again. The model is the stand-in, answering from
 # a script of turns as the analytics suite's follow-up cases replay them
 # (evals/analytics). The saved report keeps both turns, and erp report
 # reruns every query of the exchange.
 step_follow_up() {
-  heading "Step 71 — A follow-up question in the same analysis: \"and by supplier?\" answered with the earlier question's year and company, the report keeping the whole exchange"
+  heading "Step 71 — A follow-up question in the same analysis: \"and by supplier?\" answered with the earlier question's year and the analysis's company, the report keeping the whole exchange"
   local role got id report follow q
   as ada
   say "Ada sets up the analytics agent (agent type analytics, ADR-0044): it runs governed queries on what its role reads"

@@ -263,9 +263,8 @@ func continued(af analyticsFlags, outDir, id string) (*analytics.Report, error) 
 	saved := slices.Sorted(slices.Values(rep.Principal.Companies))
 	asked := slices.Sorted(slices.Values(splitList(*af.companies)))
 	switch {
-	case *af.companies == "":
+	case *af.companies == "", slices.Equal(asked, saved):
 		*af.companies = strings.Join(saved, ",")
-	case slices.Equal(asked, saved):
 	case len(saved) == 0:
 		return nil, fmt.Errorf("report %s is an analysis of all the companies you may read: continue it without -companies, or ask anew", rep.ID)
 	default:
