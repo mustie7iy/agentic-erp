@@ -28516,30 +28516,6 @@ func (s *ContractUpdate) SetItems(val []ContractItem) {
 	s.Items = val
 }
 
-type CopyPlanCategoryBadRequest Problem
-
-func (*CopyPlanCategoryBadRequest) copyPlanCategoryRes() {}
-
-type CopyPlanCategoryForbidden Problem
-
-func (*CopyPlanCategoryForbidden) copyPlanCategoryRes() {}
-
-type CopyPlanCategoryNotFound Problem
-
-func (*CopyPlanCategoryNotFound) copyPlanCategoryRes() {}
-
-type CopyPlanCategoryPreconditionFailed Problem
-
-func (*CopyPlanCategoryPreconditionFailed) copyPlanCategoryRes() {}
-
-type CopyPlanCategoryPreconditionRequired Problem
-
-func (*CopyPlanCategoryPreconditionRequired) copyPlanCategoryRes() {}
-
-type CopyPlanCategoryUnprocessableEntity Problem
-
-func (*CopyPlanCategoryUnprocessableEntity) copyPlanCategoryRes() {}
-
 // Merged schema.
 // Ref: #/components/schemas/Control
 type Control struct {
@@ -29724,6 +29700,30 @@ func (s *ControlUpdate) SetNature(val OptString) {
 func (s *ControlUpdate) SetFrameworkReferences(val []string) {
 	s.FrameworkReferences = val
 }
+
+type CopyPlanCategoryBadRequest Problem
+
+func (*CopyPlanCategoryBadRequest) copyPlanCategoryRes() {}
+
+type CopyPlanCategoryForbidden Problem
+
+func (*CopyPlanCategoryForbidden) copyPlanCategoryRes() {}
+
+type CopyPlanCategoryNotFound Problem
+
+func (*CopyPlanCategoryNotFound) copyPlanCategoryRes() {}
+
+type CopyPlanCategoryPreconditionFailed Problem
+
+func (*CopyPlanCategoryPreconditionFailed) copyPlanCategoryRes() {}
+
+type CopyPlanCategoryPreconditionRequired Problem
+
+func (*CopyPlanCategoryPreconditionRequired) copyPlanCategoryRes() {}
+
+type CopyPlanCategoryUnprocessableEntity Problem
+
+func (*CopyPlanCategoryUnprocessableEntity) copyPlanCategoryRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/CostCenter
