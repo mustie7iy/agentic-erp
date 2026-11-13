@@ -7355,14 +7355,16 @@ step_access_agent() {
 # access-sod through the model stand-in answering from a script of turns
 # (its suite's replay, evals/access), analyses a role against the
 # tenant's segregation-of-duties rules with a permission to be added.
-# The tenant has no rule yet, and the rule the plan names, who proposes a
-# payment run does not release it, cannot be made: Tom, Tara and Fiona
+# The rule the plan names, who proposes a payment run does not release
+# it, cannot be made: Tom, Tara and Fiona
 # propose (finance_staff) and release (Z_TREASURY_MGR), and Ada's
 # tenant_admin holds every permission, so identity refuses it (409). Ada
 # keeps the treasury roles as they are and makes the rule that fits the
 # team: who administers access does not release payments. First she ends
 # her own role's release of payment runs from tomorrow, since an
-# administrator releases none, then makes the rule from tomorrow. Asked
+# administrator releases none, then makes the rule from tomorrow, unless
+# the control matrix's step (T98b), which makes the same rule the same
+# way, already did. Asked
 # about adding the release back to tenant_admin, the agent names the rule
 # and Ada, the role's holder, as the run computed it the way identity's
 # check at a grant does; the agent cannot grant it, and Ada's own grant
@@ -7373,23 +7375,30 @@ step_access_sod() {
   as ada
   ada=$(awk -F'\t' '$2 == "Ada Admin" { print $1 }' "$WORK/names")
   tomorrow=$(date_add "$(utc_day)" 1)
-  say "The tenant has no segregation-of-duties rule of its own yet (product owner, 2026-11-12: no rule is added for"
-  say "the pilot; the agent analyses the rules a tenant has). The rule that whoever proposes a payment run does not"
-  say "release it cannot be made while somebody would break it: the treasurers propose and release, and so may Ada."
-  api 200 '"  rules in force: \(.items | length)"' listSodRules
-  expect "the tenant's rules" "$(field '.items | length')" 0
+  say "The rule that whoever proposes a payment run does not release it cannot be made while somebody would break it:"
+  say "the treasurers propose and release, and so may Ada:"
   refused 409 identity.sod_conflict createSodRule -body "{\"permission_a\": \"payments.run.propose\", \"permission_b\": \"payments.run.release\", \"description\": \"Who proposes a payment run does not release it\", \"valid_from\": \"$tomorrow\"}"
-  say "Ada makes the rule that fits the team instead: who administers access does not release payments. An"
-  say "administrator releases no payment run, so she first ends her own role's release from tomorrow:"
+  say "The rule that fits the team is that whoever administers access does not release payment runs. An administrator"
+  say "releases no payment run, so Ada's own role releases none from tomorrow, and the rule is in force from then"
+  say "(made here, or already by the control matrix's step, T98b, which makes the same rule the same way):"
   QUIET=1 api 200 '' listRoles -p page_size=100
   admin_role=$(field '.items[] | select(.code == "tenant_admin") | .id')
   QUIET=1 api 200 '' listRolePermissions -p "id=$admin_role" -p "valid_on=$(utc_day)" -p page_size=500
   expect "the administrator role's grants on one page" "$(field '.next_page_token // "none"')" none
   grant=$(field '.items[] | select(.permission_code == "payments.run.release") | .id')
+  [ -n "$grant" ] || fail "the administrator's role does not hold payments.run.release today"
   QUIET=1 api 200 '' getRolePermission -p "id=$admin_role" -p "permission_id=$grant"
-  api 200 '"  \(.permission_code) on tenant_admin: valid to \(.valid_to)"' endRolePermission -p "id=$admin_role" -p "permission_id=$grant" -if-match "$ETAG" -body "{\"valid_to\": \"$tomorrow\"}"
-  api 201 '"  rule \(.permission_a) / \(.permission_b) from \(.valid_from): \(.description)"' createSodRule \
-    -body "{\"permission_a\": \"payments.run.release\", \"permission_b\": \"identity.access.manage\", \"description\": \"Who administers access does not release payments\", \"valid_from\": \"$tomorrow\"}"
+  if [ "$(field '.valid_to // ""')" = "" ]; then
+    api 200 '"  \(.permission_code) on tenant_admin: valid to \(.valid_to)"' endRolePermission -p "id=$admin_role" -p "permission_id=$grant" -if-match "$ETAG" -body "{\"valid_to\": \"$tomorrow\"}"
+  fi
+  expect "the administrator role's release ends" "$(field '.valid_to')" "$tomorrow"
+  QUIET=1 api 200 '' listSodRules -p "valid_on=$tomorrow" -p page_size=500
+  if [ -z "$(field '.items[] | select(.permission_a == "identity.access.manage" and .permission_b == "payments.run.release") | .id')" ]; then
+    api 201 '"  rule \(.permission_a) / \(.permission_b) from \(.valid_from): \(.description)"' createSodRule \
+      -body "{\"permission_a\": \"identity.access.manage\", \"permission_b\": \"payments.run.release\", \"description\": \"Whoever administers access does not release payment runs.\", \"valid_from\": \"$tomorrow\"}"
+  fi
+  api 200 '.items[] | "  rule \(.permission_a) / \(.permission_b) from \(.valid_from): \(.description)"' listSodRules -p "valid_on=$tomorrow" -p page_size=500
+  expect "the rule in force from tomorrow" "$(field '[.items[] | select(.permission_a == "identity.access.manage" and .permission_b == "payments.run.release")] | length')" 1
   line="Rule identity.access.manage / payments.run.release: Ada Admin ($ada)"
   say "Asked whether the administrators may release payment runs again, the access agent (its role reads identity"
   say "data since step 67) runs: erp agent access-sod reads the roles, the assignments, the rules, the principals and"

@@ -111,6 +111,11 @@ func (a *Agent) standing(ctx context.Context) (*standing, error) {
 		return nil, fmt.Errorf("accessagent: the role assignments: %w", err)
 	}
 	for _, as := range assignments {
+		if _, ok := st.roles[as.RoleID]; !ok {
+			// A role made between the two reads: judging its holders
+			// without it could miss a conflict.
+			return nil, fmt.Errorf("accessagent: role %s of an assignment is not among the roles read: run again", as.RoleID)
+		}
 		st.assignments[as.PrincipalID] = append(st.assignments[as.PrincipalID], as)
 	}
 	if st.rules, err = apitools.List[rule](ctx, a.API, "/v1/sod-rules", nil); err != nil {

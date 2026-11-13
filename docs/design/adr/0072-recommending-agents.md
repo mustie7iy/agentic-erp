@@ -409,7 +409,10 @@ A later slice adds its row here and its section under "As built".
   identity refuses a propose/release rule (409, shown). Decided by default:
   Ada ends her own role's release from tomorrow and makes the rule *who
   administers access does not release payments*
-  (`identity.access.manage` / `payments.run.release`) from tomorrow; the
+  (`identity.access.manage` / `payments.run.release`) from tomorrow, the
+  rule and the way T98b's `step_control_matrix` makes it (ADR-0078): the
+  step makes it unless a step before it did, and ends the grant only
+  while it is open; the
   agent, asked about adding the release back to `tenant_admin`, names the
   rule and Ada; its own grant is refused (403); Ada's grant is refused by
   identity's check (409 `identity.sod_conflict`) naming the same principal
@@ -466,7 +469,8 @@ A later slice adds its row here and its section under "As built".
     standing included) and the model only words them; its day is UTC's.
 12. (T106b) The walkthrough shows the rule *who administers access does
     not release payments* rather than the plan's propose/release rule,
-    which its tenant cannot make while its treasurers hold both; making
+    which its tenant cannot make while its treasurers hold both (the
+    rule T98b's control matrix step chose too); making
     any rule in a provisioned tenant first needs an administrator's grant
     of one of its permissions ended, since `tenant_admin` holds every
     permission (a gap for the product owner, reported, not built).

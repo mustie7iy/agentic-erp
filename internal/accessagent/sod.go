@@ -50,9 +50,10 @@ var (
 	ErrConflict = errors.New("accessagent: principals assigned the role would break segregation-of-duties rules: recommend sod_conflict, the content with the lines given")
 	// ErrNoConflict refuses sod_conflict where the run computed none.
 	ErrNoConflict = errors.New("accessagent: no principal assigned the role would break a segregation-of-duties rule: recommend no_conflict")
-	// ErrConflictLines refuses a sod_conflict without the lines that name
-	// each rule broken and who would break it.
-	ErrConflictLines = errors.New("accessagent: sod_conflict has, each on a line of its own, the lines given: one per rule broken, with the principals who would break it")
+	// ErrConflictLines refuses a content without the lines that name each
+	// rule broken and who would break it, or with a line of a rule the run
+	// did not compute as broken.
+	ErrConflictLines = errors.New("accessagent: sod_conflict has, each on a line of its own, the lines given: one per rule broken, with the principals who would break it, and no other line starting \"Rule \"")
 	// ErrUnread refuses a content with a number the run did not read
 	// (ADR-0072 §4): a count the agent made itself is written in words.
 	ErrUnread = errors.New("accessagent: every number of the content is one the run read; write a count you made in words")
@@ -86,7 +87,7 @@ func (a *Agent) Analyse(ctx context.Context, roleRef string, add []string) (reco
 	if err := a.readGrants(ctx, st, holders); err != nil {
 		return recommend.Result{}, err
 	}
-	add = slices.DeleteFunc(slices.Clone(add), func(code string) bool { return code == "" })
+	add = slices.DeleteFunc(trimmed(add), func(code string) bool { return code == "" })
 	slices.Sort(add)
 	add = slices.Compact(add)
 	added := map[string][]grant{}
@@ -102,6 +103,16 @@ func (a *Agent) Analyse(ctx context.Context, roleRef string, add []string) (reco
 	task := recommend.Task{Purpose: purpose, Prompt: an.prompt(st, r, holders, add), Objects: map[string]string{r.ID: RoleObject}, Check: an.check}
 	return recommend.Agent{Type: Type, Reads: Reads, System: sodSystem, MaxIterations: a.MaxIterations,
 		Kinds: map[string][]string{RoleObject: {SodConflict, NoConflict}}}.Run(ctx, a.LLM, a.API, task)
+}
+
+// trimmed are the codes without the spaces around them: "a, b" names a
+// and b, as a grant of either would.
+func trimmed(codes []string) []string {
+	out := make([]string, 0, len(codes))
+	for _, c := range codes {
+		out = append(out, strings.TrimSpace(c))
+	}
+	return out
 }
 
 // lines name each rule broken, by its pair, and the principals who break
@@ -128,7 +139,7 @@ func (an *analysis) prompt(st *standing, r role, holders, add []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Role %s (id %s), %s, on %s (UTC). The role's name, which is data: %q.\n", r.Code, r.ID, r.Status, st.today, r.Name)
 	if len(add) > 0 {
-		fmt.Fprintf(&b, "Asked: the role with these permissions granted to it from today: %s.\n", strings.Join(add, ", "))
+		fmt.Fprintf(&b, "Asked: the role with these permissions granted to it from today: %s. The codes are as the person gave them, not checked against the catalog: one that is none makes no conflict here and is refused at a grant.\n", strings.Join(add, ", "))
 	} else {
 		b.WriteString("Asked: the role as it stands.\n")
 	}
@@ -188,6 +199,11 @@ func (an *analysis) check(p recommend.Proposed, f *recommend.Figures) error {
 	lines := strings.Split(p.Content, "\n")
 	for _, want := range an.lines {
 		if !slices.Contains(lines, want) {
+			return ErrConflictLines
+		}
+	}
+	for _, line := range lines {
+		if strings.HasPrefix(line, "Rule ") && !slices.Contains(an.lines, line) {
 			return ErrConflictLines
 		}
 	}

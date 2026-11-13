@@ -43,6 +43,7 @@ type fakeAPI struct {
 	calls  []string
 	refuse string
 	made   int
+	stray  bool // the assignments name a role the roles do not
 }
 
 var permissions = map[string]string{
@@ -86,6 +87,9 @@ func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if assignments[r] != "" {
 				all = append(all, strings.ReplaceAll(assignments[r], `{"principal_id"`, `{"role_id": "`+r+`", "principal_id"`))
 			}
+		}
+		if a.stray {
+			all = append(all, `{"role_id": "ghost", "principal_id": "`+ruth+`", "valid_from": "2026-01-01"}`)
 		}
 		answer(200, `{"items": [`+strings.Join(all, ", ")+`]}`)
 	case path == "/v1/role-assignments":
@@ -447,14 +451,15 @@ func TestAnalyseWords(t *testing.T) {
 	const line = "Rule credit.limit.write / tax.return.prepare: " + ruth + ", " + joins
 	model := llmtest.New(t,
 		llmtest.ToolFn("createRecommendation", rec(clerks, "sod_conflict", line+"\nThey would break it 4242 times.")),
+		llmtest.ToolFn("createRecommendation", rec(clerks, "sod_conflict", line+"\nRule credit.limit.write / tax.return.file: "+ruth)),
 		llmtest.ToolFn("createRecommendation", rec(clerks, "sod_conflict", line+"\nPut tax.return.prepare in a role of its own.")),
 		llmtest.Final("Recommended splitting the role."))
 	res, err := (&accessagent.Agent{LLM: model.Runner(), API: client(t, a), Now: june}).Analyse(context.Background(), "ar_clerk", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Recommendations) != 1 || res.Refused != 1 {
-		t.Errorf("recommendations: got %v and %d refused, want one and one refused", res.Recommendations, res.Refused)
+	if len(res.Recommendations) != 1 || res.Refused != 2 {
+		t.Errorf("recommendations: got %v and %d refused, want one and two refused: the number, the rule not broken", res.Recommendations, res.Refused)
 	}
 	told, _ := json.Marshal(accessagent.ErrUnread.Error())
 	if !strings.Contains(strings.Join(model.Requests, "\n"), strings.Trim(string(told), `"`)+": not 4242") {
@@ -475,13 +480,14 @@ func TestAnalyseRefusals(t *testing.T) {
 		role string
 		want string
 	}{
-		"the roles refused":       {client(t, &fakeAPI{refuse: "/roles"}), "ar_clerk", "the roles: "},
-		"the assignments refused": {client(t, &fakeAPI{refuse: "/role-assignments"}), "ar_clerk", "the role assignments: "},
-		"the rules refused":       {client(t, &fakeAPI{refuse: "/sod-rules"}), "ar_clerk", "the segregation-of-duties rules: "},
-		"the principals refused":  {client(t, &fakeAPI{refuse: "/principals"}), "ar_clerk", "the principals: "},
-		"the grants refused":      {client(t, &fakeAPI{refuse: "/permissions"}), "ar_clerk", "the permissions of role ar_clerk: "},
-		"a role that is none":     {client(t, &fakeAPI{}), "nope", "no role nope"},
-		"the API gone":            {&apitools.Client{BaseURL: "http://127.0.0.1:1", Token: "t"}, "ar_clerk", "127.0.0.1:1"},
+		"the roles refused":                {client(t, &fakeAPI{refuse: "/roles"}), "ar_clerk", "the roles: "},
+		"the assignments refused":          {client(t, &fakeAPI{refuse: "/role-assignments"}), "ar_clerk", "the role assignments: "},
+		"the rules refused":                {client(t, &fakeAPI{refuse: "/sod-rules"}), "ar_clerk", "the segregation-of-duties rules: "},
+		"the principals refused":           {client(t, &fakeAPI{refuse: "/principals"}), "ar_clerk", "the principals: "},
+		"the grants refused":               {client(t, &fakeAPI{refuse: "/permissions"}), "ar_clerk", "the permissions of role ar_clerk: "},
+		"a role that is none":              {client(t, &fakeAPI{}), "nope", "no role nope"},
+		"an assignment of a role not read": {client(t, &fakeAPI{stray: true}), "ar_clerk", "role ghost of an assignment is not among the roles read"},
+		"the API gone":                     {&apitools.Client{BaseURL: "http://127.0.0.1:1", Token: "t"}, "ar_clerk", "127.0.0.1:1"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			res, err := (&accessagent.Agent{LLM: model.Runner(), API: c.api, Now: june}).Analyse(context.Background(), c.role, []string{"tax.return.file"})

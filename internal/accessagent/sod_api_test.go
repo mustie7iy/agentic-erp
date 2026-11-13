@@ -128,7 +128,7 @@ func (c *cell) analysedAs(role, ref, add string) (kind, content, prompt string) 
 		llmtest.Final("An identity administrator decides."))
 	var adds []string
 	if add != "" {
-		adds = []string{add, "", add}
+		adds = []string{" " + add, "", add} // as "-add ' a,,a'" splits: trimmed, empty left out, once
 	}
 	res, err := (&accessagent.Agent{LLM: model.Runner(), API: c.agent, Now: func() time.Time { return c.today }}).Analyse(context.Background(), ref, adds)
 	if err != nil {
