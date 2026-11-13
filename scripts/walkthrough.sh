@@ -6678,10 +6678,11 @@ step_credit_limit() {
 # down payment (step 3's DP_SUPPLIER), and publishes it; he then records
 # the quotation each of them sent, the second cheaper in total, and reads
 # their comparison (T82c), which ranks the cheaper first and marks the
-# lowest amount of each item. The due date is the request's, two weeks
+# lowest amount of each item. The bid comparison agent then recommends the
+# award (T105c, rfq_agent). The due date is the request's, two weeks
 # after the company's date today. It keeps the RFQ (RFQ).
 step_rfq() {
-  heading "Step 60 — Sourcing: a request for quotation for two items is created with two suppliers invited and published; a quotation is recorded for each supplier, one cheaper in total, and the comparison ranks it first"
+  heading "Step 60 — Sourcing: a request for quotation for two items is created with two suppliers invited and published; a quotation is recorded for each supplier, one cheaper in total, and the comparison ranks it first; the bid comparison agent recommends awarding it, and the buyer accepts"
   as ben
   local due expense body valid quote line
   due=$(date_add "$(company_day)" 14)
@@ -6750,7 +6751,82 @@ step_rfq() {
     "1 17000.00 CAD, 2 11400.00 CAD"
   expect "the prices marked as the lowest" "$(field '[.suppliers[] | .supplier_id as $s | .prices[] | select(.lowest) | "\($s) \(.rfq_item_no) \(.amount.amount)"] | join(", ")')" \
     "$DP_SUPPLIER 1 17000.00, $DP_SUPPLIER 2 11400.00"
+  rfq_agent
   passed
+}
+
+# rfq_agent is T105c's part of step_rfq (ADR-0072): the bid comparison
+# agent, erp agent bid-compare through the model stand-in answering from a
+# script of turns (its suite's replay, evals/bid_comparison), reads the
+# comparison of step_rfq's RFQ and recommends awarding it to the quotation
+# ranked first, $DP_NAME's, naming on its first line that quotation and
+# giving both totals. A content stating the difference between them, an
+# amount it computed, is refused by the run first. Its own award is
+# refused (x-agent: false). Ben, the buyer, accepts the recommendation,
+# which changes nothing: the RFQ is published as before, and he awards it
+# himself in step_rfq_award. It keeps the quotation recommended (WINNER).
+rfq_agent() {
+  local role got session rec first second
+  as ada
+  say "Ada sets up the bid comparison agent (ADR-0072): an agent principal of type bid_comparison at autonomy level 1"
+  say "on erp-default. Its role reads RFQs, contracts, purchase orders and partners, and records its sessions and"
+  say "recommendations; it holds no permission that awards, publishes or records a quotation."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "bid_agent", "name": "Bid comparison agent"}'
+  role=$(field .id)
+  grant "$role" procurement.rfq.read procurement.contract.read procurement.order.read partner.supplier.read \
+    agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model), budget \(.agent_profile.monthly_budget.amount) \(.agent_profile.monthly_budget.currency) a month"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "bid-agent", "display_name": "Bid comparison agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "bid_comparison", "model": "erp-default", "description": "Recommends RFQ awards for a buyer to decide (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token bid-agent "Bid comparison agent"
+  as ben
+  QUIET=1 api 200 '' getRfqComparison -p "id=$RFQ"
+  WINNER=$(field '.suppliers[] | select(.rank == 1) | .supplier_quotation_id')
+  first=$(field '.suppliers[] | select(.rank == 1) | .total.amount') second=$(field '.suppliers[] | select(.rank == 2) | .total.amount')
+  say "The agent runs: erp agent bid-compare starts a session on erp-default, reads the comparison through its tool and"
+  say "recommends. The model is the stand-in, answering from a script of turns as the agent's evaluation suite replays"
+  say "them (evals/bid_comparison): it first states the difference between the totals, 1360.00 CAD, an amount no read"
+  say "returned (refused by the run: the agent computes no amount), then recommends the quotation ranked first."
+  jq -n --arg rfq "$RFQ" --arg winner "$WINNER" --arg dp "$DP_NAME" --arg first "$first" --arg second "$second" '
+    {session_id: "{{session}}", object_type: "rfq", object_id: $rfq, kind: "award"} as $on |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "getRfqComparison", input: {id: $rfq}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Award: \($winner)\n\($dp) is 1360.00 CAD cheaper than Tyrell Office Products."})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Award: \($winner)\n\($dp)\u0027s quotation is ranked first at \($first) CAD; Tyrell Office Products\u0027 is second at \($second) CAD. \($dp) quoted the lower amount for both items, 17000.00 CAD for the chairs and 11400.00 CAD for the desks. No quotation was left out as incomplete or expired."})}},
+      {final: "Recommended awarding the RFQ to \($dp)\u0027s quotation; the buyer decides, and awards it himself."}]}' >"$WORK/model-script.json"
+  show ERP_AGENT_TOKEN=… erp agent bid-compare -rfq "$RFQ"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/bid-agent") "$ERP" agent bid-compare -rfq "$RFQ" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent bid-compare failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): award on rfq $RFQ\$/\1/p")
+  [ -n "$rec" ] || fail "erp agent bid-compare printed no award on the RFQ $RFQ"
+  say "Ben reads the recommendation on the RFQ:"
+  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)"))' listRecommendations -p "object_id=$RFQ"
+  expect "the recommendations on the RFQ, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "made in its session" "$(field '.items[0].session_id')" "$session"
+  expect "naming the quotation ranked first, $DP_NAME's" "$(field '.items[0].content | split("\n")[0]')" "Award: $WINNER"
+  expect "with both totals" "$(jq -r --arg f "$first" --arg s "$second" '.items[0].content | contains("\($f) CAD") and contains("\($s) CAD")' "$WORK/last.json")" true
+  as bid-agent
+  say "Recommending is all it may do: the award is a person's (x-agent: false), erp agent builds it no tool for it,"
+  say "and the API refuses its own call:"
+  QUIET=1 api 200 '' getRfq -p "id=$RFQ"
+  refused 403 identity.agent_not_allowed awardRfq -p "id=$RFQ" -if-match "$ETAG" \
+    -body "{\"quotation_id\": \"$WINNER\", \"valid_from\": \"$(company_day)\", \"valid_to\": \"$(date_add "$(company_day)" 364)\"}"
+  api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "getRfqComparison createRecommendation createRecommendation"
+  as ben
+  say "Ben accepts the recommendation. Accepting changes nothing: the RFQ is published as before, and Ben awards it"
+  say "himself, through the normal operation (step 66)."
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "The cheaper complete quotation; I award it."}'
+  expect "the recommendation's outcome" "$(field .outcome)" accepted
+  QUIET=1 api 200 '' getRfq -p "id=$RFQ"
+  expect "the RFQ after the acceptance, not awarded" "$(field '"\(.status) \(.version)"')" "published 2"
 }
 
 # step_rfq_award is T82d (ADR-0069 §7): Ben awards the RFQ of step_rfq
@@ -6770,6 +6846,7 @@ step_rfq_award() {
   QUIET=1 api 200 '' getRfqComparison -p "id=$RFQ"
   winner=$(field '.suppliers[] | select(.rank == 1) | .supplier_quotation_id')
   expect "the quotation ranked first is $DP_NAME's" "$(field '.suppliers[] | select(.rank == 1) | .supplier_id')" "$DP_SUPPLIER"
+  expect "the quotation the bid comparison agent recommended and Ben accepted (step 60)" "$winner" "$WINNER"
   QUIET=1 api 200 '' getRfq -p "id=$RFQ"
   tag=$ETAG
   body="{\"quotation_id\": \"$winner\", \"valid_from\": \"$today\", \"valid_to\": \"$until\"}"

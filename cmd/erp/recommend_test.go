@@ -101,6 +101,38 @@ func TestAgentAccessRoles(t *testing.T) {
 	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "access-roles", "-role", "clerk", "-period", period)
 }
 
+// TestAgentBidCompare: erp agent bid-compare needs -rfq, reads the RFQ's
+// comparison, runs the bid comparison agent's session and prints what it
+// recommended and the model's reply, also when the run failed after
+// starting its session (ADR-0072, T105c).
+func TestAgentBidCompare(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	fails(t, "flag provided", "agent", "bid-compare", "-x")
+	fails(t, "want -rfq ID", "agent", "bid-compare")
+	fails(t, "404", "agent", "bid-compare", "-rfq", "q1")
+	compared := sessionRoutes(routes{"GET /v1/rfqs/q1/comparison": {ok(`{"rfq_id": "q1", "rfq_document_number": "RQ100004", "company_code": "3000",
+			"currency": "CAD", "status": "published", "suppliers": [{"supplier_quotation_id": "01a1aa00-0000-7000-8000-000000000c01", "rank": 1,
+			"total": {"amount": "28400.00", "currency": "CAD"}}]}`)},
+		"POST /v1/recommendations": {reply{201, `{"id": "r1", "object_type": "rfq", "object_id": "q1", "kind": "award"}`}}})
+	fakeAPI(t, compared)
+	model(t, llmtest.Tool("getRfqComparison", map[string]any{"id": "q1"}),
+		llmtest.Tool("createRecommendation", map[string]any{"body": map[string]any{"session_id": agentSession, "object_type": "rfq",
+			"object_id": "q1", "kind": "award", "content": "Award: 01a1aa00-0000-7000-8000-000000000c01\nThe one quotation ranked, 28400.00 CAD."}}),
+		llmtest.Final("Recommended the award; the buyer decides."))
+	got := must(t, "agent", "bid-compare", "-rfq", "q1")
+	if want := "Session " + agentSession + ": recommendations made 1, refused 0.\n  recommendation r1: award on rfq q1\n" +
+		"Recommended the award; the buyer decides.\n"; got != want {
+		t.Errorf("agent bid-compare: got %q, want %q", got, want)
+	}
+	model(t)
+	// A failed run still names its session, then fails.
+	fails(t, "Session "+agentSession+": recommendations made 0, refused 0.", "agent", "bid-compare", "-rfq", "q1")
+	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
+	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "bid-compare", "-rfq", "q1")
+}
+
 // TestRecommendingAdapterFailures: a recommending agent's evaluation
 // adapter fails its case on a task without its values and on an agent
 // that could not run.
@@ -113,6 +145,8 @@ func TestRecommendingAdapterFailures(t *testing.T) {
 		"access without a period": accessEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{"role": "clerk", "from": "2026-04-01"}}),
 		"access without its API": accessEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{},
 			Task: map[string]any{"role": "clerk", "from": "2026-04-01", "to": "2026-06-30"}}),
+		"bid_comparison without an RFQ":  bidComparisonEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
+		"bid_comparison without its API": bidComparisonEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"rfq": "q1"}}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err == nil {

@@ -20,6 +20,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/bidagent"
 	capturepkg "github.com/mustie7iy/agentic-erp/internal/capture"
 	"github.com/mustie7iy/agentic-erp/internal/cashagent"
 	"github.com/mustie7iy/agentic-erp/internal/controlplane"
@@ -256,10 +257,15 @@ func TestEvalSuites(t *testing.T) {
 // cellClock is the replay cell's clock for a suite: the forecast agent's
 // steps back from a weekend in company 2000's zone to the Friday before,
 // since its cases leave unpaid what was forecast for today, and every
-// forecast falls on a business day (evals/cash); every other suite's is
-// the time.
+// forecast falls on a business day (evals/cash); the bid comparison
+// agent's stands at noon on 2026-11-16, since its RFQs take numbers of
+// fiscal year 2026 and are due and valid on dates of its own
+// (evals/bid_comparison); every other suite's is the time.
 func cellClock(t *testing.T, agent string) func() time.Time {
 	t.Helper()
+	if agent == bidagent.Type {
+		return func() time.Time { return time.Date(2026, 11, 16, 17, 0, 0, 0, time.UTC) }
+	}
 	if agent != cashagent.Type {
 		return time.Now
 	}

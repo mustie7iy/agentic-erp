@@ -197,6 +197,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 |---|---|---|---|---|
 | `credit_scoring` | `internal/creditagent`, `erp agent credit-score -company CODE -customer ID` | `getCreditExposure`, `listCreditLimits`, `getReceivablesAging`, `listDunningRuns`, `listDunningNotices`, `listIncomingPayments`, `listCustomerInvoices`, `getBusinessPartner` | on `credit_limit`: `raise_limit`, `lower_limit`, `keep_limit`; on `business_partner` (a customer without a limit): `set_limit` | `createCreditLimit`, `updateCreditLimit`, the release of an order's credit block |
 | `access` | `internal/accessagent`, `erp agent access-roles -role CODE -period FROM..TO` | `listRoles`, `getRole`, `listRolePermissions`, `listRoleAssignments`, `listPrincipals`, `listAuditEvents` | on `role`: `remove_permissions`, `keep` | every identity write |
+| `bid_comparison` | `internal/bidagent`, `erp agent bid-compare -rfq ID` | `getRfq`, `listSupplierQuotations`, `getRfqComparison`, `getBusinessPartner`, `listContracts`, `listPurchaseOrders` | on `rfq`: `award`, `no_award` | `awardRfq`, `publishRfq`, `createSupplierQuotation`, `createRfq` |
 
 A later slice adds its row here and its section under "As built".
 
@@ -347,6 +348,43 @@ A later slice adds its row here and its section under "As built".
   accepts, which changes nothing, and ends the grant herself.
 - No migration, no new operation, permission, event or problem code.
 
+### T105c, the bid comparison agent
+
+- `internal/bidagent`; agent type `bid_comparison`.
+- `erp agent bid-compare -rfq ID`. The run reads the RFQ's comparison
+  first (`getRfqComparison`, ADR-0069 §7: an RFQ the agent may not read
+  stops it before a session) and recommends on the RFQ (object type
+  `rfq`): `award` or `no_award`.
+- Its check (`bidagent.comparison.check`): every number in the content
+  is one the run read (§4), so the totals and items' amounts it states
+  are the comparison's and a difference it computed is refused; an
+  `award`'s first line is `Award: ` and the `supplier_quotation_id` of a
+  quotation the comparison read before the session ranks (complete and
+  valid on the company's date today), and only an RFQ that comparison
+  shows `published` is recommended for an award. So an RFQ without a
+  complete, valid quotation gets `no_award` or nothing. `no_award` has no
+  form: a person reads why. The prompt asks for the totals, the items for
+  which another supplier quoted less and the quotations left out as
+  incomplete or expired, and why; the check does not hold the content to
+  naming them.
+- Its never list is every write of sourcing: `awardRfq`, `publishRfq`,
+  `createSupplierQuotation`, `createRfq` (`TestNever` keeps it whole
+  against the contract); `awardRfq` is `x-agent: false`.
+- `evals/bid_comparison`, version 1, replayed to level 2 on a clock
+  standing at 2026-11-16 (`cmd/erp` `cellClock`), since its RFQs take
+  numbers of fiscal year 2026 and are due on dates of its own: the cheaper
+  complete quotation recommended for the award, naming the item another
+  supplier quoted lower; an RFQ whose quotations are incomplete or
+  expired recommended for no award; an instruction in a supplier's name
+  not followed. Not run against a live model.
+- Walkthrough `step_rfq` (step 60, `rfq_agent`): the agent's content
+  stating the difference between the totals, an amount no read returned,
+  is refused; it then recommends the quotation ranked first, naming both
+  totals; its own `awardRfq` is refused (403); Ben accepts, which changes
+  nothing (the RFQ stays published at its version), and `step_rfq_award`
+  awards the quotation the agent recommended, as before.
+- No migration, no new operation, permission, event or problem code.
+
 ## Defaults taken (for the product owner's digest)
 
 1. The shared run is a package, `internal/recommend`, not a copy per
@@ -390,3 +428,9 @@ A later slice adds its row here and its section under "As built".
     allowed them; the period's days are UTC days; the permissions
     reviewed are those valid on the period's last day, judged over the
     whole period even when granted during it.
+11. (T105c) The agent may recommend any quotation the comparison ranks,
+    not only the one ranked first: the plan asks only that it be ranked,
+    and the prompt asks for the one ranked first unless the reasons say
+    otherwise. An award is recommended only for a published RFQ, as only
+    one is awarded (ADR-0069 §7); the quotation named is held to the
+    comparison as read before the session.

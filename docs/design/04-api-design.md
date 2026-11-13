@@ -968,7 +968,10 @@ audited contexts no holder has an audit event in the period, or `keep`;
 a permission a read needs is listed as "use not recorded".
 It holds `identity.access.read` and `audit.event.read` only where a
 tenant's administrator granted them to its role, and identity writes stay
-people's.
+people's. The bid comparison agent (`erp agent bid-compare -rfq ID`,
+agent type `bid_comparison`, T105c) recommends on an `rfq`: `award`, its
+content's first line naming a quotation the comparison ranks, or
+`no_award`; the award stays the buyer's (`x-agent: false`, ADR-0069 §7).
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation

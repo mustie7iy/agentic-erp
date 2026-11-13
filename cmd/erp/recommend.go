@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/mustie7iy/agentic-erp/internal/accessagent"
+	"github.com/mustie7iy/agentic-erp/internal/bidagent"
 	"github.com/mustie7iy/agentic-erp/internal/creditagent"
 	"github.com/mustie7iy/agentic-erp/internal/eval"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
@@ -115,6 +116,42 @@ func accessEval(ctx context.Context, env eval.Env) error {
 	res, err := (&accessagent.Agent{LLM: env.LLM, API: env.Agent}).Review(ctx, t["role"], accessagent.Period{From: t["from"], To: t["to"]})
 	if err != nil {
 		return fmt.Errorf("access: %w", err)
+	}
+	graded(env, res)
+	return nil
+}
+
+// agentBidCompare has the bid comparison agent compare an RFQ's
+// quotations (ADR-0072, T105c): the buyer reads its recommendation and
+// decides it, and awards the RFQ, or not.
+func agentBidCompare(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("agent bid-compare", flag.ContinueOnError)
+	rfq := fs.String("rfq", "", "the RFQ's id")
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	if *rfq == "" {
+		return errors.New("agent bid-compare: want -rfq ID")
+	}
+	c, err := client("ERP_AGENT_TOKEN")
+	if err != nil {
+		return err
+	}
+	res, runErr := (&bidagent.Agent{LLM: newRunner(c), API: c}).Compare(ctx, *rfq)
+	return recommended("agent bid-compare", res, runErr)
+}
+
+// bidComparisonEval has the bid comparison agent compare the task's RFQ
+// as erp agent bid-compare does; what it recommended is the checks' to
+// judge, and its reply theirs too.
+func bidComparisonEval(ctx context.Context, env eval.Env) error {
+	t, err := tasked(env, "rfq")
+	if err != nil {
+		return err
+	}
+	res, err := (&bidagent.Agent{LLM: env.LLM, API: env.Agent}).Compare(ctx, t["rfq"])
+	if err != nil {
+		return fmt.Errorf("bid_comparison: %w", err)
 	}
 	graded(env, res)
 	return nil

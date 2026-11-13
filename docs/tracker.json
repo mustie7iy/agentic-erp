@@ -4467,9 +4467,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The bid comparison agent reads an RFQ's comparison and recommends an award with its reasons; it never awards",
-        "r": "T105c · docs/design/plan-breadth-week3.md §T105c · reads GET /v1/rfqs/{id}/comparison (T82c)",
+        "r": "T105c · docs/design/plan-breadth-week3.md §T105c · reads GET /v1/rfqs/{id}/comparison (T82c) · internal/bidagent · agent type bid_comparison · erp agent bid-compare · evals/bid_comparison · walkthrough step_rfq (rfq_agent) · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

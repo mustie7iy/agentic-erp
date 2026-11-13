@@ -30858,6 +30858,7 @@ components:
             - tax
             - credit_scoring
             - access
+            - bid_comparison
           maxLength: 50
         model:
           type: string
