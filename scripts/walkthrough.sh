@@ -7825,12 +7825,14 @@ step_control_matrix() {
   passed
 }
 
-# step_saved_report is T95a (ADR-0076): Carla saves the revenue question of
-# step 14 as a report of her own through the API, runs it again once a sale
-# is posted and sees the new figure; the CLI saves and runs it too.
+# step_saved_report is T95a and T95b (ADR-0076): Carla saves the revenue
+# question of step 14 as a report of her own through the API, runs it again
+# once a sale is posted and sees the new figure; the CLI saves and runs it
+# too; a daily schedule is set, the worker's round runs it once, and the
+# run is listed and read as CSV.
 step_saved_report() {
-  heading "Step 78 — A saved report: Carla's revenue by company saved through the API, run again after a sale is posted, showing the new figure"
-  local rep tag before after other ran spec query
+  heading "Step 78 — A saved report: Carla's revenue by company saved through the API, run again after a sale is posted, showing the new figure, and run daily by the worker"
+  local rep tag before after other ran spec query passed_runs
   as carla
   query="{\"revenue\": {\"measures\": [\"revenue\"], \"by\": [\"company\"], \"where\": [{\"dim\": \"company\", \"op\": \"in\", \"values\": [\"$CC\"]}]}}"
   spec="{\"title\": \"Revenue by company\", \"question\": \"What is our revenue by company?\", \"tiles\": [{\"label\": \"Revenue $CC\", \"query_id\": \"revenue\", \"measure\": \"revenue\", \"where\": {\"company\": \"$CC\"}}], \"tables\": [{\"title\": \"Revenue by company\", \"query_id\": \"revenue\"}]}"
@@ -7883,11 +7885,35 @@ step_saved_report() {
   ran=$(grep -c "Ran \"Revenue by company\" in erp-server" "$WORK/report.out" || true)
   expect "the CLI's run" "$ran" 1
   [ -s "$WORK/reports/$other.html" ] || fail "erp report -id wrote no dashboard"
+  say "Carla gives her report a daily schedule, dated in $CC's time zone: the server's worker runs it each day as her,"
+  say "with her access that day, and keeps the run with its results in object storage (ADR-0076 §4-§5, T95b):"
+  QUIET=1 api 200 '' getReport -p "id=$rep"
+  api 200 '"report \(.title): \(.schedule.frequency), dated in company \(.schedule.company), from \(.schedule.from), version \(.version)"' \
+    scheduleReport -p "id=$rep" -if-match "$ETAG" -body "{\"frequency\": \"daily\", \"company\": \"$CC\"}"
+  expect "the schedule" "$(field '"\(.schedule.frequency) \(.schedule.company) \(.version)"')" "daily $CC 2"
+  say "A weekly schedule names its weekday:"
+  refused 422 request.validation_failed scheduleReport -p "id=$rep" -if-match '"2"' -body "{\"frequency\": \"weekly\", \"company\": \"$CC\"}"
+  say "The worker's round runs it once (it runs every 30 seconds); the run is listed with its outcome:"
+  local i run
+  for i in $(seq 1 120); do
+    QUIET=1 api 200 '' listReportRuns -p "report_id=$rep"
+    [ "$(field '.items | length')" = 0 ] || break
+    sleep 1
+  done
+  api 200 '.items[] | "run of \(.report_title) for \(.run_date): \(.status), as \(.run_as_name), data through \(.data_through), SHA-256 \(.sha256[0:16])…"' \
+    listReportRuns -p "report_id=$rep"
+  expect "the day's run" "$(field '[.items[] | "\(.status) \(.run_as_name)"] | join(", ")')" "succeeded Carla Controller"
+  run=$(field '.items[0].id')
+  say "Read as CSV, it shows the revenue as she saw it after the sale, an amount beside its currency:"
+  api 200 '' getReportRun -p "id=$run" -p format=csv
+  sed 's/^/     /' "$WORK/last.json"
+  expect "the run's CSV" "$(sed -n 2p "$WORK/last.json")" "$CC,$after,CAD"
+  passed_runs=$(grep -c . "$WORK/last.json" || true)
+  expect "the CSV's lines" "$passed_runs" 2
   say "Removed, a report is kept but no longer run:"
   QUIET=1 api 200 '' getReport -p "id=$other"
   api 200 '"report \(.title): \(.status), version \(.version)"' removeReport -p "id=$other" -if-match "$ETAG"
   refused 409 analytics.report_removed runReport -p "id=$other" -if-match "$ETAG"
-  REPORT=$rep REPORT_TAG=$tag
   passed
 }
 

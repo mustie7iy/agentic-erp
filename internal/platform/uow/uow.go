@@ -142,29 +142,29 @@ func readRequest(r *http.Request, w http.ResponseWriter) (*request, error) {
 }
 
 func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Handler) error {
-	claims, ok := reqctx.ClaimsFrom(r.Context())
-	if !ok {
-		return problem.Unauthorized("A bearer token is required.")
+	who, err := callerOf(r.Context())
+	if err != nil {
+		return err
 	}
 	req, err := readRequest(r, w)
 	if err != nil {
 		return err
 	}
 	ctx := r.Context()
-	if err := m.admit(ctx, claims); err != nil {
+	if err := m.admit(ctx, who); err != nil {
 		return err
 	}
-	tx, err := m.begin(ctx, m.scope(r, claims, req == nil))
+	tx, err := m.begin(ctx, m.scope(r, who.tenant(), req == nil))
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx)) // no-op after commit
 
-	principal, err := resolve(ctx, tx, claims)
+	principal, err := who.resolve(ctx, tx)
 	if err != nil {
 		return err
 	}
-	if err := m.authorize(ctx, tx, claims, principal); err != nil {
+	if err := m.authorize(ctx, tx, who, principal); err != nil {
 		return err
 	}
 	info := reqctx.InfoFrom(ctx)
@@ -199,8 +199,8 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 
 // scope is the request's transaction: read-only for a safe method, at
 // REPEATABLE READ for one that reads as of one database state (Snapshot).
-func (m *Middleware) scope(r *http.Request, claims reqctx.Claims, safe bool) database.Scope {
-	s := database.Scope{Role: m.Role, TenantID: claims.TenantID, ReadOnly: safe}
+func (m *Middleware) scope(r *http.Request, tenant uuid.UUID, safe bool) database.Scope {
+	s := database.Scope{Role: m.Role, TenantID: tenant, ReadOnly: safe}
 	if m.Snapshot != nil && m.Snapshot(r) {
 		s.Isolation = pgx.RepeatableRead
 	}
@@ -224,7 +224,11 @@ func handlerContext(ctx context.Context, tx pgx.Tx, principal reqctx.Principal, 
 // bound token without its certificate is refused before its session is
 // touched: replayed by whoever stole it, it would otherwise keep its
 // owner's session alive (ADR-0033).
-func (m *Middleware) admit(ctx context.Context, claims reqctx.Claims) error {
+func (m *Middleware) admit(ctx context.Context, who caller) error {
+	if who.acting != nil {
+		return nil // no token: work in the process (callerOf)
+	}
+	claims := who.claims
 	if err := authn.CheckBinding(claims, reqctx.ClientCertFrom(ctx), false); err != nil {
 		m.Log.WarnContext(ctx, "certificate binding refused", "issuer", claims.Issuer, "subject", claims.Subject, "bound", true)
 		return err
@@ -241,7 +245,14 @@ func (m *Middleware) admit(ctx context.Context, claims reqctx.Claims) error {
 // prove no second factor (ADR-0031). identity.Sessions applies the same
 // rule to decide which tokens start or touch a session; the two stay in
 // step.
-func (m *Middleware) authorize(ctx context.Context, tx pgx.Tx, claims reqctx.Claims, principal reqctx.Principal) error {
+func (m *Middleware) authorize(ctx context.Context, tx pgx.Tx, who caller, principal reqctx.Principal) error {
+	claims := who.claims
+	if who.acting != nil {
+		// Work in the process proves nothing of a token: it acts as the
+		// principal it was set up by, as uow.Act does, and an agent is
+		// still held by the kill switch.
+		return m.admitAgent(ctx, tx, principal)
+	}
 	if principal.Kind == reqctx.KindHuman {
 		if err := authn.CheckMFA(claims); err != nil {
 			return err
@@ -253,10 +264,53 @@ func (m *Middleware) authorize(ctx context.Context, tx pgx.Tx, claims reqctx.Cla
 			return err
 		}
 	}
+	return m.admitAgent(ctx, tx, principal)
+}
+
+// admitAgent admits an agent's request through the tenant's AI kill
+// switch (Agents); a person or service passes.
+func (m *Middleware) admitAgent(ctx context.Context, tx pgx.Tx, principal reqctx.Principal) error {
 	if m.Agents != nil && principal.Kind == reqctx.KindAgent {
 		return m.Agents(ctx, tx)
 	}
 	return nil
+}
+
+// caller is who a request comes from: a verified token's claims, or the
+// principal work in the process acts as (reqctx.WithActing, which only
+// the loopback carries in: no request can set it; ADR-0076 §5).
+type caller struct {
+	claims reqctx.Claims
+	acting *reqctx.Principal
+}
+
+// callerOf is the request's caller; neither claims nor an acting
+// principal is 401.
+func callerOf(ctx context.Context) (caller, error) {
+	if c, ok := reqctx.ClaimsFrom(ctx); ok {
+		return caller{claims: c}, nil
+	}
+	if p, ok := reqctx.ActingFrom(ctx); ok {
+		return caller{acting: &p}, nil
+	}
+	return caller{}, problem.Unauthorized("A bearer token is required.")
+}
+
+// tenant is the tenant the caller acts in.
+func (c caller) tenant() uuid.UUID {
+	if c.acting != nil {
+		return c.acting.TenantID
+	}
+	return c.claims.TenantID
+}
+
+// resolve finds the caller's active principal in an active tenant: the
+// token's subject of its issuer, or the acting principal by its id.
+func (c caller) resolve(ctx context.Context, tx pgx.Tx) (reqctx.Principal, error) {
+	if c.acting != nil {
+		return resolvePrincipal(ctx, tx, c.acting.TenantID, `p.id = $2`, c.acting.ID)
+	}
+	return resolve(ctx, tx, c.claims)
 }
 
 // Act runs fn as actor in tx: the unit of work of a job that has no request
@@ -344,17 +398,23 @@ func (m *Middleware) finish(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 // identity provider sign in as another tenant's principal whose subject it
 // also issues.
 func resolve(ctx context.Context, tx pgx.Tx, c reqctx.Claims) (reqctx.Principal, error) {
+	return resolvePrincipal(ctx, tx, c.TenantID, `p.external_issuer = $2 AND p.external_subject = $3`, c.Issuer, c.Subject)
+}
+
+// resolvePrincipal finds the tenant's principal the condition on p
+// selects ($2 on), required active in an active tenant.
+func resolvePrincipal(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, cond string, args ...any) (reqctx.Principal, error) {
 	var tenantStatus string
 	var id *uuid.UUID
 	var kind, status *string
 	err := tx.QueryRow(ctx, `SELECT t.status, p.id, p.kind, p.status FROM tenancy.tenant t
-		LEFT JOIN identity.principal p ON p.tenant_id = t.id AND p.external_issuer = $2 AND p.external_subject = $3
-		WHERE t.id = $1`, c.TenantID, c.Issuer, c.Subject).Scan(&tenantStatus, &id, &kind, &status)
+		LEFT JOIN identity.principal p ON p.tenant_id = t.id AND `+cond+`
+		WHERE t.id = $1`, append([]any{tenant}, args...)...).Scan(&tenantStatus, &id, &kind, &status)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return reqctx.Principal{}, problem.Unauthorized("The token's tenant is not known here.")
 	case err != nil:
-		return reqctx.Principal{}, fmt.Errorf("uow: resolve principal in tenant %s: %w", c.TenantID, err)
+		return reqctx.Principal{}, fmt.Errorf("uow: resolve principal in tenant %s: %w", tenant, err)
 	case tenantStatus != "active":
 		return reqctx.Principal{}, problem.Forbidden("tenancy.tenant_inactive", "The tenant is "+tenantStatus+".")
 	case id == nil:
@@ -362,7 +422,7 @@ func resolve(ctx context.Context, tx pgx.Tx, c reqctx.Claims) (reqctx.Principal,
 	case *status != "active":
 		return reqctx.Principal{}, problem.Forbidden("identity.principal_blocked", "The principal is "+*status+".")
 	}
-	return reqctx.Principal{ID: *id, Kind: *kind, TenantID: c.TenantID}, nil
+	return reqctx.Principal{ID: *id, Kind: *kind, TenantID: tenant}, nil
 }
 
 // claimKey inserts the idempotency key, or answers from an earlier request

@@ -27129,6 +27129,216 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/reports/{id}:schedule":
+    post:
+      operationId: scheduleReport
+      tags:
+        - analytics
+      summary: Schedule a saved report's runs
+      description: "Gives one of the caller's active reports a schedule, or replaces its schedule (ADR-0076 §4, T95b), at the version read (`If-Match`): `daily`, `weekly` on an ISO weekday (`weekday`, 1 Monday to 7 Sunday) or `monthly` on a day of the month (`day_of_month`, 1 to 28, so every month has it); `weekday` is given for `weekly` alone and `day_of_month` for `monthly` alone (422 `request.validation_failed` naming the field). `company` is the company whose time zone dates the runs (`companies[].time_zone` of the active configuration; 422 `analytics.unknown_company` for a code it does not have). A run is due on that company's date, on a day the frequency names, from the day the schedule is set (`from`, the company's date then); the worker runs it as the report's owner, with the owner's access that day, and keeps it with its results (`listReportRuns`); a day the worker did not run on is not made up. Without object storage, where runs are kept, it is 503. A removed report is not scheduled (409 `analytics.report_removed`). An audit record is written with it."
+      x-permission: analytics.report.write
+      x-problem-codes:
+        - analytics.report_removed
+        - analytics.unknown_company
+        - config.not_bootstrapped
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The schedule.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportScheduleSet"
+      responses:
+        "200":
+          description: The report with its schedule.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/reports/{id}:unschedule":
+    post:
+      operationId: unscheduleReport
+      tags:
+        - analytics
+      summary: End a saved report's schedule
+      description: "Ends the schedule of one of the caller's reports (ADR-0076 §4, T95b), at the version read (`If-Match`): no run is due after it; the runs kept stay. A report without a schedule is 409 `analytics.report_not_scheduled`. An audit record is written with it."
+      x-permission: analytics.report.write
+      x-problem-codes:
+        - analytics.report_not_scheduled
+        - analytics.report_removed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The report without a schedule.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/report-runs:
+    get:
+      operationId: listReportRuns
+      tags:
+        - analytics
+      summary: List the kept runs of your reports
+      description: "The runs the worker kept of the caller's scheduled reports (ADR-0076 §5-§6, T95b), each with its report's title, its day, its outcome and, for a failed one, the problem that failed it; without results, which `getReportRun` gives. Another's report's runs are neither listed nor found. Filtered by report and status. Sortable by: `run_date` (default, the latest first)."
+      x-permission: analytics.report.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: report_id
+          in: query
+          required: false
+          description: Only the runs of this report.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only runs with this outcome.
+          schema:
+            type: string
+            description: "Run outcome. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - succeeded
+              - failed
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportRunPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/report-runs/{id}":
+    get:
+      operationId: getReportRun
+      tags:
+        - analytics
+      summary: Get a kept run of your report
+      description: "One kept run of one of the caller's reports (ADR-0076 §6, T95b): as JSON (`format=json`, the default) the run with its specification and every query's result as the run kept them, read back from object storage, whose bytes are compared with the SHA-256 recorded (409 `analytics.report_run_changed` when they differ); as CSV (`format=csv`) one result, a header row of its columns' names then a row per result row, each measure an exact decimal and a money measure followed by its currency's column (`<name>_currency`), a measure that cannot be computed empty, the result named by `query_id` (422 `analytics.unknown_query` when the run has no such result, or when the run has several and none is named). A failed run has no results (409 `analytics.report_run_failed` for its CSV); a format the contract does not list is 422 `request.validation_failed`; 503 while the server has no object storage."
+      x-permission: analytics.report.read
+      x-problem-codes:
+        - analytics.report_run_changed
+        - analytics.report_run_failed
+        - analytics.unknown_query
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: format
+          in: query
+          required: false
+          description: "`json` (default): the run with its results; `csv`: one result."
+          schema:
+            type: string
+            description: "`json` or `csv`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - json
+              - csv
+        - name: query_id
+          in: query
+          required: false
+          description: "For `csv`: the result's `query_id`; needed when the run has more than one."
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+      responses:
+        "200":
+          description: The run, or one of its results as CSV.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportRun"
+            text/csv:
+              schema:
+                type: string
+                format: binary
+                description: "One result: a header row of column names, then its rows; UTF-8, lines ending in LF."
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/connectors:
     get:
       operationId: listConnectors
@@ -57294,6 +57504,7 @@ components:
               description: "`active`, or `removed` for good (`removeReport`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum: [active, removed]
               readOnly: true
+            schedule: {$ref: "#/components/schemas/ReportSchedule", description: "The report's schedule (`scheduleReport`); absent while it has none."}
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e31"
           version: 1
@@ -57334,6 +57545,88 @@ components:
           description: Each query's result, by `query_id`.
           items: {$ref: "#/components/schemas/AnalyticsResult"}
         data_through: {type: string, description: "The latest posting or document date in the data of all the results (YYYY-MM-DD); empty when they read none.", readOnly: true}
+    ReportScheduleSet:
+      type: object
+      description: "A report's schedule: how often it runs and the company whose time zone dates its runs."
+      required: [frequency, company]
+      properties:
+        frequency:
+          type: string
+          description: "`daily`, `weekly` (on `weekday`) or `monthly` (on `day_of_month`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [daily, weekly, monthly]
+        company: {type: string, minLength: 1, maxLength: 20, description: "The code of the company whose time zone dates the runs."}
+        weekday: {type: integer, format: int32, minimum: 1, maximum: 7, description: "For `weekly`: the ISO weekday it runs on, 1 Monday to 7 Sunday."}
+        day_of_month: {type: integer, format: int32, minimum: 1, maximum: 28, description: "For `monthly`: the day of the month it runs on."}
+      additionalProperties: false
+      examples:
+        - {frequency: weekly, company: "1000", weekday: 1}
+    ReportSchedule:
+      type: object
+      description: "A report's schedule (ADR-0076 §4)."
+      required: [frequency, company, from]
+      properties:
+        frequency:
+          type: string
+          description: "`daily`, `weekly` or `monthly`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [daily, weekly, monthly]
+          readOnly: true
+        company: {type: string, description: "The code of the company whose time zone dates the runs.", readOnly: true}
+        weekday: {type: integer, format: int32, description: "For `weekly`: the ISO weekday, 1 Monday to 7 Sunday.", readOnly: true}
+        day_of_month: {type: integer, format: int32, description: "For `monthly`: the day of the month.", readOnly: true}
+        from: {type: string, format: date, description: "The company's date the schedule was set on, from which its runs are due.", readOnly: true}
+    ReportRunFailure:
+      type: object
+      description: "The problem that failed a run."
+      required: [code, detail]
+      properties:
+        code: {type: string, description: "The problem's code, as the API would have refused the owner's request with it.", readOnly: true}
+        detail: {type: string, description: "The problem's detail.", readOnly: true}
+    ReportRun:
+      type: object
+      description: "A scheduled run of a report, as the worker kept it (ADR-0076 §5): its day, its outcome and, as `getReportRun` gives it, its specification and results."
+      required: [id, report_id, report_title, run_date, status, run_as, run_as_name, created_at]
+      properties:
+        id: {type: string, format: uuid, description: Identifier (UUIDv7)., readOnly: true}
+        report_id: {type: string, format: uuid, description: "The report (`GET /v1/reports/{id}`).", readOnly: true}
+        report_title: {type: string, description: "The report's title.", readOnly: true}
+        run_date: {type: string, format: date, description: "The day the run is for: the schedule's company's date when it ran.", readOnly: true}
+        status:
+          type: string
+          description: "`succeeded`, or `failed` with `failure`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [succeeded, failed]
+          readOnly: true
+        run_as: {type: string, format: uuid, description: "The principal the run acted as: the report's owner (`GET /v1/principals/{id}`).", readOnly: true}
+        run_as_name: {type: string, description: "Their name, as it is now.", readOnly: true}
+        failure: {$ref: "#/components/schemas/ReportRunFailure", description: "For a failed run: the problem that failed it."}
+        sha256: {type: string, pattern: "^[0-9a-f]{64}$", description: "For a succeeded run: the SHA-256 of the results kept, in hexadecimal.", readOnly: true}
+        data_through: {type: string, description: "For a succeeded run: the latest posting or document date in its results' data (YYYY-MM-DD); empty when they read none.", readOnly: true}
+        created_at: {type: string, format: date-time, description: When the run was kept (UTC)., readOnly: true}
+        spec: {$ref: "#/components/schemas/ReportSpec", description: "From `getReportRun`, for a succeeded run: the specification as answered, naming the results below."}
+        results:
+          type: array
+          description: "From `getReportRun`, for a succeeded run: each query's result, by `query_id`."
+          items: {$ref: "#/components/schemas/AnalyticsResult"}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e41"
+          report_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e31"
+          report_title: Revenue by year
+          run_date: "2026-11-26"
+          status: succeeded
+          run_as: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          run_as_name: Carla Controller
+          sha256: 3f2a0c1d6e5b4a3928171615141312111009080706050403020100ffeeddccbb
+          data_through: "2026-11-25"
+          created_at: "2026-11-26T05:00:12Z"
+    ReportRunPage:
+      type: object
+      description: One page of kept runs.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ReportRun"}
+          description: The runs on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     AnalyticsDerived:
       type: object
       description: A derived metric's operation on two others.

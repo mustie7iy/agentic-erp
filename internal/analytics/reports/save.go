@@ -71,17 +71,12 @@ func Remove(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (Repor
 	if err != nil {
 		return Report{}, err
 	}
-	r, err := report(ctx, tx, p.ID, id, true)
-	if err != nil {
+	if _, err := locked(ctx, tx, p.ID, id, ifMatch); err != nil {
 		return Report{}, err
 	}
-	if err := ifMatch(r.Version); err != nil {
-		return Report{}, err
-	}
-	if r.Status != Active {
-		return Report{}, errRemoved(r.Title)
-	}
-	if _, err := tx.Exec(ctx, `UPDATE analytics.report SET status = 'removed', version = version + 1 WHERE id = $1 AND status = 'active'`, id); err != nil {
+	// A removed report has no schedule (report_removed_unscheduled).
+	if _, err := tx.Exec(ctx, `UPDATE analytics.report SET status = 'removed', schedule_frequency = NULL, schedule_company = NULL, schedule_weekday = NULL,
+			schedule_day = NULL, scheduled_from = NULL, version = version + 1 WHERE id = $1 AND status = 'active'`, id); err != nil {
 		return Report{}, fmt.Errorf("analytics: remove report %s: %w", id, err)
 	}
 	removed, err := report(ctx, tx, p.ID, id, false)
@@ -122,10 +117,16 @@ func (e *Endpoints) Run(ctx context.Context, id uuid.UUID, ifMatch func(int32) e
 		return Results{}, err
 	}
 	res := Results{Report: r, Spec: out.Spec, DataThrough: sess.DataThrough()}
-	for _, qid := range slices.Sorted(maps.Keys(results)) {
+	for _, qid := range sortedIDs(results) {
 		res.Results = append(res.Results, results[qid])
 	}
 	return res, nil
+}
+
+// sortedIDs are a run's result ids in order, which the results are
+// answered in.
+func sortedIDs(results map[string]*analytics.Result) []string {
+	return slices.Sorted(maps.Keys(results))
 }
 
 // List is a page of the caller's reports by title, filtered by status

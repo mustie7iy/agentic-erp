@@ -162,10 +162,14 @@ type Config struct {
 	Workflows  workflow.Client     // the workflow engine behind operations (ADR-0012); nil: none
 	ExtractDir string              // sap_file connectors read extracts below it; empty: they answer 503
 	Objects    blobstore.Store     // documents, bank files, statement files and audit anchors; nil: documents and files are not kept, statements not imported
-	Retention  time.Duration       // how long statement files are locked (ERP_OBJECT_RETENTION); 0: not locked
-	UploadKey  []byte              // signs the API's own upload URLs (directory store); the same on every replica
-	PublicURL  string              // the API's public base URL, making the API's own upload URLs absolute; empty: paths
-	Secrets    secrets.Resolver    // resolves connectors' secret_ref; nil: env: and file: references on this replica
+	// Loopback serves the API's reads in-process (httpapi.Loopback): New
+	// gives it its handler; a worker reading as a principal (a report's
+	// scheduled run, ADR-0076 §5) shares it. Nil: New makes its own.
+	Loopback  *httpapi.Loopback
+	Retention time.Duration    // how long statement files are locked (ERP_OBJECT_RETENTION); 0: not locked
+	UploadKey []byte           // signs the API's own upload URLs (directory store); the same on every replica
+	PublicURL string           // the API's public base URL, making the API's own upload URLs absolute; empty: paths
+	Secrets   secrets.Resolver // resolves connectors' secret_ref; nil: env: and file: references on this replica
 	// Limits enforces the request quotas of 04 §4.11; nil applies none.
 	Limits *ratelimit.Limiter
 	// RequestTimeout is the deadline of one request, so that a saturated
@@ -229,7 +233,10 @@ func New(cfg Config) (http.Handler, error) {
 		return nil, err
 	}
 	upload := uploads(cfg)
-	loopback := &httpapi.Loopback{}
+	loopback := cfg.Loopback
+	if loopback == nil {
+		loopback = &httpapi.Loopback{}
+	}
 	// The seed of every tenant's semantic model until a change request
 	// gives it its own: unreadable, the API does not start.
 	if _, err := governedModel(); err != nil {

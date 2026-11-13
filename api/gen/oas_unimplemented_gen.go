@@ -3786,6 +3786,24 @@ func (UnimplementedHandler) GetReport(ctx context.Context, params GetReportParam
 	return r, ht.ErrNotImplemented
 }
 
+// GetReportRun implements getReportRun operation.
+//
+// One kept run of one of the caller's reports (ADR-0076 §6, T95b): as JSON (`format=json`, the
+// default) the run with its specification and every query's result as the run kept them, read back
+// from object storage, whose bytes are compared with the SHA-256 recorded (409
+// `analytics.report_run_changed` when they differ); as CSV (`format=csv`) one result, a header row of
+// its columns' names then a row per result row, each measure an exact decimal and a money measure
+// followed by its currency's column (`<name>_currency`), a measure that cannot be computed empty, the
+// result named by `query_id` (422 `analytics.unknown_query` when the run has no such result, or when
+// the run has several and none is named). A failed run has no results (409
+// `analytics.report_run_failed` for its CSV); a format the contract does not list is 422
+// `request.validation_failed`; 503 while the server has no object storage.
+//
+// GET /v1/report-runs/{id}
+func (UnimplementedHandler) GetReportRun(ctx context.Context, params GetReportRunParams) (r GetReportRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetRequisition implements getRequisition operation.
 //
 // Returns one requisition. Expandable: `supplier`, for a caller who may read business partners
@@ -5514,6 +5532,18 @@ func (UnimplementedHandler) ListRecommendations(ctx context.Context, params List
 //
 // GET /v1/regression-suites
 func (UnimplementedHandler) ListRegressionSuites(ctx context.Context, params ListRegressionSuitesParams) (r ListRegressionSuitesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListReportRuns implements listReportRuns operation.
+//
+// The runs the worker kept of the caller's scheduled reports (ADR-0076 §5-§6, T95b), each with its
+// report's title, its day, its outcome and, for a failed one, the problem that failed it; without
+// results, which `getReportRun` gives. Another's report's runs are neither listed nor found. Filtered
+// by report and status. Sortable by: `run_date` (default, the latest first).
+//
+// GET /v1/report-runs
+func (UnimplementedHandler) ListReportRuns(ctx context.Context, params ListReportRunsParams) (r ListReportRunsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -7399,6 +7429,25 @@ func (UnimplementedHandler) RunReport(ctx context.Context, params RunReportParam
 	return r, ht.ErrNotImplemented
 }
 
+// ScheduleReport implements scheduleReport operation.
+//
+// Gives one of the caller's active reports a schedule, or replaces its schedule (ADR-0076 §4, T95b),
+// at the version read (`If-Match`): `daily`, `weekly` on an ISO weekday (`weekday`, 1 Monday to 7
+// Sunday) or `monthly` on a day of the month (`day_of_month`, 1 to 28, so every month has it);
+// `weekday` is given for `weekly` alone and `day_of_month` for `monthly` alone (422
+// `request.validation_failed` naming the field). `company` is the company whose time zone dates the
+// runs (`companies[].time_zone` of the active configuration; 422 `analytics.unknown_company` for a
+// code it does not have). A run is due on that company's date, on a day the frequency names, from the
+// day the schedule is set (`from`, the company's date then); the worker runs it as the report's owner,
+// with the owner's access that day, and keeps it with its results (`listReportRuns`); a day the worker
+// did not run on is not made up. Without object storage, where runs are kept, it is 503. A removed
+// report is not scheduled (409 `analytics.report_removed`). An audit record is written with it.
+//
+// POST /v1/reports/{id}:schedule
+func (UnimplementedHandler) ScheduleReport(ctx context.Context, req *ReportScheduleSet, params ScheduleReportParams) (r ScheduleReportRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // SettleInternalOrder implements settleInternalOrder operation.
 //
 // Settles a released internal order's actual costs up to a fiscal period to the receiver of its
@@ -7737,6 +7786,17 @@ func (UnimplementedHandler) UnlockFiscalPeriod(ctx context.Context, req *ReasonI
 //
 // POST /v1/plan-categories/{id}:unlock
 func (UnimplementedHandler) UnlockPlanCategory(ctx context.Context, params UnlockPlanCategoryParams) (r UnlockPlanCategoryRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UnscheduleReport implements unscheduleReport operation.
+//
+// Ends the schedule of one of the caller's reports (ADR-0076 §4, T95b), at the version read
+// (`If-Match`): no run is due after it; the runs kept stay. A report without a schedule is 409
+// `analytics.report_not_scheduled`. An audit record is written with it.
+//
+// POST /v1/reports/{id}:unschedule
+func (UnimplementedHandler) UnscheduleReport(ctx context.Context, params UnscheduleReportParams) (r UnscheduleReportRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

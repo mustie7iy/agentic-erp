@@ -881,6 +881,10 @@ type GetReportRes interface {
 	getReportRes()
 }
 
+type GetReportRunRes interface {
+	getReportRunRes()
+}
+
 type GetRequisitionRes interface {
 	getRequisitionRes()
 }
@@ -1409,6 +1413,10 @@ type ListRegressionSuitesRes interface {
 	listRegressionSuitesRes()
 }
 
+type ListReportRunsRes interface {
+	listReportRunsRes()
+}
+
 type ListReportsRes interface {
 	listReportsRes()
 }
@@ -1833,6 +1841,10 @@ type RunReportRes interface {
 	runReportRes()
 }
 
+type ScheduleReportRes interface {
+	scheduleReportRes()
+}
+
 type SettleInternalOrderRes interface {
 	settleInternalOrderRes()
 }
@@ -1907,6 +1919,10 @@ type UnlockFiscalPeriodRes interface {
 
 type UnlockPlanCategoryRes interface {
 	unlockPlanCategoryRes()
+}
+
+type UnscheduleReportRes interface {
+	unscheduleReportRes()
 }
 
 type UpdateAiPolicyRes interface {

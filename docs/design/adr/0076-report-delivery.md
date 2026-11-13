@@ -1,6 +1,6 @@
 # ADR-0076: Report delivery
 
-**Status:** accepted (T95a, 2026-11-13; decided by default under ADR-0053 d;
+**Status:** accepted (T95a, T95b, 2026-11-13; decided by default under ADR-0053 d;
 `go-reviewer` had no blocking finding on the step's last commit). It decides
 how saved analytics reports are kept, run, scheduled and delivered, for the
 slices T95a to T95d (`docs/design/plan-breadth-week3.md`, Lane B), each of
@@ -221,3 +221,38 @@ one). The recipients of a run are the report's owner until sharing
   Ben neither lists nor finds it; the CLI saves and runs it, and a removed
   report is not run.
 - Decided by default while building: §2-§3 and defaults 1-3 above.
+
+### T95b Scheduled runs of a saved report (migration 000309)
+
+- Migration 000309: the analytics context's outbox and inbox; the
+  schedule's columns on `analytics.report` (`report_schedule_whole`,
+  `report_removed_unscheduled` and a check per column), their update
+  grant, and `erp_worker`'s read of the scheduled reports;
+  `analytics.report_run` as §5 describes it (`report_run_outcome`,
+  `report_run_once`, insert-only). Schema tests in `db/reports_test.go`.
+- `internal/analytics/reports`: `SetSchedule` and `Unschedule` with the
+  handlers of `POST /v1/reports/{id}:schedule` and `:unschedule`;
+  `Scheduler`, the worker's round, wired by `app.ReportScheduler` and
+  started by erp-server beside the analytical store's extract when it has
+  object storage; `Runs` and `GetRun` with the handlers of
+  `GET /v1/report-runs` and `GET /v1/report-runs/{id}` (`format=csv`).
+  Removing a report ends its schedule. The report's row is locked
+  `FOR NO KEY UPDATE` for a change, so a run being kept, whose foreign key
+  takes `FOR KEY SHARE`, is not held back by it.
+- `reqctx.WithActing`, read by `httpapi.Loopback` and the unit of work
+  (`uow.Middleware`: `callerOf`, `resolvePrincipal`), as §5 describes;
+  `app.Config.Loopback` shares the API's loopback with the worker.
+- `ReportRunCompleted` in `api/asyncapi.yaml` (channel `analytics`);
+  `analytics` in `outbox.Contexts`; `blobstore.KindReportRuns`.
+- The CSV of a run names a money measure's currency in a column of its
+  own (`<name>_currency`), so no amount is without it.
+- Walkthrough `step_saved_report` (step 78) extended: Carla gives the
+  report a daily schedule dated in her company's time zone; a weekly one
+  without its weekday is refused; the worker's round runs it once, and
+  the run is listed as succeeded and read as CSV with the revenue she saw
+  after the sale.
+- Decided by default while building: §4-§6 and defaults 4-5 above; the
+  in-process acting principal of §5 (security posture, listed for the
+  product owner: it asks no token of a worker acting as a report's owner,
+  as `uow.Act` asks none of deferred work, and refuses an owner no longer
+  active).

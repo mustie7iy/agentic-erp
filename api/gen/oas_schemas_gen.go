@@ -24497,6 +24497,7 @@ func (*ConflictHeaders) getLegalEntityTodayRes()                   {}
 func (*ConflictHeaders) getLiquidityForecastVarianceRes()          {}
 func (*ConflictHeaders) getPeriodCloseRes()                        {}
 func (*ConflictHeaders) getPurchaseOrderDocumentRes()              {}
+func (*ConflictHeaders) getReportRunRes()                          {}
 func (*ConflictHeaders) getTaxReturnDraftRes()                     {}
 func (*ConflictHeaders) getVarianceCommentRes()                    {}
 func (*ConflictHeaders) getYearCloseRes()                          {}
@@ -24595,6 +24596,7 @@ func (*ConflictHeaders) runAllocationCycleRes()                    {}
 func (*ConflictHeaders) runAnalyticsQueryRes()                     {}
 func (*ConflictHeaders) runBalanceCarryForwardRes()                {}
 func (*ConflictHeaders) runReportRes()                             {}
+func (*ConflictHeaders) scheduleReportRes()                        {}
 func (*ConflictHeaders) settleInternalOrderRes()                   {}
 func (*ConflictHeaders) signOffPeriodCloseRes()                    {}
 func (*ConflictHeaders) signOffYearCloseRes()                      {}
@@ -24614,6 +24616,7 @@ func (*ConflictHeaders) unblockLegalEntityRes()                    {}
 func (*ConflictHeaders) unblockOrgUnitRes()                        {}
 func (*ConflictHeaders) unlockFiscalPeriodRes()                    {}
 func (*ConflictHeaders) unlockPlanCategoryRes()                    {}
+func (*ConflictHeaders) unscheduleReportRes()                      {}
 func (*ConflictHeaders) updateAiPolicyRes()                        {}
 func (*ConflictHeaders) updateAssetRes()                           {}
 func (*ConflictHeaders) updateChangeRequestRes()                   {}
@@ -42378,6 +42381,39 @@ func (s *GetReportOKHeaders) SetResponse(val Report) {
 
 func (*GetReportOKHeaders) getReportRes() {}
 
+type GetReportRunBadRequest Problem
+
+func (*GetReportRunBadRequest) getReportRunRes() {}
+
+type GetReportRunForbidden Problem
+
+func (*GetReportRunForbidden) getReportRunRes() {}
+
+type GetReportRunNotFound Problem
+
+func (*GetReportRunNotFound) getReportRunRes() {}
+
+// One result: a header row of column names, then its rows; UTF-8, lines ending in LF.
+type GetReportRunOKTextCsv struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetReportRunOKTextCsv) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+func (*GetReportRunOKTextCsv) getReportRunRes() {}
+
+type GetReportRunUnprocessableEntity Problem
+
+func (*GetReportRunUnprocessableEntity) getReportRunRes() {}
+
 type GetRequisitionBadRequest Problem
 
 func (*GetRequisitionBadRequest) getRequisitionRes() {}
@@ -53303,6 +53339,14 @@ type ListRegressionSuitesForbidden Problem
 
 func (*ListRegressionSuitesForbidden) listRegressionSuitesRes() {}
 
+type ListReportRunsBadRequest Problem
+
+func (*ListReportRunsBadRequest) listReportRunsRes() {}
+
+type ListReportRunsForbidden Problem
+
+func (*ListReportRunsForbidden) listReportRunsRes() {}
+
 type ListReportsBadRequest Problem
 
 func (*ListReportsBadRequest) listReportsRes() {}
@@ -62127,6 +62171,144 @@ func (o OptReportCompare) Get() (v ReportCompare, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptReportCompare) Or(d ReportCompare) ReportCompare {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptReportRunFailure returns new OptReportRunFailure with value set to v.
+func NewOptReportRunFailure(v ReportRunFailure) OptReportRunFailure {
+	return OptReportRunFailure{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptReportRunFailure is optional ReportRunFailure.
+type OptReportRunFailure struct {
+	Value ReportRunFailure
+	Set   bool
+}
+
+// IsSet returns true if OptReportRunFailure was set.
+func (o OptReportRunFailure) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptReportRunFailure) Reset() {
+	var v ReportRunFailure
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptReportRunFailure) SetTo(v ReportRunFailure) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptReportRunFailure) Get() (v ReportRunFailure, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptReportRunFailure) Or(d ReportRunFailure) ReportRunFailure {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptReportSchedule returns new OptReportSchedule with value set to v.
+func NewOptReportSchedule(v ReportSchedule) OptReportSchedule {
+	return OptReportSchedule{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptReportSchedule is optional ReportSchedule.
+type OptReportSchedule struct {
+	Value ReportSchedule
+	Set   bool
+}
+
+// IsSet returns true if OptReportSchedule was set.
+func (o OptReportSchedule) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptReportSchedule) Reset() {
+	var v ReportSchedule
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptReportSchedule) SetTo(v ReportSchedule) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptReportSchedule) Get() (v ReportSchedule, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptReportSchedule) Or(d ReportSchedule) ReportSchedule {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptReportSpec returns new OptReportSpec with value set to v.
+func NewOptReportSpec(v ReportSpec) OptReportSpec {
+	return OptReportSpec{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptReportSpec is optional ReportSpec.
+type OptReportSpec struct {
+	Value ReportSpec
+	Set   bool
+}
+
+// IsSet returns true if OptReportSpec was set.
+func (o OptReportSpec) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptReportSpec) Reset() {
+	var v ReportSpec
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptReportSpec) SetTo(v ReportSpec) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptReportSpec) Get() (v ReportSpec, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptReportSpec) Or(d ReportSpec) ReportSpec {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -73895,7 +74077,9 @@ func (s *RemoveReportOKHeaders) SetResponse(val Report) {
 	s.Response = val
 }
 
-func (*RemoveReportOKHeaders) removeReportRes() {}
+func (*RemoveReportOKHeaders) removeReportRes()     {}
+func (*RemoveReportOKHeaders) scheduleReportRes()   {}
+func (*RemoveReportOKHeaders) unscheduleReportRes() {}
 
 type RemoveReportPreconditionFailed Problem
 
@@ -74055,6 +74239,8 @@ type Report struct {
 	// `active`, or `removed` for good (`removeReport`). Open enumeration: clients must accept and preserve
 	// values not listed here; values may be added within /v1.
 	Status string `json:"status"`
+	// The report's schedule (`scheduleReport`); absent while it has none.
+	Schedule OptReportSchedule `json:"schedule"`
 }
 
 // GetID returns the value of ID.
@@ -74122,6 +74308,11 @@ func (s *Report) GetStatus() string {
 	return s.Status
 }
 
+// GetSchedule returns the value of Schedule.
+func (s *Report) GetSchedule() OptReportSchedule {
+	return s.Schedule
+}
+
 // SetID sets the value of ID.
 func (s *Report) SetID(val uuid.UUID) {
 	s.ID = val
@@ -74185,6 +74376,11 @@ func (s *Report) SetOwnerName(val string) {
 // SetStatus sets the value of Status.
 func (s *Report) SetStatus(val string) {
 	s.Status = val
+}
+
+// SetSchedule sets the value of Schedule.
+func (s *Report) SetSchedule(val OptReportSchedule) {
+	s.Schedule = val
 }
 
 type ReportBankFileStatusBadRequest Problem
@@ -74716,6 +74912,352 @@ func (s *ReportResultsHeaders) SetResponse(val ReportResults) {
 }
 
 func (*ReportResultsHeaders) runReportRes() {}
+
+// A scheduled run of a report, as the worker kept it (ADR-0076 §5): its day, its outcome and, as
+// `getReportRun` gives it, its specification and results.
+// Ref: #/components/schemas/ReportRun
+type ReportRun struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The report (`GET /v1/reports/{id}`).
+	ReportID uuid.UUID `json:"report_id"`
+	// The report's title.
+	ReportTitle string `json:"report_title"`
+	// The day the run is for: the schedule's company's date when it ran.
+	RunDate time.Time `json:"run_date"`
+	// `succeeded`, or `failed` with `failure`. Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The principal the run acted as: the report's owner (`GET /v1/principals/{id}`).
+	RunAs uuid.UUID `json:"run_as"`
+	// Their name, as it is now.
+	RunAsName string `json:"run_as_name"`
+	// For a failed run: the problem that failed it.
+	Failure OptReportRunFailure `json:"failure"`
+	// For a succeeded run: the SHA-256 of the results kept, in hexadecimal.
+	SHA256 OptString `json:"sha256"`
+	// For a succeeded run: the latest posting or document date in its results' data (YYYY-MM-DD); empty
+	// when they read none.
+	DataThrough OptString `json:"data_through"`
+	// When the run was kept (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// From `getReportRun`, for a succeeded run: the specification as answered, naming the results below.
+	Spec OptReportSpec `json:"spec"`
+	// From `getReportRun`, for a succeeded run: each query's result, by `query_id`.
+	Results []AnalyticsResult `json:"results"`
+}
+
+// GetID returns the value of ID.
+func (s *ReportRun) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetReportID returns the value of ReportID.
+func (s *ReportRun) GetReportID() uuid.UUID {
+	return s.ReportID
+}
+
+// GetReportTitle returns the value of ReportTitle.
+func (s *ReportRun) GetReportTitle() string {
+	return s.ReportTitle
+}
+
+// GetRunDate returns the value of RunDate.
+func (s *ReportRun) GetRunDate() time.Time {
+	return s.RunDate
+}
+
+// GetStatus returns the value of Status.
+func (s *ReportRun) GetStatus() string {
+	return s.Status
+}
+
+// GetRunAs returns the value of RunAs.
+func (s *ReportRun) GetRunAs() uuid.UUID {
+	return s.RunAs
+}
+
+// GetRunAsName returns the value of RunAsName.
+func (s *ReportRun) GetRunAsName() string {
+	return s.RunAsName
+}
+
+// GetFailure returns the value of Failure.
+func (s *ReportRun) GetFailure() OptReportRunFailure {
+	return s.Failure
+}
+
+// GetSHA256 returns the value of SHA256.
+func (s *ReportRun) GetSHA256() OptString {
+	return s.SHA256
+}
+
+// GetDataThrough returns the value of DataThrough.
+func (s *ReportRun) GetDataThrough() OptString {
+	return s.DataThrough
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ReportRun) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetSpec returns the value of Spec.
+func (s *ReportRun) GetSpec() OptReportSpec {
+	return s.Spec
+}
+
+// GetResults returns the value of Results.
+func (s *ReportRun) GetResults() []AnalyticsResult {
+	return s.Results
+}
+
+// SetID sets the value of ID.
+func (s *ReportRun) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetReportID sets the value of ReportID.
+func (s *ReportRun) SetReportID(val uuid.UUID) {
+	s.ReportID = val
+}
+
+// SetReportTitle sets the value of ReportTitle.
+func (s *ReportRun) SetReportTitle(val string) {
+	s.ReportTitle = val
+}
+
+// SetRunDate sets the value of RunDate.
+func (s *ReportRun) SetRunDate(val time.Time) {
+	s.RunDate = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ReportRun) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetRunAs sets the value of RunAs.
+func (s *ReportRun) SetRunAs(val uuid.UUID) {
+	s.RunAs = val
+}
+
+// SetRunAsName sets the value of RunAsName.
+func (s *ReportRun) SetRunAsName(val string) {
+	s.RunAsName = val
+}
+
+// SetFailure sets the value of Failure.
+func (s *ReportRun) SetFailure(val OptReportRunFailure) {
+	s.Failure = val
+}
+
+// SetSHA256 sets the value of SHA256.
+func (s *ReportRun) SetSHA256(val OptString) {
+	s.SHA256 = val
+}
+
+// SetDataThrough sets the value of DataThrough.
+func (s *ReportRun) SetDataThrough(val OptString) {
+	s.DataThrough = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ReportRun) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetSpec sets the value of Spec.
+func (s *ReportRun) SetSpec(val OptReportSpec) {
+	s.Spec = val
+}
+
+// SetResults sets the value of Results.
+func (s *ReportRun) SetResults(val []AnalyticsResult) {
+	s.Results = val
+}
+
+func (*ReportRun) getReportRunRes() {}
+
+// The problem that failed a run.
+// Ref: #/components/schemas/ReportRunFailure
+type ReportRunFailure struct {
+	// The problem's code, as the API would have refused the owner's request with it.
+	Code string `json:"code"`
+	// The problem's detail.
+	Detail string `json:"detail"`
+}
+
+// GetCode returns the value of Code.
+func (s *ReportRunFailure) GetCode() string {
+	return s.Code
+}
+
+// GetDetail returns the value of Detail.
+func (s *ReportRunFailure) GetDetail() string {
+	return s.Detail
+}
+
+// SetCode sets the value of Code.
+func (s *ReportRunFailure) SetCode(val string) {
+	s.Code = val
+}
+
+// SetDetail sets the value of Detail.
+func (s *ReportRunFailure) SetDetail(val string) {
+	s.Detail = val
+}
+
+// One page of kept runs.
+// Ref: #/components/schemas/ReportRunPage
+type ReportRunPage struct {
+	// The runs on this page.
+	Items []ReportRun `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ReportRunPage) GetItems() []ReportRun {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ReportRunPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ReportRunPage) SetItems(val []ReportRun) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ReportRunPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ReportRunPage) listReportRunsRes() {}
+
+// A report's schedule (ADR-0076 §4).
+// Ref: #/components/schemas/ReportSchedule
+type ReportSchedule struct {
+	// `daily`, `weekly` or `monthly`. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Frequency string `json:"frequency"`
+	// The code of the company whose time zone dates the runs.
+	Company string `json:"company"`
+	// For `weekly`: the ISO weekday, 1 Monday to 7 Sunday.
+	Weekday OptInt32 `json:"weekday"`
+	// For `monthly`: the day of the month.
+	DayOfMonth OptInt32 `json:"day_of_month"`
+	// The company's date the schedule was set on, from which its runs are due.
+	From time.Time `json:"from"`
+}
+
+// GetFrequency returns the value of Frequency.
+func (s *ReportSchedule) GetFrequency() string {
+	return s.Frequency
+}
+
+// GetCompany returns the value of Company.
+func (s *ReportSchedule) GetCompany() string {
+	return s.Company
+}
+
+// GetWeekday returns the value of Weekday.
+func (s *ReportSchedule) GetWeekday() OptInt32 {
+	return s.Weekday
+}
+
+// GetDayOfMonth returns the value of DayOfMonth.
+func (s *ReportSchedule) GetDayOfMonth() OptInt32 {
+	return s.DayOfMonth
+}
+
+// GetFrom returns the value of From.
+func (s *ReportSchedule) GetFrom() time.Time {
+	return s.From
+}
+
+// SetFrequency sets the value of Frequency.
+func (s *ReportSchedule) SetFrequency(val string) {
+	s.Frequency = val
+}
+
+// SetCompany sets the value of Company.
+func (s *ReportSchedule) SetCompany(val string) {
+	s.Company = val
+}
+
+// SetWeekday sets the value of Weekday.
+func (s *ReportSchedule) SetWeekday(val OptInt32) {
+	s.Weekday = val
+}
+
+// SetDayOfMonth sets the value of DayOfMonth.
+func (s *ReportSchedule) SetDayOfMonth(val OptInt32) {
+	s.DayOfMonth = val
+}
+
+// SetFrom sets the value of From.
+func (s *ReportSchedule) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// A report's schedule: how often it runs and the company whose time zone dates its runs.
+// Ref: #/components/schemas/ReportScheduleSet
+type ReportScheduleSet struct {
+	// `daily`, `weekly` (on `weekday`) or `monthly` (on `day_of_month`). Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	Frequency string `json:"frequency"`
+	// The code of the company whose time zone dates the runs.
+	Company string `json:"company"`
+	// For `weekly`: the ISO weekday it runs on, 1 Monday to 7 Sunday.
+	Weekday OptInt32 `json:"weekday"`
+	// For `monthly`: the day of the month it runs on.
+	DayOfMonth OptInt32 `json:"day_of_month"`
+}
+
+// GetFrequency returns the value of Frequency.
+func (s *ReportScheduleSet) GetFrequency() string {
+	return s.Frequency
+}
+
+// GetCompany returns the value of Company.
+func (s *ReportScheduleSet) GetCompany() string {
+	return s.Company
+}
+
+// GetWeekday returns the value of Weekday.
+func (s *ReportScheduleSet) GetWeekday() OptInt32 {
+	return s.Weekday
+}
+
+// GetDayOfMonth returns the value of DayOfMonth.
+func (s *ReportScheduleSet) GetDayOfMonth() OptInt32 {
+	return s.DayOfMonth
+}
+
+// SetFrequency sets the value of Frequency.
+func (s *ReportScheduleSet) SetFrequency(val string) {
+	s.Frequency = val
+}
+
+// SetCompany sets the value of Company.
+func (s *ReportScheduleSet) SetCompany(val string) {
+	s.Company = val
+}
+
+// SetWeekday sets the value of Weekday.
+func (s *ReportScheduleSet) SetWeekday(val OptInt32) {
+	s.Weekday = val
+}
+
+// SetDayOfMonth sets the value of DayOfMonth.
+func (s *ReportScheduleSet) SetDayOfMonth(val OptInt32) {
+	s.DayOfMonth = val
+}
 
 // A report's dashboard specification, as the analytics agent writes it: it holds no figure of its own;
 // its tiles, charts and tables name the queries whose results they show, and its commentary cites only
@@ -82559,6 +83101,30 @@ func (s *ScheduleLinePage) SetTotalEstimate(val OptInt64) {
 
 func (*ScheduleLinePage) listScheduleLinesRes() {}
 
+type ScheduleReportBadRequest Problem
+
+func (*ScheduleReportBadRequest) scheduleReportRes() {}
+
+type ScheduleReportForbidden Problem
+
+func (*ScheduleReportForbidden) scheduleReportRes() {}
+
+type ScheduleReportNotFound Problem
+
+func (*ScheduleReportNotFound) scheduleReportRes() {}
+
+type ScheduleReportPreconditionFailed Problem
+
+func (*ScheduleReportPreconditionFailed) scheduleReportRes() {}
+
+type ScheduleReportPreconditionRequired Problem
+
+func (*ScheduleReportPreconditionRequired) scheduleReportRes() {}
+
+type ScheduleReportUnprocessableEntity Problem
+
+func (*ScheduleReportUnprocessableEntity) scheduleReportRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/Segment
 type Segment struct {
@@ -82964,6 +83530,7 @@ func (*ServiceUnavailableHeaders) fetchEInvoicesRes()                        {}
 func (*ServiceUnavailableHeaders) fileTaxReturnRes()                         {}
 func (*ServiceUnavailableHeaders) getBankStatementFileRes()                  {}
 func (*ServiceUnavailableHeaders) getEInvoiceContentRes()                    {}
+func (*ServiceUnavailableHeaders) getReportRunRes()                          {}
 func (*ServiceUnavailableHeaders) getSupplierInvoiceDocumentRes()            {}
 func (*ServiceUnavailableHeaders) grantRolePermissionRes()                   {}
 func (*ServiceUnavailableHeaders) holdSupplierInvoiceRes()                   {}
@@ -83039,6 +83606,7 @@ func (*ServiceUnavailableHeaders) runAllocationCycleRes()                    {}
 func (*ServiceUnavailableHeaders) runAnalyticsQueryRes()                     {}
 func (*ServiceUnavailableHeaders) runBalanceCarryForwardRes()                {}
 func (*ServiceUnavailableHeaders) runReportRes()                             {}
+func (*ServiceUnavailableHeaders) scheduleReportRes()                        {}
 func (*ServiceUnavailableHeaders) settleInternalOrderRes()                   {}
 func (*ServiceUnavailableHeaders) signOffPeriodCloseRes()                    {}
 func (*ServiceUnavailableHeaders) signOffYearCloseRes()                      {}
@@ -88197,6 +88765,7 @@ func (*TooManyRequestsHeaders) getReceivablesAgingRes()                   {}
 func (*TooManyRequestsHeaders) getRecommendationRes()                     {}
 func (*TooManyRequestsHeaders) getRegressionSuiteRes()                    {}
 func (*TooManyRequestsHeaders) getReportRes()                             {}
+func (*TooManyRequestsHeaders) getReportRunRes()                          {}
 func (*TooManyRequestsHeaders) getRequisitionRes()                        {}
 func (*TooManyRequestsHeaders) getReturnsOrderRes()                       {}
 func (*TooManyRequestsHeaders) getRevaluationRunRes()                     {}
@@ -88329,6 +88898,7 @@ func (*TooManyRequestsHeaders) listPurchaseOrdersRes()                    {}
 func (*TooManyRequestsHeaders) listQuotationsRes()                        {}
 func (*TooManyRequestsHeaders) listRecommendationsRes()                   {}
 func (*TooManyRequestsHeaders) listRegressionSuitesRes()                  {}
+func (*TooManyRequestsHeaders) listReportRunsRes()                        {}
 func (*TooManyRequestsHeaders) listReportsRes()                           {}
 func (*TooManyRequestsHeaders) listRequisitionsRes()                      {}
 func (*TooManyRequestsHeaders) listReturnReceiptsRes()                    {}
@@ -88435,6 +89005,7 @@ func (*TooManyRequestsHeaders) runAllocationCycleRes()                    {}
 func (*TooManyRequestsHeaders) runAnalyticsQueryRes()                     {}
 func (*TooManyRequestsHeaders) runBalanceCarryForwardRes()                {}
 func (*TooManyRequestsHeaders) runReportRes()                             {}
+func (*TooManyRequestsHeaders) scheduleReportRes()                        {}
 func (*TooManyRequestsHeaders) settleInternalOrderRes()                   {}
 func (*TooManyRequestsHeaders) signOffPeriodCloseRes()                    {}
 func (*TooManyRequestsHeaders) signOffYearCloseRes()                      {}
@@ -88454,6 +89025,7 @@ func (*TooManyRequestsHeaders) unblockLegalEntityRes()                    {}
 func (*TooManyRequestsHeaders) unblockOrgUnitRes()                        {}
 func (*TooManyRequestsHeaders) unlockFiscalPeriodRes()                    {}
 func (*TooManyRequestsHeaders) unlockPlanCategoryRes()                    {}
+func (*TooManyRequestsHeaders) unscheduleReportRes()                      {}
 func (*TooManyRequestsHeaders) updateAiPolicyRes()                        {}
 func (*TooManyRequestsHeaders) updateAssetRes()                           {}
 func (*TooManyRequestsHeaders) updateChangeRequestRes()                   {}
@@ -89009,6 +89581,7 @@ func (*UnauthorizedHeaders) getReceivablesAgingRes()                   {}
 func (*UnauthorizedHeaders) getRecommendationRes()                     {}
 func (*UnauthorizedHeaders) getRegressionSuiteRes()                    {}
 func (*UnauthorizedHeaders) getReportRes()                             {}
+func (*UnauthorizedHeaders) getReportRunRes()                          {}
 func (*UnauthorizedHeaders) getRequisitionRes()                        {}
 func (*UnauthorizedHeaders) getReturnsOrderRes()                       {}
 func (*UnauthorizedHeaders) getRevaluationRunRes()                     {}
@@ -89141,6 +89714,7 @@ func (*UnauthorizedHeaders) listPurchaseOrdersRes()                    {}
 func (*UnauthorizedHeaders) listQuotationsRes()                        {}
 func (*UnauthorizedHeaders) listRecommendationsRes()                   {}
 func (*UnauthorizedHeaders) listRegressionSuitesRes()                  {}
+func (*UnauthorizedHeaders) listReportRunsRes()                        {}
 func (*UnauthorizedHeaders) listReportsRes()                           {}
 func (*UnauthorizedHeaders) listRequisitionsRes()                      {}
 func (*UnauthorizedHeaders) listReturnReceiptsRes()                    {}
@@ -89247,6 +89821,7 @@ func (*UnauthorizedHeaders) runAllocationCycleRes()                    {}
 func (*UnauthorizedHeaders) runAnalyticsQueryRes()                     {}
 func (*UnauthorizedHeaders) runBalanceCarryForwardRes()                {}
 func (*UnauthorizedHeaders) runReportRes()                             {}
+func (*UnauthorizedHeaders) scheduleReportRes()                        {}
 func (*UnauthorizedHeaders) settleInternalOrderRes()                   {}
 func (*UnauthorizedHeaders) signOffPeriodCloseRes()                    {}
 func (*UnauthorizedHeaders) signOffYearCloseRes()                      {}
@@ -89266,6 +89841,7 @@ func (*UnauthorizedHeaders) unblockLegalEntityRes()                    {}
 func (*UnauthorizedHeaders) unblockOrgUnitRes()                        {}
 func (*UnauthorizedHeaders) unlockFiscalPeriodRes()                    {}
 func (*UnauthorizedHeaders) unlockPlanCategoryRes()                    {}
+func (*UnauthorizedHeaders) unscheduleReportRes()                      {}
 func (*UnauthorizedHeaders) updateAiPolicyRes()                        {}
 func (*UnauthorizedHeaders) updateAssetRes()                           {}
 func (*UnauthorizedHeaders) updateChangeRequestRes()                   {}
@@ -89413,6 +89989,26 @@ func (*UnlockPlanCategoryPreconditionFailed) unlockPlanCategoryRes() {}
 type UnlockPlanCategoryPreconditionRequired Problem
 
 func (*UnlockPlanCategoryPreconditionRequired) unlockPlanCategoryRes() {}
+
+type UnscheduleReportBadRequest Problem
+
+func (*UnscheduleReportBadRequest) unscheduleReportRes() {}
+
+type UnscheduleReportForbidden Problem
+
+func (*UnscheduleReportForbidden) unscheduleReportRes() {}
+
+type UnscheduleReportNotFound Problem
+
+func (*UnscheduleReportNotFound) unscheduleReportRes() {}
+
+type UnscheduleReportPreconditionFailed Problem
+
+func (*UnscheduleReportPreconditionFailed) unscheduleReportRes() {}
+
+type UnscheduleReportPreconditionRequired Problem
+
+func (*UnscheduleReportPreconditionRequired) unscheduleReportRes() {}
 
 type UpdateAiPolicyBadRequest Problem
 

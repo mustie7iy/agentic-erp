@@ -89,6 +89,7 @@ const (
 	traceKey
 	clientCertKey
 	clientAddressKey
+	actingKey
 )
 
 // WithClientCert records the thumbprint (RFC 8705 x5t#S256) of the client
@@ -124,6 +125,21 @@ func WithClaims(ctx context.Context, c Claims) context.Context {
 func ClaimsFrom(ctx context.Context) (Claims, bool) {
 	c, ok := ctx.Value(claimsKey).(Claims)
 	return c, ok
+}
+
+// WithActing marks ctx as work in the process acting as p without a
+// request: a worker's round acting as the person who set it up, such as a
+// saved report's scheduled run as its owner (ADR-0076 §5). The loopback
+// serves its reads as p, which the unit of work resolves by id and
+// requires active. Only code in the process sets it: no request can.
+func WithActing(ctx context.Context, p Principal) context.Context {
+	return context.WithValue(ctx, actingKey, p)
+}
+
+// ActingFrom is the principal work in the process acts as (WithActing).
+func ActingFrom(ctx context.Context) (Principal, bool) {
+	p, ok := ctx.Value(actingKey).(Principal)
+	return p, ok
 }
 
 func WithPrincipal(ctx context.Context, p Principal) context.Context {

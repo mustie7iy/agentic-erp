@@ -6664,9 +6664,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The analyst gives a saved report a schedule (daily, weekly or monthly); each due run is kept with its results and its recipients read it (PUT /v1/reports/{id}/schedule, GET /v1/report-runs)",
-        "r": "T95b · docs/design/plan-breadth-week3.md §T95b",
+        "r": "T95b · docs/design/plan-breadth-week3.md §T95b · db/migrations/000309 · analytics.report (schedule), analytics.report_run, analytics.outbox · POST /v1/reports/{id}:schedule, :unschedule (no PUT or DELETE, 04 §4.3) · GET /v1/report-runs · GET /v1/report-runs/{id} (JSON or CSV) · ReportRunCompleted · the worker's round (reports.Scheduler) · reqctx.WithActing · walkthrough step_saved_report · ADR-0076 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

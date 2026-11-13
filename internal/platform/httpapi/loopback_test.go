@@ -87,3 +87,23 @@ func mustRequest(t *testing.T, ctx context.Context, method string) *http.Request
 	}
 	return req
 }
+
+// TestLoopbackActing: work in the process without a request reads as the
+// principal it acts as, which the call carries on and no claims.
+func TestLoopbackActing(t *testing.T) {
+	p := reqctx.Principal{ID: uuid.New(), TenantID: uuid.New(), Kind: reqctx.KindHuman}
+	var seen context.Context
+	l := &Loopback{handler: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})}
+	l.handler = http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { seen = r.Context() })
+	resp, err := l.RoundTrip(mustRequest(t, reqctx.WithActing(context.Background(), p), http.MethodGet))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close() // an in-memory body
+	if got, ok := reqctx.ActingFrom(seen); !ok || got != p {
+		t.Errorf("acting: got %+v, want %+v", got, p)
+	}
+	if _, ok := reqctx.ClaimsFrom(seen); ok {
+		t.Error("claims: got some, want none")
+	}
+}

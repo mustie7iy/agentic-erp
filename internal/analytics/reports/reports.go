@@ -22,6 +22,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
+	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -40,11 +42,22 @@ type People interface {
 	Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
 }
 
+// Configs reads the active configuration (the configuration context's
+// Settings): the companies whose time zones date scheduled runs.
+type Configs interface {
+	Document(ctx context.Context) (*config.Config, int32, error)
+}
+
 // Endpoints implements the saved reports' part of the generated API.
 type Endpoints struct {
 	Pages   *pagination.Codec
 	Queries Queries
 	People  People
+	Configs Configs
+	// Objects keeps scheduled runs' results (ADR-0016); nil: reports are
+	// not scheduled and kept runs not read (503).
+	Objects blobstore.Store
+	Now     func() time.Time
 }
 
 // The statuses of a report.
@@ -62,20 +75,56 @@ type Report struct {
 	Queries   map[string]analytics.Query
 	OwnerID   uuid.UUID
 	Status    string
+	Schedule  *Schedule // nil: none
 	Version   int32
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
 
-const reportSelect = `SELECT id, title, coalesce(question, ''), spec, queries, owner_id, status, version, created_at, updated_at FROM analytics.report`
+// Schedule is a report's schedule (ADR-0076 §4).
+type Schedule struct {
+	Frequency string
+	Company   string
+	Weekday   *int32 // weekly: the ISO weekday
+	Day       *int32 // monthly: the day of the month
+	From      time.Time
+}
+
+// On says whether the schedule has a run due on the company's date day.
+func (s Schedule) On(day time.Time) bool {
+	if day.Before(s.From) {
+		return false
+	}
+	switch s.Frequency {
+	case "weekly":
+		wd := int32(day.Weekday())
+		if wd == 0 {
+			wd = 7 // ISO: Sunday is 7
+		}
+		return wd == *s.Weekday
+	case "monthly":
+		return int32(day.Day()) == *s.Day
+	}
+	return true // daily
+}
+
+const reportSelect = `SELECT id, title, coalesce(question, ''), spec, queries, owner_id, status, version, created_at, updated_at,
+	schedule_frequency, schedule_company, schedule_weekday, schedule_day, scheduled_from FROM analytics.report`
 
 func scanReport(row pgx.Row) (Report, error) {
 	var (
-		r             Report
-		spec, queries []byte
+		r                  Report
+		spec, queries      []byte
+		frequency, company *string
+		weekday, day       *int32
+		from               *time.Time
 	)
-	if err := row.Scan(&r.ID, &r.Title, &r.Question, &spec, &queries, &r.OwnerID, &r.Status, &r.Version, &r.CreatedAt, &r.UpdatedAt); err != nil {
+	if err := row.Scan(&r.ID, &r.Title, &r.Question, &spec, &queries, &r.OwnerID, &r.Status, &r.Version, &r.CreatedAt, &r.UpdatedAt,
+		&frequency, &company, &weekday, &day, &from); err != nil {
 		return Report{}, errs.Wrapf(err, "scan report")
+	}
+	if frequency != nil { // the database keeps a schedule whole (report_schedule_whole)
+		r.Schedule = &Schedule{Frequency: *frequency, Company: *company, Weekday: weekday, Day: day, From: *from}
 	}
 	// The columns hold what save wrote from these types, and the database
 	// keeps them objects (report_spec_check, report_queries_check).
@@ -89,11 +138,13 @@ func scanReport(row pgx.Row) (Report, error) {
 }
 
 // report reads one of the owner's reports, locked for a change when
-// forUpdate; another's is not found, as one that does not exist.
+// forUpdate (FOR NO KEY UPDATE: a run being kept references the row,
+// taking FOR KEY SHARE, which this lock lets through); another's is not
+// found, as one that does not exist.
 func report(ctx context.Context, tx pgx.Tx, owner, id uuid.UUID, forUpdate bool) (Report, error) {
 	q := reportSelect + ` WHERE id = $1 AND owner_id = $2`
 	if forUpdate {
-		q += ` FOR UPDATE`
+		q += ` FOR NO KEY UPDATE`
 	}
 	r, err := scanReport(tx.QueryRow(ctx, q, id, owner))
 	switch {

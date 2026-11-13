@@ -101,6 +101,9 @@ const (
 	// KindStatements are bank statement files as imported, named by sha256
 	// and locked: accounting evidence (ADR-0047).
 	KindStatements = "bank-statements"
+	// KindReportRuns are saved reports' scheduled runs' results, named by
+	// run id (ADR-0076 §5).
+	KindReportRuns = "report-runs"
 )
 
 // Prefix is the first segment of every key.

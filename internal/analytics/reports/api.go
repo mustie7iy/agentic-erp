@@ -9,7 +9,6 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
-	"github.com/mustie7iy/agentic-erp/internal/analytics/endpoint"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 )
@@ -77,6 +76,10 @@ func toAPI(r Report, names map[uuid.UUID]string) gen.Report {
 	if r.Question != "" {
 		out.Question = gen.NewOptString(r.Question)
 	}
+	if sc := r.Schedule; sc != nil {
+		out.Schedule = gen.NewOptReportSchedule(gen.ReportSchedule{Frequency: sc.Frequency, Company: sc.Company, Weekday: optInt(sc.Weekday),
+			DayOfMonth: optInt(sc.Day), From: sc.From})
+	}
 	return out
 }
 
@@ -142,10 +145,34 @@ func (e *Endpoints) RunReport(ctx context.Context, params gen.RunReportParams) (
 	if err != nil {
 		return nil, err
 	}
-	out := gen.ReportResults{ReportID: res.Report.ID, Title: res.Report.Title, Spec: specToAPI(res.Spec), DataThrough: res.DataThrough,
-		Results: make([]gen.AnalyticsResult, len(res.Results))}
-	for i, r := range res.Results {
-		out.Results[i] = endpoint.ResultToAPI(r)
+	return &gen.ReportResultsHeaders{ETag: gen.NewOptString(etag.Format(res.Report.Version)), Response: resultsToAPI(res)}, nil
+}
+
+// optInt is an optional number as the contract writes it.
+func optInt(v *int32) gen.OptInt32 {
+	if v == nil {
+		return gen.OptInt32{}
 	}
-	return &gen.ReportResultsHeaders{ETag: gen.NewOptString(etag.Format(res.Report.Version)), Response: out}, nil
+	return gen.NewOptInt32(*v)
+}
+
+// ScheduleReport implements POST /v1/reports/{id}:schedule.
+func (e *Endpoints) ScheduleReport(ctx context.Context, req *gen.ReportScheduleSet, params gen.ScheduleReportParams) (gen.ScheduleReportRes, error) {
+	r, err := e.SetSchedule(ctx, params.ID, etag.IfMatch(params.IfMatch), ScheduleSet{Frequency: req.Frequency, Company: req.Company,
+		Weekday: apitypes.Ptr[int32](req.Weekday), DayOfMonth: apitypes.Ptr[int32](req.DayOfMonth)})
+	out, tag, err := e.one(ctx, r, err)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.RemoveReportOKHeaders{ETag: tag, Response: out}, nil
+}
+
+// UnscheduleReport implements POST /v1/reports/{id}:unschedule.
+func (e *Endpoints) UnscheduleReport(ctx context.Context, params gen.UnscheduleReportParams) (gen.UnscheduleReportRes, error) {
+	r, err := Unschedule(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	out, tag, err := e.one(ctx, r, err)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.RemoveReportOKHeaders{ETag: tag, Response: out}, nil
 }
