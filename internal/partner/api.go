@@ -138,10 +138,13 @@ func changeToAPI(c Change) gen.PartnerChange {
 	out := gen.PartnerChange{
 		ID: c.ID, Version: c.Version, CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt, UpdatedBy: gen.NewOptUUID(c.UpdatedBy),
 		Number: c.Number, Kind: c.Kind, PartnerID: c.PartnerID, Payload: apitypes.EncodeObject(c.Masked()), Reason: c.Reason,
-		Warnings: []gen.PartnerChangeWarning{}, Status: c.Status, RequestedBy: c.RequestedBy,
+		Warnings: []gen.PartnerChangeWarning{}, PossibleDuplicates: []gen.PossibleDuplicate{}, Status: c.Status, RequestedBy: c.RequestedBy,
 	}
 	for _, w := range c.Warnings {
 		out.Warnings = append(out.Warnings, gen.PartnerChangeWarning(w))
+	}
+	for _, d := range c.PossibleDuplicates {
+		out.PossibleDuplicates = append(out.PossibleDuplicates, gen.PossibleDuplicate{PartnerID: d.PartnerID, Number: d.Number, Name: d.Name, Matched: d.Matched})
 	}
 	if c.WorkflowRequestID != nil {
 		out.WorkflowRequestID.SetTo(*c.WorkflowRequestID)
@@ -225,7 +228,7 @@ func (e *Endpoints) CreateBusinessPartner(ctx context.Context, req *gen.Business
 	in := NewPartner{Kind: req.Kind, Name: req.Name, LegalName: apitypes.Ptr[string](req.LegalName), CountryCode: req.CountryCode,
 		Language: apitypes.Ptr[string](req.Language), Roles: req.Roles, SupplierCompanies: companiesIn(req.SupplierCompanies),
 		CustomerCompanies: customerCompaniesIn(req.CustomerCompanies), Addresses: addressesIn(req.Addresses), TaxIdentifiers: taxesIn(req.TaxIdentifiers), Extensions: apitypes.DecodeObject(req.Extensions.Or(nil)), Reason: req.Reason,
-		GroupCompanyID: apitypes.Ptr[uuid.UUID](req.GroupCompanyID)}
+		GroupCompanyID: apitypes.Ptr[uuid.UUID](req.GroupCompanyID), ConfirmDuplicate: req.ConfirmDuplicate.Value}
 	for _, b := range req.BankAccounts {
 		in.BankAccounts = append(in.BankAccounts, BankInput{Purpose: b.Purpose.Value, AccountNumber: b.AccountNumber, AccountScheme: b.AccountScheme,
 			BIC: apitypes.Ptr[string](b.Bic), BankCountryCode: b.BankCountryCode, HolderName: b.HolderName, ValidFrom: b.ValidFrom,

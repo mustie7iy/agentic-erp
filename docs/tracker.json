@@ -4677,13 +4677,13 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Duplicate checks",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "When a business partner is created, the partner change lists the existing partners with the same tax registration number or the same normalized name and country as possible duplicates, and one whose tax registration number is already in use is refused unless the creator confirms it",
-        "r": "T89a · docs/design/plan-breadth-week3.md §T89a",
+        "r": "T89a · docs/design/plan-breadth-week3.md §T89a · db/migrations/000309 · partner.normalized_name, business_partner_normalized_name · partner_change.possible_duplicates · BusinessPartnerCreate.confirm_duplicate · 409 partner.duplicate_tax_number · partner.NormalizedName (the migration's quality gate) · walkthrough step_customer · 03-data-model §3.6",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

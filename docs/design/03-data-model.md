@@ -627,6 +627,7 @@ erDiagram
   partner_change { uuid id PK
     text kind "create | update | bank_change | block | unblock"
     jsonb payload
+    jsonb possible_duplicates "T89a: create changes"
     text status
     uuid workflow_request_id }
   payment_term { text code PK
@@ -770,6 +771,33 @@ Not built in the first version (plan-breadth-week1, "Later"): sales-area
 data and partner functions, contact persons, customer payment methods and
 direct debit mandates, a planning group, custom fields on the company
 data, and taking customers over from SAP.
+
+**Duplicate check when a partner is created (T89a, migration 000309; as
+built).** Creating a business partner, of any role, checks the existing
+ones: those with one of its tax registration numbers (the same scheme and
+value, by the identifier's fingerprint) and those with its normalized
+name in its country. The normalized name is `partner.NormalizedName`
+(white space trimmed and each run of it one space, in capitals), which
+the migration's quality gate also flags duplicate vendors by; the
+database computes the same in `partner.normalized_name`, on which the one
+index `business_partner_normalized_name` (tenant, country, name) is
+built. A blocked partner counts; a partner whose create change was
+rejected or cancelled (pending for ever) does not. The matches are kept on
+the create change as `possible_duplicates` (partner id, number, name and
+what matched: `tax_registration_number`, `name_and_country`), by number,
+at most 20, for the approver to read. A match on the tax registration
+number is refused (409 `partner.duplicate_tax_number`, naming the
+partners) unless the request sets `confirm_duplicate`; a match on name and
+country is listed and never refused. The check takes a transaction-scoped
+advisory lock per scheme and value first, in their order, so two partners
+with the same number created at once wait for one another and the second
+finds the first. A migration run's partners confirm their duplicates
+(`partner.Migration.Create`): the run is the governed act. The existing
+warning `partner.duplicate_tax_identifier` is kept. Decided by default
+(07 §7.7): the tax registration number is matched by scheme and value, as
+the identifier's index is keyed; the check runs only when a partner is
+created ("Later": the check on a change of an existing partner, fuzzy
+matching, bank details, a run over existing partners, merging).
 
 ## 3.7 General ledger (`ledger`)
 

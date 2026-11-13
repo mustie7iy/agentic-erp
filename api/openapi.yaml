@@ -3044,7 +3044,7 @@ paths:
       tags:
         - partner
       summary: Request a new business partner
-      description: "Creates the partner in status `pending` together with a partner change of kind `create` (see `GET /v1/partner-changes?partner_id=`); it becomes `active` when the change's approval request is approved."
+      description: "Creates the partner in status `pending` together with a partner change of kind `create` (see `GET /v1/partner-changes?partner_id=`); it becomes `active` when the change's approval request is approved. The change lists the existing partners the new one may duplicate (`possible_duplicates`, T89a): those with one of its tax registration numbers (the same scheme and value) or with its name and country, white space and case aside, whatever their roles, a blocked one included; a partner whose create change was rejected or cancelled is not one. A partner with a tax registration number another partner has is refused (409 `partner.duplicate_tax_number`, naming that partner) unless the request sets `confirm_duplicate`; a match on name and country is listed and never refused. Two requests with the same number wait for one another, so the second finds the first."
       x-permission: partner.supplier.create
       x-problem-codes:
         - config.not_bootstrapped
@@ -3059,6 +3059,7 @@ paths:
         - partner.duplicate_bank_purpose
         - partner.duplicate_company
         - partner.duplicate_payment_method
+        - partner.duplicate_tax_number
         - partner.duplicate_tax_scheme
         - partner.duplicate_withholding_tax_code
         - partner.group_company_unknown
@@ -28319,6 +28320,9 @@ paths:
         - partner.duplicate_bank_purpose
         - partner.duplicate_company
         - partner.duplicate_payment_method
+        # partner.duplicate_tax_number is a new partner's refusal (T89a), which TestProblemCodes lists for every operation that creates
+        # a partner; a migration run cannot reach it, as it confirms the duplicates it loads (partner.Migration.Create).
+        - partner.duplicate_tax_number
         - partner.duplicate_tax_scheme
         - partner.duplicate_withholding_tax_code
         - partner.group_company_unknown
@@ -33499,6 +33503,10 @@ components:
           type: string
           format: uuid
           description: "The legal entity of the tenant this partner is, when it is one of the group's companies (ADR-0059 §4); any legal entity of the tenant, whatever the caller's access to it (422 `partner.group_company_unknown` otherwise). The ledger derives the trading partner of the lines naming the partner from it."
+        confirm_duplicate:
+          type: boolean
+          default: false
+          description: "Create the partner although another partner has one of its tax registration numbers (the same scheme and value): the creator judged it another partner. Without it such a partner is refused (409 `partner.duplicate_tax_number`). The change lists the possible duplicates either way (`PartnerChange.possible_duplicates`)."
         reason:
           type: string
           description: "Why the partner is needed; recorded on the partner change."
@@ -33763,6 +33771,21 @@ components:
       examples:
         - code: required
           message: invoice_date is required.
+    PossibleDuplicate:
+      type: object
+      description: "An existing business partner a new one may duplicate (T89a)."
+      required: [partner_id, number, name, matched]
+      properties:
+        partner_id: {type: string, format: uuid, description: "The existing partner (`GET /v1/business-partners/{id}`).", readOnly: true}
+        number: {type: string, description: "Its business partner number.", readOnly: true}
+        name: {type: string, description: "Its name, as it is now.", readOnly: true}
+        matched:
+          type: array
+          items:
+            type: string
+            x-extensible-enum: [tax_registration_number, name_and_country]
+          description: "What matched: `tax_registration_number`, one of the new partner's tax registration numbers (the same scheme and value); `name_and_country`, the same name, white space and case aside, in the same country. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
     PartnerChange:
       description: "A governed change to a business partner (SAP MDG style). Decisions are made on its approval request (`workflow_request_id`); the change is applied when that request is approved and rejected when it is rejected."
       allOf:
@@ -33775,6 +33798,7 @@ components:
             - payload
             - reason
             - warnings
+            - possible_duplicates
             - status
             - requested_by
           properties:
@@ -33811,6 +33835,13 @@ components:
               items:
                 $ref: "#/components/schemas/PartnerChangeWarning"
               description: Warnings raised at request time.
+              readOnly: true
+            possible_duplicates:
+              type: array
+              maxItems: 20
+              items:
+                $ref: "#/components/schemas/PossibleDuplicate"
+              description: "For a `create` change, the existing business partners the new one may duplicate when it was requested (T89a): those with one of its tax registration numbers, or its name and country (white space and case aside), whatever their roles, blocked ones included, by number, at most 20; empty when none matched and for every other kind of change. The approver reads them before deciding."
               readOnly: true
             status:
               type: string

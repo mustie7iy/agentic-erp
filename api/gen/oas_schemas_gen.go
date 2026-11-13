@@ -15522,6 +15522,11 @@ type BusinessPartnerCreate struct {
 	// `partner.group_company_unknown` otherwise). The ledger derives the trading partner of the lines
 	// naming the partner from it.
 	GroupCompanyID OptUUID `json:"group_company_id"`
+	// Create the partner although another partner has one of its tax registration numbers (the same scheme
+	// and value): the creator judged it another partner. Without it such a partner is refused (409
+	// `partner.duplicate_tax_number`). The change lists the possible duplicates either way
+	// (`PartnerChange.possible_duplicates`).
+	ConfirmDuplicate OptBool `json:"confirm_duplicate"`
 	// Why the partner is needed; recorded on the partner change.
 	Reason string `json:"reason"`
 }
@@ -15589,6 +15594,11 @@ func (s *BusinessPartnerCreate) GetExtensions() OptExtensions {
 // GetGroupCompanyID returns the value of GroupCompanyID.
 func (s *BusinessPartnerCreate) GetGroupCompanyID() OptUUID {
 	return s.GroupCompanyID
+}
+
+// GetConfirmDuplicate returns the value of ConfirmDuplicate.
+func (s *BusinessPartnerCreate) GetConfirmDuplicate() OptBool {
+	return s.ConfirmDuplicate
 }
 
 // GetReason returns the value of Reason.
@@ -15659,6 +15669,11 @@ func (s *BusinessPartnerCreate) SetExtensions(val OptExtensions) {
 // SetGroupCompanyID sets the value of GroupCompanyID.
 func (s *BusinessPartnerCreate) SetGroupCompanyID(val OptUUID) {
 	s.GroupCompanyID = val
+}
+
+// SetConfirmDuplicate sets the value of ConfirmDuplicate.
+func (s *BusinessPartnerCreate) SetConfirmDuplicate(val OptBool) {
+	s.ConfirmDuplicate = val
 }
 
 // SetReason sets the value of Reason.
@@ -64767,6 +64782,11 @@ type PartnerChange struct {
 	Reason string `json:"reason"`
 	// Warnings raised at request time.
 	Warnings []PartnerChangeWarning `json:"warnings"`
+	// For a `create` change, the existing business partners the new one may duplicate when it was
+	// requested (T89a): those with one of its tax registration numbers, or its name and country (white
+	// space and case aside), whatever their roles, blocked ones included, by number, at most 20; empty
+	// when none matched and for every other kind of change. The approver reads them before deciding.
+	PossibleDuplicates []PossibleDuplicate `json:"possible_duplicates"`
 	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1.
 	Status string `json:"status"`
@@ -64836,6 +64856,11 @@ func (s *PartnerChange) GetReason() string {
 // GetWarnings returns the value of Warnings.
 func (s *PartnerChange) GetWarnings() []PartnerChangeWarning {
 	return s.Warnings
+}
+
+// GetPossibleDuplicates returns the value of PossibleDuplicates.
+func (s *PartnerChange) GetPossibleDuplicates() []PossibleDuplicate {
+	return s.PossibleDuplicates
 }
 
 // GetStatus returns the value of Status.
@@ -64916,6 +64941,11 @@ func (s *PartnerChange) SetReason(val string) {
 // SetWarnings sets the value of Warnings.
 func (s *PartnerChange) SetWarnings(val []PartnerChangeWarning) {
 	s.Warnings = val
+}
+
+// SetPossibleDuplicates sets the value of PossibleDuplicates.
+func (s *PartnerChange) SetPossibleDuplicates(val []PossibleDuplicate) {
+	s.PossibleDuplicates = val
 }
 
 // SetStatus sets the value of Status.
@@ -68960,6 +68990,62 @@ func (s *PlanLinePage) SetTotalEstimate(val OptInt64) {
 }
 
 func (*PlanLinePage) listPlanLinesRes() {}
+
+// An existing business partner a new one may duplicate (T89a).
+// Ref: #/components/schemas/PossibleDuplicate
+type PossibleDuplicate struct {
+	// The existing partner (`GET /v1/business-partners/{id}`).
+	PartnerID uuid.UUID `json:"partner_id"`
+	// Its business partner number.
+	Number string `json:"number"`
+	// Its name, as it is now.
+	Name string `json:"name"`
+	// What matched: `tax_registration_number`, one of the new partner's tax registration numbers (the same
+	// scheme and value); `name_and_country`, the same name, white space and case aside, in the same
+	// country. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	Matched []string `json:"matched"`
+}
+
+// GetPartnerID returns the value of PartnerID.
+func (s *PossibleDuplicate) GetPartnerID() uuid.UUID {
+	return s.PartnerID
+}
+
+// GetNumber returns the value of Number.
+func (s *PossibleDuplicate) GetNumber() string {
+	return s.Number
+}
+
+// GetName returns the value of Name.
+func (s *PossibleDuplicate) GetName() string {
+	return s.Name
+}
+
+// GetMatched returns the value of Matched.
+func (s *PossibleDuplicate) GetMatched() []string {
+	return s.Matched
+}
+
+// SetPartnerID sets the value of PartnerID.
+func (s *PossibleDuplicate) SetPartnerID(val uuid.UUID) {
+	s.PartnerID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *PossibleDuplicate) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetName sets the value of Name.
+func (s *PossibleDuplicate) SetName(val string) {
+	s.Name = val
+}
+
+// SetMatched sets the value of Matched.
+func (s *PossibleDuplicate) SetMatched(val []string) {
+	s.Matched = val
+}
 
 type PostBankStatementLineBadRequest Problem
 

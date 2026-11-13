@@ -34782,12 +34782,18 @@ func (s *BusinessPartnerCreate) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.ConfirmDuplicate.Set {
+			e.FieldStart("confirm_duplicate")
+			s.ConfirmDuplicate.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("reason")
 		e.Str(s.Reason)
 	}
 }
 
-var jsonFieldsNameOfBusinessPartnerCreate = [14]string{
+var jsonFieldsNameOfBusinessPartnerCreate = [15]string{
 	0:  "kind",
 	1:  "name",
 	2:  "legal_name",
@@ -34801,7 +34807,8 @@ var jsonFieldsNameOfBusinessPartnerCreate = [14]string{
 	10: "bank_accounts",
 	11: "extensions",
 	12: "group_company_id",
-	13: "reason",
+	13: "confirm_duplicate",
+	14: "reason",
 }
 
 // Decode decodes BusinessPartnerCreate from json.
@@ -34810,6 +34817,7 @@ func (s *BusinessPartnerCreate) Decode(d *jx.Decoder) error {
 		return errors.New("invalid: unable to decode BusinessPartnerCreate to nil")
 	}
 	var requiredBitSet [2]uint8
+	s.setDefaults()
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -34994,8 +35002,18 @@ func (s *BusinessPartnerCreate) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"group_company_id\"")
 			}
+		case "confirm_duplicate":
+			if err := func() error {
+				s.ConfirmDuplicate.Reset()
+				if err := s.ConfirmDuplicate.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"confirm_duplicate\"")
+			}
 		case "reason":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.Reason = string(v)
@@ -35017,7 +35035,7 @@ func (s *BusinessPartnerCreate) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b00101011,
-		0b00100000,
+		0b01000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -160820,6 +160838,14 @@ func (s *PartnerChange) encodeFields(e *jx.Encoder) {
 		e.ArrEnd()
 	}
 	{
+		e.FieldStart("possible_duplicates")
+		e.ArrStart()
+		for _, elem := range s.PossibleDuplicates {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+	{
 		e.FieldStart("status")
 		e.Str(s.Status)
 	}
@@ -160841,7 +160867,7 @@ func (s *PartnerChange) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPartnerChange = [16]string{
+var jsonFieldsNameOfPartnerChange = [17]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -160854,10 +160880,11 @@ var jsonFieldsNameOfPartnerChange = [16]string{
 	9:  "payload",
 	10: "reason",
 	11: "warnings",
-	12: "status",
-	13: "workflow_request_id",
-	14: "requested_by",
-	15: "applied_at",
+	12: "possible_duplicates",
+	13: "status",
+	14: "workflow_request_id",
+	15: "requested_by",
+	16: "applied_at",
 }
 
 // Decode decodes PartnerChange from json.
@@ -160865,7 +160892,7 @@ func (s *PartnerChange) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode PartnerChange to nil")
 	}
-	var requiredBitSet [2]uint8
+	var requiredBitSet [3]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -161015,8 +161042,26 @@ func (s *PartnerChange) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"warnings\"")
 			}
-		case "status":
+		case "possible_duplicates":
 			requiredBitSet[1] |= 1 << 4
+			if err := func() error {
+				s.PossibleDuplicates = make([]PossibleDuplicate, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem PossibleDuplicate
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.PossibleDuplicates = append(s.PossibleDuplicates, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"possible_duplicates\"")
+			}
+		case "status":
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := d.Str()
 				s.Status = string(v)
@@ -161038,7 +161083,7 @@ func (s *PartnerChange) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"workflow_request_id\"")
 			}
 		case "requested_by":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.RequestedBy = v
@@ -161068,9 +161113,10 @@ func (s *PartnerChange) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [2]uint8{
+	for i, mask := range [3]uint8{
 		0b11011111,
-		0b01011111,
+		0b10111111,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -169438,6 +169484,165 @@ func (s *PlanLinePage) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *PlanLinePage) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *PossibleDuplicate) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *PossibleDuplicate) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("partner_id")
+		json.EncodeUUID(e, s.PartnerID)
+	}
+	{
+		e.FieldStart("number")
+		e.Str(s.Number)
+	}
+	{
+		e.FieldStart("name")
+		e.Str(s.Name)
+	}
+	{
+		e.FieldStart("matched")
+		e.ArrStart()
+		for _, elem := range s.Matched {
+			e.Str(elem)
+		}
+		e.ArrEnd()
+	}
+}
+
+var jsonFieldsNameOfPossibleDuplicate = [4]string{
+	0: "partner_id",
+	1: "number",
+	2: "name",
+	3: "matched",
+}
+
+// Decode decodes PossibleDuplicate from json.
+func (s *PossibleDuplicate) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode PossibleDuplicate to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "partner_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.PartnerID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"partner_id\"")
+			}
+		case "number":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Number = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"number\"")
+			}
+		case "name":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.Name = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"name\"")
+			}
+		case "matched":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				s.Matched = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
+						return err
+					}
+					s.Matched = append(s.Matched, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"matched\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode PossibleDuplicate")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00001111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfPossibleDuplicate) {
+					name = jsonFieldsNameOfPossibleDuplicate[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *PossibleDuplicate) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *PossibleDuplicate) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

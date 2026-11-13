@@ -559,9 +559,11 @@ func warnings(ctx context.Context, tx pgx.Tx, partnerID uuid.UUID, taxes []seale
 	return out, nil
 }
 
-// insertChange records a change; applied changes (blocks) are applied now.
+// insertChange records a change with its warnings and, for a create, the
+// possible duplicates its partner was checked against; applied changes
+// (blocks) are applied now.
 func insertChange(ctx context.Context, tx pgx.Tx, p reqctx.Principal, kind string, partnerID uuid.UUID, payload any, reason string,
-	warns []Warning, applied bool) (Change, error) {
+	warns []Warning, dups []Duplicate, applied bool) (Change, error) {
 	number, err := nextNumber(ctx, tx, p.TenantID, "partner_change", "PC")
 	if err != nil {
 		return Change{}, err
@@ -573,10 +575,13 @@ func insertChange(ctx context.Context, tx pgx.Tx, p reqctx.Principal, kind strin
 	if warns == nil {
 		warns = []Warning{}
 	}
+	if dups == nil {
+		dups = []Duplicate{}
+	}
 	c, err := scanChange(tx.QueryRow(ctx, `INSERT INTO partner.partner_change (tenant_id, id, number, kind, partner_id, payload, reason, warnings, status,
-			requested_by, applied_at, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $11 THEN now() END, $10, $10) RETURNING `+changeColumns,
-		p.TenantID, uuid.Must(uuid.NewV7()), number, kind, partnerID, toJSON(payload), reason, warns, status, p.ID, applied))
+			requested_by, applied_at, created_by, updated_by, possible_duplicates)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $11 THEN now() END, $10, $10, $12) RETURNING `+changeColumns,
+		p.TenantID, uuid.Must(uuid.NewV7()), number, kind, partnerID, toJSON(payload), reason, warns, status, p.ID, applied, dups))
 	if err != nil {
 		return c, fmt.Errorf("partner: insert %s change %s of business partner %s: %w", kind, number, partnerID, err)
 	}
@@ -737,6 +742,10 @@ type NewPartner struct {
 	// GroupCompanyID is the legal entity of the tenant the partner is, when
 	// it is one of the group's companies (ADR-0059 §4, T68c); nil: none.
 	GroupCompanyID *uuid.UUID
+	// ConfirmDuplicate creates the partner although another has one of its
+	// tax registration numbers (T89a): its creator judged it another
+	// partner, and its change lists the duplicates for the approver.
+	ConfirmDuplicate bool
 }
 
 // CreatePartner inserts a pending partner with its roles, company data,
@@ -771,6 +780,13 @@ func createPartner(ctx context.Context, ports Ports, in NewPartner, back backdat
 	if err != nil {
 		return Partner{}, Change{}, err
 	}
+	dups, err := possibleDuplicates(ctx, tx, in.Name, in.CountryCode, taxes)
+	if err != nil {
+		return Partner{}, Change{}, err
+	}
+	if err := requireConfirmed(dups, in.ConfirmDuplicate); err != nil {
+		return Partner{}, Change{}, err
+	}
 	banks, err := sealBanks(ctx, ports.Keys, p.TenantID, day, back, in.BankAccounts, func(i int) string { return fmt.Sprintf("bank_accounts[%d].", i) })
 	if err != nil {
 		return Partner{}, Change{}, err
@@ -790,7 +806,7 @@ func createPartner(ctx context.Context, ports Ports, in NewPartner, back backdat
 	c, err := insertChange(ctx, tx, p, KindCreate, id, createPayload{Kind: in.Kind, Name: in.Name, LegalName: in.LegalName,
 		CountryCode: in.CountryCode, Language: in.Language, Roles: in.Roles, SupplierCompanies: in.SupplierCompanies, Addresses: in.Addresses,
 		TaxIdentifiers: taxes, BankAccounts: banks, Extensions: in.Extensions, GroupCompanyID: in.GroupCompanyID,
-		CustomerCompanies: in.CustomerCompanies}, in.Reason, warns, false)
+		CustomerCompanies: in.CustomerCompanies}, in.Reason, warns, dups, false)
 	if err != nil {
 		return Partner{}, Change{}, err
 	}
@@ -915,7 +931,7 @@ func Block(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reason 
 		id, p.ID); err != nil {
 		return Change{}, fmt.Errorf("partner: block business partner %s: %w", id, err)
 	}
-	c, err := insertChange(ctx, tx, p, KindBlock, id, map[string]any{"scope": "all"}, reason, nil, true)
+	c, err := insertChange(ctx, tx, p, KindBlock, id, map[string]any{"scope": "all"}, reason, nil, nil, true)
 	if err != nil {
 		return Change{}, err
 	}
@@ -940,7 +956,7 @@ func Unblock(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reaso
 	if bp.Status != Blocked {
 		return Change{}, problem.Conflict("partner.invalid_status", "The business partner is "+bp.Status+"; unblock requires status blocked.")
 	}
-	c, err := insertChange(ctx, tx, p, KindUnblock, id, map[string]any{"scope": "all"}, reason, nil, false)
+	c, err := insertChange(ctx, tx, p, KindUnblock, id, map[string]any{"scope": "all"}, reason, nil, nil, false)
 	if err != nil {
 		return Change{}, err
 	}
@@ -1009,7 +1025,7 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 	}
 	c, err := insertChange(ctx, tx, p, KindUpdate, partnerID, updatePayload{Name: ch.Name, LegalName: toNullable(ch.LegalName),
 		Language: toNullable(ch.Language), Roles: ch.Roles, SupplierCompanies: ch.SupplierCompanies, CustomerCompanies: ch.CustomerCompanies,
-		Addresses: ch.Addresses, TaxIdentifiers: taxes, Extensions: ch.Extensions, ExtensionsSchema: schema, GroupCompanyID: toNullable(ch.GroupCompanyID)}, reason, warns, false)
+		Addresses: ch.Addresses, TaxIdentifiers: taxes, Extensions: ch.Extensions, ExtensionsSchema: schema, GroupCompanyID: toNullable(ch.GroupCompanyID)}, reason, warns, nil, false)
 	if err != nil {
 		return Change{}, err
 	}
@@ -1116,7 +1132,7 @@ func RequestBankAccount(ctx context.Context, ports Ports, partnerID uuid.UUID, i
 	if err != nil {
 		return Change{}, err
 	}
-	c, err := insertChange(ctx, tx, p, KindBankChange, partnerID, bankChangePayload{Action: "add", BankAccount: &banks[0]}, reason, warns, false)
+	c, err := insertChange(ctx, tx, p, KindBankChange, partnerID, bankChangePayload{Action: "add", BankAccount: &banks[0]}, reason, warns, nil, false)
 	if err != nil {
 		return Change{}, err
 	}
@@ -1150,7 +1166,7 @@ func RequestBankAccountEnd(ctx context.Context, partnerID, bankID uuid.UUID, ifM
 		return Change{}, invalid("partner.invalid_end", "valid_to", "before the account's current valid_to")
 	}
 	c, err := insertChange(ctx, tx, p, KindBankChange, partnerID, bankChangePayload{Action: "end", BankAccountID: &bankID, ValidTo: &Date{validTo}},
-		reason, nil, false)
+		reason, nil, nil, false)
 	if err != nil {
 		return Change{}, err
 	}

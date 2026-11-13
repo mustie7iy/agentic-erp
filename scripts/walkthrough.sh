@@ -5760,7 +5760,7 @@ step_asset_order_expenses() {
 # Carla approves it as she does suppliers, and Ruth reads the customer back,
 # active, with its company data. CUSTOMER is the customer for later steps.
 step_customer() {
-  heading "Step 47 — A customer with its data in a company: the receivables account through a governed change; the customer created, approved and read back"
+  heading "Step 47 — A customer with its data in a company: the receivables account through a governed change; the customer created, approved and read back; a second customer with its tax registration number refused, then created with the confirmation, its change listing the first as a possible duplicate, rejected"
   as ada
   say "A customer's receivables post to a customer reconciliation account, whose every line names its customer."
   say "Maple's chart has none yet, so Ada proposes account 1200, a change of the chart, tier 4, with its evidence"
@@ -5782,9 +5782,9 @@ step_customer() {
   as ruth
   QUIET=1 api 200 '' getBusinessPartner -p "id=$SUPPLIER"
   ap=$(field ".supplier_companies[] | select(.legal_entity_id == \"$LE\") | .reconciliation_account_id")
-  say "Ruth creates Northwind Traders as a customer of Maple: its receivables account and its payment term, net 30"
-  say "days. Naming Maple's payables account instead is refused, the field named:"
-  body="{\"kind\": \"organization\", \"name\": \"Northwind Traders\", \"country_code\": \"CA\", \"roles\": [\"customer\"], \"customer_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"@ACCOUNT@\", \"payment_term_code\": \"NT30\"}], \"reason\": \"Buys machined parts from Maple\"}"
+  say "Ruth creates Northwind Traders as a customer of Maple: its receivables account, its payment term, net 30"
+  say "days, and its tax registration number. Naming Maple's payables account instead is refused, the field named:"
+  body="{\"kind\": \"organization\", \"name\": \"Northwind Traders\", \"country_code\": \"CA\", \"roles\": [\"customer\"], \"customer_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"@ACCOUNT@\", \"payment_term_code\": \"NT30\"}], \"tax_identifiers\": [{\"scheme\": \"CA_TAX\", \"value\": \"870123456RT0001\"}], \"reason\": \"Buys machined parts from Maple\"}"
   refused 422 partner.invalid_reconciliation_account createBusinessPartner -body "${body//@ACCOUNT@/$ap}"
   expect "the refused field" "$(field '[.errors[].field] | join(" ")')" "customer_companies[0].reconciliation_account_id"
   api 201 '"business partner \(.number) \(.name): \(.status), \(.roles | join(", "))", (.customer_companies[] | "  in company '"$CC"': account \(.reconciliation_account_number), terms \(.payment_term_code), posting blocked \(.is_posting_blocked)")' \
@@ -5804,7 +5804,40 @@ step_customer() {
   expect "no supplier data on a customer" "$(field '.supplier_companies | length')" 0
   api 200 '.items[] | "customer \(.number) \(.name), \(.country_code), \(.status)"' listBusinessPartners -p role=customer -p name_prefix=Northwind
   expect "the customers named Northwind" "$(field '[.items[].id] | join(" ")')" "$CUSTOMER"
+  customer_duplicate
   passed
+}
+
+# customer_duplicate is T89a's part of step_customer (03-data-model §3.6):
+# a second customer with Northwind's tax registration number is refused,
+# then created with the confirmation; its change lists Northwind as a
+# possible duplicate for the approver, Carla, who rejects it.
+customer_duplicate() {
+  local body number dup change confirm=', "confirm_duplicate": true'
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$CUSTOMER"
+  number=$(field .number)
+  say "Ruth enters Northwind's purchasing arm, Northwind Trading Co., from its order, with the same tax registration"
+  say "number. A partner whose tax registration number another has is refused, naming that partner:"
+  body="{\"kind\": \"organization\", \"name\": \"Northwind Trading Co.\", \"country_code\": \"CA\", \"roles\": [\"customer\"], \"customer_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"$(field ".customer_companies[0].reconciliation_account_id")\", \"payment_term_code\": \"NT30\"}], \"tax_identifiers\": [{\"scheme\": \"CA_TAX\", \"value\": \"870123456RT0001\"}]@CONFIRM@, \"reason\": \"Orders under its own name\"}"
+  refused 409 partner.duplicate_tax_number createBusinessPartner -body "${body//@CONFIRM@/}"
+  expect "the refusal names Northwind" "$(field '.detail | contains("'"$number"' Northwind Traders")')" true
+  say "She is sure it is a partner of its own and confirms. Its create change lists Northwind as a possible duplicate"
+  say "for the approver:"
+  api 201 '"business partner \(.number) \(.name): \(.status)"' createBusinessPartner -body "${body//@CONFIRM@/$confirm}"
+  dup=$(field .id)
+  api 200 '.items[0] | "change \(.number): \(.status)", (.possible_duplicates[] | "  possible duplicate \(.number) \(.name): \(.matched | join(", "))")' \
+    listPartnerChanges -p "partner_id=$dup" -p kind=create
+  expect "the change's possible duplicates" "$(field '[.items[0].possible_duplicates[] | "\(.partner_id) \(.number) \(.matched | join("+"))"] | join(", ")')" \
+    "$CUSTOMER $number tax_registration_number"
+  change=$(field '.items[0].workflow_request_id')
+  say "Carla reads it: it is Northwind itself, ordering through another department. She rejects the change:"
+  as carla
+  QUIET=1 api 200 '' getApprovalRequest -p "id=$change"
+  api 200 '"approval request \(.object_type): \(.status)"' rejectApprovalRequest -p "id=$change" -if-match "$ETAG" \
+    -body '{"comment": "The same company as Northwind Traders; order under its partner."}'
+  as ruth
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$dup" -p kind=create
+  expect "the duplicate's change" "$(field '.items[0].status')" rejected
 }
 
 # step_customer_invoice is T75a and T75b (ADR-0063 §2-§5): a customer

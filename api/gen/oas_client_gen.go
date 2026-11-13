@@ -915,7 +915,13 @@ type Invoker interface {
 	//
 	// Creates the partner in status `pending` together with a partner change of kind `create` (see
 	// `GET /v1/partner-changes?partner_id=`); it becomes `active` when the change's approval request is
-	// approved.
+	// approved. The change lists the existing partners the new one may duplicate (`possible_duplicates`,
+	// T89a): those with one of its tax registration numbers (the same scheme and value) or with its name
+	// and country, white space and case aside, whatever their roles, a blocked one included; a partner
+	// whose create change was rejected or cancelled is not one. A partner with a tax registration number
+	// another partner has is refused (409 `partner.duplicate_tax_number`, naming that partner) unless the
+	// request sets `confirm_duplicate`; a match on name and country is listed and never refused. Two
+	// requests with the same number wait for one another, so the second finds the first.
 	//
 	// POST /v1/business-partners
 	CreateBusinessPartner(ctx context.Context, request *BusinessPartnerCreate, params CreateBusinessPartnerParams) (CreateBusinessPartnerRes, error)
@@ -15755,7 +15761,13 @@ func (c *Client) sendCreateBillingDocument(ctx context.Context, request *Billing
 //
 // Creates the partner in status `pending` together with a partner change of kind `create` (see
 // `GET /v1/partner-changes?partner_id=`); it becomes `active` when the change's approval request is
-// approved.
+// approved. The change lists the existing partners the new one may duplicate (`possible_duplicates`,
+// T89a): those with one of its tax registration numbers (the same scheme and value) or with its name
+// and country, white space and case aside, whatever their roles, a blocked one included; a partner
+// whose create change was rejected or cancelled is not one. A partner with a tax registration number
+// another partner has is refused (409 `partner.duplicate_tax_number`, naming that partner) unless the
+// request sets `confirm_duplicate`; a match on name and country is listed and never refused. Two
+// requests with the same number wait for one another, so the second finds the first.
 //
 // POST /v1/business-partners
 func (c *Client) CreateBusinessPartner(ctx context.Context, request *BusinessPartnerCreate, params CreateBusinessPartnerParams) (CreateBusinessPartnerRes, error) {

@@ -79,7 +79,7 @@ func TestDatabaseFailures(t *testing.T) {
 		TaxIdentifiers: []gen.TaxIdentifierInput{{Scheme: "EU_VAT", Value: "DE123456789"}},
 		BankAccounts: []gen.BankAccountInput{{AccountNumber: iban, AccountScheme: "iban", BankCountryCode: "DE", HolderName: "N", ValidFrom: e.day,
 			Bic: gen.NewOptString("COBADEFFXXX")}},
-		Extensions: gen.NewOptExtensions(gen.Extensions{"segment": []byte(`"x"`)}), GroupCompanyID: gen.NewOptUUID(e.le)}
+		Extensions: gen.NewOptExtensions(gen.Extensions{"segment": []byte(`"x"`)}), GroupCompanyID: gen.NewOptUUID(e.le), ConfirmDuplicate: gen.NewOptBool(true)}
 	calls := map[string]func(ctx context.Context) error{
 		"payment accounts": func(ctx context.Context) error {
 			_, err := partner.Suppliers{}.PaymentAccounts(ctx, []uuid.UUID{u(a)})
