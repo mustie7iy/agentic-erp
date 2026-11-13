@@ -119,7 +119,7 @@ func orderQuery(extra string) string {
 // orderSelect is what the API's reads of an order take; publishedSelect
 // adds what the other contexts read through Orders: each item's
 // deliveries (T78c) and its posted billings (T79b).
-var orderSelect, publishedSelect = orderQuery(""), orderQuery(itemDeliveries + itemBillings + itemCredits)
+var orderSelect, publishedSelect = orderQuery(""), orderQuery(itemDeliveries + itemBillings + itemPostedMemos)
 
 func scanOrder(row pgx.Row) (Order, error) {
 	var o Order

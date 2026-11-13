@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -35,16 +36,17 @@ func (e env) creditMemoOf(t *testing.T, posted map[string]any) map[string]any {
 	return memo
 }
 
-// openItems are the customer's open items in company 2000: "amount" each,
-// by the ledger's order.
-func (e env) openItems(t *testing.T) string {
+// openItems are the customer's open items in company 2000, "amount
+// currency" each, sorted: items due on one date have no defined order.
+func (e env) openItems(t *testing.T) []string {
 	t.Helper()
 	got, _ := e.Must(200, "GET", fmt.Sprintf("/v1/open-items?legal_entity_id=%s&partner_id=%s", e.DE, e.customer), "", "")
 	var out []string
 	for _, it := range items(t, got) {
 		out = append(out, amount(t, it, "amount"))
 	}
-	return fmt.Sprint(out)
+	slices.Sort(out)
+	return out
 }
 
 // TestCreditMemoRequestPosted: an approved request posts once as a
@@ -90,8 +92,10 @@ func TestCreditMemoRequestPosted(t *testing.T) {
 		if lines := e.entryLines(t, posted["journal_entry_id"]); lines != "120000 -396 - t; 400000 333 A1 f; 230000 63 A1 f" {
 			t.Errorf("the entry's lines: got %s, want the customer credited and revenue and tax debited", lines)
 		}
-		if after := e.openItems(t); after != before[:len(before)-1]+" -3.96 EUR]" {
-			t.Errorf("the customer's open items: got %s, want %s with the credit of -3.96 EUR", after, before)
+		want := append(slices.Clone(before), "-3.96 EUR")
+		slices.Sort(want)
+		if after := e.openItems(t); !slices.Equal(after, want) {
+			t.Errorf("the customer's open items: got %v, want %v, the credit of -3.96 EUR beside what was open", after, want)
 		}
 	})
 	t.Run("the billing item shows what is credited", func(t *testing.T) {
@@ -185,7 +189,7 @@ func TestCreditMemoRequestPostRefusals(t *testing.T) {
 		if f := field(got); f != "customer_id" {
 			t.Errorf("field: got %v, want customer_id", f)
 		}
-		if d, _ := got["detail"].(string); d[:len("Credit memo request "+approved["document_number"].(string))] != "Credit memo request "+approved["document_number"].(string) {
+		if d, _ := got["detail"].(string); !strings.HasPrefix(d, "Credit memo request "+approved["document_number"].(string)) {
 			t.Errorf("detail: got %q, want it to lead with the request", d)
 		}
 	})

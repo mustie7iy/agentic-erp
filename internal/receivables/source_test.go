@@ -113,13 +113,14 @@ func TestCreditMemoWithGivenTax(t *testing.T) {
 		return v, lines, err
 	}
 	t.Run("the given taxes post", func(t *testing.T) {
-		// A1 gives 0.63 on 3.33 and 0.19 on 1.00: 0.64 and 0.18 are given instead, 0.82 in all where the code gives 0.82 once.
-		v, lines, err := enter(memo("CR1", item("3.33", a1, tax(64)), item("1.00", a1, tax(18)), item("0.50", "", nil)), true)
+		// A1 gives 0.63 on 3.33 and 0.19 on 1.00: 0.64 and 0.18 are given instead, 0.82 in all where the code gives 0.82
+		// once; the zero-rated A0 bears none and posts no tax line.
+		v, lines, err := enter(memo("CR1", item("3.33", a1, tax(64)), item("1.00", a1, tax(18)), item("0.50", "", nil), item("0.40", a0, tax(0))), true)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := fmt.Sprintf("%d %d %d", v.Items[0].Tax, v.Items[1].Tax, v.Gross); got != "64 18 565" {
-			t.Errorf("the items' tax and the memo's gross: got %s, want 64 18 565", got)
+		if got := fmt.Sprintf("%d %d %d", v.Items[0].Tax, v.Items[1].Tax, v.Gross); got != "64 18 605" {
+			t.Errorf("the items' tax and the memo's gross: got %s, want 64 18 605", got)
 		}
 		if lines != "230000 A1 82" {
 			t.Errorf("the memo's output tax lines: got %s, want 230000 A1 82 (minor units)", lines)

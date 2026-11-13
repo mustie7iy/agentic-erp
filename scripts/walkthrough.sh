@@ -7869,7 +7869,7 @@ step_credit_memo_posting() {
   local customer=$CUSTOMER doc=$BILLING_DOCUMENT request=$CREDIT_REQUEST invoice billed borne net tax gross memo entry before after tag day
   [ -n "$request" ] || fail "step 72's credit memo request is not there"
   as ruth
-  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer" -p page_size=200
   before=$(field '[.items[].amount.amount | sub("\\."; "") | tonumber] | add // 0')
   QUIET=1 api 200 '' getBillingDocument -p "id=$doc"
   invoice=$(field .customer_invoice_id)
@@ -7906,7 +7906,7 @@ step_credit_memo_posting() {
   expect "the entry's amounts" "$(field '[.lines[].amount.amount] | join(" ")')" "-$(cents "$gross") $(cents "$net") $(cents "$tax")"
   expect "the entry's accounts" "$(field '[.lines[].account_id] | join(" ")')" "$(account 1200) $(account 4000) $(account 2300)"
   say "Northwind's open items now hold the credit, and its open amount fell by the credit memo's gross:"
-  api 200 '.items[] | "  \(.document_number // .journal_entry_id): \(.amount.amount) \(.amount.currency)"' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  api 200 '.items[] | "  \(.document_number // .journal_entry_id): \(.amount.amount) \(.amount.currency)"' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer" -p page_size=200
   after=$(field '[.items[].amount.amount | sub("\\."; "") | tonumber] | add // 0')
   expect "the customer's open amount" "$after" "$((before - gross))"
   say "The billing document's item shows what is credited of it; the request is posted once:"

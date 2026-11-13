@@ -22,9 +22,9 @@ import (
 // built T85c). An approved request is posted once, then Posted (T85d).
 const Approved = "approved"
 
-// CreditMemoRequestRange is the document type credit memo requests draw
+// MemoRequestRange is the document type credit memo requests draw
 // their numbers from (configuration number_ranges).
-const CreditMemoRequestRange = "credit_memo_request"
+const MemoRequestRange = "credit_memo_request"
 
 // CreditItem is an item of a credit memo request: the amount credited of
 // the billing document's item BillingItemNo, which billed BilledQuantity
@@ -105,12 +105,12 @@ type CreditInput struct {
 	Items             []CreditAmount
 }
 
-// creditSelect reads a request with its currency from its billing
+// requestSelect reads a request with its currency from its billing
 // document, which nothing changes, by subqueries and a lateral one, so the
 // keyset's bare id stays the request's (as returnsSelect does), and each
 // item with what its billing item billed and what the sales order's item
 // names.
-const creditSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.customer_id, r.billing_document_id,
+const requestSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.customer_id, r.billing_document_id,
 		(SELECT b.document_number FROM sales.billing_document b WHERE b.tenant_id = r.tenant_id AND b.id = r.billing_document_id), r.sales_order_id,
 		(SELECT o.document_number FROM sales.sales_order o WHERE o.tenant_id = r.tenant_id AND o.id = r.sales_order_id), r.returns_order_id,
 		(SELECT x.document_number FROM sales.returns_order x WHERE x.tenant_id = r.tenant_id AND x.id = r.returns_order_id),
@@ -130,7 +130,7 @@ const creditSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.custo
 		LATERAL (SELECT c.code, c.exponent FROM sales.billing_document b JOIN ref.currency c ON c.code = b.currency
 			WHERE b.tenant_id = r.tenant_id AND b.id = r.billing_document_id) cur`
 
-// columns are where a row of creditSelect is scanned to, in its order.
+// columns are where a row of requestSelect is scanned to, in its order.
 func (r *CreditMemoRequest) columns() []any {
 	return []any{&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.CustomerID, &r.BillingDocumentID, &r.BillingDocumentNumber, &r.OrderID,
 		&r.OrderNumber, &r.ReturnsOrderID, &r.ReturnsOrderNumber, &r.RequestDate, &r.Reason, &r.Status, &r.RejectionReason, &r.Currency,
@@ -157,7 +157,7 @@ func GetCreditMemoRequest(ctx context.Context, id uuid.UUID) (CreditMemoRequest,
 // creditRequest reads a credit memo request of a legal entity the caller
 // may act in, forUpdate under its row lock (stored).
 func creditRequest(ctx context.Context, tx pgx.Tx, id uuid.UUID, forUpdate bool) (CreditMemoRequest, error) {
-	return stored[CreditMemoRequest]{what: "credit memo request", table: "credit_memo_request", query: creditSelect + ` WHERE r.id = $1`, scan: scanCredit,
+	return stored[CreditMemoRequest]{what: "credit memo request", table: "credit_memo_request", query: requestSelect + ` WHERE r.id = $1`, scan: scanCredit,
 		company: func(r CreditMemoRequest) uuid.UUID { return r.LegalEntityID }}.read(ctx, tx, id, forUpdate)
 }
 
@@ -208,7 +208,7 @@ func (e *Endpoints) RequestCredit(ctx context.Context, in CreditInput) (CreditMe
 	if err != nil {
 		return CreditMemoRequest{}, err
 	}
-	number, err := e.number(ctx, le.ID, CreditMemoRequestRange, day.Date)
+	number, err := e.number(ctx, le.ID, MemoRequestRange, day.Date)
 	if err != nil {
 		return CreditMemoRequest{}, err
 	}
@@ -434,7 +434,7 @@ func insertCredit(ctx context.Context, tx pgx.Tx, p reqctx.Principal, b BillingD
 		p.TenantID, id, b.ID, in.ReturnsOrderID, nos, quantities, amounts); err != nil {
 		return CreditMemoRequest{}, fmt.Errorf("sales: write items of credit memo request %s: %w", id, err)
 	}
-	r, err := scanCredit(tx.QueryRow(ctx, creditSelect+` WHERE r.id = $1`, id))
+	r, err := scanCredit(tx.QueryRow(ctx, requestSelect+` WHERE r.id = $1`, id))
 	if err != nil {
 		return CreditMemoRequest{}, fmt.Errorf("sales: read credit memo request %s: %w", id, err)
 	}
@@ -495,7 +495,7 @@ func (e *Endpoints) decide(ctx context.Context, id uuid.UUID, ifMatch func(int32
 		WHERE id = $1 AND status = $5`, id, to, reason, p.ID, Open); err != nil {
 		return CreditMemoRequest{}, fmt.Errorf("sales: mark credit memo request %s %s: %w", id, to, err)
 	}
-	decided, err := scanCredit(tx.QueryRow(ctx, creditSelect+` WHERE r.id = $1`, id))
+	decided, err := scanCredit(tx.QueryRow(ctx, requestSelect+` WHERE r.id = $1`, id))
 	if err != nil {
 		return CreditMemoRequest{}, fmt.Errorf("sales: read credit memo request %s: %w", id, err)
 	}

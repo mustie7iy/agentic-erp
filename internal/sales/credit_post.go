@@ -31,11 +31,11 @@ type ItemCredit struct {
 	EntryID           uuid.UUID   `json:"journal_entry_id"`
 }
 
-// itemCredits is the key an order item's posted credits are read under,
+// itemPostedMemos is the key an order item's posted credits are read under,
 // for itemsJSON, by posting date, then by the requests' numbers, which
 // are unique in the order's company. The date is written as an instant at
 // midnight UTC, as itemBillings writes one.
-const itemCredits = `, 'credits', coalesce((SELECT json_agg(json_build_object('credit_memo_request_id', r.id, 'document_number', r.document_number,
+const itemPostedMemos = `, 'credits', coalesce((SELECT json_agg(json_build_object('credit_memo_request_id', r.id, 'document_number', r.document_number,
 		'billing_document_id', r.billing_document_id, 'posting_date', to_char(r.posting_date, 'YYYY-MM-DD"T00:00:00Z"'), 'net_amount', c.net_amount,
 		'customer_invoice_id', r.customer_invoice_id, 'journal_entry_id', r.journal_entry_id) ORDER BY r.posting_date, r.document_number)
 	FROM sales.credit_memo_request_item c
@@ -118,7 +118,7 @@ func (e *Endpoints) markCredited(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 		WHERE id = $1 AND status = $9`, r.ID, Posted, v.PostingDate, v.ID, v.DocumentNumber, v.EntryYear, v.EntryID, p.ID, Approved); err != nil {
 		return CreditMemoRequest{}, fmt.Errorf("sales: mark credit memo request %s posted: %w", r.ID, err)
 	}
-	posted, err := scanCredit(tx.QueryRow(ctx, creditSelect+` WHERE r.id = $1`, r.ID))
+	posted, err := scanCredit(tx.QueryRow(ctx, requestSelect+` WHERE r.id = $1`, r.ID))
 	if err != nil {
 		return CreditMemoRequest{}, fmt.Errorf("sales: read credit memo request %s: %w", r.ID, err)
 	}
@@ -136,7 +136,7 @@ func (e *Endpoints) markCredited(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 // at: no one else can have read it, it being of this transaction. It is
 // returned posted, with its entry.
 func (e *Endpoints) creditMemo(ctx context.Context, tx pgx.Tx, r CreditMemoRequest, b BillingDocument, date time.Time) (receivables.Invoice, error) {
-	taxes, err := creditTax(ctx, tx, r, b)
+	taxes, err := e.creditTax(ctx, tx, r, b)
 	if err != nil {
 		return receivables.Invoice{}, err
 	}
@@ -169,8 +169,8 @@ func (e *Endpoints) creditMemo(ctx context.Context, tx pgx.Tx, r CreditMemoReque
 // 2026-11-12: what was billed is what is credited). The invoice's items
 // are the billing document's one for one (T79b). The sales order's row
 // lock is held, under which the requests of its billing documents post.
-func creditTax(ctx context.Context, tx pgx.Tx, r CreditMemoRequest, b BillingDocument) ([]money.Minor, error) {
-	invoice, err := receivables.GetInvoice(ctx, *b.InvoiceID) // a posted billing document names its invoice (billing_document_posted)
+func (e *Endpoints) creditTax(ctx context.Context, tx pgx.Tx, r CreditMemoRequest, b BillingDocument) ([]money.Minor, error) {
+	invoice, err := e.Invoices.Invoice(ctx, *b.InvoiceID) // a posted billing document names its invoice (billing_document_posted)
 	if err != nil {
 		return nil, fmt.Errorf("sales: customer invoice of billing document %s: %w", b.DocumentNumber, err)
 	}

@@ -1461,8 +1461,9 @@ credited; T79b's posting is the pattern.
   (`PostCreditMemoRequest`); `billing_post.go`'s refusal mapping is
   shared (`asPosting`, with `asBilling` as the billing document's).
   Nothing new is wired: the request posts through the `Invoices` port
-  T79b gave sales, and reads the billed invoice's items with
-  `receivables.GetInvoice`.
+  T79b gave sales, which gained `Invoice` (receivables'
+  `Endpoints.Invoice`, its `GetInvoice`) to read the tax the billed
+  invoice's items bore.
 - Migration 000306: on `sales.credit_memo_request` the status `posted`
   with `posting_date`, `customer_invoice_id`, `customer_invoice_number`,
   `journal_entry_year` and `journal_entry_id`, all of them once posted

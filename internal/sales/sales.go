@@ -109,10 +109,12 @@ type References interface {
 	AccountNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]ledger.AccountRef, error)
 }
 
-// Invoices is receivables' published API as billing uses it (ADR-0067
-// §9; ADR-0063 §1): a customer invoice entered and posted, in the
-// request's transaction.
+// Invoices is receivables' published API as billing and credit memo
+// requests use it (ADR-0067 §9, As built T85d; ADR-0063 §1): a customer
+// invoice or credit memo entered and posted, in the request's
+// transaction, and a posted invoice read for the tax its items bore.
 type Invoices interface {
+	Invoice(ctx context.Context, id uuid.UUID) (receivables.Invoice, error)
 	CreateInvoice(ctx context.Context, in receivables.Input) (receivables.Invoice, error)
 	PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, postingDate *time.Time) (receivables.Invoice, error)
 }

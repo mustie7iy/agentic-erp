@@ -167,7 +167,7 @@ func (e *Endpoints) ListCreditMemoRequests(ctx context.Context, params gen.ListC
 	if err != nil {
 		return nil, fmt.Errorf("sales: company access for credit memo requests: %w", err)
 	}
-	query, args := ks.SQL(creditSelect+` WHERE ($1 OR r.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR r.legal_entity_id = $3)
+	query, args := ks.SQL(requestSelect+` WHERE ($1 OR r.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR r.legal_entity_id = $3)
 		AND ($4::uuid IS NULL OR r.customer_id = $4) AND ($5::uuid IS NULL OR r.billing_document_id = $5)
 		AND ($6::uuid IS NULL OR r.sales_order_id = $6) AND ($7::uuid IS NULL OR r.returns_order_id = $7)
 		AND ($8 = '' OR r.status = $8) AND ($9 = '' OR r.document_number = $9)`,

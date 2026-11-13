@@ -284,6 +284,13 @@ func GetInvoice(ctx context.Context, id uuid.UUID) (Invoice, error) {
 	return get(ctx, tx, id, false)
 }
 
+// Invoice is GetInvoice as another context reads it through a port of
+// its own: sales reads the tax a billed invoice's items bore to credit
+// it back (T85d).
+func (e *Endpoints) Invoice(ctx context.Context, id uuid.UUID) (Invoice, error) {
+	return GetInvoice(ctx, id)
+}
+
 // get reads an invoice of a legal entity the caller may act in, forUpdate
 // under its row lock.
 func get(ctx context.Context, tx pgx.Tx, id uuid.UUID, forUpdate bool) (Invoice, error) {
