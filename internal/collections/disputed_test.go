@@ -6,8 +6,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/collections"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
@@ -36,8 +39,9 @@ func TestDisputedInDunning(t *testing.T) {
 	ca, caTag := e.open(t, dispute(e.DE, entries[0], "10.00", "EUR", ""))
 	got, _ := e.Must(201, "POST", "/v1/dunning-runs", run(e.DE, keyDate), "")
 	id := apitest.String(t, got, "id")
-	if c := fmt.Sprintf("%v %v %s", got["notice_count"], got["item_count"], amount(t, got, "overdue_amount")); c != "2 2 210.00 EUR" {
-		t.Errorf("the run's totals: got %s, want 2 notices of 2 items, 210.00 EUR: CI-B and CI-USD", c)
+	if c := fmt.Sprintf("%v %v %s %v %s", got["notice_count"], got["item_count"], amount(t, got, "overdue_amount"), got["disputed_item_count"],
+		amount(t, got, "disputed_amount")); c != "2 2 210.00 EUR 1 100.00 EUR" {
+		t.Errorf("the run's totals: got %s, want 2 notices of 2 items, 210.00 EUR (CI-B and CI-USD), and CI-A's 100.00 EUR disputed", c)
 	}
 	want := "CI-A " + ca + " BP70000002 2026-03-31 91 100.00 EUR 100.00 EUR"
 	if d := disputedOf(t, got); d != want {
@@ -104,6 +108,14 @@ func TestDisputedInTheWorklist(t *testing.T) {
 	if want := "BP70000002 40.00 EUR 2; BP70000001 26.66 EUR 1"; r != want {
 		t.Errorf("disputed: got %q, want %q", r, want)
 	}
+	if tot := fmt.Sprintf("%s %v", amount(t, got, "disputed_amount"), got["open_dispute_cases"]); tot != "66.66 EUR 3" {
+		t.Errorf("the worklist's disputed totals: got %s, want 66.66 EUR in 3 cases, every customer's", tot)
+	}
+	// Eastwind is not listed, nothing of it being overdue: its case counts in no total.
+	e.open(t, dispute(e.DE, entries[8], "5.00", "EUR", ""))
+	if _, got := disputed(t); fmt.Sprint(got["open_dispute_cases"]) != "3" {
+		t.Errorf("the cases counted with a customer not listed: got %v, want 3", got["open_dispute_cases"])
+	}
 	if a, b := listed(t, got)+" | "+totals(t, got), listed(t, before)+" | "+totals(t, before); a != b {
 		t.Errorf("order and totals: got %q, want them as without the cases: %q", a, b)
 	}
@@ -147,6 +159,44 @@ func TestDisputedThroughThePort(t *testing.T) {
 			}
 		})
 	}
+	t.Run("a run of disputed items alone above the limit", func(t *testing.T) {
+		e.In(t).open(t, dispute(e.DE, entries[7], "1.00", "USD", ""))
+		h := endpoints(t)
+		h.MaxItems = 1
+		// On 5 May only CI-A and CI-USD reach the first level, and both are disputed: no notice.
+		err := e.inRequest(t, func(ctx context.Context) error {
+			_, err := h.ProposeRun(ctx, collections.RunInput{LegalEntityID: e.DE, KeyDate: date(t, "2026-05-05")})
+			return err
+		})
+		if p := problem.From(err); p.Code != "collections.run_too_large" {
+			t.Errorf("got %v, want collections.run_too_large", err)
+		}
+	})
+	t.Run("a run's disputed amounts out of range", func(t *testing.T) {
+		h := endpoints(t)
+		h.OpenItems = huge{customers: []uuid.UUID{e.north, e.north}}
+		var real []ledger.ReceivableItem
+		if err := e.inRequest(t, func(ctx context.Context) (err error) {
+			real, err = ledger.OpenItems{}.Receivable(ctx, e.DE, nil)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		// huge gives real[0]'s lines 1 and 2 to Northwind at a huge local amount; both are disputed.
+		for line := 1; line <= 2; line++ {
+			pgtest.Exec(t, `INSERT INTO collections.dispute_case (tenant_id, id, legal_entity_id, customer_id, customer_number, fiscal_year,
+				journal_entry_id, line_no, document_number, currency, disputed_amount, currency_lc, disputed_amount_lc, reason, status, created_by, updated_by)
+				VALUES ($1, gen_random_uuid(), $2, $3, 'BP70000002', $4, $5, $6, 'X', 'EUR', 1, 'EUR', 1, 'x', 'open', $7, $7)
+				ON CONFLICT DO NOTHING`, e.Tenant.ID, e.DE, e.north, real[0].FiscalYear, real[0].EntryID, line, e.Tenant.Human.ID)
+		}
+		err := e.inRequest(t, func(ctx context.Context) error {
+			_, err := h.ProposeRun(ctx, collections.RunInput{LegalEntityID: e.DE, KeyDate: date(t, "2026-12-31")})
+			return err
+		})
+		if p := problem.From(err); p.Code != "collections.amount_too_large" {
+			t.Errorf("got %v, want collections.amount_too_large", err)
+		}
+	})
 	t.Run("disputed amounts out of range", func(t *testing.T) {
 		pgtest.Exec(t, `UPDATE collections.dispute_case SET disputed_amount_lc = 4611686018427387904, version = version + 1 WHERE tenant_id = $1`, e.Tenant.ID)
 		pgtest.Exec(t, `INSERT INTO collections.dispute_case (tenant_id, id, legal_entity_id, customer_id, customer_number, fiscal_year, journal_entry_id,

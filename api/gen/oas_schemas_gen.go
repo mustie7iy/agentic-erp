@@ -23342,6 +23342,10 @@ type CollectionWorklist struct {
 	OpenAmount Money `json:"open_amount"`
 	// The sum of `overdue_amount` of every customer on the worklist.
 	OverdueAmount Money `json:"overdue_amount"`
+	// The sum of `disputed_amount` of every customer on the worklist (T86b).
+	DisputedAmount Money `json:"disputed_amount"`
+	// The sum of `open_dispute_cases` of every customer on the worklist (T86b).
+	OpenDisputeCases int32 `json:"open_dispute_cases"`
 	// The customers on this page, the largest overdue amount first.
 	Items []CollectionWorklistCustomer `json:"items"`
 	// Opaque cursor for the next page; absent on the last page.
@@ -23386,6 +23390,16 @@ func (s *CollectionWorklist) GetOpenAmount() Money {
 // GetOverdueAmount returns the value of OverdueAmount.
 func (s *CollectionWorklist) GetOverdueAmount() Money {
 	return s.OverdueAmount
+}
+
+// GetDisputedAmount returns the value of DisputedAmount.
+func (s *CollectionWorklist) GetDisputedAmount() Money {
+	return s.DisputedAmount
+}
+
+// GetOpenDisputeCases returns the value of OpenDisputeCases.
+func (s *CollectionWorklist) GetOpenDisputeCases() int32 {
+	return s.OpenDisputeCases
 }
 
 // GetItems returns the value of Items.
@@ -23436,6 +23450,16 @@ func (s *CollectionWorklist) SetOpenAmount(val Money) {
 // SetOverdueAmount sets the value of OverdueAmount.
 func (s *CollectionWorklist) SetOverdueAmount(val Money) {
 	s.OverdueAmount = val
+}
+
+// SetDisputedAmount sets the value of DisputedAmount.
+func (s *CollectionWorklist) SetDisputedAmount(val Money) {
+	s.DisputedAmount = val
+}
+
+// SetOpenDisputeCases sets the value of OpenDisputeCases.
+func (s *CollectionWorklist) SetOpenDisputeCases(val int32) {
+	s.OpenDisputeCases = val
 }
 
 // SetItems sets the value of Items.
@@ -36943,6 +36967,12 @@ type DunningRun struct {
 	// The sum of the notices' `overdue_amount`: the items' amounts in the company's currency, as they were
 	// booked.
 	OverdueAmount Money `json:"overdue_amount"`
+	// The items the run left out for their open dispute cases (`disputed_items`); 0 when none was
+	// disputed.
+	DisputedItemCount int32 `json:"disputed_item_count"`
+	// What those items add up to in the company's currency, as they were booked (the sum of
+	// `disputed_items[].local_amount`): held back from dunning, not counted in `overdue_amount`.
+	DisputedAmount Money `json:"disputed_amount"`
 	// The items the run would have proposed but left out, each for its open dispute case (T86b), by
 	// customer and item; in no notice and in none of the run's totals. Empty when none was disputed, and
 	// for runs started before dispute cases existed.
@@ -37024,6 +37054,16 @@ func (s *DunningRun) GetOverdueAmount() Money {
 	return s.OverdueAmount
 }
 
+// GetDisputedItemCount returns the value of DisputedItemCount.
+func (s *DunningRun) GetDisputedItemCount() int32 {
+	return s.DisputedItemCount
+}
+
+// GetDisputedAmount returns the value of DisputedAmount.
+func (s *DunningRun) GetDisputedAmount() Money {
+	return s.DisputedAmount
+}
+
 // GetDisputedItems returns the value of DisputedItems.
 func (s *DunningRun) GetDisputedItems() []DunningRunDisputedItem {
 	return s.DisputedItems
@@ -37102,6 +37142,16 @@ func (s *DunningRun) SetItemCount(val int32) {
 // SetOverdueAmount sets the value of OverdueAmount.
 func (s *DunningRun) SetOverdueAmount(val Money) {
 	s.OverdueAmount = val
+}
+
+// SetDisputedItemCount sets the value of DisputedItemCount.
+func (s *DunningRun) SetDisputedItemCount(val int32) {
+	s.DisputedItemCount = val
+}
+
+// SetDisputedAmount sets the value of DisputedAmount.
+func (s *DunningRun) SetDisputedAmount(val Money) {
+	s.DisputedAmount = val
 }
 
 // SetDisputedItems sets the value of DisputedItems.

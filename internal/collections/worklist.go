@@ -32,9 +32,8 @@ import (
 // date for a customer none of whose open items was dunned. Disputed is
 // what the open dispute cases of its open items dispute, in the
 // company's currency, and DisputedCases how many they are (T86b); they
-// change neither Open nor Overdue. Number, Name, Level, LastDunned,
-// Disputed and DisputedCases are read for the customers of a page
-// (describe).
+// change neither Open nor Overdue. Number, Name, Level and LastDunned are
+// read for the customers of a page (describe).
 type WorklistCustomer struct {
 	CustomerID    uuid.UUID
 	Number        string
@@ -52,15 +51,18 @@ type WorklistCustomer struct {
 
 // Worklist is a company's collection worklist on a key date (ADR-0065
 // §9, T76c): its customers with overdue items, the largest overdue amount
-// first, and their totals. Exponent is the minor-unit digits of the
-// company's currency, which every amount is in.
+// first, and their totals, the disputed amount and open dispute cases of
+// every customer listed among them (T86b). Exponent is the minor-unit
+// digits of the company's currency, which every amount is in.
 type Worklist struct {
-	Company   tenancy.Entity
-	KeyDate   time.Time
-	Exponent  int
-	Open      money.Minor
-	Overdue   money.Minor
-	Customers []WorklistCustomer
+	Company       tenancy.Entity
+	KeyDate       time.Time
+	Exponent      int
+	Open          money.Minor
+	Overdue       money.Minor
+	Disputed      money.Minor
+	DisputedCases int32
+	Customers     []WorklistCustomer
 }
 
 // inWorklistOrder orders the worklist: the largest overdue amount first
@@ -108,8 +110,12 @@ func (e *Endpoints) WorklistOf(ctx context.Context, legalEntity uuid.UUID, keyDa
 	if err != nil {
 		return Worklist{}, fmt.Errorf("collections: open customer items of company %s: %w", le.Code, err)
 	}
+	disputes, err := openCases(ctx, tx, le.ID)
+	if err != nil {
+		return Worklist{}, err
+	}
 	w := Worklist{Company: le, KeyDate: keyDate, Exponent: exp}
-	if !w.add(open) {
+	if !w.add(open, disputes) {
 		return Worklist{}, errTooLarge()
 	}
 	slices.SortFunc(w.Customers, inWorklistOrder)
@@ -117,9 +123,10 @@ func (e *Endpoints) WorklistOf(ctx context.Context, legalEntity uuid.UUID, keyDa
 }
 
 // add gives the worklist its customers and totals from the open items,
-// which the ledger returns by customer. It reports false when amounts add
-// up to more than an amount holds.
-func (w *Worklist) add(open []ledger.ReceivableItem) bool {
+// which the ledger returns by customer, and the open dispute cases of
+// those items. It reports false when amounts add up to more than an
+// amount holds.
+func (w *Worklist) add(open []ledger.ReceivableItem, disputes map[ledger.ItemRef]openCase) bool {
 	fits := true
 	sum := func(amounts ...money.Minor) money.Minor {
 		s, err := money.Sum(amounts...) // money.Sum's only error is the range
@@ -132,7 +139,7 @@ func (w *Worklist) add(open []ledger.ReceivableItem) bool {
 			n++
 		}
 		c := WorklistCustomer{CustomerID: open[0].PartnerID, items: open[:n]}
-		var all, due []money.Minor
+		var all, due, disputed []money.Minor
 		for _, o := range overdue(c.items, w.KeyDate) {
 			due = append(due, o.AmountLC)
 			if d := o.NetDueDate(); c.OldestDue.IsZero() || d.Before(c.OldestDue) {
@@ -141,13 +148,17 @@ func (w *Worklist) add(open []ledger.ReceivableItem) bool {
 		}
 		for _, it := range c.items {
 			all = append(all, it.AmountLC)
+			if d, ok := disputes[it.ItemRef]; ok {
+				disputed = append(disputed, d.AmountLC)
+			}
 		}
 		open = open[n:]
 		if len(due) == 0 {
 			continue // nothing overdue: not on the worklist
 		}
-		c.Open, c.Overdue = sum(all...), sum(due...)
-		w.Open, w.Overdue = sum(w.Open, c.Open), sum(w.Overdue, c.Overdue)
+		c.Open, c.Overdue, c.Disputed, c.DisputedCases = sum(all...), sum(due...), sum(disputed...), int32(len(disputed))
+		w.Open, w.Overdue, w.Disputed = sum(w.Open, c.Open), sum(w.Overdue, c.Overdue), sum(w.Disputed, c.Disputed)
+		w.DisputedCases += c.DisputedCases
 		w.Customers = append(w.Customers, c)
 	}
 	return fits
@@ -189,7 +200,7 @@ func (e *Endpoints) page(w Worklist, scope string, size int, token string, hasTo
 
 // describe completes the customers of a page with what they are shown
 // with: each one's number and name, the highest dunning level and latest
-// dunning date recorded for its open items, and their open dispute cases.
+// dunning date recorded for its open items.
 func (e *Endpoints) describe(ctx context.Context, tx pgx.Tx, page []WorklistCustomer) error {
 	ids := make([]uuid.UUID, len(page))
 	var refs []ledger.ItemRef
@@ -207,10 +218,6 @@ func (e *Endpoints) describe(ctx context.Context, tx pgx.Tx, page []WorklistCust
 	if err != nil {
 		return err
 	}
-	disputes, err := openCases(ctx, tx, refs)
-	if err != nil {
-		return err
-	}
 	for i := range page {
 		c := &page[i]
 		named, ok := names[c.CustomerID]
@@ -218,34 +225,16 @@ func (e *Endpoints) describe(ctx context.Context, tx pgx.Tx, page []WorklistCust
 			return fmt.Errorf("collections: customer %s of an open item is no business partner", c.CustomerID)
 		}
 		c.Number, c.Name = named.Number, named.Name
-		if !c.dunning(levels, disputes) {
-			return errTooLarge()
+		for _, it := range c.items {
+			d, ok := levels[it.ItemRef]
+			if !ok {
+				continue
+			}
+			c.Level = max(c.Level, d.Level)
+			if c.LastDunned == nil || d.Date.After(*c.LastDunned) {
+				c.LastDunned = &d.Date
+			}
 		}
 	}
 	return nil
-}
-
-// dunning gives the customer the highest level and latest date recorded
-// for its open items, and what their open dispute cases dispute. It
-// reports false when the disputed amounts add up to more than an amount
-// holds.
-func (c *WorklistCustomer) dunning(levels map[ledger.ItemRef]dunned, disputes map[ledger.ItemRef]openCase) bool {
-	var disputed []money.Minor
-	for _, it := range c.items {
-		if d, ok := disputes[it.ItemRef]; ok {
-			disputed = append(disputed, d.AmountLC)
-		}
-		d, ok := levels[it.ItemRef]
-		if !ok {
-			continue
-		}
-		c.Level = max(c.Level, d.Level)
-		if c.LastDunned == nil || d.Date.After(*c.LastDunned) {
-			c.LastDunned = &d.Date
-		}
-	}
-	var err error
-	c.DisputedCases = int32(len(disputed))
-	c.Disputed, err = money.Sum(disputed...) // money.Sum's only error is the range
-	return err == nil
 }

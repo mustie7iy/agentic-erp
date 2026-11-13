@@ -123,13 +123,25 @@ type Run struct {
 	ItemCount     int32
 	OverdueAmount money.Minor
 	// Disputed are the items the run left out for their open dispute
-	// cases (T86b), by customer and item.
+	// cases (T86b), by customer and item; DisputedLC what their amounts in
+	// the run's currency add up to, which total checked when the run was
+	// proposed.
 	Disputed  []DisputedItem
 	Version   int32
 	CreatedAt time.Time
 	CreatedBy uuid.UUID
 	UpdatedAt time.Time
 	UpdatedBy uuid.UUID
+}
+
+// DisputedLC is what the run's disputed items add up to in its currency.
+func (r Run) DisputedLC() money.Minor {
+	amounts := make([]money.Minor, len(r.Disputed))
+	for i, d := range r.Disputed {
+		amounts[i] = d.AmountLC
+	}
+	sum, _ := money.Sum(amounts...) // in range: total refused the run otherwise when it was proposed
+	return sum
 }
 
 // DisputedItem is an item a run would have proposed but left out, its
@@ -288,18 +300,14 @@ type openCase struct {
 	AmountLC       money.Minor
 }
 
-// openCases reads the open dispute cases of the items, by item; an item
-// without one is absent. An item has one open case at most
-// (dispute_case_one_open, whose index the read uses).
-func openCases(ctx context.Context, tx pgx.Tx, refs []ledger.ItemRef) (map[ledger.ItemRef]openCase, error) {
-	years, entries, lines := make([]int16, len(refs)), make([]uuid.UUID, len(refs)), make([]int32, len(refs))
-	for i, r := range refs {
-		years[i], entries[i], lines[i] = r.FiscalYear, r.EntryID, r.LineNo
-	}
-	rows, _ := tx.Query(ctx, `SELECT d.fiscal_year, d.journal_entry_id, d.line_no, d.id, d.customer_number, d.disputed_amount_lc
-		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) AS x(fy, je, ln)
-		JOIN collections.dispute_case d ON d.fiscal_year = x.fy AND d.journal_entry_id = x.je AND d.line_no = x.ln AND d.status = 'open'`,
-		years, entries, lines)
+// openCases reads the open dispute cases of a company's items, by item;
+// an item without one is absent. An item has one open case at most
+// (dispute_case_one_open); the read uses the index of a company's open
+// cases (dispute_case_open_by_company). A case whose item was cleared
+// is read too: the caller matches the cases with the open items it holds.
+func openCases(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID) (map[ledger.ItemRef]openCase, error) {
+	rows, _ := tx.Query(ctx, `SELECT fiscal_year, journal_entry_id, line_no, id, customer_number, disputed_amount_lc
+		FROM collections.dispute_case WHERE legal_entity_id = $1 AND status = 'open'`, legalEntity)
 	out := map[ledger.ItemRef]openCase{}
 	var ref ledger.ItemRef
 	var c openCase
@@ -308,7 +316,7 @@ func openCases(ctx context.Context, tx pgx.Tx, refs []ledger.ItemRef) (map[ledge
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("collections: read the open dispute cases of %d items: %w", len(refs), err)
+		return nil, fmt.Errorf("collections: read the open dispute cases of company %s: %w", legalEntity, err)
 	}
 	return out, nil
 }

@@ -54795,6 +54795,14 @@ func (s *CollectionWorklist) encodeFields(e *jx.Encoder) {
 		s.OverdueAmount.Encode(e)
 	}
 	{
+		e.FieldStart("disputed_amount")
+		s.DisputedAmount.Encode(e)
+	}
+	{
+		e.FieldStart("open_dispute_cases")
+		e.Int32(s.OpenDisputeCases)
+	}
+	{
 		e.FieldStart("items")
 		e.ArrStart()
 		for _, elem := range s.Items {
@@ -54810,17 +54818,19 @@ func (s *CollectionWorklist) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfCollectionWorklist = [10]string{
-	0: "legal_entity_id",
-	1: "company_code",
-	2: "company_name",
-	3: "key_date",
-	4: "currency",
-	5: "customer_count",
-	6: "open_amount",
-	7: "overdue_amount",
-	8: "items",
-	9: "next_page_token",
+var jsonFieldsNameOfCollectionWorklist = [12]string{
+	0:  "legal_entity_id",
+	1:  "company_code",
+	2:  "company_name",
+	3:  "key_date",
+	4:  "currency",
+	5:  "customer_count",
+	6:  "open_amount",
+	7:  "overdue_amount",
+	8:  "disputed_amount",
+	9:  "open_dispute_cases",
+	10: "items",
+	11: "next_page_token",
 }
 
 // Decode decodes CollectionWorklist from json.
@@ -54924,8 +54934,30 @@ func (s *CollectionWorklist) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"overdue_amount\"")
 			}
-		case "items":
+		case "disputed_amount":
 			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				if err := s.DisputedAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"disputed_amount\"")
+			}
+		case "open_dispute_cases":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				v, err := d.Int32()
+				s.OpenDisputeCases = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"open_dispute_cases\"")
+			}
+		case "items":
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				s.Items = make([]CollectionWorklistCustomer, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -54963,7 +54995,7 @@ func (s *CollectionWorklist) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11111111,
-		0b00000001,
+		0b00000111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -90705,6 +90737,14 @@ func (s *DunningRun) encodeFields(e *jx.Encoder) {
 		s.OverdueAmount.Encode(e)
 	}
 	{
+		e.FieldStart("disputed_item_count")
+		e.Int32(s.DisputedItemCount)
+	}
+	{
+		e.FieldStart("disputed_amount")
+		s.DisputedAmount.Encode(e)
+	}
+	{
 		e.FieldStart("disputed_items")
 		e.ArrStart()
 		for _, elem := range s.DisputedItems {
@@ -90714,7 +90754,7 @@ func (s *DunningRun) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfDunningRun = [16]string{
+var jsonFieldsNameOfDunningRun = [18]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -90730,7 +90770,9 @@ var jsonFieldsNameOfDunningRun = [16]string{
 	12: "notice_count",
 	13: "item_count",
 	14: "overdue_amount",
-	15: "disputed_items",
+	15: "disputed_item_count",
+	16: "disputed_amount",
+	17: "disputed_items",
 }
 
 // Decode decodes DunningRun from json.
@@ -90738,7 +90780,7 @@ func (s *DunningRun) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode DunningRun to nil")
 	}
-	var requiredBitSet [2]uint8
+	var requiredBitSet [3]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -90918,8 +90960,30 @@ func (s *DunningRun) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"overdue_amount\"")
 			}
-		case "disputed_items":
+		case "disputed_item_count":
 			requiredBitSet[1] |= 1 << 7
+			if err := func() error {
+				v, err := d.Int32()
+				s.DisputedItemCount = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"disputed_item_count\"")
+			}
+		case "disputed_amount":
+			requiredBitSet[2] |= 1 << 0
+			if err := func() error {
+				if err := s.DisputedAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"disputed_amount\"")
+			}
+		case "disputed_items":
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				s.DisputedItems = make([]DunningRunDisputedItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -90945,9 +91009,10 @@ func (s *DunningRun) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [2]uint8{
+	for i, mask := range [3]uint8{
 		0b11011111,
 		0b11111111,
+		0b00000011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

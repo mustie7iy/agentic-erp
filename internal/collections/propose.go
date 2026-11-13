@@ -84,7 +84,7 @@ func (e *Endpoints) ProposeRun(ctx context.Context, in RunInput) (Run, error) {
 	if err != nil {
 		return Run{}, err
 	}
-	disputes, err := openCases(ctx, tx, refsOf(due))
+	disputes, err := openCases(ctx, tx, le.ID)
 	if err != nil {
 		return Run{}, err
 	}
@@ -210,14 +210,23 @@ func (e *Endpoints) total(ctx context.Context, run *Run, notices []Notice) error
 			return errTooLarge()
 		}
 		amounts[i] = n.OverdueAmount
-		if run.ItemCount += n.ItemCount; int(run.ItemCount)+len(run.Disputed) > limit {
-			return problem.Unprocessable("collections.run_too_large", fmt.Sprintf("The run would take more than %d overdue items, "+
-				"the most one run proposes or names as disputed; larger runs are not supported yet.", limit))
-		}
+		run.ItemCount += n.ItemCount
+	}
+	// Checked once all are counted, so a run whose items are all disputed is held to it too.
+	if int(run.ItemCount)+len(run.Disputed) > limit {
+		return problem.Unprocessable("collections.run_too_large", fmt.Sprintf("The run would take more than %d overdue items, "+
+			"the most one run proposes or names as disputed; larger runs are not supported yet.", limit))
 	}
 	run.NoticeCount = int32(len(notices))
 	var err error
 	if run.OverdueAmount, err = money.Sum(amounts...); err != nil {
+		return errTooLarge()
+	}
+	disputed := make([]money.Minor, len(run.Disputed))
+	for i, d := range run.Disputed {
+		disputed[i] = d.AmountLC
+	}
+	if _, err := money.Sum(disputed...); err != nil { // the run's disputed amount, which the API gives
 		return errTooLarge()
 	}
 	names, err := e.Partners.Names(ctx, customers)

@@ -16826,7 +16826,7 @@ paths:
       tags:
         - collections
       summary: Get a company's collection worklist
-      description: "The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue items, the largest overdue amount first (customers with the same amount by `customer_id`), each with its number and name, what its open items add up to (`open_amount`, credits included), what its overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest dunning level and the latest dunning date the confirmed dunning runs recorded for its open items (`confirmDunningRun`; level 0 and no date for a customer never dunned), and beside its overdue amount what the open dispute cases of its open items dispute (`disputed_amount`, in the company's currency as each case's share of its item was booked) and how many they are (`open_dispute_cases`; T86b): a disputed item stays open and overdue, so the order and the totals are as without the cases. An item is overdue as a dunning run counts it: the customer owes it (a debit) and the key date is past its net due date, which is that of the payment terms it was posted with or, for an item posted without payment terms (a manual or migrated entry's), its document date; an item due on the key date is not overdue, so an item without terms is overdue from the day after its document date, and credit items reduce no overdue amount. A customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in the company's currency, as the items were booked. `customer_count`, `open_amount` and `overdue_amount` at the top are the totals of every customer listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key date. Each page is computed anew and continues after the last customer's overdue amount and id: a customer whose overdue amount fell between two pages can be listed again with its new amount, and one whose amount rose is not read again, so a consumer that pages while items are posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is 404."
+      description: "The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue items, the largest overdue amount first (customers with the same amount by `customer_id`), each with its number and name, what its open items add up to (`open_amount`, credits included), what its overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest dunning level and the latest dunning date the confirmed dunning runs recorded for its open items (`confirmDunningRun`; level 0 and no date for a customer never dunned), and beside its overdue amount what the open dispute cases of its open items dispute (`disputed_amount`, in the company's currency as each case's share of its item was booked) and how many they are (`open_dispute_cases`; T86b): a disputed item stays open and overdue, so the order and the totals are as without the cases. An item is overdue as a dunning run counts it: the customer owes it (a debit) and the key date is past its net due date, which is that of the payment terms it was posted with or, for an item posted without payment terms (a manual or migrated entry's), its document date; an item due on the key date is not overdue, so an item without terms is overdue from the day after its document date, and credit items reduce no overdue amount. A customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in the company's currency, as the items were booked. `customer_count`, `open_amount`, `overdue_amount`, `disputed_amount` and `open_dispute_cases` at the top are the totals of every customer listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key date. Each page is computed anew and continues after the last customer's overdue amount and id: a customer whose overdue amount fell between two pages can be listed again with its new amount, and one whose amount rose is not read again, so a consumer that pages while items are posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is 404."
       x-permission: collections.worklist.read
       x-slo-class: report
       x-snapshot: true
@@ -50095,7 +50095,7 @@ components:
     CollectionWorklist:
       type: object
       description: "A company's collection worklist on a key date (collections, ADR-0065 §9): one page of its customers with overdue items, the largest overdue amount first, with the totals of every customer listed."
-      required: [legal_entity_id, company_code, company_name, key_date, currency, customer_count, open_amount, overdue_amount, items]
+      required: [legal_entity_id, company_code, company_name, key_date, currency, customer_count, open_amount, overdue_amount, disputed_amount, open_dispute_cases, items]
       properties:
         legal_entity_id: {type: string, format: uuid, description: "The company.", readOnly: true}
         company_code: {type: string, description: "The company's code.", readOnly: true}
@@ -50105,6 +50105,8 @@ components:
         customer_count: {type: integer, format: int32, minimum: 0, description: "The customers on the worklist, on every page together.", readOnly: true}
         open_amount: {$ref: "#/components/schemas/Money", description: "The sum of `open_amount` of every customer on the worklist."}
         overdue_amount: {$ref: "#/components/schemas/Money", description: "The sum of `overdue_amount` of every customer on the worklist."}
+        disputed_amount: {$ref: "#/components/schemas/Money", description: "The sum of `disputed_amount` of every customer on the worklist (T86b)."}
+        open_dispute_cases: {type: integer, format: int32, minimum: 0, description: "The sum of `open_dispute_cases` of every customer on the worklist (T86b).", readOnly: true}
         items:
           type: array
           items: {$ref: "#/components/schemas/CollectionWorklistCustomer"}
@@ -50120,6 +50122,8 @@ components:
           customer_count: 1
           open_amount: {amount: "1050.00", currency: CAD}
           overdue_amount: {amount: "1050.00", currency: CAD}
+          disputed_amount: {amount: "150.00", currency: CAD}
+          open_dispute_cases: 1
           items:
             - customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
               customer_number: BP100042
@@ -50245,7 +50249,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
-          required: [legal_entity_id, company_code, company_name, key_date, status, currency, notice_count, item_count, overdue_amount, disputed_items]
+          required: [legal_entity_id, company_code, company_name, key_date, status, currency, notice_count, item_count, overdue_amount, disputed_item_count, disputed_amount, disputed_items]
           properties:
             legal_entity_id: {type: string, format: uuid, description: "The company whose customers the run duns.", readOnly: true}
             company_code: {type: string, description: "The company's code.", readOnly: true}
@@ -50260,6 +50264,8 @@ components:
             notice_count: {type: integer, format: int32, minimum: 0, description: "The notices the run proposed, one per customer; 0 when nothing was overdue.", readOnly: true}
             item_count: {type: integer, format: int32, minimum: 0, description: "The overdue items in those notices.", readOnly: true}
             overdue_amount: {$ref: "#/components/schemas/Money", description: "The sum of the notices' `overdue_amount`: the items' amounts in the company's currency, as they were booked."}
+            disputed_item_count: {type: integer, format: int32, minimum: 0, description: "The items the run left out for their open dispute cases (`disputed_items`); 0 when none was disputed.", readOnly: true}
+            disputed_amount: {$ref: "#/components/schemas/Money", description: "What those items add up to in the company's currency, as they were booked (the sum of `disputed_items[].local_amount`): held back from dunning, not counted in `overdue_amount`."}
             disputed_items:
               type: array
               items: {$ref: "#/components/schemas/DunningRunDisputedItem"}
@@ -50281,6 +50287,8 @@ components:
           notice_count: 1
           item_count: 1
           overdue_amount: {amount: "1050.00", currency: CAD}
+          disputed_item_count: 1
+          disputed_amount: {amount: "400.00", currency: CAD}
           disputed_items:
             - dispute_case_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
               customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"

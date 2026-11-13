@@ -42,7 +42,8 @@ func runToAPI(r Run, companies map[uuid.UUID]tenancy.Entity) gen.DunningRun {
 	out := gen.DunningRun{ID: r.ID, Version: r.Version, CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy, UpdatedAt: r.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(r.UpdatedBy), LegalEntityID: r.LegalEntityID, CompanyCode: le.Code, CompanyName: le.Name, KeyDate: r.KeyDate,
 		Status: r.Status, Currency: r.Currency, NoticeCount: r.NoticeCount, ItemCount: r.ItemCount,
-		OverdueAmount: apitypes.Money(r.OverdueAmount, r.Currency, r.Exponent), DisputedItems: make([]gen.DunningRunDisputedItem, len(r.Disputed))}
+		OverdueAmount: apitypes.Money(r.OverdueAmount, r.Currency, r.Exponent), DisputedItemCount: int32(len(r.Disputed)),
+		DisputedAmount: apitypes.Money(r.DisputedLC(), r.Currency, r.Exponent), DisputedItems: make([]gen.DunningRunDisputedItem, len(r.Disputed))}
 	for i, d := range r.Disputed {
 		out.DisputedItems[i] = gen.DunningRunDisputedItem{DisputeCaseID: d.CaseID, CustomerID: d.CustomerID, CustomerNumber: d.CustomerNumber,
 			FiscalYear: int32(d.FiscalYear), JournalEntryID: d.EntryID, LineNo: d.LineNo, DocumentNumber: d.DocumentNumber,
@@ -234,6 +235,7 @@ func (e *Endpoints) GetCollectionWorklist(ctx context.Context, params gen.GetCol
 	amount := func(m money.Minor) gen.Money { return apitypes.Money(m, w.Company.LocalCurrency, w.Exponent) }
 	out := &gen.CollectionWorklist{LegalEntityID: w.Company.ID, CompanyCode: w.Company.Code, CompanyName: w.Company.Name, KeyDate: w.KeyDate,
 		Currency: w.Company.LocalCurrency, CustomerCount: int32(len(w.Customers)), OpenAmount: amount(w.Open), OverdueAmount: amount(w.Overdue),
+		DisputedAmount: amount(w.Disputed), OpenDisputeCases: w.DisputedCases,
 		Items: make([]gen.CollectionWorklistCustomer, len(page))}
 	for i, c := range page {
 		out.Items[i] = gen.CollectionWorklistCustomer{CustomerID: c.CustomerID, CustomerNumber: c.Number, CustomerName: c.Name,

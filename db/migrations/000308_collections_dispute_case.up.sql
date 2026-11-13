@@ -48,9 +48,10 @@ CREATE TABLE collections.dispute_case (
 );
 CREATE TRIGGER dispute_case_touch BEFORE UPDATE ON collections.dispute_case FOR EACH ROW EXECUTE FUNCTION platform.touch();
 -- An item has one open case at a time, whether the second comes after the
--- first or races it; a dunning run and the worklist read the open cases
--- of their items by it.
+-- first or races it.
 CREATE UNIQUE INDEX dispute_case_one_open ON collections.dispute_case (tenant_id, fiscal_year, journal_entry_id, line_no) WHERE status = 'open';
+-- A company's open cases, which a dunning run and the worklist read.
+CREATE INDEX dispute_case_open_by_company ON collections.dispute_case (tenant_id, legal_entity_id) WHERE status = 'open';
 -- The list: the tenant's cases, the latest first, whichever companies the
 -- caller may act in, in the order its pages are read.
 CREATE INDEX dispute_case_by_created_at ON collections.dispute_case (tenant_id, created_at, id);

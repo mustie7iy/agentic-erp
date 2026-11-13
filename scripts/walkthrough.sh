@@ -8357,6 +8357,7 @@ step_dispute() {
   api 201 '"dunning run at \(.key_date): \(.notice_count) notice(s), \(.item_count) item(s)", (.disputed_items[] | "  disputed: entry \(.document_number) (\(.reference)) of \(.customer_number), \(.days_overdue) days overdue, \(.amount.amount) \(.amount.currency), case \(.dispute_case_id)")' \
     createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$key\"}"
   run=$(field .id)
+  expect "the run's disputed items" "$(field '"\(.disputed_item_count) \(.disputed_amount.currency)"')" "1 CAD"
   expect "the invoice named as disputed" "$(field "[.disputed_items[] | select(.journal_entry_id == \"$entry\") | \"\(.dispute_case_id) \(.customer_id)\"] | join(\", \")")" \
     "$id $customer"
   QUIET=1 api 200 '' listDunningNotices -p "id=$run" -p "customer_id=$customer"

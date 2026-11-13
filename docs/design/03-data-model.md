@@ -4432,8 +4432,9 @@ erDiagram
 ## 3.27 Dunning and collections (`collections`)
 
 ADR-0065, T76a-T76c, T86a-T86b. A leaf: it reads the ledger's customer open items
-(§3.7, `ledger.OpenItems.Receivable`), the partner context's names,
-tenancy and the configuration through its ports, posts nothing and keeps
+(§3.7, `ledger.OpenItems.Receivable`), the partner context's names, the
+identity context's people (T86a), tenancy and the configuration through
+its ports, posts nothing and keeps
 no foreign key out of its schema (02 §2.1). T76a (migration 000273)
 builds the schema with its outbox and inbox and the dunning run: a
 proposal of the customer items of a company overdue on a key date, one
@@ -4576,8 +4577,8 @@ erDiagram
   time and person and an open one with none of them
   (`dispute_case_closed_check`); version from 1
   (`dispute_case_version_check`). An item has one open case at a time
-  (the partial unique index `dispute_case_one_open`, which a dunning run
-  and the worklist read the open cases of their items by); the list reads
+  (the partial unique index `dispute_case_one_open`); a dunning run and
+  the worklist read a company's open cases (`dispute_case_open_by_company`); the list reads
   the tenant's cases by `created_at` (`dispute_case_by_created_at`). The
   application sets the assignee, the note, the status with the close's
   columns, the version and `updated_by` alone, and deletes none; a closed
