@@ -441,7 +441,10 @@ A later slice adds its row here and its section under "As built".
   principal's events in those contexts ("last used"); **not used** when
   none is used and none is one a read needs (a role granting nothing that
   day included); **not recorded** otherwise; the permissions never used;
-  and its segregation-of-duties conflicts as T106b computes them. The
+  and its segregation-of-duties conflicts as T106b computes them, from
+  today on as identity checks a grant, whatever the period (a review of
+  a past period names a conflict that stands now, and not one that has
+  ended since; the prompt says so). The
   kind follows: `remove_roles`, naming the roles not used, where there
   are some; else `review`, naming the roles whose use is not recorded,
   where there are some or the principal breaks a rule; else
@@ -456,6 +459,15 @@ A later slice adds its row here and its section under "As built".
   already recommended with a first line naming the same period is left
   out; a second run of a period whose principals are all reviewed starts
   no session and says so (`erp agent access-review` prints the reply).
+  This holds for runs that do not overlap: two runs of one period at the
+  same time each read none done and each recommend on every principal;
+  nothing in the database stops it, which a periodic review workflow
+  (after 1 December) must settle.
+- `erp agent access-review` prints, for each recommendation, the
+  principal's name and the first line computed for it beside its id
+  (`recommend.Result.Names`, `recommend.Made.Content`), so a reviewer
+  reads whose roles are to be removed, and which, without a call per
+  row.
 - The review's sign-off, periodic reviews as a workflow, removing on
   acceptance and reminders are not built (product owner, 2026-11-12;
   the plan's "Later").

@@ -7489,18 +7489,18 @@ step_access_review() {
   got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/access-agent") "$ERP" agent access-review -period "$from..$to" 2>"$WORK/stderr") ||
     { rm -f "$WORK/model-script.json"; fail "erp agent access-review failed ($(cat "$WORK/stderr"))"; }
   rm -f "$WORK/model-script.json"
-  printf '%s\n' "$got" | sed -n '1p;$p' | sed 's/^/     /'
+  printf '%s\n' "$got" | sed 's/^/     /'
   session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
   expect "what the agent made: one recommendation per active principal" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" \
     "recommendations made $n, refused 0."
   expect "the principals recommended on, every active one" \
-    "$(printf '%s\n' "$got" | sed -nE 's/^  recommendation [0-9a-f-]{36}: [a-z_]+ on principal ([0-9a-f-]{36})$/\1/p' | sort | tr '\n' ' ' | sed 's/ $//')" "$ids"
-  expect "an agent reviewed too: the access agent itself" "$(printf '%s\n' "$got" | grep -c " on principal $agent\$" || true)" 1
-  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): remove_roles on principal $sally\$/\1/p")
-  [ -n "$rec" ] || fail "erp agent access-review printed no remove_roles on Sally ($sally)"
-  say "The reviewer reads Sally's recommendation:"
-  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)"))' listRecommendations -p "object_id=$sally" -p "session_id=$session"
-  expect "naming the role she never used, first" "$(field '.items[0].content | split("\n")[0]')" "Access review $from..$to: remove tax_preparer"
+    "$(printf '%s\n' "$got" | sed -nE 's/^  recommendation [0-9a-f-]{36}: [a-z_]+ on principal ([0-9a-f-]{36}) \(.*/\1/p' | sort | tr '\n' ' ' | sed 's/ $//')" "$ids"
+  expect "an agent reviewed too: the access agent itself" "$(printf '%s\n' "$got" | grep -c " on principal $agent (Access agent): " || true)" 1
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): remove_roles on principal $sally \\(Sally Sales\\): Access review $from\\.\\.$to: remove tax_preparer\$/\\1/p")
+  [ -n "$rec" ] || fail "erp agent access-review printed no remove_roles of tax_preparer on Sally ($sally)"
+  say "The reviewer reads Sally's recommendation in full:"
+  api 200 '"  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)")' getRecommendation -p "id=$rec"
+  expect "made in the session" "$(field .session_id)" "$session"
   QUIET=1 api 200 '' listRecommendations -p object_type=principal -p page_size=500
   before=$(field '.items | length')
   say "A second run of the same period adds nothing: every active principal has its recommendation already."

@@ -47,7 +47,7 @@ services), to keep its roles, remove some or review them.
 You are given the period and, for each principal, the roles it holds on the period's last day as the run read them before
 you started: when its holder last used each role by the audit trail, the permissions of the role it never used, the
 roles whose use the trail does not record (only reads need their permissions, and reads leave no audit event), and the
-segregation-of-duties rules it would break. The kind and the line the content starts with are computed for each principal:
+segregation-of-duties rules it would break from today on, as identity checks them at a grant, whatever the period. The kind and the line the content starts with are computed for each principal:
 use them as given. A role "not used" is one in whose audited contexts the principal has no event in the period.
 
 Read further as you need: roles (getRole, listRoles), their permissions (listRolePermissions), assignments
@@ -75,7 +75,8 @@ type activity struct {
 	last    map[string]string
 }
 
-// held is a role of a principal in a review and what the trail shows.
+// heldRole is a role of a principal in a review and what the trail
+// shows.
 type heldRole struct {
 	code  string
 	rv    *review
@@ -147,8 +148,13 @@ func (a *Agent) Prepare(ctx context.Context, p Period) (recommend.Result, error)
 	}
 	task := recommend.Task{Purpose: fmt.Sprintf("Prepare the access review of %s to %s", p.From, p.To), Prompt: prep.prompt(st, principals),
 		Objects: objects, Check: prep.check}
-	return recommend.Agent{Type: Type, Reads: Reads, System: reviewSystem, MaxIterations: max(iterations, len(principals)+10),
+	res, err := recommend.Agent{Type: Type, Reads: Reads, System: reviewSystem, MaxIterations: max(iterations, len(principals)+10),
 		Kinds: map[string][]string{PrincipalObject: {KeepRoles, RemoveRoles, ReviewRoles}}}.Run(ctx, a.LLM, a.API, task)
+	res.Names = map[string]string{}
+	for _, id := range principals {
+		res.Names[id] = st.principals[id].DisplayName
+	}
+	return res, err
 }
 
 // heading is the start of the line a review's content starts with.

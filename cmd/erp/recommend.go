@@ -19,7 +19,9 @@ import (
 // evaluation adapter runs the agent as its command does.
 
 // recommended prints what a recommending agent's run did: its session,
-// each recommendation the API recorded and the model's reply. They are
+// each recommendation the API recorded (where the agent names its objects,
+// with the object's name and the first line of what it recommended) and
+// the model's reply. They are
 // printed even when the run failed afterwards: its recommendations wait
 // for a person either way. A run that had nothing to do and started no
 // session prints its reply alone.
@@ -36,7 +38,13 @@ func recommended(command string, res recommend.Result, runErr error) error {
 	w := printer()
 	fmt.Fprintf(w, "Session %s: recommendations made %d, refused %d.\n", res.Session, len(res.Recommendations), res.Refused)
 	for _, m := range res.Recommendations {
-		fmt.Fprintf(w, "  recommendation %s: %s on %s %s\n", m.ID, m.Kind, m.ObjectType, m.ObjectID)
+		fmt.Fprintf(w, "  recommendation %s: %s on %s %s", m.ID, m.Kind, m.ObjectType, m.ObjectID)
+		if name, named := res.Names[m.ObjectID]; named {
+			// A run over many objects: each named, with what it was told.
+			first, _, _ := strings.Cut(m.Content, "\n")
+			fmt.Fprintf(w, " (%s): %s", strings.Join(strings.Fields(name), " "), first)
+		}
+		fmt.Fprintln(w)
 	}
 	if res.Reply != "" {
 		fmt.Fprintln(w, res.Reply)

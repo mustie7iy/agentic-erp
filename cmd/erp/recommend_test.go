@@ -162,13 +162,14 @@ func TestAgentAccessReview(t *testing.T) {
 	printFails(t, "agent", "access-review", "-period", period)
 	fresh := sessionRoutes(base)
 	fresh["GET /v1/recommendations"] = []reply{ok(`{"items": []}`)}
-	fresh["POST /v1/recommendations"] = []reply{{201, `{"id": "rec1", "object_type": "principal", "object_id": "p1", "kind": "keep_roles"}`}}
+	fresh["POST /v1/recommendations"] = []reply{{201, `{"id": "rec1", "object_type": "principal", "object_id": "p1", "kind": "keep_roles",
+		"content": "Access review 2026-04-01..2026-06-30: keep: no role\nRuth holds no role."}`}}
 	fakeAPI(t, fresh)
 	model(t, llmtest.Tool("createRecommendation", map[string]any{"body": map[string]any{"session_id": agentSession, "object_type": "principal",
 		"object_id": "p1", "kind": "keep_roles", "content": "Access review 2026-04-01..2026-06-30: keep: no role\nRuth holds no role."}}),
 		llmtest.Final("Prepared; the reviewer decides."))
 	got := must(t, "agent", "access-review", "-period", period)
-	if want := "Session " + agentSession + ": recommendations made 1, refused 0.\n  recommendation rec1: keep_roles on principal p1\n" +
+	if want := "Session " + agentSession + ": recommendations made 1, refused 0.\n  recommendation rec1: keep_roles on principal p1 (Ruth): Access review 2026-04-01..2026-06-30: keep: no role\n" +
 		"Prepared; the reviewer decides.\n"; got != want {
 		t.Errorf("agent access-review: got %q, want %q", got, want)
 	}
