@@ -303,6 +303,24 @@ func TestPlanDatabaseFailures(t *testing.T) {
 			_, _, err := ledger.AssignmentBalances{}.ProfitCenters(ctx, nil, &pcRoot)
 			return err
 		},
+		"read the margin report, every page": func(ctx context.Context) error {
+			page := gen.GetMarginReportParams{LegalEntityID: c.DE, FiscalYear: 2026, PageSize: gen.NewOptInt32(1)}
+			for {
+				res, err := h.GetMarginReport(ctx, page)
+				if err != nil {
+					return err
+				}
+				next, more := res.(*gen.MarginReport).NextPageToken.Get()
+				if !more {
+					return nil
+				}
+				page.PageToken = gen.NewOptString(next)
+			}
+		},
+		"the ledger's margin": func(ctx context.Context) error {
+			_, err := ledger.AssignmentBalances{}.Margin(ctx, ledger.MarginQuery{LegalEntityID: c.DE, FiscalYear: 2026, PeriodFrom: 1, PeriodTo: 16, Limit: 1})
+			return err
+		},
 		"the ledger's profit center actuals": func(ctx context.Context) error {
 			_, err := ledger.AssignmentBalances{}.ProfitCenterActuals(ctx, ledger.ActualsQuery{LegalEntityID: c.DE, FiscalYear: 2026, PeriodFrom: 1, PeriodTo: 16, Limit: 1})
 			return err

@@ -3499,7 +3499,9 @@ take entries whose `source_context` is `controlling`). Migration 000283
 adds allocation cycles, their receivers and runs and the permissions
 `controlling.allocation.read`, `.write` and `.run`. Migration 000284 adds
 the cycle's kind `assessment` with its assessment account, and in the
-ledger the secondary cost element and its two rules (§3.7).
+ledger the secondary cost element and its two rules (§3.7). Migration
+000296 adds the permission `controlling.margin.read` of the margin report
+(ADR-0075, T92b), which has no table.
 
 ```mermaid
 erDiagram
@@ -3600,6 +3602,22 @@ over the periods asked for and merged with the leading ledger's actuals,
 which the ledger reads as its cost center (or profit center) report does
 (§3.7, exact at the read; by profit center on profit and loss accounts
 only, the segments summed).
+
+The margin report (`GET /v1/margin-report`, ADR-0075, T92b) stores
+nothing either: per profit center of a company, over a range of periods
+of a fiscal year, the revenue (credits less debits on the accounts of type
+`revenue`), the cost of sales (debits less credits on the accounts the
+configuration names for the company's chart,
+`controlling.margin_report[].cost_of_sales_accounts`, single accounts or
+ranges of expense accounts; tier 2) and their difference, in the company's
+local currency, with the lines that carry no profit center as one
+`unassigned` row and the company's totals, which the rows add up to. The
+ledger reads all of it in one statement
+(`ledger.AssignmentBalances.Margin`): the company's balances as the trial
+balance reads them (`ledger.period_balance`) and the profit centers' as
+the profit center report does (`ledger.assignment_balance`), each with
+the lines of entries not yet projected, so the figures are of one
+database state and exact at the read.
 
 ## 3.20 Tax filing (`tax`)
 

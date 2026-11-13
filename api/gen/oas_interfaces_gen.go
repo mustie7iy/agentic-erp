@@ -741,6 +741,10 @@ type GetLiquidityForecastVarianceRes interface {
 	getLiquidityForecastVarianceRes()
 }
 
+type GetMarginReportRes interface {
+	getMarginReportRes()
+}
+
 type GetMatchResultRes interface {
 	getMatchResultRes()
 }

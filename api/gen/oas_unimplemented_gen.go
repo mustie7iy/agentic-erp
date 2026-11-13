@@ -3170,6 +3170,31 @@ func (UnimplementedHandler) GetLiquidityForecastVariance(ctx context.Context, pa
 	return r, ht.ErrNotImplemented
 }
 
+// GetMarginReport implements getMarginReport operation.
+//
+// The margin report of one legal entity over a range of periods of a fiscal year (ADR-0075 §1-§4),
+// from the general ledger's leading ledger, in the legal entity's local currency, exact at the moment
+// of the read: per profit center the revenue (the credits less the debits on the accounts of type
+// `revenue`), the cost of sales (the debits less the credits on the accounts the configuration names
+// for the legal entity's chart, `controlling.margin_report[].cost_of_sales_accounts`) and the margin,
+// the revenue less the cost of sales. Cost of sales is what the ledger holds: a person posts it by
+// journal entry, and nothing is derived from stock. Rows are by the profit center's code; a profit
+// center with neither revenue nor cost of sales in the periods has no row. The lines that carry no
+// profit center are one last row, `unassigned`, present when their revenue or cost of sales is not
+// zero, so the rows of every page add up to `totals`, the legal entity's revenue, cost of sales and
+// margin in the periods, given on every page. `cost_of_sales_accounts` are the accounts of the chart
+// counted as cost of sales; when the configuration names none for the chart, `cost_of_sales_named` is
+// false and the cost of sales is zero, so the margin is the revenue. A legal entity that does not
+// exist or that the caller cannot act in is answered as missing (422 `request.reference_not_found` on
+// `legal_entity_id`). The figures are ledger amounts, so besides `controlling.margin.read` the caller
+// needs `ledger.entry.read`, as for the trial balance (`x-also-permissions`; 403
+// `identity.permission_missing` otherwise).
+//
+// GET /v1/margin-report
+func (UnimplementedHandler) GetMarginReport(ctx context.Context, params GetMarginReportParams) (r GetMarginReportRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetMatchResult implements getMatchResult operation.
 //
 // Returns one three-way match evaluation.

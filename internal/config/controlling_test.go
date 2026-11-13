@@ -274,3 +274,83 @@ func TestControllingDiffTiers(t *testing.T) {
 		})
 	}
 }
+
+// margined is the controlled configuration whose margin report counts
+// company 1000's accounts 510000 to 530000 and 540000 as cost of sales.
+func margined(t *testing.T) *Config {
+	t.Helper()
+	c := controlled(t)
+	c.Controlling.MarginReport = []MarginChart{{Chart: "1000", CostOfSalesAccounts: []AccountRange{{From: "510000", To: "530000"}, {From: "540000"}}}}
+	return c
+}
+
+func TestMarginReportValid(t *testing.T) {
+	c := margined(t)
+	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
+		t.Fatalf("got %v, want no errors", fs)
+	}
+	numbers, named := c.CostOfSalesAccounts("1000")
+	if got, want := strings.Join(numbers, " "), "510000 520000 530000 540000"; got != want || !named {
+		t.Errorf("company 1000's cost of sales accounts: got %q named %v, want %q named true", got, named, want)
+	}
+	for _, company := range []string{"2000", "9999"} {
+		t.Run("none named for "+company, func(t *testing.T) {
+			if numbers, named := c.CostOfSalesAccounts(company); numbers == nil || len(numbers) != 0 || named {
+				t.Errorf("got %v named %v, want an empty list, not named", numbers, named)
+			}
+		})
+	}
+	if got, want := (AccountRange{From: "510000", To: "530000"}).String()+", "+(AccountRange{From: "540000"}).String(), "510000 to 530000, 540000"; got != want {
+		t.Errorf("ranges as text: got %q, want %q", got, want)
+	}
+}
+
+// Each mutation of the margin report's section must produce an error
+// finding at the expected path.
+func TestMarginReportRules(t *testing.T) {
+	const p = "controlling.margin_report[1000]"
+	set := func(r ...AccountRange) func(*Config) {
+		return func(c *Config) { c.Controlling.MarginReport[0].CostOfSalesAccounts = r }
+	}
+	for _, tc := range []struct {
+		name   string
+		mutate func(c *Config)
+		path   string
+	}{
+		{"a chart that is no company", func(c *Config) { c.Controlling.MarginReport[0].Chart = "9999" }, "controlling.margin_report[9999].chart"},
+		{"a chart twice", func(c *Config) {
+			c.Controlling.MarginReport = append(c.Controlling.MarginReport, c.Controlling.MarginReport[0])
+		}, p + ".chart"},
+		{"no accounts", set(), p + ".cost_of_sales_accounts"},
+		{"from is no account number", set(AccountRange{From: "5-1"}), p + ".cost_of_sales_accounts[0]"},
+		{"to is no account number", set(AccountRange{From: "510000", To: "5 3"}), p + ".cost_of_sales_accounts[0]"},
+		{"a range ending before it starts", set(AccountRange{From: "530000", To: "510000"}), p + ".cost_of_sales_accounts[0].to"},
+		{"an account the chart lacks", set(AccountRange{From: "510000"}, AccountRange{From: "777777"}), p + ".cost_of_sales_accounts[1]"},
+		{"a range covering no account", set(AccountRange{From: "700000", To: "799999"}), p + ".cost_of_sales_accounts[0]"},
+		{"a revenue account", set(AccountRange{From: "400000"}), p + ".cost_of_sales_accounts[0]"},
+		{"a range reaching a balance sheet account", set(AccountRange{From: "300000", To: "520000"}), p + ".cost_of_sales_accounts[0]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := margined(t)
+			tc.mutate(c)
+			fs := Validate(c, currency.Seeded())
+			if !slices.ContainsFunc(fs, func(f Finding) bool { return f.Severity == SevError && f.Path == tc.path }) {
+				t.Errorf("got %v, want an error at %s", fs, tc.path)
+			}
+		})
+	}
+}
+
+// The margin report's accounts change what a report says and post
+// nothing: operational, not posting-relevant as the section's other rules.
+func TestMarginReportTier(t *testing.T) {
+	before, after := margined(t), margined(t)
+	after.Controlling.MarginReport[0].CostOfSalesAccounts[1].From = "610000"
+	changes, err := Diff(before, after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 1 || changes[0].Path != "controlling.margin_report[1000].cost_of_sales_accounts[1].from" || changes[0].Tier != TierOperational {
+		t.Errorf("got %v, want one operational change of controlling.margin_report[1000].cost_of_sales_accounts[1].from", changes)
+	}
+}

@@ -463,6 +463,19 @@ refuses of the entry is its own problem. Published as
 latest first by `posting_date`) and `GET /v1/allocation-runs/{id}` show
 the runs.
 
+The margin report (ADR-0075, T92b) is computed on read: `GET
+/v1/margin-report` (`controlling.margin.read` and `ledger.entry.read`,
+`x-slo-class: report`) takes a `legal_entity_id`, a `fiscal_year` and a
+range of periods and gives, per profit center by code, the revenue, the
+cost of sales and the margin in the company's local currency, from the
+leading ledger; the lines without a profit center are one last row,
+`unassigned`; the `totals` are the company's and are on every page; rows
+are cursor-paged. `cost_of_sales_accounts` are the numbers of the chart's
+accounts the configuration names (`controlling.margin_report`), and
+`cost_of_sales_named` is false when it names none for the chart, in which
+case the cost of sales is zero. A legal entity the caller may not act in
+is 422 `request.reference_not_found`.
+
 Plan values (ADR-0050 §8, T56g) are the controlling context's.
 `/v1/plan-categories` (`controlling.plan.read`, `.write`) are open or
 locked by a person (`:lock`, `:unlock`: `controlling.plan.lock`, an
@@ -937,7 +950,7 @@ with the month's total against the tenant's cap.
 | cash | `cash-position`, `liquidity-forecast` (computed on read, ADR-0051; its sources include the released purchase orders' open values, `purchase_order`, T53g), `group-liquidity-forecast` (the companies the caller may act in, summed in group currency, T53e5), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key), `cash-snapshots` and their `exports` to treasury systems (`cash-exports`, the cash export schema v1 over a `treasury_export` connector's SFTP directory, T53h), `liquidity-forecast-variance` (computed on read) and its `comments` (a person's, T53f4) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
 | einvoicing | `e-invoices` (received from the tenant's accredited provider through an `einvoice_provider` connector, ADR-0061 §15, T65a: the companies the caller may act in, filtered by company, connector, status, fetch and when received, newest first); `/{id}/content` (the bytes as received, compared with their hash, human-only, T65b) | `:fetch` (202 with its `Operation`, carried out as the workflow `FetchEInvoices`, T65a; the same fetch scheduled once per period, T65b) |
 | consolidation | `consolidation-groups` (by code) and `group-accounts` (from the configuration, ADR-0059 §3, T68a; a group only to a caller who may act in its parent and every member, §12); `consolidation-runs` (a run of a group and regular period, 202 with its `Operation`, carried out as the workflow `ConsolidationRun`; `/{id}/balances`, its translated balances with totals, ADR-0059 §6, §7, T68d; `/{id}/statements/{statement}`, its consolidated balance sheet or profit and loss by group account with reported, eliminations and consolidated figures and totals, §11, T68e, the profit and loss with other comprehensive income (the year's translation differences), total comprehensive income with its attribution and the translation reserve per company, As built: other comprehensive income, and what the run moved out of the profit as the translation part of group-currency revaluations, `revaluation_translation`, As built: the group-currency revaluation's translation part, and as the exchange differences on the group's designated net investments (`net_investments` on the group, from the configuration; `net_investment` per company and in the totals), As built: a net investment's exchange differences; `/{id}/differences` and `/{id}/entries`, its intercompany differences per elimination and pair and its elimination entries with their lines, each with totals, §8, T68f; each member's investment entry against the member's share capital and acquisition, frozen by the first final run, and the profit's attribution to owners and non-controlling interests, §9, T68h, T68h2; a run only to a caller who may act in every company of its group) | `:discard` (T68d); `:finalize` and `/{id}/differences/{difference_id}:accept` (people only, T68g) |
-| controlling | `plan-categories`, `plan-batches` (by batch key), `plan-lines`, `cost-center-plan-actual`, `profit-center-plan-actual` (computed on read, ADR-0050 §8); `internal-orders` (ADR-0064 §1), `internal-order-balances` (computed on read, ADR-0064 §2), `internal-orders/{id}/budget`, `internal-orders/{id}/settlement-rule` (ADR-0064 §3) | `:lock`, `:unlock`; `:release` |
+| controlling | `plan-categories`, `plan-batches` (by batch key), `plan-lines`, `cost-center-plan-actual`, `profit-center-plan-actual` (computed on read, ADR-0050 §8); `internal-orders` (ADR-0064 §1), `internal-order-balances` (computed on read, ADR-0064 §2), `internal-orders/{id}/budget`, `internal-orders/{id}/settlement-rule` (ADR-0064 §3); `margin-report` (a company's revenue, cost of sales and margin by profit center, computed on read, ADR-0075) | `:lock`, `:unlock`; `:release` |
 | tax | `tax-registrations` (from the configuration), `tax-registrations/{id}/periods`, `tax-registrations/{id}/draft-return` and its `items` (computed on read, ADR-0049 §10-§11), `tax-registrations/{id}/returns`, `tax-returns/{id}` | `:file`, `:withdraw` (T61i) |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |
 | audit | `audit-events` | `:verify` |

@@ -24158,6 +24158,7 @@ func (*ConflictHeaders) getConsolidationRunRes()                   {}
 func (*ConflictHeaders) getEInvoiceContentRes()                    {}
 func (*ConflictHeaders) getLegalEntityTodayRes()                   {}
 func (*ConflictHeaders) getLiquidityForecastVarianceRes()          {}
+func (*ConflictHeaders) getMarginReportRes()                       {}
 func (*ConflictHeaders) getPeriodCloseRes()                        {}
 func (*ConflictHeaders) getPurchaseOrderDocumentRes()              {}
 func (*ConflictHeaders) getTaxReturnDraftRes()                     {}
@@ -39795,6 +39796,18 @@ type GetLiquidityForecastVarianceUnprocessableEntity Problem
 
 func (*GetLiquidityForecastVarianceUnprocessableEntity) getLiquidityForecastVarianceRes() {}
 
+type GetMarginReportBadRequest Problem
+
+func (*GetMarginReportBadRequest) getMarginReportRes() {}
+
+type GetMarginReportForbidden Problem
+
+func (*GetMarginReportForbidden) getMarginReportRes() {}
+
+type GetMarginReportUnprocessableEntity Problem
+
+func (*GetMarginReportUnprocessableEntity) getMarginReportRes() {}
+
 type GetMatchResultBadRequest Problem
 
 func (*GetMatchResultBadRequest) getMatchResultRes() {}
@@ -51686,6 +51699,269 @@ func (*LockProfitCenterPreconditionRequired) lockProfitCenterRes() {}
 type LockProfitCenterUnprocessableEntity Problem
 
 func (*LockProfitCenterUnprocessableEntity) lockProfitCenterRes() {}
+
+// One page of a legal entity's margin report by profit center (ADR-0075), with the selection, the
+// accounts counted as cost of sales and the totals on every page.
+// Ref: #/components/schemas/MarginReport
+type MarginReport struct {
+	// The rows on this page: profit centers by code, then the `unassigned` row.
+	Items []MarginReportRow `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Fiscal year of the selection.
+	FiscalYear int32 `json:"fiscal_year"`
+	// First period of the selection.
+	FiscalPeriodFrom int32 `json:"fiscal_period_from"`
+	// Last period of the selection.
+	FiscalPeriodTo int32 `json:"fiscal_period_to"`
+	// The legal entity's local currency, which every amount is in.
+	Currency string `json:"currency"`
+	// Whether the configuration names cost of sales accounts for the legal entity's chart
+	// (`controlling.margin_report`); false: the cost of sales is zero and the margin is the revenue.
+	CostOfSalesNamed bool `json:"cost_of_sales_named"`
+	// The numbers of the chart's accounts counted as cost of sales, in number order; empty when none is
+	// named.
+	CostOfSalesAccounts []string `json:"cost_of_sales_accounts"`
+	// The whole selection's totals, the same on every page.
+	Totals MarginReportTotals `json:"totals"`
+}
+
+// GetItems returns the value of Items.
+func (s *MarginReport) GetItems() []MarginReportRow {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *MarginReport) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *MarginReport) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *MarginReport) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriodFrom returns the value of FiscalPeriodFrom.
+func (s *MarginReport) GetFiscalPeriodFrom() int32 {
+	return s.FiscalPeriodFrom
+}
+
+// GetFiscalPeriodTo returns the value of FiscalPeriodTo.
+func (s *MarginReport) GetFiscalPeriodTo() int32 {
+	return s.FiscalPeriodTo
+}
+
+// GetCurrency returns the value of Currency.
+func (s *MarginReport) GetCurrency() string {
+	return s.Currency
+}
+
+// GetCostOfSalesNamed returns the value of CostOfSalesNamed.
+func (s *MarginReport) GetCostOfSalesNamed() bool {
+	return s.CostOfSalesNamed
+}
+
+// GetCostOfSalesAccounts returns the value of CostOfSalesAccounts.
+func (s *MarginReport) GetCostOfSalesAccounts() []string {
+	return s.CostOfSalesAccounts
+}
+
+// GetTotals returns the value of Totals.
+func (s *MarginReport) GetTotals() MarginReportTotals {
+	return s.Totals
+}
+
+// SetItems sets the value of Items.
+func (s *MarginReport) SetItems(val []MarginReportRow) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *MarginReport) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *MarginReport) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *MarginReport) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriodFrom sets the value of FiscalPeriodFrom.
+func (s *MarginReport) SetFiscalPeriodFrom(val int32) {
+	s.FiscalPeriodFrom = val
+}
+
+// SetFiscalPeriodTo sets the value of FiscalPeriodTo.
+func (s *MarginReport) SetFiscalPeriodTo(val int32) {
+	s.FiscalPeriodTo = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *MarginReport) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetCostOfSalesNamed sets the value of CostOfSalesNamed.
+func (s *MarginReport) SetCostOfSalesNamed(val bool) {
+	s.CostOfSalesNamed = val
+}
+
+// SetCostOfSalesAccounts sets the value of CostOfSalesAccounts.
+func (s *MarginReport) SetCostOfSalesAccounts(val []string) {
+	s.CostOfSalesAccounts = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *MarginReport) SetTotals(val MarginReportTotals) {
+	s.Totals = val
+}
+
+func (*MarginReport) getMarginReportRes() {}
+
+// A row of the margin report (ADR-0075 §3): a profit center's revenue, cost of sales and margin in
+// the selection, or, as `unassigned`, those of the lines that carry no profit center; in the legal
+// entity's local currency.
+// Ref: #/components/schemas/MarginReportRow
+type MarginReportRow struct {
+	// Profit center; absent on the `unassigned` row.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// The profit center's code; absent on the `unassigned` row.
+	ProfitCenterCode OptString `json:"profit_center_code"`
+	// The profit center's name; absent on the `unassigned` row.
+	ProfitCenterName OptString `json:"profit_center_name"`
+	// True on the one row of the lines that carry no profit center.
+	Unassigned bool `json:"unassigned"`
+	// Credits less debits on the accounts of type `revenue`.
+	Revenue Money `json:"revenue"`
+	// Debits less credits on the cost of sales accounts.
+	CostOfSales Money `json:"cost_of_sales"`
+	// Revenue less cost of sales.
+	Margin Money `json:"margin"`
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *MarginReportRow) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// GetProfitCenterCode returns the value of ProfitCenterCode.
+func (s *MarginReportRow) GetProfitCenterCode() OptString {
+	return s.ProfitCenterCode
+}
+
+// GetProfitCenterName returns the value of ProfitCenterName.
+func (s *MarginReportRow) GetProfitCenterName() OptString {
+	return s.ProfitCenterName
+}
+
+// GetUnassigned returns the value of Unassigned.
+func (s *MarginReportRow) GetUnassigned() bool {
+	return s.Unassigned
+}
+
+// GetRevenue returns the value of Revenue.
+func (s *MarginReportRow) GetRevenue() Money {
+	return s.Revenue
+}
+
+// GetCostOfSales returns the value of CostOfSales.
+func (s *MarginReportRow) GetCostOfSales() Money {
+	return s.CostOfSales
+}
+
+// GetMargin returns the value of Margin.
+func (s *MarginReportRow) GetMargin() Money {
+	return s.Margin
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *MarginReportRow) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetProfitCenterCode sets the value of ProfitCenterCode.
+func (s *MarginReportRow) SetProfitCenterCode(val OptString) {
+	s.ProfitCenterCode = val
+}
+
+// SetProfitCenterName sets the value of ProfitCenterName.
+func (s *MarginReportRow) SetProfitCenterName(val OptString) {
+	s.ProfitCenterName = val
+}
+
+// SetUnassigned sets the value of Unassigned.
+func (s *MarginReportRow) SetUnassigned(val bool) {
+	s.Unassigned = val
+}
+
+// SetRevenue sets the value of Revenue.
+func (s *MarginReportRow) SetRevenue(val Money) {
+	s.Revenue = val
+}
+
+// SetCostOfSales sets the value of CostOfSales.
+func (s *MarginReportRow) SetCostOfSales(val Money) {
+	s.CostOfSales = val
+}
+
+// SetMargin sets the value of Margin.
+func (s *MarginReportRow) SetMargin(val Money) {
+	s.Margin = val
+}
+
+// The legal entity's revenue, cost of sales and margin over the whole selection, which the rows of
+// every page add up to; in the legal entity's local currency.
+// Ref: #/components/schemas/MarginReportTotals
+type MarginReportTotals struct {
+	// Revenue.
+	Revenue Money `json:"revenue"`
+	// Cost of sales.
+	CostOfSales Money `json:"cost_of_sales"`
+	// Revenue less cost of sales.
+	Margin Money `json:"margin"`
+}
+
+// GetRevenue returns the value of Revenue.
+func (s *MarginReportTotals) GetRevenue() Money {
+	return s.Revenue
+}
+
+// GetCostOfSales returns the value of CostOfSales.
+func (s *MarginReportTotals) GetCostOfSales() Money {
+	return s.CostOfSales
+}
+
+// GetMargin returns the value of Margin.
+func (s *MarginReportTotals) GetMargin() Money {
+	return s.Margin
+}
+
+// SetRevenue sets the value of Revenue.
+func (s *MarginReportTotals) SetRevenue(val Money) {
+	s.Revenue = val
+}
+
+// SetCostOfSales sets the value of CostOfSales.
+func (s *MarginReportTotals) SetCostOfSales(val Money) {
+	s.CostOfSales = val
+}
+
+// SetMargin sets the value of Margin.
+func (s *MarginReportTotals) SetMargin(val Money) {
+	s.Margin = val
+}
 
 type MatchBankStatementBadRequest Problem
 
@@ -82306,6 +82582,7 @@ func (*TooManyRequestsHeaders) getLegalEntityRes()                        {}
 func (*TooManyRequestsHeaders) getLegalEntityTodayRes()                   {}
 func (*TooManyRequestsHeaders) getLiquidityForecastRes()                  {}
 func (*TooManyRequestsHeaders) getLiquidityForecastVarianceRes()          {}
+func (*TooManyRequestsHeaders) getMarginReportRes()                       {}
 func (*TooManyRequestsHeaders) getMatchResultRes()                        {}
 func (*TooManyRequestsHeaders) getMemoRecordRes()                         {}
 func (*TooManyRequestsHeaders) getMigrationRunRes()                       {}
@@ -83085,6 +83362,7 @@ func (*UnauthorizedHeaders) getLegalEntityRes()                        {}
 func (*UnauthorizedHeaders) getLegalEntityTodayRes()                   {}
 func (*UnauthorizedHeaders) getLiquidityForecastRes()                  {}
 func (*UnauthorizedHeaders) getLiquidityForecastVarianceRes()          {}
+func (*UnauthorizedHeaders) getMarginReportRes()                       {}
 func (*UnauthorizedHeaders) getMatchResultRes()                        {}
 func (*UnauthorizedHeaders) getMemoRecordRes()                         {}
 func (*UnauthorizedHeaders) getMigrationRunRes()                       {}
