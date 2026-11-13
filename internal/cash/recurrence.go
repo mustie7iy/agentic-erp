@@ -3,6 +3,8 @@ package cash
 import (
 	"slices"
 	"time"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 )
 
 // Frequencies of a series of memo records (ADR-0051 §7).
@@ -38,23 +40,14 @@ func (r Recurrence) nth(start time.Time, k int) (time.Time, bool) {
 	case Weekly:
 		d = start.AddDate(0, 0, 7*k)
 	case Quarterly:
-		d = addMonths(start, 3*k)
+		d = clock.AddMonths(start, 3*k)
 	default:
-		d = addMonths(start, k)
+		d = clock.AddMonths(start, k)
 	}
 	if r.Until != nil && d.After(*r.Until) {
 		return time.Time{}, false
 	}
 	return d, true
-}
-
-// addMonths is the day n months after d on d's day of the month, or the
-// month's last day when it has fewer: 31 January, then 28 February, then
-// 31 March.
-func addMonths(d time.Time, n int) time.Time {
-	first := time.Date(d.Year(), d.Month()+time.Month(n), 1, 0, 0, 0, 0, time.UTC)
-	last := first.AddDate(0, 1, -1).Day()
-	return first.AddDate(0, 0, min(d.Day(), last)-1)
 }
 
 // occurrences are the series' days from start up to to, in order.

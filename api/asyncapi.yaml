@@ -482,6 +482,14 @@ channels:
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       ControlChanged: {$ref: '#/components/messages/ControlChanged'}
+  leases:
+    address: 'erp.{cell}.leases.{tenant}.{event}'
+    title: Lease accounting events
+    description: Lease contracts entered as lessee (ADR-0073 §5).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      LeaseContractChanged: {$ref: '#/components/messages/LeaseContractChanged'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -794,6 +802,12 @@ operations:
     channel: {$ref: '#/channels/grc'}
     messages:
       - $ref: '#/channels/grc/messages/ControlChanged'
+  publishLeasesEvents:
+    action: send
+    title: Lease accounting publishes
+    channel: {$ref: '#/channels/leases'}
+    messages:
+      - $ref: '#/channels/leases/messages/LeaseContractChanged'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -4345,6 +4359,28 @@ components:
         - name: tested
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000fa2, source: /erp/eu-1/grc, type: com.example.erp.grc.control_changed.v1, subject: 0192a000-0000-7000-8000-000000000fa0, time: '2026-11-25T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {control_id: 0192a000-0000-7000-8000-000000000fa0, code: PAY-01, process: Payments, owner_id: 0192a000-0000-7000-8000-000000000101, frequency: continuous, nature: automated, status: active, change: tested, test: {test_id: 0192a000-0000-7000-8000-000000000fa3, tested_on: '2026-11-25', result: passed, tested_by: 0192a000-0000-7000-8000-000000000101}, link: null, version: 1}
+    LeaseContractChanged:
+      name: LeaseContractChanged
+      title: Lease contract changed
+      summary: A lease contract was created.
+      description: |
+        Emitted at each change of a lease contract (ADR-0073 §5, T88a):
+        when a person creates it (`draft`, status_before null). It carries
+        the contract's terms and each payment's amount, not the payments,
+        and names the lessor by id and number, never by name.
+        `GET /v1/lease-contracts/{id}` returns the contract at `version` or
+        later. Subject is the contract id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.leases.lease_contract_changed.v1}
+      payload: {$ref: '#/components/schemas/LeaseContractChangedV1'}
+      examples:
+        - name: created
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001201, source: /erp/eu-1/leases, type: com.example.erp.leases.lease_contract_changed.v1, subject: 0192a000-0000-7000-8000-000000001211, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {lease_contract_id: 0192a000-0000-7000-8000-000000001211, document_number: LC000001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', lessor_id: 0192a000-0000-7000-8000-000000000f55, lessor_number: BP100055, commencement_date: '2026-12-01', term_months: 36, payment_amount: {amount: '5000.00', currency: CAD}, payment_frequency: monthly, payment_timing: advance, payment_count: 36, status: draft, status_before: null, version: 1}
     RevenueContractChanged:
       name: RevenueContractChanged
       x-webhook: true
@@ -5337,6 +5373,25 @@ components:
                 target: {type: string, description: "What the link names: the permission's code, the segregation-of-duties rule's id or the configuration path."}
             - type: 'null'
         version: {type: integer, description: "The control's version after the change; a test or a link does not move it."}
+    LeaseContractChangedV1:
+      type: object
+      required: [lease_contract_id, document_number, legal_entity_id, legal_entity_code, lessor_id, lessor_number, commencement_date, term_months, payment_amount, payment_frequency, payment_timing, payment_count, status, status_before, version]
+      properties:
+        lease_contract_id: {$ref: '#/components/schemas/Uuid', description: '`leases.contract.id`.'}
+        document_number: {type: string, description: "The contract's number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that leases.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        lessor_id: {$ref: '#/components/schemas/Uuid', description: 'The lessor: `partner.business_partner.id`.'}
+        lessor_number: {type: string, description: "The lessor's business partner number."}
+        commencement_date: {$ref: '#/components/schemas/Date', description: The commencement date.}
+        term_months: {type: integer, description: The lease term in months.}
+        payment_amount: {$ref: '#/components/schemas/Money', description: "Each payment, in the company's local currency."}
+        payment_frequency: {type: string, description: 'How often a payment is due. Open enum: monthly, quarterly, yearly.'}
+        payment_timing: {type: string, description: 'At the start or the end of each interval. Open enum: advance, arrears.'}
+        payment_count: {type: integer, description: The number of payments.}
+        status: {type: string, description: "The contract's status after the change. Open enum: draft."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
+        version: {type: integer, description: "The contract's version after the change."}
     RevenueContractChangedV1:
       type: object
       required: [revenue_contract_id, sales_order_id, sales_order_number, legal_entity_id, legal_entity_code, customer_id, customer_number, transaction_price, obligation_count, status, status_before, version]

@@ -1538,6 +1538,38 @@ func (UnimplementedHandler) CreateInternalOrder(ctx context.Context, req *Intern
 	return r, ht.ErrNotImplemented
 }
 
+// CreateLeaseContract implements createLeaseContract operation.
+//
+// Creates a lease contract a company enters as lessee (ADR-0073 §3-§4, T88a), with its payment
+// schedule. The person decides that the contract is a lease, its term and its discount rate, and
+// enters the payments; the system judges none of it and applies no exemption for short-term or
+// low-value leases: every contract entered is capitalized when it is activated (ADR-0073 §2). The
+// company is one the caller may act in (422 `request.reference_not_found` naming `legal_entity_id`).
+// The lessor is a business partner that is active, a supplier and set up and not blocked for posting
+// in the company (422 `leases.lessor_not_usable` naming `lessor_id`). The term is a number of whole
+// months, 1 to 600; the payments are due every month, quarter or year (`payment_frequency`; another
+// value is 422 `leases.unknown_frequency`), which must divide the term (422
+// `leases.frequency_not_dividing_term` naming `term_months`), at the start of each interval
+// (`advance`) or at its end (`arrears`; another value is 422 `leases.unknown_timing`). The payment
+// amount is more than zero (422 `leases.payment_not_positive`) and in the company's local currency
+// (422 `leases.foreign_currency` naming `payment_amount.currency`: leases in a foreign currency are
+// not supported yet). The annual discount rate is a percentage above zero and at most 100 with up to
+// six decimals, given as a decimal string, never a number (422 `leases.invalid_discount_rate` naming
+// `annual_discount_rate_percent`). The cost center is an active cost center of the company in force on
+// the commencement date (422 `leases.cost_center_invalid` naming `cost_center_id`). The contract is
+// numbered from the company's `lease_contract` number range of the fiscal year of its date today (422
+// `config.no_number_range` when there is none) and created `draft` with one payment per interval,
+// numbered from 1: the n-th interval starts n-1 intervals after the commencement date, on its day of
+// the month or the month's last day when it has fewer, and ends the day before the next one starts; a
+// payment in advance is due on its interval's first day, one in arrears on its last. Nothing is
+// posted. Audited, and published as LeaseContractChanged. A retry with the same `Idempotency-Key`
+// answers the contract created. Human-only (`x-agent: false`).
+//
+// POST /v1/lease-contracts
+func (UnimplementedHandler) CreateLeaseContract(ctx context.Context, req *LeaseContractCreate, params CreateLeaseContractParams) (r CreateLeaseContractRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateLegalEntity implements createLegalEntity operation.
 //
 // Creates a legal entity in status `inactive`.
@@ -3369,6 +3401,18 @@ func (UnimplementedHandler) GetJournalEntry(ctx context.Context, params GetJourn
 	return r, ht.ErrNotImplemented
 }
 
+// GetLeaseContract implements getLeaseContract operation.
+//
+// One lease contract (ADR-0073 §3-§4, T88a) with its company's code and name, its lessor's number
+// and name, its cost center's code, its terms, the last day of its term and its payments, each with
+// its number, its due date and its amount, with their number and total. One of a company the caller
+// may not act in is not found (404), as one that does not exist.
+//
+// GET /v1/lease-contracts/{id}
+func (UnimplementedHandler) GetLeaseContract(ctx context.Context, params GetLeaseContractParams) (r GetLeaseContractRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetLegalEntity implements getLegalEntity operation.
 //
 // Returns one legal entity.
@@ -5079,6 +5123,18 @@ func (UnimplementedHandler) ListInternalOrders(ctx context.Context, params ListI
 //
 // GET /v1/journal-entries
 func (UnimplementedHandler) ListJournalEntries(ctx context.Context, params ListJournalEntriesParams) (r ListJournalEntriesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListLeaseContracts implements listLeaseContracts operation.
+//
+// The lease contracts of the companies the caller may act in (ADR-0073 §3, T88a), each as
+// `getLeaseContract` gives it but without its `payments`: with its company's code and name, its
+// lessor's number and name, its cost center's code, its terms and the number and total of its
+// payments. Filtered by company, lessor and status. Sortable by: `document_number`.
+//
+// GET /v1/lease-contracts
+func (UnimplementedHandler) ListLeaseContracts(ctx context.Context, params ListLeaseContractsParams) (r ListLeaseContractsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

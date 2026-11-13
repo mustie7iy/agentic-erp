@@ -313,6 +313,10 @@ type CreateInternalOrderRes interface {
 	createInternalOrderRes()
 }
 
+type CreateLeaseContractRes interface {
+	createLeaseContractRes()
+}
+
 type CreateLegalEntityRes interface {
 	createLegalEntityRes()
 }
@@ -775,6 +779,10 @@ type GetInternalOrderSettlementRuleRes interface {
 
 type GetJournalEntryRes interface {
 	getJournalEntryRes()
+}
+
+type GetLeaseContractRes interface {
+	getLeaseContractRes()
 }
 
 type GetLegalEntityRes interface {
@@ -1267,6 +1275,10 @@ type ListInternalOrdersRes interface {
 
 type ListJournalEntriesRes interface {
 	listJournalEntriesRes()
+}
+
+type ListLeaseContractsRes interface {
+	listLeaseContractsRes()
 }
 
 type ListLedgerGroupsRes interface {

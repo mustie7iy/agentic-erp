@@ -3039,13 +3039,13 @@
     "ph": 6,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Lease contracts",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A lease accountant creates a lease contract as lessee (company, lessor, commencement date, term in months, payment amount and frequency, in advance or in arrears, annual discount rate, cost center) and reads it back with its payment schedule; the leases context and its ADR (POST /v1/lease-contracts)",
-        "r": "T88a · docs/design/plan-breadth-week3.md §T88a",
+        "r": "T88a · docs/design/plan-breadth-week3.md §T88a · db/migrations/000308 · leases.contract, leases.payment · POST /v1/lease-contracts · GET /v1/lease-contracts · GET /v1/lease-contracts/{id} · LeaseContractChanged · leases.contract.read, .write · walkthrough step_lease · ADR-0073",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

@@ -24438,6 +24438,7 @@ func (*ConflictHeaders) createGrIrClearingRes()                    {}
 func (*ConflictHeaders) createHierarchyRes()                       {}
 func (*ConflictHeaders) createIncomingPaymentRes()                 {}
 func (*ConflictHeaders) createInternalOrderRes()                   {}
+func (*ConflictHeaders) createLeaseContractRes()                   {}
 func (*ConflictHeaders) createLegalEntityRes()                     {}
 func (*ConflictHeaders) createMemoRecordRes()                      {}
 func (*ConflictHeaders) createMigrationRunRes()                    {}
@@ -31487,6 +31488,22 @@ func (*CreateInternalOrderPreconditionRequired) createInternalOrderRes() {}
 type CreateInternalOrderUnprocessableEntity Problem
 
 func (*CreateInternalOrderUnprocessableEntity) createInternalOrderRes() {}
+
+type CreateLeaseContractBadRequest Problem
+
+func (*CreateLeaseContractBadRequest) createLeaseContractRes() {}
+
+type CreateLeaseContractForbidden Problem
+
+func (*CreateLeaseContractForbidden) createLeaseContractRes() {}
+
+type CreateLeaseContractPreconditionRequired Problem
+
+func (*CreateLeaseContractPreconditionRequired) createLeaseContractRes() {}
+
+type CreateLeaseContractUnprocessableEntity Problem
+
+func (*CreateLeaseContractUnprocessableEntity) createLeaseContractRes() {}
 
 type CreateLegalEntityBadRequest Problem
 
@@ -41550,6 +41567,46 @@ func (s *GetJournalEntryOKHeaders) SetResponse(val JournalEntry) {
 
 func (*GetJournalEntryOKHeaders) getJournalEntryRes() {}
 
+type GetLeaseContractBadRequest Problem
+
+func (*GetLeaseContractBadRequest) getLeaseContractRes() {}
+
+type GetLeaseContractForbidden Problem
+
+func (*GetLeaseContractForbidden) getLeaseContractRes() {}
+
+type GetLeaseContractNotFound Problem
+
+func (*GetLeaseContractNotFound) getLeaseContractRes() {}
+
+// GetLeaseContractOKHeaders wraps LeaseContract with response headers.
+type GetLeaseContractOKHeaders struct {
+	ETag     OptString
+	Response LeaseContract
+}
+
+// GetETag returns the value of ETag.
+func (s *GetLeaseContractOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetLeaseContractOKHeaders) GetResponse() LeaseContract {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetLeaseContractOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetLeaseContractOKHeaders) SetResponse(val LeaseContract) {
+	s.Response = val
+}
+
+func (*GetLeaseContractOKHeaders) getLeaseContractRes() {}
+
 type GetLegalEntityBadRequest Problem
 
 func (*GetLegalEntityBadRequest) getLegalEntityRes() {}
@@ -49419,6 +49476,581 @@ func (s *JournalLineInput) SetLineText(val OptString) {
 	s.LineText = val
 }
 
+// Merged schema.
+// Ref: #/components/schemas/LeaseContract
+type LeaseContract struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The contract's number, from the company's `lease_contract` number range.
+	DocumentNumber string `json:"document_number"`
+	// The company that leases.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The lessor (`GET /v1/business-partners/{id}`).
+	LessorID uuid.UUID `json:"lessor_id"`
+	// The lessor's business partner number.
+	LessorNumber string `json:"lessor_number"`
+	// The lessor's name, as it is now.
+	LessorName string `json:"lessor_name"`
+	// The commencement date.
+	CommencementDate time.Time `json:"commencement_date"`
+	// The term's last day: the day before the date `term_months` after the commencement date.
+	EndDate time.Time `json:"end_date"`
+	// The lease term in months.
+	TermMonths int32 `json:"term_months"`
+	// Each payment.
+	PaymentAmount Money `json:"payment_amount"`
+	// How often a payment is due. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	PaymentFrequency string `json:"payment_frequency"`
+	// Whether payments are due at the start (`advance`) or the end (`arrears`) of their intervals. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	PaymentTiming string `json:"payment_timing"`
+	// The annual discount rate in percent, as entered, without trailing zeros.
+	AnnualDiscountRatePercent string `json:"annual_discount_rate_percent"`
+	// The cost center of the lease's expenses.
+	CostCenterID uuid.UUID `json:"cost_center_id"`
+	// The cost center's code.
+	CostCenterCode string `json:"cost_center_code"`
+	// The contract's currency (ISO 4217): the company's local currency.
+	Currency string `json:"currency"`
+	// The number of payments: the term divided by the months of an interval.
+	PaymentCount int32 `json:"payment_count"`
+	// The sum of the payments, undiscounted.
+	TotalPayments Money `json:"total_payments"`
+	// `draft`: created, posting nothing. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The payments, by number; absent from `listLeaseContracts`, whose items `getLeaseContract` gives with
+	// them.
+	Payments []LeasePayment `json:"payments"`
+}
+
+// GetID returns the value of ID.
+func (s *LeaseContract) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *LeaseContract) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *LeaseContract) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *LeaseContract) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *LeaseContract) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *LeaseContract) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *LeaseContract) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *LeaseContract) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *LeaseContract) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *LeaseContract) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetLessorID returns the value of LessorID.
+func (s *LeaseContract) GetLessorID() uuid.UUID {
+	return s.LessorID
+}
+
+// GetLessorNumber returns the value of LessorNumber.
+func (s *LeaseContract) GetLessorNumber() string {
+	return s.LessorNumber
+}
+
+// GetLessorName returns the value of LessorName.
+func (s *LeaseContract) GetLessorName() string {
+	return s.LessorName
+}
+
+// GetCommencementDate returns the value of CommencementDate.
+func (s *LeaseContract) GetCommencementDate() time.Time {
+	return s.CommencementDate
+}
+
+// GetEndDate returns the value of EndDate.
+func (s *LeaseContract) GetEndDate() time.Time {
+	return s.EndDate
+}
+
+// GetTermMonths returns the value of TermMonths.
+func (s *LeaseContract) GetTermMonths() int32 {
+	return s.TermMonths
+}
+
+// GetPaymentAmount returns the value of PaymentAmount.
+func (s *LeaseContract) GetPaymentAmount() Money {
+	return s.PaymentAmount
+}
+
+// GetPaymentFrequency returns the value of PaymentFrequency.
+func (s *LeaseContract) GetPaymentFrequency() string {
+	return s.PaymentFrequency
+}
+
+// GetPaymentTiming returns the value of PaymentTiming.
+func (s *LeaseContract) GetPaymentTiming() string {
+	return s.PaymentTiming
+}
+
+// GetAnnualDiscountRatePercent returns the value of AnnualDiscountRatePercent.
+func (s *LeaseContract) GetAnnualDiscountRatePercent() string {
+	return s.AnnualDiscountRatePercent
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *LeaseContract) GetCostCenterID() uuid.UUID {
+	return s.CostCenterID
+}
+
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *LeaseContract) GetCostCenterCode() string {
+	return s.CostCenterCode
+}
+
+// GetCurrency returns the value of Currency.
+func (s *LeaseContract) GetCurrency() string {
+	return s.Currency
+}
+
+// GetPaymentCount returns the value of PaymentCount.
+func (s *LeaseContract) GetPaymentCount() int32 {
+	return s.PaymentCount
+}
+
+// GetTotalPayments returns the value of TotalPayments.
+func (s *LeaseContract) GetTotalPayments() Money {
+	return s.TotalPayments
+}
+
+// GetStatus returns the value of Status.
+func (s *LeaseContract) GetStatus() string {
+	return s.Status
+}
+
+// GetPayments returns the value of Payments.
+func (s *LeaseContract) GetPayments() []LeasePayment {
+	return s.Payments
+}
+
+// SetID sets the value of ID.
+func (s *LeaseContract) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *LeaseContract) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *LeaseContract) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *LeaseContract) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *LeaseContract) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *LeaseContract) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *LeaseContract) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *LeaseContract) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *LeaseContract) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *LeaseContract) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetLessorID sets the value of LessorID.
+func (s *LeaseContract) SetLessorID(val uuid.UUID) {
+	s.LessorID = val
+}
+
+// SetLessorNumber sets the value of LessorNumber.
+func (s *LeaseContract) SetLessorNumber(val string) {
+	s.LessorNumber = val
+}
+
+// SetLessorName sets the value of LessorName.
+func (s *LeaseContract) SetLessorName(val string) {
+	s.LessorName = val
+}
+
+// SetCommencementDate sets the value of CommencementDate.
+func (s *LeaseContract) SetCommencementDate(val time.Time) {
+	s.CommencementDate = val
+}
+
+// SetEndDate sets the value of EndDate.
+func (s *LeaseContract) SetEndDate(val time.Time) {
+	s.EndDate = val
+}
+
+// SetTermMonths sets the value of TermMonths.
+func (s *LeaseContract) SetTermMonths(val int32) {
+	s.TermMonths = val
+}
+
+// SetPaymentAmount sets the value of PaymentAmount.
+func (s *LeaseContract) SetPaymentAmount(val Money) {
+	s.PaymentAmount = val
+}
+
+// SetPaymentFrequency sets the value of PaymentFrequency.
+func (s *LeaseContract) SetPaymentFrequency(val string) {
+	s.PaymentFrequency = val
+}
+
+// SetPaymentTiming sets the value of PaymentTiming.
+func (s *LeaseContract) SetPaymentTiming(val string) {
+	s.PaymentTiming = val
+}
+
+// SetAnnualDiscountRatePercent sets the value of AnnualDiscountRatePercent.
+func (s *LeaseContract) SetAnnualDiscountRatePercent(val string) {
+	s.AnnualDiscountRatePercent = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *LeaseContract) SetCostCenterID(val uuid.UUID) {
+	s.CostCenterID = val
+}
+
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *LeaseContract) SetCostCenterCode(val string) {
+	s.CostCenterCode = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *LeaseContract) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetPaymentCount sets the value of PaymentCount.
+func (s *LeaseContract) SetPaymentCount(val int32) {
+	s.PaymentCount = val
+}
+
+// SetTotalPayments sets the value of TotalPayments.
+func (s *LeaseContract) SetTotalPayments(val Money) {
+	s.TotalPayments = val
+}
+
+// SetStatus sets the value of Status.
+func (s *LeaseContract) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetPayments sets the value of Payments.
+func (s *LeaseContract) SetPayments(val []LeasePayment) {
+	s.Payments = val
+}
+
+// A lease contract a company enters as lessee.
+// Ref: #/components/schemas/LeaseContractCreate
+type LeaseContractCreate struct {
+	// The company that leases, one the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The lessor: a business partner that is a supplier set up and not blocked for posting in the company
+	// (`GET /v1/business-partners/{id}`).
+	LessorID uuid.UUID `json:"lessor_id"`
+	// The date the lessor makes the asset available: the term and the payments count from it.
+	CommencementDate time.Time `json:"commencement_date"`
+	// The lease term in whole months, a person's judgement.
+	TermMonths int32 `json:"term_months"`
+	// Each payment, more than zero, in the company's local currency.
+	PaymentAmount Money `json:"payment_amount"`
+	// How often a payment is due: every month, quarter or year; it divides the term. Open enumeration:
+	// values may be added within /v1.
+	PaymentFrequency string `json:"payment_frequency"`
+	// When in its interval a payment is due: on the first day (`advance`) or the last (`arrears`). Open
+	// enumeration: values may be added within /v1.
+	PaymentTiming string `json:"payment_timing"`
+	// The annual discount rate in percent, a decimal string such as "6" or "4.25": above zero, at most
+	// 100, up to six decimals. The rate implicit in the lease or the lessee's incremental borrowing rate,
+	// a person's judgement.
+	AnnualDiscountRatePercent string `json:"annual_discount_rate_percent"`
+	// The cost center the lease's expenses are to be posted on: an active cost center of the company in
+	// force on the commencement date.
+	CostCenterID uuid.UUID `json:"cost_center_id"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *LeaseContractCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetLessorID returns the value of LessorID.
+func (s *LeaseContractCreate) GetLessorID() uuid.UUID {
+	return s.LessorID
+}
+
+// GetCommencementDate returns the value of CommencementDate.
+func (s *LeaseContractCreate) GetCommencementDate() time.Time {
+	return s.CommencementDate
+}
+
+// GetTermMonths returns the value of TermMonths.
+func (s *LeaseContractCreate) GetTermMonths() int32 {
+	return s.TermMonths
+}
+
+// GetPaymentAmount returns the value of PaymentAmount.
+func (s *LeaseContractCreate) GetPaymentAmount() Money {
+	return s.PaymentAmount
+}
+
+// GetPaymentFrequency returns the value of PaymentFrequency.
+func (s *LeaseContractCreate) GetPaymentFrequency() string {
+	return s.PaymentFrequency
+}
+
+// GetPaymentTiming returns the value of PaymentTiming.
+func (s *LeaseContractCreate) GetPaymentTiming() string {
+	return s.PaymentTiming
+}
+
+// GetAnnualDiscountRatePercent returns the value of AnnualDiscountRatePercent.
+func (s *LeaseContractCreate) GetAnnualDiscountRatePercent() string {
+	return s.AnnualDiscountRatePercent
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *LeaseContractCreate) GetCostCenterID() uuid.UUID {
+	return s.CostCenterID
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *LeaseContractCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetLessorID sets the value of LessorID.
+func (s *LeaseContractCreate) SetLessorID(val uuid.UUID) {
+	s.LessorID = val
+}
+
+// SetCommencementDate sets the value of CommencementDate.
+func (s *LeaseContractCreate) SetCommencementDate(val time.Time) {
+	s.CommencementDate = val
+}
+
+// SetTermMonths sets the value of TermMonths.
+func (s *LeaseContractCreate) SetTermMonths(val int32) {
+	s.TermMonths = val
+}
+
+// SetPaymentAmount sets the value of PaymentAmount.
+func (s *LeaseContractCreate) SetPaymentAmount(val Money) {
+	s.PaymentAmount = val
+}
+
+// SetPaymentFrequency sets the value of PaymentFrequency.
+func (s *LeaseContractCreate) SetPaymentFrequency(val string) {
+	s.PaymentFrequency = val
+}
+
+// SetPaymentTiming sets the value of PaymentTiming.
+func (s *LeaseContractCreate) SetPaymentTiming(val string) {
+	s.PaymentTiming = val
+}
+
+// SetAnnualDiscountRatePercent sets the value of AnnualDiscountRatePercent.
+func (s *LeaseContractCreate) SetAnnualDiscountRatePercent(val string) {
+	s.AnnualDiscountRatePercent = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *LeaseContractCreate) SetCostCenterID(val uuid.UUID) {
+	s.CostCenterID = val
+}
+
+// LeaseContractHeaders wraps LeaseContract with response headers.
+type LeaseContractHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           LeaseContract
+}
+
+// GetETag returns the value of ETag.
+func (s *LeaseContractHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *LeaseContractHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *LeaseContractHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *LeaseContractHeaders) GetResponse() LeaseContract {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *LeaseContractHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *LeaseContractHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *LeaseContractHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *LeaseContractHeaders) SetResponse(val LeaseContract) {
+	s.Response = val
+}
+
+func (*LeaseContractHeaders) createLeaseContractRes() {}
+
+// One page of lease contracts.
+// Ref: #/components/schemas/LeaseContractPage
+type LeaseContractPage struct {
+	// The lease contracts on this page, without their payments.
+	Items []LeaseContract `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *LeaseContractPage) GetItems() []LeaseContract {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *LeaseContractPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *LeaseContractPage) SetItems(val []LeaseContract) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *LeaseContractPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*LeaseContractPage) listLeaseContractsRes() {}
+
+// A payment of a lease contract's schedule (ADR-0073 §4).
+// Ref: #/components/schemas/LeasePayment
+type LeasePayment struct {
+	// The payment's number within the contract, from 1 in date order.
+	PaymentNo int32 `json:"payment_no"`
+	// The day it is due: its interval's first day for a payment in advance, its last for one in arrears.
+	DueDate time.Time `json:"due_date"`
+	// The payment, in the contract's currency.
+	Amount Money `json:"amount"`
+}
+
+// GetPaymentNo returns the value of PaymentNo.
+func (s *LeasePayment) GetPaymentNo() int32 {
+	return s.PaymentNo
+}
+
+// GetDueDate returns the value of DueDate.
+func (s *LeasePayment) GetDueDate() time.Time {
+	return s.DueDate
+}
+
+// GetAmount returns the value of Amount.
+func (s *LeasePayment) GetAmount() Money {
+	return s.Amount
+}
+
+// SetPaymentNo sets the value of PaymentNo.
+func (s *LeasePayment) SetPaymentNo(val int32) {
+	s.PaymentNo = val
+}
+
+// SetDueDate sets the value of DueDate.
+func (s *LeasePayment) SetDueDate(val time.Time) {
+	s.DueDate = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *LeasePayment) SetAmount(val Money) {
+	s.Amount = val
+}
+
 // A ledger of the tenant (SAP FINSC_LEDGER): the leading ledger 0L or a parallel ledger.
 // Ref: #/components/schemas/Ledger
 type Ledger struct {
@@ -52943,6 +53575,14 @@ func (*ListJournalEntriesBadRequest) listJournalEntriesRes() {}
 type ListJournalEntriesForbidden Problem
 
 func (*ListJournalEntriesForbidden) listJournalEntriesRes() {}
+
+type ListLeaseContractsBadRequest Problem
+
+func (*ListLeaseContractsBadRequest) listLeaseContractsRes() {}
+
+type ListLeaseContractsForbidden Problem
+
+func (*ListLeaseContractsForbidden) listLeaseContractsRes() {}
 
 type ListLedgerGroupsBadRequest Problem
 
@@ -86890,6 +87530,7 @@ func (*TooManyRequestsHeaders) createGrIrClearingRes()                    {}
 func (*TooManyRequestsHeaders) createHierarchyRes()                       {}
 func (*TooManyRequestsHeaders) createIncomingPaymentRes()                 {}
 func (*TooManyRequestsHeaders) createInternalOrderRes()                   {}
+func (*TooManyRequestsHeaders) createLeaseContractRes()                   {}
 func (*TooManyRequestsHeaders) createLegalEntityRes()                     {}
 func (*TooManyRequestsHeaders) createMemoRecordRes()                      {}
 func (*TooManyRequestsHeaders) createMigrationRunRes()                    {}
@@ -87006,6 +87647,7 @@ func (*TooManyRequestsHeaders) getInternalOrderBudgetRes()                {}
 func (*TooManyRequestsHeaders) getInternalOrderRes()                      {}
 func (*TooManyRequestsHeaders) getInternalOrderSettlementRuleRes()        {}
 func (*TooManyRequestsHeaders) getJournalEntryRes()                       {}
+func (*TooManyRequestsHeaders) getLeaseContractRes()                      {}
 func (*TooManyRequestsHeaders) getLegalEntityRes()                        {}
 func (*TooManyRequestsHeaders) getLegalEntityTodayRes()                   {}
 func (*TooManyRequestsHeaders) getLiquidityForecastRes()                  {}
@@ -87129,6 +87771,7 @@ func (*TooManyRequestsHeaders) listInternalOrderBalancesRes()             {}
 func (*TooManyRequestsHeaders) listInternalOrderSettlementsRes()          {}
 func (*TooManyRequestsHeaders) listInternalOrdersRes()                    {}
 func (*TooManyRequestsHeaders) listJournalEntriesRes()                    {}
+func (*TooManyRequestsHeaders) listLeaseContractsRes()                    {}
 func (*TooManyRequestsHeaders) listLedgerGroupsRes()                      {}
 func (*TooManyRequestsHeaders) listLedgerReconciliationEntriesRes()       {}
 func (*TooManyRequestsHeaders) listLedgerReconciliationRes()              {}
@@ -87697,6 +88340,7 @@ func (*UnauthorizedHeaders) createGrIrClearingRes()                    {}
 func (*UnauthorizedHeaders) createHierarchyRes()                       {}
 func (*UnauthorizedHeaders) createIncomingPaymentRes()                 {}
 func (*UnauthorizedHeaders) createInternalOrderRes()                   {}
+func (*UnauthorizedHeaders) createLeaseContractRes()                   {}
 func (*UnauthorizedHeaders) createLegalEntityRes()                     {}
 func (*UnauthorizedHeaders) createMemoRecordRes()                      {}
 func (*UnauthorizedHeaders) createMigrationRunRes()                    {}
@@ -87813,6 +88457,7 @@ func (*UnauthorizedHeaders) getInternalOrderBudgetRes()                {}
 func (*UnauthorizedHeaders) getInternalOrderRes()                      {}
 func (*UnauthorizedHeaders) getInternalOrderSettlementRuleRes()        {}
 func (*UnauthorizedHeaders) getJournalEntryRes()                       {}
+func (*UnauthorizedHeaders) getLeaseContractRes()                      {}
 func (*UnauthorizedHeaders) getLegalEntityRes()                        {}
 func (*UnauthorizedHeaders) getLegalEntityTodayRes()                   {}
 func (*UnauthorizedHeaders) getLiquidityForecastRes()                  {}
@@ -87936,6 +88581,7 @@ func (*UnauthorizedHeaders) listInternalOrderBalancesRes()             {}
 func (*UnauthorizedHeaders) listInternalOrderSettlementsRes()          {}
 func (*UnauthorizedHeaders) listInternalOrdersRes()                    {}
 func (*UnauthorizedHeaders) listJournalEntriesRes()                    {}
+func (*UnauthorizedHeaders) listLeaseContractsRes()                    {}
 func (*UnauthorizedHeaders) listLedgerGroupsRes()                      {}
 func (*UnauthorizedHeaders) listLedgerReconciliationEntriesRes()       {}
 func (*UnauthorizedHeaders) listLedgerReconciliationRes()              {}
