@@ -9019,10 +9019,10 @@ step_credit_memo_posting() {
   # The share of the item's tax the credited net is of its billed amount, rounded half away from zero (money.Allocate).
   tax=$(((borne * net * 2 + billed) / (2 * billed)))
   gross=$((net + tax))
-  cents() { printf '%d.%02d' $(($1 / 100)) $(($1 % 100)); }
+  show_cents() { printf '%d.%02d' $(($1 / 100)) $(($1 % 100)); }
   say "Ruth posts the approved request (ADR-0067, As built T85d). Accounts receivable enters and posts a customer credit"
-  say "memo for it in the same transaction, naming the invoice billing document step 64 posted as: $(cents "$net") CAD"
-  say "net, and of the $(cents "$borne") CAD of GST the invoice's item bore, the share that net is of $(cents "$billed"):"
+  say "memo for it in the same transaction, naming the invoice billing document step 64 posted as: $(show_cents "$net") CAD"
+  say "net, and of the $(show_cents "$borne") CAD of GST the invoice's item bore, the share that net is of $(show_cents "$billed"):"
   day=$(company_day)
   api 200 '"credit memo request \(.document_number): \(.status), posted \(.posting_date) as \(.customer_invoice_number), entry \(.journal_entry_number)"' \
     postCreditMemoRequest -p "id=$request" -if-match "$tag"
@@ -9034,13 +9034,13 @@ step_credit_memo_posting() {
   expect "the credit memo names the invoice and the request" \
     "$(field '"\(.kind) \(.status) \(.reference_invoice_id) \(.source_document_id)"')" "credit_memo posted $invoice $request"
   expect "net, tax and gross" "$(field '"\(.net_amount.amount) \(.tax_amount.amount) \(.gross_amount.amount) \(.currency)"')" \
-    "$(cents "$net") $(cents "$tax") $(cents "$gross") CAD"
+    "$(show_cents "$net") $(show_cents "$tax") $(show_cents "$gross") CAD"
   say "The DG entry credits Northwind on 1200 with the gross and debits 4000 Sales and 2300 GST/HST payable: receivables,"
   say "revenue and output tax moved back by exactly the credit memo's amounts."
   api 200 '"journal entry \(.document_number), \(.document_type), source \(.source_context)", (.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' \
     getJournalEntry -p "id=$entry"
   expect "the entry's type and source" "$(field '"\(.document_type) \(.source_context) \(.source_document_id)"')" "DG receivables $memo"
-  expect "the entry's amounts" "$(field '[.lines[].amount.amount] | join(" ")')" "-$(cents "$gross") $(cents "$net") $(cents "$tax")"
+  expect "the entry's amounts" "$(field '[.lines[].amount.amount] | join(" ")')" "-$(show_cents "$gross") $(show_cents "$net") $(show_cents "$tax")"
   expect "the entry's accounts" "$(field '[.lines[].account_id] | join(" ")')" "$(account 1200) $(account 4000) $(account 2300)"
   say "Northwind's open items now hold the credit, and its open amount fell by the credit memo's gross:"
   api 200 '.items[] | "  \(.document_number // .journal_entry_id): \(.amount.amount) \(.amount.currency)"' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer" -p page_size=200
@@ -9048,7 +9048,7 @@ step_credit_memo_posting() {
   expect "the customer's open amount" "$after" "$((before - gross))"
   say "The billing document's item shows what is credited of it; the request is posted once:"
   QUIET=1 api 200 '' getBillingDocument -p "id=$doc"
-  expect "the billing item's credited amount" "$(field '.items[0].credited_amount.amount')" "$(cents "$net")"
+  expect "the billing item's credited amount" "$(field '.items[0].credited_amount.amount')" "$(show_cents "$net")"
   QUIET=1 api 200 '' getCreditMemoRequest -p "id=$request"
   refused 409 sales.invalid_status postCreditMemoRequest -p "id=$request" -if-match "$ETAG"
   passed
