@@ -690,7 +690,12 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   postings that build lines of their own (a cash discount's tax
   correction, a down payment's transfer, `ledger.Posting`): all are
   supplier-side today, and a customer cash discount on such a code will
-  need it. **Rolling upgrade (06 §6.4):** 000150 is additive and runs ahead
+  need it. (Since the product owner's decision of 2026-11-12,
+  `ledger.PostingLine` carries `TaxJurisdiction` and a customer invoice's
+  items name it: ADR-0063 As built, "The emirate on the item";
+  `TaxCode.CheckJurisdiction` is the one check of a line's and an item's.
+  A cash discount's correction and a down payment's transfer still carry
+  none.) **Rolling upgrade (06 §6.4):** 000150 is additive and runs ahead
   of the code; an instance of the previous release posting a code that
   levies its lines' subdivision fails the trigger (409), and its parked
   line upserts leave `tax_jurisdiction` as it was, so

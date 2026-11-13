@@ -55,6 +55,45 @@ func levyingComponent(t TaxCode) (TaxComponent, bool) {
 	return TaxComponent{}, false
 }
 
+// JurisdictionFault is what is wrong with the jurisdiction a line names
+// under its tax code (TaxCode.CheckJurisdiction).
+type JurisdictionFault int
+
+// The faults of a line's jurisdiction, JurisdictionOK for none.
+const (
+	JurisdictionOK JurisdictionFault = iota
+	// JurisdictionRequired: the code levies its lines' subdivision and the
+	// line names none.
+	JurisdictionRequired
+	// JurisdictionNotLevied: the line names one though its code levies no
+	// line's subdivision, or one of another country than the component's.
+	JurisdictionNotLevied
+	// JurisdictionNotAccepted: the component lists the subdivisions it
+	// accepts and the line names another (the emirate guard).
+	JurisdictionNotAccepted
+)
+
+// CheckJurisdiction holds the jurisdiction j a line carrying the code
+// names, nil for none, to the code (ADR-0049 §7): one is named exactly
+// where a component of the code levies its lines' subdivision, then a
+// subdivision of that component's country and, where the component lists
+// the subdivisions it accepts, one of them. It returns the fault and the
+// levying component, for the caller's words; the zero TaxCode is a line
+// without a code. A manual entry's lines and a subledger document's items
+// are held to it alike.
+func (t TaxCode) CheckJurisdiction(j *string) (JurisdictionFault, TaxComponent) {
+	c, levies := levyingComponent(t)
+	switch {
+	case j == nil && levies:
+		return JurisdictionRequired, c
+	case j != nil && (!levies || !strings.HasPrefix(*j, c.Jurisdiction+"-")):
+		return JurisdictionNotLevied, c
+	case j != nil && len(c.Subdivisions) > 0 && !slices.Contains(c.Subdivisions, *j):
+		return JurisdictionNotAccepted, c
+	}
+	return JurisdictionOK, c
+}
+
 // checkJurisdictions requires a line's jurisdiction exactly where its
 // code's component levies the line's subdivision (422
 // ledger.jurisdiction_required), and then one of that component's country
@@ -62,24 +101,24 @@ func levyingComponent(t TaxCode) (TaxComponent, bool) {
 // (422 ledger.jurisdiction_not_levied; the emirate guard).
 func checkJurisdictions(lines []Line, byCode map[string]TaxCode) error {
 	for i, l := range lines {
-		var c TaxComponent
-		levies := false
+		var t TaxCode
 		if l.TaxCode != nil {
-			c, levies = levyingComponent(byCode[*l.TaxCode])
+			t = byCode[*l.TaxCode]
 		}
 		field := fmt.Sprintf("lines[%d].tax_jurisdiction", i)
-		switch j := l.TaxJurisdiction; {
-		case j == nil && levies:
+		switch fault, c := t.CheckJurisdiction(l.TaxJurisdiction); fault {
+		case JurisdictionOK: // named, or not, as the line's code asks
+		case JurisdictionRequired:
 			return problem.Unprocessable("ledger.jurisdiction_required", fmt.Sprintf("Line %d carries tax code %s, which levies the tax of the "+
 				"subdivision its lines name: name the province or emirate (%s-…).", i+1, *l.TaxCode, c.Jurisdiction),
 				problem.FieldError{Field: field, Code: "required", Message: "a subdivision of " + c.Jurisdiction})
-		case j != nil && (!levies || !strings.HasPrefix(*j, c.Jurisdiction+"-")):
+		case JurisdictionNotLevied:
 			return problem.Unprocessable("ledger.jurisdiction_not_levied", fmt.Sprintf("Line %d names jurisdiction %s, which its tax code does not "+
-				"levy: a line names one only where its code levies its lines' subdivisions.", i+1, *j),
+				"levy: a line names one only where its code levies its lines' subdivisions.", i+1, *l.TaxJurisdiction),
 				problem.FieldError{Field: field, Code: "not_levied", Message: "only with a code that levies its lines' subdivision"})
-		case j != nil && len(c.Subdivisions) > 0 && !slices.Contains(c.Subdivisions, *j):
+		case JurisdictionNotAccepted:
 			return problem.Unprocessable("ledger.jurisdiction_not_levied", fmt.Sprintf("Line %d names jurisdiction %s, which tax code %s does not "+
-				"levy: it levies %s.", i+1, *j, *l.TaxCode, strings.Join(c.Subdivisions, ", ")),
+				"levy: it levies %s.", i+1, *l.TaxJurisdiction, *l.TaxCode, strings.Join(c.Subdivisions, ", ")),
 				problem.FieldError{Field: field, Code: "not_levied", Message: "one of " + strings.Join(c.Subdivisions, ", ")})
 		}
 	}

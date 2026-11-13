@@ -1108,6 +1108,13 @@
       "c": [
        {
         "s": "D",
+        "t": "A UAE customer invoice's item names the emirate its tax is levied in (product owner 2026-11-12, row 16): tax_jurisdiction on the item (ISO 3166-2, AE-DU), required with an output code that levies its lines' subdivision (422 receivables.tax_jurisdiction_required) and refused with any other (422 receivables.tax_jurisdiction_not_levied), held to the code by the ledger's own check; the posting carries it to the item's line and posts the tax per code, jurisdiction and component, so the entry's tax items are per emirate for the VAT 201's boxes 1a-1g; credit memos alike. Sales documents and billing through receivables (T79b) still name none",
+        "r": "db/migrations/000296 · receivables.customer_invoice_item.tax_jurisdiction · ledger.PostingLine.TaxJurisdiction · ledger.TaxCode.CheckJurisdiction · POST /v1/customer-invoices · TestItemJurisdiction · TestPostJurisdictions · TestPostJurisdictionNoLongerLevied · TestCustomerInvoiceItemJurisdiction · ADR-0063 As built (The emirate on the item) · ADR-0049 §7 As built · tests only: the walkthrough has no UAE customer invoice",
+        "src": "po:2026-11-12",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "An AR accountant enters a customer invoice without a sales order (customer, items by revenue account with output tax code) and reads it back with its calculated tax and totals; the receivables context and its ADR",
         "r": "T75a · docs/design/plan-breadth-week1.md §T75a · db/migrations/000265 · receivables.customer_invoice, customer_invoice_item · POST /v1/customer-invoices · GET /v1/customer-invoices · GET /v1/customer-invoices/{id} · CustomerInvoiceChanged · receivables.invoice.read, .write, .post · walkthrough step_customer_invoice · ADR-0063 §1-§4, §8, §9 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
@@ -7280,6 +7287,13 @@
         "r": "packs/ca/2026.5: 2026.4 with sign_off Musto Ibrahim, 2026-11-02 (tax specialist's approval as written, reported by the product owner 2026-11-02) · packs/released.sha256 · TestCanadaPack2026_5 · ADR-0048 and ADR-0049 As built (T62h: what was confirmed; the weekend observed day and provincial holidays left open; UAE items wait for T62f, T61k) · walkthrough step 11 shows the sign-off · T62h",
         "src": "split:T62g · adr:ADR-0048 · po:2026-11-02",
         "pilot": "po:2026-10-31 · adr:ADR-0048",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Number ranges of the newer documents in the packs (product owner 2026-11-12, row 15): Canada 2026.9 and UAE 2026.6 are 2026.8 and 2026.5 plus the ranges rfq, quotation, sales_order, billing_document, customer_invoice, incoming_payment, journal_dr, journal_dg and journal_dz, which a company activated from the earlier version lacked (409 config.no_number_range; the walkthrough's pilot set them up itself); tax codes, rates, tax settings and returns unchanged byte for byte; an upgrade adds the ranges and nothing else. Released unsigned: a sign-off is recorded per version and none was given or approved for these, so production refuses them until a signed-off version exists",
+        "r": "packs/ca/2026.9 · packs/ae/2026.6 · packs/released.sha256 · TestCanadaPack2026_9 · TestUAEPack2026_6 (numberingOnly, adoptsAddedRanges) · ADR-0048 As built (number ranges of the newer documents) · walkthrough steps 2 and 41 apply the latest signed-off versions and list the new ones",
+        "src": "po:2026-11-12",
         "c": []
        }
       ]

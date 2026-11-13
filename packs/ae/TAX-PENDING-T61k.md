@@ -185,3 +185,10 @@ none named a wrong code, so no label's code changed. Its boxes, their
 selections and sums are 2026.4's; only label strings differ
 (`TestUAEPack2026_5`). The table above and `TestUAEPackVAT201` describe
 2026.2, which keeps its markers, as 2026.4 does.
+
+Number ranges added (`2026.6`, product owner 2026-11-12): 2026.6 is 2026.5
+plus number ranges for customer invoices, incoming payments, sales
+documents and RFQs. Its `tax.yaml` and `returns.yaml` are 2026.5's byte
+for byte (`TestUAEPack2026_6`). It carries no `sign_off`: none was given
+or approved for this version, so production refuses it and 2026.5 stays
+the signed-off version.

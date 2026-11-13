@@ -1229,16 +1229,21 @@ func (UnimplementedHandler) CreateCreditLimit(ctx context.Context, req *Customer
 // tax date (422 `receivables.unknown_tax_code` naming `items[i].tax_code`); the tax is calculated at
 // that date's rates, rounded as the company's tax settings say, and each item keeps its share, so the
 // items' net and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its
-// `gross_amount`, exactly. An item without a code bears no tax. A code that levies the subdivision its
-// lines name (one code for every emirate) is refused, 422
-// `receivables.tax_jurisdiction_not_supported`: an item names no jurisdiction yet. With `kind`
-// `credit_memo` the document is a customer credit memo (ADR-0063 §7, T75d): entered the same way, its
-// amounts more than zero, its tax at its own date's rates, and posted with the signs turned. A credit
-// memo may name the invoice it credits (`reference_invoice_id`): a posted invoice of the same company
-// and customer in the memo's currency (422 `receivables.invalid_reference_invoice` naming the field
-// otherwise); an invoice names none (422 `receivables.reference_not_allowed`). A kind that is neither
-// is refused (422 `receivables.unknown_kind`). A retry with the same `Idempotency-Key` answers the
-// invoice entered. Human-only (`x-agent: false`).
+// `gross_amount`, exactly. An item without a code bears no tax. An item whose code levies the
+// subdivision its lines name (one code for every emirate, ADR-0049 §7) names that subdivision in
+// `tax_jurisdiction` (`AE-DU`; 422 `receivables.tax_jurisdiction_required` naming
+// `items[i].tax_jurisdiction` without one): a subdivision of the code's country and, where the code
+// lists the subdivisions it accepts, one of them; an item of any other code, or of none, names none
+// (422 `receivables.tax_jurisdiction_not_levied` naming the field). The invoice's tax is still its
+// code's, each item keeping its share; when the invoice posts, the item's line and its share of the
+// tax carry the jurisdiction, so a tax return reads the sale in its emirate. With `kind` `credit_memo`
+// the document is a customer credit memo (ADR-0063 §7, T75d): entered the same way, its amounts more
+// than zero, its tax at its own date's rates, and posted with the signs turned. A credit memo may name
+// the invoice it credits (`reference_invoice_id`): a posted invoice of the same company and customer
+// in the memo's currency (422 `receivables.invalid_reference_invoice` naming the field otherwise); an
+// invoice names none (422 `receivables.reference_not_allowed`). A kind that is neither is refused (422
+// `receivables.unknown_kind`). A retry with the same `Idempotency-Key` answers the invoice entered.
+// Human-only (`x-agent: false`).
 //
 // POST /v1/customer-invoices
 func (UnimplementedHandler) CreateCustomerInvoice(ctx context.Context, req *CustomerInvoiceCreate, params CreateCustomerInvoiceParams) (r CreateCustomerInvoiceRes, _ error) {
@@ -1599,19 +1604,20 @@ func (UnimplementedHandler) CreatePurchaseOrderChange(ctx context.Context, req *
 // can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and
 // optionally an output tax code of the company with a rate in force on the quotation's date (422
 // `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines
-// name is refused, 422 `sales.tax_jurisdiction_not_supported`, as a customer invoice refuses it). An
-// item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the
-// currency's minor unit and more than zero (422 `sales.amount_not_positive` naming
-// `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give);
-// the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing
-// procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and
-// valid on the quotation's date, the customer's before the general one, is taken off an item priced
-// from the price records, in the procedure's order, as a percentage of the value before it rounded
-// half away from zero; `conditions` lists the price and the discounts applied, and `net_amount` is the
-// value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item
-// is its final net price: no discount is taken off it, and its price is its only condition. Amounts
-// are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same
-// `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`).
+// name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales document's items name no
+// jurisdiction, as a customer invoice's can). An item's `net_amount` is quantity × unit price ÷
+// price unit, rounded half away from zero to the currency's minor unit and more than zero (422
+// `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a
+// price the request did not give); the quotation's `net_amount` is their sum, exactly. When the
+// tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure
+// recorded for the item's key and valid on the quotation's date, the customer's before the general
+// one, is taken off an item priced from the price records, in the procedure's order, as a percentage
+// of the value before it rounded half away from zero; `conditions` lists the price and the discounts
+// applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A
+// `unit_price` entered with the item is its final net price: no discount is taken off it, and its
+// price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the
+// invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
+// (`x-agent: false`).
 //
 // POST /v1/quotations
 func (UnimplementedHandler) CreateQuotation(ctx context.Context, req *QuotationCreate, params CreateQuotationParams) (r CreateQuotationRes, _ error) {

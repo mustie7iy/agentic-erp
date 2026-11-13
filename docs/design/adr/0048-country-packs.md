@@ -333,6 +333,47 @@ settings cannot simply overwrite their document.
   new sign-off, as the specialist confirmed what the markers flagged. The
   walkthrough's step 41 applies 2026.5 and shows boxes 1b and 8's VAT
   labels without a marker; 2026.4 stays released.
+- **As built (number ranges of the newer documents, po:2026-11-12):
+  Canada 2026.9 and UAE 2026.6** are 2026.8 and 2026.5 plus nine number
+  ranges, the ones the documents built after the first packs ask for:
+  `rfq` (RQ), `quotation` (QT), `sales_order` (SO), `billing_document`
+  (BD), `customer_invoice` (CI, which numbers customer credit memos too),
+  `incoming_payment` (IP) and the journal ranges of the entries
+  receivables posts, `journal_dr` (DR, invoices), `journal_dg` (DG, credit
+  memos) and `journal_dz` (DZ, incoming payments), each from 1 to 9999999
+  like the packs' other ranges. **How they were numbered before:** no
+  pack had these ranges and nothing falls back: a company activated from
+  2026.8 or 2026.5 alone answered 409 `config.no_number_range` on its
+  first customer invoice, incoming payment, quotation, sales order,
+  billing document or RFQ, and on posting a customer invoice or credit
+  memo. The walkthrough's pilot company has them from its own settings
+  (step 2's change request adds them beside the pack), and tests from the
+  fixture. Only `numbering.yaml` and `pack.yaml` (version, header comment,
+  no `sign_off`) differ: `tax.yaml`, `returns.yaml` and every other file
+  are the previous version's byte for byte, and the parsed tax codes, tax
+  settings and returns are equal (`TestCanadaPack2026_9`,
+  `TestUAEPack2026_6`, `numberingOnly`). A company on the previous
+  version moves by applying the new one, the ordinary upgrade: the merge
+  adds the nine ranges for the fiscal year and changes nothing else; a
+  range the company already set up is kept as it is with a conflict note
+  (`adoptsAddedRanges`). **Sign-off:** a sign-off is recorded per version
+  (`sign_off` in its `pack.yaml`; nothing binds it to the tax content
+  alone), so the new versions need an entry of their own and carry none:
+  the tax specialist's of 2026-11-09 was given for 2026.7 and 2026.4, and
+  the product owner's approval to carry it covered the labels-only
+  versions. **Decided by default**, as for 2026.4 and 2026.6: a version
+  nobody signed off or approved under an earlier sign-off is released
+  unsigned, so production refuses to apply 2026.9 and 2026.6 (409
+  `config.pack_not_signed_off`) and 2026.8 and 2026.5 stay the signed-off
+  versions, which the walkthrough's steps 2 and 41 apply (the latest
+  signed-off version, no longer the latest). What it takes is the product
+  owner's word that the sign-off of 2026-11-09 covers a version whose tax
+  content is unchanged, or the specialist's sign-off; either lands as a
+  further version, since a released one never changes. **Not decided
+  here:** whether a customer invoice's range must be gapless (no source
+  in the packs says so; the invoice is the accounting record, not the
+  legal tax invoice, ADR-0063 §2) and the ranges of asset accounting
+  (`asset`, `journal_aa`, `journal_af`), which the decision does not name.
 
 ## Consequences
 - A pack upgrade never silently overwrites a tenant's decision; reviewers

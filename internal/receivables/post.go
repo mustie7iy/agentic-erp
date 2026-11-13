@@ -151,8 +151,8 @@ func (e *Endpoints) posting(ctx context.Context, le tenancy.Entity, v Invoice, c
 	lines := make([]ledger.PostingLine, 0, 1+len(v.Items)+len(taxLines))
 	lines = append(lines, ledger.PostingLine{AccountID: customer.ReconciliationID, Amount: signed(v, v.Gross), PartnerID: &v.CustomerID, Text: &text})
 	for _, it := range v.Items {
-		lines = append(lines, ledger.PostingLine{AccountID: it.AccountID, Amount: -signed(v, it.Net), TaxCode: it.TaxCode, Text: it.Description,
-			CostCenterID: it.CostCenterID, ProfitCenterID: it.ProfitCenterID})
+		lines = append(lines, ledger.PostingLine{AccountID: it.AccountID, Amount: -signed(v, it.Net), TaxCode: it.TaxCode,
+			TaxJurisdiction: it.TaxJurisdiction, Text: it.Description, CostCenterID: it.CostCenterID, ProfitCenterID: it.ProfitCenterID})
 	}
 	// The invoice date is the tax date (ADR-0063 §4): the ledger derives the
 	// entry's tax items from its lines at that date's rates and holds the
@@ -194,9 +194,8 @@ func (e *Endpoints) invoiceTerms(ctx context.Context, v Invoice, customer partne
 }
 
 // taxLines credit the invoice's output tax, or debit a credit memo's: one
-// line per code and component with tax, on the component's account with the code, in the
-// calculator's order: the codes as they first appear among the items, each
-// code's components in theirs. The tax is calculated again as
+// line per code, jurisdiction and component with tax, on the component's
+// account with the code and the jurisdiction (taxGroups). The tax is calculated again as
 // it was when the invoice was entered, on the invoice date; when the
 // codes no longer give the tax entered (a rate recorded or withdrawn for
 // the date since), the invoice is refused, 409 receivables.tax_changed: a
@@ -218,19 +217,57 @@ func (e *Endpoints) taxLines(ctx context.Context, le tenancy.Entity, v Invoice) 
 		}
 	}
 	var lines []ledger.PostingLine
-	for _, t := range c.res.Items {
-		if t.Tax == 0 { // a zero-rated or exempt code: its base carries the code, and no tax posts
+	for _, g := range taxGroups(c, v.Items) {
+		if g.tax == 0 { // a zero-rated or exempt code: its base carries the code, and no tax posts
 			continue
 		}
-		account := componentAccount(c.codes[t.Code], t.Key)
+		account := componentAccount(c.codes[g.code], g.component)
 		if account == nil {
-			return nil, problem.Unprocessable("receivables.no_tax_account", "Component "+t.Key+" of tax code "+t.Code+
+			return nil, problem.Unprocessable("receivables.no_tax_account", "Component "+g.component+" of tax code "+g.code+
 				" has no account its tax posts to in the company's configuration.")
 		}
-		code := t.Code
-		lines = append(lines, ledger.PostingLine{AccountID: *account, Amount: -signed(v, t.Tax), TaxCode: &code})
+		lines = append(lines, ledger.PostingLine{AccountID: *account, Amount: -signed(v, g.tax), TaxCode: &g.code, TaxJurisdiction: g.jurisdiction})
 	}
 	return lines, nil
+}
+
+// taxGroup is the tax of a code's component in a jurisdiction, nil for a
+// code that levies none on its lines: the sum of the items' shares.
+type taxGroup struct {
+	code, component string
+	jurisdiction    *string
+	tax             money.Minor
+}
+
+// taxGroups adds the items' tax up per code, jurisdiction and component,
+// in the order the items first name a code in a jurisdiction, each code's
+// components in theirs: for a code without jurisdictions, the
+// calculator's items. An invoice's tax is its code's, rounded as the
+// company's settings say and shared out over the items, so a code's tax
+// in an emirate is its items' shares there, and the emirates' add up to
+// the invoice's exactly (ADR-0063 §4 As built). The ledger holds each
+// group's tax lines to its base lines within a minor unit per base line
+// (ADR-0049 §7), which the shares keep: each is its item's exact tax
+// rounded down or up (money.Allocate).
+func taxGroups(c calculated, items []Item) []taxGroup {
+	var groups []taxGroup
+	at := map[[3]string]int{}
+	for j, i := range c.coded {
+		it := items[i]
+		for _, p := range c.res.Lines[j].Components {
+			key := [3]string{p.Code, p.Key}
+			if it.TaxJurisdiction != nil {
+				key[2] = *it.TaxJurisdiction
+			}
+			k, ok := at[key]
+			if !ok {
+				k, at[key] = len(groups), len(groups)
+				groups = append(groups, taxGroup{code: p.Code, component: p.Key, jurisdiction: it.TaxJurisdiction})
+			}
+			groups[k].tax += p.Tax // within the invoice's tax, which adds up in range (itemTax)
+		}
+	}
+	return groups
 }
 
 // componentAccount is the account the code's component posts its tax to,

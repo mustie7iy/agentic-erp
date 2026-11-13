@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
@@ -43,18 +44,29 @@ func (c calculated) itemTax(j int) (money.Minor, error) {
 // date, the invoice's tax date (ADR-0049 §4; ADR-0063 §4), from the
 // calculator (internal/tax). Tax is rounded as the company's tax settings
 // say, once per code and component over the invoice's items by default.
-// An item without a code bears none.
+// An item without a code bears none. Each item names the jurisdiction its
+// code levies exactly where the code levies its lines' subdivision
+// (jurisdiction): the tax is the code's over the invoice whatever the
+// jurisdictions, each item keeping its share, which the posting adds up
+// per jurisdiction (taxLines).
 func (e *Endpoints) calculate(ctx context.Context, le tenancy.Entity, currency string, date time.Time, items []Item) (calculated, error) {
 	doc := tax.Document{Company: le.Code, TaxDate: date, Currency: currency, Codes: map[string]tax.Code{}}
 	c := calculated{codes: map[string]ledger.TaxCode{}}
 	for i, it := range items {
+		var code ledger.TaxCode // the zero code: an item without one
+		if it.TaxCode != nil {
+			if err := e.outputCode(ctx, le, date, i, *it.TaxCode, c.codes); err != nil {
+				return calculated{}, err
+			}
+			code = c.codes[*it.TaxCode]
+		}
+		if err := jurisdiction(i, it, code); err != nil {
+			return calculated{}, err
+		}
 		if it.TaxCode == nil {
 			continue
 		}
-		if err := e.outputCode(ctx, le, date, i, *it.TaxCode, c.codes); err != nil {
-			return calculated{}, err
-		}
-		doc.Codes[*it.TaxCode] = c.codes[*it.TaxCode].Calculable()
+		doc.Codes[*it.TaxCode] = code.Calculable()
 		c.coded = append(c.coded, i)
 		doc.Lines = append(doc.Lines, tax.Line{Amount: it.Net, Code: *it.TaxCode})
 	}
@@ -98,9 +110,6 @@ func (e *Endpoints) outputTax(ctx context.Context, le tenancy.Entity, currency s
 // outputCode reads item i's tax code on the date into codes, once per
 // code: an output tax code of the legal entity with a rate in force then
 // (422 receivables.unknown_tax_code naming the item's field otherwise).
-// A code whose component levies the subdivision its lines name (one code
-// for every emirate, ADR-0049 §7) is refused: an item names no
-// jurisdiction yet (ADR-0063 §4).
 func (e *Endpoints) outputCode(ctx context.Context, le tenancy.Entity, date time.Time, i int, code string, codes map[string]ledger.TaxCode) error {
 	if _, ok := codes[code]; ok {
 		return nil
@@ -114,12 +123,33 @@ func (e *Endpoints) outputCode(ctx context.Context, le tenancy.Entity, date time
 		return problem.Invalid("receivables.unknown_tax_code", field,
 			"Tax code "+code+" is not an output tax code of the legal entity on the invoice date "+date.Format(time.DateOnly)+".")
 	}
-	for _, c := range t.Components {
-		if c.JurisdictionOnLine {
-			return problem.Invalid("receivables.tax_jurisdiction_not_supported", field,
-				"Tax code "+code+" levies the tax of the subdivision each line names; a customer invoice's items name none yet.")
-		}
-	}
 	codes[code] = t
+	return nil
+}
+
+// jurisdiction holds the tax jurisdiction item i names to its tax code,
+// the zero code for an item without one, as the ledger holds a line's
+// (ledger.TaxCode.CheckJurisdiction; ADR-0049 §7, ADR-0063 §4 As built):
+// a code whose component levies the subdivision its lines name (one code
+// for every emirate) needs the item's (422
+// receivables.tax_jurisdiction_required), a subdivision of the
+// component's country and, where the component lists those it accepts,
+// one of them; an item of any other code, or of none, names no
+// jurisdiction (422 receivables.tax_jurisdiction_not_levied). Each names
+// items[i].tax_jurisdiction.
+func jurisdiction(i int, it Item, code ledger.TaxCode) error {
+	field := fmt.Sprintf("items[%d].tax_jurisdiction", i)
+	switch fault, c := code.CheckJurisdiction(it.TaxJurisdiction); fault {
+	case ledger.JurisdictionOK: // named, or not, as the item's code asks
+	case ledger.JurisdictionRequired:
+		return problem.Invalid("receivables.tax_jurisdiction_required", field, "Tax code "+code.Code+
+			" levies the tax of the subdivision each item names: name the province or emirate ("+c.Jurisdiction+"-…).")
+	case ledger.JurisdictionNotLevied:
+		return problem.Invalid("receivables.tax_jurisdiction_not_levied", field, "Jurisdiction "+*it.TaxJurisdiction+
+			" is not one the item's tax code levies: an item names one only with a code that levies its lines' subdivision, and one of that code's country.")
+	case ledger.JurisdictionNotAccepted:
+		return problem.Invalid("receivables.tax_jurisdiction_not_levied", field, "Tax code "+code.Code+" does not levy jurisdiction "+
+			*it.TaxJurisdiction+": it levies "+strings.Join(c.Subdivisions, ", ")+".")
+	}
 	return nil
 }

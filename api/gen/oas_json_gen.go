@@ -79657,6 +79657,12 @@ func (s *CustomerInvoiceItem) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.TaxJurisdiction.Set {
+			e.FieldStart("tax_jurisdiction")
+			s.TaxJurisdiction.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("tax_amount")
 		s.TaxAmount.Encode(e)
 	}
@@ -79690,7 +79696,7 @@ func (s *CustomerInvoiceItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfCustomerInvoiceItem = [13]string{
+var jsonFieldsNameOfCustomerInvoiceItem = [14]string{
 	0:  "item_no",
 	1:  "description",
 	2:  "account_id",
@@ -79698,12 +79704,13 @@ var jsonFieldsNameOfCustomerInvoiceItem = [13]string{
 	4:  "account_name",
 	5:  "net_amount",
 	6:  "tax_code",
-	7:  "tax_amount",
-	8:  "gross_amount",
-	9:  "cost_center_id",
-	10: "cost_center_code",
-	11: "profit_center_id",
-	12: "profit_center_code",
+	7:  "tax_jurisdiction",
+	8:  "tax_amount",
+	9:  "gross_amount",
+	10: "cost_center_id",
+	11: "cost_center_code",
+	12: "profit_center_id",
+	13: "profit_center_code",
 }
 
 // Decode decodes CustomerInvoiceItem from json.
@@ -79793,8 +79800,18 @@ func (s *CustomerInvoiceItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tax_code\"")
 			}
+		case "tax_jurisdiction":
+			if err := func() error {
+				s.TaxJurisdiction.Reset()
+				if err := s.TaxJurisdiction.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tax_jurisdiction\"")
+			}
 		case "tax_amount":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				if err := s.TaxAmount.Decode(d); err != nil {
 					return err
@@ -79804,7 +79821,7 @@ func (s *CustomerInvoiceItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tax_amount\"")
 			}
 		case "gross_amount":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				if err := s.GrossAmount.Decode(d); err != nil {
 					return err
@@ -79863,8 +79880,8 @@ func (s *CustomerInvoiceItem) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
-		0b10111101,
-		0b00000001,
+		0b00111101,
+		0b00000011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -79940,6 +79957,12 @@ func (s *CustomerInvoiceItemCreate) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.TaxJurisdiction.Set {
+			e.FieldStart("tax_jurisdiction")
+			s.TaxJurisdiction.Encode(e)
+		}
+	}
+	{
 		if s.CostCenterID.Set {
 			e.FieldStart("cost_center_id")
 			s.CostCenterID.Encode(e)
@@ -79953,13 +79976,14 @@ func (s *CustomerInvoiceItemCreate) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfCustomerInvoiceItemCreate = [6]string{
+var jsonFieldsNameOfCustomerInvoiceItemCreate = [7]string{
 	0: "description",
 	1: "account_id",
 	2: "net_amount",
 	3: "tax_code",
-	4: "cost_center_id",
-	5: "profit_center_id",
+	4: "tax_jurisdiction",
+	5: "cost_center_id",
+	6: "profit_center_id",
 }
 
 // Decode decodes CustomerInvoiceItemCreate from json.
@@ -80012,6 +80036,16 @@ func (s *CustomerInvoiceItemCreate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tax_code\"")
+			}
+		case "tax_jurisdiction":
+			if err := func() error {
+				s.TaxJurisdiction.Reset()
+				if err := s.TaxJurisdiction.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tax_jurisdiction\"")
 			}
 		case "cost_center_id":
 			if err := func() error {

@@ -327,7 +327,8 @@ func (g grirPosting) ownLines() ([]Line, []bool, error) {
 	kept := make([]bool, 0, cap(lines))
 	for _, l := range g.in.Lines {
 		line := Line{AccountID: l.AccountID, TC: l.Amount, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text,
-			SpecialGL: l.SpecialGL, CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID, SegmentID: l.SegmentID, TradingPartnerID: g.in.tradingPartnerOf(l)}
+			SpecialGL: l.SpecialGL, CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID, SegmentID: l.SegmentID, TradingPartnerID: g.in.tradingPartnerOf(l),
+			TaxJurisdiction: l.TaxJurisdiction}
 		if l.LC != nil {
 			gc, err := convert(*l.LC, g.rates.toGC, g.rates.expLC, g.rates.expGC)
 			if err != nil {

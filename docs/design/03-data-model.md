@@ -4324,6 +4324,7 @@ erDiagram
     uuid account_id "ledger"
     bigint net_amount "above 0"
     text tax_code "output code, optional"
+    text tax_jurisdiction "ISO 3166-2, where the code levies its lines' subdivision"
     bigint tax_amount "0 without a code"
     uuid cost_center_id
     uuid profit_center_id }
@@ -4370,7 +4371,10 @@ erDiagram
   (`customer_invoice_item_net_positive`) on an account, with the tax its
   output tax code gave at the invoice date, never negative and 0 without a
   code (`customer_invoice_item_tax_not_negative`,
-  `customer_invoice_item_tax_needs_code`); insert-only
+  `customer_invoice_item_tax_needs_code`); the subdivision its tax is
+  levied in (000296: the emirate, `AE-DU`), only under a tax code and in
+  the form of an ISO 3166-2 subdivision
+  (`customer_invoice_item_tax_jurisdiction`); insert-only
   (`platform.forbid_mutation`). The items' net and tax add up to the
   header's, which the context writes in one transaction.
 - `receivables.incoming_payment` (T75c): an incoming payment applied.

@@ -22,7 +22,8 @@ var perms = []string{"receivables.invoice.read", "receivables.invoice.write", "r
 
 // env is a configured tenant whose company 2000 (EUR) has the output tax
 // codes A1 (19% to 30 June 2026, 21% from 1 July), A0 (zero-rated), AJ
-// (levying its lines' subdivision) and A2 (two components of 60%) on
+// (5%, levying its lines' subdivision, any of DE), AG (5%, levying it and
+// accepting DE-BY and DE-BE alone) and A2 (two components of 60%) on
 // account 230000, the customer reconciliation account 120000, number
 // ranges for the entries customer invoices and credit memos post
 // (journal_dr, journal_dg) and for
@@ -79,12 +80,19 @@ func outputCodes(rounding string) func(*config.Config) {
 				config.TaxRate{RatePercent: "21", ValidFrom: "2026-07-01"}),
 			output("A0", config.TaxZero, false, config.TaxRate{RatePercent: "0", ValidFrom: "2026-01-01"}),
 			output("AJ", "", true, config.TaxRate{RatePercent: "5", ValidFrom: "2026-01-01"}),
+			guarded(output("AG", "", true, config.TaxRate{RatePercent: "5", ValidFrom: "2026-01-01"}), "DE-BY", "DE-BE"),
 			// Two components, 60% each: more than an amount near the range's end holds.
 			config.TaxCode{Code: "A2", Description: "Output tax A2", Direction: config.TaxOutput, Components: []config.TaxComponent{
 				{Key: "federal", AccountKey: config.KeyOutput, Account: "230000", Rates: []config.TaxRate{{RatePercent: "60", ValidFrom: "2026-01-01"}}},
 				{Key: "state", AccountKey: config.KeyOutput, Account: "230000", Rates: []config.TaxRate{{RatePercent: "60", ValidFrom: "2026-01-01"}}}}})
 		de.TaxSettings.Rounding = rounding
 	}
+}
+
+// guarded is the code with its component accepting the subdivisions alone.
+func guarded(code config.TaxCode, subdivisions ...string) config.TaxCode {
+	code.Components[0].Subdivisions = subdivisions
+	return code
 }
 
 func setup(t *testing.T) env { t.Helper(); return setupRounding(t, "") }
@@ -129,6 +137,11 @@ func itemOn(account uuid.UUID, amount, currency, code string) string {
 		tax = fmt.Sprintf(`, "tax_code": %q`, code)
 	}
 	return fmt.Sprintf(`{"account_id": %q, "net_amount": {"amount": %q, "currency": %q}%s}`, account, amount, currency, tax)
+}
+
+// in is the item's JSON naming the jurisdiction its tax is levied in.
+func in(item, jurisdiction string) string {
+	return strings.TrimSuffix(item, "}") + fmt.Sprintf(`, "tax_jurisdiction": %q}`, jurisdiction)
 }
 
 // invoice is the JSON of an invoice of company 2000 in EUR to the customer.
@@ -371,8 +384,18 @@ func TestRefusals(t *testing.T) {
 		{"an input tax code", e.invoice(e.customer, "2026-03-10", e.item("1.00", "V1")), 422, "receivables.unknown_tax_code", "items[0].tax_code"},
 		{"a code with no rate on the invoice date", e.invoice(e.customer, "2025-12-31", e.item("1.00", "A1")), 422, "receivables.unknown_tax_code",
 			"items[0].tax_code"},
-		{"a code levying its lines' subdivision", e.invoice(e.customer, "2026-03-10", e.item("1.00", "AJ")), 422,
-			"receivables.tax_jurisdiction_not_supported", "items[0].tax_code"},
+		{"a code levying its lines' subdivision without one", e.invoice(e.customer, "2026-03-10", ok, e.item("1.00", "AJ")), 422,
+			"receivables.tax_jurisdiction_required", "items[1].tax_jurisdiction"},
+		{"a jurisdiction with a code that levies no line's subdivision", e.invoice(e.customer, "2026-03-10", in(ok, "DE-BY")), 422,
+			"receivables.tax_jurisdiction_not_levied", "items[0].tax_jurisdiction"},
+		{"a jurisdiction without a tax code", e.invoice(e.customer, "2026-03-10", in(e.item("1.00", ""), "DE-BY")), 422,
+			"receivables.tax_jurisdiction_not_levied", "items[0].tax_jurisdiction"},
+		{"a jurisdiction of another country than the code's", e.invoice(e.customer, "2026-03-10", in(e.item("1.00", "AJ"), "FR-75")), 422,
+			"receivables.tax_jurisdiction_not_levied", "items[0].tax_jurisdiction"},
+		{"a jurisdiction the code does not accept", e.invoice(e.customer, "2026-03-10", in(e.item("1.00", "AG"), "DE-HH")), 422,
+			"receivables.tax_jurisdiction_not_levied", "items[0].tax_jurisdiction"},
+		{"a jurisdiction that is no subdivision's code", e.invoice(e.customer, "2026-03-10", in(e.item("1.00", "AJ"), "Bavaria")), 400,
+			"request.invalid_body", ""},
 		{"an unknown currency", swap(swap(base, `"currency": "EUR", "items"`, `"currency": "XXA", "items"`), `"currency": "EUR"}`, `"currency": "XXA"}`), 422,
 			"receivables.unknown_currency", "currency"},
 		{"an item in another currency", e.invoice(e.customer, "2026-03-10", itemOn(e.revenue, "1.00", "USD", "")), 422,

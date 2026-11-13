@@ -32257,6 +32257,9 @@ type CustomerInvoiceItem struct {
 	NetAmount Money `json:"net_amount"`
 	// The item's output tax code; absent: it bears no tax.
 	TaxCode OptString `json:"tax_code"`
+	// The province or emirate the item's tax is levied in (ISO 3166-2, `AE-DU`), as entered; absent unless
+	// its tax code levies its lines' subdivision.
+	TaxJurisdiction OptString `json:"tax_jurisdiction"`
 	// The tax its code gave at the invoice date's rates: the item's share of the tax calculated for the
 	// invoice; 0 without a code.
 	TaxAmount Money `json:"tax_amount"`
@@ -32305,6 +32308,11 @@ func (s *CustomerInvoiceItem) GetNetAmount() Money {
 // GetTaxCode returns the value of TaxCode.
 func (s *CustomerInvoiceItem) GetTaxCode() OptString {
 	return s.TaxCode
+}
+
+// GetTaxJurisdiction returns the value of TaxJurisdiction.
+func (s *CustomerInvoiceItem) GetTaxJurisdiction() OptString {
+	return s.TaxJurisdiction
 }
 
 // GetTaxAmount returns the value of TaxAmount.
@@ -32372,6 +32380,11 @@ func (s *CustomerInvoiceItem) SetTaxCode(val OptString) {
 	s.TaxCode = val
 }
 
+// SetTaxJurisdiction sets the value of TaxJurisdiction.
+func (s *CustomerInvoiceItem) SetTaxJurisdiction(val OptString) {
+	s.TaxJurisdiction = val
+}
+
 // SetTaxAmount sets the value of TaxAmount.
 func (s *CustomerInvoiceItem) SetTaxAmount(val Money) {
 	s.TaxAmount = val
@@ -32415,6 +32428,12 @@ type CustomerInvoiceItemCreate struct {
 	// An output tax code of the company with a rate in force on the invoice date; absent: the item bears
 	// no tax.
 	TaxCode OptString `json:"tax_code"`
+	// The province or emirate the item's tax is levied in (ISO 3166-2, `AE-DU`; ADR-0049 §7): required
+	// with a tax code whose component levies its lines' subdivision (422
+	// `receivables.tax_jurisdiction_required`), a subdivision of that component's country and, where the
+	// component lists the subdivisions it accepts, one of them; with any other code, or none, it is
+	// refused (422 `receivables.tax_jurisdiction_not_levied`).
+	TaxJurisdiction OptString `json:"tax_jurisdiction"`
 	// The item's cost center; absent: its account's default, where the ledger asks for one.
 	CostCenterID OptUUID `json:"cost_center_id"`
 	// The item's profit center; absent: the one the ledger derives.
@@ -32439,6 +32458,11 @@ func (s *CustomerInvoiceItemCreate) GetNetAmount() Money {
 // GetTaxCode returns the value of TaxCode.
 func (s *CustomerInvoiceItemCreate) GetTaxCode() OptString {
 	return s.TaxCode
+}
+
+// GetTaxJurisdiction returns the value of TaxJurisdiction.
+func (s *CustomerInvoiceItemCreate) GetTaxJurisdiction() OptString {
+	return s.TaxJurisdiction
 }
 
 // GetCostCenterID returns the value of CostCenterID.
@@ -32469,6 +32493,11 @@ func (s *CustomerInvoiceItemCreate) SetNetAmount(val Money) {
 // SetTaxCode sets the value of TaxCode.
 func (s *CustomerInvoiceItemCreate) SetTaxCode(val OptString) {
 	s.TaxCode = val
+}
+
+// SetTaxJurisdiction sets the value of TaxJurisdiction.
+func (s *CustomerInvoiceItemCreate) SetTaxJurisdiction(val OptString) {
+	s.TaxJurisdiction = val
 }
 
 // SetCostCenterID sets the value of CostCenterID.
