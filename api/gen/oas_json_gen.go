@@ -55052,9 +55052,17 @@ func (s *CollectionWorklistCustomer) encodeFields(e *jx.Encoder) {
 			s.LastDunningDate.Encode(e, json.EncodeDate)
 		}
 	}
+	{
+		e.FieldStart("disputed_amount")
+		s.DisputedAmount.Encode(e)
+	}
+	{
+		e.FieldStart("open_dispute_cases")
+		e.Int32(s.OpenDisputeCases)
+	}
 }
 
-var jsonFieldsNameOfCollectionWorklistCustomer = [8]string{
+var jsonFieldsNameOfCollectionWorklistCustomer = [10]string{
 	0: "customer_id",
 	1: "customer_number",
 	2: "customer_name",
@@ -55063,6 +55071,8 @@ var jsonFieldsNameOfCollectionWorklistCustomer = [8]string{
 	5: "oldest_due_date",
 	6: "dunning_level",
 	7: "last_dunning_date",
+	8: "disputed_amount",
+	9: "open_dispute_cases",
 }
 
 // Decode decodes CollectionWorklistCustomer from json.
@@ -55070,7 +55080,7 @@ func (s *CollectionWorklistCustomer) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode CollectionWorklistCustomer to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -55164,6 +55174,28 @@ func (s *CollectionWorklistCustomer) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"last_dunning_date\"")
 			}
+		case "disputed_amount":
+			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				if err := s.DisputedAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"disputed_amount\"")
+			}
+		case "open_dispute_cases":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				v, err := d.Int32()
+				s.OpenDisputeCases = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"open_dispute_cases\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -55173,8 +55205,9 @@ func (s *CollectionWorklistCustomer) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
+	for i, mask := range [2]uint8{
 		0b01111111,
+		0b00000011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -90671,9 +90704,17 @@ func (s *DunningRun) encodeFields(e *jx.Encoder) {
 		e.FieldStart("overdue_amount")
 		s.OverdueAmount.Encode(e)
 	}
+	{
+		e.FieldStart("disputed_items")
+		e.ArrStart()
+		for _, elem := range s.DisputedItems {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
 }
 
-var jsonFieldsNameOfDunningRun = [15]string{
+var jsonFieldsNameOfDunningRun = [16]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -90689,6 +90730,7 @@ var jsonFieldsNameOfDunningRun = [15]string{
 	12: "notice_count",
 	13: "item_count",
 	14: "overdue_amount",
+	15: "disputed_items",
 }
 
 // Decode decodes DunningRun from json.
@@ -90876,6 +90918,24 @@ func (s *DunningRun) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"overdue_amount\"")
 			}
+		case "disputed_items":
+			requiredBitSet[1] |= 1 << 7
+			if err := func() error {
+				s.DisputedItems = make([]DunningRunDisputedItem, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem DunningRunDisputedItem
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.DisputedItems = append(s.DisputedItems, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"disputed_items\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -90887,7 +90947,7 @@ func (s *DunningRun) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11011111,
-		0b01111111,
+		0b11111111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -91042,6 +91102,286 @@ func (s *DunningRunCreate) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *DunningRunCreate) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *DunningRunDisputedItem) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *DunningRunDisputedItem) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("dispute_case_id")
+		json.EncodeUUID(e, s.DisputeCaseID)
+	}
+	{
+		e.FieldStart("customer_id")
+		json.EncodeUUID(e, s.CustomerID)
+	}
+	{
+		e.FieldStart("customer_number")
+		e.Str(s.CustomerNumber)
+	}
+	{
+		e.FieldStart("fiscal_year")
+		e.Int32(s.FiscalYear)
+	}
+	{
+		e.FieldStart("journal_entry_id")
+		json.EncodeUUID(e, s.JournalEntryID)
+	}
+	{
+		e.FieldStart("line_no")
+		e.Int32(s.LineNo)
+	}
+	{
+		e.FieldStart("document_number")
+		e.Str(s.DocumentNumber)
+	}
+	{
+		if s.Reference.Set {
+			e.FieldStart("reference")
+			s.Reference.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("net_due_date")
+		json.EncodeDate(e, s.NetDueDate)
+	}
+	{
+		e.FieldStart("days_overdue")
+		e.Int32(s.DaysOverdue)
+	}
+	{
+		e.FieldStart("amount")
+		s.Amount.Encode(e)
+	}
+	{
+		e.FieldStart("local_amount")
+		s.LocalAmount.Encode(e)
+	}
+}
+
+var jsonFieldsNameOfDunningRunDisputedItem = [12]string{
+	0:  "dispute_case_id",
+	1:  "customer_id",
+	2:  "customer_number",
+	3:  "fiscal_year",
+	4:  "journal_entry_id",
+	5:  "line_no",
+	6:  "document_number",
+	7:  "reference",
+	8:  "net_due_date",
+	9:  "days_overdue",
+	10: "amount",
+	11: "local_amount",
+}
+
+// Decode decodes DunningRunDisputedItem from json.
+func (s *DunningRunDisputedItem) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode DunningRunDisputedItem to nil")
+	}
+	var requiredBitSet [2]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "dispute_case_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.DisputeCaseID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"dispute_case_id\"")
+			}
+		case "customer_id":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.CustomerID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"customer_id\"")
+			}
+		case "customer_number":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.CustomerNumber = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"customer_number\"")
+			}
+		case "fiscal_year":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Int32()
+				s.FiscalYear = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fiscal_year\"")
+			}
+		case "journal_entry_id":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.JournalEntryID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"journal_entry_id\"")
+			}
+		case "line_no":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				v, err := d.Int32()
+				s.LineNo = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"line_no\"")
+			}
+		case "document_number":
+			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				v, err := d.Str()
+				s.DocumentNumber = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"document_number\"")
+			}
+		case "reference":
+			if err := func() error {
+				s.Reference.Reset()
+				if err := s.Reference.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reference\"")
+			}
+		case "net_due_date":
+			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.NetDueDate = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"net_due_date\"")
+			}
+		case "days_overdue":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				v, err := d.Int32()
+				s.DaysOverdue = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"days_overdue\"")
+			}
+		case "amount":
+			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				if err := s.Amount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"amount\"")
+			}
+		case "local_amount":
+			requiredBitSet[1] |= 1 << 3
+			if err := func() error {
+				if err := s.LocalAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"local_amount\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode DunningRunDisputedItem")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [2]uint8{
+		0b01111111,
+		0b00001111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfDunningRunDisputedItem) {
+					name = jsonFieldsNameOfDunningRunDisputedItem[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *DunningRunDisputedItem) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *DunningRunDisputedItem) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

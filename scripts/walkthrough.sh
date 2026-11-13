@@ -8306,15 +8306,19 @@ step_return_receipt() {
   passed
 }
 
-# step_dispute is T86a (ADR-0065 As built): Northwind disputes part of
-# the invoice step_dunning dunned, overdue since. Ruth opens a dispute
-# case on its open item for CAD 150.00 with the reason; a second case on
-# the item and more than it owes are refused; she assigns the case to
-# herself with a note and reads it back, as the dispute cases of the
-# customer list it. The open item is unchanged: a case posts nothing.
+# step_dispute is T86a and T86b (ADR-0065 As built): Northwind disputes
+# part of the invoice step_dunning dunned, overdue since. Ruth opens a
+# dispute case on its open item for CAD 150.00 with the reason; a second
+# case on the item and more than it owes are refused; she assigns the
+# case to herself with a note and reads it back, as the dispute cases of
+# the customer list it. The open item is unchanged: a case posts nothing.
+# A dunning run at step_dunning's key date leaves the invoice out whole
+# and names it as disputed; the worklist shows Northwind's disputed
+# amount beside its overdue amount; once Ruth closes the case as
+# rejected, a new run proposes the invoice again.
 step_dispute() {
-  heading "Step 78 — Dispute cases: a case opened on a customer's overdue invoice for part of its amount, with the reason; a second case on the invoice and more than it owes refused; the case assigned to a person and read back; the open item unchanged"
-  local customer=$DUNNED_CUSTOMER entry=$DUNNED_ENTRY item line year body ruth id tag before
+  heading "Step 78 — Dispute cases: a case opened on a customer's overdue invoice for part of its amount, with the reason; a second case on the invoice and more than it owes refused; the case assigned to a person and read back; the open item unchanged; a dunning run leaves the disputed invoice out and names it; the worklist shows the disputed amount; once the case is closed as rejected the invoice is dunned again"
+  local customer=$DUNNED_CUSTOMER entry=$DUNNED_ENTRY key=$DUNNING_KEY item line year body ruth id tag before run
   [ -n "$entry" ] || fail "the invoice step 57 dunned is not there"
   as ruth
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
@@ -8340,6 +8344,7 @@ step_dispute() {
   api 200 '"case \(.status), assigned to \(.assignee_name), note: \(.note), version \(.version)"' \
     updateDisputeCase -p "id=$id" -if-match "$tag" -body "{\"assignee_id\": \"$ruth\", \"note\": \"Asked sales for the quotation\"}"
   expect "assigned" "$(field '"\(.assignee_id) \(.assignee_name) \(.version)"')" "$ruth Ruth Receivables 2"
+  tag=$ETAG
   QUIET=1 api 200 '' getDisputeCase -p "id=$id"
   expect "read back" "$(field '"\(.status) \(.assignee_name) \(.note)"')" "open Ruth Receivables Asked sales for the quotation"
   QUIET=1 api 200 '' listDisputeCases -p "customer_id=$customer" -p status=open
@@ -8347,6 +8352,32 @@ step_dispute() {
   say "The case posts nothing: Northwind's open items are as they were."
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
   expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$before"
+  say "Ruth starts a dunning run at step 57's key date, $key (T86b). An invoice with an open case is in no notice, whatever"
+  say "part of it is disputed (plan default 4): the run names it as disputed, with its case, outside its totals:"
+  api 201 '"dunning run at \(.key_date): \(.notice_count) notice(s), \(.item_count) item(s)", (.disputed_items[] | "  disputed: entry \(.document_number) (\(.reference)) of \(.customer_number), \(.days_overdue) days overdue, \(.amount.amount) \(.amount.currency), case \(.dispute_case_id)")' \
+    createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$key\"}"
+  run=$(field .id)
+  expect "the invoice named as disputed" "$(field "[.disputed_items[] | select(.journal_entry_id == \"$entry\") | \"\(.dispute_case_id) \(.customer_id)\"] | join(\", \")")" \
+    "$id $customer"
+  QUIET=1 api 200 '' listDunningNotices -p "id=$run" -p "customer_id=$customer"
+  expect "the invoice in a notice" "$(field "[.items[].items[] | select(.journal_entry_id == \"$entry\")] | length")" 0
+  say "The collection worklist shows Northwind's disputed amount beside its overdue amount; the invoice is still open and"
+  say "overdue, so the order and the totals are as before:"
+  api 200 '.items[] | select(.customer_id == "'"$customer"'") | "  \(.customer_number) \(.customer_name): \(.overdue_amount.amount) \(.overdue_amount.currency) overdue, \(.disputed_amount.amount) \(.disputed_amount.currency) disputed in \(.open_dispute_cases) open case(s)"' \
+    getCollectionWorklist -p "legal_entity_id=$LE" -p "key_date=$key"
+  expect "Northwind's disputed amount" "$(field "[.items[] | select(.customer_id == \"$customer\") | \"\(.disputed_amount.amount) \(.disputed_amount.currency) \(.open_dispute_cases)\"] | join(\", \")")" \
+    "150.00 CAD 1"
+  say "Sales confirms the quotation's price. Ruth closes the case as rejected: Northwind owes the amount. Closing posts nothing:"
+  api 200 '"case \(.status) by \(.closed_by_name): \(.close_reason)"' \
+    closeDisputeCase -p "id=$id" -if-match "$tag" -body '{"outcome": "rejected", "reason": "The invoice priced the bearing as quoted"}'
+  expect "the closed case" "$(field '"\(.status) \(.closed_by) \(.version)"')" "rejected $ruth 3"
+  say "A new run at the same key date proposes the invoice again:"
+  api 201 '"dunning run at \(.key_date): \(.notice_count) notice(s), \(.item_count) item(s), \(.disputed_items | length) disputed"' \
+    createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$key\"}"
+  run=$(field .id)
+  expect "nothing disputed" "$(field '.disputed_items | length')" 0
+  QUIET=1 api 200 '' listDunningNotices -p "id=$run" -p "customer_id=$customer"
+  expect "the invoice in Northwind's notice" "$(field "[.items[].items[] | select(.journal_entry_id == \"$entry\")] | length")" 1
   passed
 }
 

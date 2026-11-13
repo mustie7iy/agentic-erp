@@ -29,17 +29,23 @@ import (
 // OldestDue is the earliest net due date among its overdue items. Level
 // and LastDunned are the highest dunning level and the latest dunning
 // date the confirmed runs recorded for its open items: level 0 and no
-// date for a customer none of whose open items was dunned. Number, Name,
-// Level and LastDunned are read for the customers of a page (describe).
+// date for a customer none of whose open items was dunned. Disputed is
+// what the open dispute cases of its open items dispute, in the
+// company's currency, and DisputedCases how many they are (T86b); they
+// change neither Open nor Overdue. Number, Name, Level, LastDunned,
+// Disputed and DisputedCases are read for the customers of a page
+// (describe).
 type WorklistCustomer struct {
-	CustomerID uuid.UUID
-	Number     string
-	Name       string
-	Open       money.Minor
-	Overdue    money.Minor
-	OldestDue  time.Time
-	Level      int32
-	LastDunned *time.Time
+	CustomerID    uuid.UUID
+	Number        string
+	Name          string
+	Open          money.Minor
+	Overdue       money.Minor
+	OldestDue     time.Time
+	Level         int32
+	LastDunned    *time.Time
+	Disputed      money.Minor
+	DisputedCases int32
 
 	items []ledger.ReceivableItem // its open items
 }
@@ -182,8 +188,8 @@ func (e *Endpoints) page(w Worklist, scope string, size int, token string, hasTo
 }
 
 // describe completes the customers of a page with what they are shown
-// with: each one's number and name, and the highest dunning level and
-// latest dunning date recorded for its open items.
+// with: each one's number and name, the highest dunning level and latest
+// dunning date recorded for its open items, and their open dispute cases.
 func (e *Endpoints) describe(ctx context.Context, tx pgx.Tx, page []WorklistCustomer) error {
 	ids := make([]uuid.UUID, len(page))
 	var refs []ledger.ItemRef
@@ -201,6 +207,10 @@ func (e *Endpoints) describe(ctx context.Context, tx pgx.Tx, page []WorklistCust
 	if err != nil {
 		return err
 	}
+	disputes, err := openCases(ctx, tx, refs)
+	if err != nil {
+		return err
+	}
 	for i := range page {
 		c := &page[i]
 		named, ok := names[c.CustomerID]
@@ -208,16 +218,34 @@ func (e *Endpoints) describe(ctx context.Context, tx pgx.Tx, page []WorklistCust
 			return fmt.Errorf("collections: customer %s of an open item is no business partner", c.CustomerID)
 		}
 		c.Number, c.Name = named.Number, named.Name
-		for _, it := range c.items {
-			d, ok := levels[it.ItemRef]
-			if !ok {
-				continue
-			}
-			c.Level = max(c.Level, d.Level)
-			if c.LastDunned == nil || d.Date.After(*c.LastDunned) {
-				c.LastDunned = &d.Date
-			}
+		if !c.dunning(levels, disputes) {
+			return errTooLarge()
 		}
 	}
 	return nil
+}
+
+// dunning gives the customer the highest level and latest date recorded
+// for its open items, and what their open dispute cases dispute. It
+// reports false when the disputed amounts add up to more than an amount
+// holds.
+func (c *WorklistCustomer) dunning(levels map[ledger.ItemRef]dunned, disputes map[ledger.ItemRef]openCase) bool {
+	var disputed []money.Minor
+	for _, it := range c.items {
+		if d, ok := disputes[it.ItemRef]; ok {
+			disputed = append(disputed, d.AmountLC)
+		}
+		d, ok := levels[it.ItemRef]
+		if !ok {
+			continue
+		}
+		c.Level = max(c.Level, d.Level)
+		if c.LastDunned == nil || d.Date.After(*c.LastDunned) {
+			c.LastDunned = &d.Date
+		}
+	}
+	var err error
+	c.DisputedCases = int32(len(disputed))
+	c.Disputed, err = money.Sum(disputed...) // money.Sum's only error is the range
+	return err == nil
 }

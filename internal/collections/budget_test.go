@@ -15,9 +15,10 @@ import (
 // p95 3 s, as the liquidity forecast's; ADR-0065 §9) at that volume:
 // 2,000 customers with 50 open items each on the company's receivables
 // account, all posted with payment terms, about three in four overdue on
-// the key date, every item dunned once. A page of 100 customers reads
-// every open item of the company, then the names and the recorded dunning
-// of the page's customers' 5,000 items.
+// the key date, every item dunned once, one in ten under an open dispute
+// case (T86b). A page of 100 customers reads every open item of the
+// company, then the names, the recorded dunning and the open dispute
+// cases of the page's customers' 5,000 items.
 func TestCollectionWorklistBudget(t *testing.T) {
 	nfr.Measure(t)
 	e := setup(t)
@@ -57,8 +58,15 @@ func TestCollectionWorklistBudget(t *testing.T) {
 	exec(`INSERT INTO collections.dunned_item (tenant_id, fiscal_year, journal_entry_id, line_no, dunning_run_id, level, dunning_date)
 		SELECT l.tenant_id, l.fiscal_year, l.journal_entry_id, l.line_no, md5('run')::uuid, 1, '2026-08-31'
 		FROM ledger.journal_line l WHERE l.tenant_id = $1 AND l.account_id = $2`, e.Tenant.ID, e.receivable)
+	exec(`INSERT INTO collections.dispute_case (tenant_id, id, legal_entity_id, customer_id, customer_number, fiscal_year, journal_entry_id, line_no,
+			document_number, currency, disputed_amount, currency_lc, disputed_amount_lc, reason, status, created_by, updated_by)
+		SELECT l.tenant_id, gen_random_uuid(), l.legal_entity_id, l.partner_id, 'BP', l.fiscal_year, l.journal_entry_id, l.line_no, 'B', 'EUR', 50, 'EUR',
+			50, 'Price', 'open', $3, $3
+		FROM ledger.journal_line l WHERE l.tenant_id = $1 AND l.account_id = $2 AND abs(hashtext(l.journal_entry_id::text)) % 10 = 0`,
+		e.Tenant.ID, e.receivable, e.Tenant.Human.ID)
 	exec(`RESET session_replication_role`)
-	exec(`ANALYZE ledger.journal_entry, ledger.journal_line, ledger.open_item_terms, collections.dunned_item, partner.business_partner`)
+	exec(`ANALYZE ledger.journal_entry, ledger.journal_line, ledger.open_item_terms, collections.dunned_item, collections.dispute_case,
+		partner.business_partner`)
 	var times []time.Duration
 	for range 10 {
 		start := time.Now()
@@ -69,6 +77,13 @@ func TestCollectionWorklistBudget(t *testing.T) {
 			first["last_dunning_date"] != "2026-08-31" {
 			t.Fatalf("the page: got %d of %v customers, the first at level %v dunned %v; want 100 of 2000, level 1 on 2026-08-31", n,
 				page["customer_count"], first["dunning_level"], first["last_dunning_date"])
+		}
+		cases := 0.0
+		for _, c := range objects(t, page, "items") {
+			cases += c["open_dispute_cases"].(float64)
+		}
+		if cases == 0 {
+			t.Fatal("the page's open dispute cases: got none, want the seeded ones counted")
 		}
 	}
 	slices.Sort(times)

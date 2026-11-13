@@ -9356,11 +9356,13 @@ func (s *Server) handleCompleteYearCloseTaskRequest(args [2]string, argsEscaped 
 // the run was started, or was dunned since by another confirmed run of the company (its recorded level
 // is no longer the run's `previous_level`), the proposal is stale and refused (409
 // `collections.proposal_stale`), nothing of it is recorded, and a new run is started with
-// `createDunningRun`; the stale run stays `proposed`. A run that is not `proposed` is refused (409
-// `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with
-// the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and
-// records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is
-// not found (404). Human-only (`x-agent: false`).
+// `createDunningRun`; the stale run stays `proposed`. A dispute case opened on an item after the run
+// was started does not make the proposal stale: the run is confirmed as proposed and the item recorded
+// as dunned (T86b). A run that is not `proposed` is refused (409 `collections.invalid_status`), so a
+// second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers
+// the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is
+// not cancelled. A run of a company the caller may not act in is not found (404). Human-only
+// (`x-agent: false`).
 //
 // POST /v1/dunning-runs/{id}:confirm
 func (s *Server) handleConfirmDunningRunRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -15444,14 +15446,17 @@ func (s *Server) handleCreateDownPaymentRequestRequest(args [0]string, argsEscap
 // on the key date is not overdue. The net due date is that of the payment terms the item was posted
 // with; an item posted without payment terms (a manual or migrated entry's) is due on its document
 // date and is proposed like any other. Credit items (a credit memo, a payment on account) are not
-// dunned and reduce nothing, with or without terms. An item rises one level per confirmed run at most,
-// from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never
-// dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second
-// level's days, and one at the highest level stays there. A notice's level is the highest among its
-// items. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming
-// `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as
-// is a run of more than 5,000 overdue items (422 `collections.run_too_large`: larger runs are not
-// supported yet) and one whose amounts add up to more than an amount holds (422
+// dunned and reduce nothing, with or without terms. An item with an open dispute case
+// (`createDisputeCase`) is in no notice, whatever part of it is disputed: the run lists it in
+// `disputed_items` with its case, and it counts in none of the run's totals; once the case is closed a
+// new run proposes it again (T86b). An item rises one level per confirmed run at most, from the level
+// the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would
+// reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days,
+// and one at the highest level stays there. A notice's level is the highest among its items. A key
+// date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company
+// without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than
+// 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`:
+// larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422
 // `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices.
 // A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`).
 //
@@ -33915,23 +33920,27 @@ func (s *Server) handleGetCloseCalendarRequest(args [0]string, argsEscaped bool,
 // its number and name, what its open items add up to (`open_amount`, credits included), what its
 // overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest
 // dunning level and the latest dunning date the confirmed dunning runs recorded for its open items
-// (`confirmDunningRun`; level 0 and no date for a customer never dunned). An item is overdue as a
-// dunning run counts it: the customer owes it (a debit) and the key date is past its net due date,
-// which is that of the payment terms it was posted with or, for an item posted without payment terms
-// (a manual or migrated entry's), its document date; an item due on the key date is not overdue, so an
-// item without terms is overdue from the day after its document date, and credit items reduce no
-// overdue amount. A customer with nothing overdue is not listed, whatever it owes. The worklist is
-// computed at the read from one database state (a repeatable-read snapshot) and stores nothing: the
-// items are the ones open now on the company's customer reconciliation accounts in the leading ledger,
-// whoever posted them, and the key date only counts what is overdue. Amounts are in the company's
-// currency, as the items were booked. `customer_count`, `open_amount` and `overdue_amount` at the top
-// are the totals of every customer listed, not of the page. Paged by cursor in the worklist's order; a
-// page token is bound to the company and key date. Each page is computed anew and continues after the
-// last customer's overdue amount and id: a customer whose overdue amount fell between two pages can be
-// listed again with its new amount, and one whose amount rose is not read again, so a consumer that
-// pages while items are posted or cleared keys its rows by `customer_id`. The worklist needs no
-// dunning levels: a company without any has one too. A key date after 2100-12-31 is refused (422
-// `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is 404.
+// (`confirmDunningRun`; level 0 and no date for a customer never dunned), and beside its overdue
+// amount what the open dispute cases of its open items dispute (`disputed_amount`, in the company's
+// currency as each case's share of its item was booked) and how many they are (`open_dispute_cases`;
+// T86b): a disputed item stays open and overdue, so the order and the totals are as without the cases.
+// An item is overdue as a dunning run counts it: the customer owes it (a debit) and the key date is
+// past its net due date, which is that of the payment terms it was posted with or, for an item posted
+// without payment terms (a manual or migrated entry's), its document date; an item due on the key date
+// is not overdue, so an item without terms is overdue from the day after its document date, and credit
+// items reduce no overdue amount. A customer with nothing overdue is not listed, whatever it owes. The
+// worklist is computed at the read from one database state (a repeatable-read snapshot) and stores
+// nothing: the items are the ones open now on the company's customer reconciliation accounts in the
+// leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in
+// the company's currency, as the items were booked. `customer_count`, `open_amount` and
+// `overdue_amount` at the top are the totals of every customer listed, not of the page. Paged by
+// cursor in the worklist's order; a page token is bound to the company and key date. Each page is
+// computed anew and continues after the last customer's overdue amount and id: a customer whose
+// overdue amount fell between two pages can be listed again with its new amount, and one whose amount
+// rose is not read again, so a consumer that pages while items are posted or cleared keys its rows by
+// `customer_id`. The worklist needs no dunning levels: a company without any has one too. A key date
+// after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A legal entity
+// the caller cannot act in is 404.
 //
 // GET /v1/collection-worklist
 func (s *Server) handleGetCollectionWorklistRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

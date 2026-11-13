@@ -50,6 +50,8 @@ type RunInput struct {
 // ledger and stores, per customer, a notice with the items overdue on the
 // key date and the level each would reach, then publishes
 // DunningRunChanged with its audit record. Nothing changes on the items.
+// An item with an open dispute case is in no notice, whatever part of it
+// is disputed: the run names it as disputed (T86b, plan default 4).
 // A company without dunning levels is refused, 422
 // collections.no_dunning_levels; a run of more items than one request
 // proposes, 422 collections.run_too_large.
@@ -82,8 +84,12 @@ func (e *Endpoints) ProposeRun(ctx context.Context, in RunInput) (Run, error) {
 	if err != nil {
 		return Run{}, err
 	}
-	notices := propose(due, levels, previous)
-	run := Run{ID: uuid.Must(uuid.NewV7()), LegalEntityID: le.ID, KeyDate: in.KeyDate}
+	disputes, err := openCases(ctx, tx, refsOf(due))
+	if err != nil {
+		return Run{}, err
+	}
+	notices, disputed := propose(due, levels, previous, disputes)
+	run := Run{ID: uuid.Must(uuid.NewV7()), LegalEntityID: le.ID, KeyDate: in.KeyDate, Disputed: disputed}
 	if err := e.total(ctx, &run, notices); err != nil {
 		return Run{}, err
 	}
@@ -149,14 +155,24 @@ func refsOf(items []overdueItem) []ledger.ItemRef {
 // dunned, level 0), one notice per customer in that order, its items
 // numbered from 1. An item dunned before is proposed at its level again
 // even when its days no longer reach it at an earlier key date, as long
-// as it is overdue then: a level never falls. The notices' ids, numbers
-// and totals are total's.
-func propose(due []overdueItem, levels []config.DunningLevel, previous map[ledger.ItemRef]dunned) []Notice {
+// as it is overdue then: a level never falls. An item that would be
+// proposed but has an open dispute case is left out whole and listed as
+// disputed, in the same order (T86b). The notices' ids, numbers and
+// totals are total's.
+func propose(due []overdueItem, levels []config.DunningLevel, previous map[ledger.ItemRef]dunned,
+	disputes map[ledger.ItemRef]openCase) ([]Notice, []DisputedItem) {
 	var notices []Notice
+	var disputed []DisputedItem
 	for _, it := range due {
 		before := previous[it.ItemRef]
 		level := reach(levels, it.days, int(before.Level))
 		if level == 0 {
+			continue
+		}
+		if c, ok := disputes[it.ItemRef]; ok {
+			disputed = append(disputed, DisputedItem{CaseID: c.ID, CustomerID: it.PartnerID, CustomerNumber: c.CustomerNumber, ItemRef: it.ItemRef,
+				DocumentNumber: it.Number, Reference: it.Reference, NetDueDate: it.NetDueDate(), DaysOverdue: int32(it.days), Currency: it.Currency,
+				Exponent: it.Exponent, Amount: it.Amount, AmountLC: it.AmountLC})
 			continue
 		}
 		if n := len(notices); n == 0 || notices[n-1].CustomerID != it.PartnerID {
@@ -167,13 +183,14 @@ func propose(due []overdueItem, levels []config.DunningLevel, previous map[ledge
 			DocumentDate: it.DocumentDate, NetDueDate: it.NetDueDate(), DaysOverdue: int32(it.days), Currency: it.Currency, Amount: it.Amount,
 			AmountLC: it.AmountLC, PreviousLevel: before.Level, Level: int32(level), PreviousDunnings: before.Times})
 	}
-	return notices
+	return notices, disputed
 }
 
 // total completes the proposal: each notice's id, its customer's number,
 // its level (the highest among its items) and its items' count and
 // amount in the company's currency, and the run's totals over them. More
-// items than a run proposes are refused, as are amounts out of range.
+// items than a run proposes are refused, the disputed ones it names
+// counted with them, as are amounts out of range.
 func (e *Endpoints) total(ctx context.Context, run *Run, notices []Notice) error {
 	customers := make([]uuid.UUID, len(notices))
 	amounts := make([]money.Minor, len(notices))
@@ -193,9 +210,9 @@ func (e *Endpoints) total(ctx context.Context, run *Run, notices []Notice) error
 			return errTooLarge()
 		}
 		amounts[i] = n.OverdueAmount
-		if run.ItemCount += n.ItemCount; int(run.ItemCount) > limit {
-			return problem.Unprocessable("collections.run_too_large", fmt.Sprintf("The run would propose more than %d overdue items, "+
-				"the most one run proposes; larger runs are not supported yet.", limit))
+		if run.ItemCount += n.ItemCount; int(run.ItemCount)+len(run.Disputed) > limit {
+			return problem.Unprocessable("collections.run_too_large", fmt.Sprintf("The run would take more than %d overdue items, "+
+				"the most one run proposes or names as disputed; larger runs are not supported yet.", limit))
 		}
 	}
 	run.NoticeCount = int32(len(notices))
@@ -220,10 +237,18 @@ func (e *Endpoints) total(ctx context.Context, run *Run, notices []Notice) error
 // insertRun writes the run with its notices and their items, in the
 // company's currency.
 func insertRun(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le tenancy.Entity, run Run, notices []Notice) error {
+	// Stored as a list, empty and not null without any, each item without
+	// its currency's digits, which the run is read with.
+	disputed := make([]DisputedItem, len(run.Disputed))
+	for i, d := range run.Disputed {
+		d.Exponent = 0
+		disputed[i] = d
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO collections.dunning_run (tenant_id, id, legal_entity_id, key_date, status, currency, notice_count,
-			item_count, overdue_amount, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)`,
-		p.TenantID, run.ID, run.LegalEntityID, run.KeyDate, Proposed, le.LocalCurrency, run.NoticeCount, run.ItemCount, run.OverdueAmount, p.ID); err != nil {
+			item_count, overdue_amount, disputed_items, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $11)`,
+		p.TenantID, run.ID, run.LegalEntityID, run.KeyDate, Proposed, le.LocalCurrency, run.NoticeCount, run.ItemCount, run.OverdueAmount,
+		disputed, p.ID); err != nil {
 		return fmt.Errorf("collections: insert dunning run %s: %w", run.ID, err)
 	}
 	n := len(notices)

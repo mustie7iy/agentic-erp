@@ -122,11 +122,34 @@ type Run struct {
 	NoticeCount   int32
 	ItemCount     int32
 	OverdueAmount money.Minor
-	Version       int32
-	CreatedAt     time.Time
-	CreatedBy     uuid.UUID
-	UpdatedAt     time.Time
-	UpdatedBy     uuid.UUID
+	// Disputed are the items the run left out for their open dispute
+	// cases (T86b), by customer and item.
+	Disputed  []DisputedItem
+	Version   int32
+	CreatedAt time.Time
+	CreatedBy uuid.UUID
+	UpdatedAt time.Time
+	UpdatedBy uuid.UUID
+}
+
+// DisputedItem is an item a run would have proposed but left out, its
+// open dispute case named, with what the run read of it
+// (collections.dunning_run.disputed_items, T86b): Amount is minor units
+// of Currency, the item's, whose digits are Exponent (read with the run,
+// not stored); AmountLC of the run's currency.
+type DisputedItem struct {
+	CaseID         uuid.UUID `json:"dispute_case_id"`
+	CustomerID     uuid.UUID `json:"customer_id"`
+	CustomerNumber string    `json:"customer_number"`
+	ledger.ItemRef
+	DocumentNumber string      `json:"document_number"`
+	Reference      *string     `json:"reference"`
+	NetDueDate     time.Time   `json:"net_due_date"`
+	DaysOverdue    int32       `json:"days_overdue"`
+	Currency       string      `json:"currency"`
+	Exponent       int         `json:"exponent,omitempty"`
+	Amount         money.Minor `json:"amount"`
+	AmountLC       money.Minor `json:"amount_lc"`
 }
 
 // Item is a row of collections.dunning_notice_item: a customer's open
@@ -167,14 +190,18 @@ type Notice struct {
 	Items          []Item
 }
 
+// runSelect reads a run with its disputed items, each given its
+// currency's digits.
 const runSelect = `SELECT r.id, r.legal_entity_id, r.key_date, r.status, r.currency, c.exponent, r.notice_count, r.item_count, r.overdue_amount,
+		(SELECT coalesce(jsonb_agg(d || jsonb_build_object('exponent', x.exponent) ORDER BY n), '[]')
+		 FROM jsonb_array_elements(r.disputed_items) WITH ORDINALITY AS e(d, n) JOIN ref.currency x ON x.code = d->>'currency'),
 		r.version, r.created_at, r.created_by, r.updated_at, r.updated_by
 	FROM collections.dunning_run r JOIN ref.currency c ON c.code = r.currency`
 
 func scanRun(row pgx.Row) (Run, error) {
 	var r Run
 	err := row.Scan(&r.ID, &r.LegalEntityID, &r.KeyDate, &r.Status, &r.Currency, &r.Exponent, &r.NoticeCount, &r.ItemCount, &r.OverdueAmount,
-		&r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
+		&r.Disputed, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
 	return r, errs.Wrapf(err, "scan dunning run")
 }
 
@@ -248,6 +275,40 @@ func recorded(ctx context.Context, tx pgx.Tx, refs []ledger.ItemRef) (map[ledger
 	})
 	if err != nil {
 		return nil, fmt.Errorf("collections: read the dunning levels of %d items: %w", len(refs), err)
+	}
+	return out, nil
+}
+
+// openCase is an item's open dispute case as dunning and the worklist
+// read it: its id, its customer's number and its disputed amount in the
+// company's currency.
+type openCase struct {
+	ID             uuid.UUID
+	CustomerNumber string
+	AmountLC       money.Minor
+}
+
+// openCases reads the open dispute cases of the items, by item; an item
+// without one is absent. An item has one open case at most
+// (dispute_case_one_open, whose index the read uses).
+func openCases(ctx context.Context, tx pgx.Tx, refs []ledger.ItemRef) (map[ledger.ItemRef]openCase, error) {
+	years, entries, lines := make([]int16, len(refs)), make([]uuid.UUID, len(refs)), make([]int32, len(refs))
+	for i, r := range refs {
+		years[i], entries[i], lines[i] = r.FiscalYear, r.EntryID, r.LineNo
+	}
+	rows, _ := tx.Query(ctx, `SELECT d.fiscal_year, d.journal_entry_id, d.line_no, d.id, d.customer_number, d.disputed_amount_lc
+		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) AS x(fy, je, ln)
+		JOIN collections.dispute_case d ON d.fiscal_year = x.fy AND d.journal_entry_id = x.je AND d.line_no = x.ln AND d.status = 'open'`,
+		years, entries, lines)
+	out := map[ledger.ItemRef]openCase{}
+	var ref ledger.ItemRef
+	var c openCase
+	_, err := pgx.ForEachRow(rows, []any{&ref.FiscalYear, &ref.EntryID, &ref.LineNo, &c.ID, &c.CustomerNumber, &c.AmountLC}, func() error {
+		out[ref] = c
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("collections: read the open dispute cases of %d items: %w", len(refs), err)
 	}
 	return out, nil
 }

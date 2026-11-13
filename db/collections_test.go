@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -252,6 +253,9 @@ func TestDunningRunConfirmation(t *testing.T) {
 		{"a run's totals changed with its confirmation", func(s scene) []stmt {
 			return []stmt{step(`UPDATE collections.dunning_run SET status = 'confirmed', overdue_amount = 1 WHERE id = $1`, s.run)}
 		}, "permission denied"},
+		{"a run's disputed items changed with its confirmation (T86b, 000309)", func(s scene) []stmt {
+			return []stmt{step(`UPDATE collections.dunning_run SET status = 'confirmed', disputed_items = '[{}]' WHERE id = $1`, s.run)}
+		}, "permission denied"},
 		{"an item recorded that the run did not propose", func(s scene) []stmt {
 			return []stmt{step(confirm, s.tenant, s.run), step(dunned, s.tenant, id(), s.run, 1)}
 		}, "dunned_item_proposed_fkey"},
@@ -484,4 +488,43 @@ func TestDisputeCaseClosedForTheOwner(t *testing.T) {
 	}
 	_, err = tx.Exec(ctx, `UPDATE collections.dispute_case SET disputed_amount = 1 WHERE id = $1`, c)
 	failsWith(t, err, "a closed case is not changed")
+}
+
+// TestDunningRunDisputedItems (T86b, migration 000309): a run's disputed
+// items are a list, empty by default, as the previous version's runs have
+// it.
+func TestDunningRunDisputedItems(t *testing.T) {
+	need(t)
+	const run = `INSERT INTO collections.dunning_run (tenant_id, id, legal_entity_id, key_date, status, currency, notice_count, item_count,
+		overdue_amount, created_by, updated_by%s) VALUES ($1, $2, gen_random_uuid(), '2026-06-30', 'proposed', 'EUR', 0, 0, 0, $1, $1%s)`
+	for _, c := range []struct{ name, column, value, want string }{
+		{"none given", "", "", ""},
+		{"a list", ", disputed_items", `, '[{"dispute_case_id": "x"}]'`, ""},
+		{"an object", ", disputed_items", `, '{}'`, "dunning_run_disputed_items_check"},
+		{"null", ", disputed_items", ", NULL", "disputed_items"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tenant, r := id(), id()
+			err := asApp(t, tenant, func(tx pgx.Tx) error {
+				if err := all(tx, step(fmt.Sprintf(run, c.column, c.value), tenant, r)); err != nil {
+					return err
+				}
+				var got string
+				if err := tx.QueryRow(context.Background(), `SELECT disputed_items::text FROM collections.dunning_run WHERE id = $1`, r).Scan(&got); err != nil {
+					return err
+				}
+				if c.column == "" && got != "[]" {
+					t.Errorf("default: got %s, want []", got)
+				}
+				return nil
+			})
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
 }

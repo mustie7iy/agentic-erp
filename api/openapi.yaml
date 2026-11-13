@@ -16826,7 +16826,7 @@ paths:
       tags:
         - collections
       summary: Get a company's collection worklist
-      description: "The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue items, the largest overdue amount first (customers with the same amount by `customer_id`), each with its number and name, what its open items add up to (`open_amount`, credits included), what its overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest dunning level and the latest dunning date the confirmed dunning runs recorded for its open items (`confirmDunningRun`; level 0 and no date for a customer never dunned). An item is overdue as a dunning run counts it: the customer owes it (a debit) and the key date is past its net due date, which is that of the payment terms it was posted with or, for an item posted without payment terms (a manual or migrated entry's), its document date; an item due on the key date is not overdue, so an item without terms is overdue from the day after its document date, and credit items reduce no overdue amount. A customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in the company's currency, as the items were booked. `customer_count`, `open_amount` and `overdue_amount` at the top are the totals of every customer listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key date. Each page is computed anew and continues after the last customer's overdue amount and id: a customer whose overdue amount fell between two pages can be listed again with its new amount, and one whose amount rose is not read again, so a consumer that pages while items are posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is 404."
+      description: "The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue items, the largest overdue amount first (customers with the same amount by `customer_id`), each with its number and name, what its open items add up to (`open_amount`, credits included), what its overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest dunning level and the latest dunning date the confirmed dunning runs recorded for its open items (`confirmDunningRun`; level 0 and no date for a customer never dunned), and beside its overdue amount what the open dispute cases of its open items dispute (`disputed_amount`, in the company's currency as each case's share of its item was booked) and how many they are (`open_dispute_cases`; T86b): a disputed item stays open and overdue, so the order and the totals are as without the cases. An item is overdue as a dunning run counts it: the customer owes it (a debit) and the key date is past its net due date, which is that of the payment terms it was posted with or, for an item posted without payment terms (a manual or migrated entry's), its document date; an item due on the key date is not overdue, so an item without terms is overdue from the day after its document date, and credit items reduce no overdue amount. A customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in the company's currency, as the items were booked. `customer_count`, `open_amount` and `overdue_amount` at the top are the totals of every customer listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key date. Each page is computed anew and continues after the last customer's overdue amount and id: a customer whose overdue amount fell between two pages can be listed again with its new amount, and one whose amount rose is not read again, so a consumer that pages while items are posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is 404."
       x-permission: collections.worklist.read
       x-slo-class: report
       x-snapshot: true
@@ -17206,7 +17206,7 @@ paths:
       tags:
         - collections
       summary: Start a dunning run
-      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit) and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. The net due date is that of the payment terms the item was posted with; an item posted without payment terms (a manual or migrated entry's) is due on its document date and is proposed like any other. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing, with or without terms. An item rises one level per confirmed run at most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the highest level stays there. A notice's level is the highest among its items. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
+      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit) and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. The net due date is that of the payment terms the item was posted with; an item posted without payment terms (a manual or migrated entry's) is due on its document date and is proposed like any other. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing, with or without terms. An item with an open dispute case (`createDisputeCase`) is in no notice, whatever part of it is disputed: the run lists it in `disputed_items` with its case, and it counts in none of the run's totals; once the case is closed a new run proposes it again (T86b). An item rises one level per confirmed run at most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the highest level stays there. A notice's level is the highest among its items. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
       x-permission: collections.dunning.run
       x-agent: false
       x-problem-codes:
@@ -17295,7 +17295,7 @@ paths:
       tags:
         - collections
       summary: Confirm a dunning run
-      description: "Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`; an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written with it. From then on a run started for the company reads the recorded level as the item's `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is confirmed, the proposal is compared with the open items again: when an item of it was cleared since the run was started, or was dunned since by another confirmed run of the company (its recorded level is no longer the run's `previous_level`), the proposal is stale and refused (409 `collections.proposal_stale`), nothing of it is recorded, and a new run is started with `createDunningRun`; the stale run stays `proposed`. A run that is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
+      description: "Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`; an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written with it. From then on a run started for the company reads the recorded level as the item's `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is confirmed, the proposal is compared with the open items again: when an item of it was cleared since the run was started, or was dunned since by another confirmed run of the company (its recorded level is no longer the run's `previous_level`), the proposal is stale and refused (409 `collections.proposal_stale`), nothing of it is recorded, and a new run is started with `createDunningRun`; the stale run stays `proposed`. A dispute case opened on an item after the run was started does not make the proposal stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
       x-permission: collections.dunning.run
       x-agent: false
       x-problem-codes:
@@ -50080,7 +50080,7 @@ components:
     CollectionWorklistCustomer:
       type: object
       description: "A customer on a collection worklist: one with items overdue on the key date. Amounts are in the company's currency, as the items were booked."
-      required: [customer_id, customer_number, customer_name, open_amount, overdue_amount, oldest_due_date, dunning_level]
+      required: [customer_id, customer_number, customer_name, open_amount, overdue_amount, oldest_due_date, dunning_level, disputed_amount, open_dispute_cases]
       properties:
         customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
         customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
@@ -50090,6 +50090,8 @@ components:
         oldest_due_date: {type: string, format: date, description: "The earliest net due date among the customer's overdue items; an item posted without payment terms is due on its document date.", readOnly: true}
         dunning_level: {type: integer, format: int32, minimum: 0, maximum: 9, description: "The highest dunning level a confirmed dunning run recorded for one of the customer's open items; 0 when none was dunned.", readOnly: true}
         last_dunning_date: {type: string, format: date, description: "The latest dunning date (a confirmed run's key date) recorded for one of the customer's open items; absent when none was dunned.", readOnly: true}
+        disputed_amount: {$ref: "#/components/schemas/Money", description: "What the open dispute cases of the customer's open items dispute, overdue or not, each case's share of its item as booked (`local_disputed_amount`); 0 without any. It changes neither `open_amount` nor `overdue_amount`: a disputed item stays open and overdue."}
+        open_dispute_cases: {type: integer, format: int32, minimum: 0, description: "The open dispute cases of the customer's open items (`listDisputeCases?customer_id=&status=open`, which also lists a case whose item was cleared since).", readOnly: true}
     CollectionWorklist:
       type: object
       description: "A company's collection worklist on a key date (collections, ADR-0065 §9): one page of its customers with overdue items, the largest overdue amount first, with the totals of every customer listed."
@@ -50127,6 +50129,8 @@ components:
               oldest_due_date: "2026-12-11"
               dunning_level: 1
               last_dunning_date: "2026-12-31"
+              disputed_amount: {amount: "150.00", currency: CAD}
+              open_dispute_cases: 1
     DisputeCaseCreate:
       type: object
       description: "Open a dispute case on a customer's open item. It is created `open`."
@@ -50241,7 +50245,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
-          required: [legal_entity_id, company_code, company_name, key_date, status, currency, notice_count, item_count, overdue_amount]
+          required: [legal_entity_id, company_code, company_name, key_date, status, currency, notice_count, item_count, overdue_amount, disputed_items]
           properties:
             legal_entity_id: {type: string, format: uuid, description: "The company whose customers the run duns.", readOnly: true}
             company_code: {type: string, description: "The company's code.", readOnly: true}
@@ -50256,6 +50260,11 @@ components:
             notice_count: {type: integer, format: int32, minimum: 0, description: "The notices the run proposed, one per customer; 0 when nothing was overdue.", readOnly: true}
             item_count: {type: integer, format: int32, minimum: 0, description: "The overdue items in those notices.", readOnly: true}
             overdue_amount: {$ref: "#/components/schemas/Money", description: "The sum of the notices' `overdue_amount`: the items' amounts in the company's currency, as they were booked."}
+            disputed_items:
+              type: array
+              items: {$ref: "#/components/schemas/DunningRunDisputedItem"}
+              description: "The items the run would have proposed but left out, each for its open dispute case (T86b), by customer and item; in no notice and in none of the run's totals. Empty when none was disputed, and for runs started before dispute cases existed."
+              readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
           version: 1
@@ -50272,6 +50281,36 @@ components:
           notice_count: 1
           item_count: 1
           overdue_amount: {amount: "1050.00", currency: CAD}
+          disputed_items:
+            - dispute_case_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
+              customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+              customer_number: BP100042
+              fiscal_year: 2026
+              journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+              line_no: 1
+              document_number: "1800000007"
+              reference: CI-2026-0007
+              net_due_date: "2026-12-11"
+              days_overdue: 20
+              amount: {amount: "400.00", currency: CAD}
+              local_amount: {amount: "400.00", currency: CAD}
+    DunningRunDisputedItem:
+      type: object
+      description: "An item a dunning run left out for its open dispute case (T86b): a customer's open item overdue on the run's key date that would have reached a dunning level, as the run read it."
+      required: [dispute_case_id, customer_id, customer_number, fiscal_year, journal_entry_id, line_no, document_number, net_due_date, days_overdue, amount, local_amount]
+      properties:
+        dispute_case_id: {type: string, format: uuid, description: "The item's open dispute case when the run was started (`GET /v1/dispute-cases/{id}`).", readOnly: true}
+        customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+        customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: "The fiscal year of the item's journal entry.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the open item (`GET /v1/journal-entries/{id}`).", readOnly: true}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the open item.", readOnly: true}
+        document_number: {type: string, description: "The journal entry's document number.", readOnly: true}
+        reference: {type: string, description: "The journal entry's reference, a customer invoice's document number for one; absent when it has none.", readOnly: true}
+        net_due_date: {type: string, format: date, description: "The item's net due date: by the payment terms it was posted with, or, posted without any, its document date.", readOnly: true}
+        days_overdue: {type: integer, format: int32, minimum: 1, description: "The days from the net due date to the run's key date.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "What the customer owes on the item, in the item's currency, the disputed part and the rest."}
+        local_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, as it was booked."}
     DunningRunPage:
       type: object
       description: One page of dunning runs.

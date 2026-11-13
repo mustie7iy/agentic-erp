@@ -23474,6 +23474,13 @@ type CollectionWorklistCustomer struct {
 	// The latest dunning date (a confirmed run's key date) recorded for one of the customer's open items;
 	// absent when none was dunned.
 	LastDunningDate OptDate `json:"last_dunning_date"`
+	// What the open dispute cases of the customer's open items dispute, overdue or not, each case's share
+	// of its item as booked (`local_disputed_amount`); 0 without any. It changes neither `open_amount` nor
+	// `overdue_amount`: a disputed item stays open and overdue.
+	DisputedAmount Money `json:"disputed_amount"`
+	// The open dispute cases of the customer's open items (`listDisputeCases?customer_id=&status=open`,
+	// which also lists a case whose item was cleared since).
+	OpenDisputeCases int32 `json:"open_dispute_cases"`
 }
 
 // GetCustomerID returns the value of CustomerID.
@@ -23516,6 +23523,16 @@ func (s *CollectionWorklistCustomer) GetLastDunningDate() OptDate {
 	return s.LastDunningDate
 }
 
+// GetDisputedAmount returns the value of DisputedAmount.
+func (s *CollectionWorklistCustomer) GetDisputedAmount() Money {
+	return s.DisputedAmount
+}
+
+// GetOpenDisputeCases returns the value of OpenDisputeCases.
+func (s *CollectionWorklistCustomer) GetOpenDisputeCases() int32 {
+	return s.OpenDisputeCases
+}
+
 // SetCustomerID sets the value of CustomerID.
 func (s *CollectionWorklistCustomer) SetCustomerID(val uuid.UUID) {
 	s.CustomerID = val
@@ -23554,6 +23571,16 @@ func (s *CollectionWorklistCustomer) SetDunningLevel(val int32) {
 // SetLastDunningDate sets the value of LastDunningDate.
 func (s *CollectionWorklistCustomer) SetLastDunningDate(val OptDate) {
 	s.LastDunningDate = val
+}
+
+// SetDisputedAmount sets the value of DisputedAmount.
+func (s *CollectionWorklistCustomer) SetDisputedAmount(val Money) {
+	s.DisputedAmount = val
+}
+
+// SetOpenDisputeCases sets the value of OpenDisputeCases.
+func (s *CollectionWorklistCustomer) SetOpenDisputeCases(val int32) {
+	s.OpenDisputeCases = val
 }
 
 // Body of a rejection or cancellation decision.
@@ -36916,6 +36943,10 @@ type DunningRun struct {
 	// The sum of the notices' `overdue_amount`: the items' amounts in the company's currency, as they were
 	// booked.
 	OverdueAmount Money `json:"overdue_amount"`
+	// The items the run would have proposed but left out, each for its open dispute case (T86b), by
+	// customer and item; in no notice and in none of the run's totals. Empty when none was disputed, and
+	// for runs started before dispute cases existed.
+	DisputedItems []DunningRunDisputedItem `json:"disputed_items"`
 }
 
 // GetID returns the value of ID.
@@ -36993,6 +37024,11 @@ func (s *DunningRun) GetOverdueAmount() Money {
 	return s.OverdueAmount
 }
 
+// GetDisputedItems returns the value of DisputedItems.
+func (s *DunningRun) GetDisputedItems() []DunningRunDisputedItem {
+	return s.DisputedItems
+}
+
 // SetID sets the value of ID.
 func (s *DunningRun) SetID(val uuid.UUID) {
 	s.ID = val
@@ -37068,6 +37104,11 @@ func (s *DunningRun) SetOverdueAmount(val Money) {
 	s.OverdueAmount = val
 }
 
+// SetDisputedItems sets the value of DisputedItems.
+func (s *DunningRun) SetDisputedItems(val []DunningRunDisputedItem) {
+	s.DisputedItems = val
+}
+
 // Start a dunning run. It is created `proposed`, with one notice per customer that has items overdue
 // on the key date.
 // Ref: #/components/schemas/DunningRunCreate
@@ -37098,6 +37139,158 @@ func (s *DunningRunCreate) SetLegalEntityID(val uuid.UUID) {
 // SetKeyDate sets the value of KeyDate.
 func (s *DunningRunCreate) SetKeyDate(val time.Time) {
 	s.KeyDate = val
+}
+
+// An item a dunning run left out for its open dispute case (T86b): a customer's open item overdue on
+// the run's key date that would have reached a dunning level, as the run read it.
+// Ref: #/components/schemas/DunningRunDisputedItem
+type DunningRunDisputedItem struct {
+	// The item's open dispute case when the run was started (`GET /v1/dispute-cases/{id}`).
+	DisputeCaseID uuid.UUID `json:"dispute_case_id"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The fiscal year of the item's journal entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry whose line is the open item (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The line of the journal entry that is the open item.
+	LineNo int32 `json:"line_no"`
+	// The journal entry's document number.
+	DocumentNumber string `json:"document_number"`
+	// The journal entry's reference, a customer invoice's document number for one; absent when it has
+	// none.
+	Reference OptString `json:"reference"`
+	// The item's net due date: by the payment terms it was posted with, or, posted without any, its
+	// document date.
+	NetDueDate time.Time `json:"net_due_date"`
+	// The days from the net due date to the run's key date.
+	DaysOverdue int32 `json:"days_overdue"`
+	// What the customer owes on the item, in the item's currency, the disputed part and the rest.
+	Amount Money `json:"amount"`
+	// The same in the company's currency, as it was booked.
+	LocalAmount Money `json:"local_amount"`
+}
+
+// GetDisputeCaseID returns the value of DisputeCaseID.
+func (s *DunningRunDisputedItem) GetDisputeCaseID() uuid.UUID {
+	return s.DisputeCaseID
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *DunningRunDisputedItem) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *DunningRunDisputedItem) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *DunningRunDisputedItem) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DunningRunDisputedItem) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *DunningRunDisputedItem) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *DunningRunDisputedItem) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetReference returns the value of Reference.
+func (s *DunningRunDisputedItem) GetReference() OptString {
+	return s.Reference
+}
+
+// GetNetDueDate returns the value of NetDueDate.
+func (s *DunningRunDisputedItem) GetNetDueDate() time.Time {
+	return s.NetDueDate
+}
+
+// GetDaysOverdue returns the value of DaysOverdue.
+func (s *DunningRunDisputedItem) GetDaysOverdue() int32 {
+	return s.DaysOverdue
+}
+
+// GetAmount returns the value of Amount.
+func (s *DunningRunDisputedItem) GetAmount() Money {
+	return s.Amount
+}
+
+// GetLocalAmount returns the value of LocalAmount.
+func (s *DunningRunDisputedItem) GetLocalAmount() Money {
+	return s.LocalAmount
+}
+
+// SetDisputeCaseID sets the value of DisputeCaseID.
+func (s *DunningRunDisputedItem) SetDisputeCaseID(val uuid.UUID) {
+	s.DisputeCaseID = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *DunningRunDisputedItem) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *DunningRunDisputedItem) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *DunningRunDisputedItem) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DunningRunDisputedItem) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *DunningRunDisputedItem) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *DunningRunDisputedItem) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetReference sets the value of Reference.
+func (s *DunningRunDisputedItem) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetNetDueDate sets the value of NetDueDate.
+func (s *DunningRunDisputedItem) SetNetDueDate(val time.Time) {
+	s.NetDueDate = val
+}
+
+// SetDaysOverdue sets the value of DaysOverdue.
+func (s *DunningRunDisputedItem) SetDaysOverdue(val int32) {
+	s.DaysOverdue = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *DunningRunDisputedItem) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetLocalAmount sets the value of LocalAmount.
+func (s *DunningRunDisputedItem) SetLocalAmount(val Money) {
+	s.LocalAmount = val
 }
 
 // DunningRunHeaders wraps DunningRun with response headers.

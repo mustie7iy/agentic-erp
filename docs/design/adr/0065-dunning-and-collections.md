@@ -552,3 +552,54 @@ default 4; no new ADR), each listed for the product owner's digest.
   invoice `step_dunning` dunned for CAD 150.00 of it; a second case and
   more than the item's amount are refused; she assigns it to herself
   with a note and reads it back; Northwind's open items are unchanged.
+
+### T86b Disputed invoices in dunning and the worklist (migration 000309)
+
+Decided by default under this ADR (`plan-breadth-week3.md` §T86b and
+default 4, confirmed by the product owner on 2026-11-12 as question 9),
+each listed for the product owner's digest.
+
+- **Left out of the proposal.** A run reads the open dispute cases of
+  the items overdue on its key date (`collections.openCases`, by the
+  index `dispute_case_one_open`) and leaves an item that would reach a
+  level but has an open case out of every notice and every total,
+  whatever part of it is disputed (plan default 4: dunning the
+  undisputed part is among the plan's "Later"). An item disputed but not
+  overdue enough for a level is neither proposed nor listed.
+- **Listed on the run as disputed.** `dunning_run.disputed_items`, a JSON
+  list written once with the run (the application's update grant leaves
+  it out, so a confirmation does not change it), by customer and item:
+  the open case, the customer's id and number, the item by journal line
+  with its document number, reference, net due date and days overdue,
+  and its amounts in its currency and the company's (the currency's
+  digits read with the run from `ref.currency`, not stored). The plan
+  asks for no new table, and a list read whole with its run is what a
+  column holds; the API gives it as `disputed_items` on every run,
+  empty for runs started before (decided by default).
+- **Size.** The disputed items count with the proposed ones towards the
+  5,000 a run takes (§5): they were read and are written with the run.
+  The refusal's detail now says "take more than N overdue items, the
+  most one run proposes or names as disputed".
+- **A run proposed before the case.** Confirming it does not compare
+  cases (plan acceptance): the proposal is confirmed as it was and the
+  item recorded as dunned at the level proposed. Only clearing and
+  another run's dunning make a proposal stale (§8).
+- **Worklist.** Each customer gets `disputed_amount`, the sum of
+  `disputed_amount_lc` of the open cases of its open items, overdue or
+  not (a dispute of an invoice not yet due is still the customer's), and
+  `open_dispute_cases`, their number; both are read for the page's
+  customers in `describe`, as the dunning level is. A disputed item stays
+  open and overdue, so `open_amount`, `overdue_amount`, the order and
+  the totals are T76c's; a case whose item was cleared counts no more,
+  as a cleared item's dunning does not. Amounts that add up past an
+  amount's range are refused as the worklist's others are (422
+  `collections.amount_too_large`).
+- **Budget.** `TestCollectionWorklistBudget` now seeds an open case on
+  one item in ten (about 10,000): p95 2.7 s at scale 1 and 2.3 s at
+  scale 2 (budget 3 s and 6 s), median 1.5-1.7 s, at a load average of
+  48-68, 2026-11-13; T76c measured 1.2-1.5 s at 35-47.
+- **Walkthrough.** `step_dispute` extended: a run at `step_dunning`'s key
+  date names the invoice as disputed with its case and has it in no
+  notice; the worklist shows Northwind's CAD 150.00 disputed in one open
+  case; Ruth closes the case as rejected and a new run at the key date
+  proposes the invoice again.

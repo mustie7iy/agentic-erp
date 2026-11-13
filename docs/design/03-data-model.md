@@ -4444,6 +4444,8 @@ changes, and each item's level and dunning date are recorded in
 the dispute case: a customer's dispute of an amount of one of its open
 items, named by its journal line as a notice's item is, worked by a
 person and closed as accepted or rejected; closing posts nothing.
+T86b (migration 000309) leaves an item with an open case out of a run's
+notices and lists it on the run.
 
 ```mermaid
 erDiagram
@@ -4458,6 +4460,7 @@ erDiagram
     int notice_count
     int item_count
     bigint overdue_amount "in currency"
+    jsonb disputed_items "items left out for an open case"
     int version }
   dunning_notice { uuid id PK
     uuid dunning_run_id FK
@@ -4521,7 +4524,10 @@ erDiagram
   proposed run moves to confirmed, once (the trigger
   `dunning_run_confirmed_once`), and the application may set its status,
   version and `updated_by` alone, so its company, key date and totals
-  stay; it may not delete a run.
+  stay; it may not delete a run. `disputed_items` (T86b, migration
+  000309) lists the items the run left out for their open dispute
+  cases, a JSON list (`dunning_run_disputed_items_check`), empty by
+  default; it is written with the run and not changed.
 - `collections.dunning_notice`: one per customer in a run
   (`dunning_notice_customer_once`), at a level from 1 to 9
   (`dunning_notice_level_check`), with at least one item

@@ -2980,9 +2980,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A dunning run leaves an invoice with an open dispute case out of its proposal, and the collection worklist shows each customer's disputed amount beside its overdue amount",
-        "r": "T86b · docs/design/plan-breadth-week3.md §T86b",
+        "r": "T86b · docs/design/plan-breadth-week3.md §T86b · db/migrations/000309 · dunning_run.disputed_items · DunningRun.disputed_items · CollectionWorklistCustomer.disputed_amount, open_dispute_cases · TestCollectionWorklistBudget with cases seeded · walkthrough step_dispute · ADR-0065 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
