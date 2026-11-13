@@ -65,7 +65,7 @@ func TestDrillThrough(t *testing.T) {
 		"revenue": {`{"query": {"measures": ["revenue"], "by": ["company"]}, "row": {"company": "2000"}}`,
 			[]string{"journal_entry " + number(t, "ledger.journal_entry", revenue) + " 2000 500.00 EUR"}},
 		"spend": {`{"query": {"measures": ["spend", "off_contract_share"], "by": ["fiscal_month", "vendor"], "companies": ["2000"]}, "measure": "spend",
-			"row": {"fiscal_month": "3", "vendor": "BP90000001"}}`, sorted(
+			"row": {"fiscal_month": "3", "vendor": "BP90000001"}}`, inCreationOrder(
 			"supplier_invoice "+number(t, "payables.supplier_invoice", invoice)+" 2000 140.00 EUR",
 			"supplier_invoice "+number(t, "payables.supplier_invoice", credit)+" 2000 -15.00 EUR")},
 		"order intake": {`{"query": {"measures": ["order_intake"]}, "row": {}}`,
@@ -74,7 +74,7 @@ func TestDrillThrough(t *testing.T) {
 			"row": {"customer_name": "Northwind Traders"}}`, []string{"billing_document " + number(t, "sales.billing_document", billing) + " 2000 1737.53 EUR"}},
 		"a count's documents": {`{"query": {"measures": ["purchase_order_count"], "where": [{"dim": "company", "op": "in", "values": ["2000"]}]}, "row": {}}`,
 			[]string{"purchase_order " + number(t, "procurement.purchase_order", po) + " 2000 1.00 EUR"}},
-		"invoices at gross": {`{"query": {"measures": ["invoice_value"], "by": ["invoice_status"]}, "row": {"invoice_status": "posted"}}`, sorted(
+		"invoices at gross": {`{"query": {"measures": ["invoice_value"], "by": ["invoice_status"]}, "row": {"invoice_status": "posted"}}`, inCreationOrder(
 			"supplier_invoice "+number(t, "payables.supplier_invoice", invoice)+" 2000 140.00 EUR",
 			"supplier_invoice "+number(t, "payables.supplier_invoice", credit)+" 2000 15.00 EUR")},
 	} {
@@ -96,7 +96,7 @@ func TestDrillThrough(t *testing.T) {
 	t.Run("refusals", func(t *testing.T) { drillRefusals(t, e) })
 }
 
-func sorted(docs ...string) []string { return docs } // the fixture's ids are of version 7, in creation order
+func inCreationOrder(docs ...string) []string { return docs } // the fixture's ids are of version 7, in creation order
 
 // pages: a page at a time lists what one page lists, each token bound to
 // its request.

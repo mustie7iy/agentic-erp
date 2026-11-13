@@ -169,7 +169,9 @@ func (r Remote) Documents(ctx context.Context, d Drill) (*Drilled, error) {
 		in.Row = map[string]string{}
 	}
 	out := &Drilled{Documents: []Document{}}
-	page := url.Values{"page_size": {"500"}}
+	// The default page: each document's number is one read of its own,
+	// so a page is held to the size the budget is measured at.
+	page := url.Values{}
 	for {
 		var got remoteDocuments
 		resp, err := r.API.Do(ctx, http.MethodPost, DocumentsPath, page, in, "")

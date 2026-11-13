@@ -1161,9 +1161,11 @@ Decisions:
   order's `procurement.order.read`, an invoice's `payables.invoice.read`,
   a sales order's and billing document's `sales.order.read` and
   `sales.billing.read`) and the company scope keeps other companies'
-  documents out, so the reads are the second guard, tested per kind
-  (`endpoint.TestDrillThrough`). One read per document of the page:
-  at most `page_size` (50 by default) in-process reads.
+  documents out, so the reads are a second guard: the refusals per kind
+  (`endpoint.TestDrillThrough`) stop at the query's permission check,
+  and a refused document read is `analytics.TestNumbers`'. One read per
+  document of the page: at most `page_size` (50 by default) in-process
+  reads; `erp query -documents` asks for the default page.
 - *Pages stable:* by document id and currency, the token signed
   (`pagination.Codec`) and bound to the row's query, the companies asked
   for, `as_of` and the configuration version, so a token of another
@@ -1174,10 +1176,12 @@ Decisions:
   extended: each slice of the lane adds a step of its own before the
   close (coordinator), and by step 70 the month's revenue holds the
   story's billing as well as step 14's entries.
-- *Budget.* `TestDrillThroughBudget`: see the figures in the slice's
-  commit; the drill of spend of one supplier over the year and of one
-  month a page at a time over 100,000 items of 50,000 posted invoices of
-  500 suppliers of one company, answered from the store: p95 3 s.
+- *Budget.* `TestDrillThroughBudget`: the drill of spend of one supplier
+  over the year and of one month a page of 50 at a time over 100,000
+  items of 50,000 posted invoices of 500 suppliers of one company,
+  answered from the store: p95 3 s; measured 2026-11-13 under a load of
+  about 55, median 1.19 s and p95 1.63 s at scale 1, median 1.12 s and
+  p95 1.65 s at scale 2.
 - *No event.* Nothing is published: a drill-through changes nothing.
 - *Evidence.* `analytics.TestRowQuery`, `TestDocumentsOf`, `TestPageOf`,
   `TestNumbers`, `TestRemoteDocuments`; `reader.TestDocuments`,

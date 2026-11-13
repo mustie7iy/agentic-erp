@@ -4,8 +4,6 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"maps"
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -88,13 +86,7 @@ func (s *Source) documentsFromStore(ctx context.Context, m *analytics.Model, p a
 func DocumentPlan(m *analytics.Model, q analytics.Query, ledger string, after *analytics.DocumentCursor, limit int) wire.Plan {
 	met := m.Metric(q.Measures[0])
 	p := wire.Plan{Dataset: met.Source, Aggregate: "documents", By: analytics.DocumentDimensions(met.Source), Ledger: ledger,
-		FiscalYearStartMonth: m.Calendar.FiscalYearStartMonth, Limit: limit}
-	for _, d := range slices.Sorted(maps.Keys(met.Filter)) {
-		p.Where = append(p.Where, wire.Filter{Column: d, Op: "in", Values: met.Filter[d]})
-	}
-	for _, f := range q.Where {
-		p.Where = append(p.Where, wire.Filter{Column: f.Dim, Op: f.Op, Values: f.Values})
-	}
+		FiscalYearStartMonth: m.Calendar.FiscalYearStartMonth, Limit: limit, Where: planWhere(met, q)}
 	if after != nil {
 		p.After = []string{after.ID, after.Currency}
 	}
