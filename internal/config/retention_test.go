@@ -131,6 +131,8 @@ func TestRetentionEnds(t *testing.T) {
 func TestRetentionTier(t *testing.T) {
 	longer := withRetention(t)
 	longer.Company("1000").Retention[0].Years = years(11)
+	zero := withRetention(t)
+	zero.Company("1000").Retention[0].Years = years(0)
 	cases := []struct {
 		name      string
 		old, new  *Config
@@ -138,6 +140,7 @@ func TestRetentionTier(t *testing.T) {
 	}{
 		{"set", fixture(t), withRetention(t), "companies[1000].retention[journal_entry] companies[1000].retention[personal_data]"},
 		{"a rule's years", withRetention(t), longer, "companies[1000].retention[journal_entry].years"},
+		{"to zero years", withRetention(t), zero, "companies[1000].retention[journal_entry].years"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
