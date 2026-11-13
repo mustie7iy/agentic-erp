@@ -527,6 +527,59 @@ A later slice adds its row here and its section under "As built".
   contract's description of `simulateChangeRequest` says what a draft's
   simulation does.
 
+### T108a, the support agent: how-to answers
+
+- `internal/supportagent`; agent type `support`; `erp agent support-ask
+  QUESTION` (the question is the command's words, UTF-8 of 1 to 4,000
+  bytes, `MaxQuestion`, passed in the run's prompt between `<question>`
+  lines). It answers with a reply only, no recommendation, so it is not a
+  recommending agent and does not run through `internal/recommend`: its
+  run is `apitools.Run` over its tools, as `erp ask`'s, with the session
+  recorded through the API. The run reads the active configuration
+  version first (`apitools.ActiveConfig`, which the regulatory agent now
+  uses too): a version the agent may not read stops it before a session.
+- Its tools: the reads `listConfigVersions`, `getConfigVersion`,
+  `getSchema`, `getCurrentPrincipal`; `findOperations`, the contract's
+  search (`apitools.Contract`): the operations whose id, summary or
+  description hold every word asked, or those named by id, at most 20,
+  with their method, path, summary, description, permission, problem
+  codes and whether only a person may call them; and `reply`, the answer.
+  The last two are local tools (`apitools.Local`): answered by the
+  agent's own code from the contract compiled into the binary, offered
+  at every level, recorded in the session, guarded and observed like an
+  API call. None writes (`TestTools`).
+- Its check (`supportagent.replying.check`), on `reply`, refused and
+  counted as the pattern's are, the model told why:
+  - every word of an operation id's form (lower case, then words joined
+    by capitals) is an operation of the contract (`api.Operations`);
+  - every setting cited as `` `path` = `value` `` is one the active
+    configuration holds with that value (`config.Setting`, the value as
+    `config.Diff` writes it); a setting written in prose is not seen, so
+    the prompt asks for every setting in that form, and the next rule
+    refuses its value in prose;
+  - every number outside backticks, a list item's number at a line's
+    start apart, is one the question writes (`recommend.Numbers`);
+  - a reply naming no operation says `The contract does not answer this
+    question.` (`supportagent.Unanswered`);
+  - one reply per run: the first the check admits stands.
+  A run whose model gives no reply the check admits fails
+  (`ErrNoReply`), its session and refusals still reported.
+- `evals/support`, version 1, replayed to level 2, on the tax suite's
+  configuration (company 3000, a price tolerance of 2 percent or 5.00):
+  an invoice above the tolerance released by `releaseSupplierInvoice`,
+  the tolerance cited; a question no operation answers (booking a
+  flight) replied to as unanswered; an instruction in the question to
+  raise the tolerance not followed, no change request, the version still
+  active. Not run against a live model.
+- Walkthrough `step_support_agent` (step 79): Ada sets the agent up with
+  `config.version.read`, `identity.self.read` and its session
+  permissions; Alex asks how an invoice above the tolerance is released;
+  a reply naming an operation the contract does not have is refused; the
+  reply names `releaseSupplierInvoice` and cites the walkthrough
+  company's tolerance as the active version holds it; the version is as
+  it was.
+- No migration, no new operation, permission, event or problem code.
+
 ## Defaults taken (for the product owner's digest)
 
 1. The shared run is a package, `internal/recommend`, not a copy per
@@ -590,3 +643,9 @@ A later slice adds its row here and its section under "As built".
     the version still active is drafted from; the draft is held to the
     recommendation's paths, not to the notice's figures, which the person
     submitting it checks.
+14. (T108a) The support agent replies and does not recommend, so it runs
+    outside the pattern, through `apitools.Run` with two local tools, the
+    contract's search and its reply. A setting counts as cited only in the
+    form ``path`` = ``value``, and a reply's numbers outside backticks are
+    the question's; operation ids are told by their form. The contract is
+    searched by id and summary, not description.

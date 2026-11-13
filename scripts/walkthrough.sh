@@ -8566,6 +8566,66 @@ regulatory_draft() {
   expect "the active version and V0" "$(field '.items[0] | "\(.id) \(.document.companies[] | select(.code == "1000") | .tax_codes[] | select(.code == "V0") | .rate_percent)"')" "$version 0"
 }
 
+# step_support_agent is T108a (ADR-0072 As built): Alex, who handles
+# supplier invoices, asks the support agent how an invoice above the
+# price tolerance is released. erp agent support-ask, through the model
+# stand-in answering from a script of turns (its suite's replay,
+# evals/support), reads the contract (findOperations) and the active
+# configuration version; a reply naming an operation the contract does
+# not have is refused by the run first; it then replies naming
+# releaseSupplierInvoice and citing the tolerance of the walkthrough's
+# company as the active version holds it. Its role changes nothing, and
+# the configuration is as it was.
+step_support_agent() {
+  heading "Step 79 — The support agent: asked how an invoice above the tolerance is released, it names the operation from the contract and the tenant's tolerance from the active configuration; an operation it made up refused; nothing changed"
+  local role version pct abs question got session
+  as ada
+  say "Ada sets up the support agent (ADR-0072): an agent principal of type support at autonomy level 1 on erp-default."
+  say "Its role reads the configuration and who it is, and records its sessions; it holds no permission that changes anything."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "support_agent", "name": "Support agent"}'
+  role=$(field .id)
+  grant "$role" config.version.read identity.self.read agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "support-agent", "display_name": "Support agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "support", "model": "erp-default", "description": "Answers how-to questions from the contract and the configuration (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token support-agent "Support agent"
+  as alex
+  say "What the agent will read, as Alex reads it: the active version's price tolerance of company $CC:"
+  api 200 '.items[0] | "  version \(.number): company '"$CC"' tolerates \(.document.companies[] | select(.code == "'"$CC"'") | .invoice_tolerance | "\(.price_percent) percent or \(.price_absolute)")"' \
+    listConfigVersions -p is_active=true
+  version=$(field '.items[0].id')
+  pct=$(field ".items[0].document.companies[] | select(.code == \"$CC\") | .invoice_tolerance.price_percent")
+  abs=$(field ".items[0].document.companies[] | select(.code == \"$CC\") | .invoice_tolerance.price_absolute")
+  question="How is a supplier invoice above the price tolerance released?"
+  jq -n --arg v "$version" --arg cc "$CC" --arg pct "$pct" --arg abs "$abs" '
+    ("An invoice whose price is above `companies[\($cc)].invoice_tolerance.price_percent` = `\($pct)` percent, or `companies[\($cc)].invoice_tolerance.price_absolute` = `\($abs)`, is put on hold. ") as $why |
+    {turns: [
+      {tool: "findOperations", input: {query: "release supplier invoice"}},
+      {tool: "getConfigVersion", input: {id: $v}},
+      {tool: "reply", input: {text: ($why + "Approve it with approveHeldInvoice.")}},
+      {tool: "reply", input: {text: ($why + "A person holding `payables.invoice.review` releases it with releaseSupplierInvoice, which returns it to parked; it answers `payables.invalid_status` unless the invoice is on hold.")}},
+      {final: "Answered: releaseSupplierInvoice, with the tolerance of the active configuration."}]}' >"$WORK/model-script.json"
+  say "Alex asks: \"$question\" The agent runs: erp agent support-ask starts a session on erp-default and, through the"
+  say "stand-in's script (its suite's replay, evals/support), reads the contract and the active version, names an operation"
+  say "the contract does not have (refused by the run: every operation named is the contract's), then replies."
+  show ERP_AGENT_TOKEN=… erp agent support-ask "\"$question\""
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/support-agent") "$ERP" agent support-ask "$question" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent support-ask failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent did" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "replies refused 1."
+  expect "naming the operation" "$(printf '%s\n' "$got" | grep -c 'releaseSupplierInvoice')" 1
+  expect "citing the tenant's tolerance" "$(printf '%s\n' "$got" | grep -cF "\`companies[$CC].invoice_tolerance.price_percent\` = \`$pct\`")" 1
+  as support-agent
+  api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "findOperations getConfigVersion reply reply"
+  as alex
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  expect "the active version" "$(field '.items[0].id')" "$version"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -10590,7 +10650,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_regulatory_agent step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_regulatory_agent step_support_agent step_close'
 
 main() {
   stop_unseen

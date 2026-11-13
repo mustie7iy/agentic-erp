@@ -984,7 +984,13 @@ of its a person accepted, it drafts the change request
 named and no other, has the draft simulated (a preview of a `draft`,
 recording no evidence) and recommends on the `change_request`:
 `ready_to_submit` or `simulation_failed`; it never submits, withdraws
-or activates it.
+or activates it. The support agent (`erp agent support-ask QUESTION`,
+agent type `support`, T108a) answers how to do something with a reply
+only: it reads the contract through a local search of its operations
+(`findOperations`: method, path, summary, description, permission,
+problem codes) and the active configuration, and its reply names only
+operations of the contract and cites settings as the active version
+holds them; it has no tool that writes.
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation

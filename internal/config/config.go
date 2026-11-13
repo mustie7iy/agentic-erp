@@ -712,6 +712,18 @@ func Parse(b []byte) (*Config, error) {
 	return &c, nil
 }
 
+// Readable is an activated document as an agent reads it from the API
+// (JSON is YAML), keys a newer binary added ignored: the configuration,
+// or none when this binary cannot read it, which then holds no setting
+// (Holds, Setting).
+func Readable(b []byte) *Config {
+	c, _, err := ParseActive(b)
+	if err != nil {
+		return nil
+	}
+	return c
+}
+
 // ParseActive reads an activated document, tolerating keys this binary
 // does not know: during a rolling upgrade a newer replica may have
 // activated a document with keys added after this binary was built (06

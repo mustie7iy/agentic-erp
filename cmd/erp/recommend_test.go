@@ -11,6 +11,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
 	"github.com/mustie7iy/agentic-erp/internal/regulatoryagent"
+	"github.com/mustie7iy/agentic-erp/internal/supportagent"
 )
 
 // agentSession is the session the fake API starts for an agent's run.
@@ -204,6 +205,30 @@ func TestAgentRegulatoryDraft(t *testing.T) {
 	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "regulatory-draft", "-recommendation", "r0")
 }
 
+// TestAgentSupportAsk: erp agent support-ask needs a question, reads the
+// active configuration version, runs the support agent's session and
+// prints how many replies were refused and the reply admitted, also when
+// the run failed after starting its session (ADR-0072 As built, T108a).
+func TestAgentSupportAsk(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	fails(t, "flag provided", "agent", "support-ask", "-x")
+	fails(t, "ask a question", "agent", "support-ask")
+	fails(t, "404", "agent", "support-ask", "how", "is", "an", "invoice", "released?")
+	fakeAPI(t, sessionRoutes(routes{"GET /v1/config-versions": {ok(`{"items": [{"id": "v1", "number": 3, "document": {"companies": []}}]}`)}}))
+	model(t, llmtest.Tool(supportagent.Reply, map[string]any{"text": "Call releaseSupplierInvoice."}), llmtest.Final("Answered."))
+	got := must(t, "agent", "support-ask", "how", "is", "an", "invoice", "released?")
+	if want := "Session " + agentSession + ": replies refused 0.\nCall releaseSupplierInvoice.\n"; got != want {
+		t.Errorf("agent support-ask: got %q, want %q", got, want)
+	}
+	model(t)
+	// A failed run still names its session, then fails.
+	fails(t, "Session "+agentSession+": replies refused 0.", "agent", "support-ask", "how?")
+	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
+	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "support-ask", "how?")
+}
+
 // TestRecommendingAdapterFailures: a recommending agent's evaluation
 // adapter fails its case on a task without its values and on an agent
 // that could not run.
@@ -220,6 +245,8 @@ func TestRecommendingAdapterFailures(t *testing.T) {
 		"bid_comparison without its API": bidComparisonEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"rfq": "q1"}}),
 		"regulatory without a notice":    regulatoryEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
 		"regulatory without its API":     regulatoryEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"notice": "A notice."}}),
+		"support without a question":     supportEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
+		"support without its API":        supportEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"question": "How?"}}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err == nil {

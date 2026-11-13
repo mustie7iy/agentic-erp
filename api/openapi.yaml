@@ -30860,6 +30860,7 @@ components:
             - access
             - bid_comparison
             - regulatory
+            - support
           maxLength: 50
         model:
           type: string

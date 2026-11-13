@@ -20,7 +20,6 @@ package regulatoryagent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -92,24 +91,6 @@ type Agent struct {
 	Poll, Patience time.Duration
 }
 
-// version is the active configuration version, as read before the run.
-type version struct {
-	ID       string          `json:"id"`
-	Number   int             `json:"number"`
-	Document json.RawMessage `json:"document"`
-}
-
-// configuration is the version's document as a configuration, whose
-// paths are named as config.Diff names them; a document this binary
-// cannot read holds no path.
-func (v version) configuration() *config.Config {
-	c, _, err := config.ParseActive(v.Document) // JSON is YAML; keys a newer binary added are ignored
-	if err != nil {
-		return nil
-	}
-	return c
-}
-
 // The refusals before a run and of the agent's own check, beside the
 // pattern's.
 var (
@@ -143,11 +124,11 @@ func (a *Agent) Read(ctx context.Context, notice string) (recommend.Result, erro
 	if notice == "" || len(notice) > MaxNotice || !utf8.ValidString(notice) {
 		return recommend.Result{}, ErrNotice
 	}
-	v, err := a.active(ctx)
+	v, err := apitools.ActiveConfig(ctx, a.API)
 	if err != nil {
 		return recommend.Result{}, err
 	}
-	r := &reading{notice: notice, configuration: v.configuration()}
+	r := &reading{notice: notice, configuration: config.Readable(v.Document)}
 	task := recommend.Task{
 		Purpose: fmt.Sprintf("Read a regulatory notice against configuration version %d", v.Number),
 		Prompt: fmt.Sprintf("The tenant's active configuration is version %d (id %s).\n<notice>\n%s\n</notice>",

@@ -113,14 +113,14 @@ func (a *Agent) Draft(ctx context.Context, recommendation string) (recommend.Res
 	if rec.ObjectType != VersionObject || rec.Kind != ChangeNeeded || rec.Outcome != "accepted" {
 		return recommend.Result{}, fmt.Errorf("%w: recommendation %s is %s on %s, %s", ErrNotAccepted, recommendation, rec.Kind, rec.ObjectType, outcome(rec.Outcome))
 	}
-	v, err := a.active(ctx)
+	v, err := apitools.ActiveConfig(ctx, a.API)
 	if err != nil {
 		return recommend.Result{}, err
 	}
 	if v.ID != rec.ObjectID {
 		return recommend.Result{}, fmt.Errorf("%w: it was made on %s, version %d is active", ErrStale, rec.ObjectID, v.Number)
 	}
-	d := &drafting{agent: a, ctx: ctx, base: v.Number, active: v.configuration(), accepted: rec.Content, objects: map[string]string{}}
+	d := &drafting{agent: a, ctx: ctx, base: v.Number, active: config.Readable(v.Document), accepted: rec.Content, objects: map[string]string{}}
 	if d.paths, err = recommended(rec.Content, d.active); err != nil {
 		return recommend.Result{}, err
 	}
@@ -145,22 +145,6 @@ func outcome(o string) string {
 		return "open"
 	}
 	return o
-}
-
-// active is the active configuration version, as Read reads it.
-func (a *Agent) active(ctx context.Context) (version, error) {
-	resp, err := a.API.Do(ctx, http.MethodGet, "/v1/config-versions", url.Values{"is_active": {"true"}}, nil, "")
-	var page struct{ Items []version }
-	if err == nil {
-		err = resp.Decode(&page)
-	}
-	if err == nil && (len(page.Items) == 0 || page.Items[0].ID == "") {
-		err = errors.New("no active version")
-	}
-	if err != nil {
-		return version{}, fmt.Errorf("regulatoryagent: the active configuration version: %w", err)
-	}
-	return page.Items[0], nil
 }
 
 // recommended are the paths an accepted recommendation's first line

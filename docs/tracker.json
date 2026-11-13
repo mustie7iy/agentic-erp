@@ -10521,13 +10521,13 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "How-to answers",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A user asks the support agent how to do something; it answers from the API contract and the tenant's active configuration, naming the operations and the settings that apply (erp agent support-ask)",
-        "r": "T108a · docs/design/plan-breadth-week3.md §T108a",
+        "r": "T108a · docs/design/plan-breadth-week3.md §T108a · internal/supportagent · agent type support · erp agent support-ask QUESTION · apitools.Contract findOperations · evals/support · walkthrough step_support_agent · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

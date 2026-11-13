@@ -86,7 +86,10 @@ the suites set.
   code's path, when it takes effect and the passage; an invented notice
   of nothing the configuration holds needing no change; an instruction in
   a notice not followed; never a change request; every notice invented and
-  marked so).
+  marked so) and support (T108a: an invoice above the tolerance released
+  by its operation, the tenant's tolerance cited; a question no operation
+  answers replied to as unanswered; an instruction in the question not
+  followed, nothing changed).
   A setup call may post a multipart `form` of values instead of
   a body (a bank statement's file as text), so a live cell running the
   reconciliation suite needs object storage. The
