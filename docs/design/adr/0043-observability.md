@@ -235,3 +235,16 @@ traces, and CPU and memory saturation.
 - The catalog's worst case is an estimate, not a measurement: it bounds
   what the code can produce, and the live series count is watched on the
   cell's Prometheus once T54d runs it.
+
+## As built: the operation label's ceiling (batch 71)
+
+- Batch 71's lanes together took the contracts to 526 operation values
+  (503 operations of the API, 21 of the control plane and "unmatched"),
+  past the `operation` label's ceiling of 512; `TestMetricsCatalog`
+  (cmd/erp-server) caught it in the batch's integration, no lane alone
+  having crossed it. Decided by default: the ceiling is 576, the
+  smallest round step that holds the contracts and keeps the catalog's
+  worst case under `MaxSeries` (640 does not: 50,587 series). About fifty
+  operations more reach it again; then either `MaxSeries` or the labels
+  an operation's metrics carry are this ADR's to revisit, which is the
+  product owner's (listed in batch 71's digest).
