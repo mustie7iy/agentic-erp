@@ -261,6 +261,10 @@ type CreateCreditLimitRes interface {
 	createCreditLimitRes()
 }
 
+type CreateCreditMemoRequestRes interface {
+	createCreditMemoRequestRes()
+}
+
 type CreateCustomerInvoiceRes interface {
 	createCustomerInvoiceRes()
 }
@@ -427,6 +431,10 @@ type CreateYearCloseRes interface {
 
 type DecideRecommendationRes interface {
 	decideRecommendationRes()
+}
+
+type DeclineCreditMemoRequestRes interface {
+	declineCreditMemoRequestRes()
 }
 
 type DeclineQuotationRes interface {
@@ -671,6 +679,10 @@ type GetCreditExposureRes interface {
 
 type GetCreditLimitRes interface {
 	getCreditLimitRes()
+}
+
+type GetCreditMemoRequestRes interface {
+	getCreditMemoRequestRes()
 }
 
 type GetCurrentPrincipalRes interface {
@@ -1147,6 +1159,10 @@ type ListCountryPacksRes interface {
 
 type ListCreditLimitsRes interface {
 	listCreditLimitsRes()
+}
+
+type ListCreditMemoRequestsRes interface {
+	listCreditMemoRequestsRes()
 }
 
 type ListCustomerInvoicesRes interface {
@@ -1667,6 +1683,10 @@ type RejectVarianceCommentRes interface {
 
 type ReleaseContractRes interface {
 	releaseContractRes()
+}
+
+type ReleaseCreditMemoRequestRes interface {
+	releaseCreditMemoRequestRes()
 }
 
 type ReleaseInternalOrderRes interface {

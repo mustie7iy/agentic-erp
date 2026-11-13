@@ -4564,7 +4564,8 @@ records an item without a price is priced from, T80b (migration
 T85a (migration 000303) the returns order for a posted billing
 document's items, which moves no stock either and posts nothing, and
 T85b (migration 000304) the receipt of its quantities, a confirmation
-as the delivery's is.
+as the delivery's is, and T85c (migration 000305) the credit memo
+request, which posts nothing until T85d.
 There is no material
 master (§3.16's shared `material` joins the items when it is built): an
 item names what is sold by a description and an optional free-text
@@ -4692,6 +4693,28 @@ erDiagram
     int item_no PK "the returns order's item"
     uuid returns_order_id "the receipt's returns order"
     numeric quantity "above zero"
+  }
+  billing_document ||--o{ credit_memo_request : "is credited by"
+  returns_order |o--o{ credit_memo_request : "is credited by"
+  credit_memo_request ||--|{ credit_memo_request_item : "has"
+  billing_document_item ||--o{ credit_memo_request_item : "is credited by"
+  credit_memo_request { uuid id PK
+    text document_number "credit_memo_request range, unique per company"
+    uuid billing_document_id "a posted billing document"
+    uuid sales_order_id "the billing document's order"
+    uuid returns_order_id "optional: a returns order of that document"
+    date request_date "the company's date when created"
+    text reason "required without a returns order"
+    text status "open, approved, rejected"
+    text rejection_reason "only when rejected"
+    int version
+  }
+  credit_memo_request_item { uuid request_id PK
+    int item_no PK
+    int billing_item_no "once per request"
+    uuid returns_order_id "the request's"
+    numeric quantity "with a returns order only"
+    bigint net_amount "above zero, minor units"
   }
   price { uuid id PK
     uuid legal_entity_id "tenancy"
@@ -4876,6 +4899,37 @@ erDiagram
   (`return_receipt_item_received`, a trigger running as the table's
   owner), so that quantity is the sum of the item's receipts and never
   above what is returned (`returns_order_item_received`). Insert-only.
+- `sales.credit_memo_request` (T85c, migration 000305; ADR-0067, As
+  built T85c): what is asked to be credited of a posted billing
+  document's items (`credit_memo_request_document_posted`, a trigger:
+  of its company and customer; `credit_memo_request_billing_document_fkey`
+  with that document's sales order), for a returns order of that
+  document (`credit_memo_request_returns_order_fkey`) or by amount with a
+  reason (`credit_memo_request_basis`; the reason at most 500
+  characters, not white space alone); numbered once per company
+  (`credit_memo_request_number_once`); created `open`
+  (`credit_memo_request_created_open`) and approved or rejected once
+  (`credit_memo_request_decided_once`, a trigger that holds for the
+  table's owner too, with a column grant of `status`,
+  `rejection_reason`, `version` and `updated_by`; no delete); a
+  rejection with its reason and only a rejection
+  (`credit_memo_request_rejection`). Its currency is its billing
+  document's. Indexes for the list: by date, customer, billing document,
+  sales order and returns order.
+- `sales.credit_memo_request_item`: an amount above zero in minor units
+  (`credit_memo_request_item_amount_positive`) credited of an item of
+  the request's own billing document (`credit_memo_request_item_request_fkey`,
+  `credit_memo_request_item_billing_item_fkey`), a billing item at most
+  once per request (`credit_memo_request_item_once`); with a returns
+  order exactly when its request has one, then of that returns order's
+  item of the billing item (`credit_memo_request_item_returns_item_fkey`)
+  with a quantity above zero, else without a quantity
+  (`credit_memo_request_item_quantity`, and the trigger
+  `credit_memo_request_item_amounts`: the item names its request's
+  returns order; the requests of the billing document not rejected never
+  ask for more of an item than it billed, nor credit more of a returns
+  order's item than was received). Insert-only
+  (`platform.forbid_mutation`).
 - `sales.price` (T80a, migration 000294; ADR-0067 §10): the net price of
   an item key (`price_item_key_check`) in a company, for every customer
   (`customer_id` null) or for one, above zero (`price_positive`) per a

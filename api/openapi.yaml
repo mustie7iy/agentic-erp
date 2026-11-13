@@ -60,7 +60,7 @@ tags:
   - name: collections
     description: "Dunning and collections (ADR-0065): dunning runs and their notices, and the collection worklist."
   - name: sales
-    description: "Sales (ADR-0067): quotations, sales orders, the confirmations of their deliveries, billing documents, returns orders, the confirmations of their receipts and sales prices."
+    description: "Sales (ADR-0067): quotations, sales orders, the confirmations of their deliveries, billing documents, returns orders, the confirmations of their receipts, credit memo requests and sales prices."
   - name: revenue
     description: "Revenue recognition (ADR-0068): revenue contracts and their performance obligations."
   - name: credit
@@ -19262,6 +19262,289 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/credit-memo-requests:
+    get:
+      operationId: listCreditMemoRequests
+      tags:
+        - sales
+      summary: List credit memo requests
+      description: "The credit memo requests of the companies the caller may act in (ADR-0067, As built T85c), each as `getCreditMemoRequest` gives it: with its company's code and name, its customer's number and name, the billing document, the sales order and the returns order it is for by id and number, its net value and its items. Filters: `legal_entity_id`, `customer_id`, `billing_document_id`, `sales_order_id`, `returns_order_id`, `status`, `document_number` (exact). Sortable by `request_date` (default) and `document_number`; cursor paging."
+      x-permission: sales.credit_memo_request.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: customer_id
+          in: query
+          required: false
+          description: Only the requests of this customer (business partner id).
+          schema:
+            type: string
+            format: uuid
+        - name: billing_document_id
+          in: query
+          required: false
+          description: Only the requests against this billing document.
+          schema:
+            type: string
+            format: uuid
+        - name: sales_order_id
+          in: query
+          required: false
+          description: Only the requests against billing documents of this sales order.
+          schema:
+            type: string
+            format: uuid
+        - name: returns_order_id
+          in: query
+          required: false
+          description: Only the requests for this returns order's received quantities.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only requests in this status.
+          schema:
+            type: string
+            description: "Credit memo request status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - open
+              - approved
+              - rejected
+        - $ref: "#/components/parameters/DocumentNumber"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of credit memo requests.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditMemoRequestPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createCreditMemoRequest
+      tags:
+        - sales
+      summary: Create a credit memo request against a posted billing document
+      description: "Creates a credit memo request (ADR-0067, As built T85c): what is to be credited to the customer of a posted billing document's items. The billing document is one of a company the caller may act in (422 `request.reference_not_found` naming `billing_document_id`) and is posted (409 `sales.billing_document_not_posted`). The request has one of two bases, never both and never neither (422 `sales.credit_memo_request_basis`). With `returns_order_id` it credits a returns order's received quantities: the returns order is one of that billing document (422 `request.reference_not_found` naming `returns_order_id` for one the caller cannot read, `sales.returns_order_of_other_document` for another document's); each of its items takes what was received of it and not yet requested by a request that is not rejected, at the billed amount of that quantity in full, with no charge taken off: the billing item's amount × the quantity requested of it so far, this request included, ÷ its billed quantity, rounded half away from zero, less what the earlier requests for quantities took, so the requests for an item's whole billed quantity add up to its billed amount to the minor unit, the last taking the remainder. A quantity whose amount would round to zero is left for a later request; a returns order with nothing received that is not yet requested, or only such quantities, is refused (422 `sales.nothing_to_credit` naming `returns_order_id`). With `items` it credits an amount per billing item, each named once (422 `sales.unknown_billing_item` naming `items[i].billing_item_no`, `sales.item_repeated`), net and more than zero in the billing document's currency (422 `sales.currency_mismatch` naming `items[i].net_amount.currency`, `sales.amount_not_positive` naming `items[i].net_amount.amount`), and `reason` says why (required with `items`, 422 `request.validation_failed` naming `reason`; never white space alone). Per billing item, the requests that are not rejected never ask for more than the item's billed amount: one that would is refused naming the item, what it billed and what the other requests ask for (422 `sales.exceeds_billed_amount`, naming `items[i].net_amount.amount`, or `returns_order_id` for a request for a returns order). The billing document's sales order is read under a row lock, so two requests against one order's billing documents are judged one after the other and no amount or quantity is requested twice. The request is created `open`, dated the company's date today in its time zone, with a document number from the company's `credit_memo_request` number range of that date's fiscal year. Amounts are net: the tax is the customer credit memo's, calculated when the request is posted. Nothing is posted, the customer's open items and credit exposure do not change, and no revenue contract is touched. Audited and published as CreditMemoRequestChanged. A retry with the same `Idempotency-Key` answers the request created. Human-only (`x-agent: false`)."
+      x-permission: sales.credit_memo_request.write
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.no_fiscal_period
+        - request.invalid_amount
+        - request.validation_failed
+        - sales.amount_not_positive
+        - sales.billing_document_not_posted
+        - sales.credit_memo_request_basis
+        - sales.currency_mismatch
+        - sales.exceeds_billed_amount
+        - sales.item_repeated
+        - sales.nothing_to_credit
+        - sales.returns_order_of_other_document
+        - sales.unknown_billing_item
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The credit memo request to create.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreditMemoRequestCreate"
+            examples:
+              returned:
+                summary: What a returns order received, credited at the billed amount
+                value:
+                  billing_document_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5da1"
+                  returns_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+              by_amount:
+                summary: An amount credited of one billing item, with the reason
+                value:
+                  billing_document_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5da1"
+                  reason: Price agreed after delivery
+                  items:
+                    - billing_item_no: 1
+                      net_amount:
+                        amount: "50.00"
+                        currency: CAD
+      responses:
+        "201":
+          description: "Created; the new credit memo request."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditMemoRequest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/credit-memo-requests/{id}":
+    get:
+      operationId: getCreditMemoRequest
+      tags:
+        - sales
+      summary: Get a credit memo request
+      description: "One credit memo request (ADR-0067, As built T85c) with its company's code and name, its customer's number and name, the billing document and the sales order it is against by id and number, the returns order it credits by id and number when it is for one, its date, its reason, its status with the reason of a rejection, its net value in the billing document's currency and its items, each naming the billing document's item and the sales order's item, with what the billing item billed, the quantity credited when the request is for a returns order, the amount credited and the revenue account and output tax code the credit memo will post with. A request of a company the caller cannot act in is not found (404)."
+      x-permission: sales.credit_memo_request.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The credit memo request.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditMemoRequest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/credit-memo-requests/{id}:release":
+    post:
+      operationId: releaseCreditMemoRequest
+      tags:
+        - sales
+      summary: Approve a credit memo request (release it)
+      description: "Approves an `open` credit memo request (ADR-0067, As built T85c), releasing it to be posted, at the version the caller read (`If-Match`): the request is read under a row lock and moves to `approved` once. One that is not open is refused (409 `sales.invalid_status`). Approving is by this one permission, whatever the amount, and nothing sets the approver apart from the person who created the request (product owner 2026-11-12); the tenant's own segregation-of-duties rules apply as on every operation. Nothing is posted: an approved request is posted as a customer credit memo by a later operation. Audited and published as CreditMemoRequestChanged. A retry with the same `Idempotency-Key` answers the approved request. Human-only (`x-agent: false`). The action is `:release`, not `:approve`, which is kept for approval requests (04 §4.9): no approval request is made for a credit memo request."
+      x-permission: sales.credit_memo_request.approve
+      x-agent: false
+      x-problem-codes:
+        - request.version_mismatch
+        - sales.invalid_status
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The credit memo request, approved."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditMemoRequest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/credit-memo-requests/{id}:decline":
+    post:
+      operationId: declineCreditMemoRequest
+      tags:
+        - sales
+      summary: Reject a credit memo request (decline it)
+      description: "Rejects an `open` credit memo request with a reason (ADR-0067, As built T85c; `:decline`, as `:reject` is kept for approval requests, 04 §4.9), at the version the caller read (`If-Match`): the request is read under a row lock and moves to `rejected` once. One that is not open is refused (409 `sales.invalid_status`); a reason of white space alone is refused (422 `request.validation_failed` naming `reason`). Rejecting takes the permission that approves. A rejected request no longer counts against its billing items' amounts nor against the returns order's received quantities, which another request may take. Nothing is posted. Audited, with the reason, and published as CreditMemoRequestChanged. A retry with the same `Idempotency-Key` answers the rejected request. Human-only (`x-agent: false`)."
+      x-permission: sales.credit_memo_request.approve
+      x-agent: false
+      x-problem-codes:
+        - request.validation_failed
+        - request.version_mismatch
+        - sales.invalid_status
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Why the request is rejected.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreditMemoRequestReject"
+            examples:
+              rejected:
+                summary: Rejected with the reason
+                value:
+                  reason: The goods arrived damaged by the customer
+      responses:
+        "200":
+          description: "The credit memo request, rejected."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditMemoRequest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
         "422":
           $ref: "#/components/responses/Unprocessable"
         "428":
@@ -50353,6 +50636,138 @@ components:
           type: array
           items: {$ref: "#/components/schemas/ReturnReceipt"}
           description: The receipts on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    CreditMemoRequestCreate:
+      type: object
+      description: "Create a credit memo request against a posted billing document: either for a returns order's received quantities (`returns_order_id`) or as an amount per billing item (`items`, with `reason`), never both. It is created `open`, dated the company's date today."
+      required: [billing_document_id]
+      additionalProperties: false
+      properties:
+        billing_document_id: {type: string, format: uuid, description: "The posted billing document whose items are credited: one of a company the caller may act in."}
+        returns_order_id: {type: string, format: uuid, description: "A returns order of that billing document: the request credits what was received of its items and is not yet requested, at the billed amount of those quantities. Not with `items`."}
+        reason: {type: string, minLength: 1, maxLength: 500, description: "Why the customer is credited. Required with `items`; optional with `returns_order_id`, the returns order carrying its own reason."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 999
+          items: {$ref: "#/components/schemas/CreditMemoRequestItemCreate"}
+          description: "The amounts credited of the billing document's items, each item at most once, numbered in this order from 1. Not with `returns_order_id`."
+    CreditMemoRequestItemCreate:
+      type: object
+      description: "An amount credited of one item of the billing document."
+      required: [billing_item_no, net_amount]
+      additionalProperties: false
+      properties:
+        billing_item_no: {type: integer, format: int32, minimum: 1, description: "The billing document item's number (`BillingDocument.items[].item_no`)."}
+        net_amount: {$ref: "#/components/schemas/Money", description: "The net amount credited: more than zero, in the billing document's currency, at most the item's billed amount less what the document's other requests that are not rejected ask for."}
+    CreditMemoRequestItem:
+      type: object
+      description: "An item of a credit memo request (ADR-0067, As built T85c): what is credited of one item of the billing document. Amounts are net, in the request's `currency`."
+      required: [item_no, billing_item_no, order_item_no, description, billed_quantity, billed_amount, net_amount, account_id, account_number, account_name]
+      properties:
+        item_no: {type: integer, format: int32, description: "The item's number within the request, from 1.", readOnly: true}
+        billing_item_no: {type: integer, format: int32, description: "The number of the billing document's item it credits.", readOnly: true}
+        order_item_no: {type: integer, format: int32, description: "The number of the sales order's item that billing document item billed.", readOnly: true}
+        item_key: {type: string, description: "The sales order item's item key; absent when it has none.", readOnly: true}
+        description: {type: string, description: "The sales order item's description.", readOnly: true}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity credited, of what the request's returns order received, in the item's unit. Absent on a request by amount."}
+        billed_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity the billing document's item billed, in the item's unit."}
+        billed_amount: {$ref: "#/components/schemas/Money", description: "The net amount the billing document's item billed: what the requests against it that are not rejected may ask for together."}
+        net_amount: {$ref: "#/components/schemas/Money", description: "The net amount credited. For a quantity: the billed amount of that quantity, in full."}
+        account_id: {type: string, format: uuid, description: "The revenue account the billing item posted to, which the credit memo debits.", readOnly: true}
+        account_number: {type: string, description: "The account's number.", readOnly: true}
+        account_name: {type: string, description: "The account's name, as it is now.", readOnly: true}
+        tax_code: {type: string, description: "The billing item's output tax code, which the credit memo's tax is calculated with; absent when the item has none.", readOnly: true}
+    CreditMemoRequest:
+      description: "A credit memo request (sales, ADR-0067, As built T85c): what a sales administrator asks to be credited to the customer of a posted billing document's items, for a returns order's received quantities at their billed amount or as an amount per item with a reason. Amounts are net; the tax is the customer credit memo's. It is `open` until a sales manager approves or rejects it, once, and posts nothing by itself. Its `version` moves with the decision."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [document_number, legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, billing_document_id,
+            billing_document_number, sales_order_id, sales_order_number, request_date, status, currency, net_amount, items]
+          properties:
+            document_number: {type: string, description: "The document number, from the company's `credit_memo_request` number range.", readOnly: true}
+            legal_entity_id: {type: string, format: uuid, description: "The company that credits: the billing document's.", readOnly: true}
+            company_code: {type: string, description: "The company's code.", readOnly: true}
+            company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+            customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`): the billing document's.", readOnly: true}
+            customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+            customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+            billing_document_id: {type: string, format: uuid, description: "The posted billing document whose items are credited (`GET /v1/billing-documents/{id}`).", readOnly: true}
+            billing_document_number: {type: string, description: "The billing document's document number.", readOnly: true}
+            sales_order_id: {type: string, format: uuid, description: "The sales order the billing document billed (`GET /v1/sales-orders/{id}`).", readOnly: true}
+            sales_order_number: {type: string, description: "The sales order's document number.", readOnly: true}
+            returns_order_id: {type: string, format: uuid, description: "The returns order whose received quantities the request credits (`GET /v1/returns-orders/{id}`). Absent on a request by amount.", readOnly: true}
+            returns_order_number: {type: string, description: "The returns order's document number. Absent on a request by amount.", readOnly: true}
+            request_date: {type: string, format: date, description: "The day the request was created: the company's date in its time zone.", readOnly: true}
+            reason: {type: string, description: "Why the customer is credited; absent when none was given with a returns order.", readOnly: true}
+            status:
+              type: string
+              x-extensible-enum: [open, approved, rejected]
+              description: "`open`: created, not decided; `approved`: approved, once (`:release`); `rejected`: rejected, once (`:decline`), with `rejection_reason`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            rejection_reason: {type: string, description: "Why the request was rejected. Absent unless it is `rejected`.", readOnly: true}
+            currency: {type: string, pattern: "^[A-Z]{3}$", description: "The request's currency (ISO 4217), the billing document's.", readOnly: true}
+            net_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' amounts."}
+            items:
+              type: array
+              items: {$ref: "#/components/schemas/CreditMemoRequestItem"}
+              description: "The items, by item number."
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc1"
+          version: 1
+          created_at: "2026-12-01T09:15:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-12-01T09:15:00Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          document_number: CR100001
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          billing_document_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5da1"
+          billing_document_number: BD100001
+          sales_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          sales_order_number: SO100001
+          returns_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+          returns_order_number: RO100001
+          request_date: "2026-12-01"
+          status: open
+          currency: CAD
+          net_amount: {amount: "289.59", currency: CAD}
+          items:
+            - item_no: 1
+              billing_item_no: 1
+              order_item_no: 1
+              item_key: BRACKET-M8
+              description: Machined bracket M8
+              quantity: {value: "20", unit: EA}
+              billed_quantity: {value: "120", unit: EA}
+              billed_amount: {amount: "1737.53", currency: CAD}
+              net_amount: {amount: "289.59", currency: CAD}
+              account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d31"
+              account_number: "4000"
+              account_name: Revenue
+              tax_code: GO5
+    CreditMemoRequestReject:
+      type: object
+      description: "Reject a credit memo request."
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason: {type: string, minLength: 1, maxLength: 500, description: "Why the request is rejected; never white space alone."}
+    CreditMemoRequestPage:
+      type: object
+      description: One page of credit memo requests.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CreditMemoRequest"}
+          description: The credit memo requests on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     RevenueContractCreate:
       type: object

@@ -18,7 +18,11 @@
 // and is confirmed once (returns.go; ADR-0067, As built T85a); a person
 // confirms the quantities that arrived, as a delivery is confirmed
 // (receipts.go; As built T85b). It carries no amounts and counts neither
-// in the customer's credit exposure nor in a revenue contract.
+// in the customer's credit exposure nor in a revenue contract. A credit
+// memo request asks for a posted billing document's items to be
+// credited, for a returns order's received quantities at their billed
+// amount or for an amount per item, and is approved or rejected once
+// (credit_memo.go; As built T85c).
 //
 // A sales document carries net amounts and posts nothing itself: tax is
 // calculated when the order is billed, and a billing document posts

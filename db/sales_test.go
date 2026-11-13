@@ -13,6 +13,7 @@ import (
 // TestSalesPermissions (T78a, migration 000290; T78b, migration 000291;
 // T78c, migration 000292; T79a, migration 000293; T80a, migration 000294;
 // T77b, migration 000300; T85a, migration 000303; T85b, migration 000304;
+// T85c, migration 000305;
 // ADR-0067 §7): the sales
 // permissions are seeded and are no approval permissions.
 func TestSalesPermissions(t *testing.T) {
@@ -25,7 +26,7 @@ func TestSalesPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "sales.billing.post sales.billing.read sales.billing.write sales.delivery.confirm sales.order.confirm sales.order.credit_release sales.order.read sales.order.write sales.price.read sales.price.write sales.quotation.read sales.quotation.write sales.return.confirm sales.return.read sales.return.receive sales.return.write"; got != want {
+	if got, want := strings.Join(codes, " "), "sales.billing.post sales.billing.read sales.billing.write sales.credit_memo_request.approve sales.credit_memo_request.read sales.credit_memo_request.write sales.delivery.confirm sales.order.confirm sales.order.credit_release sales.order.read sales.order.write sales.price.read sales.price.write sales.quotation.read sales.quotation.write sales.return.confirm sales.return.read sales.return.receive sales.return.write"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }

@@ -443,7 +443,7 @@ channels:
   sales:
     address: 'erp.{cell}.sales.{tenant}.{event}'
     title: Sales events
-    description: Quotations, sales orders, their deliveries, their credit blocks, billing documents, returns orders, their receipts and sales prices and discounts (ADR-0067 §6, §10, §11 and As built T85a, T85b; ADR-0066, T77b).
+    description: Quotations, sales orders, their deliveries, their credit blocks, billing documents, returns orders, their receipts, credit memo requests and sales prices and discounts (ADR-0067 §6, §10, §11 and As built T85a, T85b, T85c; ADR-0066, T77b).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
@@ -457,6 +457,7 @@ channels:
       BillingDocumentPosted: {$ref: '#/components/messages/BillingDocumentPosted'}
       ReturnsOrderChanged: {$ref: '#/components/messages/ReturnsOrderChanged'}
       ReturnReceived: {$ref: '#/components/messages/ReturnReceived'}
+      CreditMemoRequestChanged: {$ref: '#/components/messages/CreditMemoRequestChanged'}
   revenue:
     address: 'erp.{cell}.revenue.{tenant}.{event}'
     title: Revenue recognition events
@@ -767,6 +768,7 @@ operations:
       - $ref: '#/channels/sales/messages/BillingDocumentPosted'
       - $ref: '#/channels/sales/messages/ReturnsOrderChanged'
       - $ref: '#/channels/sales/messages/ReturnReceived'
+      - $ref: '#/channels/sales/messages/CreditMemoRequestChanged'
   publishRevenueEvents:
     action: send
     title: Revenue recognition publishes
@@ -4417,6 +4419,34 @@ components:
         - name: received
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001107, source: /erp/eu-1/sales, type: com.example.erp.sales.return_received.v1, subject: 0192a000-0000-7000-8000-000000001411, time: '2026-11-30T09:12:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {receipt_id: 0192a000-0000-7000-8000-000000001511, receipt_no: 1, returns_order_id: 0192a000-0000-7000-8000-000000001411, document_number: RO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, billing_document_id: 0192a000-0000-7000-8000-000000001311, billing_document_number: BD100001, sales_order_id: 0192a000-0000-7000-8000-000000001111, sales_order_number: SO100001, receipt_date: '2026-11-30', items: [{item_no: 1, billing_item_no: 1, quantity: {value: '20', unit: EA}, received_quantity: {value: '20', unit: EA}}], version: 3}
+    CreditMemoRequestChanged:
+      name: CreditMemoRequestChanged
+      title: Credit memo request changed
+      summary: A credit memo request was created, approved or rejected.
+      description: |
+        Emitted at each change of a credit memo request's status
+        (ADR-0067, As built T85c): when it is created (`open`,
+        status_before null) against a posted billing document, for a
+        returns order's received quantities or as amounts per item, and
+        when it is approved (`approved`) or rejected (`rejected`). It
+        carries the request's net value, not the items, names the
+        customer by id and number, never by name, the billing document
+        and the sales order by id and number, and the returns order when
+        the request is for one. Nothing was posted. It is not offered as
+        a webhook event (product owner 2026-11-12: none until a consumer
+        asks). `GET /v1/credit-memo-requests/{id}` returns the request at
+        `version` or later. Subject is the request id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.sales.credit_memo_request_changed.v1}
+      payload: {$ref: '#/components/schemas/CreditMemoRequestChangedV1'}
+      examples:
+        - name: approved
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001108, source: /erp/eu-1/sales, type: com.example.erp.sales.credit_memo_request_changed.v1, subject: 0192a000-0000-7000-8000-000000001611, time: '2026-12-01T09:40:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {credit_memo_request_id: 0192a000-0000-7000-8000-000000001611, document_number: CR100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, billing_document_id: 0192a000-0000-7000-8000-000000001311, billing_document_number: BD100001, sales_order_id: 0192a000-0000-7000-8000-000000001211, sales_order_number: SO100001, returns_order_id: 0192a000-0000-7000-8000-000000001411, returns_order_number: RO100001, request_date: '2026-12-01', net_amount: {amount: '289.59', currency: CAD}, status: approved, status_before: open, version: 2}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -5347,6 +5377,27 @@ components:
               quantity: {$ref: '#/components/schemas/Quantity', description: "The quantity of this receipt, in the item's unit."}
               received_quantity: {$ref: '#/components/schemas/Quantity', description: 'What is received of the returns order item after this receipt.'}
         version: {type: integer, description: "The returns order's version after the receipt."}
+    CreditMemoRequestChangedV1:
+      type: object
+      required: [credit_memo_request_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, billing_document_id, billing_document_number, sales_order_id, sales_order_number, returns_order_id, returns_order_number, request_date, net_amount, status, status_before, version]
+      properties:
+        credit_memo_request_id: {$ref: '#/components/schemas/Uuid', description: '`sales.credit_memo_request.id`.'}
+        document_number: {type: string, description: "The document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that credits.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        billing_document_id: {$ref: '#/components/schemas/Uuid', description: 'The posted billing document whose items are credited: `sales.billing_document.id`.'}
+        billing_document_number: {type: string, description: "The billing document's document number."}
+        sales_order_id: {$ref: '#/components/schemas/Uuid', description: 'The sales order that billing document billed: `sales.sales_order.id`.'}
+        sales_order_number: {type: string, description: "The sales order's document number."}
+        returns_order_id: {type: [string, 'null'], format: uuid, description: 'The returns order whose received quantities the request credits: `sales.returns_order.id`; null for a request by amount.'}
+        returns_order_number: {type: [string, 'null'], description: "The returns order's document number; null for a request by amount."}
+        request_date: {$ref: '#/components/schemas/Date', description: 'The day the request was created.'}
+        net_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' amounts, net of tax."}
+        status: {type: string, description: "The request's status after the change. Open enum: open, approved, rejected."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
+        version: {type: integer, description: "The request's version after the change."}
     ConsolidationRunChangedV1:
       type: object
       required: [run_id, group_code, fiscal_year, fiscal_period, status, status_before, problem, version]

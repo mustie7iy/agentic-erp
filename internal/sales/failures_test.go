@@ -53,7 +53,40 @@ func TestDatabaseFailures(t *testing.T) {
 	// A confirmed returns order of the document's second item with one receipt and more still expected.
 	receivedReturn := uuid.MustParse(e.returnedOrder(t, returnedFrom, "2 1.5 KG"))
 	e.Must(201, "POST", receipts(receivedReturn.String()), `{"receipt_date": "2026-01-02", "items": [{"item_no": 1, "quantity": {"value": "0.5", "unit": "KG"}}]}`, "")
+	// A credit memo request for what the returns order received, and one by amount to decide.
+	_, creditedFrom, _ := e.postedOrder(t, []string{e.item(line{quantity: "3"})}, "1 3 EA")
+	creditDoc := uuid.MustParse(creditedFrom)
+	creditFor := uuid.MustParse(e.returnedOrder(t, creditedFrom, "1 2 EA"))
+	e.Must(201, "POST", receipts(creditFor.String()), `{"receipt_date": "2026-01-02", "items": [{"item_no": 1, "quantity": {"value": "1", "unit": "EA"}}]}`, "")
+	requested, _ := e.Must(201, "POST", creditRequests, byAmount(creditedFrom, "Goodwill", "1 0.10"), "")
+	request := uuid.MustParse(requested["id"].(string))
 	calls := map[string]func(ctx context.Context) error{
+		"request a credit for a return": func(ctx context.Context) error {
+			_, err := h.CreateCreditMemoRequest(ctx, &gen.CreditMemoRequestCreate{BillingDocumentID: creditDoc, ReturnsOrderID: gen.NewOptUUID(creditFor),
+				Reason: gen.NewOptString("Returned")}, gen.CreateCreditMemoRequestParams{})
+			return err
+		},
+		"request a credit by amount": func(ctx context.Context) error {
+			_, err := h.CreateCreditMemoRequest(ctx, &gen.CreditMemoRequestCreate{BillingDocumentID: creditDoc, Reason: gen.NewOptString("Goodwill"),
+				Items: []gen.CreditMemoRequestItemCreate{{BillingItemNo: 1, NetAmount: gen.Money{Amount: "1.00", Currency: "EUR"}}}}, gen.CreateCreditMemoRequestParams{})
+			return err
+		},
+		"get a credit memo request": func(ctx context.Context) error {
+			_, err := h.GetCreditMemoRequest(ctx, gen.GetCreditMemoRequestParams{ID: request})
+			return err
+		},
+		"list credit memo requests": func(ctx context.Context) error {
+			_, err := h.ListCreditMemoRequests(ctx, gen.ListCreditMemoRequestsParams{})
+			return err
+		},
+		"approve a credit memo request": func(ctx context.Context) error {
+			_, err := h.ReleaseCreditMemoRequest(ctx, gen.ReleaseCreditMemoRequestParams{ID: request, IfMatch: `"1"`})
+			return err
+		},
+		"reject a credit memo request": func(ctx context.Context) error {
+			_, err := h.DeclineCreditMemoRequest(ctx, &gen.CreditMemoRequestReject{Reason: "No"}, gen.DeclineCreditMemoRequestParams{ID: request, IfMatch: `"1"`})
+			return err
+		},
 		"confirm a return receipt": func(ctx context.Context) error {
 			_, err := h.ConfirmReturnReceipt(ctx, &gen.ReturnReceiptCreate{ReceiptDate: instant(t, "2026-01-03T00:00:00Z"), Items: []gen.ReturnReceiptItemCreate{
 				{ItemNo: 1, Quantity: gen.Quantity{Value: "1", Unit: "KG"}}}}, gen.ConfirmReturnReceiptParams{ID: receivedReturn})
@@ -190,6 +223,15 @@ func TestDatabaseFailures(t *testing.T) {
 	t.Run("list return receipts' page size", func(t *testing.T) {
 		err := e.inRequest(t, func(ctx context.Context) error {
 			_, err := h.ListReturnReceipts(ctx, gen.ListReturnReceiptsParams{ID: receivedReturn, PageSize: gen.NewOptInt32(0)})
+			return err
+		})
+		if p := problem.From(err); p.Code != "request.invalid_page_size" {
+			t.Errorf("got %v, want request.invalid_page_size", p)
+		}
+	})
+	t.Run("list credit memo requests' page size", func(t *testing.T) {
+		err := e.inRequest(t, func(ctx context.Context) error {
+			_, err := h.ListCreditMemoRequests(ctx, gen.ListCreditMemoRequestsParams{PageSize: gen.NewOptInt32(0)})
 			return err
 		})
 		if p := problem.From(err); p.Code != "request.invalid_page_size" {

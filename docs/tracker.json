@@ -4950,13 +4950,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first; 2026-11-12, returns in week 3) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Credit memo requests",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A sales administrator creates a credit memo request against a posted billing document, for a returns order's received quantities or for an amount per item with a reason, and a sales manager approves or rejects it (POST /v1/credit-memo-requests, :approve, :reject)",
-        "r": "T85c · docs/design/plan-breadth-week3.md §T85c",
+        "r": "T85c · docs/design/plan-breadth-week3.md §T85c · db/migrations/000305 · sales.credit_memo_request, credit_memo_request_item · POST /v1/credit-memo-requests · GET /v1/credit-memo-requests · GET /v1/credit-memo-requests/{id} · POST /v1/credit-memo-requests/{id}:release (approve) · :decline (reject) · CreditMemoRequestChanged · sales.credit_memo_request.read, .write, .approve · walkthrough step_credit_memo_request · ADR-0067 As built",
         "src": "po:2026-11-12 · design:03 §3.16",
         "c": []
        },

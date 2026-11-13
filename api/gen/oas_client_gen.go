@@ -1067,6 +1067,43 @@ type Invoker interface {
 	//
 	// POST /v1/credit-limits
 	CreateCreditLimit(ctx context.Context, request *CustomerCreditLimitCreate, params CreateCreditLimitParams) (CreateCreditLimitRes, error)
+	// CreateCreditMemoRequest invokes createCreditMemoRequest operation.
+	//
+	// Creates a credit memo request (ADR-0067, As built T85c): what is to be credited to the customer of a
+	// posted billing document's items. The billing document is one of a company the caller may act in (422
+	// `request.reference_not_found` naming `billing_document_id`) and is posted (409
+	// `sales.billing_document_not_posted`). The request has one of two bases, never both and never neither
+	// (422 `sales.credit_memo_request_basis`). With `returns_order_id` it credits a returns order's
+	// received quantities: the returns order is one of that billing document (422
+	// `request.reference_not_found` naming `returns_order_id` for one the caller cannot read,
+	// `sales.returns_order_of_other_document` for another document's); each of its items takes what was
+	// received of it and not yet requested by a request that is not rejected, at the billed amount of that
+	// quantity in full, with no charge taken off: the billing item's amount × the quantity requested of
+	// it so far, this request included, ÷ its billed quantity, rounded half away from zero, less what the
+	// earlier requests for quantities took, so the requests for an item's whole billed quantity add up to
+	// its billed amount to the minor unit, the last taking the remainder. A quantity whose amount would
+	// round to zero is left for a later request; a returns order with nothing received that is not yet
+	// requested, or only such quantities, is refused (422 `sales.nothing_to_credit` naming
+	// `returns_order_id`). With `items` it credits an amount per billing item, each named once (422
+	// `sales.unknown_billing_item` naming `items[i].billing_item_no`, `sales.item_repeated`), net and more
+	// than zero in the billing document's currency (422 `sales.currency_mismatch` naming
+	// `items[i].net_amount.currency`, `sales.amount_not_positive` naming `items[i].net_amount.amount`),
+	// and `reason` says why (required with `items`, 422 `request.validation_failed` naming `reason`; never
+	// white space alone). Per billing item, the requests that are not rejected never ask for more than the
+	// item's billed amount: one that would is refused naming the item, what it billed and what the other
+	// requests ask for (422 `sales.exceeds_billed_amount`, naming `items[i].net_amount.amount`, or
+	// `returns_order_id` for a request for a returns order). The billing document's sales order is read
+	// under a row lock, so two requests against one order's billing documents are judged one after the
+	// other and no amount or quantity is requested twice. The request is created `open`, dated the
+	// company's date today in its time zone, with a document number from the company's
+	// `credit_memo_request` number range of that date's fiscal year. Amounts are net: the tax is the
+	// customer credit memo's, calculated when the request is posted. Nothing is posted, the customer's
+	// open items and credit exposure do not change, and no revenue contract is touched. Audited and
+	// published as CreditMemoRequestChanged. A retry with the same `Idempotency-Key` answers the request
+	// created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/credit-memo-requests
+	CreateCreditMemoRequest(ctx context.Context, request *CreditMemoRequestCreate, params CreateCreditMemoRequestParams) (CreateCreditMemoRequestRes, error)
 	// CreateCustomerInvoice invokes createCustomerInvoice operation.
 	//
 	// Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of
@@ -1687,6 +1724,20 @@ type Invoker interface {
 	//
 	// POST /v1/recommendations/{id}:decide
 	DecideRecommendation(ctx context.Context, request *RecommendationDecide, params DecideRecommendationParams) (DecideRecommendationRes, error)
+	// DeclineCreditMemoRequest invokes declineCreditMemoRequest operation.
+	//
+	// Rejects an `open` credit memo request with a reason (ADR-0067, As built T85c; `:decline`, as
+	// `:reject` is kept for approval requests, 04 §4.9), at the version the caller read (`If-Match`): the
+	// request is read under a row lock and moves to `rejected` once. One that is not open is refused (409
+	// `sales.invalid_status`); a reason of white space alone is refused (422 `request.validation_failed`
+	// naming `reason`). Rejecting takes the permission that approves. A rejected request no longer counts
+	// against its billing items' amounts nor against the returns order's received quantities, which
+	// another request may take. Nothing is posted. Audited, with the reason, and published as
+	// CreditMemoRequestChanged. A retry with the same `Idempotency-Key` answers the rejected request.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/credit-memo-requests/{id}:decline
+	DeclineCreditMemoRequest(ctx context.Context, request *CreditMemoRequestReject, params DeclineCreditMemoRequestParams) (DeclineCreditMemoRequestRes, error)
 	// DeclineQuotation invokes declineQuotation operation.
 	//
 	// Records that the customer rejected an `open` quotation (ADR-0067 §2, T78a), at the version the
@@ -2500,6 +2551,19 @@ type Invoker interface {
 	//
 	// GET /v1/credit-limits/{id}
 	GetCreditLimit(ctx context.Context, params GetCreditLimitParams) (GetCreditLimitRes, error)
+	// GetCreditMemoRequest invokes getCreditMemoRequest operation.
+	//
+	// One credit memo request (ADR-0067, As built T85c) with its company's code and name, its customer's
+	// number and name, the billing document and the sales order it is against by id and number, the
+	// returns order it credits by id and number when it is for one, its date, its reason, its status with
+	// the reason of a rejection, its net value in the billing document's currency and its items, each
+	// naming the billing document's item and the sales order's item, with what the billing item billed,
+	// the quantity credited when the request is for a returns order, the amount credited and the revenue
+	// account and output tax code the credit memo will post with. A request of a company the caller cannot
+	// act in is not found (404).
+	//
+	// GET /v1/credit-memo-requests/{id}
+	GetCreditMemoRequest(ctx context.Context, params GetCreditMemoRequestParams) (GetCreditMemoRequestRes, error)
 	// GetCurrentPrincipal invokes getCurrentPrincipal operation.
 	//
 	// The caller's own principal (ADR-0052 G2): who they are, the companies they may act in, the
@@ -3767,6 +3831,17 @@ type Invoker interface {
 	//
 	// GET /v1/credit-limits
 	ListCreditLimits(ctx context.Context, params ListCreditLimitsParams) (ListCreditLimitsRes, error)
+	// ListCreditMemoRequests invokes listCreditMemoRequests operation.
+	//
+	// The credit memo requests of the companies the caller may act in (ADR-0067, As built T85c), each as
+	// `getCreditMemoRequest` gives it: with its company's code and name, its customer's number and name,
+	// the billing document, the sales order and the returns order it is for by id and number, its net
+	// value and its items. Filters: `legal_entity_id`, `customer_id`, `billing_document_id`,
+	// `sales_order_id`, `returns_order_id`, `status`, `document_number` (exact). Sortable by
+	// `request_date` (default) and `document_number`; cursor paging.
+	//
+	// GET /v1/credit-memo-requests
+	ListCreditMemoRequests(ctx context.Context, params ListCreditMemoRequestsParams) (ListCreditMemoRequestsRes, error)
 	// ListCustomerInvoices invokes listCustomerInvoices operation.
 	//
 	// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a) and the credit
@@ -5386,6 +5461,21 @@ type Invoker interface {
 	//
 	// POST /v1/contracts/{id}:release
 	ReleaseContract(ctx context.Context, params ReleaseContractParams) (ReleaseContractRes, error)
+	// ReleaseCreditMemoRequest invokes releaseCreditMemoRequest operation.
+	//
+	// Approves an `open` credit memo request (ADR-0067, As built T85c), releasing it to be posted, at the
+	// version the caller read (`If-Match`): the request is read under a row lock and moves to `approved`
+	// once. One that is not open is refused (409 `sales.invalid_status`). Approving is by this one
+	// permission, whatever the amount, and nothing sets the approver apart from the person who created the
+	// request (product owner 2026-11-12); the tenant's own segregation-of-duties rules apply as on every
+	// operation. Nothing is posted: an approved request is posted as a customer credit memo by a later
+	// operation. Audited and published as CreditMemoRequestChanged. A retry with the same
+	// `Idempotency-Key` answers the approved request. Human-only (`x-agent: false`). The action is
+	// `:release`, not `:approve`, which is kept for approval requests (04 §4.9): no approval request is
+	// made for a credit memo request.
+	//
+	// POST /v1/credit-memo-requests/{id}:release
+	ReleaseCreditMemoRequest(ctx context.Context, params ReleaseCreditMemoRequestParams) (ReleaseCreditMemoRequestRes, error)
 	// ReleaseInternalOrder invokes releaseInternalOrder operation.
 	//
 	// Releases a `created` internal order for posting (ADR-0064 §1), at the version the caller read
@@ -17041,6 +17131,167 @@ func (c *Client) sendCreateCreditLimit(ctx context.Context, request *CustomerCre
 	return result, nil
 }
 
+// CreateCreditMemoRequest invokes createCreditMemoRequest operation.
+//
+// Creates a credit memo request (ADR-0067, As built T85c): what is to be credited to the customer of a
+// posted billing document's items. The billing document is one of a company the caller may act in (422
+// `request.reference_not_found` naming `billing_document_id`) and is posted (409
+// `sales.billing_document_not_posted`). The request has one of two bases, never both and never neither
+// (422 `sales.credit_memo_request_basis`). With `returns_order_id` it credits a returns order's
+// received quantities: the returns order is one of that billing document (422
+// `request.reference_not_found` naming `returns_order_id` for one the caller cannot read,
+// `sales.returns_order_of_other_document` for another document's); each of its items takes what was
+// received of it and not yet requested by a request that is not rejected, at the billed amount of that
+// quantity in full, with no charge taken off: the billing item's amount × the quantity requested of
+// it so far, this request included, ÷ its billed quantity, rounded half away from zero, less what the
+// earlier requests for quantities took, so the requests for an item's whole billed quantity add up to
+// its billed amount to the minor unit, the last taking the remainder. A quantity whose amount would
+// round to zero is left for a later request; a returns order with nothing received that is not yet
+// requested, or only such quantities, is refused (422 `sales.nothing_to_credit` naming
+// `returns_order_id`). With `items` it credits an amount per billing item, each named once (422
+// `sales.unknown_billing_item` naming `items[i].billing_item_no`, `sales.item_repeated`), net and more
+// than zero in the billing document's currency (422 `sales.currency_mismatch` naming
+// `items[i].net_amount.currency`, `sales.amount_not_positive` naming `items[i].net_amount.amount`),
+// and `reason` says why (required with `items`, 422 `request.validation_failed` naming `reason`; never
+// white space alone). Per billing item, the requests that are not rejected never ask for more than the
+// item's billed amount: one that would is refused naming the item, what it billed and what the other
+// requests ask for (422 `sales.exceeds_billed_amount`, naming `items[i].net_amount.amount`, or
+// `returns_order_id` for a request for a returns order). The billing document's sales order is read
+// under a row lock, so two requests against one order's billing documents are judged one after the
+// other and no amount or quantity is requested twice. The request is created `open`, dated the
+// company's date today in its time zone, with a document number from the company's
+// `credit_memo_request` number range of that date's fiscal year. Amounts are net: the tax is the
+// customer credit memo's, calculated when the request is posted. Nothing is posted, the customer's
+// open items and credit exposure do not change, and no revenue contract is touched. Audited and
+// published as CreditMemoRequestChanged. A retry with the same `Idempotency-Key` answers the request
+// created. Human-only (`x-agent: false`).
+//
+// POST /v1/credit-memo-requests
+func (c *Client) CreateCreditMemoRequest(ctx context.Context, request *CreditMemoRequestCreate, params CreateCreditMemoRequestParams) (CreateCreditMemoRequestRes, error) {
+	res, err := c.sendCreateCreditMemoRequest(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateCreditMemoRequest(ctx context.Context, request *CreditMemoRequestCreate, params CreateCreditMemoRequestParams) (res CreateCreditMemoRequestRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createCreditMemoRequest"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/credit-memo-requests"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateCreditMemoRequestOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/credit-memo-requests"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateCreditMemoRequestRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateCreditMemoRequestOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateCreditMemoRequestResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreateCustomerInvoice invokes createCustomerInvoice operation.
 //
 // Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of
@@ -22968,6 +23219,174 @@ func (c *Client) sendDecideRecommendation(ctx context.Context, request *Recommen
 
 	stage = "DecodeResponse"
 	result, err := decodeDecideRecommendationResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// DeclineCreditMemoRequest invokes declineCreditMemoRequest operation.
+//
+// Rejects an `open` credit memo request with a reason (ADR-0067, As built T85c; `:decline`, as
+// `:reject` is kept for approval requests, 04 §4.9), at the version the caller read (`If-Match`): the
+// request is read under a row lock and moves to `rejected` once. One that is not open is refused (409
+// `sales.invalid_status`); a reason of white space alone is refused (422 `request.validation_failed`
+// naming `reason`). Rejecting takes the permission that approves. A rejected request no longer counts
+// against its billing items' amounts nor against the returns order's received quantities, which
+// another request may take. Nothing is posted. Audited, with the reason, and published as
+// CreditMemoRequestChanged. A retry with the same `Idempotency-Key` answers the rejected request.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/credit-memo-requests/{id}:decline
+func (c *Client) DeclineCreditMemoRequest(ctx context.Context, request *CreditMemoRequestReject, params DeclineCreditMemoRequestParams) (DeclineCreditMemoRequestRes, error) {
+	res, err := c.sendDeclineCreditMemoRequest(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendDeclineCreditMemoRequest(ctx context.Context, request *CreditMemoRequestReject, params DeclineCreditMemoRequestParams) (res DeclineCreditMemoRequestRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("declineCreditMemoRequest"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/credit-memo-requests/{id}:decline"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, DeclineCreditMemoRequestOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/credit-memo-requests/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":decline"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeDeclineCreditMemoRequestRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, DeclineCreditMemoRequestOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeDeclineCreditMemoRequestResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -32347,6 +32766,144 @@ func (c *Client) sendGetCreditLimit(ctx context.Context, params GetCreditLimitPa
 
 	stage = "DecodeResponse"
 	result, err := decodeGetCreditLimitResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetCreditMemoRequest invokes getCreditMemoRequest operation.
+//
+// One credit memo request (ADR-0067, As built T85c) with its company's code and name, its customer's
+// number and name, the billing document and the sales order it is against by id and number, the
+// returns order it credits by id and number when it is for one, its date, its reason, its status with
+// the reason of a rejection, its net value in the billing document's currency and its items, each
+// naming the billing document's item and the sales order's item, with what the billing item billed,
+// the quantity credited when the request is for a returns order, the amount credited and the revenue
+// account and output tax code the credit memo will post with. A request of a company the caller cannot
+// act in is not found (404).
+//
+// GET /v1/credit-memo-requests/{id}
+func (c *Client) GetCreditMemoRequest(ctx context.Context, params GetCreditMemoRequestParams) (GetCreditMemoRequestRes, error) {
+	res, err := c.sendGetCreditMemoRequest(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetCreditMemoRequest(ctx context.Context, params GetCreditMemoRequestParams) (res GetCreditMemoRequestRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCreditMemoRequest"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/credit-memo-requests/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCreditMemoRequestOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/credit-memo-requests/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCreditMemoRequestOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCreditMemoRequestResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -53932,6 +54489,298 @@ func (c *Client) sendListCreditLimits(ctx context.Context, params ListCreditLimi
 
 	stage = "DecodeResponse"
 	result, err := decodeListCreditLimitsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListCreditMemoRequests invokes listCreditMemoRequests operation.
+//
+// The credit memo requests of the companies the caller may act in (ADR-0067, As built T85c), each as
+// `getCreditMemoRequest` gives it: with its company's code and name, its customer's number and name,
+// the billing document, the sales order and the returns order it is for by id and number, its net
+// value and its items. Filters: `legal_entity_id`, `customer_id`, `billing_document_id`,
+// `sales_order_id`, `returns_order_id`, `status`, `document_number` (exact). Sortable by
+// `request_date` (default) and `document_number`; cursor paging.
+//
+// GET /v1/credit-memo-requests
+func (c *Client) ListCreditMemoRequests(ctx context.Context, params ListCreditMemoRequestsParams) (ListCreditMemoRequestsRes, error) {
+	res, err := c.sendListCreditMemoRequests(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListCreditMemoRequests(ctx context.Context, params ListCreditMemoRequestsParams) (res ListCreditMemoRequestsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCreditMemoRequests"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/credit-memo-requests"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListCreditMemoRequestsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/credit-memo-requests"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "billing_document_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "billing_document_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.BillingDocumentID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "sales_order_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "sales_order_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.SalesOrderID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "returns_order_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "returns_order_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.ReturnsOrderID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "document_number" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "document_number",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.DocumentNumber.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListCreditMemoRequestsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListCreditMemoRequestsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -81586,6 +82435,172 @@ func (c *Client) sendReleaseContract(ctx context.Context, params ReleaseContract
 
 	stage = "DecodeResponse"
 	result, err := decodeReleaseContractResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ReleaseCreditMemoRequest invokes releaseCreditMemoRequest operation.
+//
+// Approves an `open` credit memo request (ADR-0067, As built T85c), releasing it to be posted, at the
+// version the caller read (`If-Match`): the request is read under a row lock and moves to `approved`
+// once. One that is not open is refused (409 `sales.invalid_status`). Approving is by this one
+// permission, whatever the amount, and nothing sets the approver apart from the person who created the
+// request (product owner 2026-11-12); the tenant's own segregation-of-duties rules apply as on every
+// operation. Nothing is posted: an approved request is posted as a customer credit memo by a later
+// operation. Audited and published as CreditMemoRequestChanged. A retry with the same
+// `Idempotency-Key` answers the approved request. Human-only (`x-agent: false`). The action is
+// `:release`, not `:approve`, which is kept for approval requests (04 §4.9): no approval request is
+// made for a credit memo request.
+//
+// POST /v1/credit-memo-requests/{id}:release
+func (c *Client) ReleaseCreditMemoRequest(ctx context.Context, params ReleaseCreditMemoRequestParams) (ReleaseCreditMemoRequestRes, error) {
+	res, err := c.sendReleaseCreditMemoRequest(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendReleaseCreditMemoRequest(ctx context.Context, params ReleaseCreditMemoRequestParams) (res ReleaseCreditMemoRequestRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("releaseCreditMemoRequest"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/credit-memo-requests/{id}:release"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ReleaseCreditMemoRequestOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/credit-memo-requests/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":release"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ReleaseCreditMemoRequestOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeReleaseCreditMemoRequestResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

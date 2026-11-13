@@ -1608,7 +1608,8 @@ PILOT_SETTINGS='
     {"company": "@CC@", "document_type": "quotation", "fiscal_year": @YEAR@, "prefix": "QT", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "sales_order", "fiscal_year": @YEAR@, "prefix": "SO", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "billing_document", "fiscal_year": @YEAR@, "prefix": "BD", "first": 1, "last": 999999},
-    {"company": "@CC@", "document_type": "returns_order", "fiscal_year": @YEAR@, "prefix": "RO", "first": 1, "last": 999999}]'
+    {"company": "@CC@", "document_type": "returns_order", "fiscal_year": @YEAR@, "prefix": "RO", "first": 1, "last": 999999},
+    {"company": "@CC@", "document_type": "credit_memo_request", "fiscal_year": @YEAR@, "prefix": "CR", "first": 1, "last": 999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -7788,6 +7789,72 @@ step_return_receipt() {
   passed
 }
 
+# step_credit_memo_request is T85c (ADR-0067, As built T85c): Sally asks
+# for Northwind to be credited the 20 brackets step_return_receipt
+# received. The request for the returns order takes the received
+# quantity at the billed amount of it in full (product owner 2026-11-12):
+# the billing item's amount × 20 ÷ 120, shared out with money.Allocate. A
+# second request finds nothing more to credit, and one by amount for
+# more than the item billed is refused naming the item. Carla, a sales
+# manager with the approver roles, approves it once. Nothing is posted:
+# Northwind's open items are as they were. It keeps the request
+# (CREDIT_REQUEST).
+step_credit_memo_request() {
+  heading "Step 72 — Credit memo requests: a request for the returns order's received quantities at their billed amount, read back with the amount its quantity gives, more than was billed refused, approved once; nothing posted"
+  local customer=$CUSTOMER doc=$BILLING_DOCUMENT returns=$RETURNS_ORDER open billed net want request tag before
+  [ -n "$returns" ] && [ -n "$doc" ] || fail "step 70's returns order and step 64's billing document are not there"
+  as sally
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
+  QUIET=1 api 200 '' getBillingDocument -p "id=$doc"
+  billed=$(field '.items[0].net_amount.amount')
+  net=${billed/./}
+  net=$((10#$net))
+  # 20 of 120 of the billed amount, rounded half away from zero to the cent: what money.Allocate gives two positive shares.
+  want=$(((net * 20 * 2 + 120) / 240))
+  want=$(printf '%d.%02d' $((want / 100)) $((want % 100)))
+  say "All 20 brackets of the returns order arrived (step 71). Sally asks for Northwind to be credited them (ADR-0067,"
+  say "As built T85c): a credit memo request for the returns order takes what was received and not yet requested, at"
+  say "the amount billed for it in full, with no charge: $billed CAD billed for 120 brackets, so 20 are $want CAD net."
+  before=$(company_day)
+  api 201 '"credit memo request \(.document_number) of \(.customer_number) \(.customer_name): \(.status), dated \(.request_date), for returns order \(.returns_order_number) of billing document \(.billing_document_number), net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) (billing item \(.billing_item_no)) \(.item_key // "-") \(.description): \(.quantity.value) \(.quantity.unit) of \(.billed_quantity.value) billed for \(.billed_amount.amount), credited \(.net_amount.amount) on \(.account_number) \(.tax_code // "-")")' \
+    createCreditMemoRequest -body "{\"billing_document_id\": \"$doc\", \"returns_order_id\": \"$returns\"}"
+  request=$(field .id)
+  tag=$ETAG
+  expect "the request's status and version" "$(field '"\(.status) \(.version)"')" "open 1"
+  expect_today "the request date, Maple's today" "$(field .request_date)" "$before"
+  expect "the request's billing document, returns order and customer" "$(field '"\(.billing_document_id) \(.returns_order_id) \(.customer_id)"')" "$doc $returns $customer"
+  expect "the item: the quantity received, credited at its billed amount" \
+    "$(field '[.items[] | "\(.billing_item_no) \(.quantity.value) \(.quantity.unit) \(.net_amount.amount)"] | join(", ")')" "1 20 EA $want"
+  expect "the request's net value" "$(field '"\(.net_amount.amount) \(.net_amount.currency)"')" "$want CAD"
+  say "Read back, it is the same:"
+  api 200 '"credit memo request \(.document_number): \(.status), net \(.net_amount.amount) \(.net_amount.currency)"' getCreditMemoRequest -p "id=$request"
+  expect "the request read back" "$(field '"\(.status) \(.items[0].quantity.value) \(.net_amount.amount)"')" "open 20 $want"
+  say "Nothing more was received, so a second request for the returns order finds nothing to credit; a request by amount"
+  say "for more than the item billed, less what this request asks for, is refused naming the item:"
+  refused 422 sales.nothing_to_credit createCreditMemoRequest -body "{\"billing_document_id\": \"$doc\", \"returns_order_id\": \"$returns\"}"
+  expect "the field refused" "$(field '.errors[0].field')" returns_order_id
+  refused 422 sales.exceeds_billed_amount createCreditMemoRequest \
+    -body "{\"billing_document_id\": \"$doc\", \"reason\": \"Goodwill\", \"items\": [{\"billing_item_no\": 1, \"net_amount\": {\"amount\": \"$billed\", \"currency\": \"CAD\"}}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].net_amount.amount"
+  as carla
+  say "Carla approves it at the version she read, with the one permission that approves, whatever the amount (product"
+  say "owner 2026-11-12). It is approved once:"
+  api 200 '"credit memo request \(.document_number): \(.status), version \(.version)"' releaseCreditMemoRequest -p "id=$request" -if-match "$tag"
+  expect "the approved request" "$(field '"\(.status) \(.version)"')" "approved 2"
+  refused 409 sales.invalid_status releaseCreditMemoRequest -p "id=$request" -if-match "$ETAG"
+  api 200 '.items[] | "  \(.document_number): \(.status), returns order \(.returns_order_number), net \(.net_amount.amount) \(.net_amount.currency)"' \
+    listCreditMemoRequests -p "returns_order_id=$returns"
+  expect "the returns order's requests" "$(field '[.items[] | "\(.status) \(.net_amount.amount)"] | join(", ")')" "approved $want"
+  say "An approved request posts nothing by itself; Northwind's open items are as they were:"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  QUIET=1 api 200 '' listAuditEvents -p object_type=sales.credit_memo_request -p "object_id=$request"
+  expect "the request's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "sales.credit_memo_request.approve sales.credit_memo_request.create"
+  CREDIT_REQUEST=$request
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -9812,7 +9879,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_returns step_return_receipt step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_returns step_return_receipt step_credit_memo_request step_close'
 
 main() {
   stop_unseen

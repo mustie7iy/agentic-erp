@@ -742,6 +742,20 @@ func encodeCreateCreditLimitRequest(
 	return nil
 }
 
+func encodeCreateCreditMemoRequestRequest(
+	req *CreditMemoRequestCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateCustomerInvoiceRequest(
 	req *CustomerInvoiceCreate,
 	r *http.Request,
@@ -1318,6 +1332,20 @@ func encodeCreateYearCloseRequest(
 
 func encodeDecideRecommendationRequest(
 	req *RecommendationDecide,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeDeclineCreditMemoRequestRequest(
+	req *CreditMemoRequestReject,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"

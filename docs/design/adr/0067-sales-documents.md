@@ -1326,3 +1326,125 @@ that returned quantities arrived, as T78c's is for a delivery.
   built, by the plan's "Later": the return delivery, goods receipt,
   inspection and stock posting (Supply chain, outside the required
   scope), reversing a receipt, replacement deliveries.
+
+### T85c Credit memo request created and decided (migration 000305)
+
+`docs/design/plan-breadth-week3.md`, T85c, its default 2 and the
+product owner's decisions of 2026-11-12: returned goods are credited at
+the billed amount of the quantity received, in full, with no restocking
+charge; the request is approved by one permission with no amount tier;
+nothing sets the approver apart from the creator; an entered price is
+final, so what is credited is what was billed, shared out with
+`money.Allocate` when a part is credited.
+
+- `internal/sales/credit_memo.go` (`RequestCredit`, `ApproveCredit`,
+  `RejectCredit`, `GetCreditMemoRequest`, `creditRequest`, `share`),
+  `credit_memo_api.go`; nothing new is wired; the fixture's number
+  ranges include `credit_memo_request`.
+- Migration 000305: `sales.credit_memo_request` and
+  `sales.credit_memo_request_item` (03 §3.29 lists every rule), the
+  permissions `sales.credit_memo_request.read`, `.write` and
+  `.approve`. The two triggers that hold what a request may ask for only
+  read, so they run as the caller; the decision's rule
+  (`credit_memo_request_decided_once`) holds for the tables' owner too.
+  Schema tests in `db/sales_credit_test.go`
+  (`TestCreditMemoRequestRules`), owner-level cases included.
+- `POST /v1/credit-memo-requests` (`billing_document_id` and either
+  `returns_order_id` or `items` each a `billing_item_no` and a
+  `net_amount`, with `reason`; 201 with `Location` and `ETag`,
+  idempotent by `Idempotency-Key`, human-only), `GET
+  /v1/credit-memo-requests` (the companies the caller may act in;
+  filters `legal_entity_id`, `customer_id`, `billing_document_id`,
+  `sales_order_id`, `returns_order_id`, `status`, `document_number`;
+  sortable by `request_date` and `document_number`; cursor paging), `GET
+  /v1/credit-memo-requests/{id}` (404 for another company's), `POST
+  …/{id}:release` (approve) and `…/{id}:decline` (reject, with
+  `reason`), each with
+  `If-Match`, idempotent, human-only, both by
+  `sales.credit_memo_request.approve`. A request names its company by
+  code and name, its customer by number and name, its billing document,
+  sales order and returns order by id and number; it carries its
+  currency (the billing document's) and net value, and each item the
+  billing and order items by number, the item key and description, the
+  quantity credited (a request for a returns order), the billed
+  quantity and amount, the amount credited and the account (id, number,
+  name) and tax code the credit memo will post with.
+- **The amount of a quantity.** For each item of the returns order, the
+  request takes what was received less what that returns order's
+  requests not rejected took. Its amount is the share of the billing
+  item's amount that the quantity requested of the item so far by
+  requests for quantities (all returns orders, this request included)
+  is of the billed quantity, shared out with `money.Allocate` against
+  the rest (`share`), less what those requests took: the requests for
+  an item's whole billed quantity add up to its billed amount to the
+  minor unit, the last taking the remainder (T79a's rule, which the plan
+  names). A quantity whose amount comes to zero is left for a later
+  request, as billing leaves one; a returns order with nothing left to
+  credit is 422 `sales.nothing_to_credit`.
+- **The limit.** Under the sales order's row lock (`loadOrder(..., true)`,
+  the lock returns orders and billing take), the requests of a billing
+  document that are not rejected never ask for more of an item than it
+  billed (422 `sales.exceeds_billed_amount` naming
+  `items[i].net_amount.amount`, or `returns_order_id`, with the item,
+  what it billed and what the other requests ask for); the database
+  holds the same and that no returns order item is credited above what
+  was received. A rejection frees what its request asked for.
+- Refusals beside those: a billing document the caller cannot read 422
+  `request.reference_not_found`, one not posted 409
+  `sales.billing_document_not_posted`; both or neither basis 422
+  `sales.credit_memo_request_basis` (`returns_order_id`); `items`
+  without `reason`, a reason of white space 422
+  `request.validation_failed` (`reason`); a returns order the caller
+  cannot read 422 `request.reference_not_found`, another billing
+  document's 422 `sales.returns_order_of_other_document`; an unknown
+  billing item `sales.unknown_billing_item`, one named twice
+  `sales.item_repeated`, another currency `sales.currency_mismatch`, an
+  amount of zero `sales.amount_not_positive`, the wrong decimals 400
+  `request.invalid_amount`. Deciding one that is not open 409
+  `sales.invalid_status`.
+- `CreditMemoRequestChanged` (created, approved, rejected; the net value,
+  the customer by id and number, the billing document, sales order and
+  returns order by id and number; not `x-webhook`) and the audit records
+  `sales.credit_memo_request.create`, `.approve` and `.reject`, the
+  first with the items' amounts and quantities, in the change's
+  transaction.
+- **Credit exposure and revenue contract.** A request, whatever its
+  status, posts nothing, so the customer's open items and credit
+  exposure do not change until T85d posts it. It touches no revenue
+  contract: the `revenue-contracts` consumer reads `SalesOrderChanged`
+  alone (`TestConsumerSkipsAndRefuses`' case for the event). How a
+  return enters a revenue contract is the accounting specialist's open
+  question 4 (plan); revenue is not touched by this slice or by T85d.
+- Walkthrough `step_credit_memo_request` (step 72): Sally requests the
+  credit for step 70's returns order, all 20 brackets received in step
+  71: 20 of 120 at the billing item's amount in full; a second request
+  finds nothing to credit and one by amount for the whole billed amount
+  is refused naming the item; Carla approves it, once; Northwind's open
+  items are as they were. The pilot's settings (step 2) add the
+  `credit_memo_request` number range.
+- **Decided by default:** (1) a request for a returns order takes
+  everything received and not yet requested of every item, without a
+  choice of items or quantities (the plan: "takes its received
+  quantities not yet requested"); (2) the returns order may be a draft
+  or confirmed, but only a confirmed one has receipts, so only it has
+  anything to credit; (3) the reason is required with `items`, optional
+  with a returns order, which has its own; it is at most 500 characters,
+  as a return's; (4) a request is dated the company's date today and
+  numbered from `credit_memo_request` (prefix `CR` in the pilot); (5)
+  amounts are net: the tax is the customer credit memo's, at posting
+  (T85d); (6) requests by amount and for quantities share one limit per
+  billing item, its billed amount; the amount of a quantity is computed
+  from what earlier requests for quantities took, so a request by amount
+  does not shift what a later quantity is worth; (7) rejecting takes the
+  approving permission and a reason; (8) approving and rejecting take
+  the caller's version (`If-Match`), as confirming a returns order does;
+  (9) every write is human-only; (10) the plan's `:approve` and
+  `:reject` are named `:release` and `:decline`: the contract keeps
+  `:approve` and `:reject` for approval requests (04 §4.9,
+  `TestOperations`), and no approval request is made here, approval
+  being one permission (product owner 2026-11-12); the statuses stay
+  `approved` and `rejected`, the permission
+  `sales.credit_memo_request.approve`. Not built, by the plan's "Later": debit
+  memo requests, a request without a billing document, approval tiers
+  and a separate approver, restocking and handling charges, the credited
+  amounts in the revenue contract and in rebates.
