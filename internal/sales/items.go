@@ -205,8 +205,9 @@ func (c itemCheck) account(ctx context.Context, i int, id uuid.UUID) error {
 // company with a rate in force on the document's date (422
 // sales.unknown_tax_code naming the item's field). A code whose component
 // levies the subdivision its lines name (one code for every emirate,
-// ADR-0049 §7) is refused as a customer invoice refuses it (ADR-0063 §4):
-// an item names no jurisdiction, so it could never be billed. The tax
+// ADR-0049 §7) is refused: a sales document's item names no
+// jurisdiction, as a customer invoice's can (ADR-0063 §4 As built), so
+// it could never be billed. The tax
 // itself is calculated when the item is billed (ADR-0067 §3).
 func (c itemCheck) outputCode(ctx context.Context, i int, code string) error {
 	if c.codes[code] {

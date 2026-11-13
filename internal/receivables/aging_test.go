@@ -43,7 +43,8 @@ func buckets(t *testing.T, of map[string]any) string {
 // agingScene is two customers' open items: Northwind's invoice of 100.00
 // dated 10 March (NT30, due 9 April) and the credit memo of 30.00 naming
 // it, due with it; its invoice of 50.00 dated 1 May on NT14, due 15 May;
-// a credit of 5.00 posted without terms; and Contoso's invoice of 200.00
+// a credit of 5.00 dated 15 March and posted without terms, so due that
+// day (PO 2026-11-12); and Contoso's invoice of 200.00
 // dated 1 June, due 1 July. An invoice of Contoso's credited in full is
 // cleared against its memo and is no open item.
 func agingScene(t *testing.T) (env, uuid.UUID) {
@@ -66,7 +67,8 @@ func agingScene(t *testing.T) (env, uuid.UUID) {
 
 // TestReceivablesAging (T75e acceptance): each open customer item falls
 // in exactly one bucket by its net due date; a credit memo reduces its
-// customer's bucket and total; an item without terms has no due date; a
+// customer's bucket and total; an item without terms is due on its
+// document date, not due that day and overdue from the day after; a
 // cleared item is left out; amounts are in the company's currency; every
 // bucket is given; and the report names the company and the customers.
 func TestReceivablesAging(t *testing.T) {
@@ -80,9 +82,10 @@ func TestReceivablesAging(t *testing.T) {
 	totals, _ := got["totals"].(map[string]any)
 	fields(t, "the totals", totals, map[string]any{"customer_count": 2, "item_count": 5, "amount": eur("315.00")})
 	// On 15 May the invoice of 100.00 and its memo are 36 days overdue; the
-	// invoice due that day is not yet due.
-	if got, want := buckets(t, totals), "not_due 2 250.00 EUR; overdue[1-30] 0 0.00 EUR; overdue[31-60] 2 70.00 EUR; overdue[61-90] 0 0.00 EUR; "+
-		"overdue[91-<nil>] 0 0.00 EUR; no_due_date 1 -5.00 EUR; "; got != want {
+	// invoice due that day is not yet due; the credit without terms, dated
+	// 15 March, is 61 days past its document date.
+	if got, want := buckets(t, totals), "not_due 2 250.00 EUR; overdue[1-30] 0 0.00 EUR; overdue[31-60] 2 70.00 EUR; overdue[61-90] 1 -5.00 EUR; "+
+		"overdue[91-<nil>] 0 0.00 EUR; no_due_date 0 0.00 EUR; "; got != want {
 		t.Errorf("the totals' buckets: got %s, want %s", got, want)
 	}
 	rows := items(t, got)
@@ -91,8 +94,8 @@ func TestReceivablesAging(t *testing.T) {
 	}
 	fields(t, "Northwind's row", rows[0], map[string]any{"customer_id": e.customer, "customer_number": "BP70000001", "customer_name": "Northwind Traders",
 		"item_count": 4, "amount": eur("115.00")})
-	if got, want := buckets(t, rows[0]), "not_due 1 50.00 EUR; overdue[1-30] 0 0.00 EUR; overdue[31-60] 2 70.00 EUR; overdue[61-90] 0 0.00 EUR; "+
-		"overdue[91-<nil>] 0 0.00 EUR; no_due_date 1 -5.00 EUR; "; got != want {
+	if got, want := buckets(t, rows[0]), "not_due 1 50.00 EUR; overdue[1-30] 0 0.00 EUR; overdue[31-60] 2 70.00 EUR; overdue[61-90] 1 -5.00 EUR; "+
+		"overdue[91-<nil>] 0 0.00 EUR; no_due_date 0 0.00 EUR; "; got != want {
 		t.Errorf("Northwind's buckets: got %s, want %s", got, want)
 	}
 	fields(t, "Contoso's row", rows[1], map[string]any{"customer_id": other, "customer_number": "BP70000002", "customer_name": "Contoso",
@@ -105,13 +108,17 @@ func TestReceivablesAging(t *testing.T) {
 		name, query, want string
 	}{
 		{"a day later the invoice due on the key date is a day overdue", "key_date=2026-05-16",
-			"not_due 1 200.00 EUR; overdue[1-30] 1 50.00 EUR; overdue[31-60] 2 70.00 EUR; overdue[61-90] 0 0.00 EUR; overdue[91-<nil>] 0 0.00 EUR; no_due_date 1 -5.00 EUR; "},
+			"not_due 1 200.00 EUR; overdue[1-30] 1 50.00 EUR; overdue[31-60] 2 70.00 EUR; overdue[61-90] 1 -5.00 EUR; overdue[91-<nil>] 0 0.00 EUR; no_due_date 0 0.00 EUR; "},
 		{"buckets of the caller's days", "key_date=2026-05-15&aging_days=10,36",
-			"not_due 2 250.00 EUR; overdue[1-10] 0 0.00 EUR; overdue[11-36] 2 70.00 EUR; overdue[37-<nil>] 0 0.00 EUR; no_due_date 1 -5.00 EUR; "},
+			"not_due 2 250.00 EUR; overdue[1-10] 0 0.00 EUR; overdue[11-36] 2 70.00 EUR; overdue[37-<nil>] 1 -5.00 EUR; no_due_date 0 0.00 EUR; "},
 		{"one bucket of overdue items", "key_date=2026-12-31&aging_days=3650",
-			"not_due 0 0.00 EUR; overdue[1-3650] 4 320.00 EUR; overdue[3651-<nil>] 0 0.00 EUR; no_due_date 1 -5.00 EUR; "},
+			"not_due 0 0.00 EUR; overdue[1-3650] 5 315.00 EUR; overdue[3651-<nil>] 0 0.00 EUR; no_due_date 0 0.00 EUR; "},
 		{"before anything is due", "key_date=2026-01-01",
-			"not_due 4 320.00 EUR; overdue[1-30] 0 0.00 EUR; overdue[31-60] 0 0.00 EUR; overdue[61-90] 0 0.00 EUR; overdue[91-<nil>] 0 0.00 EUR; no_due_date 1 -5.00 EUR; "},
+			"not_due 5 315.00 EUR; overdue[1-30] 0 0.00 EUR; overdue[31-60] 0 0.00 EUR; overdue[61-90] 0 0.00 EUR; overdue[91-<nil>] 0 0.00 EUR; no_due_date 0 0.00 EUR; "},
+		{"the credit without terms on its document date is not due", "key_date=2026-03-15&customer_id=" + e.customer.String() + "&aging_days=1",
+			"not_due 4 115.00 EUR; overdue[1-1] 0 0.00 EUR; overdue[2-<nil>] 0 0.00 EUR; no_due_date 0 0.00 EUR; "},
+		{"the day after its document date it is a day overdue", "key_date=2026-03-16&customer_id=" + e.customer.String() + "&aging_days=1",
+			"not_due 3 120.00 EUR; overdue[1-1] 1 -5.00 EUR; overdue[2-<nil>] 0 0.00 EUR; no_due_date 0 0.00 EUR; "},
 		{"one customer", "key_date=2026-05-15&customer_id=" + other.String(),
 			"not_due 1 200.00 EUR; overdue[1-30] 0 0.00 EUR; overdue[31-60] 0 0.00 EUR; overdue[61-90] 0 0.00 EUR; overdue[91-<nil>] 0 0.00 EUR; no_due_date 0 0.00 EUR; "},
 	}
@@ -138,11 +145,15 @@ func TestReceivablesAging(t *testing.T) {
 
 // TestAgingTotalsAreTheOpenItems (T75e acceptance): the totals equal the
 // open items of the company's customer reconciliation accounts, in total
-// and bucket by bucket as GET /v1/open-items ages them, items without
-// terms included; the customers' rows add up to the totals.
+// and bucket by bucket as GET /v1/open-items ages them; the customers'
+// rows add up to the totals. The two part for the one item without terms,
+// the credit of 5.00 dated 15 March (PO 2026-11-12): the list, which
+// shows items as posted, has it without a due date, and the report in the
+// bucket of its days past its document date (without).
 func TestAgingTotalsAreTheOpenItems(t *testing.T) {
 	e, _ := agingScene(t)
-	for _, query := range []string{"key_date=2026-05-15", "key_date=2026-04-10&aging_days=1,5", "key_date=2026-09-30&aging_days=45"} {
+	for query, without := range map[string]string{"key_date=2026-05-15": "overdue 61 90", "key_date=2026-04-10&aging_days=1,5": "overdue 6 <nil>",
+		"key_date=2026-09-30&aging_days=45": "overdue 46 <nil>"} {
 		t.Run(query, func(t *testing.T) {
 			got := e.aging(t, query)
 			totals, _ := got["totals"].(map[string]any)
@@ -156,22 +167,22 @@ func TestAgingTotalsAreTheOpenItems(t *testing.T) {
 				map[string]any{"amount": eur(money.Minor(open).Plain(2)), "item_count": count})
 			// The list's aging leaves empty buckets out; those it gives are the report's.
 			list, _ := e.Must(200, "GET", "/v1/open-items?legal_entity_id="+e.DE.String()+"&account_id="+e.receivable.String()+"&aging_"+query, "", "")
-			want := map[string]string{}
+			want := map[string]agedSum{}
 			for _, r := range list["aging"].([]any) {
 				m := r.(map[string]any)
-				want[fmt.Sprintf("%v %v %v", m["bucket"], m["days_from"], m["days_to"])] = fmt.Sprintf("%v %s", m["item_count"], amount(t, m, "amount_lc"))
+				want[fmt.Sprintf("%v %v %v", m["bucket"], m["days_from"], m["days_to"])] = sumOf(t, m, "amount_lc")
 			}
-			if len(want) == 0 {
-				t.Fatal("the open items' aging: got no bucket, want the items aged")
+			if got := want["no_due_date <nil> <nil>"]; got != (agedSum{1, -500}) {
+				t.Fatalf("the open items' aging without a due date: got %+v, want the credit of 5.00 posted without terms", got)
 			}
+			delete(want, "no_due_date <nil> <nil>")
+			want[without] = agedSum{want[without].count + 1, want[without].cents - 500}
 			var sum, rows int64
 			for _, r := range totals["buckets"].([]any) {
 				m := r.(map[string]any)
-				key, is := fmt.Sprintf("%v %v %v", m["bucket"], m["days_from"], m["days_to"]), fmt.Sprintf("%v %s", m["item_count"], amount(t, m, "amount"))
-				if listed, ok := want[key]; ok && listed != is {
-					t.Errorf("bucket %s: got %s, want the open items' %s", key, is, listed)
-				} else if !ok && is != "0 0.00 EUR" {
-					t.Errorf("bucket %s: got %s, want it empty: the open items' aging has none", key, is)
+				key, is := fmt.Sprintf("%v %v %v", m["bucket"], m["days_from"], m["days_to"]), sumOf(t, m, "amount")
+				if listed := want[key]; listed != is { // a bucket the list leaves out is empty
+					t.Errorf("bucket %s: got %+v, want the open items' %+v", key, is, listed)
 				}
 				delete(want, key)
 			}
@@ -191,6 +202,23 @@ func TestAgingTotalsAreTheOpenItems(t *testing.T) {
 			}
 		})
 	}
+}
+
+// agedSum is a bucket's items: how many, and their amount in cents.
+type agedSum struct {
+	count int64
+	cents money.Minor
+}
+
+// sumOf reads a bucket's items from the list's aging or the report.
+func sumOf(t *testing.T, bucket map[string]any, field string) agedSum {
+	t.Helper()
+	a, _ := bucket[field].(map[string]any)
+	cents, err := money.ParseDecimal(fmt.Sprint(a["amount"]), 2)
+	if err != nil || a["currency"] != "EUR" {
+		t.Fatalf("%s of bucket %v: got %v (%v), want an amount in EUR", field, bucket["bucket"], a, err)
+	}
+	return agedSum{int64(bucket["item_count"].(float64)), cents}
 }
 
 // TestAgingPages: the customers come in cursor pages by customer id, the

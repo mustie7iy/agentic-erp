@@ -101,3 +101,10 @@ pending the tax specialist"), under 2026.7's sign-off. Its lines, their
 selections and sums are 2026.7's; only label strings differ
 (`TestCanadaPack2026_8`). The table above and `TestCanadaPackGST34`
 describe 2026.6, which keeps its markers, as 2026.7 does.
+
+Number ranges added (`2026.9`, product owner 2026-11-12): 2026.9 is 2026.8
+plus number ranges for customer invoices, incoming payments, sales
+documents and RFQs. Its `tax.yaml` and `returns.yaml` are 2026.8's byte
+for byte (`TestCanadaPack2026_9`). It carries no `sign_off`: none was given
+or approved for this version, so production refuses it and 2026.8 stays
+the signed-off version.

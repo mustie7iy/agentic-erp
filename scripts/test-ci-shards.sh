@@ -80,16 +80,16 @@ refuses() {
 plan="$(shards plan race)"
 is "every package is in the race plan, none named in the script" "$(awk '{print $2}' <<<"$plan" | sort -u | paste -sd' ' -)" \
   "api cmd/tool internal/heavy internal/huge internal/light internal/medium"
-is "a package over the split limit is split, the others whole" "$(awk '{print $2 ":" $3 "/" $4}' <<<"$plan" | sort | paste -sd' ' -)" \
-  "api:1/1 cmd/tool:1/1 internal/heavy:1/2 internal/heavy:2/2 internal/huge:1/3 internal/huge:2/3 internal/huge:3/3 internal/light:1/1 internal/medium:1/1"
+is "a package over the split limit is split, the others whole" "$(awk '{print $2 ":" $3}' <<<"$plan" | sort | paste -sd' ' -)" \
+  "api:- cmd/tool:- internal/heavy:1/2 internal/heavy:2/2 internal/huge:1/3 internal/huge:2/3 internal/huge:3/3 internal/light:- internal/medium:-"
 # Costs: heavy 2 x 1125, huge 3 x 1650, medium 900, three at the default 30:
 # 8190 in all, so four shards of 2400.
 is "the shards are as many as the cost needs" "$(awk '{print $1}' <<<"$plan" | sort -un | paste -sd' ' -)" "1 2 3 4"
 is "the heaviest pieces go to different shards" "$(awk '$2 == "internal/huge" {print $1}' <<<"$plan" | sort -u | wc -l | tr -d ' ')" "3"
 is "the plan is the same every time" "$(shards plan race)" "$plan"
 is "the matrices" "$(shards matrix | paste -sd' ' -)" "race=[1,2,3,4] coverage=[1,2,3,4]"
-is "the coverage plan holds each package once, whole" "$(shards plan coverage | awk '{print $2 ":" $3 "/" $4}' | sort | paste -sd' ' -)" \
-  "api:1/1 cmd/tool:1/1 internal/heavy:1/1 internal/huge:1/1 internal/light:1/1 internal/medium:1/1"
+is "the coverage plan holds each package once, whole" "$(shards plan coverage | awk '{print $2 ":" $3}' | sort | paste -sd' ' -)" \
+  "api:- cmd/tool:- internal/heavy:- internal/huge:- internal/light:- internal/medium:-"
 is "the coverage shards are as many as asked" "$(CI_SHARDS_COVERAGE=2 shards plan coverage | awk '{print $1}' | sort -un | paste -sd' ' -)" "1 2"
 
 is "a part's tests: Test, Fuzz and Example functions, sorted, dealt in turn" "$(shards tests internal/heavy 1 2 | paste -sd' ' -)" "ExampleEcho TestAlpha TestCharlie_x"
@@ -97,7 +97,7 @@ is "the other part's" "$(shards tests internal/heavy 2 2 | paste -sd' ' -)" "Fuz
 is "the check passes" "$(shards check)" "ci-shards: 6 packages, each in one race shard of 4 and one coverage shard of 4"
 
 echo internal/new >>"$work/packages"
-is "a new package lands in a shard without being named" "$(shards plan race | awk '$2 == "internal/new" {print $3 "/" $4}')" "1/1"
+is "a new package lands in a shard without being named" "$(shards plan race | awk '$2 == "internal/new" {print $3}')" "-"
 is "and in a coverage shard" "$(shards plan coverage | awk '$2 == "internal/new"' | wc -l | tr -d ' ')" "1"
 
 # A split package needs a test in every part.
@@ -127,6 +127,59 @@ chmod +x "$work/bin/go"
 is "the parts hold every test the binary lists" "$(PATH="$work/bin:$PATH" shards verify internal/heavy 2 -race 2>&1)" ""
 ghost() { PATH="$work/bin:$PATH" GHOST=TestGenerated shards verify internal/heavy 2 -race; }
 refuses "a test the files do not show fails the shard that runs the package" "^TestGenerated\$" ghost
+
+# A test the weights run alone (the walkthrough): its three runs, over the
+# split limit, become three pieces of one run each, dealt to three shards;
+# a lighter one is one piece of three runs; the package's other tests are
+# its parts, run with -run even as one part.
+mkdir -p "$tree/internal/walk"
+printf 'package walk\n\nfunc TestA(t *testing.T) {}\nfunc TestB(t *testing.T) {}\nfunc TestC(t *testing.T) {}\nfunc TestStory(t *testing.T) {}\n' >"$tree/internal/walk/a_test.go"
+printf '%s\n' api internal/walk >"$work/walk-packages"
+printf '%s\n' "# seconds package [test]" "100 internal/walk" "500 internal/walk TestStory" "50 internal/walk TestA" "300 api" >"$work/walk-weights"
+walk() {
+  env CI_SHARDS_ROOT="$tree" CI_SHARDS_PACKAGES="$work/walk-packages" CI_SHARDS_WEIGHTS="$work/walk-weights" CI_SHARDS_CAP=900 "$root/scripts/ci-shards.sh" "$@"
+}
+walkplan="$(walk plan race)"
+# TestStory 3 x 500 > 1200: three runs of 750 (half as much again); TestA
+# 3 x 50 x 1.5; the other tests at the default 10 s, not less. With api,
+# 3420 in all: four shards of 900.
+is "a test run alone is planned apart, its three runs split when heavy" "$(awk '$2 == "internal/walk" {print $3 ":" $4}' <<<"$walkplan" | sort | paste -sd' ' -)" \
+  "1/1:45 TestA:225 TestStory#1:750 TestStory#2:750 TestStory#3:750"
+is "its three runs go to three shards" "$(awk '$3 ~ /^TestStory#/ {print $1}' <<<"$walkplan" | sort -u | wc -l | tr -d ' ')" "3"
+is "a part leaves out the tests run alone" "$(walk tests internal/walk 1 1 | paste -sd' ' -)" "TestB TestC"
+is "the check passes with tests run alone" "$(walk check)" "ci-shards: 2 packages, each in one race shard of 4 and one coverage shard of 4"
+is "the coverage plan keeps the package whole" "$(walk plan coverage | awk '$2 == "internal/walk" {print $3}')" "-"
+# The stand-in go records each go test it is asked for, and lists the
+# package's tests for -list.
+mkdir -p "$work/walkbin"
+cat >"$work/walkbin/go" <<'EOF2'
+#!/usr/bin/env bash
+[ "$1" = test ] || exit 2
+case " $* " in *" -list "*) printf '%s\n' TestA TestB TestC TestStory ${GHOST:-}; exit 0 ;; esac
+echo "$*" >>"$GO_CALLS"
+EOF2
+chmod +x "$work/walkbin/go"
+# runs N prints the go test commands shard N of the walk plan runs.
+runs() {
+  : >"$work/calls"
+  PATH="$work/walkbin:$PATH" GO_CALLS="$work/calls" walk run race "$1" >/dev/null
+  cat "$work/calls"
+}
+shard_of() { awk -v p="$1" '$2 == "internal/walk" && $3 == p {print $1}' <<<"$walkplan"; }
+is "a run of the heavy test is one go test of one run" "$(runs "$(shard_of 'TestStory#2')" | grep -F -- '-run ^TestStory$')" \
+  "test -race -shuffle=on -count=1 -timeout 35m -run ^TestStory$ ./internal/walk"
+is "a lighter test run alone has its three runs together" "$(runs "$(shard_of TestA)" | grep -F -- '-run ^TestA$')" \
+  "test -race -shuffle=on -count=3 -timeout 35m -run ^TestA$ ./internal/walk"
+is "the other tests run as a part" "$(runs "$(shard_of 1/1)" | grep -F -- '-run ^(TestB|TestC)$')" \
+  "test -race -shuffle=on -count=3 -timeout 35m -run ^(TestB|TestC)$ ./internal/walk"
+is "the tests run alone count as held" "$(PATH="$work/walkbin:$PATH" walk verify internal/walk 1 -race 2>&1)" ""
+walkghost() { PATH="$work/walkbin:$PATH" GHOST=TestNew walk verify internal/walk 1 -race; }
+refuses "a test no piece holds still fails the shard" "^TestNew\$" walkghost
+echo "70 internal/walk TestGone" >>"$work/walk-weights"
+refuses "a test run alone that the package does not have fails the check" "internal/walk has no test TestGone, which the weights run alone" walk check
+sed -i.bak '/TestGone/d' "$work/walk-weights"
+printf 'package walk\n\nfunc TestA(t *testing.T) {}\nfunc TestStory(t *testing.T) {}\n' >"$tree/internal/walk/a_test.go"
+refuses "a package with no test left for its part fails the check" "part 1 of 1 of internal/walk has no test" walk check
 
 # The gate takes the profile of every shard of the plan, named by the plan.
 m=github.com/mustie7iy/agentic-erp

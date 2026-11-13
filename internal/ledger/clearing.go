@@ -103,6 +103,7 @@ type item struct {
 	reservedBy                       *Owner  // the owner holding the item (item_reservation), or nil
 	special                          *string // the special G/L indicator (ADR-0037), or nil
 	tradingPartner                   *uuid.UUID
+	posted                           time.Time // the line's posting date; the zero time for a line not found
 }
 
 // createClearing clears open items against each other. The items must be
@@ -131,6 +132,9 @@ func (e *Endpoints) createClearing(ctx context.Context, legalEntity uuid.UUID, d
 	text := "Clearing"
 	lines, err := clearingLines(items, le.ID, &text)
 	if err != nil {
+		return Clearing{}, err
+	}
+	if err := notBeforeItems(items, date, "clearing_date"); err != nil {
 		return Clearing{}, err
 	}
 	if err := e.checkAccounts(ctx, tx, le.ID, lines, false); err != nil {
@@ -275,6 +279,36 @@ func checkItem(i int, it item, legalEntity *uuid.UUID, heldBy uuid.UUID, fields 
 	return nil
 }
 
+// notBeforeItems refuses a clearing dated before one of the items it
+// clears was posted (422 ledger.clearing_before_item, naming field, the
+// request's own date): the clearing date, which is the clearing entry's
+// posting date, is on or after the latest posting date of the items, so
+// no item is cleared before it existed and an open-item balance on a past
+// date never lacks an item that was open then (review:T75c; product
+// owner 2026-11-12; ADR-0006 As built). It is the one check of the rule:
+// every path that posts a clearing entry calls it on the items loadItems
+// read under the entries' locks, after its own checks have passed them as
+// the legal entity's (the refusal states a posting date, which must not
+// be another company's) and before it posts. A reversal clears its pair
+// on its own date and a migrated clearing keeps the source system's
+// (Postings.Clear); neither calls it.
+func notBeforeItems(items []item, date time.Time, field string) error {
+	var latest time.Time
+	for _, it := range items {
+		if it.posted.After(latest) {
+			latest = it.posted
+		}
+	}
+	day := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC) // posting dates are dates, read at midnight UTC
+	if !day.Before(latest) {
+		return nil
+	}
+	on := latest.Format(time.DateOnly)
+	return problem.Unprocessable("ledger.clearing_before_item", "The clearing is dated "+day.Format(time.DateOnly)+", before an item it clears was posted ("+on+
+		"); a clearing is dated on or after the latest posting date of its items.",
+		problem.FieldError{Field: field, Code: "before_item", Message: "on or after " + on + ", the latest posting date of the items"})
+}
+
 // clearedItemsPayload describes the cleared items for the items_cleared
 // event.
 func clearedItemsPayload(items []item, entry Entry) []map[string]any {
@@ -296,7 +330,9 @@ const reversedLine = `EXISTS (SELECT FROM ledger.reversal r WHERE r.tenant_id = 
 // loadItems reads the journal lines to clear, in the order of refs; lines
 // that do not exist, or are a parallel ledger's (open items are the
 // leading ledger's, ADR-0045), come back with found false, and lines of a reversed
-// entry or of a reversal with reversed true.
+// entry or of a reversal with reversed true. Each line found comes with
+// its posting date, which a clearing's date may not precede
+// (notBeforeItems).
 func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 	years, entries, nos := columns(refs)
 	// Locked before reading, so the reversal check below sees any reversal
@@ -309,7 +345,8 @@ func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 			coalesce(l.amount_tc, 0), coalesce(l.amount_lc, 0), coalesce(l.amount_gc, 0), coalesce(e.currency_tc, ''),
 			coalesce(e.currency_lc, ''), coalesce(e.currency_gc, ''), coalesce(e.rate_tc_lc::text, ''), coalesce(e.rate_lc_gc::text, ''),
 			`+reversedLine+`,
-			ir.owner_id, coalesce(ir.owner_context, ''), coalesce(ir.owner_reference, ''), l.special_gl, l.trading_partner_id
+			ir.owner_id, coalesce(ir.owner_context, ''), coalesce(ir.owner_reference, ''), l.special_gl, l.trading_partner_id,
+			coalesce(l.posting_date, '0001-01-01')
 		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) WITH ORDINALITY AS x(y, je, n, ord)
 		LEFT JOIN ledger.journal_line l ON l.fiscal_year = x.y AND l.journal_entry_id = x.je AND l.line_no = x.n
 			AND EXISTS (SELECT FROM ledger.ledger g WHERE g.tenant_id = l.tenant_id AND g.id = l.ledger_id AND g.is_leading)
@@ -327,7 +364,7 @@ func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 	var ownerID *uuid.UUID
 	if _, err := pgx.ForEachRow(rows, []any{&ord, &it.found, &it.open, &it.recon, &it.legalEntity, &it.ledger, &it.account, &it.partner,
 		&it.tc, &it.lc, &it.gc, &it.currency, &it.currencyLC, &it.currencyGC, &it.rateTCLC, &it.rateLCGC, &it.reversed,
-		&ownerID, &owner.Context, &owner.Reference, &it.special, &it.tradingPartner}, func() error {
+		&ownerID, &owner.Context, &owner.Reference, &it.special, &it.tradingPartner, &it.posted}, func() error {
 		it.ref, it.reservedBy = refs[ord-1], nil
 		if ownerID != nil {
 			holder := owner

@@ -527,8 +527,9 @@ type Invoker interface {
 	// account, clearing each down payment, reverses the input tax its payment claimed, and debits the
 	// supplier's payables account with their total, an open item with the invoice's payment terms that the
 	// next run nets against the invoice, so a cash discount is taken on what remains to pay. The requests
-	// move to `cleared`; the invoice is not reversed while they stand. Requires status `posted` and kind
-	// `invoice`.
+	// move to `cleared`; the invoice is not reversed while they stand. The transfer's posting date is on
+	// or after the latest posting date of the down payments it clears (422 `ledger.clearing_before_item`
+	// naming `posting_date`, its message giving that date). Requires status `posted` and kind `invoice`.
 	//
 	// POST /v1/supplier-invoices/{id}:clearDownPayments
 	ClearSupplierInvoiceDownPayments(ctx context.Context, request *DownPaymentClearingInput, params ClearSupplierInvoiceDownPaymentsParams) (ClearSupplierInvoiceDownPaymentsRes, error)
@@ -612,6 +613,42 @@ type Invoker interface {
 	//
 	// POST /v1/dunning-runs/{id}:confirm
 	ConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (ConfirmDunningRunRes, error)
+	// ConfirmReturnReceipt invokes confirmReturnReceipt operation.
+	//
+	// Records that quantities of a `confirmed` returns order's items arrived on a date (ADR-0067, As built
+	// T85b). It is a confirmation by a person, kept in the sales context, as a delivery confirmation is
+	// (`confirmSalesDelivery`): no stock moves and nothing is posted; a credit memo request reads what was
+	// received. The returns order is read under a row lock, so two receipts of one returns order wait for
+	// one another. A returns order that is not confirmed takes none (409
+	// `sales.returns_order_not_confirmed`). `receipt_date` is not after the company's date today in its
+	// time zone (422 `sales.receipt_date_in_future`). Each item names an item of the returns order by its
+	// number (422 `sales.unknown_returns_item` naming `items[i].item_no`), once (422
+	// `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the item's
+	// unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what is returned less
+	// what earlier receipts confirmed (422 `sales.exceeds_open_quantity` naming `items[i].quantity.value`,
+	// with the item and its open quantity in the message): of two receipts racing for an item's last
+	// quantity, one is recorded. The receipt is numbered within its returns order and written once; it is
+	// not changed or reversed in the first version. Each returns order item's `received_quantity` rises by
+	// what was received, its `open_quantity` falls by it, and the returns order's `version` moves, so
+	// `getReturnsOrder` shows what is received and what is still expected. The sales order is not changed:
+	// its delivered, billed and returned quantities stay. Audited, and published as ReturnReceived. A
+	// retry with the same `Idempotency-Key` answers the receipt recorded. Human-only (`x-agent: false`).
+	//
+	// POST /v1/returns-orders/{id}/receipts
+	ConfirmReturnReceipt(ctx context.Context, request *ReturnReceiptCreate, params ConfirmReturnReceiptParams) (ConfirmReturnReceiptRes, error)
+	// ConfirmReturnsOrder invokes confirmReturnsOrder operation.
+	//
+	// Confirms a `draft` returns order (ADR-0067, As built T85a), at the version the caller read
+	// (`If-Match`): the returns order is read under a row lock and moves to `confirmed` once. One that is
+	// not a draft is refused (409 `sales.invalid_status`). Confirming is by permission,
+	// `sales.return.confirm`, without an approval; no rule sets the person who confirms apart from the one
+	// who created the returns order. A confirmed returns order is not changed or cancelled in the first
+	// version; it takes receipts (`confirmReturnReceipt`). Nothing is checked again, nothing is posted and
+	// no stock moves. Audited, and published as ReturnsOrderChanged. A retry with the same
+	// `Idempotency-Key` answers the confirmed returns order. Human-only (`x-agent: false`).
+	//
+	// POST /v1/returns-orders/{id}:confirm
+	ConfirmReturnsOrder(ctx context.Context, params ConfirmReturnsOrderParams) (ConfirmReturnsOrderRes, error)
 	// ConfirmSalesDelivery invokes confirmSalesDelivery operation.
 	//
 	// Records that quantities of a `confirmed` sales order's items were delivered, or a service made
@@ -909,8 +946,11 @@ type Invoker interface {
 	// items (409 `procurement.catalog_item_exists`); a retired item frees its key. `contract_id` with
 	// `contract_item_no` names the contract item that prices an order of the item: an item of an `active`
 	// contract of the company and the supplier in the item's currency (422
-	// `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`); the
-	// catalog item keeps its own price, which a requisition takes. What an item offers is not changed
+	// `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`) and at
+	// the item's price: the same amount per the same `price_unit`, compared as written (422
+	// `procurement.catalog_item_price` on `unit_price.amount` or `price_unit`, naming the item, the
+	// contract item and both prices; product owner, 2026-11-12), so the price a requisition takes from the
+	// catalog is the one an order on the contract item takes. What an item offers is not changed
 	// afterwards: a new price is a new item after the old one is retired. `CatalogItemChanged` is
 	// published. The catalog is the tenant's own data: nothing is fetched from a supplier's system.
 	//
@@ -924,9 +964,12 @@ type Invoker interface {
 	CreateChangeRequest(ctx context.Context, request *ChangeRequestCreate, params CreateChangeRequestParams) (CreateChangeRequestRes, error)
 	// CreateClearing invokes createClearing operation.
 	//
-	// Clears open items against each other and posts the clearing entry. A line already cleared is 409. An
-	// open item a payment run holds (proposed, or releasing with its payment not posted yet) is reserved
-	// for that run and is 409 `ledger.item_reserved` until the run settles or frees it.
+	// Clears open items against each other and posts the clearing entry, dated `clearing_date`. The
+	// clearing date is on or after the latest posting date of the items: an item is not cleared before it
+	// was posted (422 `ledger.clearing_before_item` naming `clearing_date`, its message giving that date).
+	// A line already cleared is 409. An open item a payment run holds (proposed, or releasing with its
+	// payment not posted yet) is reserved for that run and is 409 `ledger.item_reserved` until the run
+	// settles or frees it.
 	//
 	// POST /v1/clearings
 	CreateClearing(ctx context.Context, request *ClearingCreate, params CreateClearingParams) (CreateClearingRes, error)
@@ -1001,6 +1044,57 @@ type Invoker interface {
 	//
 	// POST /v1/contracts
 	CreateContract(ctx context.Context, request *ContractCreate, params CreateContractParams) (CreateContractRes, error)
+	// CreateControl invokes createControl operation.
+	//
+	// Records a control in the tenant's control library (ADR-0078 §2, T98a): its code, its objective, the
+	// process it belongs to, the person who owns it, how often it is performed and whether it is performed
+	// by a person (`manual`) or by the system (`automated`), and optionally the tenant's own references to
+	// a framework it names (`framework_references`: free text, each once and without white space around
+	// it, 422 `grc.invalid_framework_reference` naming the entry). It is created `active`. The code is the
+	// tenant's own and unique in the library, whatever its case (409 `grc.control_code_taken`); it never
+	// changes. The owner is a person of the tenant who is active (422 `request.reference_not_found` naming
+	// `owner_id` for an unknown principal, `grc.invalid_owner` for an agent, a service or a person who is
+	// not active). The objective and the process are texts, not white space alone, the process without
+	// white space around it (422 `grc.invalid_process`); a frequency or a nature the contract does not
+	// list is refused naming the field (422 `request.validation_failed`). No library is shipped: every
+	// control is the tenant's. An audit record and ControlChanged (`created`) are written with it. A retry
+	// with the same `Idempotency-Key` answers the control recorded.
+	//
+	// POST /v1/controls
+	CreateControl(ctx context.Context, request *ControlCreate, params CreateControlParams) (CreateControlRes, error)
+	// CreateControlLink invokes createControlLink operation.
+	//
+	// Links an active control to what enforces it in the product (ADR-0078 §7, T98b): a permission
+	// (`kind` `permission` with `permission_code`), a segregation-of-duties rule (`sod_rule` with
+	// `sod_rule_id`) or a path of the configuration (`configuration_path` with `configuration_path`,
+	// written as a configuration change names a setting, for example `companies[3000].approvals`). Exactly
+	// the field of the kind is given (422 `grc.invalid_link`, naming the field). What is linked must be
+	// there when the link is made: a permission of the catalog (422 `grc.unknown_permission`), a rule of
+	// the tenant, whether or not it is in force yet (422 `request.reference_not_found` naming
+	// `sod_rule_id`), a path the active configuration version has a value at (422
+	// `grc.configuration_path_without_value`; 409 `config.not_bootstrapped` for a tenant without a
+	// configuration). A control has one link to each target (409 `grc.control_link_exists`). A retired
+	// control takes no link (409 `grc.control_retired`). The answer is the link as the matrix shows it,
+	// with whether it holds. The control's version does not move. An audit record on the control and
+	// ControlChanged (`linked`) are written with it. Besides `grc.control.write` the caller needs
+	// `identity.access.read` and `config.version.read` (`x-also-permissions`), as for the matrix.
+	//
+	// POST /v1/controls/{id}/links
+	CreateControlLink(ctx context.Context, request *ControlLinkCreate, params CreateControlLinkParams) (CreateControlLinkRes, error)
+	// CreateControlTest invokes createControlTest operation.
+	//
+	// Records that an active control was tested (ADR-0078 §3, T98a): the date of the test, its result
+	// (`passed` or `failed`) and a note of the evidence seen. The tester is the caller. A test is never
+	// changed or removed: a correction is another test. The test date is the database's date today or
+	// earlier (422 `grc.test_in_future`, naming `tested_on`); the note is a text, not white space alone,
+	// and a result the contract does not list is refused (422 `request.validation_failed`, naming the
+	// field). A retired control takes no test (409 `grc.control_retired`). The control's version does not
+	// move: its `last_test` does. An audit record and ControlChanged (`tested`) are written with it;
+	// neither carries the note. Human-only (`x-agent: false`): a test is a person's statement of what they
+	// saw.
+	//
+	// POST /v1/controls/{id}/tests
+	CreateControlTest(ctx context.Context, request *ControlTestCreate, params CreateControlTestParams) (CreateControlTestRes, error)
 	// CreateCostCenter invokes createCostCenter operation.
 	//
 	// Creates the cost center in status `pending` together with its center change of kind `create` and
@@ -1049,16 +1143,21 @@ type Invoker interface {
 	// tax date (422 `receivables.unknown_tax_code` naming `items[i].tax_code`); the tax is calculated at
 	// that date's rates, rounded as the company's tax settings say, and each item keeps its share, so the
 	// items' net and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its
-	// `gross_amount`, exactly. An item without a code bears no tax. A code that levies the subdivision its
-	// lines name (one code for every emirate) is refused, 422
-	// `receivables.tax_jurisdiction_not_supported`: an item names no jurisdiction yet. With `kind`
-	// `credit_memo` the document is a customer credit memo (ADR-0063 §7, T75d): entered the same way, its
-	// amounts more than zero, its tax at its own date's rates, and posted with the signs turned. A credit
-	// memo may name the invoice it credits (`reference_invoice_id`): a posted invoice of the same company
-	// and customer in the memo's currency (422 `receivables.invalid_reference_invoice` naming the field
-	// otherwise); an invoice names none (422 `receivables.reference_not_allowed`). A kind that is neither
-	// is refused (422 `receivables.unknown_kind`). A retry with the same `Idempotency-Key` answers the
-	// invoice entered. Human-only (`x-agent: false`).
+	// `gross_amount`, exactly. An item without a code bears no tax. An item whose code levies the
+	// subdivision its lines name (one code for every emirate, ADR-0049 §7) names that subdivision in
+	// `tax_jurisdiction` (`AE-DU`; 422 `receivables.tax_jurisdiction_required` naming
+	// `items[i].tax_jurisdiction` without one): a subdivision of the code's country and, where the code
+	// lists the subdivisions it accepts, one of them; an item of any other code, or of none, names none
+	// (422 `receivables.tax_jurisdiction_not_levied` naming the field). The invoice's tax is still its
+	// code's, each item keeping its share; when the invoice posts, the item's line and its share of the
+	// tax carry the jurisdiction, so a tax return reads the sale in its emirate. With `kind` `credit_memo`
+	// the document is a customer credit memo (ADR-0063 §7, T75d): entered the same way, its amounts more
+	// than zero, its tax at its own date's rates, and posted with the signs turned. A credit memo may name
+	// the invoice it credits (`reference_invoice_id`): a posted invoice of the same company and customer
+	// in the memo's currency (422 `receivables.invalid_reference_invoice` naming the field otherwise); an
+	// invoice names none (422 `receivables.reference_not_allowed`). A kind that is neither is refused (422
+	// `receivables.unknown_kind`). A retry with the same `Idempotency-Key` answers the invoice entered.
+	// Human-only (`x-agent: false`).
 	//
 	// POST /v1/customer-invoices
 	CreateCustomerInvoice(ctx context.Context, request *CustomerInvoiceCreate, params CreateCustomerInvoiceParams) (CreateCustomerInvoiceRes, error)
@@ -1078,20 +1177,21 @@ type Invoker interface {
 	// on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on
 	// the items, and nothing is sent to a customer. The items are the open items on the company's customer
 	// reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the
-	// customer owes it (a debit), it was posted with payment terms and, on the key date, it is past its
-	// net due date by at least the days of the company's first dunning level (`companies[].dunning.levels`
-	// of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a
-	// payment on account) are not dunned and reduce nothing; an item without payment terms has no due date
-	// and is left out. An item rises one level per confirmed run at most, from the level the confirmed
-	// runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1,
-	// one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the
-	// highest level stays there. A notice's level is the highest among its items. A key date after
-	// 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without
-	// dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000
-	// overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose
-	// amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at
-	// which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key`
-	// answers the run started. Human-only (`x-agent: false`).
+	// customer owes it (a debit) and, on the key date, it is past its net due date by at least the days of
+	// the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due
+	// on the key date is not overdue. The net due date is that of the payment terms the item was posted
+	// with; an item posted without payment terms (a manual or migrated entry's) is due on its document
+	// date and is proposed like any other. Credit items (a credit memo, a payment on account) are not
+	// dunned and reduce nothing, with or without terms. An item rises one level per confirmed run at most,
+	// from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never
+	// dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second
+	// level's days, and one at the highest level stays there. A notice's level is the highest among its
+	// items. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming
+	// `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as
+	// is a run of more than 5,000 overdue items (422 `collections.run_too_large`: larger runs are not
+	// supported yet) and one whose amounts add up to more than an amount holds (422
+	// `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices.
+	// A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`).
 	//
 	// POST /v1/dunning-runs
 	CreateDunningRun(ctx context.Context, request *DunningRunCreate, params CreateDunningRunParams) (CreateDunningRunRes, error)
@@ -1188,10 +1288,12 @@ type Invoker interface {
 	// currency, receipt and items having been booked at different rates, is a realized exchange difference
 	// on the company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The
 	// posting date is the request's, else today, the company's date in its time zone; it must be in an
-	// open period (409 `ledger.period_not_open`). The application is a document with a number from the
-	// company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are written
-	// with it. A receipt that is not waiting on an incoming payments clearing account of the company is
-	// refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409
+	// open period (409 `ledger.period_not_open`) and on or after the latest posting date of the receipt
+	// and the items, since nothing is cleared before it was posted (422 `ledger.clearing_before_item`
+	// naming `posting_date`, its message giving that date). The application is a document with a number
+	// from the company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are
+	// written with it. A receipt that is not waiting on an incoming payments clearing account of the
+	// company is refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409
 	// `receivables.receipt_already_applied` when an incoming payment applied it. An item that is not an
 	// open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as
 	// are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a
@@ -1353,19 +1455,20 @@ type Invoker interface {
 	// can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and
 	// optionally an output tax code of the company with a rate in force on the quotation's date (422
 	// `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines
-	// name is refused, 422 `sales.tax_jurisdiction_not_supported`, as a customer invoice refuses it). An
-	// item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the
-	// currency's minor unit and more than zero (422 `sales.amount_not_positive` naming
-	// `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give);
-	// the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing
-	// procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and
-	// valid on the quotation's date, the customer's before the general one, is taken off an item priced
-	// from the price records, in the procedure's order, as a percentage of the value before it rounded
-	// half away from zero; `conditions` lists the price and the discounts applied, and `net_amount` is the
-	// value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item
-	// is its final net price: no discount is taken off it, and its price is its only condition. Amounts
-	// are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same
-	// `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`).
+	// name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales document's items name no
+	// jurisdiction, as a customer invoice's can). An item's `net_amount` is quantity × unit price ÷
+	// price unit, rounded half away from zero to the currency's minor unit and more than zero (422
+	// `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a
+	// price the request did not give); the quotation's `net_amount` is their sum, exactly. When the
+	// tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure
+	// recorded for the item's key and valid on the quotation's date, the customer's before the general
+	// one, is taken off an item priced from the price records, in the procedure's order, as a percentage
+	// of the value before it rounded half away from zero; `conditions` lists the price and the discounts
+	// applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A
+	// `unit_price` entered with the item is its final net price: no discount is taken off it, and its
+	// price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the
+	// invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
+	// (`x-agent: false`).
 	//
 	// POST /v1/quotations
 	CreateQuotation(ctx context.Context, request *QuotationCreate, params CreateQuotationParams) (CreateQuotationRes, error)
@@ -1399,6 +1502,33 @@ type Invoker interface {
 	//
 	// POST /v1/requisitions
 	CreateRequisition(ctx context.Context, request *RequisitionCreate, params CreateRequisitionParams) (CreateRequisitionRes, error)
+	// CreateReturnsOrder invokes createReturnsOrder operation.
+	//
+	// Creates a returns order (ADR-0067, As built T85a): the customer sends back quantities of a posted
+	// billing document's items, for a reason. The billing document is one of a company the caller may act
+	// in (422 `request.reference_not_found` naming `billing_document_id`) that is posted (409
+	// `sales.billing_document_not_posted`): what was not billed and posted is not returned in the first
+	// version. `reason` is one of `defective`, `wrong_item`, `not_wanted` and `other` (422
+	// `sales.unknown_return_reason`), with a free text in `reason_text` if wanted. Each item names an item
+	// of the billing document by its number (422 `sales.unknown_billing_item` naming
+	// `items[i].billing_item_no`), once (422 `sales.item_repeated`), with a quantity more than zero (422
+	// `sales.invalid_quantity`) in the billed item's unit (422 `sales.unit_mismatch`) that is at most what
+	// can still be returned of it: its billed quantity less what the document's other returns orders took,
+	// drafts included, since a returns order is not cancelled in the first version (422
+	// `sales.exceeds_returnable_quantity` naming `items[i].quantity.value`, with the item, what was billed
+	// and what was taken in the message). The billing document's sales order is read under a row lock, so
+	// two requests wait for one another and no quantity is returned twice. The returns order is created
+	// `draft`, dated the company's date today in its time zone, with a document number from the company's
+	// `returns_order` number range of that date's fiscal year (422 `config.no_number_range` for a company
+	// without the range). Each sales order item's `returned_quantity` rises by what the order takes and
+	// the sales order's `version` moves (`getSalesOrder`); its delivered and billed quantities stay. It is
+	// a document of the sales context alone: nothing is posted, no stock moves, the customer's open items
+	// and credit exposure are as they were, and the order's revenue contract is not changed; the credit
+	// for a return is a credit memo request's. Audited, and published as ReturnsOrderChanged. A retry with
+	// the same `Idempotency-Key` answers the returns order created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/returns-orders
+	CreateReturnsOrder(ctx context.Context, request *ReturnsOrderCreate, params CreateReturnsOrderParams) (CreateReturnsOrderRes, error)
 	// CreateRevenueContract invokes createRevenueContract operation.
 	//
 	// Creates the revenue contract of a confirmed sales order that has none yet (ADR-0068 §3-§4, T81a).
@@ -2278,21 +2408,22 @@ type Invoker interface {
 	// overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest
 	// dunning level and the latest dunning date the confirmed dunning runs recorded for its open items
 	// (`confirmDunningRun`; level 0 and no date for a customer never dunned). An item is overdue as a
-	// dunning run counts it: the customer owes it (a debit), it was posted with payment terms and the key
-	// date is past its net due date; an item due on the key date is not overdue, credit items reduce no
-	// overdue amount, and an item without payment terms has no due date. A customer with nothing overdue
-	// is not listed, whatever it owes. The worklist is computed at the read from one database state (a
-	// repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's
-	// customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only
-	// counts what is overdue. Amounts are in the company's currency, as the items were booked.
-	// `customer_count`, `open_amount` and `overdue_amount` at the top are the totals of every customer
-	// listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the
-	// company and key date. Each page is computed anew and continues after the last customer's overdue
-	// amount and id: a customer whose overdue amount fell between two pages can be listed again with its
-	// new amount, and one whose amount rose is not read again, so a consumer that pages while items are
-	// posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company
-	// without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`,
-	// naming `key_date`). A legal entity the caller cannot act in is 404.
+	// dunning run counts it: the customer owes it (a debit) and the key date is past its net due date,
+	// which is that of the payment terms it was posted with or, for an item posted without payment terms
+	// (a manual or migrated entry's), its document date; an item due on the key date is not overdue, so an
+	// item without terms is overdue from the day after its document date, and credit items reduce no
+	// overdue amount. A customer with nothing overdue is not listed, whatever it owes. The worklist is
+	// computed at the read from one database state (a repeatable-read snapshot) and stores nothing: the
+	// items are the ones open now on the company's customer reconciliation accounts in the leading ledger,
+	// whoever posted them, and the key date only counts what is overdue. Amounts are in the company's
+	// currency, as the items were booked. `customer_count`, `open_amount` and `overdue_amount` at the top
+	// are the totals of every customer listed, not of the page. Paged by cursor in the worklist's order; a
+	// page token is bound to the company and key date. Each page is computed anew and continues after the
+	// last customer's overdue amount and id: a customer whose overdue amount fell between two pages can be
+	// listed again with its new amount, and one whose amount rose is not read again, so a consumer that
+	// pages while items are posted or cleared keys its rows by `customer_id`. The worklist needs no
+	// dunning levels: a company without any has one too. A key date after 2100-12-31 is refused (422
+	// `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is 404.
 	//
 	// GET /v1/collection-worklist
 	GetCollectionWorklist(ctx context.Context, params GetCollectionWorklistParams) (GetCollectionWorklistRes, error)
@@ -2388,6 +2519,36 @@ type Invoker interface {
 	//
 	// GET /v1/contracts/{id}
 	GetContract(ctx context.Context, params GetContractParams) (GetContractRes, error)
+	// GetControl invokes getControl operation.
+	//
+	// One control of the library (ADR-0078 §2, T98a) with its owner's name and its last test: the test
+	// with the latest test date, the one recorded last among several of one date; absent while the control
+	// was never tested. Every test is read with `listControlTests`.
+	//
+	// GET /v1/controls/{id}
+	GetControl(ctx context.Context, params GetControlParams) (GetControlRes, error)
+	// GetControlMatrix invokes getControlMatrix operation.
+	//
+	// The control matrix (ADR-0078 §8, T98b): the tenant's active controls by code, each with its
+	// framework references, its last test and its links to what enforces it in the product, and for each
+	// link whether it still holds. A link to a permission holds while the permission is in the platform's
+	// permission catalog, which every operation's `x-permission` is taken from; a link to a
+	// segregation-of-duties rule holds while the rule is in force on the database's date today (`as_of`):
+	// started and not ended; a link to a path of the configuration holds while the tenant's active
+	// configuration version has a value there. A link that does not hold is shown with `holds` false and
+	// its `broken_reason`; it is never removed for that. Removed links and retired controls are left out.
+	// A tenant without a configuration whose controls have configuration path links is answered 409
+	// `config.not_bootstrapped`. Filtered by process (the exact text), by one framework reference (the
+	// exact text) and by `link_state`: `broken` gives the controls with at least one link that does not
+	// hold, `holding` those whose links all hold, `none` those without a link. `totals` count the controls
+	// and links the filters select, over every page. The links are judged at the read and nothing is
+	// stored: the matrix is computed from one database state (a repeatable-read snapshot). It shows
+	// segregation-of-duties rules and whether configuration paths have a value, so besides
+	// `grc.control.read` the caller needs `identity.access.read` and `config.version.read`
+	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Sortable by: `code` (default).
+	//
+	// GET /v1/control-matrix
+	GetControlMatrix(ctx context.Context, params GetControlMatrixParams) (GetControlMatrixRes, error)
 	// GetCostCenter invokes getCostCenter operation.
 	//
 	// Returns one cost center with its active periods.
@@ -2926,19 +3087,22 @@ type Invoker interface {
 	// read from the ledger's customer open items of the leading ledger, as they are now (not as they were
 	// on the key date): invoices, credit memos, and the customer items manual and migrated entries posted,
 	// cleared items and reversed entries left out, special G/L items included. Each item falls in exactly
-	// one bucket by its net due date, the baseline date plus the net days of the payment terms it was
-	// posted with, as `GET /v1/open-items` ages it with `aging_key_date`: `not_due` when due on the key
-	// date or later, else the `overdue` bucket holding its days past the due date, and `no_due_date` when
-	// it was posted without terms. `aging_days` are the overdue buckets' last days, ascending (`30,60,90`
-	// by default: 1 to 30, 31 to 60, 61 to 90 and more than 90 days); every bucket is given, an empty one
-	// with no items and an amount of 0, in the order not due, overdue by days, no due date. Amounts are in
-	// the company's local currency (`currency`), as the items were booked, a debit positive: a credit item
-	// (a credit memo, a payment on the account) is negative and reduces its customer's bucket and total.
-	// `totals` are those of every customer the request selects, on every page, and equal the open items of
-	// the company's customer reconciliation accounts. `items` is one row per customer with open items, by
-	// customer id, in cursor pages; `customer_id` selects one customer. The company must be one the caller
-	// may act in. The key date is in the years 1900 to 2999 (422 `receivables.key_date_out_of_range`
-	// naming `key_date`).
+	// one bucket by its net due date: the baseline date plus the net days of the payment terms it was
+	// posted with, as `GET /v1/open-items` ages it with `aging_key_date`, or, for an item posted without
+	// payment terms (a manual or migrated entry's), its document date, where that list shows it as
+	// `no_due_date`. An item is `not_due` when due on the key date or later, else in the `overdue` bucket
+	// holding its days past the due date, so an item without terms is overdue from the day after its
+	// document date; a credit item ages the same way, with or without terms. `aging_days` are the overdue
+	// buckets' last days, ascending (`30,60,90` by default: 1 to 30, 31 to 60, 61 to 90 and more than 90
+	// days); every bucket is given, an empty one with no items and an amount of 0, in the order not due,
+	// overdue by days, no due date; `no_due_date` is always empty, since every item has a due date, and is
+	// kept so that the response keeps its shape. Amounts are in the company's local currency (`currency`),
+	// as the items were booked, a debit positive: a credit item (a credit memo, a payment on the account)
+	// is negative and reduces its customer's bucket and total. `totals` are those of every customer the
+	// request selects, on every page, and equal the open items of the company's customer reconciliation
+	// accounts. `items` is one row per customer with open items, by customer id, in cursor pages;
+	// `customer_id` selects one customer. The company must be one the caller may act in. The key date is
+	// in the years 1900 to 2999 (422 `receivables.key_date_out_of_range` naming `key_date`).
 	//
 	// GET /v1/receivables-aging
 	GetReceivablesAging(ctx context.Context, params GetReceivablesAgingParams) (GetReceivablesAgingRes, error)
@@ -2962,6 +3126,17 @@ type Invoker interface {
 	//
 	// GET /v1/requisitions/{id}
 	GetRequisition(ctx context.Context, params GetRequisitionParams) (GetRequisitionRes, error)
+	// GetReturnsOrder invokes getReturnsOrder operation.
+	//
+	// One returns order (ADR-0067, As built T85a) with its company's code and name, its customer's number
+	// and name, the billing document and the sales order it returns from by id and number, its date, its
+	// reason and its items, each naming the billing document's item and the sales order's item by number,
+	// what is sold by item key and description, the quantity billed by the billing document's item, the
+	// quantity being returned, the quantity received so far and the quantity still expected. One of a
+	// company the caller may not act in is not found (404), as one that does not exist.
+	//
+	// GET /v1/returns-orders/{id}
+	GetReturnsOrder(ctx context.Context, params GetReturnsOrderParams) (GetReturnsOrderRes, error)
 	// GetRevaluationRun invokes getRevaluationRun operation.
 	//
 	// Returns one revaluation run with its items and totals.
@@ -3029,9 +3204,9 @@ type Invoker interface {
 	// One sales order (ADR-0067 §5, T78b) with its company's code and name, its customer's number and
 	// name, the quotation it was created from by id and number, its payment term, its net value, its
 	// credit block (with who released it and when, once it is released) and its items, each with its
-	// ordered, delivered and billed quantities, its unit price, its net value and its revenue account's
-	// number and name. One of a company the caller may not act in is not found (404), as one that does not
-	// exist.
+	// ordered, delivered, billed and returned quantities, its unit price, its net value and its revenue
+	// account's number and name. One of a company the caller may not act in is not found (404), as one
+	// that does not exist.
 	//
 	// GET /v1/sales-orders/{id}
 	GetSalesOrder(ctx context.Context, params GetSalesOrderParams) (GetSalesOrderRes, error)
@@ -3631,6 +3806,23 @@ type Invoker interface {
 	//
 	// GET /v1/contracts
 	ListContracts(ctx context.Context, params ListContractsParams) (ListContractsRes, error)
+	// ListControlTests invokes listControlTests operation.
+	//
+	// The results of testing one control (ADR-0078 §3, T98a), the latest test date first and, among the
+	// tests of one date, the one recorded last first: the first is the control's last test. Filtered by
+	// result. Sortable by: `tested_on` (default, descending).
+	//
+	// GET /v1/controls/{id}/tests
+	ListControlTests(ctx context.Context, params ListControlTestsParams) (ListControlTestsRes, error)
+	// ListControls invokes listControls operation.
+	//
+	// The tenant's control library (ADR-0078 §2-§4, T98a): each control as `getControl` gives it, with
+	// its owner's name and its last test. Filtered by process (the exact text), by status, by owner and by
+	// the result of the last test: `last_result=passed` or `failed` gives the controls whose last test had
+	// that result, `last_result=none` those never tested. Sortable by: `code` (default).
+	//
+	// GET /v1/controls
+	ListControls(ctx context.Context, params ListControlsParams) (ListControlsRes, error)
 	// ListCostCenterBalances invokes listCostCenterBalances operation.
 	//
 	// Actual period totals per cost center, account and transaction currency of one legal entity, ledger
@@ -4052,10 +4244,12 @@ type Invoker interface {
 	//
 	// Uncleared lines on supplier and customer reconciliation accounts. An item posted with payment terms
 	// (T36b) is due on their `net_due_date`, and earns a discount until each tier's `until`; an item
-	// without terms (posted before T36, manually, migrated, a customer's) has no due date the ledger
-	// keeps. With `aging_key_date` the first page also carries `aging`: every item the filters select, not
-	// only the page's, summed per local currency by how many days past its net due date it is on the key
-	// date (ADR-0052 G4). Sortable by: `posting_date`.
+	// without terms (posted before T36, manually, migrated) has no due date in this list, a supplier's and
+	// a customer's alike: the list shows the items as they were posted. The AR aging, a dunning run and
+	// the collection worklist take a customer item without terms as due on its document date
+	// (`GET /v1/receivables-aging`). With `aging_key_date` the first page also carries `aging`: every item
+	// the filters select, not only the page's, summed per local currency by how many days past its net due
+	// date it is on the key date (ADR-0052 G4). Sortable by: `posting_date`.
 	//
 	// GET /v1/open-items
 	ListOpenItems(ctx context.Context, params ListOpenItemsParams) (ListOpenItemsRes, error)
@@ -4268,6 +4462,28 @@ type Invoker interface {
 	//
 	// GET /v1/requisitions
 	ListRequisitions(ctx context.Context, params ListRequisitionsParams) (ListRequisitionsRes, error)
+	// ListReturnReceipts invokes listReturnReceipts operation.
+	//
+	// The receipts of a returns order (ADR-0067, As built T85b), each as `confirmReturnReceipt` answered
+	// it: its number within the returns order, its date and its items, each naming the returns order's
+	// item by number, the billing document's item, the item key and the description with the quantity
+	// received in the item's unit. The returns order's own items show the sum and what is still expected
+	// (`received_quantity`, `open_quantity`, `getReturnsOrder`). A returns order of a company the caller
+	// may not act in is not found (404), as one that does not exist. Sortable by: `receipt_date`.
+	//
+	// GET /v1/returns-orders/{id}/receipts
+	ListReturnReceipts(ctx context.Context, params ListReturnReceiptsParams) (ListReturnReceiptsRes, error)
+	// ListReturnsOrders invokes listReturnsOrders operation.
+	//
+	// The returns orders of the companies the caller may act in (ADR-0067, As built T85a), each as
+	// `getReturnsOrder` gives it: with its company's code and name, its customer's number and name, the
+	// billing document and the sales order it returns from by id and number, its reason and its items with
+	// their billed, returned, received and still expected quantities. Filtered by company, customer,
+	// billing document, sales order, status and document number. Sortable by: `returns_date`,
+	// `document_number`.
+	//
+	// GET /v1/returns-orders
+	ListReturnsOrders(ctx context.Context, params ListReturnsOrdersParams) (ListReturnsOrdersRes, error)
 	// ListRevaluationRuns invokes listRevaluationRuns operation.
 	//
 	// Foreign-currency revaluation runs (ADR-0042), without their items and totals (`getRevaluationRun`
@@ -4325,9 +4541,9 @@ type Invoker interface {
 	//
 	// The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as
 	// `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the
-	// quotation it came from, its net value, its credit block and its items with their ordered, delivered
-	// and billed quantities. Filtered by company, customer, status, credit block, document number and
-	// quotation. Sortable by: `order_date`, `document_number`.
+	// quotation it came from, its net value, its credit block and its items with their ordered, delivered,
+	// billed and returned quantities. Filtered by company, customer, status, credit block, document number
+	// and quotation. Sortable by: `order_date`, `document_number`.
 	//
 	// GET /v1/sales-orders
 	ListSalesOrders(ctx context.Context, params ListSalesOrdersParams) (ListSalesOrdersRes, error)
@@ -4717,7 +4933,11 @@ type Invoker interface {
 	// `payments.statement_gap`). A line not matched is 409 `payments.statement_line_not_matched`; one
 	// posted or waiting already is 409 `payments.statement_line_posting`. A `posting_date` before the
 	// booking date is refused (422): a later one takes the line out of a locked period, an earlier one
-	// would book it before the bank did. A statement whose last line to decide this was becomes
+	// would book it before the bank did. A posting that clears payments is dated on or after the latest
+	// posting date of the payments' lines it clears (422 `ledger.clearing_before_item` naming
+	// `posting_date`, its message giving that date): a line booked before the payment it settles was
+	// posted is posted with a `posting_date` from that date on and a `reason`; a line waiting for approval
+	// is checked when the approval posts it. A statement whose last line to decide this was becomes
 	// `reconciled` once the ledger agrees (T49h). People only. Audited; the posting publishes
 	// BankStatementLinePosted, and the ledger JournalEntryPosted and ItemsCleared. The response's ETag is
 	// the statement's new one, the If-Match of the next decision on its lines.
@@ -5079,10 +5299,12 @@ type Invoker interface {
 	//
 	// Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then
 	// selects due open items, applies exclusions (blocks, missing or recently changed bank details) and
-	// reserves the items; the run becomes `proposed`, or `failed`. Runs can exceed 100,000 items, so this
-	// returns an Operation. A run that takes cash discount in a legal entity without a cash discount
-	// account fails with 422 `payments.no_cash_discount_account` (T36d). A withholding tax deducted at
-	// payment that, rounded after the cash discount, would take all an item owes fails it with 422
+	// reserves the items; an open item posted after the run date is not selected and waits for a later
+	// run, since its payment, posted on the run date, would clear it before it was posted; the run becomes
+	// `proposed`, or `failed`. Runs can exceed 100,000 items, so this returns an Operation. A run that
+	// takes cash discount in a legal entity without a cash discount account fails with 422
+	// `payments.no_cash_discount_account` (T36d). A withholding tax deducted at payment that, rounded
+	// after the cash discount, would take all an item owes fails it with 422
 	// `payments.withholding_too_large` (T46f), whose `detail` names the item by its journal entry's
 	// document number, fiscal year and line, the supplier by its number and name, and the amounts in the
 	// run's currency. Open items that add up to more than an amount can hold fail it with 422
@@ -5380,6 +5602,20 @@ type Invoker interface {
 	//
 	// POST /v1/supplier-invoices/{id}:release
 	ReleaseSupplierInvoice(ctx context.Context, request OptDecisionInput, params ReleaseSupplierInvoiceParams) (ReleaseSupplierInvoiceRes, error)
+	// RemoveControlLink invokes removeControlLink operation.
+	//
+	// Removes a link of an active control (ADR-0078 §7, T98b), once (409 `grc.control_link_removed`
+	// after), at the link's version (`If-Match`, the ETag `createControlLink` answered and the `version`
+	// the matrix shows). Nothing is deleted (04 §4.3): the link is kept as `removed`, is left out of the
+	// matrix from then on, and the same target can be linked again. It is a person's or an agent's
+	// decision: a link that no longer holds is never removed by the system. A retired control's links stay
+	// as they are (409 `grc.control_retired`). A link of another control is not found (404). An audit
+	// record on the control and ControlChanged (`unlinked`) are written with it. Besides
+	// `grc.control.write` the caller needs `identity.access.read` and `config.version.read`
+	// (`x-also-permissions`): the answer is the link as the matrix shows it.
+	//
+	// POST /v1/controls/{id}/links/{link_id}:remove
+	RemoveControlLink(ctx context.Context, params RemoveControlLinkParams) (RemoveControlLinkRes, error)
 	// RemoveHierarchyNode invokes removeHierarchyNode operation.
 	//
 	// Removes a node without child nodes or centers; the root is not removed (422
@@ -5497,6 +5733,15 @@ type Invoker interface {
 	//
 	// POST /v1/catalog-items/{id}:retire
 	RetireCatalogItem(ctx context.Context, params RetireCatalogItemParams) (RetireCatalogItemRes, error)
+	// RetireControl invokes retireControl operation.
+	//
+	// Retires an active control for good (status `retired`), once (409 `grc.control_retired` for a retired
+	// one), at the version read (`If-Match`). A retired control changes no more and takes no further test;
+	// it and its tests are still read, and it is listed with `status=retired` or without a status filter.
+	// Its code stays taken. An audit record and ControlChanged (`retired`) are written with it.
+	//
+	// POST /v1/controls/{id}:retire
+	RetireControl(ctx context.Context, params RetireControlParams) (RetireControlRes, error)
 	// RetireEntryTemplate invokes retireEntryTemplate operation.
 	//
 	// Retires an active entry template for good (status `retired`, `EntryTemplateChanged`): it changes no
@@ -5685,8 +5930,27 @@ type Invoker interface {
 	// accuracy is 1 less the weighted absolute percentage error, the cells' absolute variances over their
 	// absolute forecasts, rounded as that report's `variance_percent` first, so one cell's is 100% less
 	// its `variance_percent`, and null where nothing was forecast; actuals adding up to more than an
-	// amount can hold are 422 `cash.amount_too_large`. A tenant without a configuration is 409
-	// `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a
+	// amount can hold are 422 `cash.amount_too_large`. The sales metrics (`order_intake`, `billed_value`,
+	// `billing_document_count`, T91a) are the net amounts of the items of confirmed sales orders by order
+	// date and of posted billing documents by billing date, each in its document's currency and never
+	// converted, by the customer's number (`customer`) and name (`customer_name`), the item key
+	// (`item_key`) and `currency`; a draft order and a billing document not posted are not counted. They
+	// are read as `listSalesOrders` and `listBillingDocuments` list them, so they need `sales.order.read`
+	// and `sales.billing.read` both, and, since they name customers, `partner.supplier.read` as the
+	// vendors' names do. The spend metrics (`spend`, `spend_under_contract`, `spend_off_contract`,
+	// `off_contract_share`, T91b) are the net amounts of the items of posted supplier invoices by posting
+	// date, less those of posted credit memos (a subsequent debit adds, a subsequent credit reduces; a
+	// document parked, on hold, rejected, cancelled or reversed is not counted), each in its document's
+	// currency and never converted, by `vendor` and `vendor_name`, `account` and `account_name`,
+	// `cost_center` (its code), `contract` (the document number of the contract the item's purchase order
+	// was made on) and `currency`; an item on a purchase order has the order item's account and cost
+	// center, and is under contract when the order was made on a contract, while an item on no order, or
+	// on an order made on no contract, is off contract; `off_contract_share` is the part off contract over
+	// spend, null where there is none. They are read as `listSupplierInvoices`, `listPurchaseOrders`,
+	// `listContracts` and `listCostCenters` list them, so they need `payables.invoice.read`,
+	// `procurement.order.read`, `procurement.contract.read` and `ledger.cost_center.read`, with
+	// `partner.supplier.read` and `ledger.account.read` for the names. A tenant without a configuration is
+	// 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a
 	// filter it cannot apply, amounts of two currencies summed) is 422 `analytics.invalid_query`; too many
 	// queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. Changes nothing:
 	// agents of any autonomy level may run it.
@@ -6086,6 +6350,19 @@ type Invoker interface {
 	//
 	// PATCH /v1/contracts/{id}
 	UpdateContract(ctx context.Context, request *ContractUpdate, params UpdateContractParams) (UpdateContractRes, error)
+	// UpdateControl invokes updateControl operation.
+	//
+	// Changes an active control's objective, process, owner, frequency, nature or framework references at
+	// once, with the caller's version of it (`If-Match`; 412 when another change came first). JSON Merge
+	// Patch (RFC 7396): absent fields are unchanged. The code does not change. The owner is checked as
+	// `createControl` checks it when the change names another, and the texts, the frequency and the nature
+	// as it checks them. A change that would leave the control as it is is refused (422
+	// `grc.nothing_to_change`), as is a change of a retired control (409 `grc.control_retired`). The
+	// control's tests stay as they were recorded. An audit record naming the fields changed and
+	// ControlChanged (`changed`) are written with it.
+	//
+	// PATCH /v1/controls/{id}
+	UpdateControl(ctx context.Context, request *ControlUpdate, params UpdateControlParams) (UpdateControlRes, error)
 	// UpdateCostCenter invokes updateCostCenter operation.
 	//
 	// Changes name, description or person responsible at once: texts need no approval (ADR-0050 §11,
@@ -6225,10 +6502,11 @@ type Invoker interface {
 	// Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged,
 	// `null` clears an optional field, arrays are replaced as a whole. Items taken from the catalog are
 	// sent as when the requisition is created (`catalog_item_id` with a quantity and an account, without
-	// description or price) and checked again against the catalog; while the requisition has such items
-	// its supplier, and its contract if a catalog item names one, stay the catalog items': clearing one
-	// takes it from them again, and another is refused (422 `procurement.catalog_item_supplier`,
-	// `procurement.catalog_item_contract`).
+	// description or price or with the catalog item's own, so the items read back can be sent again as
+	// they were read; another price is refused, 422 `procurement.catalog_item_override`) and checked again
+	// against the catalog; while the requisition has such items its supplier, and its contract if a
+	// catalog item names one, stay the catalog items': clearing one takes it from them again, and another
+	// is refused (422 `procurement.catalog_item_supplier`, `procurement.catalog_item_contract`).
 	//
 	// PATCH /v1/requisitions/{id}
 	UpdateRequisition(ctx context.Context, request *RequisitionUpdate, params UpdateRequisitionParams) (UpdateRequisitionRes, error)
@@ -12586,8 +12864,9 @@ func (c *Client) sendCheckYearCloseTask(ctx context.Context, params CheckYearClo
 // account, clearing each down payment, reverses the input tax its payment claimed, and debits the
 // supplier's payables account with their total, an open item with the invoice's payment terms that the
 // next run nets against the invoice, so a cash discount is taken on what remains to pay. The requests
-// move to `cleared`; the invoice is not reversed while they stand. Requires status `posted` and kind
-// `invoice`.
+// move to `cleared`; the invoice is not reversed while they stand. The transfer's posting date is on
+// or after the latest posting date of the down payments it clears (422 `ledger.clearing_before_item`
+// naming `posting_date`, its message giving that date). Requires status `posted` and kind `invoice`.
 //
 // POST /v1/supplier-invoices/{id}:clearDownPayments
 func (c *Client) ClearSupplierInvoiceDownPayments(ctx context.Context, request *DownPaymentClearingInput, params ClearSupplierInvoiceDownPaymentsParams) (ClearSupplierInvoiceDownPaymentsRes, error) {
@@ -13768,6 +14047,336 @@ func (c *Client) sendConfirmDunningRun(ctx context.Context, params ConfirmDunnin
 
 	stage = "DecodeResponse"
 	result, err := decodeConfirmDunningRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ConfirmReturnReceipt invokes confirmReturnReceipt operation.
+//
+// Records that quantities of a `confirmed` returns order's items arrived on a date (ADR-0067, As built
+// T85b). It is a confirmation by a person, kept in the sales context, as a delivery confirmation is
+// (`confirmSalesDelivery`): no stock moves and nothing is posted; a credit memo request reads what was
+// received. The returns order is read under a row lock, so two receipts of one returns order wait for
+// one another. A returns order that is not confirmed takes none (409
+// `sales.returns_order_not_confirmed`). `receipt_date` is not after the company's date today in its
+// time zone (422 `sales.receipt_date_in_future`). Each item names an item of the returns order by its
+// number (422 `sales.unknown_returns_item` naming `items[i].item_no`), once (422
+// `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the item's
+// unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what is returned less
+// what earlier receipts confirmed (422 `sales.exceeds_open_quantity` naming `items[i].quantity.value`,
+// with the item and its open quantity in the message): of two receipts racing for an item's last
+// quantity, one is recorded. The receipt is numbered within its returns order and written once; it is
+// not changed or reversed in the first version. Each returns order item's `received_quantity` rises by
+// what was received, its `open_quantity` falls by it, and the returns order's `version` moves, so
+// `getReturnsOrder` shows what is received and what is still expected. The sales order is not changed:
+// its delivered, billed and returned quantities stay. Audited, and published as ReturnReceived. A
+// retry with the same `Idempotency-Key` answers the receipt recorded. Human-only (`x-agent: false`).
+//
+// POST /v1/returns-orders/{id}/receipts
+func (c *Client) ConfirmReturnReceipt(ctx context.Context, request *ReturnReceiptCreate, params ConfirmReturnReceiptParams) (ConfirmReturnReceiptRes, error) {
+	res, err := c.sendConfirmReturnReceipt(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendConfirmReturnReceipt(ctx context.Context, request *ReturnReceiptCreate, params ConfirmReturnReceiptParams) (res ConfirmReturnReceiptRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("confirmReturnReceipt"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/returns-orders/{id}/receipts"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ConfirmReturnReceiptOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/returns-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/receipts"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeConfirmReturnReceiptRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ConfirmReturnReceiptOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeConfirmReturnReceiptResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ConfirmReturnsOrder invokes confirmReturnsOrder operation.
+//
+// Confirms a `draft` returns order (ADR-0067, As built T85a), at the version the caller read
+// (`If-Match`): the returns order is read under a row lock and moves to `confirmed` once. One that is
+// not a draft is refused (409 `sales.invalid_status`). Confirming is by permission,
+// `sales.return.confirm`, without an approval; no rule sets the person who confirms apart from the one
+// who created the returns order. A confirmed returns order is not changed or cancelled in the first
+// version; it takes receipts (`confirmReturnReceipt`). Nothing is checked again, nothing is posted and
+// no stock moves. Audited, and published as ReturnsOrderChanged. A retry with the same
+// `Idempotency-Key` answers the confirmed returns order. Human-only (`x-agent: false`).
+//
+// POST /v1/returns-orders/{id}:confirm
+func (c *Client) ConfirmReturnsOrder(ctx context.Context, params ConfirmReturnsOrderParams) (ConfirmReturnsOrderRes, error) {
+	res, err := c.sendConfirmReturnsOrder(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendConfirmReturnsOrder(ctx context.Context, params ConfirmReturnsOrderParams) (res ConfirmReturnsOrderRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("confirmReturnsOrder"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/returns-orders/{id}:confirm"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ConfirmReturnsOrderOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/returns-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":confirm"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ConfirmReturnsOrderOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeConfirmReturnsOrderResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -15377,8 +15986,11 @@ func (c *Client) sendCreateCashExport(ctx context.Context, request *CashExportCr
 // items (409 `procurement.catalog_item_exists`); a retired item frees its key. `contract_id` with
 // `contract_item_no` names the contract item that prices an order of the item: an item of an `active`
 // contract of the company and the supplier in the item's currency (422
-// `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`); the
-// catalog item keeps its own price, which a requisition takes. What an item offers is not changed
+// `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`) and at
+// the item's price: the same amount per the same `price_unit`, compared as written (422
+// `procurement.catalog_item_price` on `unit_price.amount` or `price_unit`, naming the item, the
+// contract item and both prices; product owner, 2026-11-12), so the price a requisition takes from the
+// catalog is the one an order on the contract item takes. What an item offers is not changed
 // afterwards: a new price is a new item after the old one is retired. `CatalogItemChanged` is
 // published. The catalog is the tenant's own data: nothing is fetched from a supplier's system.
 //
@@ -15640,9 +16252,12 @@ func (c *Client) sendCreateChangeRequest(ctx context.Context, request *ChangeReq
 
 // CreateClearing invokes createClearing operation.
 //
-// Clears open items against each other and posts the clearing entry. A line already cleared is 409. An
-// open item a payment run holds (proposed, or releasing with its payment not posted yet) is reserved
-// for that run and is 409 `ledger.item_reserved` until the run settles or frees it.
+// Clears open items against each other and posts the clearing entry, dated `clearing_date`. The
+// clearing date is on or after the latest posting date of the items: an item is not cleared before it
+// was posted (422 `ledger.clearing_before_item` naming `clearing_date`, its message giving that date).
+// A line already cleared is 409. An open item a payment run holds (proposed, or releasing with its
+// payment not posted yet) is reserved for that run and is 409 `ledger.item_reserved` until the run
+// settles or frees it.
 //
 // POST /v1/clearings
 func (c *Client) CreateClearing(ctx context.Context, request *ClearingCreate, params CreateClearingParams) (CreateClearingRes, error) {
@@ -16337,6 +16952,467 @@ func (c *Client) sendCreateContract(ctx context.Context, request *ContractCreate
 	return result, nil
 }
 
+// CreateControl invokes createControl operation.
+//
+// Records a control in the tenant's control library (ADR-0078 §2, T98a): its code, its objective, the
+// process it belongs to, the person who owns it, how often it is performed and whether it is performed
+// by a person (`manual`) or by the system (`automated`), and optionally the tenant's own references to
+// a framework it names (`framework_references`: free text, each once and without white space around
+// it, 422 `grc.invalid_framework_reference` naming the entry). It is created `active`. The code is the
+// tenant's own and unique in the library, whatever its case (409 `grc.control_code_taken`); it never
+// changes. The owner is a person of the tenant who is active (422 `request.reference_not_found` naming
+// `owner_id` for an unknown principal, `grc.invalid_owner` for an agent, a service or a person who is
+// not active). The objective and the process are texts, not white space alone, the process without
+// white space around it (422 `grc.invalid_process`); a frequency or a nature the contract does not
+// list is refused naming the field (422 `request.validation_failed`). No library is shipped: every
+// control is the tenant's. An audit record and ControlChanged (`created`) are written with it. A retry
+// with the same `Idempotency-Key` answers the control recorded.
+//
+// POST /v1/controls
+func (c *Client) CreateControl(ctx context.Context, request *ControlCreate, params CreateControlParams) (CreateControlRes, error) {
+	res, err := c.sendCreateControl(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateControl(ctx context.Context, request *ControlCreate, params CreateControlParams) (res CreateControlRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createControl"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/controls"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateControlOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/controls"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateControlRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateControlOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateControlResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateControlLink invokes createControlLink operation.
+//
+// Links an active control to what enforces it in the product (ADR-0078 §7, T98b): a permission
+// (`kind` `permission` with `permission_code`), a segregation-of-duties rule (`sod_rule` with
+// `sod_rule_id`) or a path of the configuration (`configuration_path` with `configuration_path`,
+// written as a configuration change names a setting, for example `companies[3000].approvals`). Exactly
+// the field of the kind is given (422 `grc.invalid_link`, naming the field). What is linked must be
+// there when the link is made: a permission of the catalog (422 `grc.unknown_permission`), a rule of
+// the tenant, whether or not it is in force yet (422 `request.reference_not_found` naming
+// `sod_rule_id`), a path the active configuration version has a value at (422
+// `grc.configuration_path_without_value`; 409 `config.not_bootstrapped` for a tenant without a
+// configuration). A control has one link to each target (409 `grc.control_link_exists`). A retired
+// control takes no link (409 `grc.control_retired`). The answer is the link as the matrix shows it,
+// with whether it holds. The control's version does not move. An audit record on the control and
+// ControlChanged (`linked`) are written with it. Besides `grc.control.write` the caller needs
+// `identity.access.read` and `config.version.read` (`x-also-permissions`), as for the matrix.
+//
+// POST /v1/controls/{id}/links
+func (c *Client) CreateControlLink(ctx context.Context, request *ControlLinkCreate, params CreateControlLinkParams) (CreateControlLinkRes, error) {
+	res, err := c.sendCreateControlLink(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateControlLink(ctx context.Context, request *ControlLinkCreate, params CreateControlLinkParams) (res CreateControlLinkRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createControlLink"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/controls/{id}/links"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateControlLinkOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/controls/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/links"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateControlLinkRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateControlLinkOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateControlLinkResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateControlTest invokes createControlTest operation.
+//
+// Records that an active control was tested (ADR-0078 §3, T98a): the date of the test, its result
+// (`passed` or `failed`) and a note of the evidence seen. The tester is the caller. A test is never
+// changed or removed: a correction is another test. The test date is the database's date today or
+// earlier (422 `grc.test_in_future`, naming `tested_on`); the note is a text, not white space alone,
+// and a result the contract does not list is refused (422 `request.validation_failed`, naming the
+// field). A retired control takes no test (409 `grc.control_retired`). The control's version does not
+// move: its `last_test` does. An audit record and ControlChanged (`tested`) are written with it;
+// neither carries the note. Human-only (`x-agent: false`): a test is a person's statement of what they
+// saw.
+//
+// POST /v1/controls/{id}/tests
+func (c *Client) CreateControlTest(ctx context.Context, request *ControlTestCreate, params CreateControlTestParams) (CreateControlTestRes, error) {
+	res, err := c.sendCreateControlTest(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateControlTest(ctx context.Context, request *ControlTestCreate, params CreateControlTestParams) (res CreateControlTestRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createControlTest"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/controls/{id}/tests"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateControlTestOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/controls/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/tests"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateControlTestRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateControlTestOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateControlTestResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreateCostCenter invokes createCostCenter operation.
 //
 // Creates the cost center in status `pending` together with its center change of kind `create` and
@@ -16633,16 +17709,21 @@ func (c *Client) sendCreateCreditLimit(ctx context.Context, request *CustomerCre
 // tax date (422 `receivables.unknown_tax_code` naming `items[i].tax_code`); the tax is calculated at
 // that date's rates, rounded as the company's tax settings say, and each item keeps its share, so the
 // items' net and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its
-// `gross_amount`, exactly. An item without a code bears no tax. A code that levies the subdivision its
-// lines name (one code for every emirate) is refused, 422
-// `receivables.tax_jurisdiction_not_supported`: an item names no jurisdiction yet. With `kind`
-// `credit_memo` the document is a customer credit memo (ADR-0063 §7, T75d): entered the same way, its
-// amounts more than zero, its tax at its own date's rates, and posted with the signs turned. A credit
-// memo may name the invoice it credits (`reference_invoice_id`): a posted invoice of the same company
-// and customer in the memo's currency (422 `receivables.invalid_reference_invoice` naming the field
-// otherwise); an invoice names none (422 `receivables.reference_not_allowed`). A kind that is neither
-// is refused (422 `receivables.unknown_kind`). A retry with the same `Idempotency-Key` answers the
-// invoice entered. Human-only (`x-agent: false`).
+// `gross_amount`, exactly. An item without a code bears no tax. An item whose code levies the
+// subdivision its lines name (one code for every emirate, ADR-0049 §7) names that subdivision in
+// `tax_jurisdiction` (`AE-DU`; 422 `receivables.tax_jurisdiction_required` naming
+// `items[i].tax_jurisdiction` without one): a subdivision of the code's country and, where the code
+// lists the subdivisions it accepts, one of them; an item of any other code, or of none, names none
+// (422 `receivables.tax_jurisdiction_not_levied` naming the field). The invoice's tax is still its
+// code's, each item keeping its share; when the invoice posts, the item's line and its share of the
+// tax carry the jurisdiction, so a tax return reads the sale in its emirate. With `kind` `credit_memo`
+// the document is a customer credit memo (ADR-0063 §7, T75d): entered the same way, its amounts more
+// than zero, its tax at its own date's rates, and posted with the signs turned. A credit memo may name
+// the invoice it credits (`reference_invoice_id`): a posted invoice of the same company and customer
+// in the memo's currency (422 `receivables.invalid_reference_invoice` naming the field otherwise); an
+// invoice names none (422 `receivables.reference_not_allowed`). A kind that is neither is refused (422
+// `receivables.unknown_kind`). A retry with the same `Idempotency-Key` answers the invoice entered.
+// Human-only (`x-agent: false`).
 //
 // POST /v1/customer-invoices
 func (c *Client) CreateCustomerInvoice(ctx context.Context, request *CustomerInvoiceCreate, params CreateCustomerInvoiceParams) (CreateCustomerInvoiceRes, error) {
@@ -16910,20 +17991,21 @@ func (c *Client) sendCreateDownPaymentRequest(ctx context.Context, request *Down
 // on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on
 // the items, and nothing is sent to a customer. The items are the open items on the company's customer
 // reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the
-// customer owes it (a debit), it was posted with payment terms and, on the key date, it is past its
-// net due date by at least the days of the company's first dunning level (`companies[].dunning.levels`
-// of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a
-// payment on account) are not dunned and reduce nothing; an item without payment terms has no due date
-// and is left out. An item rises one level per confirmed run at most, from the level the confirmed
-// runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1,
-// one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the
-// highest level stays there. A notice's level is the highest among its items. A key date after
-// 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without
-// dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000
-// overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose
-// amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at
-// which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key`
-// answers the run started. Human-only (`x-agent: false`).
+// customer owes it (a debit) and, on the key date, it is past its net due date by at least the days of
+// the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due
+// on the key date is not overdue. The net due date is that of the payment terms the item was posted
+// with; an item posted without payment terms (a manual or migrated entry's) is due on its document
+// date and is proposed like any other. Credit items (a credit memo, a payment on account) are not
+// dunned and reduce nothing, with or without terms. An item rises one level per confirmed run at most,
+// from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never
+// dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second
+// level's days, and one at the highest level stays there. A notice's level is the highest among its
+// items. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming
+// `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as
+// is a run of more than 5,000 overdue items (422 `collections.run_too_large`: larger runs are not
+// supported yet) and one whose amounts add up to more than an amount holds (422
+// `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices.
+// A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs
 func (c *Client) CreateDunningRun(ctx context.Context, request *DunningRunCreate, params CreateDunningRunParams) (CreateDunningRunRes, error) {
@@ -17783,10 +18865,12 @@ func (c *Client) sendCreateHierarchy(ctx context.Context, request *HierarchyCrea
 // currency, receipt and items having been booked at different rates, is a realized exchange difference
 // on the company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The
 // posting date is the request's, else today, the company's date in its time zone; it must be in an
-// open period (409 `ledger.period_not_open`). The application is a document with a number from the
-// company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are written
-// with it. A receipt that is not waiting on an incoming payments clearing account of the company is
-// refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409
+// open period (409 `ledger.period_not_open`) and on or after the latest posting date of the receipt
+// and the items, since nothing is cleared before it was posted (422 `ledger.clearing_before_item`
+// naming `posting_date`, its message giving that date). The application is a document with a number
+// from the company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are
+// written with it. A receipt that is not waiting on an incoming payments clearing account of the
+// company is refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409
 // `receivables.receipt_already_applied` when an incoming payment applied it. An item that is not an
 // open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as
 // are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a
@@ -19579,19 +20663,20 @@ func (c *Client) sendCreatePurchaseOrderChange(ctx context.Context, request *Pur
 // can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and
 // optionally an output tax code of the company with a rate in force on the quotation's date (422
 // `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines
-// name is refused, 422 `sales.tax_jurisdiction_not_supported`, as a customer invoice refuses it). An
-// item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the
-// currency's minor unit and more than zero (422 `sales.amount_not_positive` naming
-// `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give);
-// the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing
-// procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and
-// valid on the quotation's date, the customer's before the general one, is taken off an item priced
-// from the price records, in the procedure's order, as a percentage of the value before it rounded
-// half away from zero; `conditions` lists the price and the discounts applied, and `net_amount` is the
-// value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item
-// is its final net price: no discount is taken off it, and its price is its only condition. Amounts
-// are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same
-// `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`).
+// name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales document's items name no
+// jurisdiction, as a customer invoice's can). An item's `net_amount` is quantity × unit price ÷
+// price unit, rounded half away from zero to the currency's minor unit and more than zero (422
+// `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a
+// price the request did not give); the quotation's `net_amount` is their sum, exactly. When the
+// tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure
+// recorded for the item's key and valid on the quotation's date, the customer's before the general
+// one, is taken off an item priced from the price records, in the procedure's order, as a percentage
+// of the value before it rounded half away from zero; `conditions` lists the price and the discounts
+// applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A
+// `unit_price` entered with the item is its final net price: no discount is taken off it, and its
+// price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the
+// invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
+// (`x-agent: false`).
 //
 // POST /v1/quotations
 func (c *Client) CreateQuotation(ctx context.Context, request *QuotationCreate, params CreateQuotationParams) (CreateQuotationRes, error) {
@@ -20114,6 +21199,157 @@ func (c *Client) sendCreateRequisition(ctx context.Context, request *Requisition
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateRequisitionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateReturnsOrder invokes createReturnsOrder operation.
+//
+// Creates a returns order (ADR-0067, As built T85a): the customer sends back quantities of a posted
+// billing document's items, for a reason. The billing document is one of a company the caller may act
+// in (422 `request.reference_not_found` naming `billing_document_id`) that is posted (409
+// `sales.billing_document_not_posted`): what was not billed and posted is not returned in the first
+// version. `reason` is one of `defective`, `wrong_item`, `not_wanted` and `other` (422
+// `sales.unknown_return_reason`), with a free text in `reason_text` if wanted. Each item names an item
+// of the billing document by its number (422 `sales.unknown_billing_item` naming
+// `items[i].billing_item_no`), once (422 `sales.item_repeated`), with a quantity more than zero (422
+// `sales.invalid_quantity`) in the billed item's unit (422 `sales.unit_mismatch`) that is at most what
+// can still be returned of it: its billed quantity less what the document's other returns orders took,
+// drafts included, since a returns order is not cancelled in the first version (422
+// `sales.exceeds_returnable_quantity` naming `items[i].quantity.value`, with the item, what was billed
+// and what was taken in the message). The billing document's sales order is read under a row lock, so
+// two requests wait for one another and no quantity is returned twice. The returns order is created
+// `draft`, dated the company's date today in its time zone, with a document number from the company's
+// `returns_order` number range of that date's fiscal year (422 `config.no_number_range` for a company
+// without the range). Each sales order item's `returned_quantity` rises by what the order takes and
+// the sales order's `version` moves (`getSalesOrder`); its delivered and billed quantities stay. It is
+// a document of the sales context alone: nothing is posted, no stock moves, the customer's open items
+// and credit exposure are as they were, and the order's revenue contract is not changed; the credit
+// for a return is a credit memo request's. Audited, and published as ReturnsOrderChanged. A retry with
+// the same `Idempotency-Key` answers the returns order created. Human-only (`x-agent: false`).
+//
+// POST /v1/returns-orders
+func (c *Client) CreateReturnsOrder(ctx context.Context, request *ReturnsOrderCreate, params CreateReturnsOrderParams) (CreateReturnsOrderRes, error) {
+	res, err := c.sendCreateReturnsOrder(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateReturnsOrder(ctx context.Context, request *ReturnsOrderCreate, params CreateReturnsOrderParams) (res CreateReturnsOrderRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createReturnsOrder"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/returns-orders"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateReturnsOrderOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/returns-orders"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateReturnsOrderRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateReturnsOrderOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateReturnsOrderResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -30107,21 +31343,22 @@ func (c *Client) sendGetCloseCalendar(ctx context.Context, params GetCloseCalend
 // overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest
 // dunning level and the latest dunning date the confirmed dunning runs recorded for its open items
 // (`confirmDunningRun`; level 0 and no date for a customer never dunned). An item is overdue as a
-// dunning run counts it: the customer owes it (a debit), it was posted with payment terms and the key
-// date is past its net due date; an item due on the key date is not overdue, credit items reduce no
-// overdue amount, and an item without payment terms has no due date. A customer with nothing overdue
-// is not listed, whatever it owes. The worklist is computed at the read from one database state (a
-// repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's
-// customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only
-// counts what is overdue. Amounts are in the company's currency, as the items were booked.
-// `customer_count`, `open_amount` and `overdue_amount` at the top are the totals of every customer
-// listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the
-// company and key date. Each page is computed anew and continues after the last customer's overdue
-// amount and id: a customer whose overdue amount fell between two pages can be listed again with its
-// new amount, and one whose amount rose is not read again, so a consumer that pages while items are
-// posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company
-// without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`,
-// naming `key_date`). A legal entity the caller cannot act in is 404.
+// dunning run counts it: the customer owes it (a debit) and the key date is past its net due date,
+// which is that of the payment terms it was posted with or, for an item posted without payment terms
+// (a manual or migrated entry's), its document date; an item due on the key date is not overdue, so an
+// item without terms is overdue from the day after its document date, and credit items reduce no
+// overdue amount. A customer with nothing overdue is not listed, whatever it owes. The worklist is
+// computed at the read from one database state (a repeatable-read snapshot) and stores nothing: the
+// items are the ones open now on the company's customer reconciliation accounts in the leading ledger,
+// whoever posted them, and the key date only counts what is overdue. Amounts are in the company's
+// currency, as the items were booked. `customer_count`, `open_amount` and `overdue_amount` at the top
+// are the totals of every customer listed, not of the page. Paged by cursor in the worklist's order; a
+// page token is bound to the company and key date. Each page is computed anew and continues after the
+// last customer's overdue amount and id: a customer whose overdue amount fell between two pages can be
+// listed again with its new amount, and one whose amount rose is not read again, so a consumer that
+// pages while items are posted or cleared keys its rows by `customer_id`. The worklist needs no
+// dunning levels: a company without any has one too. A key date after 2100-12-31 is refused (422
+// `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is 404.
 //
 // GET /v1/collection-worklist
 func (c *Client) GetCollectionWorklist(ctx context.Context, params GetCollectionWorklistParams) (GetCollectionWorklistRes, error) {
@@ -31315,6 +32552,374 @@ func (c *Client) sendGetContract(ctx context.Context, params GetContractParams) 
 
 	stage = "DecodeResponse"
 	result, err := decodeGetContractResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetControl invokes getControl operation.
+//
+// One control of the library (ADR-0078 §2, T98a) with its owner's name and its last test: the test
+// with the latest test date, the one recorded last among several of one date; absent while the control
+// was never tested. Every test is read with `listControlTests`.
+//
+// GET /v1/controls/{id}
+func (c *Client) GetControl(ctx context.Context, params GetControlParams) (GetControlRes, error) {
+	res, err := c.sendGetControl(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetControl(ctx context.Context, params GetControlParams) (res GetControlRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getControl"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/controls/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetControlOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/controls/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetControlOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetControlResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetControlMatrix invokes getControlMatrix operation.
+//
+// The control matrix (ADR-0078 §8, T98b): the tenant's active controls by code, each with its
+// framework references, its last test and its links to what enforces it in the product, and for each
+// link whether it still holds. A link to a permission holds while the permission is in the platform's
+// permission catalog, which every operation's `x-permission` is taken from; a link to a
+// segregation-of-duties rule holds while the rule is in force on the database's date today (`as_of`):
+// started and not ended; a link to a path of the configuration holds while the tenant's active
+// configuration version has a value there. A link that does not hold is shown with `holds` false and
+// its `broken_reason`; it is never removed for that. Removed links and retired controls are left out.
+// A tenant without a configuration whose controls have configuration path links is answered 409
+// `config.not_bootstrapped`. Filtered by process (the exact text), by one framework reference (the
+// exact text) and by `link_state`: `broken` gives the controls with at least one link that does not
+// hold, `holding` those whose links all hold, `none` those without a link. `totals` count the controls
+// and links the filters select, over every page. The links are judged at the read and nothing is
+// stored: the matrix is computed from one database state (a repeatable-read snapshot). It shows
+// segregation-of-duties rules and whether configuration paths have a value, so besides
+// `grc.control.read` the caller needs `identity.access.read` and `config.version.read`
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Sortable by: `code` (default).
+//
+// GET /v1/control-matrix
+func (c *Client) GetControlMatrix(ctx context.Context, params GetControlMatrixParams) (GetControlMatrixRes, error) {
+	res, err := c.sendGetControlMatrix(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetControlMatrix(ctx context.Context, params GetControlMatrixParams) (res GetControlMatrixRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getControlMatrix"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/control-matrix"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetControlMatrixOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/control-matrix"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "process" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "process",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Process.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "framework_reference" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "framework_reference",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FrameworkReference.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "link_state" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "link_state",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LinkState.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetControlMatrixOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetControlMatrixResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -37832,19 +39437,22 @@ func (c *Client) sendGetQuotation(ctx context.Context, params GetQuotationParams
 // read from the ledger's customer open items of the leading ledger, as they are now (not as they were
 // on the key date): invoices, credit memos, and the customer items manual and migrated entries posted,
 // cleared items and reversed entries left out, special G/L items included. Each item falls in exactly
-// one bucket by its net due date, the baseline date plus the net days of the payment terms it was
-// posted with, as `GET /v1/open-items` ages it with `aging_key_date`: `not_due` when due on the key
-// date or later, else the `overdue` bucket holding its days past the due date, and `no_due_date` when
-// it was posted without terms. `aging_days` are the overdue buckets' last days, ascending (`30,60,90`
-// by default: 1 to 30, 31 to 60, 61 to 90 and more than 90 days); every bucket is given, an empty one
-// with no items and an amount of 0, in the order not due, overdue by days, no due date. Amounts are in
-// the company's local currency (`currency`), as the items were booked, a debit positive: a credit item
-// (a credit memo, a payment on the account) is negative and reduces its customer's bucket and total.
-// `totals` are those of every customer the request selects, on every page, and equal the open items of
-// the company's customer reconciliation accounts. `items` is one row per customer with open items, by
-// customer id, in cursor pages; `customer_id` selects one customer. The company must be one the caller
-// may act in. The key date is in the years 1900 to 2999 (422 `receivables.key_date_out_of_range`
-// naming `key_date`).
+// one bucket by its net due date: the baseline date plus the net days of the payment terms it was
+// posted with, as `GET /v1/open-items` ages it with `aging_key_date`, or, for an item posted without
+// payment terms (a manual or migrated entry's), its document date, where that list shows it as
+// `no_due_date`. An item is `not_due` when due on the key date or later, else in the `overdue` bucket
+// holding its days past the due date, so an item without terms is overdue from the day after its
+// document date; a credit item ages the same way, with or without terms. `aging_days` are the overdue
+// buckets' last days, ascending (`30,60,90` by default: 1 to 30, 31 to 60, 61 to 90 and more than 90
+// days); every bucket is given, an empty one with no items and an amount of 0, in the order not due,
+// overdue by days, no due date; `no_due_date` is always empty, since every item has a due date, and is
+// kept so that the response keeps its shape. Amounts are in the company's local currency (`currency`),
+// as the items were booked, a debit positive: a credit item (a credit memo, a payment on the account)
+// is negative and reduces its customer's bucket and total. `totals` are those of every customer the
+// request selects, on every page, and equal the open items of the company's customer reconciliation
+// accounts. `items` is one row per customer with open items, by customer id, in cursor pages;
+// `customer_id` selects one customer. The company must be one the caller may act in. The key date is
+// in the years 1900 to 2999 (422 `receivables.key_date_out_of_range` naming `key_date`).
 //
 // GET /v1/receivables-aging
 func (c *Client) GetReceivablesAging(ctx context.Context, params GetReceivablesAgingParams) (GetReceivablesAgingRes, error) {
@@ -38482,6 +40090,142 @@ func (c *Client) sendGetRequisition(ctx context.Context, params GetRequisitionPa
 
 	stage = "DecodeResponse"
 	result, err := decodeGetRequisitionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetReturnsOrder invokes getReturnsOrder operation.
+//
+// One returns order (ADR-0067, As built T85a) with its company's code and name, its customer's number
+// and name, the billing document and the sales order it returns from by id and number, its date, its
+// reason and its items, each naming the billing document's item and the sales order's item by number,
+// what is sold by item key and description, the quantity billed by the billing document's item, the
+// quantity being returned, the quantity received so far and the quantity still expected. One of a
+// company the caller may not act in is not found (404), as one that does not exist.
+//
+// GET /v1/returns-orders/{id}
+func (c *Client) GetReturnsOrder(ctx context.Context, params GetReturnsOrderParams) (GetReturnsOrderRes, error) {
+	res, err := c.sendGetReturnsOrder(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetReturnsOrder(ctx context.Context, params GetReturnsOrderParams) (res GetReturnsOrderRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getReturnsOrder"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/returns-orders/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetReturnsOrderOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/returns-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetReturnsOrderOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetReturnsOrderResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -39451,9 +41195,9 @@ func (c *Client) sendGetRolePermission(ctx context.Context, params GetRolePermis
 // One sales order (ADR-0067 §5, T78b) with its company's code and name, its customer's number and
 // name, the quotation it was created from by id and number, its payment term, its net value, its
 // credit block (with who released it and when, once it is released) and its items, each with its
-// ordered, delivered and billed quantities, its unit price, its net value and its revenue account's
-// number and name. One of a company the caller may not act in is not found (404), as one that does not
-// exist.
+// ordered, delivered, billed and returned quantities, its unit price, its net value and its revenue
+// account's number and name. One of a company the caller may not act in is not found (404), as one
+// that does not exist.
 //
 // GET /v1/sales-orders/{id}
 func (c *Client) GetSalesOrder(ctx context.Context, params GetSalesOrderParams) (GetSalesOrderRes, error) {
@@ -51797,6 +53541,451 @@ func (c *Client) sendListContracts(ctx context.Context, params ListContractsPara
 	return result, nil
 }
 
+// ListControlTests invokes listControlTests operation.
+//
+// The results of testing one control (ADR-0078 §3, T98a), the latest test date first and, among the
+// tests of one date, the one recorded last first: the first is the control's last test. Filtered by
+// result. Sortable by: `tested_on` (default, descending).
+//
+// GET /v1/controls/{id}/tests
+func (c *Client) ListControlTests(ctx context.Context, params ListControlTestsParams) (ListControlTestsRes, error) {
+	res, err := c.sendListControlTests(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListControlTests(ctx context.Context, params ListControlTestsParams) (res ListControlTestsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listControlTests"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/controls/{id}/tests"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListControlTestsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/controls/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/tests"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "result" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "result",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Result.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListControlTestsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListControlTestsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListControls invokes listControls operation.
+//
+// The tenant's control library (ADR-0078 §2-§4, T98a): each control as `getControl` gives it, with
+// its owner's name and its last test. Filtered by process (the exact text), by status, by owner and by
+// the result of the last test: `last_result=passed` or `failed` gives the controls whose last test had
+// that result, `last_result=none` those never tested. Sortable by: `code` (default).
+//
+// GET /v1/controls
+func (c *Client) ListControls(ctx context.Context, params ListControlsParams) (ListControlsRes, error) {
+	res, err := c.sendListControls(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListControls(ctx context.Context, params ListControlsParams) (res ListControlsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listControls"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/controls"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListControlsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/controls"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "process" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "process",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Process.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "owner_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "owner_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OwnerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "last_result" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "last_result",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LastResult.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListControlsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListControlsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListCostCenterBalances invokes listCostCenterBalances operation.
 //
 // Actual period totals per cost center, account and transaction currency of one legal entity, ledger
@@ -61378,10 +63567,12 @@ func (c *Client) sendListNumberRanges(ctx context.Context, params ListNumberRang
 //
 // Uncleared lines on supplier and customer reconciliation accounts. An item posted with payment terms
 // (T36b) is due on their `net_due_date`, and earns a discount until each tier's `until`; an item
-// without terms (posted before T36, manually, migrated, a customer's) has no due date the ledger
-// keeps. With `aging_key_date` the first page also carries `aging`: every item the filters select, not
-// only the page's, summed per local currency by how many days past its net due date it is on the key
-// date (ADR-0052 G4). Sortable by: `posting_date`.
+// without terms (posted before T36, manually, migrated) has no due date in this list, a supplier's and
+// a customer's alike: the list shows the items as they were posted. The AR aging, a dunning run and
+// the collection worklist take a customer item without terms as due on its document date
+// (`GET /v1/receivables-aging`). With `aging_key_date` the first page also carries `aging`: every item
+// the filters select, not only the page's, summed per local currency by how many days past its net due
+// date it is on the key date (ADR-0052 G4). Sortable by: `posting_date`.
 //
 // GET /v1/open-items
 func (c *Client) ListOpenItems(ctx context.Context, params ListOpenItemsParams) (ListOpenItemsRes, error) {
@@ -67167,6 +69358,473 @@ func (c *Client) sendListRequisitions(ctx context.Context, params ListRequisitio
 	return result, nil
 }
 
+// ListReturnReceipts invokes listReturnReceipts operation.
+//
+// The receipts of a returns order (ADR-0067, As built T85b), each as `confirmReturnReceipt` answered
+// it: its number within the returns order, its date and its items, each naming the returns order's
+// item by number, the billing document's item, the item key and the description with the quantity
+// received in the item's unit. The returns order's own items show the sum and what is still expected
+// (`received_quantity`, `open_quantity`, `getReturnsOrder`). A returns order of a company the caller
+// may not act in is not found (404), as one that does not exist. Sortable by: `receipt_date`.
+//
+// GET /v1/returns-orders/{id}/receipts
+func (c *Client) ListReturnReceipts(ctx context.Context, params ListReturnReceiptsParams) (ListReturnReceiptsRes, error) {
+	res, err := c.sendListReturnReceipts(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListReturnReceipts(ctx context.Context, params ListReturnReceiptsParams) (res ListReturnReceiptsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listReturnReceipts"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/returns-orders/{id}/receipts"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListReturnReceiptsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/returns-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/receipts"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListReturnReceiptsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListReturnReceiptsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListReturnsOrders invokes listReturnsOrders operation.
+//
+// The returns orders of the companies the caller may act in (ADR-0067, As built T85a), each as
+// `getReturnsOrder` gives it: with its company's code and name, its customer's number and name, the
+// billing document and the sales order it returns from by id and number, its reason and its items with
+// their billed, returned, received and still expected quantities. Filtered by company, customer,
+// billing document, sales order, status and document number. Sortable by: `returns_date`,
+// `document_number`.
+//
+// GET /v1/returns-orders
+func (c *Client) ListReturnsOrders(ctx context.Context, params ListReturnsOrdersParams) (ListReturnsOrdersRes, error) {
+	res, err := c.sendListReturnsOrders(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListReturnsOrders(ctx context.Context, params ListReturnsOrdersParams) (res ListReturnsOrdersRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listReturnsOrders"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/returns-orders"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListReturnsOrdersOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/returns-orders"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "billing_document_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "billing_document_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.BillingDocumentID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "sales_order_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "sales_order_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.SalesOrderID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "document_number" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "document_number",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.DocumentNumber.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListReturnsOrdersOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListReturnsOrdersResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListRevaluationRuns invokes listRevaluationRuns operation.
 //
 // Foreign-currency revaluation runs (ADR-0042), without their items and totals (`getRevaluationRun`
@@ -68668,9 +71326,9 @@ func (c *Client) sendListSalesDeliveries(ctx context.Context, params ListSalesDe
 //
 // The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as
 // `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the
-// quotation it came from, its net value, its credit block and its items with their ordered, delivered
-// and billed quantities. Filtered by company, customer, status, credit block, document number and
-// quotation. Sortable by: `order_date`, `document_number`.
+// quotation it came from, its net value, its credit block and its items with their ordered, delivered,
+// billed and returned quantities. Filtered by company, customer, status, credit block, document number
+// and quotation. Sortable by: `order_date`, `document_number`.
 //
 // GET /v1/sales-orders
 func (c *Client) ListSalesOrders(ctx context.Context, params ListSalesOrdersParams) (ListSalesOrdersRes, error) {
@@ -75135,7 +77793,11 @@ func (c *Client) sendPlaceInHierarchy(ctx context.Context, request *HierarchyPla
 // `payments.statement_gap`). A line not matched is 409 `payments.statement_line_not_matched`; one
 // posted or waiting already is 409 `payments.statement_line_posting`. A `posting_date` before the
 // booking date is refused (422): a later one takes the line out of a locked period, an earlier one
-// would book it before the bank did. A statement whose last line to decide this was becomes
+// would book it before the bank did. A posting that clears payments is dated on or after the latest
+// posting date of the payments' lines it clears (422 `ledger.clearing_before_item` naming
+// `posting_date`, its message giving that date): a line booked before the payment it settles was
+// posted is posted with a `posting_date` from that date on and a `reason`; a line waiting for approval
+// is checked when the approval posts it. A statement whose last line to decide this was becomes
 // `reconciled` once the ledger agrees (T49h). People only. Audited; the posting publishes
 // BankStatementLinePosted, and the ledger JournalEntryPosted and ItemsCleared. The response's ETag is
 // the statement's new one, the If-Match of the next decision on its lines.
@@ -77629,10 +80291,12 @@ func (c *Client) sendProposeMemoRecord(ctx context.Context, request *MemoRecordP
 //
 // Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then
 // selects due open items, applies exclusions (blocks, missing or recently changed bank details) and
-// reserves the items; the run becomes `proposed`, or `failed`. Runs can exceed 100,000 items, so this
-// returns an Operation. A run that takes cash discount in a legal entity without a cash discount
-// account fails with 422 `payments.no_cash_discount_account` (T36d). A withholding tax deducted at
-// payment that, rounded after the cash discount, would take all an item owes fails it with 422
+// reserves the items; an open item posted after the run date is not selected and waits for a later
+// run, since its payment, posted on the run date, would clear it before it was posted; the run becomes
+// `proposed`, or `failed`. Runs can exceed 100,000 items, so this returns an Operation. A run that
+// takes cash discount in a legal entity without a cash discount account fails with 422
+// `payments.no_cash_discount_account` (T36d). A withholding tax deducted at payment that, rounded
+// after the cash discount, would take all an item owes fails it with 422
 // `payments.withholding_too_large` (T46f), whose `detail` names the item by its journal entry's
 // document number, fiscal year and line, the supplier by its number and name, and the amounts in the
 // run's currency. Open items that add up to more than an amount can hold fail it with 422
@@ -81264,6 +83928,190 @@ func (c *Client) sendReleaseSupplierInvoice(ctx context.Context, request OptDeci
 	return result, nil
 }
 
+// RemoveControlLink invokes removeControlLink operation.
+//
+// Removes a link of an active control (ADR-0078 §7, T98b), once (409 `grc.control_link_removed`
+// after), at the link's version (`If-Match`, the ETag `createControlLink` answered and the `version`
+// the matrix shows). Nothing is deleted (04 §4.3): the link is kept as `removed`, is left out of the
+// matrix from then on, and the same target can be linked again. It is a person's or an agent's
+// decision: a link that no longer holds is never removed by the system. A retired control's links stay
+// as they are (409 `grc.control_retired`). A link of another control is not found (404). An audit
+// record on the control and ControlChanged (`unlinked`) are written with it. Besides
+// `grc.control.write` the caller needs `identity.access.read` and `config.version.read`
+// (`x-also-permissions`): the answer is the link as the matrix shows it.
+//
+// POST /v1/controls/{id}/links/{link_id}:remove
+func (c *Client) RemoveControlLink(ctx context.Context, params RemoveControlLinkParams) (RemoveControlLinkRes, error) {
+	res, err := c.sendRemoveControlLink(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendRemoveControlLink(ctx context.Context, params RemoveControlLinkParams) (res RemoveControlLinkRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("removeControlLink"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/controls/{id}/links/{link_id}:remove"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RemoveControlLinkOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/controls/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/links/"
+	{
+		// Encode "link_id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "link_id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.LinkID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":remove"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RemoveControlLinkOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRemoveControlLinkResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // RemoveHierarchyNode invokes removeHierarchyNode operation.
 //
 // Removes a node without child nodes or centers; the root is not removed (422
@@ -83153,6 +86001,166 @@ func (c *Client) sendRetireCatalogItem(ctx context.Context, params RetireCatalog
 	return result, nil
 }
 
+// RetireControl invokes retireControl operation.
+//
+// Retires an active control for good (status `retired`), once (409 `grc.control_retired` for a retired
+// one), at the version read (`If-Match`). A retired control changes no more and takes no further test;
+// it and its tests are still read, and it is listed with `status=retired` or without a status filter.
+// Its code stays taken. An audit record and ControlChanged (`retired`) are written with it.
+//
+// POST /v1/controls/{id}:retire
+func (c *Client) RetireControl(ctx context.Context, params RetireControlParams) (RetireControlRes, error) {
+	res, err := c.sendRetireControl(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendRetireControl(ctx context.Context, params RetireControlParams) (res RetireControlRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("retireControl"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/controls/{id}:retire"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RetireControlOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/controls/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":retire"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RetireControlOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRetireControlResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // RetireEntryTemplate invokes retireEntryTemplate operation.
 //
 // Retires an active entry template for good (status `retired`, `EntryTemplateChanged`): it changes no
@@ -84721,8 +87729,27 @@ func (c *Client) sendRunAllocationCycle(ctx context.Context, request *Allocation
 // accuracy is 1 less the weighted absolute percentage error, the cells' absolute variances over their
 // absolute forecasts, rounded as that report's `variance_percent` first, so one cell's is 100% less
 // its `variance_percent`, and null where nothing was forecast; actuals adding up to more than an
-// amount can hold are 422 `cash.amount_too_large`. A tenant without a configuration is 409
-// `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a
+// amount can hold are 422 `cash.amount_too_large`. The sales metrics (`order_intake`, `billed_value`,
+// `billing_document_count`, T91a) are the net amounts of the items of confirmed sales orders by order
+// date and of posted billing documents by billing date, each in its document's currency and never
+// converted, by the customer's number (`customer`) and name (`customer_name`), the item key
+// (`item_key`) and `currency`; a draft order and a billing document not posted are not counted. They
+// are read as `listSalesOrders` and `listBillingDocuments` list them, so they need `sales.order.read`
+// and `sales.billing.read` both, and, since they name customers, `partner.supplier.read` as the
+// vendors' names do. The spend metrics (`spend`, `spend_under_contract`, `spend_off_contract`,
+// `off_contract_share`, T91b) are the net amounts of the items of posted supplier invoices by posting
+// date, less those of posted credit memos (a subsequent debit adds, a subsequent credit reduces; a
+// document parked, on hold, rejected, cancelled or reversed is not counted), each in its document's
+// currency and never converted, by `vendor` and `vendor_name`, `account` and `account_name`,
+// `cost_center` (its code), `contract` (the document number of the contract the item's purchase order
+// was made on) and `currency`; an item on a purchase order has the order item's account and cost
+// center, and is under contract when the order was made on a contract, while an item on no order, or
+// on an order made on no contract, is off contract; `off_contract_share` is the part off contract over
+// spend, null where there is none. They are read as `listSupplierInvoices`, `listPurchaseOrders`,
+// `listContracts` and `listCostCenters` list them, so they need `payables.invoice.read`,
+// `procurement.order.read`, `procurement.contract.read` and `ledger.cost_center.read`, with
+// `partner.supplier.read` and `ledger.account.read` for the names. A tenant without a configuration is
+// 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a
 // filter it cannot apply, amounts of two currencies summed) is 422 `analytics.invalid_query`; too many
 // queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. Changes nothing:
 // agents of any autonomy level may run it.
@@ -89114,6 +92141,172 @@ func (c *Client) sendUpdateContract(ctx context.Context, request *ContractUpdate
 	return result, nil
 }
 
+// UpdateControl invokes updateControl operation.
+//
+// Changes an active control's objective, process, owner, frequency, nature or framework references at
+// once, with the caller's version of it (`If-Match`; 412 when another change came first). JSON Merge
+// Patch (RFC 7396): absent fields are unchanged. The code does not change. The owner is checked as
+// `createControl` checks it when the change names another, and the texts, the frequency and the nature
+// as it checks them. A change that would leave the control as it is is refused (422
+// `grc.nothing_to_change`), as is a change of a retired control (409 `grc.control_retired`). The
+// control's tests stay as they were recorded. An audit record naming the fields changed and
+// ControlChanged (`changed`) are written with it.
+//
+// PATCH /v1/controls/{id}
+func (c *Client) UpdateControl(ctx context.Context, request *ControlUpdate, params UpdateControlParams) (UpdateControlRes, error) {
+	res, err := c.sendUpdateControl(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUpdateControl(ctx context.Context, request *ControlUpdate, params UpdateControlParams) (res UpdateControlRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updateControl"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.URLTemplateKey.String("/v1/controls/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UpdateControlOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/controls/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUpdateControlRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UpdateControlOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUpdateControlResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // UpdateCostCenter invokes updateCostCenter operation.
 //
 // Changes name, description or person responsible at once: texts need no approval (ADR-0050 §11,
@@ -91263,10 +94456,11 @@ func (c *Client) sendUpdatePurchaseOrderChange(ctx context.Context, request *Pur
 // Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged,
 // `null` clears an optional field, arrays are replaced as a whole. Items taken from the catalog are
 // sent as when the requisition is created (`catalog_item_id` with a quantity and an account, without
-// description or price) and checked again against the catalog; while the requisition has such items
-// its supplier, and its contract if a catalog item names one, stay the catalog items': clearing one
-// takes it from them again, and another is refused (422 `procurement.catalog_item_supplier`,
-// `procurement.catalog_item_contract`).
+// description or price or with the catalog item's own, so the items read back can be sent again as
+// they were read; another price is refused, 422 `procurement.catalog_item_override`) and checked again
+// against the catalog; while the requisition has such items its supplier, and its contract if a
+// catalog item names one, stay the catalog items': clearing one takes it from them again, and another
+// is refused (422 `procurement.catalog_item_supplier`, `procurement.catalog_item_contract`).
 //
 // PATCH /v1/requisitions/{id}
 func (c *Client) UpdateRequisition(ctx context.Context, request *RequisitionUpdate, params UpdateRequisitionParams) (UpdateRequisitionRes, error) {

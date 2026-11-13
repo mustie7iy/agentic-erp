@@ -476,6 +476,20 @@ func encodeCompleteYearCloseTaskRequest(
 	return nil
 }
 
+func encodeConfirmReturnReceiptRequest(
+	req *ReturnReceiptCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeConfirmSalesDeliveryRequest(
 	req *SalesDeliveryCreate,
 	r *http.Request,
@@ -688,6 +702,48 @@ func encodeCreateConsolidationRunRequest(
 
 func encodeCreateContractRequest(
 	req *ContractCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateControlRequest(
+	req *ControlCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateControlLinkRequest(
+	req *ControlLinkCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateControlTestRequest(
+	req *ControlTestCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -1066,6 +1122,20 @@ func encodeCreateRegressionSuiteRequest(
 
 func encodeCreateRequisitionRequest(
 	req *RequisitionCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateReturnsOrderRequest(
+	req *ReturnsOrderCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -2561,6 +2631,20 @@ func encodeUpdateConnectorRequest(
 
 func encodeUpdateContractRequest(
 	req *ContractUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateControlRequest(
+	req *ControlUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

@@ -20,7 +20,7 @@ import (
 type Source struct {
 	API *apitools.Client
 	// Datasets are the fact tables to build (gl_lines, po_lines,
-	// ap_invoices): a query needs only its metrics', and reads nothing it
+	// ap_invoices, spend_lines, sales_lines): a query needs only its metrics', and reads nothing it
 	// does not need, so a permission another fact type needs does not
 	// refuse it. Nil builds every one.
 	Datasets []string
@@ -38,14 +38,16 @@ type Source struct {
 // the database path could not read (ADR-0044).
 func (s Source) Permissions() []string {
 	out := []string{"tenancy.org.read"}
-	if s.namesVendors() {
+	if s.namesPartners() {
 		out = append(out, "partner.supplier.read")
 	}
-	if s.builds("gl_lines") || s.builds("po_lines") {
+	if s.namesAccounts() {
 		out = append(out, "ledger.account.read")
 	}
 	for _, d := range FactDatasets {
-		// The cash actuals, forecast and accuracy are read with one permission.
+		// The cash actuals, forecast and accuracy are read with one
+		// permission; the sales lines with two, the spend lines with four,
+		// two of them the orders' and the invoices' own.
 		if s.builds(d.Dataset) && !slices.Contains(out, d.Permission) {
 			out = append(out, d.Permission)
 		}
@@ -59,9 +61,14 @@ type FactDataset struct{ Dataset, Permission string }
 // FactDatasets are the fact tables a metric reads, in the order Facts
 // builds them, and the permission that reads each through the API: the
 // endpoint refuses a query over one the caller does not read, and a
-// governed model names no other (FromConfig).
+// governed model names no other (FromConfig). A table built from two of
+// the API's lists is named once for each list's permission, in the order
+// they are read: the sales lines are the confirmed orders' items and the
+// posted billing documents' (T91a).
 var FactDatasets = []FactDataset{
 	{"gl_lines", "ledger.entry.read"}, {"po_lines", "procurement.order.read"}, {"ap_invoices", "payables.invoice.read"},
+	{spendLines, "payables.invoice.read"}, {spendLines, "procurement.order.read"}, {spendLines, "procurement.contract.read"},
+	{spendLines, "ledger.cost_center.read"}, {salesLines, "sales.order.read"}, {salesLines, "sales.billing.read"},
 	{cashActuals, "cash.forecast.read"}, {cashSnapshots, "cash.forecast.read"}, {cashAccuracy, "cash.forecast.read"},
 }
 
@@ -70,12 +77,21 @@ func (s Source) builds(dataset string) bool {
 	return s.Datasets == nil || slices.Contains(s.Datasets, dataset)
 }
 
-// namesVendors reports whether a fact table it builds names vendors, which
-// it reads from /v1/business-partners: the cash actuals name none, so a
-// query of them alone needs no partner.supplier.read (product owner
-// 2026-11-02: supplier names only with that permission).
-func (s Source) namesVendors() bool {
-	return s.builds("gl_lines") || s.builds("po_lines") || s.builds("ap_invoices")
+// namesPartners reports whether a fact table it builds names business
+// partners, suppliers or customers, which it reads from
+// /v1/business-partners: the cash actuals name none, so a query of them
+// alone needs no partner.supplier.read (product owner 2026-11-02: supplier
+// names only with that permission). The sales lines name customers, whose
+// names that list shows under the same permission: there is no customer
+// read permission (ADR-0044, the query endpoint; As built T91a).
+func (s Source) namesPartners() bool {
+	return s.builds("gl_lines") || s.builds("po_lines") || s.builds("ap_invoices") || s.builds(spendLines) || s.builds(salesLines)
+}
+
+// namesAccounts reports whether a fact table it builds names accounts,
+// which it reads from /v1/accounts.
+func (s Source) namesAccounts() bool {
+	return s.builds("gl_lines") || s.builds("po_lines") || s.builds(spendLines)
 }
 
 type amount struct {
@@ -187,7 +203,7 @@ func (s Source) Facts(ctx context.Context, m *Model, asOf time.Time) (*Facts, er
 		return nil, err
 	}
 	var partners []partner
-	if s.namesVendors() {
+	if s.namesPartners() {
 		if partners, err = apitools.List[partner](ctx, s.API, "/v1/business-partners", nil); err != nil {
 			return nil, err
 		}
@@ -248,31 +264,38 @@ func (b *factBuilder) calendar(dims map[string]string, dateDim, date string) err
 	return nil
 }
 
-// addEntity reads one legal entity's ledger, purchase orders and supplier
-// invoices into the fact tables, those it builds.
+// addEntity reads one legal entity's ledger, purchase orders, supplier
+// invoices, spend and sales documents into the fact tables, those it
+// builds.
 func (s Source) addEntity(ctx context.Context, b *factBuilder, le legalEntity) error {
 	b.f.Companies[le.Code] = le.LocalCurrency
 	byLE := url.Values{"legal_entity_id": {le.ID}}
-	if s.builds("gl_lines") || s.builds("po_lines") {
+	chart := map[string]account{}
+	if s.namesAccounts() {
 		accounts, err := apitools.List[account](ctx, s.API, "/v1/accounts", byLE)
 		if err != nil {
 			return err
 		}
-		chart := map[string]account{}
 		for _, a := range accounts {
 			chart[a.ID] = a
 		}
-		if err := s.addJournal(ctx, b, le, byLE, chart); err != nil {
-			return err
-		}
-		if err := s.addOrders(ctx, b, le, byLE, chart); err != nil {
-			return err
-		}
+	}
+	if err := s.addJournal(ctx, b, le, byLE, chart); err != nil {
+		return err
+	}
+	if err := s.addOrders(ctx, b, le, byLE, chart); err != nil {
+		return err
 	}
 	if s.builds("ap_invoices") {
 		if err := s.addInvoices(ctx, b, le, byLE); err != nil {
 			return err
 		}
+	}
+	if err := s.addSpend(ctx, b, le, byLE, chart); err != nil {
+		return err
+	}
+	if err := s.addSales(ctx, b, le); err != nil {
+		return err
 	}
 	return s.addCash(ctx, b, le)
 }

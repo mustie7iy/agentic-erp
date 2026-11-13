@@ -52,7 +52,7 @@ type parity struct {
 
 var parityPerms = []string{"ledger.entry.post", "ledger.entry.read", "ledger.account.read", "payables.invoice.read", "procurement.order.read",
 	"partner.supplier.read", "tenancy.org.read", "analytics.query.run", "config.change.read", "config.change.propose", "config.change.activate", "platform.operation.read",
-	"cash.forecast.read"}
+	"cash.forecast.read", "sales.order.read", "sales.billing.read", "procurement.contract.read", "ledger.cost_center.read"}
 
 // cashPort is the cash context as erp-server wires it into the analytics
 // context, the database path's and the extract's.
@@ -134,10 +134,7 @@ func setupParity(t *testing.T) parity {
 	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
 		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2025-01-01', 0.9, 'ECB', $2)`, ten.ID, ten.Human.ID)
 	pgtest.Scan(t, `SELECT id FROM ledger.ledger WHERE tenant_id = $1 AND code = '2L'`, []any{ten.ID}, &p.parallel)
-	customer := uuid.New()
-	pgtest.Exec(t, `INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, country_code, status, created_by, updated_by)
-		VALUES ($1, $2, 'BP80000001', 'organization', 'A Customer', 'DE', 'active', $3, $3)`, ten.ID, customer, ten.Human.ID)
-	pgtest.Exec(t, `INSERT INTO partner.partner_role (tenant_id, partner_id, role, created_by) VALUES ($1, $2, 'customer', $3)`, ten.ID, customer, ten.Human.ID)
+	customer := p.Customer(t, "BP80000001", "A Customer")
 
 	p.post(t, p.DE, "2000", "EUR", "2026-03-05", "610000", "211000", "120.00", &p.Supplier, nil)
 	p.post(t, p.DE, "2000", "EUR", "2026-03-20", "100000", "400000", "500.00", nil, nil)
@@ -153,6 +150,8 @@ func setupParity(t *testing.T) parity {
 	p.invoice(t, p.DE, p.Supplier, "EUR", "2026-03-06", "parked", 14280)
 	p.invoice(t, p.DE, p.Vendor, "EUR", "2026-06-30", "rejected", 5000)
 	p.invoice(t, p.US, p.Supplier, "USD", "2026-08-11", "parked", 4550)
+	p.sales(t, customer)
+	p.spend(t)
 	p.Statement(t, p.DE, fixture.StatementLine{ValueDate: "2026-03-31", Amount: 50000}, fixture.StatementLine{ValueDate: "2026-04-02", Amount: -1500, Rule: "NCHG"},
 		fixture.StatementLine{ValueDate: "2026-07-15", Amount: -20000})
 	p.Statement(t, p.US, fixture.StatementLine{ValueDate: "2026-02-10", Amount: 10000}, fixture.StatementLine{ValueDate: "2026-08-20", Amount: -4500})
@@ -164,6 +163,54 @@ func setupParity(t *testing.T) parity {
 	p.db = analytics.Source{API: &apitools.Client{BaseURL: srv.URL, Token: p.API.Issuer.Token(t, ten.ID, ten.Human.Subject, nil), HTTP: srv.Client()},
 		Cash: cashPort(t)}
 	return p
+}
+
+// spend writes posted supplier documents in both companies (T91b): in
+// each an invoice with an item on a purchase order made on a contract and
+// an item on an account and cost center of its own; 2000's also a credit
+// memo, a subsequent credit on an order made on no contract, a parked
+// invoice and a reversed one, which are in no spend.
+func (p parity) spend(t *testing.T) {
+	t.Helper()
+	for _, c := range []struct {
+		le            uuid.UUID
+		company, cur  string
+		date, number  string
+		onOrder, free int64
+	}{{p.DE, "2000", "EUR", "2026-03-06", "CT-2000", 10000, 4000}, {p.US, "1000", "USD", "2026-08-12", "CT-1000", 7000, 3000}} {
+		center := p.CostCenter(t, c.le, "1000")
+		contract := p.Contract(t, c.le, p.Supplier, c.cur, c.number)
+		office, paper := p.Account(t, c.company, "520000"), p.Account(t, c.company, "610000")
+		order := p.ContractOrder(t, c.le, p.Supplier, &contract, c.cur, "2026-02-01", paper, &center)
+		p.SupplierDocument(t, c.le, p.Supplier, "invoice", "posted", c.cur, c.date,
+			fixture.InvoiceItem{Net: c.onOrder, Order: &order}, fixture.InvoiceItem{Net: c.free, Account: &office, CostCenter: &center},
+			// An item removed while the document was parked, in no spend, and
+			// one on an item its order no longer has, under the order's contract.
+			fixture.InvoiceItem{Net: 77700, Account: &office, Removed: true}, fixture.InvoiceItem{Net: 800, Order: &order, OrderItem: 20})
+	}
+	office, paper := p.Account(t, "2000", "520000"), p.Account(t, "2000", "610000")
+	free := p.ContractOrder(t, p.DE, p.Vendor, nil, "EUR", "2026-02-01", paper, nil)
+	p.SupplierDocument(t, p.DE, p.Vendor, "credit_memo", "posted", "EUR", "2026-05-10", fixture.InvoiceItem{Net: 1500, Account: &office})
+	p.SupplierDocument(t, p.DE, p.Vendor, "subsequent_credit", "posted", "EUR", "2026-05-11", fixture.InvoiceItem{Net: 500, Order: &free})
+	p.SupplierDocument(t, p.DE, p.Vendor, "invoice", "parked", "EUR", "2026-05-12", fixture.InvoiceItem{Net: 99900, Account: &office})
+	p.SupplierDocument(t, p.DE, p.Vendor, "invoice", "reversed", "EUR", "2026-05-13", fixture.InvoiceItem{Net: 88800, Account: &office})
+}
+
+// sales writes the customer's sales documents in both companies (T91a):
+// 2000's confirmed order of two items, one without an item key, billed in
+// a posted document the month after, a draft order, and a confirmed order
+// whose billing document is created and not posted; 1000's confirmed
+// order and its posted billing document. The drafts and the document not
+// posted are in no metric.
+func (p parity) sales(t *testing.T, customer uuid.UUID) {
+	t.Helper()
+	order := p.SalesOrder(t, p.DE, customer, "EUR", "2026-03-12", "confirmed", fixture.SalesItem{Key: "BRACKET-M8", Net: 150000}, fixture.SalesItem{Net: 23753})
+	p.BillingDocument(t, order, "2026-04-01", true)
+	p.SalesOrder(t, p.DE, customer, "EUR", "2026-03-13", "draft", fixture.SalesItem{Key: "DRAFT", Net: 99999})
+	later := p.SalesOrder(t, p.DE, customer, "EUR", "2026-09-15", "confirmed", fixture.SalesItem{Key: "BRACKET-M8", Net: 5000})
+	p.BillingDocument(t, later, "2026-09-16", false)
+	us := p.SalesOrder(t, p.US, customer, "USD", "2026-02-20", "confirmed", fixture.SalesItem{Key: "INSTALL", Net: 9900})
+	p.BillingDocument(t, us, "2026-02-25", true)
 }
 
 // snapshots keeps forecasts of both companies at lags 0, 7 and 30: 2000's
@@ -293,6 +340,21 @@ func TestParity(t *testing.T) {
 				t.Errorf("%s of 2000: got %v, %v; want %s", metric, res, err, want)
 			}
 		}
+		// The confirmed orders' items and the posted billing document's:
+		// the draft order and the document not posted are not counted.
+		for metric, want := range map[string]string{"order_intake": "1787.53", "billed_value": "1737.53", "billing_document_count": "1",
+			// The posted documents' items, the credits' negative: 108.00 on
+			// the contract's order; 40.00 less 15.00 and 5.00 off contract.
+			"spend": "128.00", "spend_under_contract": "108.00", "spend_off_contract": "20.00", "off_contract_share": "0.1563"} {
+			res, err := analytics.Execute(m, dbFacts, analytics.Principal{Companies: []string{"2000"}}, analytics.Query{Measures: []string{metric}})
+			if err != nil {
+				t.Errorf("%s of 2000: got %v, want an answer", metric, err)
+				continue
+			}
+			if got := fmt.Sprint(res.Rows); got != "[["+want+"]]" {
+				t.Errorf("%s of 2000: got %s, want [[%s]]", metric, got, want)
+			}
+		}
 		for ledger, want := range map[string]string{"": "120.00", p.parallel.String(): "1119.00"} {
 			res, err := analytics.Execute(m, dbFacts, analytics.Principal{Companies: []string{"2000"}}, analytics.Query{Measures: []string{"expenses"}, Ledger: ledger})
 			if err != nil || len(res.Rows) != 1 || fmt.Sprint(res.Rows[0][0]) != want {
@@ -376,7 +438,10 @@ func (p parity) endpoint(t *testing.T) {
 // (ADR-0010 As built 2026-11-02), is refused by the store exactly as by
 // the database, before any dimension is named. The cash actuals name no
 // vendor: a caller without partner.supplier.read reads them, and is still
-// refused a query that names vendors (product owner 2026-11-02).
+// refused a query that names vendors (product owner 2026-11-02). The sales
+// lines name customers and are read from the orders and the billing
+// documents: a caller lacking partner.supplier.read, sales.order.read or
+// sales.billing.read gets no row of them (T91a).
 func (p parity) permissions(t *testing.T) {
 	api := apitest.NewWith(t, func(c *app.Config) { c.Analytics = direct{p.r} })
 	// Each by company too: an answer adds no two currencies together.
@@ -388,15 +453,20 @@ func (p parity) permissions(t *testing.T) {
 		"cash and vendors": `{"measures": ["actual", "invoice_count"], "by": ["company"]%s}`,
 		"forecast":         `{"measures": ["forecast_lag_7"], "by": ["company", "liquidity_item_name", "house_bank", "flow_source", "certainty"]%s}`,
 		"accuracy":         `{"measures": ["accuracy_lag_30", "variance_lag_30"], "by": ["company", "liquidity_item_name"]%s}`,
+		"sales":            `{"measures": ["order_intake", "billed_value", "billing_document_count"], "by": ["company", "customer_name", "item_key"]%s}`,
+		"spend":            `{"measures": ["spend", "off_contract_share"], "by": ["company", "vendor_name", "account_name", "cost_center", "contract"]%s}`,
 	}
-	// needs are the permissions of the four checked each query's reads need.
+	// needs are the permissions of those checked each query's reads need.
 	needs := map[string][]string{
 		"accounts": {"tenancy.org.read", "partner.supplier.read", "ledger.account.read"}, "vendors": {"tenancy.org.read", "partner.supplier.read"},
 		"orders": {"tenancy.org.read", "partner.supplier.read", "ledger.account.read"}, "cash": {"tenancy.org.read", "cash.forecast.read"},
 		"cash and vendors": {"tenancy.org.read", "partner.supplier.read", "cash.forecast.read"}, "forecast": {"tenancy.org.read", "cash.forecast.read"},
 		"accuracy": {"tenancy.org.read", "cash.forecast.read"},
+		"sales":    {"tenancy.org.read", "partner.supplier.read", "sales.order.read", "sales.billing.read"},
+		"spend":    {"tenancy.org.read", "partner.supplier.read", "ledger.account.read", "procurement.contract.read", "ledger.cost_center.read"},
 	}
-	for _, perm := range []string{"tenancy.org.read", "partner.supplier.read", "ledger.account.read", "cash.forecast.read"} {
+	for _, perm := range []string{"tenancy.org.read", "partner.supplier.read", "ledger.account.read", "cash.forecast.read", "sales.order.read", "sales.billing.read",
+		"procurement.contract.read", "ledger.cost_center.read"} {
 		for how, c := range map[string]struct {
 			as   func(t *testing.T, perm string) pgtest.Actor
 			code string
@@ -529,6 +599,10 @@ func (p parity) isolation(t *testing.T) {
 		"cash_snapshots": {"1000 70 USD", "2000 1345 EUR"},
 		// The three figures of every cell at every lag added up.
 		"cash_accuracy": {"1000 20790 USD", "2000 117400 EUR"},
+		// The confirmed orders' items and the posted billing documents'.
+		"sales_lines": {"1000 19800 USD", "2000 352506 EUR"},
+		// The posted documents' items, the credits' negative.
+		"spend_lines": {"1000 10800 USD", "2000 12800 EUR"},
 	} {
 		t.Run(dataset, func(t *testing.T) { p.isolated(t, key, m, dataset, want) })
 	}

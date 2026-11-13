@@ -36,9 +36,6 @@ func labelsOnly(t *testing.T, country, prevVersion, nextVersion, returnType stri
 	if !next.SignedOff() || !reflect.DeepEqual(next.Manifest.SignOff, prev.Manifest.SignOff) {
 		t.Errorf("sign-off: got %+v, want %s's %+v", next.Manifest.SignOff, prevDir, prev.Manifest.SignOff)
 	}
-	if got := lib.Latest(country); got != next {
-		t.Errorf("Latest(%s): got %s, want %s", country, got.Dir(), nextDir)
-	}
 	same := *next
 	same.Manifest.Version = prev.Manifest.Version
 	same.Returns = Returns{Returns: unlabelled(next.Returns.Returns)}
@@ -101,8 +98,8 @@ func labelLinesOnly(t *testing.T, prevFile, nextFile string) {
 // UAE 2026.5 is 2026.4 with the VAT 201's box labels' markers dropped
 // under 2026.4's sign-off (product owner, 2026-11-09): only label strings
 // differ, and each box 1 label names the ISO 3166-2 code of the emirate
-// its box selects. It is the latest UAE pack and applies without the note
-// that no tax specialist signed it off.
+// its box selects. It applies without the note that no tax specialist
+// signed it off; 2026.6 adds number ranges (TestUAEPack2026_6).
 func TestUAEPack2026_5(t *testing.T) {
 	boxes := labelsOnly(t, "AE", "2026.4", "2026.5", "VAT201")
 	var named int
@@ -133,7 +130,7 @@ func TestUAEPack2026_5(t *testing.T) {
 
 // Canada 2026.8 is 2026.7 with the GST/HST return's line labels' markers
 // dropped under 2026.7's sign-off (product owner, 2026-11-09): only label
-// strings differ. It is the latest Canada pack.
+// strings differ; 2026.9 adds number ranges (TestCanadaPack2026_9).
 func TestCanadaPack2026_8(t *testing.T) {
 	boxes := labelsOnly(t, "CA", "2026.7", "2026.8", "GST34")
 	i := slices.IndexFunc(boxes, func(b Box) bool { return b.Code == "112" })

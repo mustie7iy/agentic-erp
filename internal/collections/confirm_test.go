@@ -164,9 +164,9 @@ func TestNextLevel(t *testing.T) {
 	}{
 		{"the first run", keyDate, "CI-USD 0->1, CI-A 0->1, CI-B 0->1", true},
 		{"proposed again before the next level's days", "2026-07-01", "CI-USD 1->2, CI-A 1->2, CI-B 1->1, CI-C 0->1", false},
-		{"the second, a level up where the days reach it", "2026-07-15", "CI-USD 1->2, CI-A 1->2, CI-B 1->2, CI-C 0->1, CI-D 0->1", true},
-		{"the third", "2026-12-31", "CI-USD 2->3, CI-A 2->3, CI-B 2->3, CI-C 1->2, CI-D 1->2, CI-E 0->1", true},
-		{"the fourth: the highest level stays", "2027-01-31", "CI-USD 3->3, CI-A 3->3, CI-B 3->3, CI-C 2->3, CI-D 2->3, CI-E 1->2", true},
+		{"the second, a level up where the days reach it", "2026-07-15", "CI-USD 1->2, CI-A 1->2, CI-B 1->2, CI-C 0->1, CI-D 0->1, MANUAL 0->1", true},
+		{"the third", "2026-12-31", "CI-USD 2->3, CI-A 2->3, CI-B 2->3, CI-C 1->2, CI-D 1->2, MANUAL 1->2, CI-E 0->1", true},
+		{"the fourth: the highest level stays", "2027-01-31", "CI-USD 3->3, CI-A 3->3, CI-B 3->3, CI-C 2->3, CI-D 2->3, MANUAL 2->3, CI-E 1->2", true},
 		{"at an earlier key date a level does not fall", "2026-04-02", "CI-A 3->3", false},
 		{"on its due date an item dunned before is not overdue", "2026-03-31", "", false},
 	} {
@@ -183,7 +183,8 @@ func TestNextLevel(t *testing.T) {
 	want := "CI-A 1 2026-06-30, CI-A 2 2026-07-15, CI-A 3 2026-12-31, CI-A 3 2027-01-31, " +
 		"CI-B 1 2026-06-30, CI-B 2 2026-07-15, CI-B 3 2026-12-31, CI-B 3 2027-01-31, " +
 		"CI-C 1 2026-07-15, CI-C 2 2026-12-31, CI-C 3 2027-01-31, CI-D 1 2026-07-15, CI-D 2 2026-12-31, CI-D 3 2027-01-31, " +
-		"CI-E 1 2026-12-31, CI-E 2 2027-01-31, CI-USD 1 2026-06-30, CI-USD 2 2026-07-15, CI-USD 3 2026-12-31, CI-USD 3 2027-01-31"
+		"CI-E 1 2026-12-31, CI-E 2 2027-01-31, CI-USD 1 2026-06-30, CI-USD 2 2026-07-15, CI-USD 3 2026-12-31, CI-USD 3 2027-01-31, " +
+		"MANUAL 1 2026-07-15, MANUAL 2 2026-12-31, MANUAL 3 2027-01-31" // the debit without terms, 15 days past its document date at the second run
 	if got := e.dunned(t); got != want {
 		t.Errorf("recorded levels: got %q, want %q", got, want)
 	}
@@ -304,7 +305,7 @@ func TestConfirmationsSerialize(t *testing.T) {
 		}
 	})
 	want := "CI-A 1 2026-06-30, CI-A 2 2026-07-01, CI-A 3 2026-07-15, CI-B 1 2026-06-30, CI-B 1 2026-07-01, CI-B 2 2026-07-15, " +
-		"CI-C 1 2026-07-01, CI-C 1 2026-07-15, CI-D 1 2026-07-15, CI-USD 1 2026-06-30, CI-USD 2 2026-07-01, CI-USD 3 2026-07-15"
+		"CI-C 1 2026-07-01, CI-C 1 2026-07-15, CI-D 1 2026-07-15, CI-USD 1 2026-06-30, CI-USD 2 2026-07-01, CI-USD 3 2026-07-15, MANUAL 1 2026-07-15"
 	if got := e.dunned(t); got != want {
 		t.Errorf("recorded levels: got %q, want each run's once: %q", got, want)
 	}

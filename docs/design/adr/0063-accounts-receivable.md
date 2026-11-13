@@ -125,7 +125,9 @@ code for every emirate, ADR-0049 §7) needs a jurisdiction per item, which
 neither the item nor `ledger.Posting`'s lines carry yet (ADR-0049 §7 As
 built says so of postings that build their own lines). The first version
 refuses such a code at entry rather than enter a document it could not
-post correctly. This is a gap for the UAE company, listed below.
+post correctly. This is a gap for the UAE company, listed below. (Closed
+by the product owner's decision of 2026-11-12: an item names its
+jurisdiction; As built, "The emirate on the item".)
 
 ### 5. Posting: the customer's open item (T75b)
 `POST /v1/customer-invoices/{id}:post` moves a draft to posted once, under
@@ -200,7 +202,9 @@ webhook events (2026-11-05).
 open items (`ledger.OpenItems.Receivable`) with the bucket logic of
 `ledger/aging.go`, exported, not copied; no table. It gives a company's
 open customer items on a key date per customer and in total, not yet due
-and in buckets of days overdue, in the company's local currency; a credit
+and in buckets of days overdue by its net due date (an item posted
+without payment terms is due on its document date, product owner
+2026-11-12), in the company's local currency; a credit
 item reduces its customer's bucket and total; the totals are the open
 items of the company's customer reconciliation accounts. It ages the
 items open now, not those open on the key date (aging as at a past date
@@ -222,8 +226,9 @@ is in the plan's "Later").
 ## Consequences
 - A new schema, three permissions and a document type for number ranges
   (`customer_invoice`); a company without that range cannot enter
-  invoices (422 `config.no_number_range`). The released country packs
-  bring none; a tenant adds it by a change request.
+  invoices (422 `config.no_number_range`). The country packs bring it
+  from Canada 2026.9 and UAE 2026.6 (ADR-0048 As built); a company on an
+  earlier version adds it by applying one of them or by a change request.
 - Customer invoices and manual sales entries exist side by side; the
   pilot's billing integration keeps posting journal entries until billing
   is built.
@@ -249,7 +254,8 @@ Plan defaults 1-5 above. Taken in T75a beside them:
 - **The emirate on a customer invoice's items** (product owner; scope):
   §4 refuses the UAE's one-code-for-every-emirate output codes. Entering
   UAE customer invoices needs a jurisdiction per item and on the posting's
-  lines; not built, no leaf added.
+  lines; not built, no leaf added. **Decided 2026-11-12** (product owner):
+  the item carries the emirate; As built, "The emirate on the item".
 
 ## As built
 
@@ -353,7 +359,8 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   (nil without), its special G/L indicator, its entry's number and
   reference and the document that posted it; `NetDueDate()` and
   `DaysOverdue(on)` give its due date and days overdue, none without
-  terms. Cleared lines and lines of a reversed entry or a reversal are
+  terms (since 2026-11-12 the document date without terms: As built,
+  Items without payment terms). Cleared lines and lines of a reversed entry or a reversal are
   left out; company access is the caller's to check. T75e, T76a, T76c
   and T77a read it.
 - Refusals at posting: a customer that is not active, no longer a
@@ -493,7 +500,8 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   (`items`: id, number, name, items, amount, buckets). Every bucket is
   given in a fixed order, an empty one with no items and 0: `not_due`,
   each `overdue` bucket with `days_from` and `days_to` (the last without
-  `days_to`), `no_due_date`. Every amount is a `Money` in the company's
+  `days_to`), `no_due_date` (always empty since 2026-11-12: As built,
+  Items without payment terms). Every amount is a `Money` in the company's
   currency.
 - **The items** are `ledger.OpenItems.Receivable`'s, read once per
   request for the company (or the one customer): open lines on customer
@@ -509,7 +517,8 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   for this): `ledger.AgingDays` (the default and the ascending check that
   `listOpenItems` makes of `aging_days`), `ledger.AgingBucket` (an item's
   bucket from `ReceivableItem.DaysOverdue`: without terms it has no due
-  date; due on the key date or later it is not due; else the bucket
+  date (since 2026-11-12 it is due on its document date: As built, Items
+  without payment terms); due on the key date or later it is not due; else the bucket
   holding its days) and `ledger.AgingRange` (a bucket's name and days,
   which `listOpenItems`' own aging now reads too). The list's aging counts
   in SQL (`agingSelect`); `TestAgingBucketAsTheList` (ledger) holds
@@ -518,7 +527,8 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   report's totals, bucket by bucket, to `GET /v1/open-items` of the
   receivables account and to that account's open lines. So an item without
   terms, and an item due on the key date, are treated as `listOpenItems`'
-  aging treats them.
+  aging treats them (an item without terms no longer, since 2026-11-12:
+  As built, Items without payment terms).
 - **Paging.** One row per customer with open items, by customer id (the
   order the ledger reads them in), in cursor pages (`page_size`, at most
   500); the token is signed for the company, key date, days and customer
@@ -715,3 +725,104 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   statement, direct debits, refunds. Credit memos are T75d; the netting
   of a customer's credit items is built and tested here with credits
   posted through the ledger's port.
+
+### Items without payment terms (po:2026-11-12, no migration)
+
+- **Rule** (product owner 2026-11-12): a customer open item posted
+  without payment terms (a manual or migrated entry's) is due on its
+  document date, so it is not due on that date and overdue from the day
+  after. It replaces what T75b and T75e built, where such an item had no
+  due date.
+- **One place.** `ledger.ReceivableItem.NetDueDate()` returns the terms'
+  net due date or, without terms, the document date; `DaysOverdue(on)`
+  counts from it. Both lost their `ok` result: every reader of customer
+  items (the AR aging here, dunning and the collection worklist in
+  ADR-0065) asks the item and none looks at `Terms` for a due date. The
+  credit exposure (T77a) does not read due dates and is unchanged.
+- **The AR aging** puts an item without terms in `not_due` or in the
+  overdue bucket of its days past its document date. A credit without
+  terms ages the same way, negative in its bucket, as a credit with
+  terms always did. Since every item now has a due date, the report's
+  `no_due_date` bucket is always empty. Decided by default: it is still
+  given and stays in `ReceivablesAgingBucket`'s open enumeration, because
+  taking a value out of a response is a breaking change (`cmd/enumcompat`,
+  `api/breaking-accepted.txt`) that this fix does not need; dropping it is
+  the product owner's to ask for.
+- **Not changed:** `GET /v1/open-items` (its `due_date_to` filter, its
+  `payment_terms` and its aging in SQL, `agingSelect`) shows an item
+  without terms, a customer's too, without a due date: it lists supplier
+  and customer items as posted and shares no code path with the readers
+  above. The report and the list therefore differ for a customer item
+  without terms, and only there: `TestAgingTotalsAreTheOpenItems` holds
+  the two together bucket by bucket with that one item moved, and
+  `TestAgingBucketAsTheList` holds `ledger.AgingBucket` to the list and
+  shows the reader's document-date ageing beside it. Supplier items
+  (`PayableItem`, due by the supplier's current terms without their own)
+  are unchanged.
+- **Walkthrough.** No expectation of steps 53 to 58 changed: none of
+  their customer items is posted without terms (full run, 59 steps).
+
+### The emirate on the item (product owner 2026-11-12; migration 000303)
+- A customer invoice's item names the subdivision its tax is levied in,
+  `tax_jurisdiction` (ISO 3166-2, `AE-DU`), as a journal line does
+  (ADR-0049 §7): the field, its name and its rules are the ledger's, held
+  by the same check (`ledger.TaxCode.CheckJurisdiction`, which the
+  ledger's lines and receivables' items share). An item whose output
+  code's component levies its lines' subdivision (the UAE pack's `S5`, one
+  code for every emirate) must name one, 422
+  `receivables.tax_jurisdiction_required`; it is a subdivision of the
+  component's country and, where the component lists the subdivisions it
+  accepts (the emirate guard), one of them; an item of any other code, or
+  of none, names none, 422 `receivables.tax_jurisdiction_not_levied`. Each
+  refusal names `items[i].tax_jurisdiction`. A value that has not the
+  form of a subdivision's code is refused by the contract's pattern, 400
+  `request.invalid_body`. `receivables.tax_jurisdiction_not_supported` is
+  gone with the refusal it named; §4's last paragraph and "Defaults
+  chosen" 5 no longer hold.
+- `receivables.customer_invoice_item.tax_jurisdiction` (000303): nullable,
+  only with a tax code and in the form of a subdivision's code
+  (`customer_invoice_item_tax_jurisdiction`; `TestCustomerInvoiceItemJurisdiction`).
+  That the code levies it is the context's check when the invoice is
+  entered and again when it posts (a draft whose jurisdiction the
+  configuration no longer accepts is refused then and entered again), and
+  the ledger's on the posted lines.
+- Posting: the item's line carries its code and jurisdiction
+  (`ledger.PostingLine.TaxJurisdiction`, new on the posting port), and the
+  output tax posts one line per code, jurisdiction and component
+  (`taxGroups`), so the entry's tax items are per emirate and the VAT
+  201's boxes 1a-1g select them as they select a manual sales entry's. A
+  credit memo posts the same with the signs turned.
+- **Decided by default:** (1) the invoice's tax stays its code's, rounded
+  as the company's tax settings say over the whole invoice and shared out
+  over the items (§4); a code's tax in an emirate is the sum of its
+  items' shares there, not a calculation of its own, so the emirates' tax
+  adds up to the invoice's `tax_amount` exactly. The ledger holds each
+  emirate's tax lines to its base lines within one minor unit per base
+  line (ADR-0049 §7), which shares keep, each being its item's exact tax
+  rounded down or up. (2) The jurisdiction is entered, not derived from
+  the customer's address or the company's establishment: ADR-0049 §11
+  reads boxes 1a-1g by the emirate each sale names, and nothing in the
+  configuration says which establishment made a sale. (3) The events
+  carry totals, not items (§9), so neither names the jurisdiction. (4)
+  The down migration drops the column: a posted invoice keeps its
+  jurisdictions on its journal lines; a draft naming one is refused by
+  the previous version's posting, which refuses its tax code as it did
+  at entry (422 `receivables.tax_jurisdiction_not_supported`).
+- Rolling upgrade (06 §6.4): 000303 is additive. An instance of the
+  previous release still refuses such a code at entry and at posting
+  (422 `receivables.tax_jurisdiction_not_supported`) and shows no
+  `tax_jurisdiction`: a draft naming one waits for the upgrade, and
+  nothing posts in the wrong emirate.
+- Tests: `TestItemJurisdiction`, `TestPostJurisdictions`,
+  `TestPostJurisdictionNoLongerLevied`, `TestRefusals` (receivables);
+  `TestCustomerInvoiceItemJurisdiction` (db). The walkthrough's customer
+  invoice step is the Canadian company's, whose codes levy no line's
+  subdivision, and the UAE company (step 41) has no customer set up, so
+  no walkthrough step shows it: tests only.
+- Not built: the emirate on a sales document's items and on the customer
+  invoice a billing document posts (ADR-0067, Questions). Quotations and
+  sales orders still refuse such a code, 422
+  `sales.tax_jurisdiction_not_supported`, so the invoice T79b's posting
+  enters (batch 71: merged after it) has no item that must name a
+  jurisdiction and names none; passing the emirate through sales is a
+  later slice.

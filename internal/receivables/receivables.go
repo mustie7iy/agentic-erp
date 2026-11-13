@@ -183,16 +183,21 @@ type Endpoints struct {
 }
 
 // Item is an item of a customer invoice: a net amount on an account and
-// the tax its code gave when the invoice was entered.
+// the tax its code gave when the invoice was entered. TaxJurisdiction is
+// the subdivision that tax is levied in (the emirate of a UAE sale,
+// AE-DU), named exactly where the code's component levies its lines'
+// subdivision (ADR-0049 §7; ADR-0063 §4 As built): the item's lines in
+// the ledger carry it, so the tax return reads the sale by emirate.
 type Item struct {
-	ItemNo         int32       `json:"item_no"`
-	Description    *string     `json:"description"`
-	AccountID      uuid.UUID   `json:"account_id"`
-	Net            money.Minor `json:"net_amount"`
-	TaxCode        *string     `json:"tax_code"`
-	Tax            money.Minor `json:"tax_amount"`
-	CostCenterID   *uuid.UUID  `json:"cost_center_id"`
-	ProfitCenterID *uuid.UUID  `json:"profit_center_id"`
+	ItemNo          int32       `json:"item_no"`
+	Description     *string     `json:"description"`
+	AccountID       uuid.UUID   `json:"account_id"`
+	Net             money.Minor `json:"net_amount"`
+	TaxCode         *string     `json:"tax_code"`
+	TaxJurisdiction *string     `json:"tax_jurisdiction"`
+	Tax             money.Minor `json:"tax_amount"`
+	CostCenterID    *uuid.UUID  `json:"cost_center_id"`
+	ProfitCenterID  *uuid.UUID  `json:"profit_center_id"`
 }
 
 // Invoice is a row of receivables.customer_invoice with its items.
@@ -243,8 +248,8 @@ const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.cust
 		i.net_amount, i.tax_amount, i.gross_amount, i.status, i.payment_term_code, i.net_due_date, i.journal_entry_year, i.journal_entry_id,
 		i.source_document_id, i.source_document_number,
 		coalesce((SELECT json_agg(json_build_object('item_no', t.item_no, 'description', t.description, 'account_id', t.account_id,
-			'net_amount', t.net_amount, 'tax_code', t.tax_code, 'tax_amount', t.tax_amount, 'cost_center_id', t.cost_center_id,
-			'profit_center_id', t.profit_center_id) ORDER BY t.item_no)
+			'net_amount', t.net_amount, 'tax_code', t.tax_code, 'tax_jurisdiction', t.tax_jurisdiction, 'tax_amount', t.tax_amount,
+			'cost_center_id', t.cost_center_id, 'profit_center_id', t.profit_center_id) ORDER BY t.item_no)
 		 FROM receivables.customer_invoice_item t WHERE t.tenant_id = i.tenant_id AND t.customer_invoice_id = i.id), '[]'),
 		i.version, i.created_at, i.created_by, i.updated_at, i.updated_by
 	FROM receivables.customer_invoice i JOIN ref.currency c ON c.code = i.currency`

@@ -45,7 +45,42 @@ func TestDatabaseFailures(t *testing.T) {
 	blocked := uuid.MustParse(e.placed(t, e.buyer(t, "BP70000090", "0.00"), e.item(line{code: "A1"}))["id"].(string))
 	e.usd(t)
 	dollars := uuid.MustParse(e.drafted(t, e.customer, "USD", e.item(line{currency: "USD", code: "A1"})))
+	// A posted billing document with a returns order of one of its two items, a draft, and room for another.
+	_, returnedFrom, _ := e.postedOrder(t, []string{e.item(line{quantity: "3"}), e.item(line{quantity: "2", unit: "KG"})}, "1 3 EA", "2 2 KG")
+	billedDoc := uuid.MustParse(returnedFrom)
+	draftReturn, _ := e.Must(201, "POST", returnsOrders, returning(returnedFrom, "defective", "1 1 EA"), "")
+	returns := uuid.MustParse(draftReturn["id"].(string))
+	// A confirmed returns order of the document's second item with one receipt and more still expected.
+	receivedReturn := uuid.MustParse(e.returnedOrder(t, returnedFrom, "2 1.5 KG"))
+	e.Must(201, "POST", receipts(receivedReturn.String()), `{"receipt_date": "2026-01-02", "items": [{"item_no": 1, "quantity": {"value": "0.5", "unit": "KG"}}]}`, "")
 	calls := map[string]func(ctx context.Context) error{
+		"confirm a return receipt": func(ctx context.Context) error {
+			_, err := h.ConfirmReturnReceipt(ctx, &gen.ReturnReceiptCreate{ReceiptDate: instant(t, "2026-01-03T00:00:00Z"), Items: []gen.ReturnReceiptItemCreate{
+				{ItemNo: 1, Quantity: gen.Quantity{Value: "1", Unit: "KG"}}}}, gen.ConfirmReturnReceiptParams{ID: receivedReturn})
+			return err
+		},
+		"list return receipts": func(ctx context.Context) error {
+			_, err := h.ListReturnReceipts(ctx, gen.ListReturnReceiptsParams{ID: receivedReturn})
+			return err
+		},
+		"create a returns order": func(ctx context.Context) error {
+			_, err := h.CreateReturnsOrder(ctx, &gen.ReturnsOrderCreate{BillingDocumentID: billedDoc, Reason: "other", ReasonText: gen.NewOptString("Late"),
+				Items: []gen.ReturnsOrderItemCreate{{BillingItemNo: 1, Quantity: gen.Quantity{Value: "2", Unit: "EA"}},
+					{BillingItemNo: 2, Quantity: gen.Quantity{Value: "0.5", Unit: "KG"}}}}, gen.CreateReturnsOrderParams{})
+			return err
+		},
+		"get a returns order": func(ctx context.Context) error {
+			_, err := h.GetReturnsOrder(ctx, gen.GetReturnsOrderParams{ID: returns})
+			return err
+		},
+		"list returns orders": func(ctx context.Context) error {
+			_, err := h.ListReturnsOrders(ctx, gen.ListReturnsOrdersParams{})
+			return err
+		},
+		"confirm a returns order": func(ctx context.Context) error {
+			_, err := h.ConfirmReturnsOrder(ctx, gen.ConfirmReturnsOrderParams{ID: returns, IfMatch: `"1"`})
+			return err
+		},
 		"release a credit block": func(ctx context.Context) error {
 			_, err := h.ReleaseSalesOrderCreditBlock(ctx, gen.ReleaseSalesOrderCreditBlockParams{ID: blocked, IfMatch: `"2"`})
 			return err
@@ -146,6 +181,24 @@ func TestDatabaseFailures(t *testing.T) {
 	t.Run("list deliveries' page size", func(t *testing.T) {
 		err := e.inRequest(t, func(ctx context.Context) error {
 			_, err := h.ListSalesDeliveries(ctx, gen.ListSalesDeliveriesParams{ID: deliveredOrder, PageSize: gen.NewOptInt32(0)})
+			return err
+		})
+		if p := problem.From(err); p.Code != "request.invalid_page_size" {
+			t.Errorf("got %v, want request.invalid_page_size", p)
+		}
+	})
+	t.Run("list return receipts' page size", func(t *testing.T) {
+		err := e.inRequest(t, func(ctx context.Context) error {
+			_, err := h.ListReturnReceipts(ctx, gen.ListReturnReceiptsParams{ID: receivedReturn, PageSize: gen.NewOptInt32(0)})
+			return err
+		})
+		if p := problem.From(err); p.Code != "request.invalid_page_size" {
+			t.Errorf("got %v, want request.invalid_page_size", p)
+		}
+	})
+	t.Run("list returns orders' page size", func(t *testing.T) {
+		err := e.inRequest(t, func(ctx context.Context) error {
+			_, err := h.ListReturnsOrders(ctx, gen.ListReturnsOrdersParams{PageSize: gen.NewOptInt32(0)})
 			return err
 		})
 		if p := problem.From(err); p.Code != "request.invalid_page_size" {

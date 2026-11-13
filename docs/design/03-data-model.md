@@ -976,6 +976,11 @@ Rules enforced in the database:
   ledger checks it first (`clearingPeriod`: 422
   `ledger.invalid_clearing_entry`, 409 `ledger.period_not_open`, 422
   `ledger.no_fiscal_period`).
+- A clearing that posts its entry is dated on or after the latest posting
+  date of the items it clears (422 `ledger.clearing_before_item`; the
+  ledger's `notBeforeItems`, in every path that posts a clearing entry).
+  The database does not enforce it: a migrated clearing keeps the source
+  system's date and a reversal its own (ADR-0006 As built).
 - A line is cleared at most once (`clearing_item` unique on the line).
 - Open items are lines on reconciliation accounts without a clearing item.
 - A reversal clears the original's open items against the matching lines of
@@ -2026,8 +2031,10 @@ frees its key). `contract_id` and `contract_item_no` name the contract
 item that prices an order of it, both or neither
 (`catalog_item_contract_item_both`), an item the contract has
 (`catalog_item_contract_item_fkey`); that the contract is active, of the
-same company and supplier and in the item's currency and unit is checked
-when the item is loaded. `search_text` is the key and the description in
+same company and supplier and in the item's currency and unit, and that
+its price is the item's (the same amount per the same price unit, T84c),
+is checked when the item is loaded; neither price changes afterwards, so
+they stay equal. `search_text` is the key and the description in
 lower case, generated, which the search matches a text in;
 `catalog_item_by_key` is the order the search's pages are read in. The
 legal entity is tenancy's and the supplier the partner context's, with no
@@ -4170,6 +4177,30 @@ Saved reports, and the analytical store's bookkeeping in PostgreSQL
 | `analytics.extract_due` | The tenants due an extract (T55c, 000115), one row per tenant: the outbox relay marks a tenant changed (`changed_at`) in the transaction that publishes its events, once per batch; the scheduler claims a due tenant at most once per interval (`started_at`) and records the start of the last run that finished (`done_at`, never after the claim: `extract_due_done_at_claim`), so a change after it is still due; `claimed_lsn` (T55f, 000116) is the primary's WAL position at the claim, and the run reads on the replica only once it has replayed past it |
 | `analytics.superseded` | The manifests a publication replaced (T55f, 000116), kept seven days so a running query never loses a file, each with the keys it listed that its successor does not (`dropped`), which the lifecycle then deletes, but for what the current manifest or a later supersession lists, without reading other manifests. Bookkeeping of derived data: no audit record |
 
+T91a copies the sales documents into the analytical store (ADR-0044 As
+built T91a), storing nothing in PostgreSQL: dataset `sales_lines`, one row
+per `sales.sales_order_item` of a confirmed `sales.sales_order`, dated its
+`order_date`, and per `sales.billing_document_item` of a posted
+`sales.billing_document`, dated its `billing_date`, each at its
+`net_amount` in the document's `currency`, naming the customer
+(`partner.business_partner`) by number and name and the order item's
+`item_key`. No migration; querying it is `analytics.query.run`,
+`sales.order.read`, `sales.billing.read` and `partner.supplier.read`.
+
+T91b copies the supplier invoices' items into the analytical store
+(ADR-0044 As built T91b), storing nothing in PostgreSQL: dataset
+`spend_lines`, one row per `payables.supplier_invoice_item` of a posted
+`payables.supplier_invoice` of any kind, dated its `posting_date`, at its
+`amount` in the document's `currency` (negative for the kinds
+`credit_memo` and `subsequent_credit`), naming the supplier
+(`partner.business_partner`), the account (`ledger.gl_account`) and cost
+center (`ledger.cost_center`) of the item or, for an item on an order, of
+its `procurement.purchase_order_item`, and the `procurement.contract` the
+order names (`purchase_order.contract_id`). No migration; querying it is
+`analytics.query.run`, `payables.invoice.read`, `procurement.order.read`,
+`procurement.contract.read`, `ledger.cost_center.read`,
+`ledger.account.read` and `partner.supplier.read`.
+
 ## 3.24 Consolidation (`consolidation`)
 
 ADR-0059, T68a-T68h. Consolidation is a leaf context: it reads tenancy,
@@ -4317,6 +4348,7 @@ erDiagram
     uuid account_id "ledger"
     bigint net_amount "above 0"
     text tax_code "output code, optional"
+    text tax_jurisdiction "ISO 3166-2, where the code levies its lines' subdivision"
     bigint tax_amount "0 without a code"
     uuid cost_center_id
     uuid profit_center_id }
@@ -4363,7 +4395,10 @@ erDiagram
   (`customer_invoice_item_net_positive`) on an account, with the tax its
   output tax code gave at the invoice date, never negative and 0 without a
   code (`customer_invoice_item_tax_not_negative`,
-  `customer_invoice_item_tax_needs_code`); insert-only
+  `customer_invoice_item_tax_needs_code`); the subdivision its tax is
+  levied in (000303: the emirate, `AE-DU`), only under a tax code and in
+  the form of an ISO 3166-2 subdivision
+  (`customer_invoice_item_tax_jurisdiction`); insert-only
   (`platform.forbid_mutation`). The items' net and tax add up to the
   header's, which the context writes in one transaction.
 - `receivables.incoming_payment` (T75c): an incoming payment applied.
@@ -4559,8 +4594,12 @@ offers a customer, valid until a date, net of tax. T78b (migration
 confirmation, which moves no stock (stock is outside the required
 scope), T79a (migration 000293) the billing document, which posts
 nothing until T79b, T80a (migration 000294) the price
-records an item without a price is priced from, and T80b (migration
-000295) discounts among them and the conditions applied to an item.
+records an item without a price is priced from, T80b (migration
+000295) discounts among them and the conditions applied to an item, and
+T85a (migration 000306) the returns order for a posted billing
+document's items, which moves no stock either and posts nothing, and
+T85b (migration 000307) the receipt of its quantities, a confirmation
+as the delivery's is.
 There is no material
 master (§3.16's shared `material` joins the items when it is built): an
 item names what is sold by a description and an optional free-text
@@ -4613,6 +4652,7 @@ erDiagram
     numeric quantity "ordered; with the quotation item's other columns"
     numeric delivered_quantity "at most quantity"
     numeric billed_quantity "at most delivered_quantity"
+    numeric returned_quantity "at most billed_quantity (T85a)"
   }
   sales_order ||--o{ delivery : "is delivered by"
   delivery ||--|{ delivery_item : "has"
@@ -4652,6 +4692,41 @@ erDiagram
     int order_item_no "once per document"
     numeric quantity "above zero"
     bigint net_amount "above zero"
+  }
+  billing_document ||--o{ returns_order : "is returned by"
+  returns_order ||--|{ returns_order_item : "has"
+  billing_document_item ||--o{ returns_order_item : "is returned by"
+  returns_order { uuid id PK
+    text document_number "returns_order range, unique per company"
+    uuid legal_entity_id "the billing document's"
+    uuid customer_id "the billing document's"
+    uuid billing_document_id "a posted billing document"
+    uuid sales_order_id "the billing document's order"
+    date returns_date "the company's date when created"
+    text reason "defective, wrong_item, not_wanted, other"
+    text reason_text "optional"
+    text status "draft, confirmed"
+    int version
+  }
+  returns_order_item { uuid returns_order_id PK
+    int item_no PK
+    uuid billing_document_id "the returns order's"
+    int billing_item_no "once per returns order"
+    numeric quantity "above zero"
+    numeric received_quantity "at most quantity (T85b)"
+  }
+  returns_order ||--o{ return_receipt : "is received by"
+  return_receipt ||--|{ return_receipt_item : "has"
+  returns_order_item ||--o{ return_receipt_item : "is received by"
+  return_receipt { uuid id PK
+    uuid returns_order_id "a confirmed returns order"
+    int receipt_no "unique per returns order"
+    date receipt_date
+  }
+  return_receipt_item { uuid receipt_id PK
+    int item_no PK "the returns order's item"
+    uuid returns_order_id "the receipt's returns order"
+    numeric quantity "above zero"
   }
   price { uuid id PK
     uuid legal_entity_id "tenancy"
@@ -4720,7 +4795,9 @@ erDiagram
   (`sales_order_item_quantities`). The application may not change or
   delete an item: `delivered_quantity` is moved by the delivery's
   trigger alone (T78c) and `billed_quantity` by the billing document's
-  (T79a).
+  (T79a). T85a (migration 000306) adds `returned_quantity`, 0 by
+  default and at most `billed_quantity` (`sales_order_item_returned`),
+  moved by the returns order item's trigger alone.
 - `sales.delivery` (T78c, migration 000292): a confirmation that
   quantities of an order's items were delivered on `delivery_date`,
   numbered within its order (`delivery_no_positive`, `delivery_no_once`).
@@ -4777,6 +4854,63 @@ erDiagram
   the order's item, which nothing changes. Insert-only
   (`platform.forbid_mutation`); `billing_document_item_by_order_item`
   serves what earlier documents billed of an order item.
+- `sales.returns_order` (T85a, migration 000306; ADR-0067, As built
+  T85a): quantities of a posted billing document's items that the
+  customer sends back, numbered once per company
+  (`returns_order_number_once`), dated the company's date, with a
+  `reason` (`returns_order_reason_check`: `defective`, `wrong_item`,
+  `not_wanted`, `other`) and an optional `reason_text`
+  (`returns_order_reason_text_check`). It names its billing document
+  with that document's sales order
+  (`returns_order_billing_document_fkey`), and the billing document is a
+  posted one of its company and customer
+  (`returns_order_document_posted`, a trigger running as the table's
+  owner that also moves the sales order's `version` once per returns
+  order, as a delivery's does). The status is `draft` or `confirmed`
+  (`returns_order_status_check`); confirming is its one change, once
+  (`returns_order_confirmed_once`): the application may update
+  `status`, `version` and `updated_by` alone and delete nothing. It
+  carries no amounts and posts nothing. The list reads a company's
+  returns orders by date, a customer's, a billing document's and a sales
+  order's (`returns_order_by_date`, `returns_order_by_customer`,
+  `returns_order_by_document`, `returns_order_by_order`).
+- `sales.returns_order_item`: a quantity above zero
+  (`returns_order_item_quantity_positive`) of an item of the returns
+  order's own billing document (`returns_order_item_order_fkey`,
+  `returns_order_item_billing_item_fkey`), a billing item at most once
+  per returns order (`returns_order_item_once`). Each insert adds its
+  quantity to the `returned_quantity` of the sales order item its
+  billing item billed (`returns_order_item_returned`, a trigger running
+  as the table's owner), and the returns orders of a billing document,
+  drafts included, never take more of one of its items than it billed
+  (`returns_order_item_quantities`, the same trigger;
+  `returns_order_item_by_billing_item` serves the sum). The application
+  may neither update nor delete an item. T85b (migration 000307) adds
+  `received_quantity`, 0 by default and at most `quantity`
+  (`returns_order_item_received`), moved by the receipt item's trigger
+  alone.
+- `sales.return_receipt` (T85b, migration 000307; ADR-0067, As built
+  T85b): a confirmation that quantities of a returns order's items
+  arrived on `receipt_date`, numbered within its returns order
+  (`return_receipt_no_positive`, `return_receipt_no_once`). Only a
+  confirmed returns order takes one (`return_receipt_order_confirmed`,
+  a trigger that also moves the returns order's `version` once per
+  receipt and sets its `updated_by`, running as the table's owner: the
+  application itself still changes a confirmed returns order in
+  nothing, and `sales.check_returns_order_change` admits a confirmed
+  returns order's version moved from a trigger alone). Insert-only
+  (`platform.forbid_mutation`); the list reads a returns order's
+  receipts by date (`return_receipt_by_date`). It moves no stock and
+  posts nothing, and the sales order is not touched.
+- `sales.return_receipt_item`: a quantity above zero
+  (`return_receipt_item_quantity_positive`) of an item of the receipt's
+  own returns order (`return_receipt_item_receipt_fkey`,
+  `return_receipt_item_order_item_fkey`), a returns order item at most
+  once per receipt (the primary key). Each insert adds its quantity to
+  the returns order item's `received_quantity`
+  (`return_receipt_item_received`, a trigger running as the table's
+  owner), so that quantity is the sum of the item's receipts and never
+  above what is returned (`returns_order_item_received`). Insert-only.
 - `sales.price` (T80a, migration 000294; ADR-0067 §10): the net price of
   an item key (`price_item_key_check`) in a company, for every customer
   (`customer_id` null) or for one, above zero (`price_positive`) per a
@@ -4813,12 +4947,14 @@ erDiagram
 - `sales.outbox`, `sales.inbox`: the context's events
   (`QuotationChanged`, `SalesOrderChanged`, `SalesOrderDelivered`,
   `BillingDocumentChanged`, `BillingDocumentPosted`, `SalesPriceChanged`,
-  `SalesOrderCreditBlocked`, `SalesOrderCreditReleased`).
+  `SalesOrderCreditBlocked`, `SalesOrderCreditReleased`,
+  `ReturnsOrderChanged`, `ReturnReceived`).
 - Permissions `sales.quotation.read` and `.write`; `sales.order.read`,
   `.write`, `.confirm` and `.credit_release` (T77b);
   `sales.delivery.confirm`; `sales.billing.read`,
   `.write` and `.post` (posting comes with T79b); `sales.price.read` and
-  `.write`.
+  `.write`; `sales.return.read`, `.write` and `.confirm` (T85a) and
+  `.receive` (T85b).
 
 ## 3.30 Revenue recognition (`revenue`)
 
@@ -4901,3 +5037,102 @@ erDiagram
   `SalesOrderChanged`), each recorded in the transaction of what the
   reading did.
 - Permissions `revenue.contract.read`, `.write` and `.activate`.
+
+## 3.31 Governance, risk and compliance (`grc`)
+
+ADR-0078, T98a (migration 000304) and T98b (migration 000305). A leaf: it
+reads the identity context (principals, the permission catalog,
+segregation-of-duties rules) and the active configuration version through
+its ports, in types of its own, imports no other context, posts nothing
+and keeps no foreign key out of its schema (02 §2.1). It stores the
+tenant's control library, the results of testing its controls and each
+control's links to what enforces it. The library is the tenant's own: no
+control is shipped. The control matrix has no table: whether a link holds
+is computed on read (ADR-0078 §8).
+
+```mermaid
+erDiagram
+  control ||--o{ control_test : "tested"
+  control ||--o{ control_link : "enforced by"
+  control { uuid id PK
+    text code "the tenant's, unique in any case, fixed"
+    text objective
+    text process "free text"
+    uuid owner_id "identity: a person"
+    text frequency
+    text nature "manual | automated"
+    text status "active | retired"
+    text_array framework_references "the tenant's free text"
+    int version }
+  control_link { uuid id PK
+    uuid control_id FK
+    text kind "permission | sod_rule | configuration_path"
+    text target "code, rule id or path"
+    text status "active | removed"
+    int version }
+  control_test { uuid id PK
+    uuid control_id FK
+    date tested_on
+    text result "passed | failed"
+    text note "of the evidence"
+    uuid tested_by "identity: the person" }
+```
+
+- `grc.control`: a control of the library. Its code is 1 to 40 letters,
+  digits, dots, dashes and underscores (`control_code_check`), unique in
+  the tenant whatever its case (`control_code_once`, which the API
+  answers 409 `grc.control_code_taken`) and never changed: the
+  application is granted the update of what a control says, its status,
+  `version` and `updated_by`, not of `code`, and no delete. The
+  objective is a text of up to 1,000 characters
+  (`control_objective_check`), the process one of up to 100 without
+  white space around it (`control_process_check`), the frequency one of
+  `continuous`, `daily`, `weekly`, `monthly`, `quarterly`, `yearly`,
+  `ad_hoc` (`control_frequency_check`) and the nature `manual` or
+  `automated` (`control_nature_check`). A change moves the version by
+  one (`platform.touch`, which also moves `updated_at`). The status is
+  `active` or `retired` (`control_status_check`); a retired row is fixed
+  (`control_retired_fixed`). The library is listed by code
+  (`control_by_code`). `owner_id` is the identity context's; that the
+  owner is an active person is the application's check when it is
+  named.
+- `grc.control_test`: the result of testing a control once, `passed` or
+  `failed` (`control_test_result_check`) on a date, with a note of the
+  evidence of up to 2,000 characters (`control_test_note_check`) and the
+  person who tested. It belongs to a control of the tenant
+  (`control_test_control_fkey`) and is insert-only
+  (`control_test_immutable`, `platform.forbid_mutation`; no update or
+  delete grant). A control's last test is the one with the latest
+  `tested_on` and, among those of one date, the latest `id` (a UUIDv7),
+  which `control_test_latest` reads first; it is computed on read and
+  not stored on the control. That the date is not after today and that
+  the control is active are the application's checks, under the
+  control's row lock.
+- `framework_references` on `grc.control` (T98b): the tenant's references
+  to a framework it names, at most 50 texts of 1 to 200 characters
+  without white space around them, none twice
+  (`control_framework_references_check`,
+  `grc.framework_references_valid`), in the order given; empty by
+  default. Nothing checks a reference against a framework: none is
+  shipped.
+- `grc.control_link` (T98b): a link from a control
+  (`control_link_control_fkey`) to what enforces it, by `kind`
+  (`control_link_kind_check`): a permission's code, a
+  segregation-of-duties rule's id or a configuration path of up to 500
+  characters, each in the form of its kind (`control_link_target_check`).
+  What it names is the platform's permission catalog's, identity's or
+  the configuration's, so there is no foreign key: a link whose target
+  is gone stays and the matrix shows it as broken. A control has one
+  active link to a target (`control_link_once`, which the API answers
+  409 `grc.control_link_exists`). A link is `active` or `removed`
+  (`control_link_status_check`); removing it is its only change (the
+  application is granted the update of `status`, `version` and
+  `updated_by`, and no delete), with the next version
+  (`platform.touch`), and a removed row is fixed
+  (`control_link_removed_fixed`). A control's links are read in the
+  order they were made (`control_link_by_control`). That the target is
+  there when the link is made, and that the control is active, are the
+  application's checks, under the control's row lock.
+- `grc.outbox`, `grc.inbox`: the context's events (`ControlChanged`).
+- Permissions `grc.control.read`, `grc.control.write` and
+  `grc.control.test`.

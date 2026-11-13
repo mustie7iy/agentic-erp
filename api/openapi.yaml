@@ -60,11 +60,13 @@ tags:
   - name: collections
     description: "Dunning and collections (ADR-0065): dunning runs and their notices, and the collection worklist."
   - name: sales
-    description: "Sales (ADR-0067): quotations, sales orders, the confirmations of their deliveries, billing documents and sales prices."
+    description: "Sales (ADR-0067): quotations, sales orders, the confirmations of their deliveries, billing documents, returns orders, the confirmations of their receipts and sales prices."
   - name: revenue
     description: "Revenue recognition (ADR-0068): revenue contracts and their performance obligations."
   - name: credit
     description: "Credit management (ADR-0066): customers' credit limits, their credit exposure and the check of an amount against the limit."
+  - name: grc
+    description: "Governance, risk and compliance (ADR-0078): the tenant's control library, the results of testing its controls, and the control matrix of what enforces each control."
   - name: payments
     description: Payment runs, payments and bank files.
   - name: cash
@@ -7200,7 +7202,7 @@ paths:
       tags:
         - ledger
       summary: List open items
-      description: "Uncleared lines on supplier and customer reconciliation accounts. An item posted with payment terms (T36b) is due on their `net_due_date`, and earns a discount until each tier's `until`; an item without terms (posted before T36, manually, migrated, a customer's) has no due date the ledger keeps. With `aging_key_date` the first page also carries `aging`: every item the filters select, not only the page's, summed per local currency by how many days past its net due date it is on the key date (ADR-0052 G4). Sortable by: `posting_date`."
+      description: "Uncleared lines on supplier and customer reconciliation accounts. An item posted with payment terms (T36b) is due on their `net_due_date`, and earns a discount until each tier's `until`; an item without terms (posted before T36, manually, migrated) has no due date in this list, a supplier's and a customer's alike: the list shows the items as they were posted. The AR aging, a dunning run and the collection worklist take a customer item without terms as due on its document date (`GET /v1/receivables-aging`). With `aging_key_date` the first page also carries `aging`: every item the filters select, not only the page's, summed per local currency by how many days past its net due date it is on the key date (ADR-0052 G4). Sortable by: `posting_date`."
       x-permission: ledger.entry.read
       x-problem-codes:
         - request.invalid_order_by
@@ -9930,7 +9932,7 @@ paths:
       tags:
         - ledger
       summary: Clear open items
-      description: "Clears open items against each other and posts the clearing entry. A line already cleared is 409. An open item a payment run holds (proposed, or releasing with its payment not posted yet) is reserved for that run and is 409 `ledger.item_reserved` until the run settles or frees it."
+      description: "Clears open items against each other and posts the clearing entry, dated `clearing_date`. The clearing date is on or after the latest posting date of the items: an item is not cleared before it was posted (422 `ledger.clearing_before_item` naming `clearing_date`, its message giving that date). A line already cleared is 409. An open item a payment run holds (proposed, or releasing with its payment not posted yet) is reserved for that run and is 409 `ledger.item_reserved` until the run settles or frees it."
       x-permission: ledger.clearing.post
       x-problem-codes:
         - config.no_number_range
@@ -9938,6 +9940,7 @@ paths:
         - ledger.account_not_postable
         - ledger.asset_reconciliation_account
         - ledger.automatic_account
+        - ledger.clearing_before_item
         - ledger.clearing_not_balanced
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -10199,7 +10202,7 @@ paths:
       tags:
         - procurement
       summary: Update a draft requisition
-      description: "Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears an optional field, arrays are replaced as a whole. Items taken from the catalog are sent as when the requisition is created (`catalog_item_id` with a quantity and an account, without description or price) and checked again against the catalog; while the requisition has such items its supplier, and its contract if a catalog item names one, stay the catalog items': clearing one takes it from them again, and another is refused (422 `procurement.catalog_item_supplier`, `procurement.catalog_item_contract`)."
+      description: "Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears an optional field, arrays are replaced as a whole. Items taken from the catalog are sent as when the requisition is created (`catalog_item_id` with a quantity and an account, without description or price or with the catalog item's own, so the items read back can be sent again as they were read; another price is refused, 422 `procurement.catalog_item_override`) and checked again against the catalog; while the requisition has such items its supplier, and its contract if a catalog item names one, stay the catalog items': clearing one takes it from them again, and another is refused (422 `procurement.catalog_item_supplier`, `procurement.catalog_item_contract`)."
       x-permission: procurement.requisition.create
       x-autonomy: propose
       x-problem-codes:
@@ -11369,10 +11372,11 @@ paths:
       tags:
         - procurement
       summary: Load a catalog item
-      description: "Loads one item of a supplier into a company's catalog (ADR-0071 §2, T84a), `active` at once: its item key, description, unit and price per `price_unit`, in the price's currency. The supplier must be one that can be ordered from in the company, as a purchase order's must be (422 `procurement.supplier_not_usable`). An item key is the supplier's once among the company's active items (409 `procurement.catalog_item_exists`); a retired item frees its key. `contract_id` with `contract_item_no` names the contract item that prices an order of the item: an item of an `active` contract of the company and the supplier in the item's currency (422 `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`); the catalog item keeps its own price, which a requisition takes. What an item offers is not changed afterwards: a new price is a new item after the old one is retired. `CatalogItemChanged` is published. The catalog is the tenant's own data: nothing is fetched from a supplier's system."
+      description: "Loads one item of a supplier into a company's catalog (ADR-0071 §2, T84a), `active` at once: its item key, description, unit and price per `price_unit`, in the price's currency. The supplier must be one that can be ordered from in the company, as a purchase order's must be (422 `procurement.supplier_not_usable`). An item key is the supplier's once among the company's active items (409 `procurement.catalog_item_exists`); a retired item frees its key. `contract_id` with `contract_item_no` names the contract item that prices an order of the item: an item of an `active` contract of the company and the supplier in the item's currency (422 `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`) and at the item's price: the same amount per the same `price_unit`, compared as written (422 `procurement.catalog_item_price` on `unit_price.amount` or `price_unit`, naming the item, the contract item and both prices; product owner, 2026-11-12), so the price a requisition takes from the catalog is the one an order on the contract item takes. What an item offers is not changed afterwards: a new price is a new item after the old one is retired. `CatalogItemChanged` is published. The catalog is the tenant's own data: nothing is fetched from a supplier's system."
       x-permission: procurement.catalog.manage
       x-problem-codes:
         - procurement.catalog_item_exists
+        - procurement.catalog_item_price
         - procurement.currency_mismatch
         - procurement.invalid_amount
         - procurement.invalid_contract
@@ -13779,7 +13783,7 @@ paths:
       tags:
         - payables
       summary: Clear down payments against a final invoice
-      description: "Clears paid down payment requests of the invoice's supplier against the posted invoice (SAP F-54; ADR-0037), whole: their total with what was cleared against it before is at most the invoice's gross amount (422 `payables.down_payments_exceed_invoice`), and a request naming a purchase order clears only against an invoice of that order. A transfer entry (document type AB) credits the down payment account, clearing each down payment, reverses the input tax its payment claimed, and debits the supplier's payables account with their total, an open item with the invoice's payment terms that the next run nets against the invoice, so a cash discount is taken on what remains to pay. The requests move to `cleared`; the invoice is not reversed while they stand. Requires status `posted` and kind `invoice`."
+      description: "Clears paid down payment requests of the invoice's supplier against the posted invoice (SAP F-54; ADR-0037), whole: their total with what was cleared against it before is at most the invoice's gross amount (422 `payables.down_payments_exceed_invoice`), and a request naming a purchase order clears only against an invoice of that order. A transfer entry (document type AB) credits the down payment account, clearing each down payment, reverses the input tax its payment claimed, and debits the supplier's payables account with their total, an open item with the invoice's payment terms that the next run nets against the invoice, so a cash discount is taken on what remains to pay. The requests move to `cleared`; the invoice is not reversed while they stand. The transfer's posting date is on or after the latest posting date of the down payments it clears (422 `ledger.clearing_before_item` naming `posting_date`, its message giving that date). Requires status `posted` and kind `invoice`."
       x-permission: payables.invoice.post
       x-problem-codes:
         - config.no_number_range
@@ -13788,6 +13792,7 @@ paths:
         - ledger.amount_too_large
         - ledger.asset_reconciliation_account
         - ledger.automatic_account
+        - ledger.clearing_before_item
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.down_payment_tax_shared
@@ -14355,7 +14360,7 @@ paths:
       tags:
         - payments
       summary: Propose a payment run
-      description: "Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then selects due open items, applies exclusions (blocks, missing or recently changed bank details) and reserves the items; the run becomes `proposed`, or `failed`. Runs can exceed 100,000 items, so this returns an Operation. A run that takes cash discount in a legal entity without a cash discount account fails with 422 `payments.no_cash_discount_account` (T36d). A withholding tax deducted at payment that, rounded after the cash discount, would take all an item owes fails it with 422 `payments.withholding_too_large` (T46f), whose `detail` names the item by its journal entry's document number, fiscal year and line, the supplier by its number and name, and the amounts in the run's currency. Open items that add up to more than an amount can hold fail it with 422 `payments.amount_too_large`, whose `detail` names the supplier by its number and name when one supplier's items do, or the run."
+      description: "Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then selects due open items, applies exclusions (blocks, missing or recently changed bank details) and reserves the items; an open item posted after the run date is not selected and waits for a later run, since its payment, posted on the run date, would clear it before it was posted; the run becomes `proposed`, or `failed`. Runs can exceed 100,000 items, so this returns an Operation. A run that takes cash discount in a legal entity without a cash discount account fails with 422 `payments.no_cash_discount_account` (T36d). A withholding tax deducted at payment that, rounded after the cash discount, would take all an item owes fails it with 422 `payments.withholding_too_large` (T46f), whose `detail` names the item by its journal entry's document number, fiscal year and line, the supplier by its number and name, and the amounts in the run's currency. Open items that add up to more than an amount can hold fail it with 422 `payments.amount_too_large`, whose `detail` names the supplier by its number and name when one supplier's items do, or the run."
       x-permission: payments.run.propose
       x-problem-codes:
         - config.no_number_range
@@ -14829,6 +14834,7 @@ paths:
         - ledger.amount_too_large
         - ledger.asset_reconciliation_account
         - ledger.automatic_account
+        - ledger.clearing_before_item
         - ledger.clearing_not_balanced
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -14993,6 +14999,7 @@ paths:
         - ledger.amount_too_large
         - ledger.asset_reconciliation_account
         - ledger.automatic_account
+        - ledger.clearing_before_item
         - ledger.clearing_not_balanced
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -15385,7 +15392,7 @@ paths:
       tags:
         - payments
       summary: Post a matched bank statement line
-      description: "Posts a `matched` line (ADR-0047) to the house bank's main bank account (`main_gl_account`) against what its match clears: for payments, each payment's line on the bank's clearing account, which must be open-item managed (422 `ledger.not_open_item_managed`), is offset at its original amounts and cleared with the posting, and the payments must pay the line's amount (409 `payments.statement_amount_differs`); for a posting rule, the rule's account (409 `payments.statement_posting_rule_gone` when the company no longer has the rule); for an incoming payment, the house bank's incoming payments clearing account, where the line stays an open item until accounts receivable clears it (409 `payments.statement_incoming_gone` when the bank no longer names one). A statement in another currency than the company's is converted at the posting date's rates, and the difference to the payments' amounts is a realized exchange difference (fx_gain/fx_loss). The posting is dated on the line's booking date, or on `posting_date` with a `reason` (both audited); a locked or closed period refuses it (409 `ledger.period_not_open`). The posting is routed by the line's amount in the company's currency through `companies[].bank_statements.approval_tiers` (`bank_clearing` approval requests): a tier without steps posts at once (`posted`); otherwise the line waits for the request (`pending_approval`), whose approval posts it, checked again, and whose rejection or withdrawal returns it to `matched`. A company without tiers has every posting approved by the `controller` role. Whoever matched the line by hand cannot approve its posting. A house bank without a main bank account never posts (409 `payments.statement_bank_not_posting`), nor one with a statement in `gap` (409 `payments.statement_gap`). A line not matched is 409 `payments.statement_line_not_matched`; one posted or waiting already is 409 `payments.statement_line_posting`. A `posting_date` before the booking date is refused (422): a later one takes the line out of a locked period, an earlier one would book it before the bank did. A statement whose last line to decide this was becomes `reconciled` once the ledger agrees (T49h). People only. Audited; the posting publishes BankStatementLinePosted, and the ledger JournalEntryPosted and ItemsCleared. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
+      description: "Posts a `matched` line (ADR-0047) to the house bank's main bank account (`main_gl_account`) against what its match clears: for payments, each payment's line on the bank's clearing account, which must be open-item managed (422 `ledger.not_open_item_managed`), is offset at its original amounts and cleared with the posting, and the payments must pay the line's amount (409 `payments.statement_amount_differs`); for a posting rule, the rule's account (409 `payments.statement_posting_rule_gone` when the company no longer has the rule); for an incoming payment, the house bank's incoming payments clearing account, where the line stays an open item until accounts receivable clears it (409 `payments.statement_incoming_gone` when the bank no longer names one). A statement in another currency than the company's is converted at the posting date's rates, and the difference to the payments' amounts is a realized exchange difference (fx_gain/fx_loss). The posting is dated on the line's booking date, or on `posting_date` with a `reason` (both audited); a locked or closed period refuses it (409 `ledger.period_not_open`). The posting is routed by the line's amount in the company's currency through `companies[].bank_statements.approval_tiers` (`bank_clearing` approval requests): a tier without steps posts at once (`posted`); otherwise the line waits for the request (`pending_approval`), whose approval posts it, checked again, and whose rejection or withdrawal returns it to `matched`. A company without tiers has every posting approved by the `controller` role. Whoever matched the line by hand cannot approve its posting. A house bank without a main bank account never posts (409 `payments.statement_bank_not_posting`), nor one with a statement in `gap` (409 `payments.statement_gap`). A line not matched is 409 `payments.statement_line_not_matched`; one posted or waiting already is 409 `payments.statement_line_posting`. A `posting_date` before the booking date is refused (422): a later one takes the line out of a locked period, an earlier one would book it before the bank did. A posting that clears payments is dated on or after the latest posting date of the payments' lines it clears (422 `ledger.clearing_before_item` naming `posting_date`, its message giving that date): a line booked before the payment it settles was posted is posted with a `posting_date` from that date on and a `reason`; a line waiting for approval is checked when the approval posts it. A statement whose last line to decide this was becomes `reconciled` once the ledger agrees (T49h). People only. Audited; the posting publishes BankStatementLinePosted, and the ledger JournalEntryPosted and ItemsCleared. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
       x-permission: payments.statement.post
       x-agent: false
       x-problem-codes:
@@ -15396,6 +15403,7 @@ paths:
         - ledger.amount_too_large
         - ledger.asset_reconciliation_account
         - ledger.automatic_account
+        - ledger.clearing_before_item
         - ledger.clearing_not_balanced
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -16564,7 +16572,7 @@ paths:
       tags:
         - receivables
       summary: Enter a customer invoice
-      description: "Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of an invoice the company issued to a customer, not the legal tax invoice, and no e-invoice is sent. It is created `draft` with a document number from the company's `customer_invoice` number range of the invoice date's fiscal year; nothing is posted. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `receivables.customer_not_usable` otherwise); its data in the company (reconciliation account, payment term) is required only when the invoice posts (`postCustomerInvoice`). A `payment_term_code` is a configured payment term (422 `receivables.unknown_payment_term` naming it); absent, the invoice posts with the customer's term in the company. Each item is a net amount, more than zero, in the invoice's currency on an account that can be posted in the company (422 `receivables.account_not_postable` naming `items[i].account_id`), with the centers the ledger asks of the account on the posting date, else the invoice date. An item's `tax_code` is an output tax code of the company with a rate in force on the invoice date, the tax date (422 `receivables.unknown_tax_code` naming `items[i].tax_code`); the tax is calculated at that date's rates, rounded as the company's tax settings say, and each item keeps its share, so the items' net and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its `gross_amount`, exactly. An item without a code bears no tax. A code that levies the subdivision its lines name (one code for every emirate) is refused, 422 `receivables.tax_jurisdiction_not_supported`: an item names no jurisdiction yet. With `kind` `credit_memo` the document is a customer credit memo (ADR-0063 §7, T75d): entered the same way, its amounts more than zero, its tax at its own date's rates, and posted with the signs turned. A credit memo may name the invoice it credits (`reference_invoice_id`): a posted invoice of the same company and customer in the memo's currency (422 `receivables.invalid_reference_invoice` naming the field otherwise); an invoice names none (422 `receivables.reference_not_allowed`). A kind that is neither is refused (422 `receivables.unknown_kind`). A retry with the same `Idempotency-Key` answers the invoice entered. Human-only (`x-agent: false`)."
+      description: "Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of an invoice the company issued to a customer, not the legal tax invoice, and no e-invoice is sent. It is created `draft` with a document number from the company's `customer_invoice` number range of the invoice date's fiscal year; nothing is posted. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `receivables.customer_not_usable` otherwise); its data in the company (reconciliation account, payment term) is required only when the invoice posts (`postCustomerInvoice`). A `payment_term_code` is a configured payment term (422 `receivables.unknown_payment_term` naming it); absent, the invoice posts with the customer's term in the company. Each item is a net amount, more than zero, in the invoice's currency on an account that can be posted in the company (422 `receivables.account_not_postable` naming `items[i].account_id`), with the centers the ledger asks of the account on the posting date, else the invoice date. An item's `tax_code` is an output tax code of the company with a rate in force on the invoice date, the tax date (422 `receivables.unknown_tax_code` naming `items[i].tax_code`); the tax is calculated at that date's rates, rounded as the company's tax settings say, and each item keeps its share, so the items' net and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its `gross_amount`, exactly. An item without a code bears no tax. An item whose code levies the subdivision its lines name (one code for every emirate, ADR-0049 §7) names that subdivision in `tax_jurisdiction` (`AE-DU`; 422 `receivables.tax_jurisdiction_required` naming `items[i].tax_jurisdiction` without one): a subdivision of the code's country and, where the code lists the subdivisions it accepts, one of them; an item of any other code, or of none, names none (422 `receivables.tax_jurisdiction_not_levied` naming the field). The invoice's tax is still its code's, each item keeping its share; when the invoice posts, the item's line and its share of the tax carry the jurisdiction, so a tax return reads the sale in its emirate. With `kind` `credit_memo` the document is a customer credit memo (ADR-0063 §7, T75d): entered the same way, its amounts more than zero, its tax at its own date's rates, and posted with the signs turned. A credit memo may name the invoice it credits (`reference_invoice_id`): a posted invoice of the same company and customer in the memo's currency (422 `receivables.invalid_reference_invoice` naming the field otherwise); an invoice names none (422 `receivables.reference_not_allowed`). A kind that is neither is refused (422 `receivables.unknown_kind`). A retry with the same `Idempotency-Key` answers the invoice entered. Human-only (`x-agent: false`)."
       x-permission: receivables.invoice.write
       x-agent: false
       x-problem-codes:
@@ -16586,7 +16594,8 @@ paths:
         - receivables.invalid_reference_invoice
         - receivables.items_required
         - receivables.reference_not_allowed
-        - receivables.tax_jurisdiction_not_supported
+        - receivables.tax_jurisdiction_not_levied
+        - receivables.tax_jurisdiction_required
         - receivables.unknown_currency
         - receivables.unknown_kind
         - receivables.unknown_payment_term
@@ -16760,7 +16769,8 @@ paths:
         - receivables.invalid_status
         - receivables.no_tax_account
         - receivables.tax_changed
-        - receivables.tax_jurisdiction_not_supported
+        - receivables.tax_jurisdiction_not_levied
+        - receivables.tax_jurisdiction_required
         - receivables.unknown_tax_code
         - request.invalid_amount
         - request.version_mismatch
@@ -16816,7 +16826,7 @@ paths:
       tags:
         - collections
       summary: Get a company's collection worklist
-      description: "The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue items, the largest overdue amount first (customers with the same amount by `customer_id`), each with its number and name, what its open items add up to (`open_amount`, credits included), what its overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest dunning level and the latest dunning date the confirmed dunning runs recorded for its open items (`confirmDunningRun`; level 0 and no date for a customer never dunned). An item is overdue as a dunning run counts it: the customer owes it (a debit), it was posted with payment terms and the key date is past its net due date; an item due on the key date is not overdue, credit items reduce no overdue amount, and an item without payment terms has no due date. A customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in the company's currency, as the items were booked. `customer_count`, `open_amount` and `overdue_amount` at the top are the totals of every customer listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key date. Each page is computed anew and continues after the last customer's overdue amount and id: a customer whose overdue amount fell between two pages can be listed again with its new amount, and one whose amount rose is not read again, so a consumer that pages while items are posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is 404."
+      description: "The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue items, the largest overdue amount first (customers with the same amount by `customer_id`), each with its number and name, what its open items add up to (`open_amount`, credits included), what its overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest dunning level and the latest dunning date the confirmed dunning runs recorded for its open items (`confirmDunningRun`; level 0 and no date for a customer never dunned). An item is overdue as a dunning run counts it: the customer owes it (a debit) and the key date is past its net due date, which is that of the payment terms it was posted with or, for an item posted without payment terms (a manual or migrated entry's), its document date; an item due on the key date is not overdue, so an item without terms is overdue from the day after its document date, and credit items reduce no overdue amount. A customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in the company's currency, as the items were booked. `customer_count`, `open_amount` and `overdue_amount` at the top are the totals of every customer listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key date. Each page is computed anew and continues after the last customer's overdue amount and id: a customer whose overdue amount fell between two pages can be listed again with its new amount, and one whose amount rose is not read again, so a consumer that pages while items are posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is 404."
       x-permission: collections.worklist.read
       x-slo-class: report
       x-snapshot: true
@@ -16922,7 +16932,7 @@ paths:
       tags:
         - collections
       summary: Start a dunning run
-      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit), it was posted with payment terms and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing; an item without payment terms has no due date and is left out. An item rises one level per confirmed run at most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the highest level stays there. A notice's level is the highest among its items. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
+      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit) and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. The net due date is that of the payment terms the item was posted with; an item posted without payment terms (a manual or migrated entry's) is due on its document date and is proposed like any other. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing, with or without terms. An item rises one level per confirmed run at most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the highest level stays there. A notice's level is the highest among its items. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
       x-permission: collections.dunning.run
       x-agent: false
       x-problem-codes:
@@ -17100,6 +17110,539 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/control-matrix:
+    get:
+      operationId: getControlMatrix
+      tags:
+        - grc
+      summary: Read the control matrix
+      description: "The control matrix (ADR-0078 §8, T98b): the tenant's active controls by code, each with its framework references, its last test and its links to what enforces it in the product, and for each link whether it still holds. A link to a permission holds while the permission is in the platform's permission catalog, which every operation's `x-permission` is taken from; a link to a segregation-of-duties rule holds while the rule is in force on the database's date today (`as_of`): started and not ended; a link to a path of the configuration holds while the tenant's active configuration version has a value there. A link that does not hold is shown with `holds` false and its `broken_reason`; it is never removed for that. Removed links and retired controls are left out. A tenant without a configuration whose controls have configuration path links is answered 409 `config.not_bootstrapped`. Filtered by process (the exact text), by one framework reference (the exact text) and by `link_state`: `broken` gives the controls with at least one link that does not hold, `holding` those whose links all hold, `none` those without a link. `totals` count the controls and links the filters select, over every page. The links are judged at the read and nothing is stored: the matrix is computed from one database state (a repeatable-read snapshot). It shows segregation-of-duties rules and whether configuration paths have a value, so besides `grc.control.read` the caller needs `identity.access.read` and `config.version.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Sortable by: `code` (default)."
+      x-permission: grc.control.read
+      x-also-permissions:
+        - identity.access.read
+        - config.version.read
+      x-slo-class: report
+      x-snapshot: true
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: process
+          in: query
+          required: false
+          description: Only the controls of this process, by its exact text.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+        - name: framework_reference
+          in: query
+          required: false
+          description: Only the controls that carry this framework reference, by its exact text.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: link_state
+          in: query
+          required: false
+          description: "Only the controls in this state of their links: `broken` (at least one link does not hold), `holding` (every link holds, and there is one) or `none` (no link)."
+          schema:
+            type: string
+            description: "State of a control's links. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - holding
+              - broken
+              - none
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of the control matrix, with its totals.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControlMatrix"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/controls:
+    get:
+      operationId: listControls
+      tags:
+        - grc
+      summary: List the control library
+      description: "The tenant's control library (ADR-0078 §2-§4, T98a): each control as `getControl` gives it, with its owner's name and its last test. Filtered by process (the exact text), by status, by owner and by the result of the last test: `last_result=passed` or `failed` gives the controls whose last test had that result, `last_result=none` those never tested. Sortable by: `code` (default)."
+      x-permission: grc.control.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: process
+          in: query
+          required: false
+          description: Only the controls of this process, by its exact text.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+        - name: status
+          in: query
+          required: false
+          description: Only controls in this status.
+          schema:
+            type: string
+            description: "Control status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - active
+              - retired
+        - name: owner_id
+          in: query
+          required: false
+          description: Only the controls this person owns.
+          schema:
+            type: string
+            format: uuid
+        - name: last_result
+          in: query
+          required: false
+          description: "Only the controls whose last test had this result; `none`: only those never tested."
+          schema:
+            type: string
+            description: "Result of a control's last test, or `none`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - passed
+              - failed
+              - none
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of controls.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControlPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createControl
+      tags:
+        - grc
+      summary: Record a control
+      description: "Records a control in the tenant's control library (ADR-0078 §2, T98a): its code, its objective, the process it belongs to, the person who owns it, how often it is performed and whether it is performed by a person (`manual`) or by the system (`automated`), and optionally the tenant's own references to a framework it names (`framework_references`: free text, each once and without white space around it, 422 `grc.invalid_framework_reference` naming the entry). It is created `active`. The code is the tenant's own and unique in the library, whatever its case (409 `grc.control_code_taken`); it never changes. The owner is a person of the tenant who is active (422 `request.reference_not_found` naming `owner_id` for an unknown principal, `grc.invalid_owner` for an agent, a service or a person who is not active). The objective and the process are texts, not white space alone, the process without white space around it (422 `grc.invalid_process`); a frequency or a nature the contract does not list is refused naming the field (422 `request.validation_failed`). No library is shipped: every control is the tenant's. An audit record and ControlChanged (`created`) are written with it. A retry with the same `Idempotency-Key` answers the control recorded."
+      x-permission: grc.control.write
+      x-problem-codes:
+        - grc.control_code_taken
+        - grc.invalid_framework_reference
+        - grc.invalid_owner
+        - grc.invalid_process
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The control to record.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ControlCreate"
+      responses:
+        "201":
+          description: "Created; the control."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Control"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/controls/{id}":
+    get:
+      operationId: getControl
+      tags:
+        - grc
+      summary: Get a control
+      description: "One control of the library (ADR-0078 §2, T98a) with its owner's name and its last test: the test with the latest test date, the one recorded last among several of one date; absent while the control was never tested. Every test is read with `listControlTests`."
+      x-permission: grc.control.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The control.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Control"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateControl
+      tags:
+        - grc
+      summary: Change a control
+      description: "Changes an active control's objective, process, owner, frequency, nature or framework references at once, with the caller's version of it (`If-Match`; 412 when another change came first). JSON Merge Patch (RFC 7396): absent fields are unchanged. The code does not change. The owner is checked as `createControl` checks it when the change names another, and the texts, the frequency and the nature as it checks them. A change that would leave the control as it is is refused (422 `grc.nothing_to_change`), as is a change of a retired control (409 `grc.control_retired`). The control's tests stay as they were recorded. An audit record naming the fields changed and ControlChanged (`changed`) are written with it."
+      x-permission: grc.control.write
+      x-problem-codes:
+        - grc.control_code_taken
+        - grc.control_retired
+        - grc.invalid_framework_reference
+        - grc.invalid_owner
+        - grc.invalid_process
+        - grc.nothing_to_change
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the control.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/ControlUpdate"
+      responses:
+        "200":
+          description: "Updated; the control after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Control"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/controls/{id}:retire":
+    post:
+      operationId: retireControl
+      tags:
+        - grc
+      summary: Retire a control
+      description: "Retires an active control for good (status `retired`), once (409 `grc.control_retired` for a retired one), at the version read (`If-Match`). A retired control changes no more and takes no further test; it and its tests are still read, and it is listed with `status=retired` or without a status filter. Its code stays taken. An audit record and ControlChanged (`retired`) are written with it."
+      x-permission: grc.control.write
+      x-problem-codes:
+        - grc.control_code_taken
+        - grc.control_retired
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The control after retireControl.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Control"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/controls/{id}/links":
+    post:
+      operationId: createControlLink
+      tags:
+        - grc
+      summary: Link a control to what enforces it
+      description: "Links an active control to what enforces it in the product (ADR-0078 §7, T98b): a permission (`kind` `permission` with `permission_code`), a segregation-of-duties rule (`sod_rule` with `sod_rule_id`) or a path of the configuration (`configuration_path` with `configuration_path`, written as a configuration change names a setting, for example `companies[3000].approvals`). Exactly the field of the kind is given (422 `grc.invalid_link`, naming the field). What is linked must be there when the link is made: a permission of the catalog (422 `grc.unknown_permission`), a rule of the tenant, whether or not it is in force yet (422 `request.reference_not_found` naming `sod_rule_id`), a path the active configuration version has a value at (422 `grc.configuration_path_without_value`; 409 `config.not_bootstrapped` for a tenant without a configuration). A control has one link to each target (409 `grc.control_link_exists`). A retired control takes no link (409 `grc.control_retired`). The answer is the link as the matrix shows it, with whether it holds. The control's version does not move. An audit record on the control and ControlChanged (`linked`) are written with it. Besides `grc.control.write` the caller needs `identity.access.read` and `config.version.read` (`x-also-permissions`), as for the matrix."
+      x-permission: grc.control.write
+      x-also-permissions:
+        - identity.access.read
+        - config.version.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - grc.configuration_path_without_value
+        - grc.control_link_exists
+        - grc.control_retired
+        - grc.invalid_link
+        - grc.unknown_permission
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The link to make.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ControlLinkCreate"
+            examples:
+              permission:
+                summary: The permission that gates the controlled operation
+                value: {kind: permission, permission_code: payments.run.release}
+              sod_rule:
+                summary: A segregation-of-duties rule of the tenant
+                value: {kind: sod_rule, sod_rule_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"}
+              configuration_path:
+                summary: A setting of the configuration
+                value: {kind: configuration_path, configuration_path: "companies[3000].approvals"}
+      responses:
+        "201":
+          description: "Created; the link, with whether it holds."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControlLink"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/controls/{id}/links/{link_id}:remove":
+    post:
+      operationId: removeControlLink
+      tags:
+        - grc
+      summary: Remove a control's link
+      description: "Removes a link of an active control (ADR-0078 §7, T98b), once (409 `grc.control_link_removed` after), at the link's version (`If-Match`, the ETag `createControlLink` answered and the `version` the matrix shows). Nothing is deleted (04 §4.3): the link is kept as `removed`, is left out of the matrix from then on, and the same target can be linked again. It is a person's or an agent's decision: a link that no longer holds is never removed by the system. A retired control's links stay as they are (409 `grc.control_retired`). A link of another control is not found (404). An audit record on the control and ControlChanged (`unlinked`) are written with it. Besides `grc.control.write` the caller needs `identity.access.read` and `config.version.read` (`x-also-permissions`): the answer is the link as the matrix shows it."
+      x-permission: grc.control.write
+      x-also-permissions:
+        - identity.access.read
+        - config.version.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - grc.control_link_exists
+        - grc.control_link_removed
+        - grc.control_retired
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: link_id
+          in: path
+          required: true
+          description: Control link identifier (UUIDv7).
+          schema:
+            type: string
+            format: uuid
+          example: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e11"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The link after removeControlLink.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControlLink"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/controls/{id}/tests":
+    get:
+      operationId: listControlTests
+      tags:
+        - grc
+      summary: List a control's tests
+      description: "The results of testing one control (ADR-0078 §3, T98a), the latest test date first and, among the tests of one date, the one recorded last first: the first is the control's last test. Filtered by result. Sortable by: `tested_on` (default, descending)."
+      x-permission: grc.control.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: result
+          in: query
+          required: false
+          description: Only the tests with this result.
+          schema:
+            type: string
+            description: "Result of a control test. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - passed
+              - failed
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of the control's tests.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControlTestPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createControlTest
+      tags:
+        - grc
+      summary: Record the result of testing a control
+      description: "Records that an active control was tested (ADR-0078 §3, T98a): the date of the test, its result (`passed` or `failed`) and a note of the evidence seen. The tester is the caller. A test is never changed or removed: a correction is another test. The test date is the database's date today or earlier (422 `grc.test_in_future`, naming `tested_on`); the note is a text, not white space alone, and a result the contract does not list is refused (422 `request.validation_failed`, naming the field). A retired control takes no test (409 `grc.control_retired`). The control's version does not move: its `last_test` does. An audit record and ControlChanged (`tested`) are written with it; neither carries the note. Human-only (`x-agent: false`): a test is a person's statement of what they saw."
+      x-permission: grc.control.test
+      x-agent: false
+      x-problem-codes:
+        - grc.control_retired
+        - grc.test_in_future
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The test to record.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ControlTestCreate"
+      responses:
+        "201":
+          description: "Created; the test."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControlTest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/credit-exposure:
@@ -17404,7 +17947,7 @@ paths:
       tags:
         - receivables
       summary: Apply an incoming payment to a customer's open items
-      description: "Applies an incoming payment to a customer's open items, in full and exactly (ADR-0063 §6, T75c; plan default 4). The payment is a receipt: the journal entry a bank statement line matched as incoming posted, whose credit line waits as an open item on the house bank's incoming payments clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are open items of the customer on customer reconciliation accounts of the company (`GET /v1/open-items`), invoices and credits alike, in the receipt's currency; together they equal the receipt exactly (422 `ledger.clearing_not_balanced`): no partial payment, no difference and no cash discount. One clearing entry, document type `DZ`, `source_context` `receivables`, offsets the receipt and every item at the amounts they were booked at and clears them all; what that leaves in local or group currency, receipt and items having been booked at different rates, is a realized exchange difference on the company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date is the request's, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`). The application is a document with a number from the company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are written with it. A receipt that is not waiting on an incoming payments clearing account of the company is refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409 `receivables.receipt_already_applied` when an incoming payment applied it. An item that is not an open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a cleared one (409 `ledger.item_already_cleared`), one of a reversed entry (409 `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`), one a payment run holds (409 `ledger.item_reserved`) and one in another currency (422 `ledger.mixed_items`), each naming its place in the request as the field `items[i]`. Nothing is posted when the application is refused. A retry with the same `Idempotency-Key` answers the payment applied; another request for the same receipt is refused. An application is not undone in the first version. Human-only (`x-agent: false`)."
+      description: "Applies an incoming payment to a customer's open items, in full and exactly (ADR-0063 §6, T75c; plan default 4). The payment is a receipt: the journal entry a bank statement line matched as incoming posted, whose credit line waits as an open item on the house bank's incoming payments clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are open items of the customer on customer reconciliation accounts of the company (`GET /v1/open-items`), invoices and credits alike, in the receipt's currency; together they equal the receipt exactly (422 `ledger.clearing_not_balanced`): no partial payment, no difference and no cash discount. One clearing entry, document type `DZ`, `source_context` `receivables`, offsets the receipt and every item at the amounts they were booked at and clears them all; what that leaves in local or group currency, receipt and items having been booked at different rates, is a realized exchange difference on the company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date is the request's, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`) and on or after the latest posting date of the receipt and the items, since nothing is cleared before it was posted (422 `ledger.clearing_before_item` naming `posting_date`, its message giving that date). The application is a document with a number from the company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are written with it. A receipt that is not waiting on an incoming payments clearing account of the company is refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409 `receivables.receipt_already_applied` when an incoming payment applied it. An item that is not an open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a cleared one (409 `ledger.item_already_cleared`), one of a reversed entry (409 `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`), one a payment run holds (409 `ledger.item_reserved`) and one in another currency (422 `ledger.mixed_items`), each naming its place in the request as the field `items[i]`. Nothing is posted when the application is refused. A retry with the same `Idempotency-Key` answers the payment applied; another request for the same receipt is refused. An application is not undone in the first version. Human-only (`x-agent: false`)."
       x-permission: receivables.payment.apply
       x-agent: false
       x-problem-codes:
@@ -17415,6 +17958,7 @@ paths:
         - ledger.amount_too_large
         - ledger.asset_reconciliation_account
         - ledger.automatic_account
+        - ledger.clearing_before_item
         - ledger.clearing_not_balanced
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -17654,7 +18198,7 @@ paths:
       tags:
         - sales
       summary: Create a quotation
-      description: "Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a date. It is created `open`, dated the company's date today in its time zone, with a document number from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no document is sent to the customer. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is required from the sales order, not here. `valid_until` is not before the quotation's date (422 `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text `item_key` (there is no material master; neither is white space alone, 422 `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit` (1 when absent; sent without a unit price it is refused, 422 `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency, the customer's before the general one and then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`, as a customer invoice refuses it). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and valid on the quotation's date, the customer's before the general one, is taken off an item priced from the price records, in the procedure's order, as a percentage of the value before it rounded half away from zero; `conditions` lists the price and the discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`)."
+      description: "Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a date. It is created `open`, dated the company's date today in its time zone, with a document number from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no document is sent to the customer. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is required from the sales order, not here. `valid_until` is not before the quotation's date (422 `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text `item_key` (there is no material master; neither is white space alone, 422 `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit` (1 when absent; sent without a unit price it is refused, 422 `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency, the customer's before the general one and then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales document's items name no jurisdiction, as a customer invoice's can). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and valid on the quotation's date, the customer's before the general one, is taken off an item priced from the price records, in the procedure's order, as a percentage of the value before it rounded half away from zero; `conditions` lists the price and the discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`)."
       x-permission: sales.quotation.write
       x-agent: false
       x-problem-codes:
@@ -17862,7 +18406,7 @@ paths:
       tags:
         - sales
       summary: List sales orders
-      description: "The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the quotation it came from, its net value, its credit block and its items with their ordered, delivered and billed quantities. Filtered by company, customer, status, credit block, document number and quotation. Sortable by: `order_date`, `document_number`."
+      description: "The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the quotation it came from, its net value, its credit block and its items with their ordered, delivered, billed and returned quantities. Filtered by company, customer, status, credit block, document number and quotation. Sortable by: `order_date`, `document_number`."
       x-permission: sales.order.read
       x-problem-codes:
         - request.invalid_order_by
@@ -18021,7 +18565,7 @@ paths:
       tags:
         - sales
       summary: Get a sales order
-      description: "One sales order (ADR-0067 §5, T78b) with its company's code and name, its customer's number and name, the quotation it was created from by id and number, its payment term, its net value, its credit block (with who released it and when, once it is released) and its items, each with its ordered, delivered and billed quantities, its unit price, its net value and its revenue account's number and name. One of a company the caller may not act in is not found (404), as one that does not exist."
+      description: "One sales order (ADR-0067 §5, T78b) with its company's code and name, its customer's number and name, the quotation it was created from by id and number, its payment term, its net value, its credit block (with who released it and when, once it is released) and its items, each with its ordered, delivered, billed and returned quantities, its unit price, its net value and its revenue account's number and name. One of a company the caller may not act in is not found (404), as one that does not exist."
       x-permission: sales.order.read
       x-problem-codes: []
       parameters:
@@ -18906,7 +19450,12 @@ paths:
         - receivables.no_tax_account
         - receivables.reference_not_allowed
         - receivables.tax_changed
-        - receivables.tax_jurisdiction_not_supported
+        # receivables.tax_jurisdiction_not_levied and .tax_jurisdiction_required are the item's jurisdiction's refusals (ADR-0063),
+        # listed for every operation that enters a customer invoice; posting a billing document is not expected to reach them, sales
+        # refusing an item whose code levies its lines' subdivision (sales.tax_jurisdiction_not_supported) and its items naming none,
+        # unless the code's configuration came to levy it between the order's date and the posting.
+        - receivables.tax_jurisdiction_not_levied
+        - receivables.tax_jurisdiction_required
         - receivables.unknown_currency
         - receivables.unknown_kind
         - receivables.unknown_payment_term
@@ -18960,13 +19509,321 @@ paths:
           $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/returns-orders:
+    get:
+      operationId: listReturnsOrders
+      tags:
+        - sales
+      summary: List returns orders
+      description: "The returns orders of the companies the caller may act in (ADR-0067, As built T85a), each as `getReturnsOrder` gives it: with its company's code and name, its customer's number and name, the billing document and the sales order it returns from by id and number, its reason and its items with their billed, returned, received and still expected quantities. Filtered by company, customer, billing document, sales order, status and document number. Sortable by: `returns_date`, `document_number`."
+      x-permission: sales.return.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: customer_id
+          in: query
+          required: false
+          description: Only the returns orders of this customer (business partner id).
+          schema:
+            type: string
+            format: uuid
+        - name: billing_document_id
+          in: query
+          required: false
+          description: Only the returns orders for this billing document.
+          schema:
+            type: string
+            format: uuid
+        - name: sales_order_id
+          in: query
+          required: false
+          description: Only the returns orders for billing documents of this sales order.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only returns orders in this status.
+          schema:
+            type: string
+            description: "Returns order status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - draft
+              - confirmed
+        - $ref: "#/components/parameters/DocumentNumber"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of returns orders.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReturnsOrderPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createReturnsOrder
+      tags:
+        - sales
+      summary: Create a returns order for a posted billing document
+      description: "Creates a returns order (ADR-0067, As built T85a): the customer sends back quantities of a posted billing document's items, for a reason. The billing document is one of a company the caller may act in (422 `request.reference_not_found` naming `billing_document_id`) that is posted (409 `sales.billing_document_not_posted`): what was not billed and posted is not returned in the first version. `reason` is one of `defective`, `wrong_item`, `not_wanted` and `other` (422 `sales.unknown_return_reason`), with a free text in `reason_text` if wanted. Each item names an item of the billing document by its number (422 `sales.unknown_billing_item` naming `items[i].billing_item_no`), once (422 `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the billed item's unit (422 `sales.unit_mismatch`) that is at most what can still be returned of it: its billed quantity less what the document's other returns orders took, drafts included, since a returns order is not cancelled in the first version (422 `sales.exceeds_returnable_quantity` naming `items[i].quantity.value`, with the item, what was billed and what was taken in the message). The billing document's sales order is read under a row lock, so two requests wait for one another and no quantity is returned twice. The returns order is created `draft`, dated the company's date today in its time zone, with a document number from the company's `returns_order` number range of that date's fiscal year (422 `config.no_number_range` for a company without the range). Each sales order item's `returned_quantity` rises by what the order takes and the sales order's `version` moves (`getSalesOrder`); its delivered and billed quantities stay. It is a document of the sales context alone: nothing is posted, no stock moves, the customer's open items and credit exposure are as they were, and the order's revenue contract is not changed; the credit for a return is a credit memo request's. Audited, and published as ReturnsOrderChanged. A retry with the same `Idempotency-Key` answers the returns order created. Human-only (`x-agent: false`)."
+      x-permission: sales.return.write
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.no_fiscal_period
+        - request.validation_failed
+        - sales.billing_document_not_posted
+        - sales.exceeds_returnable_quantity
+        - sales.invalid_quantity
+        - sales.item_repeated
+        - sales.items_required
+        - sales.unit_mismatch
+        - sales.unknown_billing_item
+        - sales.unknown_return_reason
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The returns order to create.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReturnsOrderCreate"
+            examples:
+              part:
+                summary: Part of a billed item sent back as defective
+                value:
+                  billing_document_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5da1"
+                  reason: defective
+                  reason_text: Threads out of tolerance
+                  items:
+                    - billing_item_no: 1
+                      quantity:
+                        value: "20"
+                        unit: EA
+      responses:
+        "201":
+          description: "Created; the new returns order."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReturnsOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/returns-orders/{id}":
+    get:
+      operationId: getReturnsOrder
+      tags:
+        - sales
+      summary: Get a returns order
+      description: "One returns order (ADR-0067, As built T85a) with its company's code and name, its customer's number and name, the billing document and the sales order it returns from by id and number, its date, its reason and its items, each naming the billing document's item and the sales order's item by number, what is sold by item key and description, the quantity billed by the billing document's item, the quantity being returned, the quantity received so far and the quantity still expected. One of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: sales.return.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The returns order.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReturnsOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/returns-orders/{id}:confirm":
+    post:
+      operationId: confirmReturnsOrder
+      tags:
+        - sales
+      summary: Confirm a returns order
+      description: "Confirms a `draft` returns order (ADR-0067, As built T85a), at the version the caller read (`If-Match`): the returns order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused (409 `sales.invalid_status`). Confirming is by permission, `sales.return.confirm`, without an approval; no rule sets the person who confirms apart from the one who created the returns order. A confirmed returns order is not changed or cancelled in the first version; it takes receipts (`confirmReturnReceipt`). Nothing is checked again, nothing is posted and no stock moves. Audited, and published as ReturnsOrderChanged. A retry with the same `Idempotency-Key` answers the confirmed returns order. Human-only (`x-agent: false`)."
+      x-permission: sales.return.confirm
+      x-agent: false
+      x-problem-codes:
+        - request.version_mismatch
+        - sales.invalid_status
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The returns order, confirmed."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReturnsOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/returns-orders/{id}/receipts":
+    get:
+      operationId: listReturnReceipts
+      tags:
+        - sales
+      summary: List a returns order's receipts
+      description: "The receipts of a returns order (ADR-0067, As built T85b), each as `confirmReturnReceipt` answered it: its number within the returns order, its date and its items, each naming the returns order's item by number, the billing document's item, the item key and the description with the quantity received in the item's unit. The returns order's own items show the sum and what is still expected (`received_quantity`, `open_quantity`, `getReturnsOrder`). A returns order of a company the caller may not act in is not found (404), as one that does not exist. Sortable by: `receipt_date`."
+      x-permission: sales.return.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of the returns order's receipts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReturnReceiptPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: confirmReturnReceipt
+      tags:
+        - sales
+      summary: Confirm that returned quantities were received
+      description: "Records that quantities of a `confirmed` returns order's items arrived on a date (ADR-0067, As built T85b). It is a confirmation by a person, kept in the sales context, as a delivery confirmation is (`confirmSalesDelivery`): no stock moves and nothing is posted; a credit memo request reads what was received. The returns order is read under a row lock, so two receipts of one returns order wait for one another. A returns order that is not confirmed takes none (409 `sales.returns_order_not_confirmed`). `receipt_date` is not after the company's date today in its time zone (422 `sales.receipt_date_in_future`). Each item names an item of the returns order by its number (422 `sales.unknown_returns_item` naming `items[i].item_no`), once (422 `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the item's unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what is returned less what earlier receipts confirmed (422 `sales.exceeds_open_quantity` naming `items[i].quantity.value`, with the item and its open quantity in the message): of two receipts racing for an item's last quantity, one is recorded. The receipt is numbered within its returns order and written once; it is not changed or reversed in the first version. Each returns order item's `received_quantity` rises by what was received, its `open_quantity` falls by it, and the returns order's `version` moves, so `getReturnsOrder` shows what is received and what is still expected. The sales order is not changed: its delivered, billed and returned quantities stay. Audited, and published as ReturnReceived. A retry with the same `Idempotency-Key` answers the receipt recorded. Human-only (`x-agent: false`)."
+      x-permission: sales.return.receive
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - sales.exceeds_open_quantity
+        - sales.invalid_quantity
+        - sales.item_repeated
+        - sales.items_required
+        - sales.receipt_date_in_future
+        - sales.returns_order_not_confirmed
+        - sales.unit_mismatch
+        - sales.unknown_returns_item
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The receipt to confirm.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReturnReceiptCreate"
+            examples:
+              in_full:
+                summary: An item received in full
+                value:
+                  receipt_date: "2026-11-30"
+                  items:
+                    - item_no: 1
+                      quantity:
+                        value: "20"
+                        unit: EA
+      responses:
+        "201":
+          description: "Created; the receipt."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReturnReceipt"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/receivables-aging:
     get:
       operationId: getReceivablesAging
       tags:
         - receivables
       summary: Read the aging of a company's customer open items
-      description: "The AR aging (ADR-0063 §10, T75e): a company's open items on customer reconciliation accounts on a key date, per customer and in total, not yet due and in buckets of days overdue. It is computed on read from the ledger's customer open items of the leading ledger, as they are now (not as they were on the key date): invoices, credit memos, and the customer items manual and migrated entries posted, cleared items and reversed entries left out, special G/L items included. Each item falls in exactly one bucket by its net due date, the baseline date plus the net days of the payment terms it was posted with, as `GET /v1/open-items` ages it with `aging_key_date`: `not_due` when due on the key date or later, else the `overdue` bucket holding its days past the due date, and `no_due_date` when it was posted without terms. `aging_days` are the overdue buckets' last days, ascending (`30,60,90` by default: 1 to 30, 31 to 60, 61 to 90 and more than 90 days); every bucket is given, an empty one with no items and an amount of 0, in the order not due, overdue by days, no due date. Amounts are in the company's local currency (`currency`), as the items were booked, a debit positive: a credit item (a credit memo, a payment on the account) is negative and reduces its customer's bucket and total. `totals` are those of every customer the request selects, on every page, and equal the open items of the company's customer reconciliation accounts. `items` is one row per customer with open items, by customer id, in cursor pages; `customer_id` selects one customer. The company must be one the caller may act in. The key date is in the years 1900 to 2999 (422 `receivables.key_date_out_of_range` naming `key_date`)."
+      description: "The AR aging (ADR-0063 §10, T75e): a company's open items on customer reconciliation accounts on a key date, per customer and in total, not yet due and in buckets of days overdue. It is computed on read from the ledger's customer open items of the leading ledger, as they are now (not as they were on the key date): invoices, credit memos, and the customer items manual and migrated entries posted, cleared items and reversed entries left out, special G/L items included. Each item falls in exactly one bucket by its net due date: the baseline date plus the net days of the payment terms it was posted with, as `GET /v1/open-items` ages it with `aging_key_date`, or, for an item posted without payment terms (a manual or migrated entry's), its document date, where that list shows it as `no_due_date`. An item is `not_due` when due on the key date or later, else in the `overdue` bucket holding its days past the due date, so an item without terms is overdue from the day after its document date; a credit item ages the same way, with or without terms. `aging_days` are the overdue buckets' last days, ascending (`30,60,90` by default: 1 to 30, 31 to 60, 61 to 90 and more than 90 days); every bucket is given, an empty one with no items and an amount of 0, in the order not due, overdue by days, no due date; `no_due_date` is always empty, since every item has a due date, and is kept so that the response keeps its shape. Amounts are in the company's local currency (`currency`), as the items were booked, a debit positive: a credit item (a credit memo, a payment on the account) is negative and reduces its customer's bucket and total. `totals` are those of every customer the request selects, on every page, and equal the open items of the company's customer reconciliation accounts. `items` is one row per customer with open items, by customer id, in cursor pages; `customer_id` selects one customer. The company must be one the caller may act in. The key date is in the years 1900 to 2999 (422 `receivables.key_date_out_of_range` naming `key_date`)."
       x-permission: receivables.invoice.read
       x-problem-codes:
         - receivables.amount_too_large
@@ -25476,6 +26333,7 @@ paths:
         - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.center_change_pending
+        - ledger.clearing_before_item
         - ledger.clearing_not_balanced
         - ledger.cost_center_category_invalid
         - ledger.cost_center_invalid
@@ -25959,7 +26817,7 @@ paths:
       tags:
         - analytics
       summary: Run a semantic analytics query
-      description: "Answers governed metrics (the semantic model in the active configuration version's `analytics` section, `semantic.yaml` until a change request adds one; metric definitions change only through change requests), broken down by its dimensions and filtered on them, for the companies the principal may read. A query names metrics and dimensions, never SQL. It is answered from the analytical store when the tenant's store was found current within the freshness target and no earlier than `as_of`, else from the database; `source` and `as_of` say which (ADR-0044). The database answers through the API's own reads as the caller, so a metric over data the caller may not read is 403 as that read is, and the store answers only a caller who holds the permissions of those reads; the cash actuals (metric `actual`, ADR-0051 §11) are read as `getCashActuals` classifies them, with `cash.forecast.read`, and name no supplier, so a query of them alone needs no `partner.supplier.read`; so are the forecast's metrics (`forecast_lag_0`, `forecast_lag_7`, `forecast_lag_30`, ADR-0051 §6), each value date's flows as the company's snapshot taken that many days before it kept them (its daily snapshot, else the last taken on demand that day; at document level, blocked suppliers' flows left out), so a week or a month adds days of different snapshots, unlike `getLiquidityForecastVariance`, which compares one snapshot over its period, each flow's source the dimension `flow_source`; and so are the forecast's variance and accuracy (`variance_lag_N`, `absolute_variance_lag_N`, `absolute_forecast_lag_N`, `accuracy_lag_N` for N of 0, 7 and 30, ADR-0051 §11), in cells of a company's value date, currency and liquidity item compared as that report compares them (days passed, of a snapshot taken the lag before): the accuracy is 1 less the weighted absolute percentage error, the cells' absolute variances over their absolute forecasts, rounded as that report's `variance_percent` first, so one cell's is 100% less its `variance_percent`, and null where nothing was forecast; actuals adding up to more than an amount can hold are 422 `cash.amount_too_large`. A tenant without a configuration is 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a filter it cannot apply, amounts of two currencies summed) is 422 `analytics.invalid_query`; too many queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. Changes nothing: agents of any autonomy level may run it."
+      description: "Answers governed metrics (the semantic model in the active configuration version's `analytics` section, `semantic.yaml` until a change request adds one; metric definitions change only through change requests), broken down by its dimensions and filtered on them, for the companies the principal may read. A query names metrics and dimensions, never SQL. It is answered from the analytical store when the tenant's store was found current within the freshness target and no earlier than `as_of`, else from the database; `source` and `as_of` say which (ADR-0044). The database answers through the API's own reads as the caller, so a metric over data the caller may not read is 403 as that read is, and the store answers only a caller who holds the permissions of those reads; the cash actuals (metric `actual`, ADR-0051 §11) are read as `getCashActuals` classifies them, with `cash.forecast.read`, and name no supplier, so a query of them alone needs no `partner.supplier.read`; so are the forecast's metrics (`forecast_lag_0`, `forecast_lag_7`, `forecast_lag_30`, ADR-0051 §6), each value date's flows as the company's snapshot taken that many days before it kept them (its daily snapshot, else the last taken on demand that day; at document level, blocked suppliers' flows left out), so a week or a month adds days of different snapshots, unlike `getLiquidityForecastVariance`, which compares one snapshot over its period, each flow's source the dimension `flow_source`; and so are the forecast's variance and accuracy (`variance_lag_N`, `absolute_variance_lag_N`, `absolute_forecast_lag_N`, `accuracy_lag_N` for N of 0, 7 and 30, ADR-0051 §11), in cells of a company's value date, currency and liquidity item compared as that report compares them (days passed, of a snapshot taken the lag before): the accuracy is 1 less the weighted absolute percentage error, the cells' absolute variances over their absolute forecasts, rounded as that report's `variance_percent` first, so one cell's is 100% less its `variance_percent`, and null where nothing was forecast; actuals adding up to more than an amount can hold are 422 `cash.amount_too_large`. The sales metrics (`order_intake`, `billed_value`, `billing_document_count`, T91a) are the net amounts of the items of confirmed sales orders by order date and of posted billing documents by billing date, each in its document's currency and never converted, by the customer's number (`customer`) and name (`customer_name`), the item key (`item_key`) and `currency`; a draft order and a billing document not posted are not counted. They are read as `listSalesOrders` and `listBillingDocuments` list them, so they need `sales.order.read` and `sales.billing.read` both, and, since they name customers, `partner.supplier.read` as the vendors' names do. The spend metrics (`spend`, `spend_under_contract`, `spend_off_contract`, `off_contract_share`, T91b) are the net amounts of the items of posted supplier invoices by posting date, less those of posted credit memos (a subsequent debit adds, a subsequent credit reduces; a document parked, on hold, rejected, cancelled or reversed is not counted), each in its document's currency and never converted, by `vendor` and `vendor_name`, `account` and `account_name`, `cost_center` (its code), `contract` (the document number of the contract the item's purchase order was made on) and `currency`; an item on a purchase order has the order item's account and cost center, and is under contract when the order was made on a contract, while an item on no order, or on an order made on no contract, is off contract; `off_contract_share` is the part off contract over spend, null where there is none. They are read as `listSupplierInvoices`, `listPurchaseOrders`, `listContracts` and `listCostCenters` list them, so they need `payables.invoice.read`, `procurement.order.read`, `procurement.contract.read` and `ledger.cost_center.read`, with `partner.supplier.read` and `ledger.account.read` for the names. A tenant without a configuration is 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a filter it cannot apply, amounts of two currencies summed) is 422 `analytics.invalid_query`; too many queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. Changes nothing: agents of any autonomy level may run it."
       x-permission: analytics.query.run
       x-autonomy: read
       x-problem-codes:
@@ -29998,6 +30856,8 @@ components:
             - close
             - cash_forecast
             - tax
+            - credit_scoring
+            - access
           maxLength: 50
         model:
           type: string
@@ -40286,7 +41146,7 @@ components:
         clearing_date:
           type: string
           format: date
-          description: "Clearing date; must fall in an open period."
+          description: "Clearing date, the clearing entry's posting date; must fall in an open period and be on or after the latest posting date of the items (422 `ledger.clearing_before_item`)."
         items:
           type: array
           items:
@@ -40407,7 +41267,7 @@ components:
           account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
     RequisitionItemInput:
       type: object
-      description: "A requisition item as it is sent: described and priced by the requester, or taken from the company's catalog by `catalog_item_id` (ADR-0071 §6, T84b). An item from the catalog sends its quantity, in the catalog item's unit, and its account; its description, price and price unit are the catalog item's and may not be sent (422 `procurement.catalog_item_override`), so an item read back from a requisition is sent again without them (and without the read-only `item_key`) when the items are replaced. An item that names no catalog item sends its `description` and `unit_price` (422 `request.validation_failed` without)."
+      description: "A requisition item as it is sent: described and priced by the requester, or taken from the company's catalog by `catalog_item_id` (ADR-0071 §6, T84b). An item from the catalog sends its quantity, in the catalog item's unit, and its account; its description, price and price unit are the catalog item's: it sends none, or the catalog item's own, and another is refused (422 `procurement.catalog_item_override` on the field, naming the catalog item; product owner, 2026-11-12, T84d). So an item read back from a requisition can be sent again as it was read when the items are replaced, while its catalog item is still `active`; the read-only `item_key` is ignored. An item that names no catalog item sends its `description` and `unit_price` (422 `request.validation_failed` without)."
       required:
         - quantity
         - account_id
@@ -40427,7 +41287,7 @@ components:
           description: Material (product context, later phases).
         description:
           type: string
-          description: "What is needed. Required unless the item names a catalog item, whose description it then takes."
+          description: "What is needed. Required unless the item names a catalog item, whose description it then takes; sent with one, it is the catalog item's (422 `procurement.catalog_item_override` otherwise)."
           minLength: 1
           maxLength: 200
         quantity:
@@ -40435,11 +41295,11 @@ components:
           description: "Quantity; positive. For an item from the catalog, in the catalog item's unit."
         unit_price:
           $ref: "#/components/schemas/Money"
-          description: "Estimated price per `price_unit`, in the requisition currency. Required unless the item names a catalog item, whose price it then takes."
+          description: "Estimated price per `price_unit`, in the requisition currency. Required unless the item names a catalog item, whose price it then takes; sent with one, it is the catalog item's price, the same amount as the catalog item shows it and the same currency (422 `procurement.catalog_item_override` otherwise)."
         price_unit:
           type: integer
           format: int32
-          description: "Quantity the unit price refers to; 1 when absent. Not sent for an item from the catalog, which takes the catalog item's."
+          description: "Quantity the unit price refers to; 1 when absent. An item from the catalog takes the catalog item's: sent with one, it is the catalog item's (422 `procurement.catalog_item_override` otherwise)."
           minimum: 1
         account_id:
           type: string
@@ -41294,7 +42154,7 @@ components:
         unit_price: {$ref: "#/components/schemas/Money", description: "The price per `price_unit`, in its own currency; positive."}
         price_unit: {type: integer, format: int32, minimum: 1, default: 1, description: "Quantity the unit price refers to."}
         contract_id: {type: string, format: uuid, description: "The contract whose item `contract_item_no` prices an order of the item; given with `contract_item_no`."}
-        contract_item_no: {type: integer, format: int32, minimum: 1, description: "The item of `contract_id`, in the catalog item's unit; given with `contract_id`."}
+        contract_item_no: {type: integer, format: int32, minimum: 1, description: "The item of `contract_id`, in the catalog item's unit and at its `unit_price` per `price_unit` (422 `procurement.catalog_item_price` otherwise); given with `contract_id`."}
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
           supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
@@ -48803,6 +49663,7 @@ components:
         account_id: {type: string, format: uuid, description: "The account the item credits when the invoice posts, revenue as a rule: one that can be posted in the company (`GET /v1/accounts`)."}
         net_amount: {$ref: "#/components/schemas/Money", description: "The item's net amount, more than zero, in the invoice's currency."}
         tax_code: {type: string, minLength: 1, maxLength: 20, description: "An output tax code of the company with a rate in force on the invoice date; absent: the item bears no tax."}
+        tax_jurisdiction: {type: string, pattern: "^[A-Z]{2}-[A-Z0-9]{1,3}$", description: "The province or emirate the item's tax is levied in (ISO 3166-2, `AE-DU`; ADR-0049 §7): required with a tax code whose component levies its lines' subdivision (422 `receivables.tax_jurisdiction_required`), a subdivision of that component's country and, where the component lists the subdivisions it accepts, one of them; with any other code, or none, it is refused (422 `receivables.tax_jurisdiction_not_levied`).", example: AE-DU}
         cost_center_id: {type: string, format: uuid, description: "The item's cost center; absent: its account's default, where the ledger asks for one."}
         profit_center_id: {type: string, format: uuid, description: "The item's profit center; absent: the one the ledger derives."}
     CustomerInvoiceCreate:
@@ -48849,6 +49710,7 @@ components:
         account_name: {type: string, description: "The account's name, as it is now.", readOnly: true}
         net_amount: {$ref: "#/components/schemas/Money", description: "The item's net amount."}
         tax_code: {type: string, description: "The item's output tax code; absent: it bears no tax.", readOnly: true}
+        tax_jurisdiction: {type: string, description: "The province or emirate the item's tax is levied in (ISO 3166-2, `AE-DU`), as entered; absent unless its tax code levies its lines' subdivision.", readOnly: true}
         tax_amount: {$ref: "#/components/schemas/Money", description: "The tax its code gave at the invoice date's rates: the item's share of the tax calculated for the invoice; 0 without a code."}
         gross_amount: {$ref: "#/components/schemas/Money", description: "The item's net amount and tax."}
         cost_center_id: {type: string, format: uuid, description: "The cost center entered; absent when none was.", readOnly: true}
@@ -48951,7 +49813,7 @@ components:
         customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
         open_amount: {$ref: "#/components/schemas/Money", description: "What the customer's open items add up to, overdue or not, credit items included; negative when its credits exceed what it owes."}
         overdue_amount: {$ref: "#/components/schemas/Money", description: "What the customer's items overdue on the key date add up to; credit items do not reduce it."}
-        oldest_due_date: {type: string, format: date, description: "The earliest net due date among the customer's overdue items.", readOnly: true}
+        oldest_due_date: {type: string, format: date, description: "The earliest net due date among the customer's overdue items; an item posted without payment terms is due on its document date.", readOnly: true}
         dunning_level: {type: integer, format: int32, minimum: 0, maximum: 9, description: "The highest dunning level a confirmed dunning run recorded for one of the customer's open items; 0 when none was dunned.", readOnly: true}
         last_dunning_date: {type: string, format: date, description: "The latest dunning date (a confirmed run's key date) recorded for one of the customer's open items; absent when none was dunned.", readOnly: true}
     CollectionWorklist:
@@ -49057,7 +49919,7 @@ components:
         document_number: {type: string, description: "The journal entry's document number.", readOnly: true}
         reference: {type: string, description: "The journal entry's reference, a customer invoice's document number for one; absent when it has none.", readOnly: true}
         document_date: {type: string, format: date, description: "The journal entry's document date.", readOnly: true}
-        net_due_date: {type: string, format: date, description: "The item's net due date by the payment terms it was posted with.", readOnly: true}
+        net_due_date: {type: string, format: date, description: "The item's net due date: by the payment terms it was posted with, or, posted without any, its document date.", readOnly: true}
         days_overdue: {type: integer, format: int32, minimum: 1, description: "The days from the net due date to the run's key date.", readOnly: true}
         amount: {$ref: "#/components/schemas/Money", description: "What the customer owes on the item, in the item's currency."}
         local_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, as it was booked."}
@@ -49514,12 +50376,13 @@ components:
       allOf:
         - $ref: "#/components/schemas/SalesItem"
         - type: object
-          required: [delivered_quantity, billed_quantity]
+          required: [delivered_quantity, billed_quantity, returned_quantity]
           properties:
             delivered_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity confirmed as delivered so far (`confirmSalesDelivery`), in the item's unit; at most `quantity`, the quantity ordered, and what is open for delivery is the difference."}
             billed_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity billed so far by the order's billing documents (`createBillingDocument`), in the item's unit; at most `delivered_quantity`."}
+            returned_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity the returns orders for the order's billing documents take (`createReturnsOrder`), drafts included, in the item's unit; at most `billed_quantity`."}
     SalesOrder:
-      description: "A sales order (sales, ADR-0067 §5): what a customer ordered. Amounts are net. Its `version` moves when it is confirmed, when its credit block is released (`releaseSalesOrderCreditBlock`) and with each delivery confirmed against it (`confirmSalesDelivery`) and each billing document created for it (`createBillingDocument`), which change what its items show as delivered and billed."
+      description: "A sales order (sales, ADR-0067 §5): what a customer ordered. Amounts are net. Its `version` moves when it is confirmed, when its credit block is released (`releaseSalesOrderCreditBlock`) and with each delivery confirmed against it (`confirmSalesDelivery`) and each billing document created for it (`createBillingDocument`), which change what its items show as delivered and billed, and with each returns order created for one of its billing documents (`createReturnsOrder`), which changes what they show as returned."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -49595,6 +50458,7 @@ components:
               tax_code: GO5
               delivered_quantity: {value: "0", unit: EA}
               billed_quantity: {value: "0", unit: EA}
+              returned_quantity: {value: "0", unit: EA}
     SalesOrderPage:
       type: object
       description: One page of sales orders.
@@ -49852,6 +50716,198 @@ components:
           items: {$ref: "#/components/schemas/BillingDocument"}
           description: The billing documents on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    ReturnsOrderCreate:
+      type: object
+      description: "Create a returns order for quantities of a posted billing document's items. It is created `draft`, dated the company's date today."
+      required: [billing_document_id, reason, items]
+      additionalProperties: false
+      properties:
+        billing_document_id: {type: string, format: uuid, description: "The posted billing document whose items are returned: one of a company the caller may act in."}
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 40
+          x-extensible-enum: [defective, wrong_item, not_wanted, other]
+          description: "Why the customer returns the items. `defective`: they are faulty; `wrong_item`: not what was ordered; `not_wanted`: the customer no longer wants them; `other`: anything else, which `reason_text` says. Open enumeration: values may be added within /v1; one that is not known is refused."
+        reason_text: {type: string, minLength: 1, maxLength: 500, description: "The reason in the customer's or the administrator's words; optional with every reason."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 999
+          items: {$ref: "#/components/schemas/ReturnsOrderItemCreate"}
+          description: "The billing document's items returned, each at most once, numbered in this order from 1."
+    ReturnsOrderItemCreate:
+      type: object
+      description: "A quantity returned of one item of the billing document."
+      required: [billing_item_no, quantity]
+      additionalProperties: false
+      properties:
+        billing_item_no: {type: integer, format: int32, minimum: 1, description: "The billing document item's number (`BillingDocument.items[].item_no`)."}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity returned: more than zero, in the billed item's unit, at most the item's billed quantity less what the document's other returns orders took."}
+    ReturnsOrderItem:
+      type: object
+      description: "An item of a returns order (ADR-0067, As built T85a): what is returned of one item of the billing document."
+      required: [item_no, billing_item_no, order_item_no, description, billed_quantity, quantity, received_quantity, open_quantity]
+      properties:
+        item_no: {type: integer, format: int32, description: "The item's number within the returns order, from 1.", readOnly: true}
+        billing_item_no: {type: integer, format: int32, description: "The number of the billing document's item it returns from.", readOnly: true}
+        order_item_no: {type: integer, format: int32, description: "The number of the sales order's item that billing document item billed.", readOnly: true}
+        item_key: {type: string, description: "The sales order item's item key; absent when it has none.", readOnly: true}
+        description: {type: string, description: "The sales order item's description.", readOnly: true}
+        billed_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity the billing document's item billed, in the item's unit."}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity being returned, in the item's unit; at most `billed_quantity`."}
+        received_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity confirmed as received so far (`confirmReturnReceipt`), in the item's unit; at most `quantity`."}
+        open_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity still expected: `quantity` less `received_quantity`, in the item's unit. 0 for an item received in full; a returns order whose items are all at 0 is fully received."}
+    ReturnsOrder:
+      description: "A returns order (sales, ADR-0067, As built T85a): quantities of a posted billing document's items that the customer sends back, with the reason. It carries no amounts: what is credited for a return is a credit memo request's. It posts nothing and moves no stock. Its `version` moves when it is confirmed and with each receipt confirmed against it (`confirmReturnReceipt`), which changes what its items show as received and still expected."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [document_number, legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, billing_document_id,
+            billing_document_number, sales_order_id, sales_order_number, returns_date, reason, status, items]
+          properties:
+            document_number: {type: string, description: "The document number, from the company's `returns_order` number range.", readOnly: true}
+            legal_entity_id: {type: string, format: uuid, description: "The company that takes the return: the billing document's.", readOnly: true}
+            company_code: {type: string, description: "The company's code.", readOnly: true}
+            company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+            customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`): the billing document's.", readOnly: true}
+            customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+            customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+            billing_document_id: {type: string, format: uuid, description: "The posted billing document whose items are returned (`GET /v1/billing-documents/{id}`).", readOnly: true}
+            billing_document_number: {type: string, description: "The billing document's document number.", readOnly: true}
+            sales_order_id: {type: string, format: uuid, description: "The sales order the billing document billed (`GET /v1/sales-orders/{id}`); its items show what is returned of them.", readOnly: true}
+            sales_order_number: {type: string, description: "The sales order's document number.", readOnly: true}
+            returns_date: {type: string, format: date, description: "The day the returns order was created: the company's date in its time zone.", readOnly: true}
+            reason:
+              type: string
+              x-extensible-enum: [defective, wrong_item, not_wanted, other]
+              description: "Why the customer returns the items. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            reason_text: {type: string, description: "The reason in words; absent when none was given.", readOnly: true}
+            status:
+              type: string
+              x-extensible-enum: [draft, confirmed]
+              description: "`draft`: created; `confirmed`: confirmed, once (`:confirm`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            items:
+              type: array
+              items: {$ref: "#/components/schemas/ReturnsOrderItem"}
+              description: "The items, by item number."
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+          version: 1
+          created_at: "2026-11-27T10:15:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-27T10:15:00Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          document_number: RO100001
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          billing_document_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5da1"
+          billing_document_number: BD100001
+          sales_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          sales_order_number: SO100001
+          returns_date: "2026-11-27"
+          reason: defective
+          reason_text: Threads out of tolerance
+          status: draft
+          items:
+            - item_no: 1
+              billing_item_no: 1
+              order_item_no: 1
+              item_key: BRACKET-M8
+              description: Machined bracket M8
+              billed_quantity: {value: "120", unit: EA}
+              quantity: {value: "20", unit: EA}
+              received_quantity: {value: "0", unit: EA}
+              open_quantity: {value: "20", unit: EA}
+    ReturnsOrderPage:
+      type: object
+      description: One page of returns orders.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ReturnsOrder"}
+          description: The returns orders on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    ReturnReceiptCreate:
+      type: object
+      description: "Confirm that returned quantities arrived: the date and the quantities received of the returns order's items."
+      required: [receipt_date, items]
+      additionalProperties: false
+      properties:
+        receipt_date: {type: string, format: date, description: "The day the quantities arrived; not after the company's date today."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 999
+          items: {$ref: "#/components/schemas/ReturnReceiptItemCreate"}
+          description: "The returns order's items received, each at most once."
+    ReturnReceiptItemCreate:
+      type: object
+      description: "A quantity received of one item of the returns order."
+      required: [item_no, quantity]
+      additionalProperties: false
+      properties:
+        item_no: {type: integer, format: int32, minimum: 1, description: "The returns order item's number (`ReturnsOrder.items[].item_no`)."}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity received: more than zero, in the item's unit, at most the item's open quantity (returned less received)."}
+    ReturnReceiptItem:
+      type: object
+      description: "An item of a return receipt: the quantity received of one item of the returns order."
+      required: [item_no, billing_item_no, description, quantity]
+      properties:
+        item_no: {type: integer, format: int32, description: "The returns order item's number.", readOnly: true}
+        billing_item_no: {type: integer, format: int32, description: "The number of the billing document's item that returns order item returns from.", readOnly: true}
+        item_key: {type: string, description: "The sales order item's item key; absent when it has none.", readOnly: true}
+        description: {type: string, description: "The sales order item's description.", readOnly: true}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity received, in the item's unit."}
+    ReturnReceipt:
+      type: object
+      description: "A return receipt (sales, ADR-0067, As built T85b): quantities of a returns order's items a person confirmed as received on a date. It moves no stock and posts nothing. It is written once and never changed."
+      required: [id, receipt_no, returns_order_id, returns_order_number, receipt_date, items, created_at, created_by]
+      properties:
+        id: {type: string, format: uuid, description: "Identifier (UUIDv7).", readOnly: true}
+        receipt_no: {type: integer, format: int32, description: "The receipt's number within its returns order, from 1 in the order they were confirmed.", readOnly: true}
+        returns_order_id: {type: string, format: uuid, description: "The returns order (`GET /v1/returns-orders/{id}`).", readOnly: true}
+        returns_order_number: {type: string, description: "The returns order's document number.", readOnly: true}
+        receipt_date: {type: string, format: date, description: "The day the quantities arrived.", readOnly: true}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ReturnReceiptItem"}
+          description: "The items received, by the returns order's item number."
+          readOnly: true
+        created_at: {type: string, format: date-time, description: "When the receipt was confirmed.", readOnly: true}
+        created_by: {type: string, format: uuid, description: "The principal who confirmed it.", readOnly: true}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc1"
+          receipt_no: 1
+          returns_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+          returns_order_number: RO100001
+          receipt_date: "2026-11-30"
+          items:
+            - item_no: 1
+              billing_item_no: 1
+              item_key: BRACKET-M8
+              description: Machined bracket M8
+              quantity: {value: "20", unit: EA}
+          created_at: "2026-11-30T09:12:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+    ReturnReceiptPage:
+      type: object
+      description: One page of a returns order's receipts.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ReturnReceipt"}
+          description: The receipts on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     RevenueContractCreate:
       type: object
       description: "Create the revenue contract of a confirmed sales order that has none yet."
@@ -49994,7 +51050,7 @@ components:
         bucket:
           type: string
           x-extensible-enum: [not_due, overdue, no_due_date]
-          description: "`not_due`: due on the key date or later; `overdue`: from `days_from` to `days_to` days past the net due date (the last overdue bucket without `days_to`); `no_due_date`: posted without payment terms. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "`not_due`: due on the key date or later; `overdue`: from `days_from` to `days_to` days past the net due date (the last overdue bucket without `days_to`); `no_due_date`: always empty, since an item posted without payment terms is due on its document date (until 2026-11-12 it was counted here). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
         days_from: {type: integer, format: int32, minimum: 1, description: "An overdue bucket's first day past the net due date.", readOnly: true}
         days_to: {type: integer, format: int32, minimum: 1, description: "An overdue bucket's last day past the net due date; absent on the last overdue bucket.", readOnly: true}
@@ -50080,6 +51136,313 @@ components:
                 - {bucket: overdue, days_from: 1, days_to: 30, item_count: 2, amount: {amount: "1680.00", currency: CAD}}
                 - {bucket: overdue, days_from: 31, item_count: 0, amount: {amount: "0.00", currency: CAD}}
                 - {bucket: no_due_date, item_count: 0, amount: {amount: "0.00", currency: CAD}}
+    ControlCreate:
+      type: object
+      description: "Record a control in the control library. It is created `active`."
+      required: [code, objective, process, owner_id, frequency, nature]
+      additionalProperties: false
+      properties:
+        code: {type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$", description: "The tenant's own code of the control, unique in the library whatever its case; it never changes."}
+        objective: {type: string, minLength: 1, maxLength: 1000, description: "What the control is to achieve."}
+        process: {type: string, minLength: 1, maxLength: 100, description: "The process the control belongs to, in the tenant's own words, without leading or trailing white space; the library is filtered by it."}
+        owner_id: {type: string, format: uuid, description: "The person who owns the control: an active person of the tenant (`GET /v1/principals/{id}`)."}
+        frequency:
+          type: string
+          description: "How often the control is performed. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [continuous, daily, weekly, monthly, quarterly, yearly, ad_hoc]
+        nature:
+          type: string
+          description: "Whether a person performs the control (`manual`) or the system does (`automated`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [manual, automated]
+        framework_references: {type: array, maxItems: 50, items: {type: string, minLength: 1, maxLength: 200}, description: "The tenant's own references to a framework it names, free text without white space around it, each once, in the order given. None when left out."}
+      examples:
+        - code: PAY-01
+          objective: A payment run is released by a person other than the one who proposed it.
+          process: Payments
+          owner_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          frequency: continuous
+          nature: automated
+    ControlUpdate:
+      type: object
+      description: "Merge patch of a control: its objective, process, owner, frequency, nature or framework references. The code does not change."
+      additionalProperties: false
+      properties:
+        objective: {type: string, minLength: 1, maxLength: 1000, description: "What the control is to achieve."}
+        process: {type: string, minLength: 1, maxLength: 100, description: "The process the control belongs to, without leading or trailing white space."}
+        owner_id: {type: string, format: uuid, description: "The person who owns the control: an active person of the tenant."}
+        frequency:
+          type: string
+          description: "How often the control is performed. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [continuous, daily, weekly, monthly, quarterly, yearly, ad_hoc]
+        nature:
+          type: string
+          description: "Whether a person performs the control (`manual`) or the system does (`automated`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [manual, automated]
+        framework_references: {type: array, maxItems: 50, items: {type: string, minLength: 1, maxLength: 200}, description: "The tenant's own references to a framework it names, free text without white space around it, each once, in the order given. The list given replaces the control's; an empty list clears it."}
+      examples:
+        - frequency: monthly
+    Control:
+      description: "A control of the tenant's control library (grc, ADR-0078 §2), with its last test."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [code, objective, process, owner_id, owner_name, frequency, nature, status, framework_references]
+          properties:
+            code: {type: string, description: "The tenant's code of the control, unique in the library.", readOnly: true}
+            objective: {type: string, description: "What the control is to achieve."}
+            process: {type: string, description: "The process the control belongs to, in the tenant's own words."}
+            owner_id: {type: string, format: uuid, description: "The person who owns the control (`GET /v1/principals/{id}`)."}
+            owner_name: {type: string, description: "The owner's name, as it is now.", readOnly: true}
+            frequency:
+              type: string
+              description: "How often the control is performed. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [continuous, daily, weekly, monthly, quarterly, yearly, ad_hoc]
+            nature:
+              type: string
+              description: "Whether a person performs the control (`manual`) or the system does (`automated`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [manual, automated]
+            status:
+              type: string
+              description: "`active`, or `retired` for good (`retireControl`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [active, retired]
+              readOnly: true
+            framework_references: {type: array, items: {type: string}, description: "The tenant's own references to a framework it names, in the order it gave them; empty when it gave none. No framework's text or numbering is shipped."}
+            last_test: {$ref: "#/components/schemas/ControlTest", description: "The control's last test: the one with the latest test date, the one recorded last among several of one date. Absent while the control was never tested."}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+          version: 1
+          created_at: "2026-11-25T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-25T14:03:11Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          code: PAY-01
+          objective: A payment run is released by a person other than the one who proposed it.
+          process: Payments
+          owner_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          owner_name: Carla Controller
+          frequency: continuous
+          nature: automated
+          status: active
+          framework_references: ["ICFR 4.2 Payments"]
+          last_test:
+            id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e02"
+            control_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+            control_code: PAY-01
+            tested_on: "2026-11-25"
+            result: passed
+            note: "Run PR-2026-000012: proposed by T. Treasurer, release by the same person refused; released by T. Manager."
+            tested_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+            tested_by_name: Carla Controller
+            created_at: "2026-11-25T14:10:42Z"
+    ControlPage:
+      type: object
+      description: One page of the control library.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Control"}
+          description: The controls on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    ControlLinkCreate:
+      type: object
+      description: "Link a control to what enforces it: a permission, a segregation-of-duties rule or a path of the configuration. Exactly the field of `kind` is given."
+      required: [kind]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          description: "What the control is linked to. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [permission, sod_rule, configuration_path]
+        permission_code: {type: string, pattern: "^[a-z_]+(\\.[a-z_]+)+$", description: "For `permission`: a permission code of the platform's catalog, an operation's `x-permission`."}
+        sod_rule_id: {type: string, format: uuid, description: "For `sod_rule`: a segregation-of-duties rule of the tenant (`GET /v1/sod-rules/{id}`)."}
+        configuration_path: {type: string, minLength: 1, maxLength: 500, description: "For `configuration_path`: a path of the configuration as a configuration change names a setting (`companies[3000].approvals`), without white space around it: a setting, a list item or a section."}
+      examples:
+        - kind: permission
+          permission_code: payments.run.release
+    SodRuleSummary:
+      type: object
+      description: "A segregation-of-duties rule as a control link shows it: its two permissions, why they conflict and its validity."
+      required: [permission_a, permission_b, description, valid_from]
+      properties:
+        permission_a: {type: string, description: "The first permission of the pair.", readOnly: true}
+        permission_b: {type: string, description: "The second permission of the pair.", readOnly: true}
+        description: {type: string, description: "Why the combination is a conflict.", readOnly: true}
+        valid_from: {type: string, format: date, description: "The first day the rule is in force.", readOnly: true}
+        valid_to: {type: string, format: date, description: "The day the rule ends, exclusive; absent while it has no end.", readOnly: true}
+    ControlLink:
+      description: "A link from a control to what enforces it in the product (grc, ADR-0078 §7), with whether it holds now."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [control_id, control_code, kind, status, holds]
+          properties:
+            control_id: {type: string, format: uuid, description: "The control (`GET /v1/controls/{id}`).", readOnly: true}
+            control_code: {type: string, description: "The control's code.", readOnly: true}
+            kind:
+              type: string
+              description: "What the control is linked to. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [permission, sod_rule, configuration_path]
+              readOnly: true
+            permission_code: {type: string, description: "For `permission`: the permission code.", readOnly: true}
+            permission_description: {type: string, description: "For `permission`: what the permission allows, by the catalog; absent when the permission is no longer in it.", readOnly: true}
+            sod_rule_id: {type: string, format: uuid, description: "For `sod_rule`: the rule (`GET /v1/sod-rules/{id}`).", readOnly: true}
+            sod_rule: {$ref: "#/components/schemas/SodRuleSummary", description: "For `sod_rule`: the rule as it is now."}
+            configuration_path: {type: string, description: "For `configuration_path`: the path, as a configuration change names a setting.", readOnly: true}
+            configuration_version: {type: integer, format: int32, minimum: 1, description: "For `configuration_path`: the number of the active configuration version the path was looked up in (`GET /v1/config-versions`).", readOnly: true}
+            status:
+              type: string
+              description: "`active`, or `removed` (`removeControlLink`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [active, removed]
+              readOnly: true
+            holds: {type: boolean, description: "Whether what the link names is there now: the permission in the catalog, the rule in force today, a value at the path in the active configuration version.", readOnly: true}
+            broken_reason:
+              type: string
+              description: "Why the link does not hold; absent when it holds. `permission_not_in_catalog`, `sod_rule_not_started` (its first day is after today), `sod_rule_ended`, `configuration_path_without_value`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [permission_not_in_catalog, sod_rule_not_started, sod_rule_ended, configuration_path_without_value]
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e11"
+          version: 1
+          created_at: "2026-11-25T14:20:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-25T14:20:11Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          control_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+          control_code: PAY-01
+          kind: permission
+          permission_code: payments.run.release
+          permission_description: Release payment runs
+          status: active
+          holds: true
+    ControlMatrixRow:
+      type: object
+      description: "One control of the control matrix: the control with its framework references and last test, and its links with whether each holds."
+      required: [control, link_state, links]
+      properties:
+        control: {$ref: "#/components/schemas/Control", description: "The control, as `getControl` gives it."}
+        link_state:
+          type: string
+          description: "`holding` (every link holds, and there is one), `broken` (at least one link does not hold) or `none` (no link). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [holding, broken, none]
+          readOnly: true
+        links:
+          type: array
+          items: {$ref: "#/components/schemas/ControlLink"}
+          description: "The control's links, in the order they were made; removed links are left out."
+    ControlMatrixTotals:
+      type: object
+      description: "What the matrix's filters select, counted over every page."
+      required: [controls, controls_holding, controls_broken, controls_without_links, links, links_holding, links_broken]
+      properties:
+        controls: {type: integer, format: int32, minimum: 0, description: "The controls selected.", readOnly: true}
+        controls_holding: {type: integer, format: int32, minimum: 0, description: "Those whose links all hold, with at least one link.", readOnly: true}
+        controls_broken: {type: integer, format: int32, minimum: 0, description: "Those with at least one link that does not hold.", readOnly: true}
+        controls_without_links: {type: integer, format: int32, minimum: 0, description: "Those without a link.", readOnly: true}
+        links: {type: integer, format: int32, minimum: 0, description: "The links of the controls selected.", readOnly: true}
+        links_holding: {type: integer, format: int32, minimum: 0, description: "The links that hold.", readOnly: true}
+        links_broken: {type: integer, format: int32, minimum: 0, description: "The links that do not hold.", readOnly: true}
+    ControlMatrix:
+      type: object
+      description: "One page of the control matrix (grc, ADR-0078 §8) with its totals."
+      required: [as_of, totals, items]
+      properties:
+        as_of: {type: string, format: date, description: "The database's date the links were judged on: a segregation-of-duties rule is in force on it or not.", readOnly: true}
+        totals: {$ref: "#/components/schemas/ControlMatrixTotals", description: "The controls and links the filters select, over every page."}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ControlMatrixRow"}
+          description: The controls on this page, by code.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+      examples:
+        - as_of: "2026-11-25"
+          totals: {controls: 1, controls_holding: 1, controls_broken: 0, controls_without_links: 0, links: 1, links_holding: 1, links_broken: 0}
+          items:
+            - control:
+                id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+                version: 2
+                created_at: "2026-11-25T14:03:11Z"
+                created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+                updated_at: "2026-11-25T14:15:40Z"
+                updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+                code: PAY-01
+                objective: A payment run is released by a person other than the one who proposed it.
+                process: Payments
+                owner_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+                owner_name: Carla Controller
+                frequency: continuous
+                nature: automated
+                status: active
+                framework_references: ["ICFR 4.2 Payments"]
+              link_state: holding
+              links:
+                - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e11"
+                  version: 1
+                  created_at: "2026-11-25T14:20:11Z"
+                  created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+                  updated_at: "2026-11-25T14:20:11Z"
+                  updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+                  control_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+                  control_code: PAY-01
+                  kind: permission
+                  permission_code: payments.run.release
+                  permission_description: Release payment runs
+                  status: active
+                  holds: true
+    ControlTestCreate:
+      type: object
+      description: "Record the result of testing a control. The tester is the caller."
+      required: [tested_on, result, note]
+      additionalProperties: false
+      properties:
+        tested_on: {type: string, format: date, description: "The date of the test: the database's date today or earlier."}
+        result:
+          type: string
+          description: "The result of the test. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [passed, failed]
+        note: {type: string, minLength: 1, maxLength: 2000, description: "A note of the evidence seen: what was tested and where it is kept."}
+      examples:
+        - tested_on: "2026-11-25"
+          result: passed
+          note: "Run PR-2026-000012: proposed by T. Treasurer, release by the same person refused; released by T. Manager."
+    ControlTest:
+      type: object
+      description: "The result of testing a control once (grc, ADR-0078 §3). It is never changed."
+      required: [id, control_id, control_code, tested_on, result, note, tested_by, tested_by_name, created_at]
+      properties:
+        id: {type: string, format: uuid, description: "Identifier (UUIDv7).", readOnly: true}
+        control_id: {type: string, format: uuid, description: "The control tested (`GET /v1/controls/{id}`).", readOnly: true}
+        control_code: {type: string, description: "The control's code.", readOnly: true}
+        tested_on: {type: string, format: date, description: "The date of the test.", readOnly: true}
+        result:
+          type: string
+          description: "The result of the test. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [passed, failed]
+          readOnly: true
+        note: {type: string, description: "The note of the evidence seen.", readOnly: true}
+        tested_by: {type: string, format: uuid, description: "The person who tested and recorded it (`GET /v1/principals/{id}`).", readOnly: true}
+        tested_by_name: {type: string, description: "The tester's name, as it is now.", readOnly: true}
+        created_at: {type: string, format: date-time, description: "When the test was recorded (UTC).", readOnly: true}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e02"
+          control_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+          control_code: PAY-01
+          tested_on: "2026-11-25"
+          result: passed
+          note: "Run PR-2026-000012: proposed by T. Treasurer, release by the same person refused; released by T. Manager."
+          tested_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          tested_by_name: Carla Controller
+          created_at: "2026-11-25T14:10:42Z"
+    ControlTestPage:
+      type: object
+      description: One page of a control's tests.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ControlTest"}
+          description: The tests on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     EInvoiceFetch:
       type: object
       description: A fetch of e-invoices from a provider (ADR-0061 §4).

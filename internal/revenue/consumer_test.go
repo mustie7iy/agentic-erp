@@ -197,6 +197,12 @@ func TestConsumerSkipsAndRefuses(t *testing.T) {
 		read   int    // events recorded in the inbox
 	}{
 		{"another event", order, func(m *outbox.Message) { m.Header["ce-type"] = "com.example.erp.sales.sales_order_delivered.v1" }, "", 0},
+		// A returns order's event (T85a): it gets no revenue contract, whatever its status and the order it names.
+		{"a confirmed returns order", order, func(m *outbox.Message) {
+			m.Header["ce-type"] = "com.example.erp.sales.returns_order_changed.v1"
+			m.Subject = strings.Replace(m.Subject, ".sales_order_changed", ".returns_order_changed", 1)
+			m.Data = []byte(`{"returns_order_id": "` + uuid.NewString() + `", "sales_order_id": "` + order + `", "status": "confirmed", "status_before": "draft"}`)
+		}, "", 0},
 		{"an order created, not confirmed", draft, func(*outbox.Message) {}, "", 0},
 		{"subject of another form", order, func(m *outbox.Message) { m.Subject = "erp.test." + e.Tenant.ID.String() }, "refused", 0},
 		{"another context's stream", order, func(m *outbox.Message) { m.Subject = strings.Replace(m.Subject, ".sales.", ".payables.", 1) }, "refused", 0},

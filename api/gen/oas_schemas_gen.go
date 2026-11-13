@@ -19773,7 +19773,8 @@ type CatalogItemCreate struct {
 	// The contract whose item `contract_item_no` prices an order of the item; given with
 	// `contract_item_no`.
 	ContractID OptUUID `json:"contract_id"`
-	// The item of `contract_id`, in the catalog item's unit; given with `contract_id`.
+	// The item of `contract_id`, in the catalog item's unit and at its `unit_price` per `price_unit` (422
+	// `procurement.catalog_item_price` otherwise); given with `contract_id`.
 	ContractItemNo OptInt32 `json:"contract_item_no"`
 }
 
@@ -21187,7 +21188,8 @@ func (s *Clearing) SetItems(val []ClearingItemRef) {
 type ClearingCreate struct {
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// Clearing date; must fall in an open period.
+	// Clearing date, the clearing entry's posting date; must fall in an open period and be on or after the
+	// latest posting date of the items (422 `ledger.clearing_before_item`).
 	ClearingDate time.Time `json:"clearing_date"`
 	// Open items to clear; they must net to zero per partner and currency.
 	Items []ClearingItemRef `json:"items"`
@@ -23439,7 +23441,8 @@ type CollectionWorklistCustomer struct {
 	OpenAmount Money `json:"open_amount"`
 	// What the customer's items overdue on the key date add up to; credit items do not reduce it.
 	OverdueAmount Money `json:"overdue_amount"`
-	// The earliest net due date among the customer's overdue items.
+	// The earliest net due date among the customer's overdue items; an item posted without payment terms
+	// is due on its document date.
 	OldestDueDate time.Time `json:"oldest_due_date"`
 	// The highest dunning level a confirmed dunning run recorded for one of the customer's open items; 0
 	// when none was dunned.
@@ -24172,6 +24175,85 @@ type ConfirmDunningRunUnprocessableEntity Problem
 
 func (*ConfirmDunningRunUnprocessableEntity) confirmDunningRunRes() {}
 
+type ConfirmReturnReceiptBadRequest Problem
+
+func (*ConfirmReturnReceiptBadRequest) confirmReturnReceiptRes() {}
+
+type ConfirmReturnReceiptForbidden Problem
+
+func (*ConfirmReturnReceiptForbidden) confirmReturnReceiptRes() {}
+
+type ConfirmReturnReceiptNotFound Problem
+
+func (*ConfirmReturnReceiptNotFound) confirmReturnReceiptRes() {}
+
+type ConfirmReturnReceiptPreconditionRequired Problem
+
+func (*ConfirmReturnReceiptPreconditionRequired) confirmReturnReceiptRes() {}
+
+type ConfirmReturnReceiptUnprocessableEntity Problem
+
+func (*ConfirmReturnReceiptUnprocessableEntity) confirmReturnReceiptRes() {}
+
+type ConfirmReturnsOrderBadRequest Problem
+
+func (*ConfirmReturnsOrderBadRequest) confirmReturnsOrderRes() {}
+
+type ConfirmReturnsOrderForbidden Problem
+
+func (*ConfirmReturnsOrderForbidden) confirmReturnsOrderRes() {}
+
+type ConfirmReturnsOrderNotFound Problem
+
+func (*ConfirmReturnsOrderNotFound) confirmReturnsOrderRes() {}
+
+// ConfirmReturnsOrderOKHeaders wraps ReturnsOrder with response headers.
+type ConfirmReturnsOrderOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           ReturnsOrder
+}
+
+// GetETag returns the value of ETag.
+func (s *ConfirmReturnsOrderOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ConfirmReturnsOrderOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ConfirmReturnsOrderOKHeaders) GetResponse() ReturnsOrder {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ConfirmReturnsOrderOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ConfirmReturnsOrderOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ConfirmReturnsOrderOKHeaders) SetResponse(val ReturnsOrder) {
+	s.Response = val
+}
+
+func (*ConfirmReturnsOrderOKHeaders) confirmReturnsOrderRes() {}
+
+type ConfirmReturnsOrderPreconditionFailed Problem
+
+func (*ConfirmReturnsOrderPreconditionFailed) confirmReturnsOrderRes() {}
+
+type ConfirmReturnsOrderPreconditionRequired Problem
+
+func (*ConfirmReturnsOrderPreconditionRequired) confirmReturnsOrderRes() {}
+
 type ConfirmSalesDeliveryBadRequest Problem
 
 func (*ConfirmSalesDeliveryBadRequest) confirmSalesDeliveryRes() {}
@@ -24322,6 +24404,8 @@ func (*ConflictHeaders) closePurchaseOrderRes()                    {}
 func (*ConflictHeaders) completeCloseTaskRes()                     {}
 func (*ConflictHeaders) completeYearCloseTaskRes()                 {}
 func (*ConflictHeaders) confirmDunningRunRes()                     {}
+func (*ConflictHeaders) confirmReturnReceiptRes()                  {}
+func (*ConflictHeaders) confirmReturnsOrderRes()                   {}
 func (*ConflictHeaders) confirmSalesDeliveryRes()                  {}
 func (*ConflictHeaders) confirmSalesOrderRes()                     {}
 func (*ConflictHeaders) createAllocationCycleRes()                 {}
@@ -24339,6 +24423,9 @@ func (*ConflictHeaders) createCompanyAccessRes()                   {}
 func (*ConflictHeaders) createConnectorRes()                       {}
 func (*ConflictHeaders) createConsolidationRunRes()                {}
 func (*ConflictHeaders) createContractRes()                        {}
+func (*ConflictHeaders) createControlLinkRes()                     {}
+func (*ConflictHeaders) createControlRes()                         {}
+func (*ConflictHeaders) createControlTestRes()                     {}
 func (*ConflictHeaders) createCostCenterRes()                      {}
 func (*ConflictHeaders) createCreditLimitRes()                     {}
 func (*ConflictHeaders) createCustomerInvoiceRes()                 {}
@@ -24365,6 +24452,7 @@ func (*ConflictHeaders) createPurchaseOrderRes()                   {}
 func (*ConflictHeaders) createQuotationRes()                       {}
 func (*ConflictHeaders) createRecommendationRes()                  {}
 func (*ConflictHeaders) createRequisitionRes()                     {}
+func (*ConflictHeaders) createReturnsOrderRes()                    {}
 func (*ConflictHeaders) createRevenueContractRes()                 {}
 func (*ConflictHeaders) createRfqRes()                             {}
 func (*ConflictHeaders) createRoleAssignmentRes()                  {}
@@ -24402,6 +24490,7 @@ func (*ConflictHeaders) getCloseCalendarRes()                      {}
 func (*ConflictHeaders) getConsolidatedStatementRes()              {}
 func (*ConflictHeaders) getConsolidationGroupRes()                 {}
 func (*ConflictHeaders) getConsolidationRunRes()                   {}
+func (*ConflictHeaders) getControlMatrixRes()                      {}
 func (*ConflictHeaders) getEInvoiceContentRes()                    {}
 func (*ConflictHeaders) getLegalEntityTodayRes()                   {}
 func (*ConflictHeaders) getLiquidityForecastVarianceRes()          {}
@@ -24479,6 +24568,7 @@ func (*ConflictHeaders) releasePaymentRunRes()                     {}
 func (*ConflictHeaders) releasePurchaseOrderRes()                  {}
 func (*ConflictHeaders) releaseSalesOrderCreditBlockRes()          {}
 func (*ConflictHeaders) releaseSupplierInvoiceRes()                {}
+func (*ConflictHeaders) removeControlLinkRes()                     {}
 func (*ConflictHeaders) removeHierarchyNodeRes()                   {}
 func (*ConflictHeaders) renameHierarchyNodeRes()                   {}
 func (*ConflictHeaders) renewContractRes()                         {}
@@ -24490,6 +24580,7 @@ func (*ConflictHeaders) requestBankAccountChangeRes()              {}
 func (*ConflictHeaders) requestBankAccountEndRes()                 {}
 func (*ConflictHeaders) resumeWebhookSubscriptionRes()             {}
 func (*ConflictHeaders) retireCatalogItemRes()                     {}
+func (*ConflictHeaders) retireControlRes()                         {}
 func (*ConflictHeaders) retireEntryTemplateRes()                   {}
 func (*ConflictHeaders) reverseAssetAcquisitionRes()               {}
 func (*ConflictHeaders) reverseAssetRetirementRes()                {}
@@ -24526,6 +24617,7 @@ func (*ConflictHeaders) updateChangeRequestRes()                   {}
 func (*ConflictHeaders) updateCloseTaskRes()                       {}
 func (*ConflictHeaders) updateConnectorRes()                       {}
 func (*ConflictHeaders) updateContractRes()                        {}
+func (*ConflictHeaders) updateControlRes()                         {}
 func (*ConflictHeaders) updateCostCenterRes()                      {}
 func (*ConflictHeaders) updateCreditLimitRes()                     {}
 func (*ConflictHeaders) updateEntryTemplateRes()                   {}
@@ -28155,6 +28247,1191 @@ func (s *ContractUpdate) SetItems(val []ContractItem) {
 }
 
 // Merged schema.
+// Ref: #/components/schemas/Control
+type Control struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The tenant's code of the control, unique in the library.
+	Code string `json:"code"`
+	// What the control is to achieve.
+	Objective string `json:"objective"`
+	// The process the control belongs to, in the tenant's own words.
+	Process string `json:"process"`
+	// The person who owns the control (`GET /v1/principals/{id}`).
+	OwnerID uuid.UUID `json:"owner_id"`
+	// The owner's name, as it is now.
+	OwnerName string `json:"owner_name"`
+	// How often the control is performed. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Frequency string `json:"frequency"`
+	// Whether a person performs the control (`manual`) or the system does (`automated`). Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Nature string `json:"nature"`
+	// `active`, or `retired` for good (`retireControl`). Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The tenant's own references to a framework it names, in the order it gave them; empty when it gave
+	// none. No framework's text or numbering is shipped.
+	FrameworkReferences []string `json:"framework_references"`
+	// The control's last test: the one with the latest test date, the one recorded last among several of
+	// one date. Absent while the control was never tested.
+	LastTest OptControlTest `json:"last_test"`
+}
+
+// GetID returns the value of ID.
+func (s *Control) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *Control) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *Control) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *Control) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *Control) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *Control) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetCode returns the value of Code.
+func (s *Control) GetCode() string {
+	return s.Code
+}
+
+// GetObjective returns the value of Objective.
+func (s *Control) GetObjective() string {
+	return s.Objective
+}
+
+// GetProcess returns the value of Process.
+func (s *Control) GetProcess() string {
+	return s.Process
+}
+
+// GetOwnerID returns the value of OwnerID.
+func (s *Control) GetOwnerID() uuid.UUID {
+	return s.OwnerID
+}
+
+// GetOwnerName returns the value of OwnerName.
+func (s *Control) GetOwnerName() string {
+	return s.OwnerName
+}
+
+// GetFrequency returns the value of Frequency.
+func (s *Control) GetFrequency() string {
+	return s.Frequency
+}
+
+// GetNature returns the value of Nature.
+func (s *Control) GetNature() string {
+	return s.Nature
+}
+
+// GetStatus returns the value of Status.
+func (s *Control) GetStatus() string {
+	return s.Status
+}
+
+// GetFrameworkReferences returns the value of FrameworkReferences.
+func (s *Control) GetFrameworkReferences() []string {
+	return s.FrameworkReferences
+}
+
+// GetLastTest returns the value of LastTest.
+func (s *Control) GetLastTest() OptControlTest {
+	return s.LastTest
+}
+
+// SetID sets the value of ID.
+func (s *Control) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *Control) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *Control) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *Control) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *Control) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *Control) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetCode sets the value of Code.
+func (s *Control) SetCode(val string) {
+	s.Code = val
+}
+
+// SetObjective sets the value of Objective.
+func (s *Control) SetObjective(val string) {
+	s.Objective = val
+}
+
+// SetProcess sets the value of Process.
+func (s *Control) SetProcess(val string) {
+	s.Process = val
+}
+
+// SetOwnerID sets the value of OwnerID.
+func (s *Control) SetOwnerID(val uuid.UUID) {
+	s.OwnerID = val
+}
+
+// SetOwnerName sets the value of OwnerName.
+func (s *Control) SetOwnerName(val string) {
+	s.OwnerName = val
+}
+
+// SetFrequency sets the value of Frequency.
+func (s *Control) SetFrequency(val string) {
+	s.Frequency = val
+}
+
+// SetNature sets the value of Nature.
+func (s *Control) SetNature(val string) {
+	s.Nature = val
+}
+
+// SetStatus sets the value of Status.
+func (s *Control) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetFrameworkReferences sets the value of FrameworkReferences.
+func (s *Control) SetFrameworkReferences(val []string) {
+	s.FrameworkReferences = val
+}
+
+// SetLastTest sets the value of LastTest.
+func (s *Control) SetLastTest(val OptControlTest) {
+	s.LastTest = val
+}
+
+// Record a control in the control library. It is created `active`.
+// Ref: #/components/schemas/ControlCreate
+type ControlCreate struct {
+	// The tenant's own code of the control, unique in the library whatever its case; it never changes.
+	Code string `json:"code"`
+	// What the control is to achieve.
+	Objective string `json:"objective"`
+	// The process the control belongs to, in the tenant's own words, without leading or trailing white
+	// space; the library is filtered by it.
+	Process string `json:"process"`
+	// The person who owns the control: an active person of the tenant (`GET /v1/principals/{id}`).
+	OwnerID uuid.UUID `json:"owner_id"`
+	// How often the control is performed. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Frequency string `json:"frequency"`
+	// Whether a person performs the control (`manual`) or the system does (`automated`). Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Nature string `json:"nature"`
+	// The tenant's own references to a framework it names, free text without white space around it, each
+	// once, in the order given. None when left out.
+	FrameworkReferences []string `json:"framework_references"`
+}
+
+// GetCode returns the value of Code.
+func (s *ControlCreate) GetCode() string {
+	return s.Code
+}
+
+// GetObjective returns the value of Objective.
+func (s *ControlCreate) GetObjective() string {
+	return s.Objective
+}
+
+// GetProcess returns the value of Process.
+func (s *ControlCreate) GetProcess() string {
+	return s.Process
+}
+
+// GetOwnerID returns the value of OwnerID.
+func (s *ControlCreate) GetOwnerID() uuid.UUID {
+	return s.OwnerID
+}
+
+// GetFrequency returns the value of Frequency.
+func (s *ControlCreate) GetFrequency() string {
+	return s.Frequency
+}
+
+// GetNature returns the value of Nature.
+func (s *ControlCreate) GetNature() string {
+	return s.Nature
+}
+
+// GetFrameworkReferences returns the value of FrameworkReferences.
+func (s *ControlCreate) GetFrameworkReferences() []string {
+	return s.FrameworkReferences
+}
+
+// SetCode sets the value of Code.
+func (s *ControlCreate) SetCode(val string) {
+	s.Code = val
+}
+
+// SetObjective sets the value of Objective.
+func (s *ControlCreate) SetObjective(val string) {
+	s.Objective = val
+}
+
+// SetProcess sets the value of Process.
+func (s *ControlCreate) SetProcess(val string) {
+	s.Process = val
+}
+
+// SetOwnerID sets the value of OwnerID.
+func (s *ControlCreate) SetOwnerID(val uuid.UUID) {
+	s.OwnerID = val
+}
+
+// SetFrequency sets the value of Frequency.
+func (s *ControlCreate) SetFrequency(val string) {
+	s.Frequency = val
+}
+
+// SetNature sets the value of Nature.
+func (s *ControlCreate) SetNature(val string) {
+	s.Nature = val
+}
+
+// SetFrameworkReferences sets the value of FrameworkReferences.
+func (s *ControlCreate) SetFrameworkReferences(val []string) {
+	s.FrameworkReferences = val
+}
+
+// ControlHeaders wraps Control with response headers.
+type ControlHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           Control
+}
+
+// GetETag returns the value of ETag.
+func (s *ControlHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ControlHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *ControlHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *ControlHeaders) GetResponse() Control {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ControlHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ControlHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *ControlHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ControlHeaders) SetResponse(val Control) {
+	s.Response = val
+}
+
+func (*ControlHeaders) createControlRes() {}
+
+// Merged schema.
+// Ref: #/components/schemas/ControlLink
+type ControlLink struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The control (`GET /v1/controls/{id}`).
+	ControlID uuid.UUID `json:"control_id"`
+	// The control's code.
+	ControlCode string `json:"control_code"`
+	// What the control is linked to. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Kind string `json:"kind"`
+	// For `permission`: the permission code.
+	PermissionCode OptString `json:"permission_code"`
+	// For `permission`: what the permission allows, by the catalog; absent when the permission is no
+	// longer in it.
+	PermissionDescription OptString `json:"permission_description"`
+	// For `sod_rule`: the rule (`GET /v1/sod-rules/{id}`).
+	SodRuleID OptUUID `json:"sod_rule_id"`
+	// For `sod_rule`: the rule as it is now.
+	SodRule OptSodRuleSummary `json:"sod_rule"`
+	// For `configuration_path`: the path, as a configuration change names a setting.
+	ConfigurationPath OptString `json:"configuration_path"`
+	// For `configuration_path`: the number of the active configuration version the path was looked up in
+	// (`GET /v1/config-versions`).
+	ConfigurationVersion OptInt32 `json:"configuration_version"`
+	// `active`, or `removed` (`removeControlLink`). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// Whether what the link names is there now: the permission in the catalog, the rule in force today, a
+	// value at the path in the active configuration version.
+	Holds bool `json:"holds"`
+	// Why the link does not hold; absent when it holds. `permission_not_in_catalog`,
+	// `sod_rule_not_started` (its first day is after today), `sod_rule_ended`,
+	// `configuration_path_without_value`. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	BrokenReason OptString `json:"broken_reason"`
+}
+
+// GetID returns the value of ID.
+func (s *ControlLink) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *ControlLink) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ControlLink) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *ControlLink) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *ControlLink) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *ControlLink) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetControlID returns the value of ControlID.
+func (s *ControlLink) GetControlID() uuid.UUID {
+	return s.ControlID
+}
+
+// GetControlCode returns the value of ControlCode.
+func (s *ControlLink) GetControlCode() string {
+	return s.ControlCode
+}
+
+// GetKind returns the value of Kind.
+func (s *ControlLink) GetKind() string {
+	return s.Kind
+}
+
+// GetPermissionCode returns the value of PermissionCode.
+func (s *ControlLink) GetPermissionCode() OptString {
+	return s.PermissionCode
+}
+
+// GetPermissionDescription returns the value of PermissionDescription.
+func (s *ControlLink) GetPermissionDescription() OptString {
+	return s.PermissionDescription
+}
+
+// GetSodRuleID returns the value of SodRuleID.
+func (s *ControlLink) GetSodRuleID() OptUUID {
+	return s.SodRuleID
+}
+
+// GetSodRule returns the value of SodRule.
+func (s *ControlLink) GetSodRule() OptSodRuleSummary {
+	return s.SodRule
+}
+
+// GetConfigurationPath returns the value of ConfigurationPath.
+func (s *ControlLink) GetConfigurationPath() OptString {
+	return s.ConfigurationPath
+}
+
+// GetConfigurationVersion returns the value of ConfigurationVersion.
+func (s *ControlLink) GetConfigurationVersion() OptInt32 {
+	return s.ConfigurationVersion
+}
+
+// GetStatus returns the value of Status.
+func (s *ControlLink) GetStatus() string {
+	return s.Status
+}
+
+// GetHolds returns the value of Holds.
+func (s *ControlLink) GetHolds() bool {
+	return s.Holds
+}
+
+// GetBrokenReason returns the value of BrokenReason.
+func (s *ControlLink) GetBrokenReason() OptString {
+	return s.BrokenReason
+}
+
+// SetID sets the value of ID.
+func (s *ControlLink) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *ControlLink) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ControlLink) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *ControlLink) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *ControlLink) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *ControlLink) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetControlID sets the value of ControlID.
+func (s *ControlLink) SetControlID(val uuid.UUID) {
+	s.ControlID = val
+}
+
+// SetControlCode sets the value of ControlCode.
+func (s *ControlLink) SetControlCode(val string) {
+	s.ControlCode = val
+}
+
+// SetKind sets the value of Kind.
+func (s *ControlLink) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetPermissionCode sets the value of PermissionCode.
+func (s *ControlLink) SetPermissionCode(val OptString) {
+	s.PermissionCode = val
+}
+
+// SetPermissionDescription sets the value of PermissionDescription.
+func (s *ControlLink) SetPermissionDescription(val OptString) {
+	s.PermissionDescription = val
+}
+
+// SetSodRuleID sets the value of SodRuleID.
+func (s *ControlLink) SetSodRuleID(val OptUUID) {
+	s.SodRuleID = val
+}
+
+// SetSodRule sets the value of SodRule.
+func (s *ControlLink) SetSodRule(val OptSodRuleSummary) {
+	s.SodRule = val
+}
+
+// SetConfigurationPath sets the value of ConfigurationPath.
+func (s *ControlLink) SetConfigurationPath(val OptString) {
+	s.ConfigurationPath = val
+}
+
+// SetConfigurationVersion sets the value of ConfigurationVersion.
+func (s *ControlLink) SetConfigurationVersion(val OptInt32) {
+	s.ConfigurationVersion = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ControlLink) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetHolds sets the value of Holds.
+func (s *ControlLink) SetHolds(val bool) {
+	s.Holds = val
+}
+
+// SetBrokenReason sets the value of BrokenReason.
+func (s *ControlLink) SetBrokenReason(val OptString) {
+	s.BrokenReason = val
+}
+
+// Link a control to what enforces it: a permission, a segregation-of-duties rule or a path of the
+// configuration. Exactly the field of `kind` is given.
+// Ref: #/components/schemas/ControlLinkCreate
+type ControlLinkCreate struct {
+	// What the control is linked to. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Kind string `json:"kind"`
+	// For `permission`: a permission code of the platform's catalog, an operation's `x-permission`.
+	PermissionCode OptString `json:"permission_code"`
+	// For `sod_rule`: a segregation-of-duties rule of the tenant (`GET /v1/sod-rules/{id}`).
+	SodRuleID OptUUID `json:"sod_rule_id"`
+	// For `configuration_path`: a path of the configuration as a configuration change names a setting
+	// (`companies[3000].approvals`), without white space around it: a setting, a list item or a section.
+	ConfigurationPath OptString `json:"configuration_path"`
+}
+
+// GetKind returns the value of Kind.
+func (s *ControlLinkCreate) GetKind() string {
+	return s.Kind
+}
+
+// GetPermissionCode returns the value of PermissionCode.
+func (s *ControlLinkCreate) GetPermissionCode() OptString {
+	return s.PermissionCode
+}
+
+// GetSodRuleID returns the value of SodRuleID.
+func (s *ControlLinkCreate) GetSodRuleID() OptUUID {
+	return s.SodRuleID
+}
+
+// GetConfigurationPath returns the value of ConfigurationPath.
+func (s *ControlLinkCreate) GetConfigurationPath() OptString {
+	return s.ConfigurationPath
+}
+
+// SetKind sets the value of Kind.
+func (s *ControlLinkCreate) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetPermissionCode sets the value of PermissionCode.
+func (s *ControlLinkCreate) SetPermissionCode(val OptString) {
+	s.PermissionCode = val
+}
+
+// SetSodRuleID sets the value of SodRuleID.
+func (s *ControlLinkCreate) SetSodRuleID(val OptUUID) {
+	s.SodRuleID = val
+}
+
+// SetConfigurationPath sets the value of ConfigurationPath.
+func (s *ControlLinkCreate) SetConfigurationPath(val OptString) {
+	s.ConfigurationPath = val
+}
+
+// ControlLinkHeaders wraps ControlLink with response headers.
+type ControlLinkHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           ControlLink
+}
+
+// GetETag returns the value of ETag.
+func (s *ControlLinkHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ControlLinkHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ControlLinkHeaders) GetResponse() ControlLink {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ControlLinkHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ControlLinkHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ControlLinkHeaders) SetResponse(val ControlLink) {
+	s.Response = val
+}
+
+func (*ControlLinkHeaders) createControlLinkRes() {}
+func (*ControlLinkHeaders) removeControlLinkRes() {}
+
+// One page of the control matrix (grc, ADR-0078 §8) with its totals.
+// Ref: #/components/schemas/ControlMatrix
+type ControlMatrix struct {
+	// The database's date the links were judged on: a segregation-of-duties rule is in force on it or not.
+	AsOf time.Time `json:"as_of"`
+	// The controls and links the filters select, over every page.
+	Totals ControlMatrixTotals `json:"totals"`
+	// The controls on this page, by code.
+	Items []ControlMatrixRow `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetAsOf returns the value of AsOf.
+func (s *ControlMatrix) GetAsOf() time.Time {
+	return s.AsOf
+}
+
+// GetTotals returns the value of Totals.
+func (s *ControlMatrix) GetTotals() ControlMatrixTotals {
+	return s.Totals
+}
+
+// GetItems returns the value of Items.
+func (s *ControlMatrix) GetItems() []ControlMatrixRow {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ControlMatrix) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetAsOf sets the value of AsOf.
+func (s *ControlMatrix) SetAsOf(val time.Time) {
+	s.AsOf = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *ControlMatrix) SetTotals(val ControlMatrixTotals) {
+	s.Totals = val
+}
+
+// SetItems sets the value of Items.
+func (s *ControlMatrix) SetItems(val []ControlMatrixRow) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ControlMatrix) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ControlMatrix) getControlMatrixRes() {}
+
+// One control of the control matrix: the control with its framework references and last test, and its
+// links with whether each holds.
+// Ref: #/components/schemas/ControlMatrixRow
+type ControlMatrixRow struct {
+	// The control, as `getControl` gives it.
+	Control Control `json:"control"`
+	// `holding` (every link holds, and there is one), `broken` (at least one link does not hold) or `none`
+	// (no link). Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	LinkState string `json:"link_state"`
+	// The control's links, in the order they were made; removed links are left out.
+	Links []ControlLink `json:"links"`
+}
+
+// GetControl returns the value of Control.
+func (s *ControlMatrixRow) GetControl() Control {
+	return s.Control
+}
+
+// GetLinkState returns the value of LinkState.
+func (s *ControlMatrixRow) GetLinkState() string {
+	return s.LinkState
+}
+
+// GetLinks returns the value of Links.
+func (s *ControlMatrixRow) GetLinks() []ControlLink {
+	return s.Links
+}
+
+// SetControl sets the value of Control.
+func (s *ControlMatrixRow) SetControl(val Control) {
+	s.Control = val
+}
+
+// SetLinkState sets the value of LinkState.
+func (s *ControlMatrixRow) SetLinkState(val string) {
+	s.LinkState = val
+}
+
+// SetLinks sets the value of Links.
+func (s *ControlMatrixRow) SetLinks(val []ControlLink) {
+	s.Links = val
+}
+
+// What the matrix's filters select, counted over every page.
+// Ref: #/components/schemas/ControlMatrixTotals
+type ControlMatrixTotals struct {
+	// The controls selected.
+	Controls int32 `json:"controls"`
+	// Those whose links all hold, with at least one link.
+	ControlsHolding int32 `json:"controls_holding"`
+	// Those with at least one link that does not hold.
+	ControlsBroken int32 `json:"controls_broken"`
+	// Those without a link.
+	ControlsWithoutLinks int32 `json:"controls_without_links"`
+	// The links of the controls selected.
+	Links int32 `json:"links"`
+	// The links that hold.
+	LinksHolding int32 `json:"links_holding"`
+	// The links that do not hold.
+	LinksBroken int32 `json:"links_broken"`
+}
+
+// GetControls returns the value of Controls.
+func (s *ControlMatrixTotals) GetControls() int32 {
+	return s.Controls
+}
+
+// GetControlsHolding returns the value of ControlsHolding.
+func (s *ControlMatrixTotals) GetControlsHolding() int32 {
+	return s.ControlsHolding
+}
+
+// GetControlsBroken returns the value of ControlsBroken.
+func (s *ControlMatrixTotals) GetControlsBroken() int32 {
+	return s.ControlsBroken
+}
+
+// GetControlsWithoutLinks returns the value of ControlsWithoutLinks.
+func (s *ControlMatrixTotals) GetControlsWithoutLinks() int32 {
+	return s.ControlsWithoutLinks
+}
+
+// GetLinks returns the value of Links.
+func (s *ControlMatrixTotals) GetLinks() int32 {
+	return s.Links
+}
+
+// GetLinksHolding returns the value of LinksHolding.
+func (s *ControlMatrixTotals) GetLinksHolding() int32 {
+	return s.LinksHolding
+}
+
+// GetLinksBroken returns the value of LinksBroken.
+func (s *ControlMatrixTotals) GetLinksBroken() int32 {
+	return s.LinksBroken
+}
+
+// SetControls sets the value of Controls.
+func (s *ControlMatrixTotals) SetControls(val int32) {
+	s.Controls = val
+}
+
+// SetControlsHolding sets the value of ControlsHolding.
+func (s *ControlMatrixTotals) SetControlsHolding(val int32) {
+	s.ControlsHolding = val
+}
+
+// SetControlsBroken sets the value of ControlsBroken.
+func (s *ControlMatrixTotals) SetControlsBroken(val int32) {
+	s.ControlsBroken = val
+}
+
+// SetControlsWithoutLinks sets the value of ControlsWithoutLinks.
+func (s *ControlMatrixTotals) SetControlsWithoutLinks(val int32) {
+	s.ControlsWithoutLinks = val
+}
+
+// SetLinks sets the value of Links.
+func (s *ControlMatrixTotals) SetLinks(val int32) {
+	s.Links = val
+}
+
+// SetLinksHolding sets the value of LinksHolding.
+func (s *ControlMatrixTotals) SetLinksHolding(val int32) {
+	s.LinksHolding = val
+}
+
+// SetLinksBroken sets the value of LinksBroken.
+func (s *ControlMatrixTotals) SetLinksBroken(val int32) {
+	s.LinksBroken = val
+}
+
+// One page of the control library.
+// Ref: #/components/schemas/ControlPage
+type ControlPage struct {
+	// The controls on this page.
+	Items []Control `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ControlPage) GetItems() []Control {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ControlPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ControlPage) SetItems(val []Control) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ControlPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ControlPage) listControlsRes() {}
+
+// The result of testing a control once (grc, ADR-0078 §3). It is never changed.
+// Ref: #/components/schemas/ControlTest
+type ControlTest struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The control tested (`GET /v1/controls/{id}`).
+	ControlID uuid.UUID `json:"control_id"`
+	// The control's code.
+	ControlCode string `json:"control_code"`
+	// The date of the test.
+	TestedOn time.Time `json:"tested_on"`
+	// The result of the test. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Result string `json:"result"`
+	// The note of the evidence seen.
+	Note string `json:"note"`
+	// The person who tested and recorded it (`GET /v1/principals/{id}`).
+	TestedBy uuid.UUID `json:"tested_by"`
+	// The tester's name, as it is now.
+	TestedByName string `json:"tested_by_name"`
+	// When the test was recorded (UTC).
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// GetID returns the value of ID.
+func (s *ControlTest) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetControlID returns the value of ControlID.
+func (s *ControlTest) GetControlID() uuid.UUID {
+	return s.ControlID
+}
+
+// GetControlCode returns the value of ControlCode.
+func (s *ControlTest) GetControlCode() string {
+	return s.ControlCode
+}
+
+// GetTestedOn returns the value of TestedOn.
+func (s *ControlTest) GetTestedOn() time.Time {
+	return s.TestedOn
+}
+
+// GetResult returns the value of Result.
+func (s *ControlTest) GetResult() string {
+	return s.Result
+}
+
+// GetNote returns the value of Note.
+func (s *ControlTest) GetNote() string {
+	return s.Note
+}
+
+// GetTestedBy returns the value of TestedBy.
+func (s *ControlTest) GetTestedBy() uuid.UUID {
+	return s.TestedBy
+}
+
+// GetTestedByName returns the value of TestedByName.
+func (s *ControlTest) GetTestedByName() string {
+	return s.TestedByName
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ControlTest) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// SetID sets the value of ID.
+func (s *ControlTest) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetControlID sets the value of ControlID.
+func (s *ControlTest) SetControlID(val uuid.UUID) {
+	s.ControlID = val
+}
+
+// SetControlCode sets the value of ControlCode.
+func (s *ControlTest) SetControlCode(val string) {
+	s.ControlCode = val
+}
+
+// SetTestedOn sets the value of TestedOn.
+func (s *ControlTest) SetTestedOn(val time.Time) {
+	s.TestedOn = val
+}
+
+// SetResult sets the value of Result.
+func (s *ControlTest) SetResult(val string) {
+	s.Result = val
+}
+
+// SetNote sets the value of Note.
+func (s *ControlTest) SetNote(val string) {
+	s.Note = val
+}
+
+// SetTestedBy sets the value of TestedBy.
+func (s *ControlTest) SetTestedBy(val uuid.UUID) {
+	s.TestedBy = val
+}
+
+// SetTestedByName sets the value of TestedByName.
+func (s *ControlTest) SetTestedByName(val string) {
+	s.TestedByName = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ControlTest) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// Record the result of testing a control. The tester is the caller.
+// Ref: #/components/schemas/ControlTestCreate
+type ControlTestCreate struct {
+	// The date of the test: the database's date today or earlier.
+	TestedOn time.Time `json:"tested_on"`
+	// The result of the test. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Result string `json:"result"`
+	// A note of the evidence seen: what was tested and where it is kept.
+	Note string `json:"note"`
+}
+
+// GetTestedOn returns the value of TestedOn.
+func (s *ControlTestCreate) GetTestedOn() time.Time {
+	return s.TestedOn
+}
+
+// GetResult returns the value of Result.
+func (s *ControlTestCreate) GetResult() string {
+	return s.Result
+}
+
+// GetNote returns the value of Note.
+func (s *ControlTestCreate) GetNote() string {
+	return s.Note
+}
+
+// SetTestedOn sets the value of TestedOn.
+func (s *ControlTestCreate) SetTestedOn(val time.Time) {
+	s.TestedOn = val
+}
+
+// SetResult sets the value of Result.
+func (s *ControlTestCreate) SetResult(val string) {
+	s.Result = val
+}
+
+// SetNote sets the value of Note.
+func (s *ControlTestCreate) SetNote(val string) {
+	s.Note = val
+}
+
+// ControlTestHeaders wraps ControlTest with response headers.
+type ControlTestHeaders struct {
+	IdempotentReplayed OptBool
+	Response           ControlTest
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ControlTestHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ControlTestHeaders) GetResponse() ControlTest {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ControlTestHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ControlTestHeaders) SetResponse(val ControlTest) {
+	s.Response = val
+}
+
+func (*ControlTestHeaders) createControlTestRes() {}
+
+// One page of a control's tests.
+// Ref: #/components/schemas/ControlTestPage
+type ControlTestPage struct {
+	// The tests on this page.
+	Items []ControlTest `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ControlTestPage) GetItems() []ControlTest {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ControlTestPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ControlTestPage) SetItems(val []ControlTest) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ControlTestPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ControlTestPage) listControlTestsRes() {}
+
+// Merge patch of a control: its objective, process, owner, frequency, nature or framework references.
+// The code does not change.
+// Ref: #/components/schemas/ControlUpdate
+type ControlUpdate struct {
+	// What the control is to achieve.
+	Objective OptString `json:"objective"`
+	// The process the control belongs to, without leading or trailing white space.
+	Process OptString `json:"process"`
+	// The person who owns the control: an active person of the tenant.
+	OwnerID OptUUID `json:"owner_id"`
+	// How often the control is performed. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Frequency OptString `json:"frequency"`
+	// Whether a person performs the control (`manual`) or the system does (`automated`). Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Nature OptString `json:"nature"`
+	// The tenant's own references to a framework it names, free text without white space around it, each
+	// once, in the order given. The list given replaces the control's; an empty list clears it.
+	FrameworkReferences []string `json:"framework_references"`
+}
+
+// GetObjective returns the value of Objective.
+func (s *ControlUpdate) GetObjective() OptString {
+	return s.Objective
+}
+
+// GetProcess returns the value of Process.
+func (s *ControlUpdate) GetProcess() OptString {
+	return s.Process
+}
+
+// GetOwnerID returns the value of OwnerID.
+func (s *ControlUpdate) GetOwnerID() OptUUID {
+	return s.OwnerID
+}
+
+// GetFrequency returns the value of Frequency.
+func (s *ControlUpdate) GetFrequency() OptString {
+	return s.Frequency
+}
+
+// GetNature returns the value of Nature.
+func (s *ControlUpdate) GetNature() OptString {
+	return s.Nature
+}
+
+// GetFrameworkReferences returns the value of FrameworkReferences.
+func (s *ControlUpdate) GetFrameworkReferences() []string {
+	return s.FrameworkReferences
+}
+
+// SetObjective sets the value of Objective.
+func (s *ControlUpdate) SetObjective(val OptString) {
+	s.Objective = val
+}
+
+// SetProcess sets the value of Process.
+func (s *ControlUpdate) SetProcess(val OptString) {
+	s.Process = val
+}
+
+// SetOwnerID sets the value of OwnerID.
+func (s *ControlUpdate) SetOwnerID(val OptUUID) {
+	s.OwnerID = val
+}
+
+// SetFrequency sets the value of Frequency.
+func (s *ControlUpdate) SetFrequency(val OptString) {
+	s.Frequency = val
+}
+
+// SetNature sets the value of Nature.
+func (s *ControlUpdate) SetNature(val OptString) {
+	s.Nature = val
+}
+
+// SetFrameworkReferences sets the value of FrameworkReferences.
+func (s *ControlUpdate) SetFrameworkReferences(val []string) {
+	s.FrameworkReferences = val
+}
+
+// Merged schema.
 // Ref: #/components/schemas/CostCenter
 type CostCenter struct {
 	// Identifier (UUIDv7).
@@ -29870,6 +31147,62 @@ type CreateContractUnprocessableEntity Problem
 
 func (*CreateContractUnprocessableEntity) createContractRes() {}
 
+type CreateControlBadRequest Problem
+
+func (*CreateControlBadRequest) createControlRes() {}
+
+type CreateControlForbidden Problem
+
+func (*CreateControlForbidden) createControlRes() {}
+
+type CreateControlLinkBadRequest Problem
+
+func (*CreateControlLinkBadRequest) createControlLinkRes() {}
+
+type CreateControlLinkForbidden Problem
+
+func (*CreateControlLinkForbidden) createControlLinkRes() {}
+
+type CreateControlLinkNotFound Problem
+
+func (*CreateControlLinkNotFound) createControlLinkRes() {}
+
+type CreateControlLinkPreconditionRequired Problem
+
+func (*CreateControlLinkPreconditionRequired) createControlLinkRes() {}
+
+type CreateControlLinkUnprocessableEntity Problem
+
+func (*CreateControlLinkUnprocessableEntity) createControlLinkRes() {}
+
+type CreateControlPreconditionRequired Problem
+
+func (*CreateControlPreconditionRequired) createControlRes() {}
+
+type CreateControlTestBadRequest Problem
+
+func (*CreateControlTestBadRequest) createControlTestRes() {}
+
+type CreateControlTestForbidden Problem
+
+func (*CreateControlTestForbidden) createControlTestRes() {}
+
+type CreateControlTestNotFound Problem
+
+func (*CreateControlTestNotFound) createControlTestRes() {}
+
+type CreateControlTestPreconditionRequired Problem
+
+func (*CreateControlTestPreconditionRequired) createControlTestRes() {}
+
+type CreateControlTestUnprocessableEntity Problem
+
+func (*CreateControlTestUnprocessableEntity) createControlTestRes() {}
+
+type CreateControlUnprocessableEntity Problem
+
+func (*CreateControlUnprocessableEntity) createControlRes() {}
+
 type CreateCostCenterBadRequest Problem
 
 func (*CreateCostCenterBadRequest) createCostCenterRes() {}
@@ -30406,6 +31739,22 @@ func (*CreateRequisitionPreconditionRequired) createRequisitionRes() {}
 type CreateRequisitionUnprocessableEntity Problem
 
 func (*CreateRequisitionUnprocessableEntity) createRequisitionRes() {}
+
+type CreateReturnsOrderBadRequest Problem
+
+func (*CreateReturnsOrderBadRequest) createReturnsOrderRes() {}
+
+type CreateReturnsOrderForbidden Problem
+
+func (*CreateReturnsOrderForbidden) createReturnsOrderRes() {}
+
+type CreateReturnsOrderPreconditionRequired Problem
+
+func (*CreateReturnsOrderPreconditionRequired) createReturnsOrderRes() {}
+
+type CreateReturnsOrderUnprocessableEntity Problem
+
+func (*CreateReturnsOrderUnprocessableEntity) createReturnsOrderRes() {}
 
 type CreateRevenueContractBadRequest Problem
 
@@ -32254,6 +33603,9 @@ type CustomerInvoiceItem struct {
 	NetAmount Money `json:"net_amount"`
 	// The item's output tax code; absent: it bears no tax.
 	TaxCode OptString `json:"tax_code"`
+	// The province or emirate the item's tax is levied in (ISO 3166-2, `AE-DU`), as entered; absent unless
+	// its tax code levies its lines' subdivision.
+	TaxJurisdiction OptString `json:"tax_jurisdiction"`
 	// The tax its code gave at the invoice date's rates: the item's share of the tax calculated for the
 	// invoice; 0 without a code.
 	TaxAmount Money `json:"tax_amount"`
@@ -32302,6 +33654,11 @@ func (s *CustomerInvoiceItem) GetNetAmount() Money {
 // GetTaxCode returns the value of TaxCode.
 func (s *CustomerInvoiceItem) GetTaxCode() OptString {
 	return s.TaxCode
+}
+
+// GetTaxJurisdiction returns the value of TaxJurisdiction.
+func (s *CustomerInvoiceItem) GetTaxJurisdiction() OptString {
+	return s.TaxJurisdiction
 }
 
 // GetTaxAmount returns the value of TaxAmount.
@@ -32369,6 +33726,11 @@ func (s *CustomerInvoiceItem) SetTaxCode(val OptString) {
 	s.TaxCode = val
 }
 
+// SetTaxJurisdiction sets the value of TaxJurisdiction.
+func (s *CustomerInvoiceItem) SetTaxJurisdiction(val OptString) {
+	s.TaxJurisdiction = val
+}
+
 // SetTaxAmount sets the value of TaxAmount.
 func (s *CustomerInvoiceItem) SetTaxAmount(val Money) {
 	s.TaxAmount = val
@@ -32412,6 +33774,12 @@ type CustomerInvoiceItemCreate struct {
 	// An output tax code of the company with a rate in force on the invoice date; absent: the item bears
 	// no tax.
 	TaxCode OptString `json:"tax_code"`
+	// The province or emirate the item's tax is levied in (ISO 3166-2, `AE-DU`; ADR-0049 §7): required
+	// with a tax code whose component levies its lines' subdivision (422
+	// `receivables.tax_jurisdiction_required`), a subdivision of that component's country and, where the
+	// component lists the subdivisions it accepts, one of them; with any other code, or none, it is
+	// refused (422 `receivables.tax_jurisdiction_not_levied`).
+	TaxJurisdiction OptString `json:"tax_jurisdiction"`
 	// The item's cost center; absent: its account's default, where the ledger asks for one.
 	CostCenterID OptUUID `json:"cost_center_id"`
 	// The item's profit center; absent: the one the ledger derives.
@@ -32436,6 +33804,11 @@ func (s *CustomerInvoiceItemCreate) GetNetAmount() Money {
 // GetTaxCode returns the value of TaxCode.
 func (s *CustomerInvoiceItemCreate) GetTaxCode() OptString {
 	return s.TaxCode
+}
+
+// GetTaxJurisdiction returns the value of TaxJurisdiction.
+func (s *CustomerInvoiceItemCreate) GetTaxJurisdiction() OptString {
+	return s.TaxJurisdiction
 }
 
 // GetCostCenterID returns the value of CostCenterID.
@@ -32466,6 +33839,11 @@ func (s *CustomerInvoiceItemCreate) SetNetAmount(val Money) {
 // SetTaxCode sets the value of TaxCode.
 func (s *CustomerInvoiceItemCreate) SetTaxCode(val OptString) {
 	s.TaxCode = val
+}
+
+// SetTaxJurisdiction sets the value of TaxJurisdiction.
+func (s *CustomerInvoiceItemCreate) SetTaxJurisdiction(val OptString) {
+	s.TaxJurisdiction = val
 }
 
 // SetCostCenterID sets the value of CostCenterID.
@@ -34689,7 +36067,8 @@ type DunningNoticeItem struct {
 	Reference OptString `json:"reference"`
 	// The journal entry's document date.
 	DocumentDate time.Time `json:"document_date"`
-	// The item's net due date by the payment terms it was posted with.
+	// The item's net due date: by the payment terms it was posted with, or, posted without any, its
+	// document date.
 	NetDueDate time.Time `json:"net_due_date"`
 	// The days from the net due date to the run's key date.
 	DaysOverdue int32 `json:"days_overdue"`
@@ -39478,6 +40857,58 @@ func (s *GetContractOKHeaders) SetResponse(val Contract) {
 
 func (*GetContractOKHeaders) getContractRes() {}
 
+type GetControlBadRequest Problem
+
+func (*GetControlBadRequest) getControlRes() {}
+
+type GetControlForbidden Problem
+
+func (*GetControlForbidden) getControlRes() {}
+
+type GetControlMatrixBadRequest Problem
+
+func (*GetControlMatrixBadRequest) getControlMatrixRes() {}
+
+type GetControlMatrixForbidden Problem
+
+func (*GetControlMatrixForbidden) getControlMatrixRes() {}
+
+type GetControlMatrixUnprocessableEntity Problem
+
+func (*GetControlMatrixUnprocessableEntity) getControlMatrixRes() {}
+
+type GetControlNotFound Problem
+
+func (*GetControlNotFound) getControlRes() {}
+
+// GetControlOKHeaders wraps Control with response headers.
+type GetControlOKHeaders struct {
+	ETag     OptString
+	Response Control
+}
+
+// GetETag returns the value of ETag.
+func (s *GetControlOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetControlOKHeaders) GetResponse() Control {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetControlOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetControlOKHeaders) SetResponse(val Control) {
+	s.Response = val
+}
+
+func (*GetControlOKHeaders) getControlRes() {}
+
 type GetCostCenterBadRequest Problem
 
 func (*GetCostCenterBadRequest) getCostCenterRes() {}
@@ -40927,6 +42358,46 @@ func (s *GetRequisitionOKHeaders) SetResponse(val Requisition) {
 }
 
 func (*GetRequisitionOKHeaders) getRequisitionRes() {}
+
+type GetReturnsOrderBadRequest Problem
+
+func (*GetReturnsOrderBadRequest) getReturnsOrderRes() {}
+
+type GetReturnsOrderForbidden Problem
+
+func (*GetReturnsOrderForbidden) getReturnsOrderRes() {}
+
+type GetReturnsOrderNotFound Problem
+
+func (*GetReturnsOrderNotFound) getReturnsOrderRes() {}
+
+// GetReturnsOrderOKHeaders wraps ReturnsOrder with response headers.
+type GetReturnsOrderOKHeaders struct {
+	ETag     OptString
+	Response ReturnsOrder
+}
+
+// GetETag returns the value of ETag.
+func (s *GetReturnsOrderOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetReturnsOrderOKHeaders) GetResponse() ReturnsOrder {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetReturnsOrderOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetReturnsOrderOKHeaders) SetResponse(val ReturnsOrder) {
+	s.Response = val
+}
+
+func (*GetReturnsOrderOKHeaders) getReturnsOrderRes() {}
 
 type GetRevaluationRunBadRequest Problem
 
@@ -51185,6 +52656,26 @@ type ListContractsForbidden Problem
 
 func (*ListContractsForbidden) listContractsRes() {}
 
+type ListControlTestsBadRequest Problem
+
+func (*ListControlTestsBadRequest) listControlTestsRes() {}
+
+type ListControlTestsForbidden Problem
+
+func (*ListControlTestsForbidden) listControlTestsRes() {}
+
+type ListControlTestsNotFound Problem
+
+func (*ListControlTestsNotFound) listControlTestsRes() {}
+
+type ListControlsBadRequest Problem
+
+func (*ListControlsBadRequest) listControlsRes() {}
+
+type ListControlsForbidden Problem
+
+func (*ListControlsForbidden) listControlsRes() {}
+
 type ListCostCenterBalancesBadRequest Problem
 
 func (*ListCostCenterBalancesBadRequest) listCostCenterBalancesRes() {}
@@ -51760,6 +53251,26 @@ func (*ListRequisitionsBadRequest) listRequisitionsRes() {}
 type ListRequisitionsForbidden Problem
 
 func (*ListRequisitionsForbidden) listRequisitionsRes() {}
+
+type ListReturnReceiptsBadRequest Problem
+
+func (*ListReturnReceiptsBadRequest) listReturnReceiptsRes() {}
+
+type ListReturnReceiptsForbidden Problem
+
+func (*ListReturnReceiptsForbidden) listReturnReceiptsRes() {}
+
+type ListReturnReceiptsNotFound Problem
+
+func (*ListReturnReceiptsNotFound) listReturnReceiptsRes() {}
+
+type ListReturnsOrdersBadRequest Problem
+
+func (*ListReturnsOrdersBadRequest) listReturnsOrdersRes() {}
+
+type ListReturnsOrdersForbidden Problem
+
+func (*ListReturnsOrdersForbidden) listReturnsOrdersRes() {}
 
 type ListRevaluationRunsBadRequest Problem
 
@@ -57895,6 +59406,52 @@ func (o OptConsolidationRunProblem) Or(d ConsolidationRunProblem) ConsolidationR
 	return d
 }
 
+// NewOptControlTest returns new OptControlTest with value set to v.
+func NewOptControlTest(v ControlTest) OptControlTest {
+	return OptControlTest{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptControlTest is optional ControlTest.
+type OptControlTest struct {
+	Value ControlTest
+	Set   bool
+}
+
+// IsSet returns true if OptControlTest was set.
+func (o OptControlTest) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptControlTest) Reset() {
+	var v ControlTest
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptControlTest) SetTo(v ControlTest) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptControlTest) Get() (v ControlTest, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptControlTest) Or(d ControlTest) ControlTest {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptCountryPackSignOff returns new OptCountryPackSignOff with value set to v.
 func NewOptCountryPackSignOff(v CountryPackSignOff) OptCountryPackSignOff {
 	return OptCountryPackSignOff{
@@ -60457,6 +62014,52 @@ func (o OptQuantity) Get() (v Quantity, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptQuantity) Or(d Quantity) Quantity {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptSodRuleSummary returns new OptSodRuleSummary with value set to v.
+func NewOptSodRuleSummary(v SodRuleSummary) OptSodRuleSummary {
+	return OptSodRuleSummary{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSodRuleSummary is optional SodRuleSummary.
+type OptSodRuleSummary struct {
+	Value SodRuleSummary
+	Set   bool
+}
+
+// IsSet returns true if OptSodRuleSummary was set.
+func (o OptSodRuleSummary) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSodRuleSummary) Reset() {
+	var v SodRuleSummary
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSodRuleSummary) SetTo(v SodRuleSummary) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSodRuleSummary) Get() (v SodRuleSummary, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSodRuleSummary) Or(d SodRuleSummary) SodRuleSummary {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -70536,7 +72139,8 @@ func (*ReceivablesAging) getReceivablesAgingRes() {}
 // Ref: #/components/schemas/ReceivablesAgingBucket
 type ReceivablesAgingBucket struct {
 	// `not_due`: due on the key date or later; `overdue`: from `days_from` to `days_to` days past the net
-	// due date (the last overdue bucket without `days_to`); `no_due_date`: posted without payment terms.
+	// due date (the last overdue bucket without `days_to`); `no_due_date`: always empty, since an item
+	// posted without payment terms is due on its document date (until 2026-11-12 it was counted here).
 	// Open enumeration: clients must accept and preserve values not listed here; values may be added
 	// within /v1.
 	Bucket string `json:"bucket"`
@@ -71993,6 +73597,26 @@ type ReleaseSupplierInvoiceUnprocessableEntity Problem
 
 func (*ReleaseSupplierInvoiceUnprocessableEntity) releaseSupplierInvoiceRes() {}
 
+type RemoveControlLinkBadRequest Problem
+
+func (*RemoveControlLinkBadRequest) removeControlLinkRes() {}
+
+type RemoveControlLinkForbidden Problem
+
+func (*RemoveControlLinkForbidden) removeControlLinkRes() {}
+
+type RemoveControlLinkNotFound Problem
+
+func (*RemoveControlLinkNotFound) removeControlLinkRes() {}
+
+type RemoveControlLinkPreconditionFailed Problem
+
+func (*RemoveControlLinkPreconditionFailed) removeControlLinkRes() {}
+
+type RemoveControlLinkPreconditionRequired Problem
+
+func (*RemoveControlLinkPreconditionRequired) removeControlLinkRes() {}
+
 type RemoveHierarchyNodeBadRequest Problem
 
 func (*RemoveHierarchyNodeBadRequest) removeHierarchyNodeRes() {}
@@ -72822,9 +74446,11 @@ func (s *RequisitionItem) SetItemKey(val OptString) {
 // A requisition item as it is sent: described and priced by the requester, or taken from the company's
 // catalog by `catalog_item_id` (ADR-0071 §6, T84b). An item from the catalog sends its quantity, in
 // the catalog item's unit, and its account; its description, price and price unit are the catalog
-// item's and may not be sent (422 `procurement.catalog_item_override`), so an item read back from a
-// requisition is sent again without them (and without the read-only `item_key`) when the items are
-// replaced. An item that names no catalog item sends its `description` and `unit_price` (422
+// item's: it sends none, or the catalog item's own, and another is refused (422
+// `procurement.catalog_item_override` on the field, naming the catalog item; product owner,
+// 2026-11-12, T84d). So an item read back from a requisition can be sent again as it was read when the
+// items are replaced, while its catalog item is still `active`; the read-only `item_key` is ignored.
+// An item that names no catalog item sends its `description` and `unit_price` (422
 // `request.validation_failed` without).
 // Ref: #/components/schemas/RequisitionItemInput
 type RequisitionItemInput struct {
@@ -72840,15 +74466,18 @@ type RequisitionItemInput struct {
 	CatalogItemID OptUUID `json:"catalog_item_id"`
 	// Material (product context, later phases).
 	MaterialID OptUUID `json:"material_id"`
-	// What is needed. Required unless the item names a catalog item, whose description it then takes.
+	// What is needed. Required unless the item names a catalog item, whose description it then takes; sent
+	// with one, it is the catalog item's (422 `procurement.catalog_item_override` otherwise).
 	Description OptString `json:"description"`
 	// Quantity; positive. For an item from the catalog, in the catalog item's unit.
 	Quantity Quantity `json:"quantity"`
 	// Estimated price per `price_unit`, in the requisition currency. Required unless the item names a
-	// catalog item, whose price it then takes.
+	// catalog item, whose price it then takes; sent with one, it is the catalog item's price, the same
+	// amount as the catalog item shows it and the same currency (422 `procurement.catalog_item_override`
+	// otherwise).
 	UnitPrice OptMoney `json:"unit_price"`
-	// Quantity the unit price refers to; 1 when absent. Not sent for an item from the catalog, which takes
-	// the catalog item's.
+	// Quantity the unit price refers to; 1 when absent. An item from the catalog takes the catalog item's:
+	// sent with one, it is the catalog item's (422 `procurement.catalog_item_override` otherwise).
 	PriceUnit OptInt32 `json:"price_unit"`
 	// General ledger account to charge.
 	AccountID uuid.UUID `json:"account_id"`
@@ -73168,6 +74797,26 @@ type RetireCatalogItemUnprocessableEntity Problem
 
 func (*RetireCatalogItemUnprocessableEntity) retireCatalogItemRes() {}
 
+type RetireControlBadRequest Problem
+
+func (*RetireControlBadRequest) retireControlRes() {}
+
+type RetireControlForbidden Problem
+
+func (*RetireControlForbidden) retireControlRes() {}
+
+type RetireControlNotFound Problem
+
+func (*RetireControlNotFound) retireControlRes() {}
+
+type RetireControlPreconditionFailed Problem
+
+func (*RetireControlPreconditionFailed) retireControlRes() {}
+
+type RetireControlPreconditionRequired Problem
+
+func (*RetireControlPreconditionRequired) retireControlRes() {}
+
 type RetireEntryTemplateBadRequest Problem
 
 func (*RetireEntryTemplateBadRequest) retireEntryTemplateRes() {}
@@ -73187,6 +74836,849 @@ func (*RetireEntryTemplatePreconditionFailed) retireEntryTemplateRes() {}
 type RetireEntryTemplatePreconditionRequired Problem
 
 func (*RetireEntryTemplatePreconditionRequired) retireEntryTemplateRes() {}
+
+// A return receipt (sales, ADR-0067, As built T85b): quantities of a returns order's items a person
+// confirmed as received on a date. It moves no stock and posts nothing. It is written once and never
+// changed.
+// Ref: #/components/schemas/ReturnReceipt
+type ReturnReceipt struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The receipt's number within its returns order, from 1 in the order they were confirmed.
+	ReceiptNo int32 `json:"receipt_no"`
+	// The returns order (`GET /v1/returns-orders/{id}`).
+	ReturnsOrderID uuid.UUID `json:"returns_order_id"`
+	// The returns order's document number.
+	ReturnsOrderNumber string `json:"returns_order_number"`
+	// The day the quantities arrived.
+	ReceiptDate time.Time `json:"receipt_date"`
+	// The items received, by the returns order's item number.
+	Items []ReturnReceiptItem `json:"items"`
+	// When the receipt was confirmed.
+	CreatedAt time.Time `json:"created_at"`
+	// The principal who confirmed it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *ReturnReceipt) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetReceiptNo returns the value of ReceiptNo.
+func (s *ReturnReceipt) GetReceiptNo() int32 {
+	return s.ReceiptNo
+}
+
+// GetReturnsOrderID returns the value of ReturnsOrderID.
+func (s *ReturnReceipt) GetReturnsOrderID() uuid.UUID {
+	return s.ReturnsOrderID
+}
+
+// GetReturnsOrderNumber returns the value of ReturnsOrderNumber.
+func (s *ReturnReceipt) GetReturnsOrderNumber() string {
+	return s.ReturnsOrderNumber
+}
+
+// GetReceiptDate returns the value of ReceiptDate.
+func (s *ReturnReceipt) GetReceiptDate() time.Time {
+	return s.ReceiptDate
+}
+
+// GetItems returns the value of Items.
+func (s *ReturnReceipt) GetItems() []ReturnReceiptItem {
+	return s.Items
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ReturnReceipt) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *ReturnReceipt) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *ReturnReceipt) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetReceiptNo sets the value of ReceiptNo.
+func (s *ReturnReceipt) SetReceiptNo(val int32) {
+	s.ReceiptNo = val
+}
+
+// SetReturnsOrderID sets the value of ReturnsOrderID.
+func (s *ReturnReceipt) SetReturnsOrderID(val uuid.UUID) {
+	s.ReturnsOrderID = val
+}
+
+// SetReturnsOrderNumber sets the value of ReturnsOrderNumber.
+func (s *ReturnReceipt) SetReturnsOrderNumber(val string) {
+	s.ReturnsOrderNumber = val
+}
+
+// SetReceiptDate sets the value of ReceiptDate.
+func (s *ReturnReceipt) SetReceiptDate(val time.Time) {
+	s.ReceiptDate = val
+}
+
+// SetItems sets the value of Items.
+func (s *ReturnReceipt) SetItems(val []ReturnReceiptItem) {
+	s.Items = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ReturnReceipt) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *ReturnReceipt) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// Confirm that returned quantities arrived: the date and the quantities received of the returns
+// order's items.
+// Ref: #/components/schemas/ReturnReceiptCreate
+type ReturnReceiptCreate struct {
+	// The day the quantities arrived; not after the company's date today.
+	ReceiptDate time.Time `json:"receipt_date"`
+	// The returns order's items received, each at most once.
+	Items []ReturnReceiptItemCreate `json:"items"`
+}
+
+// GetReceiptDate returns the value of ReceiptDate.
+func (s *ReturnReceiptCreate) GetReceiptDate() time.Time {
+	return s.ReceiptDate
+}
+
+// GetItems returns the value of Items.
+func (s *ReturnReceiptCreate) GetItems() []ReturnReceiptItemCreate {
+	return s.Items
+}
+
+// SetReceiptDate sets the value of ReceiptDate.
+func (s *ReturnReceiptCreate) SetReceiptDate(val time.Time) {
+	s.ReceiptDate = val
+}
+
+// SetItems sets the value of Items.
+func (s *ReturnReceiptCreate) SetItems(val []ReturnReceiptItemCreate) {
+	s.Items = val
+}
+
+// ReturnReceiptHeaders wraps ReturnReceipt with response headers.
+type ReturnReceiptHeaders struct {
+	IdempotentReplayed OptBool
+	Response           ReturnReceipt
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ReturnReceiptHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ReturnReceiptHeaders) GetResponse() ReturnReceipt {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ReturnReceiptHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ReturnReceiptHeaders) SetResponse(val ReturnReceipt) {
+	s.Response = val
+}
+
+func (*ReturnReceiptHeaders) confirmReturnReceiptRes() {}
+
+// An item of a return receipt: the quantity received of one item of the returns order.
+// Ref: #/components/schemas/ReturnReceiptItem
+type ReturnReceiptItem struct {
+	// The returns order item's number.
+	ItemNo int32 `json:"item_no"`
+	// The number of the billing document's item that returns order item returns from.
+	BillingItemNo int32 `json:"billing_item_no"`
+	// The sales order item's item key; absent when it has none.
+	ItemKey OptString `json:"item_key"`
+	// The sales order item's description.
+	Description string `json:"description"`
+	// The quantity received, in the item's unit.
+	Quantity Quantity `json:"quantity"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *ReturnReceiptItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetBillingItemNo returns the value of BillingItemNo.
+func (s *ReturnReceiptItem) GetBillingItemNo() int32 {
+	return s.BillingItemNo
+}
+
+// GetItemKey returns the value of ItemKey.
+func (s *ReturnReceiptItem) GetItemKey() OptString {
+	return s.ItemKey
+}
+
+// GetDescription returns the value of Description.
+func (s *ReturnReceiptItem) GetDescription() string {
+	return s.Description
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *ReturnReceiptItem) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *ReturnReceiptItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetBillingItemNo sets the value of BillingItemNo.
+func (s *ReturnReceiptItem) SetBillingItemNo(val int32) {
+	s.BillingItemNo = val
+}
+
+// SetItemKey sets the value of ItemKey.
+func (s *ReturnReceiptItem) SetItemKey(val OptString) {
+	s.ItemKey = val
+}
+
+// SetDescription sets the value of Description.
+func (s *ReturnReceiptItem) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *ReturnReceiptItem) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// A quantity received of one item of the returns order.
+// Ref: #/components/schemas/ReturnReceiptItemCreate
+type ReturnReceiptItemCreate struct {
+	// The returns order item's number (`ReturnsOrder.items[].item_no`).
+	ItemNo int32 `json:"item_no"`
+	// The quantity received: more than zero, in the item's unit, at most the item's open quantity
+	// (returned less received).
+	Quantity Quantity `json:"quantity"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *ReturnReceiptItemCreate) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *ReturnReceiptItemCreate) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *ReturnReceiptItemCreate) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *ReturnReceiptItemCreate) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// One page of a returns order's receipts.
+// Ref: #/components/schemas/ReturnReceiptPage
+type ReturnReceiptPage struct {
+	// The receipts on this page.
+	Items []ReturnReceipt `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ReturnReceiptPage) GetItems() []ReturnReceipt {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ReturnReceiptPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ReturnReceiptPage) SetItems(val []ReturnReceipt) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ReturnReceiptPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ReturnReceiptPage) listReturnReceiptsRes() {}
+
+// Merged schema.
+// Ref: #/components/schemas/ReturnsOrder
+type ReturnsOrder struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The document number, from the company's `returns_order` number range.
+	DocumentNumber string `json:"document_number"`
+	// The company that takes the return: the billing document's.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer (`GET /v1/business-partners/{id}`): the billing document's.
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The posted billing document whose items are returned (`GET /v1/billing-documents/{id}`).
+	BillingDocumentID uuid.UUID `json:"billing_document_id"`
+	// The billing document's document number.
+	BillingDocumentNumber string `json:"billing_document_number"`
+	// The sales order the billing document billed (`GET /v1/sales-orders/{id}`); its items show what is
+	// returned of them.
+	SalesOrderID uuid.UUID `json:"sales_order_id"`
+	// The sales order's document number.
+	SalesOrderNumber string `json:"sales_order_number"`
+	// The day the returns order was created: the company's date in its time zone.
+	ReturnsDate time.Time `json:"returns_date"`
+	// Why the customer returns the items. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Reason string `json:"reason"`
+	// The reason in words; absent when none was given.
+	ReasonText OptString `json:"reason_text"`
+	// `draft`: created; `confirmed`: confirmed, once (`:confirm`). Open enumeration: clients must accept
+	// and preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The items, by item number.
+	Items []ReturnsOrderItem `json:"items"`
+}
+
+// GetID returns the value of ID.
+func (s *ReturnsOrder) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *ReturnsOrder) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ReturnsOrder) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *ReturnsOrder) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *ReturnsOrder) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *ReturnsOrder) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *ReturnsOrder) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ReturnsOrder) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ReturnsOrder) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *ReturnsOrder) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *ReturnsOrder) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *ReturnsOrder) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *ReturnsOrder) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetBillingDocumentID returns the value of BillingDocumentID.
+func (s *ReturnsOrder) GetBillingDocumentID() uuid.UUID {
+	return s.BillingDocumentID
+}
+
+// GetBillingDocumentNumber returns the value of BillingDocumentNumber.
+func (s *ReturnsOrder) GetBillingDocumentNumber() string {
+	return s.BillingDocumentNumber
+}
+
+// GetSalesOrderID returns the value of SalesOrderID.
+func (s *ReturnsOrder) GetSalesOrderID() uuid.UUID {
+	return s.SalesOrderID
+}
+
+// GetSalesOrderNumber returns the value of SalesOrderNumber.
+func (s *ReturnsOrder) GetSalesOrderNumber() string {
+	return s.SalesOrderNumber
+}
+
+// GetReturnsDate returns the value of ReturnsDate.
+func (s *ReturnsOrder) GetReturnsDate() time.Time {
+	return s.ReturnsDate
+}
+
+// GetReason returns the value of Reason.
+func (s *ReturnsOrder) GetReason() string {
+	return s.Reason
+}
+
+// GetReasonText returns the value of ReasonText.
+func (s *ReturnsOrder) GetReasonText() OptString {
+	return s.ReasonText
+}
+
+// GetStatus returns the value of Status.
+func (s *ReturnsOrder) GetStatus() string {
+	return s.Status
+}
+
+// GetItems returns the value of Items.
+func (s *ReturnsOrder) GetItems() []ReturnsOrderItem {
+	return s.Items
+}
+
+// SetID sets the value of ID.
+func (s *ReturnsOrder) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *ReturnsOrder) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ReturnsOrder) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *ReturnsOrder) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *ReturnsOrder) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *ReturnsOrder) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *ReturnsOrder) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ReturnsOrder) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ReturnsOrder) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *ReturnsOrder) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *ReturnsOrder) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *ReturnsOrder) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *ReturnsOrder) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetBillingDocumentID sets the value of BillingDocumentID.
+func (s *ReturnsOrder) SetBillingDocumentID(val uuid.UUID) {
+	s.BillingDocumentID = val
+}
+
+// SetBillingDocumentNumber sets the value of BillingDocumentNumber.
+func (s *ReturnsOrder) SetBillingDocumentNumber(val string) {
+	s.BillingDocumentNumber = val
+}
+
+// SetSalesOrderID sets the value of SalesOrderID.
+func (s *ReturnsOrder) SetSalesOrderID(val uuid.UUID) {
+	s.SalesOrderID = val
+}
+
+// SetSalesOrderNumber sets the value of SalesOrderNumber.
+func (s *ReturnsOrder) SetSalesOrderNumber(val string) {
+	s.SalesOrderNumber = val
+}
+
+// SetReturnsDate sets the value of ReturnsDate.
+func (s *ReturnsOrder) SetReturnsDate(val time.Time) {
+	s.ReturnsDate = val
+}
+
+// SetReason sets the value of Reason.
+func (s *ReturnsOrder) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetReasonText sets the value of ReasonText.
+func (s *ReturnsOrder) SetReasonText(val OptString) {
+	s.ReasonText = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ReturnsOrder) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetItems sets the value of Items.
+func (s *ReturnsOrder) SetItems(val []ReturnsOrderItem) {
+	s.Items = val
+}
+
+// Create a returns order for quantities of a posted billing document's items. It is created `draft`,
+// dated the company's date today.
+// Ref: #/components/schemas/ReturnsOrderCreate
+type ReturnsOrderCreate struct {
+	// The posted billing document whose items are returned: one of a company the caller may act in.
+	BillingDocumentID uuid.UUID `json:"billing_document_id"`
+	// Why the customer returns the items. `defective`: they are faulty; `wrong_item`: not what was
+	// ordered; `not_wanted`: the customer no longer wants them; `other`: anything else, which
+	// `reason_text` says. Open enumeration: values may be added within /v1; one that is not known is
+	// refused.
+	Reason string `json:"reason"`
+	// The reason in the customer's or the administrator's words; optional with every reason.
+	ReasonText OptString `json:"reason_text"`
+	// The billing document's items returned, each at most once, numbered in this order from 1.
+	Items []ReturnsOrderItemCreate `json:"items"`
+}
+
+// GetBillingDocumentID returns the value of BillingDocumentID.
+func (s *ReturnsOrderCreate) GetBillingDocumentID() uuid.UUID {
+	return s.BillingDocumentID
+}
+
+// GetReason returns the value of Reason.
+func (s *ReturnsOrderCreate) GetReason() string {
+	return s.Reason
+}
+
+// GetReasonText returns the value of ReasonText.
+func (s *ReturnsOrderCreate) GetReasonText() OptString {
+	return s.ReasonText
+}
+
+// GetItems returns the value of Items.
+func (s *ReturnsOrderCreate) GetItems() []ReturnsOrderItemCreate {
+	return s.Items
+}
+
+// SetBillingDocumentID sets the value of BillingDocumentID.
+func (s *ReturnsOrderCreate) SetBillingDocumentID(val uuid.UUID) {
+	s.BillingDocumentID = val
+}
+
+// SetReason sets the value of Reason.
+func (s *ReturnsOrderCreate) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetReasonText sets the value of ReasonText.
+func (s *ReturnsOrderCreate) SetReasonText(val OptString) {
+	s.ReasonText = val
+}
+
+// SetItems sets the value of Items.
+func (s *ReturnsOrderCreate) SetItems(val []ReturnsOrderItemCreate) {
+	s.Items = val
+}
+
+// ReturnsOrderHeaders wraps ReturnsOrder with response headers.
+type ReturnsOrderHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           ReturnsOrder
+}
+
+// GetETag returns the value of ETag.
+func (s *ReturnsOrderHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ReturnsOrderHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *ReturnsOrderHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *ReturnsOrderHeaders) GetResponse() ReturnsOrder {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ReturnsOrderHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ReturnsOrderHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *ReturnsOrderHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ReturnsOrderHeaders) SetResponse(val ReturnsOrder) {
+	s.Response = val
+}
+
+func (*ReturnsOrderHeaders) createReturnsOrderRes() {}
+
+// An item of a returns order (ADR-0067, As built T85a): what is returned of one item of the billing
+// document.
+// Ref: #/components/schemas/ReturnsOrderItem
+type ReturnsOrderItem struct {
+	// The item's number within the returns order, from 1.
+	ItemNo int32 `json:"item_no"`
+	// The number of the billing document's item it returns from.
+	BillingItemNo int32 `json:"billing_item_no"`
+	// The number of the sales order's item that billing document item billed.
+	OrderItemNo int32 `json:"order_item_no"`
+	// The sales order item's item key; absent when it has none.
+	ItemKey OptString `json:"item_key"`
+	// The sales order item's description.
+	Description string `json:"description"`
+	// The quantity the billing document's item billed, in the item's unit.
+	BilledQuantity Quantity `json:"billed_quantity"`
+	// The quantity being returned, in the item's unit; at most `billed_quantity`.
+	Quantity Quantity `json:"quantity"`
+	// The quantity confirmed as received so far (`confirmReturnReceipt`), in the item's unit; at most
+	// `quantity`.
+	ReceivedQuantity Quantity `json:"received_quantity"`
+	// The quantity still expected: `quantity` less `received_quantity`, in the item's unit. 0 for an item
+	// received in full; a returns order whose items are all at 0 is fully received.
+	OpenQuantity Quantity `json:"open_quantity"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *ReturnsOrderItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetBillingItemNo returns the value of BillingItemNo.
+func (s *ReturnsOrderItem) GetBillingItemNo() int32 {
+	return s.BillingItemNo
+}
+
+// GetOrderItemNo returns the value of OrderItemNo.
+func (s *ReturnsOrderItem) GetOrderItemNo() int32 {
+	return s.OrderItemNo
+}
+
+// GetItemKey returns the value of ItemKey.
+func (s *ReturnsOrderItem) GetItemKey() OptString {
+	return s.ItemKey
+}
+
+// GetDescription returns the value of Description.
+func (s *ReturnsOrderItem) GetDescription() string {
+	return s.Description
+}
+
+// GetBilledQuantity returns the value of BilledQuantity.
+func (s *ReturnsOrderItem) GetBilledQuantity() Quantity {
+	return s.BilledQuantity
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *ReturnsOrderItem) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetReceivedQuantity returns the value of ReceivedQuantity.
+func (s *ReturnsOrderItem) GetReceivedQuantity() Quantity {
+	return s.ReceivedQuantity
+}
+
+// GetOpenQuantity returns the value of OpenQuantity.
+func (s *ReturnsOrderItem) GetOpenQuantity() Quantity {
+	return s.OpenQuantity
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *ReturnsOrderItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetBillingItemNo sets the value of BillingItemNo.
+func (s *ReturnsOrderItem) SetBillingItemNo(val int32) {
+	s.BillingItemNo = val
+}
+
+// SetOrderItemNo sets the value of OrderItemNo.
+func (s *ReturnsOrderItem) SetOrderItemNo(val int32) {
+	s.OrderItemNo = val
+}
+
+// SetItemKey sets the value of ItemKey.
+func (s *ReturnsOrderItem) SetItemKey(val OptString) {
+	s.ItemKey = val
+}
+
+// SetDescription sets the value of Description.
+func (s *ReturnsOrderItem) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetBilledQuantity sets the value of BilledQuantity.
+func (s *ReturnsOrderItem) SetBilledQuantity(val Quantity) {
+	s.BilledQuantity = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *ReturnsOrderItem) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetReceivedQuantity sets the value of ReceivedQuantity.
+func (s *ReturnsOrderItem) SetReceivedQuantity(val Quantity) {
+	s.ReceivedQuantity = val
+}
+
+// SetOpenQuantity sets the value of OpenQuantity.
+func (s *ReturnsOrderItem) SetOpenQuantity(val Quantity) {
+	s.OpenQuantity = val
+}
+
+// A quantity returned of one item of the billing document.
+// Ref: #/components/schemas/ReturnsOrderItemCreate
+type ReturnsOrderItemCreate struct {
+	// The billing document item's number (`BillingDocument.items[].item_no`).
+	BillingItemNo int32 `json:"billing_item_no"`
+	// The quantity returned: more than zero, in the billed item's unit, at most the item's billed quantity
+	// less what the document's other returns orders took.
+	Quantity Quantity `json:"quantity"`
+}
+
+// GetBillingItemNo returns the value of BillingItemNo.
+func (s *ReturnsOrderItemCreate) GetBillingItemNo() int32 {
+	return s.BillingItemNo
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *ReturnsOrderItemCreate) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// SetBillingItemNo sets the value of BillingItemNo.
+func (s *ReturnsOrderItemCreate) SetBillingItemNo(val int32) {
+	s.BillingItemNo = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *ReturnsOrderItemCreate) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// One page of returns orders.
+// Ref: #/components/schemas/ReturnsOrderPage
+type ReturnsOrderPage struct {
+	// The returns orders on this page.
+	Items []ReturnsOrder `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ReturnsOrderPage) GetItems() []ReturnsOrder {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ReturnsOrderPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ReturnsOrderPage) SetItems(val []ReturnsOrder) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ReturnsOrderPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ReturnsOrderPage) listReturnsOrdersRes() {}
 
 // One valued item: an open item (a journal line on a reconciliation account) or the balance in one
 // currency of a flagged account.
@@ -77849,6 +80341,9 @@ type SalesOrderItem struct {
 	// The quantity billed so far by the order's billing documents (`createBillingDocument`), in the item's
 	// unit; at most `delivered_quantity`.
 	BilledQuantity Quantity `json:"billed_quantity"`
+	// The quantity the returns orders for the order's billing documents take (`createReturnsOrder`),
+	// drafts included, in the item's unit; at most `billed_quantity`.
+	ReturnedQuantity Quantity `json:"returned_quantity"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -77926,6 +80421,11 @@ func (s *SalesOrderItem) GetBilledQuantity() Quantity {
 	return s.BilledQuantity
 }
 
+// GetReturnedQuantity returns the value of ReturnedQuantity.
+func (s *SalesOrderItem) GetReturnedQuantity() Quantity {
+	return s.ReturnedQuantity
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *SalesOrderItem) SetItemNo(val int32) {
 	s.ItemNo = val
@@ -77999,6 +80499,11 @@ func (s *SalesOrderItem) SetDeliveredQuantity(val Quantity) {
 // SetBilledQuantity sets the value of BilledQuantity.
 func (s *SalesOrderItem) SetBilledQuantity(val Quantity) {
 	s.BilledQuantity = val
+}
+
+// SetReturnedQuantity sets the value of ReturnedQuantity.
+func (s *SalesOrderItem) SetReturnedQuantity(val Quantity) {
+	s.ReturnedQuantity = val
 }
 
 // One page of sales orders.
@@ -79854,6 +82359,72 @@ func (s *SodRulePage) SetTotalEstimate(val OptInt64) {
 }
 
 func (*SodRulePage) listSodRulesRes() {}
+
+// A segregation-of-duties rule as a control link shows it: its two permissions, why they conflict and
+// its validity.
+// Ref: #/components/schemas/SodRuleSummary
+type SodRuleSummary struct {
+	// The first permission of the pair.
+	PermissionA string `json:"permission_a"`
+	// The second permission of the pair.
+	PermissionB string `json:"permission_b"`
+	// Why the combination is a conflict.
+	Description string `json:"description"`
+	// The first day the rule is in force.
+	ValidFrom time.Time `json:"valid_from"`
+	// The day the rule ends, exclusive; absent while it has no end.
+	ValidTo OptDate `json:"valid_to"`
+}
+
+// GetPermissionA returns the value of PermissionA.
+func (s *SodRuleSummary) GetPermissionA() string {
+	return s.PermissionA
+}
+
+// GetPermissionB returns the value of PermissionB.
+func (s *SodRuleSummary) GetPermissionB() string {
+	return s.PermissionB
+}
+
+// GetDescription returns the value of Description.
+func (s *SodRuleSummary) GetDescription() string {
+	return s.Description
+}
+
+// GetValidFrom returns the value of ValidFrom.
+func (s *SodRuleSummary) GetValidFrom() time.Time {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *SodRuleSummary) GetValidTo() OptDate {
+	return s.ValidTo
+}
+
+// SetPermissionA sets the value of PermissionA.
+func (s *SodRuleSummary) SetPermissionA(val string) {
+	s.PermissionA = val
+}
+
+// SetPermissionB sets the value of PermissionB.
+func (s *SodRuleSummary) SetPermissionB(val string) {
+	s.PermissionB = val
+}
+
+// SetDescription sets the value of Description.
+func (s *SodRuleSummary) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *SodRuleSummary) SetValidFrom(val time.Time) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *SodRuleSummary) SetValidTo(val OptDate) {
+	s.ValidTo = val
+}
 
 type StartAgentSessionBadRequest Problem
 
@@ -84285,6 +86856,8 @@ func (*TooManyRequestsHeaders) closePurchaseOrderRes()                    {}
 func (*TooManyRequestsHeaders) completeCloseTaskRes()                     {}
 func (*TooManyRequestsHeaders) completeYearCloseTaskRes()                 {}
 func (*TooManyRequestsHeaders) confirmDunningRunRes()                     {}
+func (*TooManyRequestsHeaders) confirmReturnReceiptRes()                  {}
+func (*TooManyRequestsHeaders) confirmReturnsOrderRes()                   {}
 func (*TooManyRequestsHeaders) confirmSalesDeliveryRes()                  {}
 func (*TooManyRequestsHeaders) confirmSalesOrderRes()                     {}
 func (*TooManyRequestsHeaders) createAllocationCycleRes()                 {}
@@ -84302,6 +86875,9 @@ func (*TooManyRequestsHeaders) createCompanyAccessRes()                   {}
 func (*TooManyRequestsHeaders) createConnectorRes()                       {}
 func (*TooManyRequestsHeaders) createConsolidationRunRes()                {}
 func (*TooManyRequestsHeaders) createContractRes()                        {}
+func (*TooManyRequestsHeaders) createControlLinkRes()                     {}
+func (*TooManyRequestsHeaders) createControlRes()                         {}
+func (*TooManyRequestsHeaders) createControlTestRes()                     {}
 func (*TooManyRequestsHeaders) createCostCenterRes()                      {}
 func (*TooManyRequestsHeaders) createCreditLimitRes()                     {}
 func (*TooManyRequestsHeaders) createCustomerInvoiceRes()                 {}
@@ -84329,6 +86905,7 @@ func (*TooManyRequestsHeaders) createQuotationRes()                       {}
 func (*TooManyRequestsHeaders) createRecommendationRes()                  {}
 func (*TooManyRequestsHeaders) createRegressionSuiteRes()                 {}
 func (*TooManyRequestsHeaders) createRequisitionRes()                     {}
+func (*TooManyRequestsHeaders) createReturnsOrderRes()                    {}
 func (*TooManyRequestsHeaders) createRevenueContractRes()                 {}
 func (*TooManyRequestsHeaders) createRfqRes()                             {}
 func (*TooManyRequestsHeaders) createRoleAssignmentRes()                  {}
@@ -84403,6 +86980,8 @@ func (*TooManyRequestsHeaders) getConsolidatedStatementRes()              {}
 func (*TooManyRequestsHeaders) getConsolidationGroupRes()                 {}
 func (*TooManyRequestsHeaders) getConsolidationRunRes()                   {}
 func (*TooManyRequestsHeaders) getContractRes()                           {}
+func (*TooManyRequestsHeaders) getControlMatrixRes()                      {}
+func (*TooManyRequestsHeaders) getControlRes()                            {}
 func (*TooManyRequestsHeaders) getCostCenterRes()                         {}
 func (*TooManyRequestsHeaders) getCreditExposureRes()                     {}
 func (*TooManyRequestsHeaders) getCreditLimitRes()                        {}
@@ -84452,6 +87031,7 @@ func (*TooManyRequestsHeaders) getReceivablesAgingRes()                   {}
 func (*TooManyRequestsHeaders) getRecommendationRes()                     {}
 func (*TooManyRequestsHeaders) getRegressionSuiteRes()                    {}
 func (*TooManyRequestsHeaders) getRequisitionRes()                        {}
+func (*TooManyRequestsHeaders) getReturnsOrderRes()                       {}
 func (*TooManyRequestsHeaders) getRevaluationRunRes()                     {}
 func (*TooManyRequestsHeaders) getRevenueContractRes()                    {}
 func (*TooManyRequestsHeaders) getRfqComparisonRes()                      {}
@@ -84518,6 +87098,8 @@ func (*TooManyRequestsHeaders) listConsolidationEntriesRes()              {}
 func (*TooManyRequestsHeaders) listConsolidationGroupsRes()               {}
 func (*TooManyRequestsHeaders) listConsolidationRunsRes()                 {}
 func (*TooManyRequestsHeaders) listContractsRes()                         {}
+func (*TooManyRequestsHeaders) listControlTestsRes()                      {}
+func (*TooManyRequestsHeaders) listControlsRes()                          {}
 func (*TooManyRequestsHeaders) listCostCenterBalancesRes()                {}
 func (*TooManyRequestsHeaders) listCostCenterPathsRes()                   {}
 func (*TooManyRequestsHeaders) listCostCenterPlanActualRes()              {}
@@ -84581,6 +87163,8 @@ func (*TooManyRequestsHeaders) listQuotationsRes()                        {}
 func (*TooManyRequestsHeaders) listRecommendationsRes()                   {}
 func (*TooManyRequestsHeaders) listRegressionSuitesRes()                  {}
 func (*TooManyRequestsHeaders) listRequisitionsRes()                      {}
+func (*TooManyRequestsHeaders) listReturnReceiptsRes()                    {}
+func (*TooManyRequestsHeaders) listReturnsOrdersRes()                     {}
 func (*TooManyRequestsHeaders) listRevaluationRunsRes()                   {}
 func (*TooManyRequestsHeaders) listRevenueContractsRes()                  {}
 func (*TooManyRequestsHeaders) listRfqsRes()                              {}
@@ -84657,6 +87241,7 @@ func (*TooManyRequestsHeaders) releasePaymentRunRes()                     {}
 func (*TooManyRequestsHeaders) releasePurchaseOrderRes()                  {}
 func (*TooManyRequestsHeaders) releaseSalesOrderCreditBlockRes()          {}
 func (*TooManyRequestsHeaders) releaseSupplierInvoiceRes()                {}
+func (*TooManyRequestsHeaders) removeControlLinkRes()                     {}
 func (*TooManyRequestsHeaders) removeHierarchyNodeRes()                   {}
 func (*TooManyRequestsHeaders) renameHierarchyNodeRes()                   {}
 func (*TooManyRequestsHeaders) renewContractRes()                         {}
@@ -84668,6 +87253,7 @@ func (*TooManyRequestsHeaders) requestBankAccountChangeRes()              {}
 func (*TooManyRequestsHeaders) requestBankAccountEndRes()                 {}
 func (*TooManyRequestsHeaders) resumeWebhookSubscriptionRes()             {}
 func (*TooManyRequestsHeaders) retireCatalogItemRes()                     {}
+func (*TooManyRequestsHeaders) retireControlRes()                         {}
 func (*TooManyRequestsHeaders) retireEntryTemplateRes()                   {}
 func (*TooManyRequestsHeaders) reverseAssetAcquisitionRes()               {}
 func (*TooManyRequestsHeaders) reverseAssetRetirementRes()                {}
@@ -84704,6 +87290,7 @@ func (*TooManyRequestsHeaders) updateChangeRequestRes()                   {}
 func (*TooManyRequestsHeaders) updateCloseTaskRes()                       {}
 func (*TooManyRequestsHeaders) updateConnectorRes()                       {}
 func (*TooManyRequestsHeaders) updateContractRes()                        {}
+func (*TooManyRequestsHeaders) updateControlRes()                         {}
 func (*TooManyRequestsHeaders) updateCostCenterRes()                      {}
 func (*TooManyRequestsHeaders) updateCreditLimitRes()                     {}
 func (*TooManyRequestsHeaders) updateEntryTemplateRes()                   {}
@@ -85076,6 +87663,8 @@ func (*UnauthorizedHeaders) closePurchaseOrderRes()                    {}
 func (*UnauthorizedHeaders) completeCloseTaskRes()                     {}
 func (*UnauthorizedHeaders) completeYearCloseTaskRes()                 {}
 func (*UnauthorizedHeaders) confirmDunningRunRes()                     {}
+func (*UnauthorizedHeaders) confirmReturnReceiptRes()                  {}
+func (*UnauthorizedHeaders) confirmReturnsOrderRes()                   {}
 func (*UnauthorizedHeaders) confirmSalesDeliveryRes()                  {}
 func (*UnauthorizedHeaders) confirmSalesOrderRes()                     {}
 func (*UnauthorizedHeaders) createAllocationCycleRes()                 {}
@@ -85093,6 +87682,9 @@ func (*UnauthorizedHeaders) createCompanyAccessRes()                   {}
 func (*UnauthorizedHeaders) createConnectorRes()                       {}
 func (*UnauthorizedHeaders) createConsolidationRunRes()                {}
 func (*UnauthorizedHeaders) createContractRes()                        {}
+func (*UnauthorizedHeaders) createControlLinkRes()                     {}
+func (*UnauthorizedHeaders) createControlRes()                         {}
+func (*UnauthorizedHeaders) createControlTestRes()                     {}
 func (*UnauthorizedHeaders) createCostCenterRes()                      {}
 func (*UnauthorizedHeaders) createCreditLimitRes()                     {}
 func (*UnauthorizedHeaders) createCustomerInvoiceRes()                 {}
@@ -85120,6 +87712,7 @@ func (*UnauthorizedHeaders) createQuotationRes()                       {}
 func (*UnauthorizedHeaders) createRecommendationRes()                  {}
 func (*UnauthorizedHeaders) createRegressionSuiteRes()                 {}
 func (*UnauthorizedHeaders) createRequisitionRes()                     {}
+func (*UnauthorizedHeaders) createReturnsOrderRes()                    {}
 func (*UnauthorizedHeaders) createRevenueContractRes()                 {}
 func (*UnauthorizedHeaders) createRfqRes()                             {}
 func (*UnauthorizedHeaders) createRoleAssignmentRes()                  {}
@@ -85194,6 +87787,8 @@ func (*UnauthorizedHeaders) getConsolidatedStatementRes()              {}
 func (*UnauthorizedHeaders) getConsolidationGroupRes()                 {}
 func (*UnauthorizedHeaders) getConsolidationRunRes()                   {}
 func (*UnauthorizedHeaders) getContractRes()                           {}
+func (*UnauthorizedHeaders) getControlMatrixRes()                      {}
+func (*UnauthorizedHeaders) getControlRes()                            {}
 func (*UnauthorizedHeaders) getCostCenterRes()                         {}
 func (*UnauthorizedHeaders) getCreditExposureRes()                     {}
 func (*UnauthorizedHeaders) getCreditLimitRes()                        {}
@@ -85243,6 +87838,7 @@ func (*UnauthorizedHeaders) getReceivablesAgingRes()                   {}
 func (*UnauthorizedHeaders) getRecommendationRes()                     {}
 func (*UnauthorizedHeaders) getRegressionSuiteRes()                    {}
 func (*UnauthorizedHeaders) getRequisitionRes()                        {}
+func (*UnauthorizedHeaders) getReturnsOrderRes()                       {}
 func (*UnauthorizedHeaders) getRevaluationRunRes()                     {}
 func (*UnauthorizedHeaders) getRevenueContractRes()                    {}
 func (*UnauthorizedHeaders) getRfqComparisonRes()                      {}
@@ -85309,6 +87905,8 @@ func (*UnauthorizedHeaders) listConsolidationEntriesRes()              {}
 func (*UnauthorizedHeaders) listConsolidationGroupsRes()               {}
 func (*UnauthorizedHeaders) listConsolidationRunsRes()                 {}
 func (*UnauthorizedHeaders) listContractsRes()                         {}
+func (*UnauthorizedHeaders) listControlTestsRes()                      {}
+func (*UnauthorizedHeaders) listControlsRes()                          {}
 func (*UnauthorizedHeaders) listCostCenterBalancesRes()                {}
 func (*UnauthorizedHeaders) listCostCenterPathsRes()                   {}
 func (*UnauthorizedHeaders) listCostCenterPlanActualRes()              {}
@@ -85372,6 +87970,8 @@ func (*UnauthorizedHeaders) listQuotationsRes()                        {}
 func (*UnauthorizedHeaders) listRecommendationsRes()                   {}
 func (*UnauthorizedHeaders) listRegressionSuitesRes()                  {}
 func (*UnauthorizedHeaders) listRequisitionsRes()                      {}
+func (*UnauthorizedHeaders) listReturnReceiptsRes()                    {}
+func (*UnauthorizedHeaders) listReturnsOrdersRes()                     {}
 func (*UnauthorizedHeaders) listRevaluationRunsRes()                   {}
 func (*UnauthorizedHeaders) listRevenueContractsRes()                  {}
 func (*UnauthorizedHeaders) listRfqsRes()                              {}
@@ -85448,6 +88048,7 @@ func (*UnauthorizedHeaders) releasePaymentRunRes()                     {}
 func (*UnauthorizedHeaders) releasePurchaseOrderRes()                  {}
 func (*UnauthorizedHeaders) releaseSalesOrderCreditBlockRes()          {}
 func (*UnauthorizedHeaders) releaseSupplierInvoiceRes()                {}
+func (*UnauthorizedHeaders) removeControlLinkRes()                     {}
 func (*UnauthorizedHeaders) removeHierarchyNodeRes()                   {}
 func (*UnauthorizedHeaders) renameHierarchyNodeRes()                   {}
 func (*UnauthorizedHeaders) renewContractRes()                         {}
@@ -85459,6 +88060,7 @@ func (*UnauthorizedHeaders) requestBankAccountChangeRes()              {}
 func (*UnauthorizedHeaders) requestBankAccountEndRes()                 {}
 func (*UnauthorizedHeaders) resumeWebhookSubscriptionRes()             {}
 func (*UnauthorizedHeaders) retireCatalogItemRes()                     {}
+func (*UnauthorizedHeaders) retireControlRes()                         {}
 func (*UnauthorizedHeaders) retireEntryTemplateRes()                   {}
 func (*UnauthorizedHeaders) reverseAssetAcquisitionRes()               {}
 func (*UnauthorizedHeaders) reverseAssetRetirementRes()                {}
@@ -85495,6 +88097,7 @@ func (*UnauthorizedHeaders) updateChangeRequestRes()                   {}
 func (*UnauthorizedHeaders) updateCloseTaskRes()                       {}
 func (*UnauthorizedHeaders) updateConnectorRes()                       {}
 func (*UnauthorizedHeaders) updateContractRes()                        {}
+func (*UnauthorizedHeaders) updateControlRes()                         {}
 func (*UnauthorizedHeaders) updateCostCenterRes()                      {}
 func (*UnauthorizedHeaders) updateCreditLimitRes()                     {}
 func (*UnauthorizedHeaders) updateEntryTemplateRes()                   {}
@@ -85979,6 +88582,70 @@ func (*UpdateContractPreconditionRequired) updateContractRes() {}
 type UpdateContractUnprocessableEntity Problem
 
 func (*UpdateContractUnprocessableEntity) updateContractRes() {}
+
+type UpdateControlBadRequest Problem
+
+func (*UpdateControlBadRequest) updateControlRes() {}
+
+type UpdateControlForbidden Problem
+
+func (*UpdateControlForbidden) updateControlRes() {}
+
+type UpdateControlNotFound Problem
+
+func (*UpdateControlNotFound) updateControlRes() {}
+
+// UpdateControlOKHeaders wraps Control with response headers.
+type UpdateControlOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           Control
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateControlOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateControlOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateControlOKHeaders) GetResponse() Control {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateControlOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateControlOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateControlOKHeaders) SetResponse(val Control) {
+	s.Response = val
+}
+
+func (*UpdateControlOKHeaders) retireControlRes() {}
+func (*UpdateControlOKHeaders) updateControlRes() {}
+
+type UpdateControlPreconditionFailed Problem
+
+func (*UpdateControlPreconditionFailed) updateControlRes() {}
+
+type UpdateControlPreconditionRequired Problem
+
+func (*UpdateControlPreconditionRequired) updateControlRes() {}
+
+type UpdateControlUnprocessableEntity Problem
+
+func (*UpdateControlUnprocessableEntity) updateControlRes() {}
 
 type UpdateCostCenterBadRequest Problem
 

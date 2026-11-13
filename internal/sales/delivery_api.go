@@ -2,11 +2,9 @@ package sales
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
@@ -38,9 +36,10 @@ func (e *Endpoints) ConfirmSalesDelivery(ctx context.Context, req *gen.SalesDeli
 	return &gen.SalesDeliveryHeaders{Response: deliveryAPI(d)}, nil
 }
 
-var deliverySort = pagination.Sort{Default: "delivery_date", Fields: []pagination.Field{
-	{Name: "delivery_date", Column: "d.delivery_date", Type: "date"},
-}}
+// deliveryList lists an order's deliveries by date.
+var deliveryList = listed[Delivery, gen.SalesDelivery]{what: "deliveries", query: deliverySelect + ` WHERE d.sales_order_id = $1`, scan: scanDelivery,
+	sort: pagination.Sort{Default: "delivery_date", Fields: []pagination.Field{{Name: "delivery_date", Column: "d.delivery_date", Type: "date"}}},
+	key:  func(d Delivery) (time.Time, uuid.UUID) { return d.Date, d.ID }, api: deliveryAPI}
 
 // ListSalesDeliveries implements GET /v1/sales-orders/{id}/deliveries: the
 // deliveries of an order of a company the caller may act in, by date.
@@ -53,16 +52,9 @@ func (e *Endpoints) ListSalesDeliveries(ctx context.Context, params gen.ListSale
 	if err != nil {
 		return nil, err
 	}
-	ks, err := e.Pages.Keyset(deliverySort, fmt.Sprintf("listSalesDeliveries|%s", o.ID), apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
+	items, next, err := deliveryList.page(ctx, e, tx, "listSalesDeliveries", o.ID, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
-		return nil, fmt.Errorf("sales: page of deliveries: %w", err)
+		return nil, err
 	}
-	query, args := ks.SQL(deliverySelect+` WHERE d.sales_order_id = $1`, []any{o.ID})
-	rows, _ := tx.Query(ctx, query, args...)
-	found, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Delivery, error) { return scanDelivery(r) })
-	if err != nil {
-		return nil, fmt.Errorf("sales: list the deliveries of sales order %s: %w", o.ID, err)
-	}
-	items, next := apitypes.PageOf(ks, found, func(d Delivery) (string, uuid.UUID) { return d.Date.Format(time.DateOnly), d.ID }, deliveryAPI)
 	return &gen.SalesDeliveryPage{Items: items, NextPageToken: next}, nil
 }

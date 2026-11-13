@@ -435,7 +435,7 @@ start() {
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
   say "  - the FPZ-500 for a Quebec registrant (the GST34's lines are signed off in Canada $CA_PACK, the UAE VAT 201"
-  say "    in UAE pack 2026.5, which step 41 files): step 11 prepares,"
+  say "    in UAE pack 2026.6, which step 41 files): step 11 prepares,"
   say "    approves and files the GST/HST returns in order with the pack's lines, the tax agent explaining the draft and"
   say "    proposing an adjustment entry and a tax code correction before Carla prepares it"
   say "  - the liquidity forecast's SAP migration (T53k): step 13 shows the"
@@ -553,8 +553,9 @@ provider_stub() {
 }
 
 # model_stub starts the stand-in for the model provider (step 18's capture,
-# the tax agent's run in step 11, the forecast agent's in step 39, the close
-# agent's in step_close) and points erp-server's model gateway at it. While
+# the tax agent's run in step 11, the forecast agent's in step 39, the
+# recommending agents' in steps 72 and 73, each writing and removing
+# its own script, and the close agent's in step_close) and points erp-server's model gateway at it. While
 # model-script.json exists it answers each call with its next turn (the
 # tax agent's, which tax_agent writes and removes, the forecast agent's,
 # which step 39 writes and removes, and the close agent's, which
@@ -586,13 +587,15 @@ model_price() {
     grep -q "already recorded" "$WORK/prices.out" || fail "the model's price was not recorded ($(cat "$WORK/prices.out"))"
 }
 
-# latest_pack sets CA_PACK to the latest released Canada pack's version,
-# the one step 2 applies: since T61j (2026.6) it defines the GST/HST
-# return's lines, so the walkthrough serves no unreleased copy of its own
-# any more (ADR-0049 §11 As built, T61h, T61j).
+# latest_pack sets CA_PACK to the version of the latest released Canada
+# pack a tax specialist signed off, the one step 2 applies, as production
+# would (a later version without a sign_off is refused there): since
+# T61j (2026.6) it defines the
+# GST/HST return's lines, so the walkthrough serves no unreleased copy of
+# its own any more (ADR-0049 §11 As built, T61h, T61j).
 latest_pack() {
-  CA_PACK=$(cd "$ROOT/packs/ca" && ls -d 20*.* | sort -t. -k1,1n -k2,2n | tail -1)
-  [ -f "$ROOT/packs/ca/$CA_PACK/returns.yaml" ] || fail "the latest Canada pack, $CA_PACK, defines no tax return"
+  CA_PACK=$(cd "$ROOT/packs/ca" && grep -l '^sign_off:' 20*.*/pack.yaml | cut -d/ -f1 | sort -t. -k1,1n -k2,2n | tail -1)
+  [ -f "$ROOT/packs/ca/$CA_PACK/returns.yaml" ] || fail "the latest signed-off Canada pack, $CA_PACK, defines no tax return"
 }
 
 # ---------------------------------------------------------------- the people
@@ -1545,10 +1548,9 @@ migrated_down_payment() {
 # the walkthrough's sales entry: GST at 5% (Excise Tax Act, Part IX, s. 165(1);
 # CRA, "Charge and collect the tax - Which rate to charge",
 # https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html),
-# a number range for the customer invoices of step 48 (T75a; the packs
-# number none yet), one for the quotations of step 62 (T78a), one for
-# the sales orders of step 63 (T78b) and one for the billing documents of
-# step 64 (T79a),
+# a number range for the returns orders of step 74 (T85a; the ranges of
+# customer invoices, incoming payments, quotations, sales orders, billing
+# documents and RFQs come from the pack since Canada 2026.9),
 # and two codes of tax alone for the return's adjustments (kind adjustment,
 # rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
@@ -1599,29 +1601,26 @@ PILOT_SETTINGS='
     | .fx_valuation.accounts += (["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"}))
     | .bank_statements = {"matching_rules": [{"kind": "end_to_end_id"}, {"kind": "amount", "date_window_days": 5, "counterparty": true}],
         "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})
-| .number_ranges += [{"company": "@CC@", "document_type": "customer_invoice", "fiscal_year": @YEAR@, "prefix": "CI", "first": 1, "last": 999999},
-    {"company": "@CC@", "document_type": "rfq", "fiscal_year": @YEAR@, "prefix": "RQ", "first": 1, "last": 999999},
-    {"company": "@CC@", "document_type": "journal_dr", "fiscal_year": @YEAR@, "first": 1800000000, "last": 1899999999},
-    {"company": "@CC@", "document_type": "incoming_payment", "fiscal_year": @YEAR@, "prefix": "IP", "first": 1, "last": 999999},
-    {"company": "@CC@", "document_type": "journal_dz", "fiscal_year": @YEAR@, "first": 1400000000, "last": 1499999999},
-    {"company": "@CC@", "document_type": "journal_dg", "fiscal_year": @YEAR@, "first": 1600000000, "last": 1699999999},
-    {"company": "@CC@", "document_type": "quotation", "fiscal_year": @YEAR@, "prefix": "QT", "first": 1, "last": 999999},
-    {"company": "@CC@", "document_type": "sales_order", "fiscal_year": @YEAR@, "prefix": "SO", "first": 1, "last": 999999},
-    {"company": "@CC@", "document_type": "billing_document", "fiscal_year": @YEAR@, "prefix": "BD", "first": 1, "last": 999999}]'
+| .number_ranges += [{"company": "@CC@", "document_type": "returns_order", "fiscal_year": @YEAR@, "prefix": "RO", "first": 1, "last": 999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
   as ada
   api 200 '.items[] | "pack \(.country) \(.version): \(.contents.accounts) accounts, \(.contents.tax_codes) tax codes, \(.contents.holidays) holidays, \(.contents.number_ranges) number ranges; signed off: \(.signed_off)"' listCountryPacks
   local version
-  version=$(field '[.items[] | select(.country == "CA") | .version] | sort_by(split(".") | map(tonumber)) | last')
-  expect "the latest Canada pack" "$version" "$CA_PACK"
+  version=$(field '[.items[] | select(.country == "CA" and .signed_off) | .version] | sort_by(split(".") | map(tonumber)) | last')
+  expect "the latest signed-off Canada pack" "$version" "$CA_PACK"
   say "CA $version defines the GST/HST return's lines (returns.yaml, T61j) for step 11, signed off by the tax specialist"
   say "(Musto Ibrahim, 2026-11-09), so production applies it. 2026.7 signed off 2026.6, which stays released unsigned;"
   say "2026.8 is 2026.7 with the lines' labels no longer marked pending the tax specialist (product owner, 2026-11-09)."
-  expect "the latest Canada pack's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "'"$version"'") | "\(.signed_off) \(.sign_off.tax_specialist) \(.sign_off.date)"')" \
+  say "2026.9 is 2026.8 plus the number ranges of customer invoices, incoming payments, sales documents and RFQs"
+  say "(product owner, 2026-11-12), its tax content unchanged; the sign-off of 2026-11-09 covers it (product owner,"
+  say "2026-11-13), so it is the latest signed-off version and the pilot takes those ranges from the pack."
+  expect "Canada 2026.9" "$(field '.items[] | select(.country == "CA" and .version == "2026.9") | "\(.contents.number_ranges) number ranges, signed off: \(.signed_off)"')" \
+    "22 number ranges, signed off: true"
+  expect "the latest signed-off Canada pack's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "'"$version"'") | "\(.signed_off) \(.sign_off.tax_specialist) \(.sign_off.date)"')" \
     "true Musto Ibrahim 2026-11-09"
-  say "Ada applies the latest Canada pack, $version, to company $CC. The merge keeps what the company"
+  say "Ada applies the latest signed-off Canada pack, $version, to company $CC. The merge keeps what the company"
   say "already has (SAP's chart and number ranges) and adds the rest; it becomes a draft change request."
   api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
     -body "{\"country\": \"CA\", \"version\": \"$version\", \"company\": \"$CC\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
@@ -4628,8 +4627,8 @@ governed() {
 
 # step_uae is the UAE country pack (T62f, ADR-0048, ADR-0049 §6 As built):
 # Ada creates the UAE pilot company, proposes it in the configuration and
-# applies the UAE pack to it, 2026.5 (2026.4, signed off by the tax
-# specialist, with the box labels' markers dropped), so without a note
+# applies the UAE pack to it, 2026.6 (2026.4, signed off by the tax
+# specialist, with the box labels' markers dropped in 2026.5 and the number ranges added in 2026.6), so without a note
 # (2026.3 brought the emirate guard: S5 accepts the seven
 # emirates alone); Alex posts a UAE supplier's invoice above AED 10,000
 # and one below: the supplier has no TRN on file, so the first carries the
@@ -4649,9 +4648,11 @@ step_uae() {
   say "by the tax specialist, Musto Ibrahim, on 2026-11-09: the VAT codes, tax settings and the VAT 201 (the items of"
   say "packs/ae/TAX-PENDING-T62f.md and TAX-PENDING-T61k.md), so production applies it; the earlier versions stay unsigned."
   say "2026.5 is 2026.4 with the VAT 201's box labels no longer marked pending the tax specialist (product owner, 2026-11-09)."
+  say "2026.6 is 2026.5 plus the number ranges of customer invoices, incoming payments, sales documents and RFQs (product"
+  say "owner, 2026-11-12), its tax content unchanged, under the same sign-off (product owner, 2026-11-13)."
   api 200 '.items[] | select(.country == "AE") | "pack \(.country) \(.version): \(.contents.accounts) accounts, \(.contents.tax_codes) tax codes, \(.contents.holidays) holidays, \(.contents.number_ranges) number ranges; signed off: \(.signed_off)"' listCountryPacks
-  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false, 2026.3 9 false, 2026.4 9 true, 2026.5 9 true"
-  expect "UAE 2026.5's sign-off" "$(field '.items[] | select(.country == "AE" and .version == "2026.5") | "\(.sign_off.tax_specialist) \(.sign_off.date)"')" \
+  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false, 2026.3 9 false, 2026.4 9 true, 2026.5 9 true, 2026.6 9 true"
+  expect "UAE 2026.6's sign-off" "$(field '.items[] | select(.country == "AE" and .version == "2026.6") | "\(.sign_off.tax_specialist) \(.sign_off.date)"')" \
     "Musto Ibrahim 2026-11-09"
   say "Ada creates the UAE company's legal entity, Maple Gulf Trading ($AE, in AED), and activates it."
   QUIET=1 api 200 '' getLegalEntity -p "id=$LE"
@@ -4671,10 +4672,10 @@ step_uae() {
     proposed: (.items[0].document | .companies += [${company//@FIRST@/$(uae_first)}])}" "$WORK/last.json" >"$WORK/uae-company.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @uae-company.json
   governed "$(field .id)" "the UAE company"
-  say "Ada applies the latest UAE pack, 2026.5, to $AE for $YEAR. The merge keeps the company's accounts, which are"
+  say "Ada applies the latest signed-off UAE pack, 2026.6, to $AE for $YEAR. The merge keeps the company's accounts, which are"
   say "the pack's, and adds the rest; signed off, the pack brings no note saying otherwise:"
   api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
-    -body "{\"country\": \"AE\", \"version\": \"2026.5\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
+    -body "{\"country\": \"AE\", \"version\": \"2026.6\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
   cr=$(field .id)
   excerpt '.notes[] | "note \(.path): \(.message)"'
   expect "notes that the pack is not signed off" "$(field '[.notes[] | select(.path == "packs['"$AE"']" and (.message | contains("signed")))] | length')" 0
@@ -4817,7 +4818,7 @@ uae_return() {
   vat=$(field '.items[] | select(.number == "2300") | .id')
   input=$(field '.items[] | select(.number == "1300") | .id')
   say "Maple Gulf Trading's VAT is filed under its FTA registration (the number illustrative), its return the VAT 201"
-  say "that UAE pack 2026.5 defines; its first period is the latest quarter ended, the one it files now:"
+  say "that UAE pack 2026.6 defines; its first period is the latest quarter ended, the one it files now:"
   api 200 '.items[] | "registration \(.code): \(.authority), number ending \(.number_last4), return \(.return_type), \(.frequency) from \(.first_period_start), company \(.company_code)"' \
     listTaxRegistrations -p "legal_entity_id=$ae"
   expect "the UAE registration" "$(field '.items[0] | "\(.code) \(.return_type) \(.first_period_start)"')" "FTA_VAT VAT201 $(uae_first)"
@@ -4869,10 +4870,10 @@ uae_return() {
   as carla
   say "Carla computes the draft VAT 201 (ADR-0049 §11): each box sums the items the pack maps to it. The boxes are"
   say "ADR-0049's record of the FTA's guide through secondary summaries, signed off by the tax specialist with the pack"
-  say "(packs/ae/TAX-PENDING-T61k.md); 2026.5's labels carry no marker of the unsigned versions. Boxes not zero:"
+  say "(packs/ae/TAX-PENDING-T61k.md); 2026.6's labels, 2026.5's, carry no marker of the unsigned versions. Boxes not zero:"
   api 200 '"draft \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end), \(.currency), pack \(.pack.country) \(.pack.version): \(.item_count) items", (.boxes[] | select(.amount.amount != "0.00") | "  \(.code) \(.amount.amount): \(.label)")' \
     getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
-  expect "the draft's pack" "$(field '"\(.pack.country) \(.pack.version)"')" "AE 2026.5"
+  expect "the draft's pack" "$(field '"\(.pack.country) \(.pack.version)"')" "AE 2026.6"
   expect "boxes 1b and 8's VAT labels, without a marker" "$(field '[.boxes[] | select(.code == "1b_vat" or .code == "8_vat") | .label] | join(" / ")')" \
     "1b Standard-rated supplies in Dubai (AE-DU): VAT / 8 Totals: VAT, boxes 1a-1g, 2, 3, 6 and 7"
   expect "the boxes in the pack's order" "$(field '[.boxes[].code] | .[0:3] + .[-3:] | join(" ")')" "1a_amount 1a_vat 1a_adjustment 12 13 14"
@@ -6804,11 +6805,12 @@ step_rfq_award() {
 # own table: nothing is fetched from a supplier's system. Then (T84b) Ben
 # raises a requisition from the chair with a quantity: its description,
 # unit, price and supplier are the catalog's, and it is submitted and
-# approved as any other.
+# approved as any other. Read back, its item is sent again as it was
+# read, at the catalog's price; another price is refused (T84d).
 step_catalog() {
   heading "Step 61 — Catalog items: two items of a supplier loaded into the company's catalog and found by a search on a word of their description; a retired item is no longer found; a requisition from a catalog item takes its price and supplier"
   as priya
-  local chair desk arm req request expense
+  local chair desk arm req request expense read tag
   say "Priya loads Tyrell's items into Maple's catalog, one at a time: an item key, a description, a unit and one"
   say "price each (ADR-0071). The supplier must be one Maple can order from, as a purchase order's must be."
   api 201 '"catalog item \(.item_key) of \(.supplier_number) \(.supplier_name): \(.description), \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit), \(.status)"' createCatalogItem \
@@ -6862,6 +6864,18 @@ step_catalog() {
     "$(field '.items[0] | "\(.catalog_item_id) \(.item_key) \(.description) \(.quantity.value) \(.quantity.unit) \(.unit_price.amount) \(.unit_price.currency)"')" \
     "$chair CHAIR-ERGO Ergonomic office chair, mesh back 2 EA 450.00 CAD"
   expect "the requisition's supplier and total" "$(field '"\(.supplier_id) \(.total_amount.amount) \(.total_amount.currency)"')" "$SUPPLIER 900.00 CAD"
+  say "Ben sends the item back as he read it, with the catalog's price: that is accepted. The same item at a"
+  say "price of his own is refused (product owner, 2026-11-12):"
+  read=$(jq -c '.items[0]' "$WORK/last.json")
+  tag=$ETAG
+  refused 422 procurement.catalog_item_override updateRequisition -p "id=$req" -if-match "$tag" \
+    -body "{\"items\": [$(jq -c '.unit_price.amount = "400.00"' <<<"$read")]}"
+  expect "the refused field" "$(field '[.errors[].field] | join(" ")')" "items[0].unit_price"
+  api 200 '"requisition \(.document_number): \(.items[0].quantity.value) \(.items[0].quantity.unit) of \(.items[0].item_key) at \(.items[0].unit_price.amount) \(.items[0].unit_price.currency), sent back as read"' \
+    updateRequisition -p "id=$req" -if-match "$tag" -body "{\"items\": [$read]}"
+  expect "the item sent back as read" \
+    "$(field '.items[0] | "\(.catalog_item_id) \(.item_key) \(.quantity.value) \(.unit_price.amount) \(.unit_price.currency)"') $(field .total_amount.amount)" \
+    "$chair CHAIR-ERGO 2 450.00 CAD 900.00"
   say "Ben submits it; it goes to approval as any other requisition, and Priya approves it:"
   api 200 '"\(.status): approval request \(.workflow_request_id)"' submitRequisition -p "id=$req" -if-match "$ETAG"
   expect "the submitted requisition" "$(field .status)" pending_approval
@@ -7643,6 +7657,654 @@ step_scheduling_agreement() {
   expect "the lines still to call off" "$(field '[.items[].line_no] | join(" ")')" "2"
   passed
 }
+# step_controls is T98a (ADR-0078 §2-§5): Olive, the compliance officer,
+# records a control on the release of payment runs in Maple's control
+# library, owned by Tara, the treasury manager; the library is the
+# tenant's own and starts empty. A second control with its code is
+# refused. She tests it on step 6's payment run, records the test as
+# passed with a note of the evidence and reads the library with the
+# control's last test; a test dated after today is refused, and a test is
+# never changed. CONTROL is the control, for step_control_matrix.
+step_controls() {
+  heading "Step 76 — Controls: a control on payment release recorded in the control library, tested as passed with a note of the evidence, and the library read with its last test"
+  local owner tag test later note
+  as ada
+  say "Ada adds Olive, the compliance officer, to the team:"
+  person olive "Olive Compliance Officer" finance_staff
+  owner=$(awk -F'\t' '$2 == "Tara Treasury Manager" { print $1 }' "$WORK/names")
+  [ -n "$owner" ] || fail "step 1's Tara is not there"
+  as olive
+  say "Maple's control library is its own: nothing is shipped, so it starts empty (ADR-0078 §2)."
+  api 200 '"controls in the library: \(.items | length)"' listControls
+  expect "an empty library" "$(field '.items | length')" 0
+  say "Olive records the control on the release of payment runs: its code, its objective, the process it belongs"
+  say "to, its owner, how often it is performed and that the system performs it:"
+  api 201 '"control \(.code), \(.process), owned by \(.owner_name): \(.frequency), \(.nature), \(.status)", "  \(.objective)"' createControl \
+    -body "{\"code\": \"PAY-01\", \"objective\": \"A payment run is released by a person other than the one who proposed it.\", \"process\": \"Payments\", \"owner_id\": \"$owner\", \"frequency\": \"continuous\", \"nature\": \"automated\"}"
+  CONTROL=$(field .id) tag=$ETAG
+  expect "the control" "$(field '"\(.code) \(.process) \(.owner_id) \(.owner_name) \(.frequency) \(.nature) \(.status) \(.version) \(has("last_test"))"')" \
+    "PAY-01 Payments $owner Tara Treasury Manager continuous automated active 1 false"
+  say "A code is one control's in the library, whatever its case:"
+  refused 409 grc.control_code_taken createControl \
+    -body "{\"code\": \"pay-01\", \"objective\": \"Another control.\", \"process\": \"Payments\", \"owner_id\": \"$owner\", \"frequency\": \"monthly\", \"nature\": \"manual\"}"
+  say "She tests the control on the payment run of step 6, where Tom proposed the run and his own release of it"
+  say "was refused, and records the result with a note of the evidence she saw. A test is a person's statement:"
+  say "an agent cannot record one, and the test is never changed."
+  note="Payment run of $TODAY: proposed by Tom Treasurer; his release refused (identity.sod_conflict); released by another person."
+  api 201 '"test of \(.control_code) on \(.tested_on): \(.result), by \(.tested_by_name)", "  \(.note)"' createControlTest -p "id=$CONTROL" \
+    -body "{\"tested_on\": \"$TODAY\", \"result\": \"passed\", \"note\": \"$note\"}"
+  test=$(field .id)
+  expect "the test" "$(field '"\(.control_id) \(.control_code) \(.tested_on) \(.result) \(.tested_by_name)"')" "$CONTROL PAY-01 $TODAY passed Olive Compliance Officer"
+  later=$(date_add "$(utc_day)" 2)
+  say "A test dated after today is refused:"
+  refused 422 grc.test_in_future createControlTest -p "id=$CONTROL" -body "{\"tested_on\": \"$later\", \"result\": \"passed\", \"note\": \"Not seen yet.\"}"
+  say "The library shows the control with its last test: its date, its result, who tested and the note."
+  api 200 '.items[] | "  \(.code) \(.process), owned by \(.owner_name): last tested \(.last_test.tested_on), \(.last_test.result), by \(.last_test.tested_by_name)"' \
+    listControls -p process=Payments -p last_result=passed
+  expect "the library by process and last result" \
+    "$(field '[.items[] | "\(.id) \(.code) \(.last_test.id) \(.last_test.tested_on) \(.last_test.result) \(.last_test.tested_by_name) \(.last_test.note)"] | join(", ")')" \
+    "$CONTROL PAY-01 $test $TODAY passed Olive Compliance Officer $note"
+  QUIET=1 api 200 '' listControls -p last_result=failed
+  expect "no control last tested as failed" "$(field '.items | length')" 0
+  QUIET=1 api 200 '' listControls -p last_result=none
+  expect "no control never tested" "$(field '.items | length')" 0
+  QUIET=1 api 200 '' getControl -p "id=$CONTROL"
+  expect "the control's version after its test" "$(field .version) $ETAG" "1 $tag"
+  QUIET=1 api 200 '' listControlTests -p "id=$CONTROL"
+  expect "the control's tests" "$(field '[.items[] | "\(.id) \(.result)"] | join(", ")')" "$test passed"
+  QUIET=1 api 200 '' listAuditEvents -p object_type=grc.control -p "object_id=$CONTROL"
+  expect "the control's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "grc.control.create grc.control.test"
+  passed
+}
+
+# step_control_matrix is T98b (ADR-0078 §7-§9): Olive gives step 76's
+# control Maple's own framework reference and links it to what enforces
+# it: the permission to release payment runs and the setting of the
+# release limit above which a second person approves, both holding; a
+# permission outside the catalog and a path without a value are refused.
+# Maple has no segregation-of-duties rule of its own (the rule that a
+# run's proposer does not release it is built into payments), so Ada
+# makes one, administering access against releasing payment runs: a rule
+# she would break today is refused, she gives up releasing payment runs
+# from tomorrow, and the rule starts tomorrow. Its link is shown as not
+# in force yet. The matrix shows the control with its reference, its last
+# test and its three links, and its totals; a link made by mistake is
+# removed at its version and kept as removed.
+step_control_matrix() {
+  heading "Step 77 — The control matrix: the control linked to the permission, the configuration setting and a segregation-of-duties rule that enforce it, with the tenant's framework reference; the matrix shows which links hold; a link is removed, never deleted"
+  local admin grant tomorrow rule plink clink rlink wrong as_of rule_state links holding broken state
+  [ -n "${CONTROL:-}" ] || fail "step 76's control is not there"
+  as olive
+  QUIET=1 api 200 '' getControl -p "id=$CONTROL"
+  say "Olive gives the control Maple's own reference to its internal control framework. The references are the"
+  say "tenant's free text: no framework's text or numbering is shipped (ADR-0078 §9)."
+  api 200 '"control \(.code): \(.framework_references | join("; ")), version \(.version)"' updateControl -p "id=$CONTROL" -if-match "$ETAG" \
+    -body '{"framework_references": ["Maple ICFR P-4.2 Payment release"]}'
+  expect "the control's references" "$(field '"\(.framework_references | join("; ")) \(.version)"')" "Maple ICFR P-4.2 Payment release 2"
+  say "She links the control to what enforces it in the product. First the permission that releasing a run needs:"
+  api 201 '"link of \(.control_code) to the \(.kind) \(.permission_code) (\(.permission_description)): holds \(.holds)"' createControlLink -p "id=$CONTROL" \
+    -body '{"kind": "permission", "permission_code": "payments.run.release"}'
+  plink=$(field .id)
+  expect "the permission link" "$(field '"\(.control_id) \(.kind) \(.permission_code) \(.permission_description) \(.status) \(.holds)"')" \
+    "$CONTROL permission payments.run.release Release payment runs active true"
+  say "Then the setting of Maple's configuration above which a second person approves a release, written as a"
+  say "configuration change names it:"
+  api 201 '"link of \(.control_code) to the \(.kind) \(.configuration_path), looked up in configuration version \(.configuration_version): holds \(.holds)"' \
+    createControlLink -p "id=$CONTROL" -body "{\"kind\": \"configuration_path\", \"configuration_path\": \"companies[$CC].release_dual_limit\"}"
+  clink=$(field .id)
+  expect "the configuration link" "$(field '"\(.kind) \(.configuration_path) \(.holds) \(.configuration_version > 0)"')" \
+    "configuration_path companies[$CC].release_dual_limit true true"
+  say "What a link names must be there when it is made, and a control has one link to a target:"
+  refused 422 grc.unknown_permission createControlLink -p "id=$CONTROL" -body '{"kind": "permission", "permission_code": "payments.run.vanish"}'
+  refused 422 grc.configuration_path_without_value createControlLink -p "id=$CONTROL" \
+    -body "{\"kind\": \"configuration_path\", \"configuration_path\": \"companies[$CC].release_triple_limit\"}"
+  refused 409 grc.control_link_exists createControlLink -p "id=$CONTROL" -body '{"kind": "permission", "permission_code": "payments.run.release"}'
+  as ada
+  say "Maple has no segregation-of-duties rule of its own yet: that a run's proposer does not release it is built"
+  say "into payments. Ada adds one: whoever administers access does not release payment runs. She holds every"
+  say "permission herself, and a rule someone would break on its first day is refused:"
+  refused 409 identity.sod_conflict createSodRule \
+    -body '{"permission_a": "identity.access.manage", "permission_b": "payments.run.release", "description": "Whoever administers access does not release payment runs."}'
+  admin=$(role tenant_admin)
+  QUIET=1 api 200 '' listRolePermissions -p "id=$admin" -p page_size=500
+  grant=$(field '.items[] | select(.permission_code == "payments.run.release") | .id')
+  [ -n "$grant" ] || fail "the administrator's role does not hold payments.run.release"
+  QUIET=1 api 200 '' getRolePermission -p "id=$admin" -p "permission_id=$grant"
+  tomorrow=$(date_add "$(utc_day)" 1)
+  say "So the administrator's role gives up releasing payment runs from tomorrow, $tomorrow (a grant ends on a later"
+  say "day than it began), and the rule starts that day:"
+  api 200 '"\(.permission_code) of the administrator role: valid until \(.valid_to)"' endRolePermission -p "id=$admin" -p "permission_id=$grant" \
+    -if-match "$ETAG" -body "{\"valid_to\": \"$tomorrow\"}"
+  api 201 '"rule \(.permission_a) / \(.permission_b), valid from \(.valid_from): \(.description)"' createSodRule \
+    -body "{\"permission_a\": \"identity.access.manage\", \"permission_b\": \"payments.run.release\", \"description\": \"Whoever administers access does not release payment runs.\", \"valid_from\": \"$tomorrow\"}"
+  rule=$(field .id)
+  as olive
+  say "Olive links the control to the rule. A rule that is not in force yet can be linked; the link says so:"
+  api 201 '"link of \(.control_code) to the \(.kind) \(.sod_rule.permission_a) / \(.sod_rule.permission_b), valid from \(.sod_rule.valid_from): holds \(.holds)\(if .holds then "" else ", " + .broken_reason end)"' \
+    createControlLink -p "id=$CONTROL" -body "{\"kind\": \"sod_rule\", \"sod_rule_id\": \"$rule\"}"
+  rlink=$(field .id)
+  expect "the rule link" "$(field '"\(.kind) \(.sod_rule_id) \(.sod_rule.permission_a) \(.sod_rule.permission_b) \(.sod_rule.valid_from)"')" \
+    "sod_rule $rule identity.access.manage payments.run.release $tomorrow"
+  say "A link made by mistake is removed at its version. Nothing is deleted: it is kept as removed."
+  api 201 '"link of \(.control_code) to the \(.kind) \(.permission_code): holds \(.holds)"' createControlLink -p "id=$CONTROL" \
+    -body '{"kind": "permission", "permission_code": "payments.file.transmit"}'
+  wrong=$(field .id)
+  api 200 '"link to \(.permission_code): \(.status), version \(.version)"' removeControlLink -p "id=$CONTROL" -p "link_id=$wrong" -if-match "$ETAG"
+  expect "the removed link" "$(field '"\(.id) \(.status) \(.version)"')" "$wrong removed 2"
+  refused 409 grc.control_link_removed removeControlLink -p "id=$CONTROL" -p "link_id=$wrong" -if-match "$ETAG"
+  say "The control matrix: each control with its references, its last test and its links, and whether each link"
+  say "still holds on the database's date. A link that does not hold is shown as broken, never removed:"
+  api 200 '"as of \(.as_of): \(.totals.controls) control(s), \(.totals.links) links, \(.totals.links_holding) holding, \(.totals.links_broken) broken",
+    (.items[] | "  \(.control.code) \(.control.process) [\(.control.framework_references | join("; "))], last test \(.control.last_test.result) on \(.control.last_test.tested_on): links \(.link_state)",
+      (.links[] | "    \(.kind) \(.permission_code // .configuration_path // "\(.sod_rule.permission_a) / \(.sod_rule.permission_b)"): \(if .holds then "holds" else "broken, " + .broken_reason end)"))' \
+    getControlMatrix -p process=Payments
+  as_of=$(field .as_of)
+  # The rule starts tomorrow by the database's date; a run that crosses
+  # UTC's midnight finds it in force already.
+  if [ "$as_of" \< "$tomorrow" ]; then
+    rule_state='false sod_rule_not_started' holding=2 broken=1 state=broken
+  else
+    rule_state='true null' holding=3 broken=0 state=holding
+  fi
+  links="$plink permission true null, $clink configuration_path true null, $rlink sod_rule $rule_state"
+  expect "the control's row" "$(field '.items[] | "\(.control.id) \(.control.code) \(.control.last_test.result) \(.control.framework_references | join("; ")) \(.link_state)"')" \
+    "$CONTROL PAY-01 passed Maple ICFR P-4.2 Payment release $state"
+  expect "the control's links, in the order they were made" "$(field '[.items[0].links[] | "\(.id) \(.kind) \(.holds) \(.broken_reason // null)"] | join(", ")')" "$links"
+  expect "the matrix's totals" \
+    "$(field '.totals | "\(.controls) \(.controls_holding) \(.controls_broken) \(.controls_without_links) \(.links) \(.links_holding) \(.links_broken)"')" \
+    "1 $((broken == 0)) $((broken > 0)) 0 3 $holding $broken"
+  QUIET=1 api 200 '' getControlMatrix -p "framework_reference=Maple ICFR P-4.2 Payment release"
+  expect "the matrix by framework reference" "$(field '[.items[].control.id] | join(" ")')" "$CONTROL"
+  QUIET=1 api 200 '' getControlMatrix -p link_state=none
+  expect "no control without a link" "$(field '.items | length')" 0
+  QUIET=1 api 200 '' getControl -p "id=$CONTROL"
+  expect "the control's version, which its links did not move" "$(field .version)" 2
+  QUIET=1 api 200 '' listAuditEvents -p object_type=grc.control -p "object_id=$CONTROL" -p page_size=100
+  expect "the control's audit trail" "$(field '[.items[].action] | sort | join(" ")')" \
+    "grc.control.change grc.control.create grc.control.link grc.control.link grc.control.link grc.control.link grc.control.test grc.control.unlink"
+  passed
+}
+
+# step_sales_analytics is T91a (ADR-0044 As built T91a): Anna, a sales
+# analyst, asks the semantic layer for the month's order intake and billed
+# value by customer. Order intake is the confirmed sales orders' items by
+# order date, billed value the posted billing documents' items by billing
+# date; a draft order and a billing document not posted are not counted.
+# The figures are checked against the orders and billing documents the
+# earlier steps created, as the API lists them; Rita, who reads no sales
+# document, gets no row.
+step_sales_analytics() {
+  heading "Step 70 — Sales metrics: the month's order intake and billed value by customer through the governed metrics order_intake and billed_value, equal to the confirmed orders and the posted billing documents; without the sales reads, no row"
+  local day q got want cents
+  as ada
+  say "Ada adds Anna, the sales analyst, to the team:"
+  person anna "Anna Analyst" finance_staff
+  as anna
+  day=$(company_day)
+  say "Anna asks the semantic layer what Maple's customers ordered and were billed in ${day:0:7}: the governed metrics"
+  say "order_intake, the items of confirmed sales orders by order date, billed_value, the items of posted billing"
+  say "documents by billing date, and billing_document_count, by customer (ADR-0044 As built T91a). Amounts are net,"
+  say "in the documents' currency, CAD; a draft order and a billing document not yet posted count in neither:"
+  q="{\"measures\": [\"order_intake\", \"billed_value\", \"billing_document_count\"], \"by\": [\"customer\", \"customer_name\"], \"companies\": [\"$CC\"], \"where\": [{\"dim\": \"fiscal_year\", \"op\": \"in\", \"values\": [\"${day:0:4}\"]}, {\"dim\": \"fiscal_month\", \"op\": \"in\", \"values\": [\"$((10#${day:5:2}))\"]}], \"order_by\": \"customer\"}"
+  api 200 '"answered from \(.source) as of \(.as_of), \(.columns | map(.name) | join(", "))", (.rows[] | "  " + (map(if .value == null then "-" else "\(.value)\(if .currency then " " + .currency else "" end)" end) | join("  ")))' \
+    runAnalyticsQuery -body "$q"
+  # Each row as "customer name: intake billed documents", amounts in cents, "-" for none.
+  cents='if . == null then "-" else (sub("\\."; "") | tonumber | tostring) end'
+  got=$(field "[.rows[] | \"\(.[0].value) \(.[1].value): \(.[2].value | $cents) \(.[3].value | $cents) \(.[4].value // \"-\")\"] | join(\"; \")")
+  expect "the amounts' currency" "$(field '[.rows[][2:4][] | .currency // empty] | unique | join(" ")')" CAD
+  expect "the measures' definitions" "$(field '[.definitions[].name] | join(" ")')" "order_intake billed_value billing_document_count"
+  say "The same figures from the documents themselves: Maple's sales orders and billing documents of the month."
+  api 200 '.items[] | "  sales order \(.document_number) \(.customer_number) \(.customer_name): \(.status), dated \(.order_date), net \(.net_amount.amount) \(.net_amount.currency)"' \
+    listSalesOrders -p "legal_entity_id=$LE" -p page_size=200
+  expect "the sales orders on one page" "$(field '.next_page_token // ""')" ""
+  cp "$WORK/last.json" "$WORK/sales-orders.json"
+  api 200 '.items[] | "  billing document \(.document_number) \(.customer_number) \(.customer_name): \(.status), dated \(.billing_date), net \(.net_amount.amount) \(.net_amount.currency)"' \
+    listBillingDocuments -p "legal_entity_id=$LE" -p page_size=200
+  expect "the billing documents on one page" "$(field '.next_page_token // ""')" ""
+  want=$(jq -r --arg month "${day:0:7}" --slurpfile orders "$WORK/sales-orders.json" '
+    def cents: sub("\\."; "") | tonumber;
+    def total: if length == 0 then "-" else (map(.net_amount.amount | cents) | add | tostring) end;
+    [$orders[0].items[] | select(.status == "confirmed" and (.order_date | startswith($month)))] as $ordered
+    | [.items[] | select(.status == "posted" and (.billing_date | startswith($month)))] as $billed
+    | [($ordered + $billed)[] | {customer_number, customer_name}] | unique_by(.customer_number)
+    | map(.customer_number as $c | "\($c) \(.customer_name): \([$ordered[] | select(.customer_number == $c)] | total) \([$billed[] | select(.customer_number == $c)] | total) \([$billed[] | select(.customer_number == $c)] | if length == 0 then "-" else length | tostring end)")
+    | join("; ")' "$WORK/last.json")
+  expect "order intake and billed value by customer, the documents' own" "$got" "$want"
+  [ -n "$want" ] || fail "no confirmed sales order this month: step 63's is not there"
+  say "They agree: $(jq -r '[.items[] | select(.status == "confirmed")] | length' "$WORK/sales-orders.json") confirmed of $(jq -r '.items | length' "$WORK/sales-orders.json") sales orders, $(field '[.items[] | select(.status == "posted")] | length') posted of $(field '.items | length') billing documents."
+  as rita
+  say "Rita holds the forecast's read and the query permission, and reads no sales order or billing document: the"
+  say "sales metrics give her no row, refused as the lists themselves would be."
+  refused 403 identity.permission_missing runAnalyticsQuery -body "$q"
+  as anna
+  passed
+}
+# step_spend is T91b (ADR-0044 As built T91b): Ben, the buyer, asks the
+# semantic layer what Maple spent with each supplier. Spend is the net
+# amount of the items of posted supplier invoices less posted credit
+# memos, by posting date; an item is under contract when its purchase
+# order was made on one, and no order of the story names a contract, so
+# all of it reads as off contract (the under-contract case is the
+# packages' tests'). The figures are checked against the posted documents
+# the earlier steps left, as the API lists them; Rita, who reads no
+# supplier invoice, gets no row.
+step_spend() {
+  heading "Step 71 — Spend: spend by supplier through the governed metric spend, equal to the posted supplier invoices less the posted credit memos; all of it off contract, since no order names a contract; without the invoices' read, no row"
+  local q got want ids token cents
+  as ben
+  say "Ben asks the semantic layer what Maple spent with each supplier: the governed metric spend, the net amounts of"
+  say "the items of posted supplier invoices less those of posted credit memos, by posting date, with the part under a"
+  say "contract and the part off contract (ADR-0044 As built T91b). An item is under contract when its purchase order"
+  say "was made on one. No order of this story names a contract, so every supplier's spend reads as off contract:"
+  q="{\"measures\": [\"spend\", \"spend_under_contract\", \"spend_off_contract\", \"off_contract_share\"], \"by\": [\"vendor\", \"vendor_name\", \"currency\"], \"companies\": [\"$CC\"], \"order_by\": \"vendor\"}"
+  api 200 '"answered from \(.source) as of \(.as_of), \(.columns | map(.name) | join(", "))", (.rows[] | "  " + (map(if .value == null then "-" else "\(.value)" end) | join("  ")))' \
+    runAnalyticsQuery -body "$q"
+  # Each row as "supplier name currency: spend under off share", amounts in cents, "-" for none.
+  cents='if . == null then "-" else (sub("\\."; "") | tonumber | tostring) end'
+  got=$(field "[.rows[] | \"\(.[0].value) \(.[1].value) \(.[2].value): \(.[3].value | $cents) \(.[4].value | $cents) \(.[5].value | $cents) \(.[6].value // \"-\")\"] | sort | join(\"; \")")
+  expect "the measures' definitions" "$(field '[.definitions[].name] | join(" ")')" "spend spend_under_contract spend_off_contract off_contract_share"
+  say "The same figures from the documents themselves: Maple's posted supplier invoices, credit memos and subsequent"
+  say "debits and credits, each item's net amount, a credit's negative."
+  : >"$WORK/spend-documents.jsonl"
+  token=''
+  while :; do
+    QUIET=1 api 200 '' listSupplierInvoices -p "legal_entity_id=$LE" -p status=posted -p page_size=200 ${token:+-p "page_token=$token"}
+    jq -c '.items[]' "$WORK/last.json" >>"$WORK/spend-documents.jsonl"
+    token=$(field '.next_page_token // ""')
+    [ -n "$token" ] || break
+  done
+  [ -s "$WORK/spend-documents.jsonl" ] || fail "no posted supplier invoice: the earlier steps' are not there"
+  ids=$(jq -rs '[.[].supplier_id] | unique | join(",")' "$WORK/spend-documents.jsonl")
+  QUIET=1 api 200 '' listBusinessPartners -p "ids=$ids" -p page_size=200
+  want=$(jq -rs --slurpfile partners "$WORK/last.json" '
+    def cents: sub("\\."; "") | tonumber;
+    ($partners[0].items | map({key: .id, value: .}) | from_entries) as $p
+    | [.[] | . as $doc | .items[] | {number: $p[$doc.supplier_id].number, name: $p[$doc.supplier_id].name, currency: .amount.currency,
+        net: ((.amount.amount | cents) * (if $doc.kind == "credit_memo" or $doc.kind == "subsequent_credit" then -1 else 1 end))}]
+    | group_by([.number, .currency])
+    | map((map(.net) | add) as $net | "\(.[0].number) \(.[0].name) \(.[0].currency): \($net) - \($net) \(if $net == 0 then "-" else "1.0000" end)")
+    | sort | join("; ")' "$WORK/spend-documents.jsonl")
+  expect "spend by supplier, the posted documents' own" "$got" "$want"
+  say "They agree: $(jq -rs 'length' "$WORK/spend-documents.jsonl") posted documents of $(jq -rs '[.[].supplier_id] | unique | length' "$WORK/spend-documents.jsonl") suppliers, $(jq -rs '[.[] | select(.kind == "credit_memo" or .kind == "subsequent_credit")] | length' "$WORK/spend-documents.jsonl") of them credits, nothing under contract."
+  as rita
+  say "Rita reads no supplier invoice: the spend metrics give her no row, refused as the list itself would be."
+  refused 403 identity.permission_missing runAnalyticsQuery -body "$q"
+  as ben
+  passed
+}
+
+# step_credit_agent is T105a (ADR-0072): the credit scoring agent, erp
+# agent credit-score through the model stand-in answering from a script of
+# turns (its suite's replay, evals/credit_scoring), reviews the limit of
+# step_credit_limit's customer, Northwind. It reads the exposure, the
+# aging on the company's day, the dunning runs, the payments and the
+# invoices, and leaves one recommendation on the limit, naming the limit,
+# the exposure and the overdue amount: the limit it recommends is the
+# exposure, so the kind follows from how the two stand when the step runs
+# (lower_limit, raise_limit, or keep_limit when they are equal); should
+# the customer owe nothing, its credits being above its items, the limit
+# is kept as it is. A limit the agent computed, the one it then recommends
+# with a tenth on top, is refused by the run first: every amount is one
+# the API returned. Ruth, the credit
+# manager, overrides the recommendation; the limit is as it was, and the
+# agent's own change of it is refused.
+step_credit_agent() {
+  heading "Step 72 — The credit scoring agent: a customer's limit reviewed from its exposure, aging, dunning notices and payments; one recommendation with the API's figures, a computed amount refused; the credit manager decides, the limit unchanged"
+  local customer=$CUSTOMER role id tag limit exposure overdue kind target why computed got session rec
+  as ada
+  say "Ada sets up the credit scoring agent (ADR-0072): an agent principal of type credit_scoring at autonomy level 1"
+  say "on erp-default. Its role reads credit limits and exposures, receivables, dunning and partners, and records"
+  say "its sessions and recommendations; it holds no permission that sets or changes a limit."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "credit_agent", "name": "Credit scoring agent"}'
+  role=$(field .id)
+  grant "$role" tenancy.org.read credit.limit.read receivables.invoice.read collections.dunning.read partner.supplier.read \
+    agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model), budget \(.agent_profile.monthly_budget.amount) \(.agent_profile.monthly_budget.currency) a month"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "credit-agent", "display_name": "Credit scoring agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "credit_scoring", "model": "erp-default", "description": "Recommends credit limits for a credit manager to decide (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token credit-agent "Credit scoring agent"
+  as ruth
+  say "What the agent will find, as Ruth reads it: Northwind's exposure against its limit, and its aging today."
+  api 200 '"\(.customer_number) \(.customer_name): exposure \(.exposure.amount) \(.exposure.currency), limit \(.limit.amount), available \(.available.amount)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  id=$(field .credit_limit_id) limit=$(field .limit.amount) exposure=$(field .exposure.amount)
+  cp "$WORK/last.json" "$WORK/credit-reads.json"
+  api 200 '.items[] | "  \(.customer_number): \(.amount.amount) \(.amount.currency) in \(.item_count) item(s); \([.buckets[] | "\(.bucket) \(.days_from // "")\(if .days_to then "-\(.days_to)" else "" end) \(.amount.amount)"] | join(", "))"' \
+    getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$TODAY" -p "customer_id=$customer"
+  # The overdue amount named: the first overdue bucket that holds items,
+  # or, with nothing overdue, the first overdue bucket's 0.00; the totals'
+  # when the customer has no open item and so no row.
+  overdue=$(field '[(.items[0] // .totals).buckets[] | select(.bucket == "overdue")] | ((map(select(.item_count > 0)) | .[0]) // .[0]) | .amount.amount')
+  cat "$WORK/last.json" >>"$WORK/credit-reads.json"
+  QUIET=1 api 200 '' listDunningRuns -p "legal_entity_id=$LE"
+  cat "$WORK/last.json" >>"$WORK/credit-reads.json"
+  QUIET=1 api 200 '' listIncomingPayments -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  cat "$WORK/last.json" >>"$WORK/credit-reads.json"
+  QUIET=1 api 200 '' listCustomerInvoices -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "the customer has a history: invoices" "$(field '.items | length > 0')" true
+  cat "$WORK/last.json" >>"$WORK/credit-reads.json"
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  tag=$ETAG
+  kind=keep_limit target=$limit why="The customer owes nothing, so the limit is kept as it is."
+  if [ "$(cents "$exposure")" -gt 0 ]; then
+    target=$exposure why="The limit recommended is the exposure: a credit manager who expects further orders on account keeps more."
+    if [ "$(cents "$exposure")" -lt "$(cents "$limit")" ]; then kind=lower_limit; fi
+    if [ "$(cents "$exposure")" -gt "$(cents "$limit")" ]; then kind=raise_limit; fi
+  fi
+  # A limit the agent would compute: the one it recommends and a tenth,
+  # moved on by a cent while any of the reads returned that very amount.
+  computed=$(amount $(($(cents "$target") * 11 / 10 + 1)))
+  while grep -q "\"$computed\"" "$WORK/credit-reads.json"; do computed=$(amount $(($(cents "$computed") + 1))); done
+  say "The agent runs: erp agent credit-score starts a session on erp-default, reads through its tools and recommends."
+  say "The model is the stand-in, answering from a script of turns as the agent's evaluation suite replays them"
+  say "(evals/credit_scoring): it reads the exposure, the aging, the dunning runs, the payments and the invoices; asks"
+  say "for a limit of $computed CAD, $target CAD with a tenth on top, which no read returned (refused by the run:"
+  say "the agent computes no amount and gives no score); then recommends $kind at $target CAD."
+  credit_agent_script "$customer" "$id" "$kind" "$limit" "$exposure" "$overdue" "$computed" "$target" "$why"
+  show ERP_AGENT_TOKEN=… erp agent credit-score -company "$CC" -customer "$customer"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/credit-agent") "$ERP" agent credit-score -company "$CC" -customer "$customer" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent credit-score failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): $kind on credit_limit $id\$/\1/p")
+  [ -n "$rec" ] || fail "erp agent credit-score printed no $kind on the limit $id"
+  say "Ruth, the credit manager, reads the recommendation on the limit:"
+  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"): \(.content)")' listRecommendations -p "object_id=$id"
+  expect "the recommendations on the limit, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "made in its session" "$(field '.items[0].session_id')" "$session"
+  expect "naming the limit recommended, the limit, the exposure and the overdue amount" \
+    "$(jq -r --arg t "$target" --arg l "$limit" --arg x "$exposure" --arg o "$overdue" '.items[0].content | startswith("Limit \($t) CAD") and contains("limit is \($l) CAD") and contains("exposure \($x) CAD") and contains("\($o) CAD overdue")' "$WORK/last.json")" true
+  as credit-agent
+  say "Recommending is all it may do: changing a limit and deciding a recommendation are a person's (x-agent: false),"
+  say "erp agent builds it no tool for them, and the API refuses its own calls:"
+  refused 403 identity.agent_not_allowed updateCreditLimit -p "id=$id" -if-match "$tag" -body "{\"limit\": {\"amount\": \"$computed\", \"currency\": \"CAD\"}}"
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  refused 403 identity.agent_not_allowed decideRecommendation -p "id=$rec" -if-match "$ETAG" -body '{"outcome": "accepted"}'
+  say "Its session, which the command named, records each tool call, the refused one too:"
+  api 200 '"  session \(.id[0:8])… \(.status) on \(.model): \(.purpose)"' getAgentSession -p "id=$session"
+  expect "the session" "$(field .status)" completed
+  api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" \
+    "getCreditExposure getReceivablesAging listDunningRuns listIncomingPayments listCustomerInvoices createRecommendation createRecommendation"
+  as ruth
+  say "Ruth agreed Northwind's limit with sales (step 59) and keeps it: she overrides the recommendation. Nothing"
+  say "would have changed had she accepted it: a person changes a limit with updateCreditLimit."
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "overridden", "comment": "The limit was agreed with sales; it stays."}'
+  expect "the recommendation's outcome" "$(field .outcome)" overridden
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  expect "the limit as it was" "$(field .limit.amount) $ETAG" "$limit $tag"
+  passed
+}
+
+# credit_agent_script CUSTOMER LIMIT_ID KIND LIMIT EXPOSURE OVERDUE COMPUTED
+# TARGET WHY writes the stand-in's turns of the credit scoring agent's
+# run: its reads, a recommendation at COMPUTED, an amount no read
+# returned (refused by the run), and the recommendation of KIND at
+# TARGET, for the reason WHY.
+credit_agent_script() {
+  jq -n --arg le "$LE" --arg day "$TODAY" --arg customer "$1" --arg id "$2" --arg kind "$3" --arg limit "$4" --arg x "$5" --arg overdue "$6" \
+    --arg computed "$7" --arg target "$8" --arg why "$9" '
+    {session_id: "{{session}}", object_type: "credit_limit", object_id: $id, kind: $kind} as $on |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "getCreditExposure", input: {legal_entity_id: $le, customer_id: $customer}},
+      {tool: "getReceivablesAging", input: {legal_entity_id: $le, key_date: $day, customer_id: $customer}},
+      {tool: "listDunningRuns", input: {legal_entity_id: $le}},
+      {tool: "listIncomingPayments", input: {legal_entity_id: $le, customer_id: $customer}},
+      {tool: "listCustomerInvoices", input: {legal_entity_id: $le, customer_id: $customer}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Limit \($computed) CAD: \($target) CAD with a tenth on top."})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Limit \($target) CAD. Northwind Traders\u0027 limit is \($limit) CAD and its exposure \($x) CAD, with \($overdue) CAD overdue in the aging of today. \($why)"})}},
+      {final: "Recommended \($kind) at \($target) CAD; a credit manager decides, and changes the limit herself."}]}' >"$WORK/model-script.json"
+}
+
+# step_access_agent is T106a (ADR-0072): the access agent, erp agent
+# access-roles through the model stand-in answering from a script of
+# turns (its suite's replay, evals/access), reviews a role against what
+# its holders did by the audit trail. Ada gives Ruth a role of her own,
+# credit_controller: reading and changing credit limits and, left over
+# from the role it was copied from, preparing tax returns. Ruth set and
+# changed a credit limit today (step 59) and never acted in tax. The
+# agent's role holds its sessions and recommendations only, so its first
+# run is refused before a session starts; Ada then grants the role
+# identity data and the audit trail, which nothing grants by default
+# (product owner, 2026-11-12). The agent recommends removing
+# tax.return.prepare, names it, and lists credit.limit.read as "use not
+# recorded": a read leaves no audit event. It cannot end the grant
+# itself. Ada accepts, which changes nothing, and ends the grant herself.
+# The period is yesterday to tomorrow in UTC, the audit trail's days.
+step_access_agent() {
+  heading "Step 73 — The access agent: a role's permissions against what its holders did by the audit trail; identity and audit reads granted by the administrator, not by default; the permission nobody used recommended for removal and named, a read permission listed as not recorded; the administrator decides and ends the grant herself"
+  local role agent_role ruth from to got session rec grant
+  as ada
+  say "Ada gives Ruth a role of her own for credit control, credit_controller: reading and changing credit limits and,"
+  say "left over from the role it was copied from, preparing tax returns."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "credit_controller", "name": "Credit controller"}'
+  role=$(field .id)
+  grant "$role" credit.limit.read credit.limit.write tax.return.prepare
+  ruth=$(awk -F'\t' '$2 == "Ruth Receivables" { print $1 }' "$WORK/names")
+  [ -n "$ruth" ] || fail "Ruth is not among the people of the walkthrough"
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$ruth\", \"role_id\": \"$role\"}"
+  say "She sets up the access agent (ADR-0072): an agent principal of type access at autonomy level 1 on erp-default,"
+  say "whose role records its sessions and recommendations and holds nothing else:"
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "access_agent", "name": "Access agent"}'
+  agent_role=$(field .id)
+  grant "$agent_role" agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model), budget \(.agent_profile.monthly_budget.amount) \(.agent_profile.monthly_budget.currency) a month"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "access-agent", "display_name": "Access agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "access", "model": "erp-default", "description": "Reviews roles against their use for an identity administrator to decide (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$agent_role\"}"
+  token access-agent "Access agent"
+  from=$(date_add "$(utc_day)" -1) to=$(date_add "$(utc_day)" 1)
+  say "Nothing gives an agent identity data or the audit trail by default. Without them the agent's run stops before"
+  say "a session starts, refused its first read:"
+  show ERP_AGENT_TOKEN=… erp agent access-roles -role credit_controller -period "$from..$to"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/access-agent") "$ERP" agent access-roles -role credit_controller -period "$from..$to" 2>&1 || true) # refused: checked below
+  printf '%s\n' "$got" | sed 's/^/     /'
+  expect "the refusal names the missing permission" "$(printf '%s' "$got" | grep -c 'identity.permission_missing' || true)" 1
+  expect "no session was started" "$(printf '%s' "$got" | grep -c '^Session ' || true)" 0
+  say "Ada, the tenant's administrator, grants the agent's role the two reads (product owner, 2026-11-12: an agent"
+  say "reads identity data and the audit trail only where an administrator grants it):"
+  api 201 '"  granted \(.permission_code) to the agent'"'"'s role"' grantRolePermission -p "id=$agent_role" -body '{"permission_code": "identity.access.read"}'
+  api 201 '"  granted \(.permission_code) to the agent'"'"'s role"' grantRolePermission -p "id=$agent_role" -body '{"permission_code": "audit.event.read"}'
+  say "The agent runs: erp agent access-roles reads the role's permissions, its holders and the audit events of"
+  say "$from to $to (UTC) itself, page by page, and starts a session on erp-default. The model is the stand-in,"
+  say "answering from a script of turns as the agent's evaluation suite replays them (evals/access): it reads who"
+  say "holds the role and their names, and recommends removing tax.return.prepare: Ruth acted in credit, never in tax."
+  jq -n --arg role "$role" '
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "listRoleAssignments", input: {role_id: $role}},
+      {tool: "listPrincipals", input: {}},
+      {tool: "createRecommendation", input: {body: {session_id: "{{session}}", object_type: "role", object_id: $role, kind: "remove_permissions",
+        content: "Remove: tax.return.prepare\nUse not recorded: credit.limit.read\nRuth Receivables, the role'"'"'s one holder, set and changed a credit limit in the period (credit.credit_limit.create, credit.credit_limit.change), so credit.limit.write counts as used. No holder has an audit event in tax: nobody holding this role prepared or withdrew a tax return."}}},
+      {final: "Recommended removing tax.return.prepare from credit_controller; an identity administrator decides, and ends the grant herself."}]}' >"$WORK/model-script.json"
+  show ERP_AGENT_TOKEN=… erp agent access-roles -role credit_controller -period "$from..$to"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/access-agent") "$ERP" agent access-roles -role credit_controller -period "$from..$to" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent access-roles failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 0."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): remove_permissions on role $role\$/\1/p")
+  [ -n "$rec" ] || fail "erp agent access-roles printed no remove_permissions on the role $role"
+  as ada
+  say "Ada, who administers identity, reads the recommendation on the role:"
+  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)"))' listRecommendations -p "object_id=$role"
+  expect "the recommendations on the role, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "made in its session" "$(field '.items[0].session_id')" "$session"
+  expect "naming the permission nobody used, first" "$(field '.items[0].content | split("\n")[0]')" "Remove: tax.return.prepare"
+  expect "the read permission listed as not recorded, never as unused" "$(field '.items[0].content | split("\n")[1]')" "Use not recorded: credit.limit.read"
+  QUIET=1 api 200 '' listRolePermissions -p "id=$role" -p "valid_on=$(utc_day)"
+  grant=$(field '.items[] | select(.permission_code == "tax.return.prepare") | .id')
+  as access-agent
+  say "Recommending is all it may do: identity writes are people's (x-agent: false), erp agent builds it no tool for"
+  say "them, and the API refuses its own call:"
+  QUIET=1 api 200 '' getRolePermission -p "id=$role" -p "permission_id=$grant"
+  refused 403 identity.agent_not_allowed endRolePermission -p "id=$role" -p "permission_id=$grant" -if-match "$ETAG" -body "{\"valid_to\": \"$to\"}"
+  api 200 '"  session \(.id[0:8])… \(.status) on \(.model): \(.purpose)"' getAgentSession -p "id=$session"
+  expect "the session" "$(field .status)" completed
+  api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "listRoleAssignments listPrincipals createRecommendation"
+  as ada
+  say "Ada accepts the recommendation. Accepting changes nothing: the role holds the permission as before."
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "Ruth does not prepare tax returns."}'
+  expect "the recommendation's outcome" "$(field .outcome)" accepted
+  QUIET=1 api 200 '' getRolePermission -p "id=$role" -p "permission_id=$grant"
+  expect "the grant after the acceptance, not ended" "$(field '.valid_to // "open"')" open
+  say "She ends the grant herself, through the normal operation, from $to:"
+  api 200 '"  \(.permission_code) on the role: valid from \(.valid_from) to \(.valid_to)"' endRolePermission -p "id=$role" -p "permission_id=$grant" -if-match "$ETAG" -body "{\"valid_to\": \"$to\"}"
+  expect "the grant ended" "$(field '.valid_to != null')" true
+  passed
+}
+# step_returns is T85a (ADR-0067, As built T85a): Northwind sends back 20
+# of the 120 brackets step_billing billed. Sally, the sales
+# administrator, creates a returns order for the posted billing document
+# with the reason; its item shows what was billed and what is returned,
+# and the sales order shows the quantity returned at a new version, its
+# delivered and billed quantities as they were. More than can still be
+# returned is refused naming the item. She confirms it, once. Nothing is
+# posted: Northwind's open items and its credit exposure are as they were
+# (the credit for a return is a credit memo request's). It keeps the
+# returns order (RETURNS_ORDER).
+step_returns() {
+  heading "Step 74 — Returns orders: a returns order for part of a posted billing document's quantity created with its reason, its item showing what was billed and what is returned; more than was billed refused; confirmed once; nothing posted"
+  local customer=$CUSTOMER order=$SALES_ORDER doc=$BILLING_DOCUMENT before version open exposure returns number tag
+  [ -n "$doc" ] && [ -n "$order" ] || fail "the sales order of step 63 and the billing document of step 64 are not there"
+  as sally
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
+  QUIET=1 api 200 '' getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  exposure=$(field '"\(.open_items.amount) \(.open_order_count) \(.open_orders.amount) \(.exposure.amount)"')
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  version=$(field .version)
+  expect "nothing returned of the order yet" "$(field '[.items[].returned_quantity.value] | join(" ")')" "0 0"
+  say "Northwind finds 20 of the 120 brackets of step 63's order out of tolerance and sends them back. Sally creates a"
+  say "returns order for the billing document step 64 posted (ADR-0067, As built T85a): the reason, and the quantity"
+  say "returned of the billing document's item. It is dated Maple's today and carries no amounts:"
+  before=$(company_day)
+  api 201 '"returns order \(.document_number) of \(.customer_number) \(.customer_name), \(.company_code) \(.company_name): \(.status), dated \(.returns_date), for billing document \(.billing_document_number) of sales order \(.sales_order_number), reason \(.reason): \(.reason_text)", (.items[] | "  item \(.item_no) (billing item \(.billing_item_no), order item \(.order_item_no)) \(.item_key // "-") \(.description): billed \(.billed_quantity.value) \(.billed_quantity.unit), returned \(.quantity.value) \(.quantity.unit)")' \
+    createReturnsOrder -body "{\"billing_document_id\": \"$doc\", \"reason\": \"defective\", \"reason_text\": \"Threads out of tolerance\", \"items\": [{\"billing_item_no\": 1, \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}}]}"
+  returns=$(field .id)
+  number=$(field .document_number)
+  tag=$ETAG
+  expect "the returns order's status and version" "$(field '"\(.status) \(.version)"')" "draft 1"
+  expect_today "the returns date, Maple's today" "$(field .returns_date)" "$before"
+  expect "the returns order's billing document, sales order, customer and reason" \
+    "$(field '"\(.billing_document_id) \(.sales_order_id) \(.customer_id) \(.customer_name) \(.reason)"')" "$doc $order $customer Northwind Traders defective"
+  expect "the item: what was billed and what is returned" \
+    "$(field '[.items[] | "\(.billing_item_no) \(.order_item_no) \(.item_key): \(.billed_quantity.value) \(.billed_quantity.unit) billed, \(.quantity.value) \(.quantity.unit) returned"] | join(", ")')" \
+    "1 1 BRACKET-M8: 120 EA billed, 20 EA returned"
+  say "The sales order shows 20 returned of its first item; its delivered and billed quantities are as they were, and"
+  say "its version moved:"
+  api 200 '"sales order \(.document_number): \(.status), version \(.version)", (.items[] | "  item \(.item_no) \(.description): ordered \(.quantity.value) \(.quantity.unit), delivered \(.delivered_quantity.value), billed \(.billed_quantity.value), returned \(.returned_quantity.value)")' \
+    getSalesOrder -p "id=$order"
+  expect "each item's ordered, delivered, billed and returned quantity" \
+    "$(field '[.items[] | "\(.quantity.value) \(.delivered_quantity.value) \(.billed_quantity.value) \(.returned_quantity.value)"] | join(", ")')" \
+    "120 120 120 20, 2.5 2.5 2.5 0"
+  expect "the order's version" "$(field .version)" "$((version + 1))"
+  say "100 brackets of the billing document can still be returned. A second returns order for 101 is refused naming"
+  say "the item, though this one is still a draft: a returns order takes its quantity when it is created."
+  refused 422 sales.exceeds_returnable_quantity createReturnsOrder \
+    -body "{\"billing_document_id\": \"$doc\", \"reason\": \"not_wanted\", \"items\": [{\"billing_item_no\": 1, \"quantity\": {\"value\": \"101\", \"unit\": \"EA\"}}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].quantity.value"
+  say "A reason the contract does not know is refused too:"
+  refused 422 sales.unknown_return_reason createReturnsOrder \
+    -body "{\"billing_document_id\": \"$doc\", \"reason\": \"bored\", \"items\": [{\"billing_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  expect "the field refused" "$(field '.errors[0].field')" reason
+  say "Sally confirms the returns order at the version she read. It is confirmed once:"
+  api 200 '"returns order \(.document_number): \(.status), version \(.version)"' confirmReturnsOrder -p "id=$returns" -if-match "$tag"
+  expect "the confirmed returns order" "$(field '"\(.document_number) \(.status) \(.version)"')" "$number confirmed 2"
+  refused 412 request.version_mismatch confirmReturnsOrder -p "id=$returns" -if-match "$tag"
+  QUIET=1 api 200 '' getReturnsOrder -p "id=$returns"
+  refused 409 sales.invalid_status confirmReturnsOrder -p "id=$returns" -if-match "$ETAG"
+  say "It is the billing document's one returns order:"
+  api 200 '.items[] | "  \(.document_number) \(.customer_name): \(.status), billing document \(.billing_document_number), reason \(.reason)"' \
+    listReturnsOrders -p "billing_document_id=$doc"
+  expect "the billing document's returns orders" "$(field '[.items[] | "\(.document_number) \(.status)"] | join(" ")')" "$number confirmed"
+  say "A returns order posts nothing and moves no stock. Northwind's open items and its credit exposure are as they"
+  say "were: what is credited for the return is a credit memo request's, which comes next."
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  QUIET=1 api 200 '' getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "the customer's open items, open orders and exposure" \
+    "$(field '"\(.open_items.amount) \(.open_order_count) \(.open_orders.amount) \(.exposure.amount)"')" "$exposure"
+  QUIET=1 api 200 '' listAuditEvents -p object_type=sales.returns_order -p "object_id=$returns"
+  expect "the returns order's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "sales.returns_order.confirm sales.returns_order.create"
+  RETURNS_ORDER=$returns
+  passed
+}
+
+# step_return_receipt is T85b (ADR-0067, As built T85b): the 20 brackets
+# of step_returns' returns order arrive in two parcels. Sally confirms 15
+# as received today: the returns order shows 15 received and 5 still
+# expected at a new version. More than is still expected and a date
+# after today are refused naming their fields. A second receipt brings
+# the last 5 and the returns order reads as fully received; a further
+# receipt is refused. It is a confirmation in the sales context, as a
+# delivery's is: the sales order's delivered, billed and returned
+# quantities and its version stay, nothing is posted and no stock moves.
+step_return_receipt() {
+  heading "Step 75 — Return receipts: returned quantities confirmed as received on a date against the confirmed returns order, up to what is still expected; the returns order showing what is received and what is still expected, then fully received; the sales order unchanged; nothing posted"
+  local customer=$CUSTOMER order=$SALES_ORDER returns=$RETURNS_ORDER day number sold open
+  [ -n "$returns" ] || fail "step 74's returns order is not there"
+  as sally
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  sold=$(field '"\(.version) " + ([.items[] | "\(.delivered_quantity.value) \(.billed_quantity.value) \(.returned_quantity.value)"] | join(", "))')
+  QUIET=1 api 200 '' getReturnsOrder -p "id=$returns"
+  number=$(field .document_number)
+  expect "the returns order before a receipt: returned, received and still expected" \
+    "$(field '"\(.status) \(.version) " + ([.items[] | "\(.quantity.value) \(.received_quantity.value) \(.open_quantity.value)"] | join(", "))')" "confirmed 2 20 0 20"
+  day=$(company_day)
+  say "A first parcel with 15 of the 20 brackets arrives. Sally confirms them as received today (ADR-0067, As built"
+  say "T85b). Like a delivery confirmation, it is a confirmation in the sales context: no stock moves, nothing is posted."
+  api 201 '"receipt \(.receipt_no) of returns order \(.returns_order_number) on \(.receipt_date): " + ([.items[] | "item \(.item_no) \(.item_key // "-") \(.description) \(.quantity.value) \(.quantity.unit)"] | join(", "))' \
+    confirmReturnReceipt -p "id=$returns" -body "{\"receipt_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"15\", \"unit\": \"EA\"}}]}"
+  expect "the first receipt" "$(field '"\(.receipt_no) \(.returns_order_id) \(.returns_order_number) \(.receipt_date)"')" "1 $returns $number $day"
+  expect "the receipt's item" "$(field '[.items[] | "\(.item_no) \(.billing_item_no) \(.item_key) \(.quantity.value) \(.quantity.unit)"] | join(", ")')" "1 1 BRACKET-M8 15 EA"
+  say "The returns order shows 15 received and 5 still expected; its version moved:"
+  api 200 '"returns order \(.document_number): \(.status), version \(.version)", (.items[] | "  item \(.item_no) \(.description): returned \(.quantity.value) \(.quantity.unit), received \(.received_quantity.value), still expected \(.open_quantity.value)")' \
+    getReturnsOrder -p "id=$returns"
+  expect "returned, received and still expected after the first receipt" \
+    "$(field '"\(.status) \(.version) " + ([.items[] | "\(.quantity.value) \(.received_quantity.value) \(.open_quantity.value)"] | join(", "))')" "confirmed 3 20 15 5"
+  say "Six more is more than the 5 still expected, and a receipt is not dated after today; both are refused naming"
+  say "their fields:"
+  refused 422 sales.exceeds_open_quantity confirmReturnReceipt -p "id=$returns" \
+    -body "{\"receipt_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"6\", \"unit\": \"EA\"}}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].quantity.value"
+  refused 422 sales.receipt_date_in_future confirmReturnReceipt -p "id=$returns" \
+    -body "{\"receipt_date\": \"2099-12-31\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"5\", \"unit\": \"EA\"}}]}"
+  expect "the field refused" "$(field '.errors[0].field')" receipt_date
+  say "The second parcel brings the last 5. The returns order reads as fully received:"
+  api 201 '"receipt \(.receipt_no) of returns order \(.returns_order_number) on \(.receipt_date): " + ([.items[] | "item \(.item_no) \(.quantity.value) \(.quantity.unit)"] | join(", "))' \
+    confirmReturnReceipt -p "id=$returns" -body "{\"receipt_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"5\", \"unit\": \"EA\"}}]}"
+  expect "the second receipt's number" "$(field .receipt_no)" 2
+  api 200 '"returns order \(.document_number): \(.status), version \(.version)", (.items[] | "  item \(.item_no) \(.description): returned \(.quantity.value) \(.quantity.unit), received \(.received_quantity.value), still expected \(.open_quantity.value)")' \
+    getReturnsOrder -p "id=$returns"
+  expect "returned, received and still expected after the second receipt" \
+    "$(field '"\(.status) \(.version) " + ([.items[] | "\(.quantity.value) \(.received_quantity.value) \(.open_quantity.value)"] | join(", "))')" "confirmed 4 20 20 0"
+  say "Nothing is still expected, so a further receipt is refused:"
+  refused 422 sales.exceeds_open_quantity confirmReturnReceipt -p "id=$returns" \
+    -body "{\"receipt_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  api 200 '.items[] | "  receipt \(.receipt_no) on \(.receipt_date): " + ([.items[] | "item \(.item_no) \(.quantity.value) \(.quantity.unit)"] | join(", "))' \
+    listReturnReceipts -p "id=$returns"
+  expect "the returns order's receipts" "$(field '[.items[] | "\(.receipt_no): \(.items[0].quantity.value)"] | join(", ")')" "1: 15, 2: 5"
+  say "The sales order's delivered, billed and returned quantities and its version are as they were, and so are"
+  say "Northwind's open items: a receipt posts nothing."
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  expect "the sales order's version and its items' delivered, billed and returned quantities" \
+    "$(field '"\(.version) " + ([.items[] | "\(.delivered_quantity.value) \(.billed_quantity.value) \(.returned_quantity.value)"] | join(", "))')" "$sold"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -9667,7 +10329,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_sales_analytics step_spend step_credit_agent step_access_agent step_returns step_return_receipt step_controls step_control_matrix step_close'
 
 main() {
   stop_unseen

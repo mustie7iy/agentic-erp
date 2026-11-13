@@ -39,7 +39,7 @@ type ReceivableItem struct {
 	AmountLC      money.Minor
 	// Terms are the payment terms the item was posted with (T75b), or nil
 	// for an item posted without (a manual or migrated entry): such an
-	// item has no due date the ledger keeps (aging.go).
+	// item is due on its document date (NetDueDate).
 	Terms *ItemTerms
 	// SpecialGL is the item's special G/L indicator, or nil for an
 	// ordinary item.
@@ -54,27 +54,31 @@ type ReceivableItem struct {
 	SourceDocumentID *uuid.UUID
 }
 
-// NetDueDate is when the item is due by the terms it was posted with; ok
-// is false for an item without terms, which has no due date.
-func (r ReceivableItem) NetDueDate() (due time.Time, ok bool) {
+// NetDueDate is when the customer item is due: by the payment terms it
+// was posted with, or, posted without any (a manual or migrated entry), on
+// its document date (product owner 2026-11-12; ADR-0063 §10, ADR-0065
+// §4). This is the one place that rule is kept: the AR aging, a dunning
+// run, the collection worklist and whatever else reads a customer item's
+// due date ask here and never look at Terms for it, so they agree. The
+// rule is the customer items' alone: a supplier item without terms is due
+// by its supplier's current terms (PayableItem.DueDate), and the open
+// items' list ages items as posted (aging.go).
+func (r ReceivableItem) NetDueDate() time.Time {
 	if r.Terms == nil {
-		return time.Time{}, false
+		return r.DocumentDate
 	}
-	return r.Terms.NetDueDate(), true
+	return r.Terms.NetDueDate()
 }
 
-// DaysOverdue is how many days past its net due date the item is on the
-// date, 0 when it is not yet due (due on the date counts as not due, as
-// the open items' aging counts it); ok is false for an item without terms.
-// Only on's calendar date counts, whatever its time and zone: a company's
-// date (config.CompanyDay) or a key date a request names.
-func (r ReceivableItem) DaysOverdue(on time.Time) (days int, ok bool) {
-	due, ok := r.NetDueDate()
-	if !ok {
-		return 0, false
-	}
+// DaysOverdue is how many days past its net due date (NetDueDate) the
+// item is on the date, 0 when it is not yet due: due on the date counts
+// as not due, so an item without terms is overdue from the day after its
+// document date. Only on's calendar date counts, whatever its time and
+// zone: a company's date (config.CompanyDay) or a key date a request
+// names.
+func (r ReceivableItem) DaysOverdue(on time.Time) int {
 	day := time.Date(on.Year(), on.Month(), on.Day(), 0, 0, 0, 0, time.UTC) // due dates are dates, read at midnight UTC
-	return max(int(day.Sub(due).Hours()/24), 0), true
+	return max(int(day.Sub(r.NetDueDate()).Hours()/24), 0)
 }
 
 // Receivable returns the legal entity's open customer items, of the

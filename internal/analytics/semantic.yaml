@@ -14,7 +14,9 @@ calendar:
 # What everyday words mean when a question doesn't name a metric exactly.
 defaults:
   sales: revenue
-  spend: purchase_order_value
+  orders: order_intake
+  billing: billed_value
+  spend: spend
   profit: operating_profit
   forecast: forecast_lag_7
   variance: variance_lag_7
@@ -33,6 +35,11 @@ dimensions:
   - {name: vendor, label: Vendor}
   - {name: vendor_name, label: Vendor name}
   - {name: invoice_status, label: Invoice status, description: "parked, on_hold, posted, rejected"}
+  - {name: cost_center, label: Cost center, description: "The cost center's code; empty for an item assigned to none"}
+  - {name: contract, label: Contract, description: "The document number of the contract the item's purchase order was made on; empty for spend off contract"}
+  - {name: customer, label: Customer, description: "The customer's business partner number"}
+  - {name: customer_name, label: Customer name}
+  - {name: item_key, label: Item key, description: "The free-text key naming what is sold; empty for an item without one"}
   - {name: currency, label: Currency, description: "The currency of the amounts: a company's house banks may keep other currencies than its own"}
   - {name: value_date, label: Value date, description: "The day a bank statement line's money moved on the account"}
   - {name: house_bank, label: House bank, description: "The company's house bank by its code, never its account"}
@@ -96,7 +103,7 @@ metrics:
   - name: purchase_order_value
     label: Purchase order value
     description: Net value of purchase order lines by order date.
-    synonyms: [spend, purchasing, procurement spend, PO value]
+    synonyms: [purchasing, ordered, PO value]
     type: money
     source: po_lines
     aggregate: sum
@@ -128,6 +135,72 @@ metrics:
     source: ap_invoices
     aggregate: count_distinct
     dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, vendor, vendor_name, invoice_status]
+
+  - name: spend
+    label: Spend
+    description: Net amount of the items of posted supplier invoices by posting date, less those of posted credit memos, in each document's currency; a subsequent debit adds to it and a subsequent credit reduces it. A document parked, on hold, rejected, cancelled or reversed is not counted.
+    synonyms: [procurement spend, purchasing spend, supplier spend, spending]
+    type: money
+    source: spend_lines
+    aggregate: sum
+    sign: 1
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, posting_date, vendor, vendor_name, account, account_name, cost_center, contract]
+
+  - name: spend_under_contract
+    label: Spend under contract
+    description: The part of spend whose items are on a purchase order made on a contract.
+    synonyms: [contract spend, on-contract spend]
+    type: money
+    source: spend_lines
+    aggregate: sum
+    sign: 1
+    filter: {on_contract: ["true"]}
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, posting_date, vendor, vendor_name, account, account_name, cost_center, contract]
+
+  - name: spend_off_contract
+    label: Spend off contract
+    description: Spend less spend under contract - the part whose items are on no purchase order, or on one made on no contract.
+    synonyms: [off-contract spend, maverick spend]
+    type: money
+    derived: {op: subtract, left: spend, right: spend_under_contract}
+
+  - name: off_contract_share
+    label: Off-contract share
+    description: Spend off contract as a share of spend. None where there is no spend.
+    synonyms: [off-contract rate, share of spend off contract]
+    type: ratio
+    derived: {op: divide, left: spend_off_contract, right: spend}
+
+  - name: order_intake
+    label: Order intake
+    description: Net value of the items of confirmed sales orders by order date, in each order's currency. A draft order is not counted; an order counts whether or not it is delivered or billed.
+    synonyms: [orders, incoming orders, sales orders, order value]
+    type: money
+    source: sales_lines
+    aggregate: sum
+    sign: 1
+    filter: {sales_document: [order]}
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, customer, customer_name, item_key]
+
+  - name: billed_value
+    label: Billed value
+    description: Net amount of the items of posted billing documents by billing date, in each document's currency. A billing document created and not yet posted as a customer invoice is not counted.
+    synonyms: [billing, billed, invoiced sales, billings]
+    type: money
+    source: sales_lines
+    aggregate: sum
+    sign: 1
+    filter: {sales_document: [billing]}
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, customer, customer_name, item_key]
+
+  - name: billing_document_count
+    label: Billing documents
+    description: Number of posted billing documents by billing date.
+    type: count
+    source: sales_lines
+    aggregate: count_distinct
+    filter: {sales_document: [billing]}
+    dimensions: [company, currency, fiscal_year, fiscal_quarter, fiscal_month, customer, customer_name, item_key]
 
   - name: open_payables
     label: Open payables

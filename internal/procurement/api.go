@@ -20,8 +20,9 @@ import (
 )
 
 // requisitionInputs are a requisition's items as sent: an item that
-// names a catalog item sends no description or price (T84b, ADR-0071 §6),
-// which are then empty here and filled from the catalog.
+// names a catalog item sends no description or price, or the catalog
+// item's own (T84b, T84d, ADR-0071 §6); empty or not here, they are
+// filled from the catalog.
 func requisitionInputs(items []gen.RequisitionItemInput) []ItemInput {
 	out := make([]ItemInput, len(items))
 	for i, it := range items {

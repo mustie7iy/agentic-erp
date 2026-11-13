@@ -177,6 +177,14 @@ type ConfirmDunningRunRes interface {
 	confirmDunningRunRes()
 }
 
+type ConfirmReturnReceiptRes interface {
+	confirmReturnReceiptRes()
+}
+
+type ConfirmReturnsOrderRes interface {
+	confirmReturnsOrderRes()
+}
+
 type ConfirmSalesDeliveryRes interface {
 	confirmSalesDeliveryRes()
 }
@@ -243,6 +251,18 @@ type CreateConsolidationRunRes interface {
 
 type CreateContractRes interface {
 	createContractRes()
+}
+
+type CreateControlLinkRes interface {
+	createControlLinkRes()
+}
+
+type CreateControlRes interface {
+	createControlRes()
+}
+
+type CreateControlTestRes interface {
+	createControlTestRes()
 }
 
 type CreateCostCenterRes interface {
@@ -351,6 +371,10 @@ type CreateRegressionSuiteRes interface {
 
 type CreateRequisitionRes interface {
 	createRequisitionRes()
+}
+
+type CreateReturnsOrderRes interface {
+	createReturnsOrderRes()
 }
 
 type CreateRevenueContractRes interface {
@@ -649,6 +673,14 @@ type GetContractRes interface {
 	getContractRes()
 }
 
+type GetControlMatrixRes interface {
+	getControlMatrixRes()
+}
+
+type GetControlRes interface {
+	getControlRes()
+}
+
 type GetCostCenterRes interface {
 	getCostCenterRes()
 }
@@ -843,6 +875,10 @@ type GetRegressionSuiteRes interface {
 
 type GetRequisitionRes interface {
 	getRequisitionRes()
+}
+
+type GetReturnsOrderRes interface {
+	getReturnsOrderRes()
 }
 
 type GetRevaluationRunRes interface {
@@ -1109,6 +1145,14 @@ type ListContractsRes interface {
 	listContractsRes()
 }
 
+type ListControlTestsRes interface {
+	listControlTestsRes()
+}
+
+type ListControlsRes interface {
+	listControlsRes()
+}
+
 type ListCostCenterBalancesRes interface {
 	listCostCenterBalancesRes()
 }
@@ -1359,6 +1403,14 @@ type ListRegressionSuitesRes interface {
 
 type ListRequisitionsRes interface {
 	listRequisitionsRes()
+}
+
+type ListReturnReceiptsRes interface {
+	listReturnReceiptsRes()
+}
+
+type ListReturnsOrdersRes interface {
+	listReturnsOrdersRes()
 }
 
 type ListRevaluationRunsRes interface {
@@ -1665,6 +1717,10 @@ type ReleaseSupplierInvoiceRes interface {
 	releaseSupplierInvoiceRes()
 }
 
+type RemoveControlLinkRes interface {
+	removeControlLinkRes()
+}
+
 type RemoveHierarchyNodeRes interface {
 	removeHierarchyNodeRes()
 }
@@ -1707,6 +1763,10 @@ type ResumeWebhookSubscriptionRes interface {
 
 type RetireCatalogItemRes interface {
 	retireCatalogItemRes()
+}
+
+type RetireControlRes interface {
+	retireControlRes()
 }
 
 type RetireEntryTemplateRes interface {
@@ -1851,6 +1911,10 @@ type UpdateConnectorRes interface {
 
 type UpdateContractRes interface {
 	updateContractRes()
+}
+
+type UpdateControlRes interface {
+	updateControlRes()
 }
 
 type UpdateCostCenterRes interface {

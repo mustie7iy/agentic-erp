@@ -7,7 +7,8 @@ manifests named by cutoff and digest, `checked_at`, the scheduler; T55d:
 the store, the ledger filter, the reader's limits; T55f: lifecycle,
 compaction, erasure, rebuild, the sweep, the replica wait, freshness
 metrics, the query endpoint; 2026-11-01: the image's runtime base on
-Debian 13)
+Debian 13; 2026-11-12, T91a: the sales lines and the sales metrics;
+T91b: the spend lines and the spend metrics)
 
 ## Context
 The semantic layer (`internal/analytics`, `semantic.yaml`) answers every
@@ -904,6 +905,192 @@ the lag 7 ones, as `forecast` does. Decisions:
   (every query of the twelve metrics, permissions `accuracy`, isolation
   and tamper of `cash_accuracy`, figures in "not vacuous"); the
   walkthrough's step 38.
+
+**Sales metrics (T91a, `plan-breadth-week3.md`; decided by default).**
+Dataset `sales_lines` v1 (`analytics/datasets/v1/sales_lines.yaml`), a
+fact of load `snapshot` dated `document_date`: one row per item of a
+confirmed sales order, dated the order's date, and per item of a posted
+billing document, dated its billing date, with `document_id` (the order's
+or the billing document's id), `item_no`, `sales_document` (`order` or
+`billing`), `company`, `customer` (the business partner's number),
+`customer_name`, `item_key` (null for an item without one) and the item's
+net amount as `amount_minor`, `currency`, `exponent`; one file per month.
+Metrics `order_intake` and `billed_value` (sums, filtered on
+`sales_document`) and `billing_document_count` (the distinct posted
+billing documents), with the dimensions company, currency, the fiscal
+periods, `customer`, `customer_name` and `item_key`; the everyday words
+`orders` and `billing` mean `order_intake` and `billed_value` (`sales`
+stays `revenue`, the general ledger's). No migration and no file in
+`internal/sales`. Decisions:
+- *Read through the API and the tables, as orders and invoices are.* The
+  database path lists `/v1/sales-orders?status=confirmed` and
+  `/v1/billing-documents?status=posted` for each legal entity the caller
+  reads, so the API selects the status and a draft order or a billing
+  document not posted is never read; the run reads `sales.sales_order`,
+  `sales_order_item`, `billing_document` and `billing_document_item` with
+  the same two conditions. TestParity holds both to the same answer.
+- *Billing documents are counted once posted.* On the base T91a was built
+  on a billing document has the status `created` alone (posting it
+  through receivables is T79b, which adds `posted`), so `billed_value`
+  and `billing_document_count` are empty there until T79b is merged; both
+  paths already select `posted`, and the tests write a posted document
+  into the database (`fixture.BillingDocument`, which stands in for
+  T79b's migration on a base without it).
+- *By billing date, not posting date,* as the plan states it: the
+  document's own date, which a created document already has.
+- *Amounts are the documents' own, never converted; open for the
+  product owner.* The plan's acceptance says "in the company's
+  currency", which holds on the main path: an order is in the currency
+  it was made in, the company's when it sells in its own currency. An
+  order in another currency would need a rate (which type, on which
+  date), a money rule nothing settles, so it is put to the product owner
+  (T91a review round 1) and until then such an order is kept apart, not
+  converted and never added to the others. No rate is applied here, as nowhere in the semantic layer:
+  the general ledger's `revenue` is the figure in company currency. A sum
+  over two currencies is refused by the currency guard, so `currency` is
+  a dimension of the three metrics, as it is of `actual`: a company that
+  sells in a second currency can still read each.
+- *Customer names in the row.* `customer_name` is a column of the fact,
+  not a join to `partners`: the reader joins a dimension dataset on
+  columns of one name, and `partners` keys by `vendor`. The dataset is a
+  snapshot, so a renamed customer rewrites the months that name it at the
+  next run (`TestSalesLines`), and both paths show today's name, as the
+  API's sales order does.
+- *Permissions: both sales reads and the partners'.* `FactDatasets` names
+  `sales_lines` twice, for `sales.order.read` and `sales.billing.read`, in
+  the order the database path reads the lists: the dataset is one table
+  built from both, so a caller lacking either gets no row of it, also for
+  `order_intake` alone (403 `identity.permission_missing`, whichever path
+  answers). It names customers, and the rule above holds (customers are
+  named only under `partner.supplier.read`, there being no customer read
+  permission): the database path reads their numbers and names from
+  `/v1/business-partners`, and the store requires the same
+  (`Source.namesPartners`). That is stricter than `listSalesOrders`,
+  which shows a customer's name to `sales.order.read` alone; loosening it
+  is the product owner's (security posture).
+- *In the seed.* The metrics, the dimensions and the two words are in
+  `semantic.yaml`, which every tenant without an `analytics` section
+  reads. A tenant that has the section keeps its own model, and gets them
+  by a change request that adds them, simulated and approved as any
+  metric change is (T55g); the simulation breaks them down by company,
+  currency and fiscal year, since they list `currency`.
+- *Marked due.* The relay's batches of `sales` (an order confirmed, a
+  billing document created or posted) mark a tenant due, beside
+  `partner`'s for a rename.
+- *Held by month.* The run streams the rows in month order, one month in
+  memory, as the orders and invoices; the database path reads every
+  confirmed order and posted document of the caller's companies on each
+  query, which is the pilot's scale (Context, above).
+- *Budget.* `TestSalesMetricsBudget`: the three metrics by month, and by
+  customer and item key for one month, over 100,000 order items and
+  100,000 billing items of 2,000 customers of one company, answered from
+  the store: p95 3 s (01 §1.3). 01 names no sales volume; this is the
+  volume its other reports of one company are measured at.
+- *No event.* Nothing is published: a query changes nothing.
+- *Evidence.* `analytics.TestSourceReadsSalesLines`, `TestSourceErrors`,
+  `TestSourcePermissions`; `extract.TestSalesLines` (drafts and documents
+  not posted left out, two currencies, a file per month, a rename),
+  `TestColumnsAreTheContract`, `TestMarksTheCashChanged`,
+  `TestDatabaseFailures`; `store.TestParity` (every query of the three
+  metrics, permissions `sales`, isolation and tamper of `sales_lines`,
+  figures in "not vacuous"), `TestSalesMetricsBudget`; the walkthrough's
+  step 70 (`step_sales_analytics`).
+
+**Spend cube (T91b, `plan-breadth-week3.md`; decided by default).**
+Dataset `spend_lines` v1 (`analytics/datasets/v1/spend_lines.yaml`), a
+fact of load `snapshot` dated `posting_date`: one row per item of a posted
+supplier invoice, credit memo or subsequent debit or credit, with
+`invoice_id`, `item_no`, `company`, `vendor` (joined to `partners` for
+`vendor_name`), `account` (joined to `accounts` for `account_name`),
+`cost_center` (its code), `purchase_order` (the order's document
+number, a key no plan names), `contract` (the document
+number of the contract the item's order was made on), `on_contract` and
+the item's net amount as `amount_minor`, `currency`, `exponent`, negative
+on a credit memo and a subsequent credit; one file per month of posting
+dates. Metrics `spend` (sum), `spend_under_contract` (the sum filtered
+on `on_contract`), `spend_off_contract` (`spend` less
+`spend_under_contract`) and `off_contract_share` (a ratio,
+`spend_off_contract` over `spend`), with
+the dimensions company, currency, the fiscal periods, `posting_date`,
+`vendor`, `vendor_name`, `account`, `account_name` and the new
+`cost_center` and `contract`; the everyday word `spend` now means `spend`
+(it meant `purchase_order_value`, which stays a metric and loses the
+synonym). No migration. Decisions:
+- *Posted documents only.* A document parked, on hold, rejected or
+  cancelled is not spend yet, and a reversed one no longer: the database
+  path lists `/v1/supplier-invoices?status=posted` and the run selects
+  the same status, so a reversal takes the document's rows out at the
+  next run (`TestSpendLines`). Migrated open items
+  (`payables.migrated_invoice_item`) are not supplier invoices the API
+  lists and are not spend here.
+- *Signed by kind.* The plan's "posted invoices less posted credit
+  memos": an invoice's and a subsequent debit's items add, a credit
+  memo's and a subsequent credit's reduce, as the documents post
+  (000059: amounts are never negative, the kind gives the direction).
+- *The item's net amount, by posting date, never converted,* in the
+  document's currency; `currency` is a dimension, as for the sales
+  metrics, and a sum over two currencies is refused. Tax is not spend.
+- *Account and cost center of an item on an order are the order item's.*
+  An invoice item names its own account and cost center only when it is
+  not on an order (ADR-0050 §6); for one on an order both are read from
+  the purchase order's item, where the item still exists (a removed
+  order item is not one the API returns: the row then names neither,
+  and keeps the order's contract). An item removed from the document
+  while it was parked is not an item of it, on either path.
+- *Under contract by the order's contract.* An item is under contract
+  when its purchase order names a contract (`purchase_order.contract_id`,
+  set when the order was made on it), whatever the item's own
+  `contract_item_no`; an item on no order, or on an order made on no
+  contract, is off contract. `on_contract` is a column, so the part
+  under contract is a metric with a filter. The part off contract is
+  derived, spend less the part under contract, not a second filtered
+  sum: a subtraction counts a group with nothing under contract as zero,
+  so a supplier wholly under contract reads 0.00 off contract and a
+  share of 0, and one wholly off contract a share of 1; two filtered
+  sums would give the share no value in both cases. Where there is no
+  spend, or it nets to zero, the share has no value.
+- *The contract by its document number, the cost center by its code,* as
+  `account` is the account's number: names a person filters by. The
+  dimension is empty for spend off contract and for an item of no cost
+  center.
+- *Permissions: the reads the database path makes.* It lists the posted
+  invoices (`payables.invoice.read`), the purchase orders of the company
+  for the items on orders and their contracts (`procurement.order.read`),
+  the contracts for their numbers (`procurement.contract.read`) and the
+  cost centers for their codes (`ledger.cost_center.read`), after the
+  partners and the accounts (`partner.supplier.read`,
+  `ledger.account.read`): `FactDatasets` names `spend_lines` once for
+  each of the four in that order, and the store requires the same. The
+  rows are bounded by the caller's company access and
+  `payables.invoice.read`; the other reads name what a row shows, and a
+  caller lacking one is refused the dataset (403), as for every dataset,
+  rather than shown rows with blanks.
+- *A source that builds every table reads these too.* The evaluation
+  harness reads the facts itself as the agent (`analytics.Source` with
+  no dataset list), so the analytics suite's agent role is given the
+  four reads the two new tables add (`evals/analytics/suite.yaml`:
+  `procurement.contract.read`, `ledger.cost_center.read`,
+  `sales.order.read`, `sales.billing.read`); a role without them is
+  refused the facts, as it would be refused the journal's.
+- *Read whole on the database path, at pilot scale:* every posted invoice
+  and every order of the caller's companies on each query, as `po_lines`
+  and `ap_invoices`; the store answers a tenant beyond that.
+- *Marked due* by the relay's batches of `payables`, `procurement`,
+  `ledger` and `partner`, which were marked already.
+- *Budget.* `TestSpendCubeBudget`: the four metrics by month, by
+  supplier, and by account, cost center and contract, over 100,000 items
+  of 50,000 posted invoices of 500 suppliers of one company, answered
+  from the store: p95 3 s (01 §1.3).
+- *No event.* Nothing is published: a query changes nothing.
+- *Evidence.* `analytics.TestSourceReadsSpendLines`,
+  `TestSourceSpendErrors`, `TestSourcePermissions`;
+  `extract.TestSpendLines` (credits negative, an order's account, cost
+  center and contract, parked and reversed documents left out, a reversal
+  taking the rows out), `TestColumnsAreTheContract`,
+  `TestDatabaseFailures`; `endpoint.TestSpendMetrics`; `store.TestParity`
+  (every query of the four metrics, permissions `spend`, isolation and
+  tamper of `spend_lines`, figures in "not vacuous"),
+  `TestSpendCubeBudget`; the walkthrough's step 71 (`step_spend`).
 
 **Steps.** T55a this ADR and the dataset contract; T55b the snapshot
 migration, extractor and Parquet writer for journal lines; T55c the other

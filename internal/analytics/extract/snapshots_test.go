@@ -2,10 +2,14 @@ package extract_test
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/parquet-go/parquet-go"
@@ -50,7 +54,197 @@ type (
 		Supplier bool   `parquet:"supplier"`
 		Customer bool   `parquet:"customer"`
 	}
+	salesRow struct {
+		DocumentID    uuid.UUID `parquet:"document_id,uuid"`
+		ItemNo        int32     `parquet:"item_no"`
+		SalesDocument string    `parquet:"sales_document"`
+		Company       string    `parquet:"company"`
+		DocumentDate  int32     `parquet:"document_date,date"`
+		Customer      string    `parquet:"customer"`
+		CustomerName  string    `parquet:"customer_name"`
+		ItemKey       *string   `parquet:"item_key,optional"`
+		AmountMinor   int64     `parquet:"amount_minor"`
+		Currency      string    `parquet:"currency"`
+		Exponent      int32     `parquet:"exponent"`
+	}
 )
+
+// spendRow is what a reader sees of a spend_lines file.
+type spendRow struct {
+	InvoiceID     uuid.UUID `parquet:"invoice_id,uuid"`
+	ItemNo        int32     `parquet:"item_no"`
+	Company       string    `parquet:"company"`
+	PostingDate   int32     `parquet:"posting_date,date"`
+	Vendor        string    `parquet:"vendor"`
+	Account       *string   `parquet:"account,optional"`
+	CostCenter    *string   `parquet:"cost_center,optional"`
+	PurchaseOrder *string   `parquet:"purchase_order,optional"`
+	Contract      *string   `parquet:"contract,optional"`
+	OnContract    bool      `parquet:"on_contract"`
+	AmountMinor   int64     `parquet:"amount_minor"`
+	Currency      string    `parquet:"currency"`
+	Exponent      int32     `parquet:"exponent"`
+}
+
+// String is the row as the tests compare it: its invoice by name, its
+// order by the name of its number, "-" for what it does not name.
+func (r spendRow) String(names map[uuid.UUID]string, orders map[string]string) string {
+	opt := func(v *string) string {
+		if v == nil {
+			return "-"
+		}
+		return *v
+	}
+	return fmt.Sprintf("%s/%d %s %s %s %s cc=%s order=%s contract=%s %v %d %s e%d", names[r.InvoiceID], r.ItemNo, r.Company,
+		time.Unix(int64(r.PostingDate)*86400, 0).UTC().Format(time.DateOnly), r.Vendor, opt(r.Account), opt(r.CostCenter), cmp.Or(orders[opt(r.PurchaseOrder)], "-"), opt(r.Contract),
+		r.OnContract, r.AmountMinor, r.Currency, r.Exponent)
+}
+
+// TestSpendLines: the items of posted supplier invoices, credit memos and
+// subsequent credits by posting date are the spend lines, one file per
+// month, a credit's amount negative; an item on a purchase order takes the
+// order item's account and cost center and is under the order's contract;
+// an item without an order, or on an order made on no contract, is off
+// contract; an item removed from the document has no row, and one on an
+// item its order no longer has keeps the order's contract and names no
+// account; a parked or reversed document has no row, and a posted one
+// loses its rows when it is reversed (T91b).
+func TestSpendLines(t *testing.T) {
+	e := setup(t)
+	center := e.CostCenter(t, e.DE, "1000")
+	contract := e.Contract(t, e.DE, e.Supplier, "EUR", "CT-0001")
+	office, paper := e.Account(t, "2000", "520000"), e.Account(t, "2000", "610000")
+	onContract := e.ContractOrder(t, e.DE, e.Supplier, &contract, "EUR", "2026-03-01", paper, &center)
+	free := e.ContractOrder(t, e.DE, e.Supplier, nil, "EUR", "2026-03-01", paper, nil)
+	inv := e.SupplierDocument(t, e.DE, e.Supplier, "invoice", "posted", "EUR", "2026-03-06",
+		fixture.InvoiceItem{Net: 10000, Order: &onContract}, fixture.InvoiceItem{Net: 4000, Account: &office, CostCenter: &center},
+		fixture.InvoiceItem{Net: 77700, Account: &office, Removed: true}, fixture.InvoiceItem{Net: 800, Order: &onContract, OrderItem: 20})
+	credit := e.SupplierDocument(t, e.DE, e.Supplier, "credit_memo", "posted", "EUR", "2026-03-07", fixture.InvoiceItem{Net: 1500, Account: &office})
+	later := e.SupplierDocument(t, e.DE, e.Supplier, "subsequent_credit", "posted", "EUR", "2026-04-01", fixture.InvoiceItem{Net: 500, Order: &free})
+	parked := e.SupplierDocument(t, e.DE, e.Supplier, "invoice", "parked", "EUR", "2026-03-08", fixture.InvoiceItem{Net: 99900, Account: &office})
+	reversed := e.SupplierDocument(t, e.DE, e.Supplier, "invoice", "reversed", "EUR", "2026-03-09", fixture.InvoiceItem{Net: 88800, Account: &office})
+	names := map[uuid.UUID]string{inv: "invoice", credit: "credit", later: "later", parked: "parked", reversed: "reversed"}
+	orders := map[string]string{}
+	for id, name := range map[uuid.UUID]string{onContract: "on contract", free: "free"} {
+		var number string
+		pgtest.Scan(t, `SELECT document_number FROM procurement.purchase_order WHERE tenant_id = $1 AND id = $2`, []any{e.Tenant.ID, id}, &number)
+		orders[number] = name
+	}
+	spend := func(m extract.Manifest) (rows, months []string) {
+		for _, r := range read[spendRow](t, e, m, "spend_lines") {
+			rows = append(rows, r.String(names, orders))
+		}
+		for _, f := range m.Datasets["spend_lines"].Files {
+			_, month, _ := strings.Cut(f.Key, "/spend_lines/month=")
+			months = append(months, month[:7])
+		}
+		return rows, months
+	}
+	rows, months := spend(e.manifest(t, e.run(t).ManifestKey))
+	want := []string{
+		"invoice/1 2000 2026-03-06 BP90000001 610000 cc=1000 order=on contract contract=CT-0001 true 10000 EUR e2",
+		"invoice/2 2000 2026-03-06 BP90000001 520000 cc=1000 order=- contract=- false 4000 EUR e2",
+		"invoice/4 2000 2026-03-06 BP90000001 - cc=- order=on contract contract=CT-0001 true 800 EUR e2",
+		"credit/1 2000 2026-03-07 BP90000001 520000 cc=- order=- contract=- false -1500 EUR e2",
+		"later/1 2000 2026-04-01 BP90000001 610000 cc=- order=free contract=- false -500 EUR e2",
+	}
+	if !slices.Equal(rows, want) {
+		t.Errorf("spend lines:\n got %q\nwant %q", rows, want)
+	}
+	if !slices.Equal(months, []string{"2026-03", "2026-04"}) {
+		t.Errorf("files: got months %v, want one for March and one for April", months)
+	}
+
+	t.Run("reversed", func(t *testing.T) {
+		pgtest.Exec(t, `UPDATE payables.supplier_invoice SET status = 'reversed', reversal_entry_year = 2026, reversal_entry_id = gen_random_uuid(),
+			version = version + 1 WHERE tenant_id = $1 AND id = $2`, e.Tenant.ID, inv)
+		rows, months := spend(e.manifest(t, e.run(t).ManifestKey))
+		if !slices.Equal(rows, want[3:]) {
+			t.Errorf("spend lines:\n got %q\nwant %q", rows, want[3:])
+		}
+		if !slices.Equal(months, []string{"2026-03", "2026-04"}) {
+			t.Errorf("files: got months %v, want March's rewritten and April's kept", months)
+		}
+	})
+}
+
+// String is the row as the tests compare it: its document by name.
+func (r salesRow) String(names map[uuid.UUID]string) string {
+	key := "-"
+	if r.ItemKey != nil {
+		key = *r.ItemKey
+	}
+	return fmt.Sprintf("%s/%d %s %s %s %s %s %s %d %s e%d", names[r.DocumentID], r.ItemNo, r.SalesDocument, r.Company,
+		time.Unix(int64(r.DocumentDate)*86400, 0).UTC().Format(time.DateOnly), r.Customer, r.CustomerName, key, r.AmountMinor, r.Currency, r.Exponent)
+}
+
+// salesRows are the manifest's sales lines in file order, and the months
+// of its files.
+func salesRows(t *testing.T, e env, m extract.Manifest, names map[uuid.UUID]string) (rows, months []string) {
+	t.Helper()
+	for _, r := range read[salesRow](t, e, m, "sales_lines") {
+		rows = append(rows, r.String(names))
+	}
+	for _, f := range m.Datasets["sales_lines"].Files {
+		_, month, _ := strings.Cut(f.Key, "/sales_lines/month=")
+		months = append(months, month[:7])
+	}
+	return rows, months
+}
+
+// TestSalesLines: the items of confirmed sales orders by order date and of
+// posted billing documents by billing date are the sales lines, one file
+// per month, each at its net amount naming its customer and item key; a
+// draft order and a billing document not posted have no row until they
+// are confirmed and posted; a renamed customer rewrites the rows (T91a).
+func TestSalesLines(t *testing.T) {
+	e := setup(t)
+	customer := e.Customer(t, "BP90000007", "Northwind")
+	order := e.SalesOrder(t, e.DE, customer, "EUR", "2026-03-10", "confirmed", fixture.SalesItem{Key: "BRACKET", Net: 150000}, fixture.SalesItem{Net: 23753})
+	draft := e.SalesOrder(t, e.DE, customer, "EUR", "2026-03-11", "draft", fixture.SalesItem{Key: "DRAFT", Net: 999})
+	yen := e.SalesOrder(t, e.DE, customer, "JPY", "2026-04-02", "confirmed", fixture.SalesItem{Key: "BRACKET", Net: 5000})
+	posted := e.BillingDocument(t, order, "2026-04-01", true)
+	created := e.BillingDocument(t, yen, "2026-04-03", false)
+	names := map[uuid.UUID]string{order: "order", draft: "draft", yen: "yen", posted: "posted", created: "created"}
+	first := e.manifest(t, e.run(t).ManifestKey)
+	rows, months := salesRows(t, e, first, names)
+	want := []string{
+		"order/1 order 2000 2026-03-10 BP90000007 Northwind BRACKET 150000 EUR e2",
+		"order/2 order 2000 2026-03-10 BP90000007 Northwind - 23753 EUR e2",
+		"posted/1 billing 2000 2026-04-01 BP90000007 Northwind BRACKET 150000 EUR e2",
+		"posted/2 billing 2000 2026-04-01 BP90000007 Northwind - 23753 EUR e2",
+		"yen/1 order 2000 2026-04-02 BP90000007 Northwind BRACKET 5000 JPY e0",
+	}
+	if !slices.Equal(rows, want) {
+		t.Errorf("sales lines:\n got %q\nwant %q", rows, want)
+	}
+	if !slices.Equal(months, []string{"2026-03", "2026-04"}) {
+		t.Errorf("files: got months %v, want one for March and one for April", months)
+	}
+
+	t.Run("unchanged", func(t *testing.T) {
+		if next := e.run(t); next.Published {
+			t.Errorf("second run: got %+v, want nothing new", next)
+		}
+	})
+	t.Run("confirmed and renamed", func(t *testing.T) {
+		pgtest.Exec(t, `UPDATE sales.sales_order SET status = 'confirmed', version = version + 1 WHERE tenant_id = $1 AND id = $2`, e.Tenant.ID, draft)
+		pgtest.Exec(t, `UPDATE partner.business_partner SET name = 'Northwind Traders', version = version + 1 WHERE tenant_id = $1 AND id = $2`, e.Tenant.ID, customer)
+		next := e.manifest(t, e.run(t).ManifestKey)
+		rows, _ := salesRows(t, e, next, names)
+		want := []string{
+			"order/1 order 2000 2026-03-10 BP90000007 Northwind Traders BRACKET 150000 EUR e2",
+			"order/2 order 2000 2026-03-10 BP90000007 Northwind Traders - 23753 EUR e2",
+			"draft/1 order 2000 2026-03-11 BP90000007 Northwind Traders DRAFT 999 EUR e2",
+			"posted/1 billing 2000 2026-04-01 BP90000007 Northwind Traders BRACKET 150000 EUR e2",
+			"posted/2 billing 2000 2026-04-01 BP90000007 Northwind Traders - 23753 EUR e2",
+			"yen/1 order 2000 2026-04-02 BP90000007 Northwind Traders BRACKET 5000 JPY e0",
+		}
+		if !slices.Equal(rows, want) {
+			t.Errorf("sales lines:\n got %q\nwant %q", rows, want)
+		}
+	})
+}
 
 // read reads every file of a dataset of the manifest.
 func read[T any](t *testing.T, e env, m extract.Manifest, dataset string) []T {
@@ -96,15 +290,6 @@ func (e env) invoice(t *testing.T, date string, gross int64) uuid.UUID {
 	return id
 }
 
-// customer inserts a business partner in the customer role alone.
-func (e env) customer(t *testing.T, number string) {
-	t.Helper()
-	id := uuid.New()
-	pgtest.Exec(t, `INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, country_code, status, created_by, updated_by)
-		VALUES ($1, $2, $3, 'organization', 'Customer', 'DE', 'active', $4, $4)`, e.Tenant.ID, id, number, e.Tenant.Human.ID)
-	pgtest.Exec(t, `INSERT INTO partner.partner_role (tenant_id, partner_id, role, created_by) VALUES ($1, $2, 'customer', $3)`, e.Tenant.ID, id, e.Tenant.Human.ID)
-}
-
 // TestSnapshotDatasets: documents and master data are read whole in the
 // journal's transaction, and a file whose content did not change is kept.
 func TestSnapshotDatasets(t *testing.T) {
@@ -112,7 +297,7 @@ func TestSnapshotDatasets(t *testing.T) {
 	entry := e.post(t, "2026-03-02", "100.00")
 	po := e.order(t, "2026-03-05", "2.5", 199)
 	inv := e.invoice(t, "2026-04-01", 11900)
-	e.customer(t, "BP90000009")
+	e.Customer(t, "BP90000009", "Customer")
 	first := e.run(t)
 	m := e.manifest(t, first.ManifestKey)
 

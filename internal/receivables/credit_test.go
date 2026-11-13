@@ -134,8 +134,8 @@ func TestCreditMemo(t *testing.T) {
 	var owed int64
 	for _, it := range items {
 		owed += int64(it.AmountLC)
-		if due, ok := it.NetDueDate(); !ok || due.Format("2006-01-02") != "2026-04-09" {
-			t.Errorf("item of entry %s: got due %s (%v), want 2026-04-09: the memo is due when its invoice is", it.EntryID, due, ok)
+		if due := it.NetDueDate(); it.Terms == nil || due.Format("2006-01-02") != "2026-04-09" {
+			t.Errorf("item of entry %s: got due %s by terms %+v, want 2026-04-09 by terms: the memo is due when its invoice is", it.EntryID, due, it.Terms)
 		}
 	}
 	if len(items) != 2 || owed != 5850 {

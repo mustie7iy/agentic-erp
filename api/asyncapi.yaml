@@ -96,6 +96,7 @@ info:
     - name: sales
     - name: revenue
     - name: credit
+    - name: grc
     - name: payments
     - name: workflow
     - name: integration
@@ -443,7 +444,7 @@ channels:
   sales:
     address: 'erp.{cell}.sales.{tenant}.{event}'
     title: Sales events
-    description: Quotations, sales orders, their deliveries, their credit blocks, billing documents and sales prices and discounts (ADR-0067 §6, §10, §11; ADR-0066, T77b).
+    description: Quotations, sales orders, their deliveries, their credit blocks, billing documents, returns orders, their receipts and sales prices and discounts (ADR-0067 §6, §10, §11 and As built T85a, T85b; ADR-0066, T77b).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
@@ -455,6 +456,8 @@ channels:
       SalesOrderCreditBlocked: {$ref: '#/components/messages/SalesOrderCreditBlocked'}
       SalesOrderCreditReleased: {$ref: '#/components/messages/SalesOrderCreditReleased'}
       BillingDocumentPosted: {$ref: '#/components/messages/BillingDocumentPosted'}
+      ReturnsOrderChanged: {$ref: '#/components/messages/ReturnsOrderChanged'}
+      ReturnReceived: {$ref: '#/components/messages/ReturnReceived'}
   revenue:
     address: 'erp.{cell}.revenue.{tenant}.{event}'
     title: Revenue recognition events
@@ -471,6 +474,14 @@ channels:
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       CreditLimitChanged: {$ref: '#/components/messages/CreditLimitChanged'}
+  grc:
+    address: 'erp.{cell}.grc.{tenant}.{event}'
+    title: Governance, risk and compliance events
+    description: The control library and the results of testing its controls (ADR-0078 §5).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      ControlChanged: {$ref: '#/components/messages/ControlChanged'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -763,6 +774,8 @@ operations:
       - $ref: '#/channels/sales/messages/SalesOrderCreditBlocked'
       - $ref: '#/channels/sales/messages/SalesOrderCreditReleased'
       - $ref: '#/channels/sales/messages/BillingDocumentPosted'
+      - $ref: '#/channels/sales/messages/ReturnsOrderChanged'
+      - $ref: '#/channels/sales/messages/ReturnReceived'
   publishRevenueEvents:
     action: send
     title: Revenue recognition publishes
@@ -775,6 +788,12 @@ operations:
     channel: {$ref: '#/channels/credit'}
     messages:
       - $ref: '#/channels/credit/messages/CreditLimitChanged'
+  publishGrcEvents:
+    action: send
+    title: Governance, risk and compliance publishes
+    channel: {$ref: '#/channels/grc'}
+    messages:
+      - $ref: '#/channels/grc/messages/ControlChanged'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -4296,6 +4315,36 @@ components:
         - name: created
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001104, source: /erp/eu-1/sales, type: com.example.erp.sales.billing_document_changed.v1, subject: 0192a000-0000-7000-8000-000000001311, time: '2026-11-20T16:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {billing_document_id: 0192a000-0000-7000-8000-000000001311, document_number: BD100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, sales_order_id: 0192a000-0000-7000-8000-000000001111, sales_order_number: SO100001, billing_date: '2026-11-20', net_amount: {amount: '1500.00', currency: CAD}, status: created, status_before: null, version: 1}
+    ControlChanged:
+      name: ControlChanged
+      title: Control changed
+      summary: A control of the control library was recorded, changed, retired or tested.
+      description: |
+        Emitted when a control is recorded (`created`), when its objective,
+        process, owner, frequency or nature changes (`changed`), when it is
+        retired (`retired`), when the result of testing it is recorded
+        (`tested`, ADR-0078 §5, T98a) and when a link to what enforces it
+        is made or removed (`linked`, `unlinked`, ADR-0078 §7, T98b; `link`
+        is that link, null for every other change). `test` is the test recorded, null
+        for every other change; it carries the test's date and result,
+        never the note of the evidence. The event names the owner and the
+        tester by id, never by name. It is not offered as a webhook event.
+        `GET /v1/controls/{id}` returns the control at `version` or later
+        with its last test. Subject is the control id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.grc.control_changed.v1}
+      payload: {$ref: '#/components/schemas/ControlChangedV1'}
+      examples:
+        - name: created
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000fa1, source: /erp/eu-1/grc, type: com.example.erp.grc.control_changed.v1, subject: 0192a000-0000-7000-8000-000000000fa0, time: '2026-11-25T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {control_id: 0192a000-0000-7000-8000-000000000fa0, code: PAY-01, process: Payments, owner_id: 0192a000-0000-7000-8000-000000000101, frequency: continuous, nature: automated, status: active, change: created, test: null, link: null, version: 1}
+        - name: tested
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000fa2, source: /erp/eu-1/grc, type: com.example.erp.grc.control_changed.v1, subject: 0192a000-0000-7000-8000-000000000fa0, time: '2026-11-25T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {control_id: 0192a000-0000-7000-8000-000000000fa0, code: PAY-01, process: Payments, owner_id: 0192a000-0000-7000-8000-000000000101, frequency: continuous, nature: automated, status: active, change: tested, test: {test_id: 0192a000-0000-7000-8000-000000000fa3, tested_on: '2026-11-25', result: passed, tested_by: 0192a000-0000-7000-8000-000000000101}, link: null, version: 1}
     RevenueContractChanged:
       name: RevenueContractChanged
       x-webhook: true
@@ -4357,6 +4406,62 @@ components:
         - name: posted
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001105, source: /erp/eu-1/sales, type: com.example.erp.sales.billing_document_posted.v1, subject: 0192a000-0000-7000-8000-000000001311, time: '2026-11-20T16:20:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {billing_document_id: 0192a000-0000-7000-8000-000000001311, document_number: BD100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, sales_order_id: 0192a000-0000-7000-8000-000000001111, sales_order_number: SO100001, billing_date: '2026-11-20', posting_date: '2026-11-20', net_amount: {amount: '1500.00', currency: CAD}, tax_amount: {amount: '75.00', currency: CAD}, gross_amount: {amount: '1575.00', currency: CAD}, customer_invoice_id: 0192a000-0000-7000-8000-000000001411, customer_invoice_number: CI100007, journal_entry_id: 0192a000-0000-7000-8000-000000001511, journal_entry_year: 2026, journal_entry_number: DR100007, status: posted, status_before: created, version: 2}
+    ReturnsOrderChanged:
+      name: ReturnsOrderChanged
+      title: Returns order changed
+      summary: A returns order was created or confirmed.
+      description: |
+        Emitted at each change of a returns order's status (ADR-0067, As
+        built T85a): when it is created (`draft`, status_before null) for
+        quantities of a posted billing document's items, and when it is
+        confirmed (`confirmed`). It carries the reason, not the items,
+        names the customer by id and number, never by name, and the
+        billing document and the sales order by id and number. Nothing
+        was posted and no stock moved. A receipt against it emits
+        ReturnReceived alone, not this event. It is not offered as a
+        webhook event (product owner 2026-11-12: none until a consumer
+        asks). `GET /v1/returns-orders/{id}` returns the returns order
+        at `version` or later. Subject is the returns order id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.sales.returns_order_changed.v1}
+      payload: {$ref: '#/components/schemas/ReturnsOrderChangedV1'}
+      examples:
+        - name: confirmed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001106, source: /erp/eu-1/sales, type: com.example.erp.sales.returns_order_changed.v1, subject: 0192a000-0000-7000-8000-000000001411, time: '2026-11-27T10:20:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {returns_order_id: 0192a000-0000-7000-8000-000000001411, document_number: RO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, billing_document_id: 0192a000-0000-7000-8000-000000001311, billing_document_number: BD100001, sales_order_id: 0192a000-0000-7000-8000-000000001111, sales_order_number: SO100001, returns_date: '2026-11-27', reason: defective, status: confirmed, status_before: draft, version: 2}
+    ReturnReceived:
+      name: ReturnReceived
+      title: Return received
+      summary: A receipt was confirmed against a returns order.
+      description: |
+        Emitted when a person confirms that quantities of a confirmed
+        returns order's items arrived on a date (ADR-0067, As built
+        T85b). It carries the receipt's number within the returns order,
+        its date and the items received, each with the quantity of this
+        receipt and the returns order item's received quantity after it,
+        and names the customer by id and number, never by name, and the
+        billing document and the sales order by id and number. No stock
+        moved and nothing was posted. It is not offered as a webhook
+        event (product owner 2026-11-12: none until a consumer asks).
+        `version` is the returns order's after the receipt:
+        `GET /v1/returns-orders/{id}` returns the returns order at it or
+        later, and `GET /v1/returns-orders/{id}/receipts` its receipts.
+        Subject is the returns order id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.sales.return_received.v1}
+      payload: {$ref: '#/components/schemas/ReturnReceivedV1'}
+      examples:
+        - name: received
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001107, source: /erp/eu-1/sales, type: com.example.erp.sales.return_received.v1, subject: 0192a000-0000-7000-8000-000000001411, time: '2026-11-30T09:12:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {receipt_id: 0192a000-0000-7000-8000-000000001511, receipt_no: 1, returns_order_id: 0192a000-0000-7000-8000-000000001411, document_number: RO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, billing_document_id: 0192a000-0000-7000-8000-000000001311, billing_document_number: BD100001, sales_order_id: 0192a000-0000-7000-8000-000000001111, sales_order_number: SO100001, receipt_date: '2026-11-30', items: [{item_no: 1, billing_item_no: 1, quantity: {value: '20', unit: EA}, received_quantity: {value: '20', unit: EA}}], version: 3}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -5198,6 +5303,40 @@ components:
         status: {type: string, description: "The document's status after the change. Open enum: created."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
         version: {type: integer, description: "The document's version after the change."}
+    ControlChangedV1:
+      type: object
+      required: [control_id, code, process, owner_id, frequency, nature, status, change, test, link, version]
+      properties:
+        control_id: {$ref: '#/components/schemas/Uuid', description: '`grc.control.id`.'}
+        code: {type: string, description: "The tenant's code of the control."}
+        process: {type: string, description: The process the control belongs to.}
+        owner_id: {$ref: '#/components/schemas/Uuid', description: 'The person who owns the control: `identity.principal.id`.'}
+        frequency: {type: string, description: 'How often the control is performed: continuous, daily, weekly, monthly, quarterly, yearly or ad_hoc. Open enumeration.'}
+        nature: {type: string, description: 'manual or automated. Open enumeration.'}
+        status: {type: string, description: 'active or retired. Open enumeration.'}
+        change: {type: string, description: 'What happened: created, changed, retired, tested, linked or unlinked. Open enumeration.'}
+        test:
+          description: 'The test recorded, when `change` is tested; null otherwise.'
+          oneOf:
+            - type: object
+              required: [test_id, tested_on, result, tested_by]
+              properties:
+                test_id: {$ref: '#/components/schemas/Uuid', description: '`grc.control_test.id`.'}
+                tested_on: {type: string, format: date, description: The date of the test.}
+                result: {type: string, description: 'passed or failed. Open enumeration.'}
+                tested_by: {$ref: '#/components/schemas/Uuid', description: 'The person who tested: `identity.principal.id`.'}
+            - type: 'null'
+        link:
+          description: 'The link made or removed, when `change` is linked or unlinked; null otherwise.'
+          oneOf:
+            - type: object
+              required: [link_id, kind, target]
+              properties:
+                link_id: {$ref: '#/components/schemas/Uuid', description: '`grc.control_link.id`.'}
+                kind: {type: string, description: 'permission, sod_rule or configuration_path. Open enumeration.'}
+                target: {type: string, description: "What the link names: the permission's code, the segregation-of-duties rule's id or the configuration path."}
+            - type: 'null'
+        version: {type: integer, description: "The control's version after the change; a test or a link does not move it."}
     RevenueContractChangedV1:
       type: object
       required: [revenue_contract_id, sales_order_id, sales_order_number, legal_entity_id, legal_entity_code, customer_id, customer_number, transaction_price, obligation_count, status, status_before, version]
@@ -5239,6 +5378,54 @@ components:
         status: {type: string, description: "The document's status after the change: posted."}
         status_before: {type: string, description: 'Its status before: created.'}
         version: {type: integer, description: "The document's version after the change."}
+    ReturnsOrderChangedV1:
+      type: object
+      required: [returns_order_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, billing_document_id, billing_document_number, sales_order_id, sales_order_number, returns_date, reason, status, status_before, version]
+      properties:
+        returns_order_id: {$ref: '#/components/schemas/Uuid', description: '`sales.returns_order.id`.'}
+        document_number: {type: string, description: "The document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that takes the return.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        billing_document_id: {$ref: '#/components/schemas/Uuid', description: 'The posted billing document whose items are returned: `sales.billing_document.id`.'}
+        billing_document_number: {type: string, description: "The billing document's document number."}
+        sales_order_id: {$ref: '#/components/schemas/Uuid', description: 'The sales order that billing document billed: `sales.sales_order.id`.'}
+        sales_order_number: {type: string, description: "The sales order's document number."}
+        returns_date: {$ref: '#/components/schemas/Date', description: 'The day the returns order was created.'}
+        reason: {type: string, description: 'Why the customer returns the items. Open enum: defective, wrong_item, not_wanted, other.'}
+        status: {type: string, description: "The returns order's status after the change. Open enum: draft, confirmed."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
+        version: {type: integer, description: "The returns order's version after the change."}
+    ReturnReceivedV1:
+      type: object
+      required: [receipt_id, receipt_no, returns_order_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, billing_document_id, billing_document_number, sales_order_id, sales_order_number, receipt_date, items, version]
+      properties:
+        receipt_id: {$ref: '#/components/schemas/Uuid', description: '`sales.return_receipt.id`.'}
+        receipt_no: {type: integer, description: "The receipt's number within its returns order, from 1."}
+        returns_order_id: {$ref: '#/components/schemas/Uuid', description: '`sales.returns_order.id`.'}
+        document_number: {type: string, description: "The returns order's document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that takes the return.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        billing_document_id: {$ref: '#/components/schemas/Uuid', description: 'The billing document whose items are returned: `sales.billing_document.id`.'}
+        billing_document_number: {type: string, description: "The billing document's document number."}
+        sales_order_id: {$ref: '#/components/schemas/Uuid', description: 'The sales order that billing document billed: `sales.sales_order.id`.'}
+        sales_order_number: {type: string, description: "The sales order's document number."}
+        receipt_date: {$ref: '#/components/schemas/Date', description: 'The day the quantities arrived.'}
+        items:
+          type: array
+          description: "The returns order's items received, by item number."
+          items:
+            type: object
+            required: [item_no, billing_item_no, quantity, received_quantity]
+            properties:
+              item_no: {type: integer, description: "The returns order item's number."}
+              billing_item_no: {type: integer, description: "The number of the billing document's item it returns from."}
+              quantity: {$ref: '#/components/schemas/Quantity', description: "The quantity of this receipt, in the item's unit."}
+              received_quantity: {$ref: '#/components/schemas/Quantity', description: 'What is received of the returns order item after this receipt.'}
+        version: {type: integer, description: "The returns order's version after the receipt."}
     ConsolidationRunChangedV1:
       type: object
       required: [run_id, group_code, fiscal_year, fiscal_period, status, status_before, problem, version]
@@ -6603,7 +6790,7 @@ components:
         change: {"type": "string", "description": "Open enum: created, updated."}
         changed_fields: {"type": "array", "items": {"type": "string"}, "description": "Profile fields that changed (all fields on created)."}
         autonomy_level: {"type": "integer", "minimum": 0, "maximum": 3}
-        agent_type: {"type": ["string", "null"], "description": "The agent's type, whose certification bounds its level (ADR-0039); null: none named. Open enum: ap_exceptions, configuration, migration, test, analytics, reconciliation, close, cash_forecast, tax."}
+        agent_type: {"type": ["string", "null"], "description": "The agent's type, whose certification bounds its level (ADR-0039); null: none named. Open enum: ap_exceptions, configuration, migration, test, analytics, reconciliation, close, cash_forecast, tax, credit_scoring, access."}
         model: {"type": "string"}
         monthly_budget: {"oneOf": [{"$ref": "#/components/schemas/Money"}, {"type": "null"}], "description": "Null when unlimited."}
         description: {"type": "string"}
