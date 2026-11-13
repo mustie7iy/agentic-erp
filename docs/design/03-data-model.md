@@ -4372,7 +4372,7 @@ erDiagram
   output tax code gave at the invoice date, never negative and 0 without a
   code (`customer_invoice_item_tax_not_negative`,
   `customer_invoice_item_tax_needs_code`); the subdivision its tax is
-  levied in (000296: the emirate, `AE-DU`), only under a tax code and in
+  levied in (000303: the emirate, `AE-DU`), only under a tax code and in
   the form of an ISO 3166-2 subdivision
   (`customer_invoice_item_tax_jurisdiction`); insert-only
   (`platform.forbid_mutation`). The items' net and tax add up to the

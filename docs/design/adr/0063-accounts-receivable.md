@@ -761,7 +761,7 @@ Plan defaults 1-5 above. Taken in T75a beside them:
 - **Walkthrough.** No expectation of steps 53 to 58 changed: none of
   their customer items is posted without terms (full run, 59 steps).
 
-### The emirate on the item (product owner 2026-11-12; migration 000296)
+### The emirate on the item (product owner 2026-11-12; migration 000303)
 - A customer invoice's item names the subdivision its tax is levied in,
   `tax_jurisdiction` (ISO 3166-2, `AE-DU`), as a journal line does
   (ADR-0049 §7): the field, its name and its rules are the ledger's, held
@@ -778,7 +778,7 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   `request.invalid_body`. `receivables.tax_jurisdiction_not_supported` is
   gone with the refusal it named; §4's last paragraph and "Defaults
   chosen" 5 no longer hold.
-- `receivables.customer_invoice_item.tax_jurisdiction` (000296): nullable,
+- `receivables.customer_invoice_item.tax_jurisdiction` (000303): nullable,
   only with a tax code and in the form of a subdivision's code
   (`customer_invoice_item_tax_jurisdiction`; `TestCustomerInvoiceItemJurisdiction`).
   That the code levies it is the context's check when the invoice is
@@ -807,7 +807,7 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   jurisdictions on its journal lines; a draft naming one is refused by
   the previous version's posting, which refuses its tax code as it did
   at entry (422 `receivables.tax_jurisdiction_not_supported`).
-- Rolling upgrade (06 §6.4): 000296 is additive. An instance of the
+- Rolling upgrade (06 §6.4): 000303 is additive. An instance of the
   previous release still refuses such a code at entry and at posting
   (422 `receivables.tax_jurisdiction_not_supported`) and shows no
   `tax_jurisdiction`: a draft naming one waits for the upgrade, and
@@ -819,6 +819,9 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   subdivision, and the UAE company (step 41) has no customer set up, so
   no walkthrough step shows it: tests only.
 - Not built: the emirate on a sales document's items and on the customer
-  invoice a billing document posts (ADR-0067, Questions; billing through
-  receivables, T79b, is not on this base): quotations and sales orders
-  still refuse such a code, 422 `sales.tax_jurisdiction_not_supported`.
+  invoice a billing document posts (ADR-0067, Questions). Quotations and
+  sales orders still refuse such a code, 422
+  `sales.tax_jurisdiction_not_supported`, so the invoice T79b's posting
+  enters (batch 71: merged after it) has no item that must name a
+  jurisdiction and names none; passing the emirate through sales is a
+  later slice.

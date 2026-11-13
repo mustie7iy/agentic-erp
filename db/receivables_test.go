@@ -133,7 +133,7 @@ func TestCustomerInvoiceRules(t *testing.T) {
 	}
 }
 
-// TestCustomerInvoiceItemJurisdiction (migration 000296; ADR-0063 §4 As
+// TestCustomerInvoiceItemJurisdiction (migration 000303; ADR-0063 §4 As
 // built, product owner 2026-11-12): an item names the jurisdiction its
 // tax is levied in only under a tax code, in the form of an ISO 3166-2
 // subdivision; an item without one is as before.
