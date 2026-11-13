@@ -68,7 +68,7 @@ tags:
   - name: grc
     description: "Governance, risk and compliance (ADR-0078): the tenant's control library, the results of testing its controls, the control matrix of what enforces each control, and the risk register with the ratings of its risks."
   - name: records
-    description: "Records management (ADR-0079): retention rules' status per fiscal year."
+    description: "Records management (ADR-0079): retention rules' status per fiscal year and archiving runs."
   - name: payments
     description: Payment runs, payments and bank files.
   - name: cash
@@ -17978,7 +17978,7 @@ paths:
       tags:
         - records
       summary: Read which fiscal years of a document kind are past retention
-      description: "The retention status of a company's documents of one kind (ADR-0079 §2-§4, T99a): each fiscal year set up for the company, the earliest first, with its first and last day, the date its retention ends and whether it is past retention on the company's date today (`as_of`, in its time zone). The rule is the company's in the active configuration version (`companies[].retention[]`, set and changed only through the configuration's change requests and their approval): its `years`, a whole number from 0 to 99, are kept after the fiscal year's last day, so retention ends that many years later on the same day (the last day of February for a year ending on 29 February when the later year has none), and a year is past retention from the day after. No rule is shipped or defaulted for any jurisdiction: a company without a rule for the kind has nothing past retention (`has_rule` false, `retention_years` and each year's `retention_ends` absent). Document kinds: `journal_entry` (the company's journal entries) and `personal_data` (the personal data it holds); another is refused (422 `request.validation_failed`, naming `document_kind`). Whether a year is past retention says only that its documents may be archived or erased by a later step; nothing is archived, changed or removed here. `year_count` and `past_retention_count` are the totals of the years listed. A tenant without a configuration is answered 409 `config.not_bootstrapped`. A legal entity the caller cannot act in is 404, as one that does not exist."
+      description: "The retention status of a company's documents of one kind (ADR-0079 §2-§4, T99a): each fiscal year set up for the company, the earliest first, with its first and last day, the date its retention ends and whether it is past retention on the company's date today (`as_of`, in its time zone). The rule is the company's in the active configuration version (`companies[].retention[]`, set and changed only through the configuration's change requests and their approval): its `years`, a whole number from 0 to 99, are kept after the fiscal year's last day, so retention ends that many years later on the same day (the last day of February for a year ending on 29 February when the later year has none), and a year is past retention from the day after. No rule is shipped or defaulted for any jurisdiction: a company without a rule for the kind has nothing past retention (`has_rule` false, `retention_years` and each year's `retention_ends` absent). Document kinds: `journal_entry` (the company's journal entries) and `personal_data` (the personal data it holds); another is refused (422 `request.validation_failed`, naming `document_kind`). Whether a year is past retention says only that its documents may be archived or erased by a later step; nothing is archived, changed or removed here. `archived` says whether a completed archiving run holds the year's documents of the kind (`createArchivingRun`, T99b). `year_count` and `past_retention_count` are the totals of the years listed. A tenant without a configuration is answered 409 `config.not_bootstrapped`. A legal entity the caller cannot act in is 404, as one that does not exist."
       x-permission: records.retention.read
       x-problem-codes:
         - config.not_bootstrapped
@@ -18022,6 +18022,188 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/archiving-runs:
+    post:
+      operationId: createArchivingRun
+      tags:
+        - records
+      summary: Start an archiving run of a fiscal year past retention
+      description: "Starts an archiving run (ADR-0079 §6-§8, T99b): a company's documents of one kind and one fiscal year are written to an archive file in object storage with a manifest, and the year reads as `archived` in the retention status. The first version archives journal entries (`document_kind` `journal_entry`); another kind is refused (422 `request.validation_failed`, naming `document_kind`). The year must be past retention under the company's rule in the active configuration version, as `getRetentionStatus` reads it on the company's date (422 `records.year_not_past_retention`; a year not set up, or a company without a rule, is not past retention), and closed: it has posting periods and none of them, regular or special, in any ledger is open (422 `records.year_not_closed`), so its entries cannot change. The run is queued (`queued`) and written by the archiver in the background, as `getArchivingRun` then shows: `completed` with its file's SHA-256, size and manifest, or `failed` with the problem code that stopped it (`identity.principal_blocked` when the requester was blocked or deprovisioned since, `records.year_not_closed` when a period of the year was opened since, `records.archive_changed` when the file store holds another file under the run's key, `records.amount_too_large` when the year's debits add up to more than an amount holds). A company, kind and year has one run that is queued or completed: asking again answers that run (200), whoever asked; after a failed run another may be started (201). Nothing is changed or removed in the ledger or anywhere else: archiving only writes the file. 503 while the server has no object storage to write the file to. A tenant without a configuration is 409 `config.not_bootstrapped`; a legal entity the caller cannot act in is 404, as one that does not exist. Audited (`records.archiving_run.request`); the completion is audited and published as ArchivingRunCompleted. Human-only (`x-agent: false`)."
+      x-permission: records.archive.run
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - records.year_not_closed
+        - records.year_not_past_retention
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The company, document kind and fiscal year to archive.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ArchivingRunCreate"
+      responses:
+        "200":
+          description: "The run of the company, kind and year already queued or completed."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArchivingRun"
+        "201":
+          description: "Queued; the run, `queued` until the archiver writes its file."
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArchivingRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    get:
+      operationId: listArchivingRuns
+      tags:
+        - records
+      summary: List archiving runs
+      description: "The archiving runs (ADR-0079 §6, T99b) of the legal entities the caller may act in, newest first, filtered by legal entity, document kind, fiscal year and status. Sortable by: `created_at` (default descending)."
+      x-permission: records.archive.run
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: document_kind
+          in: query
+          required: false
+          description: Only the runs of this kind of document.
+          schema:
+            type: string
+            description: "Kind of document. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [journal_entry]
+        - name: fiscal_year
+          in: query
+          required: false
+          description: Only the runs of this fiscal year.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 9999
+        - name: status
+          in: query
+          required: false
+          description: "Only runs of this status: `queued`, `completed` or `failed`."
+          schema:
+            type: string
+            description: "An archiving run's status. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [queued, completed, failed]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of archiving runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArchivingRunPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/archiving-runs/{id}":
+    get:
+      operationId: getArchivingRun
+      tags:
+        - records
+      summary: Get an archiving run
+      description: "One archiving run (ADR-0079 §6, T99b): `queued` until the archiver writes its file, then `completed` with the file's name, SHA-256 and size and its manifest (the entries' and lines' counts and the sum of the lines' debits in the company's currency), or `failed` with the problem code that stopped it. A run of a legal entity the caller cannot act in is not found."
+      x-permission: records.archive.run
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The archiving run.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArchivingRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/archiving-runs/{id}/file":
+    get:
+      operationId: getArchivingRunFile
+      tags:
+        - records
+      summary: Download an archiving run's file
+      description: "The archive file of a completed archiving run (ADR-0079 §7, T99b), byte for byte as the archiver wrote it to object storage, in JSON Lines (`application/x-ndjson`): one journal entry of the year per line, of every ledger, by posting date, each with its lines, in the form ADR-0079 §7 documents. Its SHA-256 is the run's `sha256`, checked before it is handed out (409 `records.archive_changed` when the stored file no longer matches). A run not completed has no file (409 `records.archive_not_completed`). The file holds every entry of the year whole, so besides `records.archive.run` the caller needs `ledger.entry.read` (`x-also-permissions`). Human-only (`x-agent: false`). 503 while the server has no object storage or the store does not answer. A run of a legal entity the caller cannot act in is not found."
+      x-permission: records.archive.run
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - records.archive_changed
+        - records.archive_not_completed
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The archive file.
+          content:
+            application/x-ndjson:
+              schema:
+                type: string
+                format: binary
+                description: The file's bytes.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/credit-exposure:
     get:
       operationId: getCreditExposure
@@ -52018,18 +52200,114 @@ components:
           year_count: 2
           past_retention_count: 1
           years:
-            - {fiscal_year: 2025, start_date: "2025-01-01", end_date: "2025-12-31", retention_ends: "2025-12-31", past_retention: true}
-            - {fiscal_year: 2026, start_date: "2026-01-01", end_date: "2026-12-31", retention_ends: "2026-12-31", past_retention: false}
+            - {fiscal_year: 2025, start_date: "2025-01-01", end_date: "2025-12-31", retention_ends: "2025-12-31", past_retention: true, archived: true}
+            - {fiscal_year: 2026, start_date: "2026-01-01", end_date: "2026-12-31", retention_ends: "2026-12-31", past_retention: false, archived: false}
     RetentionYear:
       type: object
       description: "A fiscal year of a company and whether its documents of a kind are past retention."
-      required: [fiscal_year, start_date, end_date, past_retention]
+      required: [fiscal_year, start_date, end_date, past_retention, archived]
       properties:
         fiscal_year: {type: integer, format: int32, description: "The fiscal year."}
         start_date: {type: string, format: date, description: "The first day of its first regular period."}
         end_date: {type: string, format: date, description: "The last day of its last regular period, from which retention is counted."}
         retention_ends: {type: string, format: date, description: "The last day its documents are kept under the rule; absent without a rule."}
         past_retention: {type: boolean, description: "Whether `as_of` is after `retention_ends`; false without a rule."}
+        archived: {type: boolean, description: "Whether a completed archiving run holds the year's documents of the kind (`listArchivingRuns`, T99b); they are still in the database, since archiving deletes nothing."}
+    ArchivingRunCreate:
+      type: object
+      description: "An archiving run to start (ADR-0079 §6): a company, a document kind and a fiscal year past retention."
+      required: [legal_entity_id, document_kind, fiscal_year]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company whose documents are archived."}
+        document_kind:
+          type: string
+          description: "The kind of document; the first version archives `journal_entry`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [journal_entry]
+        fiscal_year: {type: integer, format: int32, minimum: 1900, maximum: 9999, description: "The fiscal year, past retention and closed."}
+      examples:
+        - legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          document_kind: journal_entry
+          fiscal_year: 2025
+    ArchivingRun:
+      type: object
+      description: "An archiving run (records, ADR-0079 §6-§8, T99b): a company's documents of one kind and fiscal year written to an archive file in object storage with a manifest. Nothing is deleted."
+      required: [id, legal_entity_id, company_code, document_kind, fiscal_year, retention_years, configuration_version, status, requested_by, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid, description: Archiving run id., readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The company (`GET /v1/legal-entities/{id}`).", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        document_kind:
+          type: string
+          description: "The kind of document archived. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [journal_entry]
+          readOnly: true
+        fiscal_year: {type: integer, format: int32, description: "The fiscal year archived.", readOnly: true}
+        retention_years: {type: integer, format: int32, description: "The years of the retention rule that put the year past retention when the run was asked for.", readOnly: true}
+        configuration_version: {type: integer, format: int32, description: "The active configuration version the rule was read from.", readOnly: true}
+        status:
+          type: string
+          description: "`queued` (until the archiver writes its file), `completed` or `failed`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [queued, completed, failed]
+          readOnly: true
+        file:
+          $ref: "#/components/schemas/ArchiveFile"
+        failure_code: {type: string, description: "Failed: the problem code that stopped the run (`identity.principal_blocked`, `records.year_not_closed`, `records.archive_changed`, `records.amount_too_large` when the year's debits add up to more than an amount holds).", readOnly: true}
+        completed_at: {type: string, format: date-time, description: "When the archiver completed it.", readOnly: true}
+        requested_by: {type: string, format: uuid, description: "Who asked for the run.", readOnly: true}
+        created_at: {type: string, format: date-time, readOnly: true}
+        updated_at: {type: string, format: date-time, readOnly: true}
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000f71
+          legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "3000"
+          document_kind: journal_entry
+          fiscal_year: 2025
+          retention_years: 0
+          configuration_version: 9
+          status: completed
+          file:
+            name: 0192a000-0000-7000-8000-000000000f71.jsonl
+            sha256: 4f2c1e0b9a7d6c5b4a3928170615f4e3d2c1b0a99887766554433221100ffeed
+            size_bytes: 48213
+            manifest_sha256: 9b1d0e2f3a4c5b6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f
+            entry_count: 41
+            line_count: 118
+            debit_total: {amount: "1840522.17", currency: CAD}
+          completed_at: "2026-11-25T10:00:04Z"
+          requested_by: 0192a000-0000-7000-8000-000000000101
+          created_at: "2026-11-25T10:00:00Z"
+          updated_at: "2026-11-25T10:00:04Z"
+    ArchiveFile:
+      type: object
+      description: "A completed run's archive file and its manifest (ADR-0079 §7)."
+      required: [name, sha256, size_bytes, manifest_sha256, entry_count, line_count, debit_total]
+      readOnly: true
+      properties:
+        name: {type: string, description: "The file's name, `<run id>.jsonl`; `GET /v1/archiving-runs/{id}/file` downloads it.", readOnly: true}
+        sha256: {type: string, pattern: '^[0-9a-f]{64}$', description: "The SHA-256 of the file's content, in hexadecimal; the manifest names it too.", readOnly: true}
+        size_bytes: {type: integer, format: int64, minimum: 0, description: "The file's size in bytes.", readOnly: true}
+        manifest_sha256: {type: string, pattern: '^[0-9a-f]{64}$', description: "The SHA-256 of the manifest, `<run id>.manifest.json`, kept beside the file in object storage.", readOnly: true}
+        entry_count: {type: integer, format: int32, minimum: 0, description: "The journal entries in the file: every entry of the company's fiscal year, of every ledger.", readOnly: true}
+        line_count: {type: integer, format: int32, minimum: 0, description: "Their lines.", readOnly: true}
+        debit_total: {$ref: "#/components/schemas/Money", description: "The sum of the lines' debits in the company's currency."}
+    ArchivingRunPage:
+      type: object
+      description: One page of archiving runs, newest first.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ArchivingRun"}
+          description: The runs on this page.
+          readOnly: true
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+          readOnly: true
+      examples:
+        - items: []
     EInvoiceFetch:
       type: object
       description: A fetch of e-invoices from a provider (ADR-0061 §4).

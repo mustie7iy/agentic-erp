@@ -26,14 +26,14 @@ func years(n int) *int { return &n }
 
 // setup is a configured tenant whose company 2000 keeps journal entries
 // for the years given (none: no rule) and has no rule for personal data;
-// its person reads the retention status.
-func setup(t *testing.T, journal *int) fixture.Env {
+// its person reads the retention status and holds the permissions given.
+func setup(t *testing.T, journal *int, permissions ...string) fixture.Env {
 	t.Helper()
 	return fixture.NewWith(t, nil, func(c *config.Config) {
 		if journal != nil {
 			c.Company("2000").Retention = []config.RetentionRule{{Kind: config.RetentionJournalEntry, Years: journal}}
 		}
-	}, "records.retention.read")
+	}, append([]string{"records.retention.read"}, permissions...)...)
 }
 
 // at is the context's endpoints as the API wires them, on the day.

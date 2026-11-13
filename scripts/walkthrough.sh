@@ -7919,6 +7919,59 @@ retention_rule() {
   expect "status after activation" "$(field .status)" active
 }
 
+# wait_archive RUN polls an archiving run until the server's archiver has
+# completed it (T99b); a failed run stops the walkthrough.
+wait_archive() {
+  local status i
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' getArchivingRun -p "id=$1"
+    status=$(field .status)
+    case "$status" in
+    completed) return 0 ;;
+    failed) fail "archiving run $1 failed: $(field .failure_code)" ;;
+    esac
+    sleep 0.25
+  done
+  fail "archiving run $1 still $status after a minute (attempt $i)"
+}
+
+# retention_archive is T99b: Rhea archives the prior year, past
+# retention under the zero-year rule and closed, and checks the file
+# against the run and the ledger; the current year is refused.
+retention_archive() {
+  local run sum count listed token
+  say "The prior year is past retention and closed by its year-end close. Rhea starts an archiving run: the year's journal"
+  say "entries, of every ledger, go to an archive file in object storage with a manifest; nothing is deleted. The run is"
+  say "queued and the server's archiver writes the file in the background (ADR-0079 §6):"
+  api 201 '"archiving run of \(.document_kind) \(.fiscal_year) of \(.company_code): \(.status), rule of \(.retention_years) years (configuration version \(.configuration_version))"' \
+    createArchivingRun -body "{\"legal_entity_id\": \"$LE\", \"document_kind\": \"journal_entry\", \"fiscal_year\": $PREV}"
+  run=$(field .id)
+  wait_archive "$run"
+  excerpt '"  \(.status): \(.file.name), \(.file.size_bytes) bytes, SHA-256 \(.file.sha256[0:16])…", "  manifest: \(.file.entry_count) entries, \(.file.line_count) lines, debits \(.file.debit_total.amount) \(.file.debit_total.currency)"'
+  sum=$(field .file.sha256)
+  count=$(field .file.entry_count)
+  say "Rhea downloads the file (JSON Lines, one entry per line with its lines) and checks it against the run:"
+  api 200 '' getArchivingRunFile -p "id=$run" -out "$WORK/archive-$PREV.jsonl"
+  expect "the file's SHA-256, the run's" "$(shasum -a 256 "$WORK/archive-$PREV.jsonl" | cut -d' ' -f1)" "$sum"
+  expect "one line per entry" "$(wc -l <"$WORK/archive-$PREV.jsonl" | tr -d ' ')" "$count"
+  listed=0 token=''
+  while :; do
+    QUIET=1 api 200 '' listJournalEntries -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=500 ${token:+-p "page_token=$token"}
+    listed=$((listed + $(field '.items | length')))
+    token=$(field '.next_page_token // ""')
+    [ -n "$token" ] || break
+  done
+  say "  the ledger lists $listed journal entries of $PREV; the manifest counts $count"
+  expect "the manifest's count, the ledger's" "$count" "$listed"
+  QUIET=1 api 200 '' createArchivingRun -body "{\"legal_entity_id\": \"$LE\", \"document_kind\": \"journal_entry\", \"fiscal_year\": $PREV}"
+  expect "a second request answers the run" "$(field '"\(.id) \(.status)"')" "$run completed"
+  api 200 '(.years[] | select(.fiscal_year == '"$PREV"') | "  \(.fiscal_year): past retention \(.past_retention), archived \(.archived)")' \
+    getRetentionStatus -p "legal_entity_id=$LE" -p document_kind=journal_entry
+  expect "the prior year archived" "$(field "[.years[] | select(.fiscal_year == $PREV) | .archived] | first")" true
+  say "The current year is within retention, so it is not archived:"
+  refused 422 records.year_not_past_retention createArchivingRun -body "{\"legal_entity_id\": \"$LE\", \"document_kind\": \"journal_entry\", \"fiscal_year\": $YEAR}"
+}
+
 # step_retention is T99a (ADR-0079 §2-§4): Maple keeps no retention
 # rule, since none is shipped or defaulted for any jurisdiction, so
 # nothing of it is past retention. Ada sets a rule of ten years for
@@ -7926,9 +7979,14 @@ retention_rule() {
 # administrator, reads that the migrated prior year is kept until ten
 # years after its last day. A rule of zero years, activated the same
 # way, puts the ended prior year past retention and leaves the current
-# one within it. Nothing is archived or changed.
+# one within it. T99b (ADR-0079 §6-§8): Rhea archives the prior year,
+# closed by its year-end close (step 42); the server's archiver writes
+# its journal entries to an archive file in object storage with a
+# manifest, and the file she downloads has one line per entry of the
+# year, as the ledger lists them, and the run's SHA-256. Nothing is
+# deleted.
 step_retention() {
-  heading "Step 79 — Retention rules: a retention rule for journal entries set through a governed change; the retention status shows the migrated prior year within retention, and past it under a rule of zero years"
+  heading "Step 79 — Retention rules and archiving: a retention rule for journal entries set through a governed change; the retention status shows the migrated prior year within retention, and past it under a rule of zero years; the prior year archived to object storage with its manifest"
   local prev_end
   as ada
   say "Ada adds Rhea, the records administrator, to the team:"
@@ -7959,6 +8017,7 @@ step_retention() {
     "$(field "[.years[] | select(.fiscal_year == $PREV or .fiscal_year == $YEAR) | \"\(.fiscal_year) \(.retention_ends == .end_date) \(.past_retention)\"] | join(\", \")")" \
     "$PREV true true, $YEAR true false"
   expect "the totals" "$(field '"\(.past_retention_count) \(.year_count == (.years | length))"')" "$(field '[.years[] | select(.past_retention)] | length') true"
+  retention_archive
   say "Personal data has no rule, so none of it is past retention, and a kind of the first version's list only is read:"
   QUIET=1 api 200 '' getRetentionStatus -p "legal_entity_id=$LE" -p document_kind=personal_data
   expect "personal data without a rule" "$(field '"\(.has_rule) \(.past_retention_count)"')" "false 0"

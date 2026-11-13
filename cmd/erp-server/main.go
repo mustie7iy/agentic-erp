@@ -65,6 +65,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
+	"github.com/mustie7iy/agentic-erp/internal/records"
 	"github.com/mustie7iy/agentic-erp/internal/revenue"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 	"github.com/mustie7iy/agentic-erp/internal/workflows"
@@ -835,6 +836,14 @@ func (s *server) startOperations(runCtx context.Context) {
 	// same SFTP transport (T53h, ADR-0051 §14).
 	exporter := &cash.Exporter{Endpoints: app.Cash(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
 	s.spawn("cash exporter", func() { exporter.Run(runCtx) })
+	// Archiving runs are written to object storage by a worker of every
+	// replica, with or without the workflow engine (T99b, ADR-0079 §6); a
+	// server without a store takes no run.
+	if apiCfg.Objects != nil {
+		archiver := &records.Archiver{Endpoints: app.Records(apiCfg), Requesters: identity.Actors{}, Pool: pool, AppRole: cfg.AppRole,
+			WorkerRole: cfg.WorkerRole, Log: log}
+		s.spawn("records archiver", func() { archiver.Run(runCtx) })
+	}
 	recurrences := &workflows.Recurrences{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Endpoints: app.Ledger(apiCfg)}
 	// The cash context is a leaf (ADR-0051 §2): its endpoints are the
 	// snapshot workflow's port, wired here.

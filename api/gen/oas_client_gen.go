@@ -737,6 +737,32 @@ type Invoker interface {
 	//
 	// POST /v1/allocation-cycles
 	CreateAllocationCycle(ctx context.Context, request *AllocationCycleCreate, params CreateAllocationCycleParams) (CreateAllocationCycleRes, error)
+	// CreateArchivingRun invokes createArchivingRun operation.
+	//
+	// Starts an archiving run (ADR-0079 §6-§8, T99b): a company's documents of one kind and one fiscal
+	// year are written to an archive file in object storage with a manifest, and the year reads as
+	// `archived` in the retention status. The first version archives journal entries (`document_kind`
+	// `journal_entry`); another kind is refused (422 `request.validation_failed`, naming `document_kind`).
+	// The year must be past retention under the company's rule in the active configuration version, as
+	// `getRetentionStatus` reads it on the company's date (422 `records.year_not_past_retention`; a year
+	// not set up, or a company without a rule, is not past retention), and closed: it has posting periods
+	// and none of them, regular or special, in any ledger is open (422 `records.year_not_closed`), so its
+	// entries cannot change. The run is queued (`queued`) and written by the archiver in the background,
+	// as `getArchivingRun` then shows: `completed` with its file's SHA-256, size and manifest, or `failed`
+	// with the problem code that stopped it (`identity.principal_blocked` when the requester was blocked
+	// or deprovisioned since, `records.year_not_closed` when a period of the year was opened since,
+	// `records.archive_changed` when the file store holds another file under the run's key,
+	// `records.amount_too_large` when the year's debits add up to more than an amount holds). A company,
+	// kind and year has one run that is queued or completed: asking again answers that run (200), whoever
+	// asked; after a failed run another may be started (201). Nothing is changed or removed in the ledger
+	// or anywhere else: archiving only writes the file. 503 while the server has no object storage to
+	// write the file to. A tenant without a configuration is 409 `config.not_bootstrapped`; a legal entity
+	// the caller cannot act in is 404, as one that does not exist. Audited
+	// (`records.archiving_run.request`); the completion is audited and published as ArchivingRunCompleted.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/archiving-runs
+	CreateArchivingRun(ctx context.Context, request *ArchivingRunCreate, params CreateArchivingRunParams) (CreateArchivingRunRes, error)
 	// CreateAsset invokes createAsset operation.
 	//
 	// Creates a `planned` asset (ADR-0057 §5, §7, §8, T57b; SAP's asset master record) of a class the
@@ -2057,6 +2083,29 @@ type Invoker interface {
 	//
 	// GET /v1/approval-requests/{id}
 	GetApprovalRequest(ctx context.Context, params GetApprovalRequestParams) (GetApprovalRequestRes, error)
+	// GetArchivingRun invokes getArchivingRun operation.
+	//
+	// One archiving run (ADR-0079 §6, T99b): `queued` until the archiver writes its file, then
+	// `completed` with the file's name, SHA-256 and size and its manifest (the entries' and lines' counts
+	// and the sum of the lines' debits in the company's currency), or `failed` with the problem code that
+	// stopped it. A run of a legal entity the caller cannot act in is not found.
+	//
+	// GET /v1/archiving-runs/{id}
+	GetArchivingRun(ctx context.Context, params GetArchivingRunParams) (GetArchivingRunRes, error)
+	// GetArchivingRunFile invokes getArchivingRunFile operation.
+	//
+	// The archive file of a completed archiving run (ADR-0079 §7, T99b), byte for byte as the archiver
+	// wrote it to object storage, in JSON Lines (`application/x-ndjson`): one journal entry of the year
+	// per line, of every ledger, by posting date, each with its lines, in the form ADR-0079 §7 documents.
+	// Its SHA-256 is the run's `sha256`, checked before it is handed out (409 `records.archive_changed`
+	// when the stored file no longer matches). A run not completed has no file (409
+	// `records.archive_not_completed`). The file holds every entry of the year whole, so besides
+	// `records.archive.run` the caller needs `ledger.entry.read` (`x-also-permissions`). Human-only
+	// (`x-agent: false`). 503 while the server has no object storage or the store does not answer. A run
+	// of a legal entity the caller cannot act in is not found.
+	//
+	// GET /v1/archiving-runs/{id}/file
+	GetArchivingRunFile(ctx context.Context, params GetArchivingRunFileParams) (GetArchivingRunFileRes, error)
 	// GetAsset invokes getAsset operation.
 	//
 	// One asset with its class, centers and depreciation terms per ledger (ADR-0057 §5). An asset of a
@@ -3181,9 +3230,10 @@ type Invoker interface {
 	// company's journal entries) and `personal_data` (the personal data it holds); another is refused (422
 	// `request.validation_failed`, naming `document_kind`). Whether a year is past retention says only
 	// that its documents may be archived or erased by a later step; nothing is archived, changed or
-	// removed here. `year_count` and `past_retention_count` are the totals of the years listed. A tenant
-	// without a configuration is answered 409 `config.not_bootstrapped`. A legal entity the caller cannot
-	// act in is 404, as one that does not exist.
+	// removed here. `archived` says whether a completed archiving run holds the year's documents of the
+	// kind (`createArchivingRun`, T99b). `year_count` and `past_retention_count` are the totals of the
+	// years listed. A tenant without a configuration is answered 409 `config.not_bootstrapped`. A legal
+	// entity the caller cannot act in is 404, as one that does not exist.
 	//
 	// GET /v1/retention-status
 	GetRetentionStatus(ctx context.Context, params GetRetentionStatusParams) (GetRetentionStatusRes, error)
@@ -3495,6 +3545,14 @@ type Invoker interface {
 	//
 	// GET /v1/approval-requests
 	ListApprovalRequests(ctx context.Context, params ListApprovalRequestsParams) (ListApprovalRequestsRes, error)
+	// ListArchivingRuns invokes listArchivingRuns operation.
+	//
+	// The archiving runs (ADR-0079 §6, T99b) of the legal entities the caller may act in, newest first,
+	// filtered by legal entity, document kind, fiscal year and status. Sortable by: `created_at` (default
+	// descending).
+	//
+	// GET /v1/archiving-runs
+	ListArchivingRuns(ctx context.Context, params ListArchivingRunsParams) (ListArchivingRunsRes, error)
 	// ListAssetAcquisitions invokes listAssetAcquisitions operation.
 	//
 	// The asset acquisitions of the legal entities the caller may act in (ADR-0057 §6, T57c), each with
@@ -15142,6 +15200,156 @@ func (c *Client) sendCreateAllocationCycle(ctx context.Context, request *Allocat
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateAllocationCycleResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateArchivingRun invokes createArchivingRun operation.
+//
+// Starts an archiving run (ADR-0079 §6-§8, T99b): a company's documents of one kind and one fiscal
+// year are written to an archive file in object storage with a manifest, and the year reads as
+// `archived` in the retention status. The first version archives journal entries (`document_kind`
+// `journal_entry`); another kind is refused (422 `request.validation_failed`, naming `document_kind`).
+// The year must be past retention under the company's rule in the active configuration version, as
+// `getRetentionStatus` reads it on the company's date (422 `records.year_not_past_retention`; a year
+// not set up, or a company without a rule, is not past retention), and closed: it has posting periods
+// and none of them, regular or special, in any ledger is open (422 `records.year_not_closed`), so its
+// entries cannot change. The run is queued (`queued`) and written by the archiver in the background,
+// as `getArchivingRun` then shows: `completed` with its file's SHA-256, size and manifest, or `failed`
+// with the problem code that stopped it (`identity.principal_blocked` when the requester was blocked
+// or deprovisioned since, `records.year_not_closed` when a period of the year was opened since,
+// `records.archive_changed` when the file store holds another file under the run's key,
+// `records.amount_too_large` when the year's debits add up to more than an amount holds). A company,
+// kind and year has one run that is queued or completed: asking again answers that run (200), whoever
+// asked; after a failed run another may be started (201). Nothing is changed or removed in the ledger
+// or anywhere else: archiving only writes the file. 503 while the server has no object storage to
+// write the file to. A tenant without a configuration is 409 `config.not_bootstrapped`; a legal entity
+// the caller cannot act in is 404, as one that does not exist. Audited
+// (`records.archiving_run.request`); the completion is audited and published as ArchivingRunCompleted.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/archiving-runs
+func (c *Client) CreateArchivingRun(ctx context.Context, request *ArchivingRunCreate, params CreateArchivingRunParams) (CreateArchivingRunRes, error) {
+	res, err := c.sendCreateArchivingRun(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateArchivingRun(ctx context.Context, request *ArchivingRunCreate, params CreateArchivingRunParams) (res CreateArchivingRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createArchivingRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/archiving-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateArchivingRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/archiving-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateArchivingRunRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateArchivingRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateArchivingRunResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -27839,6 +28047,280 @@ func (c *Client) sendGetApprovalRequest(ctx context.Context, params GetApprovalR
 
 	stage = "DecodeResponse"
 	result, err := decodeGetApprovalRequestResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetArchivingRun invokes getArchivingRun operation.
+//
+// One archiving run (ADR-0079 §6, T99b): `queued` until the archiver writes its file, then
+// `completed` with the file's name, SHA-256 and size and its manifest (the entries' and lines' counts
+// and the sum of the lines' debits in the company's currency), or `failed` with the problem code that
+// stopped it. A run of a legal entity the caller cannot act in is not found.
+//
+// GET /v1/archiving-runs/{id}
+func (c *Client) GetArchivingRun(ctx context.Context, params GetArchivingRunParams) (GetArchivingRunRes, error) {
+	res, err := c.sendGetArchivingRun(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetArchivingRun(ctx context.Context, params GetArchivingRunParams) (res GetArchivingRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getArchivingRun"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/archiving-runs/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetArchivingRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/archiving-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetArchivingRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetArchivingRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetArchivingRunFile invokes getArchivingRunFile operation.
+//
+// The archive file of a completed archiving run (ADR-0079 §7, T99b), byte for byte as the archiver
+// wrote it to object storage, in JSON Lines (`application/x-ndjson`): one journal entry of the year
+// per line, of every ledger, by posting date, each with its lines, in the form ADR-0079 §7 documents.
+// Its SHA-256 is the run's `sha256`, checked before it is handed out (409 `records.archive_changed`
+// when the stored file no longer matches). A run not completed has no file (409
+// `records.archive_not_completed`). The file holds every entry of the year whole, so besides
+// `records.archive.run` the caller needs `ledger.entry.read` (`x-also-permissions`). Human-only
+// (`x-agent: false`). 503 while the server has no object storage or the store does not answer. A run
+// of a legal entity the caller cannot act in is not found.
+//
+// GET /v1/archiving-runs/{id}/file
+func (c *Client) GetArchivingRunFile(ctx context.Context, params GetArchivingRunFileParams) (GetArchivingRunFileRes, error) {
+	res, err := c.sendGetArchivingRunFile(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetArchivingRunFile(ctx context.Context, params GetArchivingRunFileParams) (res GetArchivingRunFileRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getArchivingRunFile"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/archiving-runs/{id}/file"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetArchivingRunFileOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/archiving-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/file"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetArchivingRunFileOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetArchivingRunFileResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -40678,9 +41160,10 @@ func (c *Client) sendGetRequisition(ctx context.Context, params GetRequisitionPa
 // company's journal entries) and `personal_data` (the personal data it holds); another is refused (422
 // `request.validation_failed`, naming `document_kind`). Whether a year is past retention says only
 // that its documents may be archived or erased by a later step; nothing is archived, changed or
-// removed here. `year_count` and `past_retention_count` are the totals of the years listed. A tenant
-// without a configuration is answered 409 `config.not_bootstrapped`. A legal entity the caller cannot
-// act in is 404, as one that does not exist.
+// removed here. `archived` says whether a completed archiving run holds the year's documents of the
+// kind (`createArchivingRun`, T99b). `year_count` and `past_retention_count` are the totals of the
+// years listed. A tenant without a configuration is answered 409 `config.not_bootstrapped`. A legal
+// entity the caller cannot act in is 404, as one that does not exist.
 //
 // GET /v1/retention-status
 func (c *Client) GetRetentionStatus(ctx context.Context, params GetRetentionStatusParams) (GetRetentionStatusRes, error) {
@@ -46155,6 +46638,244 @@ func (c *Client) sendListApprovalRequests(ctx context.Context, params ListApprov
 
 	stage = "DecodeResponse"
 	result, err := decodeListApprovalRequestsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListArchivingRuns invokes listArchivingRuns operation.
+//
+// The archiving runs (ADR-0079 §6, T99b) of the legal entities the caller may act in, newest first,
+// filtered by legal entity, document kind, fiscal year and status. Sortable by: `created_at` (default
+// descending).
+//
+// GET /v1/archiving-runs
+func (c *Client) ListArchivingRuns(ctx context.Context, params ListArchivingRunsParams) (ListArchivingRunsRes, error) {
+	res, err := c.sendListArchivingRuns(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListArchivingRuns(ctx context.Context, params ListArchivingRunsParams) (res ListArchivingRunsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listArchivingRuns"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/archiving-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListArchivingRunsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/archiving-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "document_kind" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "document_kind",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.DocumentKind.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalYear.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListArchivingRunsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListArchivingRunsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

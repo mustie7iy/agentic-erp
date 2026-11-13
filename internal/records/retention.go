@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/config"
@@ -20,12 +21,13 @@ import (
 )
 
 // Year is a fiscal year of a company with the day its retention ends
-// under the rule, if there is one, and whether it is past.
+// under the rule, if there is one, whether it is past, and whether a
+// completed archiving run holds its documents of the kind.
 type Year struct {
-	FiscalYear    int16
-	Start, End    time.Time
-	RetentionEnds *time.Time
-	Past          bool
+	FiscalYear     int16
+	Start, End     time.Time
+	RetentionEnds  *time.Time
+	Past, Archived bool
 }
 
 // Status is the retention status of a company's documents of one kind
@@ -67,7 +69,8 @@ func kind(k string) error {
 // configuration and whether that day is past. Without a rule, nothing is
 // past. A legal entity the caller cannot act in is not found.
 func (e *Endpoints) StatusOf(ctx context.Context, legalEntity uuid.UUID, k string) (Status, error) {
-	if _, _, err := reqctx.Request(ctx); err != nil {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
 		return Status{}, err
 	}
 	if err := kind(k); err != nil {
@@ -96,6 +99,10 @@ func (e *Endpoints) StatusOf(ctx context.Context, legalEntity uuid.UUID, k strin
 	if err != nil {
 		return Status{}, fmt.Errorf("records: fiscal years of company %s: %w", le.Code, err)
 	}
+	archived, err := archivedYears(ctx, tx, le, k)
+	if err != nil {
+		return Status{}, err
+	}
 	s := Status{Company: le, Kind: k, Version: version, AsOf: today.Date, Fiscal: make([]Year, len(years))}
 	if co := doc.Company(le.Code); co != nil {
 		if r := co.RetentionFor(k); r != nil {
@@ -103,13 +110,24 @@ func (e *Endpoints) StatusOf(ctx context.Context, legalEntity uuid.UUID, k strin
 		}
 	}
 	for i, y := range years {
-		s.Fiscal[i] = Year{FiscalYear: y.FiscalYear, Start: y.Start, End: y.End}
+		s.Fiscal[i] = Year{FiscalYear: y.FiscalYear, Start: y.Start, End: y.End, Archived: slices.Contains(archived, y.FiscalYear)}
 		if s.Years != nil {
 			ends := config.RetentionEnds(y.End, *s.Years)
 			s.Fiscal[i].RetentionEnds, s.Fiscal[i].Past = &ends, s.AsOf.After(ends)
 		}
 	}
 	return s, nil
+}
+
+// archivedYears are the fiscal years a completed archiving run of the
+// company holds documents of the kind of (T99b).
+func archivedYears(ctx context.Context, tx pgx.Tx, le tenancy.Entity, k string) ([]int16, error) {
+	rows, _ := tx.Query(ctx, `SELECT fiscal_year FROM records.archiving_run WHERE legal_entity_id = $1 AND document_kind = $2 AND status = 'completed'`, le.ID, k)
+	years, err := pgx.CollectRows(rows, pgx.RowTo[int16])
+	if err != nil {
+		return nil, fmt.Errorf("records: archived years of company %s: %w", le.Code, err)
+	}
+	return years, nil
 }
 
 // GetRetentionStatus implements GET /v1/retention-status.
@@ -126,7 +144,7 @@ func (e *Endpoints) GetRetentionStatus(ctx context.Context, params gen.GetRetent
 	}
 	for i, y := range s.Fiscal {
 		out.Years[i] = gen.RetentionYear{FiscalYear: int32(y.FiscalYear), StartDate: y.Start, EndDate: y.End, RetentionEnds: apitypes.OptDate(y.RetentionEnds),
-			PastRetention: y.Past}
+			PastRetention: y.Past, Archived: y.Archived}
 	}
 	return out, nil
 }

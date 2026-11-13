@@ -515,9 +515,11 @@ func Collections(cfg Config) *collections.Endpoints {
 
 // Records is the records management context as the API wires it
 // (ADR-0079 §1): a leaf that reads tenancy's legal entities, the active
-// configuration and the ledger's fiscal calendar through its ports.
+// configuration and the ledger's fiscal calendar and journal through its
+// ports, and writes archive files to the object store (T99b).
 func Records(cfg Config) *records.Endpoints {
-	return &records.Endpoints{LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Calendar: calendar(), Now: cfg.Now}
+	return &records.Endpoints{LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Calendar: calendar(), Journal: ledger.Archive{},
+		Pages: cfg.Pages, Objects: cfg.Objects, Now: cfg.Now}
 }
 
 // Credit is the credit management context as the API wires it (ADR-0066

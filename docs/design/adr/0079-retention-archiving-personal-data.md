@@ -5,7 +5,8 @@ accepted once `go-reviewer` had no blocking finding). It decides the records
 management context and the slices T99a, T99b and T100a to T100c
 (`docs/design/plan-breadth-week3.md`, Lane C), each of which records what
 it built under "As built". T99a builds §1 to §4; §5 states the security
-posture the product owner gave, which the later slices build to.
+posture the product owner gave, which the later slices build to; T99b
+builds §6 to §8.
 
 ## Context
 
@@ -53,9 +54,12 @@ it declares with the types their published APIs give, tenancy's legal
 entities (`LegalEntities`, `tenancy.Directory`), the active configuration
 (`Settings`, `configuration.Settings`) and the ledger's set-up fiscal
 years (`Calendar`, `ledger.Calendar.Years`), wired by `app.Records`. In
-T99a it has no schema and stores nothing: the rules are configuration,
-and the status is computed on read. Its schema, with its outbox, comes
-with the first table it needs (T99b's archiving runs).
+T99a it had no schema and stored nothing: the rules are configuration,
+and the status is computed on read. Its schema, with its outbox, came
+with the first table it needs, T99b's archiving runs (§6), with two more
+ports: the ledger's journal (`Journal`, `ledger.Archive`) and whether a
+requester may still act (`Requesters`, `identity.Actors`), and the
+object store (ADR-0016).
 
 ### 2. Retention rules in the configuration
 
@@ -129,6 +133,84 @@ build deletion before a privacy lawyer has read this ADR, and asked once
 more without blocking (product owner, 2026-11-12). T99b, T100b and T100c
 record what they build under this section in "As built".
 
+### 6. Archiving runs (T99b)
+
+An archiving run archives one company's documents of one kind and one
+fiscal year; the first version archives journal entries. It is asked for
+by a person with `records.archive.run` and is accepted only when:
+
+- the year is past retention under the company's rule in the active
+  configuration, as §3 reads it on the company's date (422
+  `records.year_not_past_retention`; a year not set up, or a company
+  without a rule, is not past retention);
+- the year is closed: it has posting periods and none of them, regular
+  or special, in any of the company's ledgers is open (422
+  `records.year_not_closed`). Postings go only into open periods, so the
+  year's entries cannot change while it stays closed. A year-end close's
+  sign-off locks every period (ADR-0060 §8), which closes the year in this
+  sense; a year whose periods were closed by other means is closed too.
+
+The run is queued (`records.archiving_run`, `queued`) in the request's
+transaction with the rule's years and the configuration version, and
+audited. A company, kind and year has one run that is queued or
+completed: a second request answers it (200), whoever asks; a failed run
+leaves room for another. The archiver (`records.Archiver`), a worker of
+every replica as the cash exporter is (ADR-0051 §14), claims a tenant's
+queued runs in order (`FOR UPDATE SKIP LOCKED`) and, in that one
+transaction: refuses a requester blocked or deprovisioned since the
+request (`identity.principal_blocked`, product owner 2026-11-03), and a
+year opened since (`records.year_not_closed`); builds the file and its
+manifest (§7) from the ledger's one read of the year (`ledger.Archive`,
+one statement, so the entries are those of one moment); writes both to
+object storage under the run's id; and completes the run with the file's
+SHA-256 and size, the manifest's SHA-256 and the counts and debit total,
+audited and published as ArchivingRunCompleted. A refusal fails the run
+with its problem code, audited; the store not answering leaves it queued
+for the next round. Objects are written once (ADR-0016): a round run again
+after a commit whose acknowledgement was lost finds the same bytes under
+the run's keys and takes them as written, so a run has one file and one
+event; other bytes there fail the run (`records.archive_changed`). No row
+of the ledger, the audit trail or any other context is changed or removed
+(§5).
+
+### 7. The archive file and its manifest
+
+The file is JSON Lines (`application/x-ndjson`), named `<run id>.jsonl`
+under the tenant's prefix (`tenants/<tenant>/archives/`): one journal
+entry of the year per line, of every ledger, by posting date and then id,
+each an object with `entry_id`, `ledger` (its code), `document_type`,
+`document_number`, `fiscal_year`, `fiscal_period`, `document_date`,
+`posting_date` (dates `YYYY-MM-DD`), `currency`, `local_currency`,
+`group_currency`, `rate_to_local`, `rate_to_group` (decimal strings as
+stored), `reference`, `header_text`, `source_context`,
+`source_document_id`, `reversal_of_id`, `reversal_of_year`, `posted_at`
+(RFC 3339, UTC), `posted_by` and `lines`; each line has `line_no`,
+`account` (its number), `amount`, `amount_local`, `amount_group` (decimal
+strings in their currency's digits, a debit positive and a credit
+negative), `partner_id`, `tax_code`, `quantity`, `unit` and `text`. A
+value the entry does not have is `null`. The manifest,
+`<run id>.manifest.json` beside it, states the format
+(`agentic-erp.records.journal_entry.v1`), the run, the company, the kind,
+the year, the rule's years, the configuration version, who asked and when,
+the file's name, SHA-256 and size, the counts of entries and lines and the
+sum of the lines' debits in the company's currency (`debit_total`,
+`currency`). Every value of the manifest is the run's or the file's, so a
+run written again writes the same bytes.
+
+### 8. The API and its permission
+
+`POST /v1/archiving-runs` (201 queued, 200 for the run there already; 503
+while the server has no object storage), `GET /v1/archiving-runs`
+(filtered by company, kind, fiscal year and status, newest first),
+`GET /v1/archiving-runs/{id}` and `GET /v1/archiving-runs/{id}/file` (the
+file, checked against the run's SHA-256 before it is handed out, 409
+`records.archive_changed`; 409 `records.archive_not_completed` before the
+run completes; 503 without object storage). All need
+`records.archive.run`; the file holds every entry of the year whole, so it
+also needs `ledger.entry.read`. Starting a run and reading the file are
+human-only (`x-agent: false`). The retention status gives each year's
+`archived`: whether a completed run holds it.
+
 ## Alternatives
 
 - **Retention per document type or per account.** SAP's retention is per
@@ -175,6 +257,24 @@ record what they build under this section in "As built".
 5. The status lists every fiscal year set up for the company, past and
    future, without paging.
 
+## Defaults chosen in T99b (for the product owner's digest)
+
+6. A year is closed for archiving when none of its posting periods,
+   regular or special, in any ledger of the company is open; a signed-off
+   year close is not required.
+7. A second request for a company, kind and year answers the run queued
+   or completed, whoever asks; a failed run may be asked for again.
+8. The archive holds every entry of the year of every ledger, in JSON
+   Lines with amounts as decimal strings; its manifest's debit total is
+   in the company's currency.
+9. Listing and reading runs needs `records.archive.run`; the file needs
+   `ledger.entry.read` besides; starting a run and reading the file are
+   human-only.
+10. The archive files are not locked in object storage (no retention
+    lock): destroying an archive at the end of its retention is "Later",
+    and the tenant's erasure (ADR-0021) erases them with its other
+    objects.
+
 ## Questions
 
 None for the product owner from T99a: questions 2 and 3 of the plan were
@@ -208,3 +308,28 @@ question for the legal specialists before any period is shipped (plan,
   `companies[].retention[]` tier 3, so a change waits for the
   simulation and regression evidence and two approvers; T99a had built
   it tier 2 (`TestRetentionTier`, the walkthrough's `retention_rule`).
+
+### T99b Archiving runs (migration 000310)
+
+- Migration 000310: the schema `records` with its outbox and inbox, the
+  table `records.archiving_run` (§6; its checks, the partial unique index
+  `archiving_run_once`, the trigger `archiving_run_settled_fixed` and the
+  column grants, `db/records_test.go`) and the permission
+  `records.archive.run`.
+- `internal/ledger`: `Archive`, the port's `YearClosed` and `Entries` (one
+  statement over the year's entries and lines).
+- `internal/records`: `RequestRun`, `Run`, `Runs`, `File` and their
+  handlers (`archive.go`, `archive_api.go`); the file and manifest
+  (`archive_file.go`); the worker `Archiver` (`archiver.go`), started by
+  `erp-server` on every replica with object storage; `archived` in the
+  status. `blobstore.KindArchives`. ArchivingRunCompleted in
+  `api/asyncapi.yaml` (not a webhook event).
+- Walkthrough `step_retention` (step 79, `retention_archive`): under the
+  zero-year rule Rhea archives the prior year, closed by step 42's
+  sign-off; the archiver completes the run, the file downloaded matches the
+  run's SHA-256 and has one line per entry, as many as the ledger lists
+  for the year; a second request answers the run; the year reads as
+  archived; the current year is refused as not past retention.
+- Decided by default while building: the defaults 6 to 10 above.
+- Security posture (§5, product owner 2026-11-12): archiving deletes
+  nothing; the run writes two objects and one row of its own.

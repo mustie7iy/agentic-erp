@@ -5974,13 +5974,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Archiving runs",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The records administrator starts an archiving run for a company, a document kind and a fiscal year past retention: its documents are written to an archive file in object storage with a manifest and its SHA-256, and the year reads as archived; nothing is deleted (POST /v1/archiving-runs)",
-        "r": "T99b · docs/design/plan-breadth-week3.md §T99b",
+        "r": "T99b · docs/design/plan-breadth-week3.md §T99b · records.archiving_run, records outbox · db/migrations/000310 · POST/GET /v1/archiving-runs, GET /v1/archiving-runs/{id}, GET /v1/archiving-runs/{id}/file · archived in GET /v1/retention-status · ArchivingRunCompleted · records.archive.run · records.Archiver · ledger.Archive · walkthrough step_retention (retention_archive) · ADR-0079 §6-§8 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

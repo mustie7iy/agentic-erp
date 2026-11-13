@@ -201,6 +201,10 @@ type CreateAllocationCycleRes interface {
 	createAllocationCycleRes()
 }
 
+type CreateArchivingRunRes interface {
+	createArchivingRunRes()
+}
+
 type CreateAssetAcquisitionRes interface {
 	createAssetAcquisitionRes()
 }
@@ -547,6 +551,14 @@ type GetAnalyticsModelRes interface {
 
 type GetApprovalRequestRes interface {
 	getApprovalRequestRes()
+}
+
+type GetArchivingRunFileRes interface {
+	getArchivingRunFileRes()
+}
+
+type GetArchivingRunRes interface {
+	getArchivingRunRes()
 }
 
 type GetAssetAcquisitionRes interface {
@@ -1023,6 +1035,10 @@ type ListAllocationRunsRes interface {
 
 type ListApprovalRequestsRes interface {
 	listApprovalRequestsRes()
+}
+
+type ListArchivingRunsRes interface {
+	listArchivingRunsRes()
 }
 
 type ListAssetAcquisitionsRes interface {

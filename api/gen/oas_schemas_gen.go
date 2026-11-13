@@ -4837,6 +4837,386 @@ type ApproveApprovalRequestUnprocessableEntity Problem
 
 func (*ApproveApprovalRequestUnprocessableEntity) approveApprovalRequestRes() {}
 
+// A completed run's archive file and its manifest (ADR-0079 §7).
+// Ref: #/components/schemas/ArchiveFile
+type ArchiveFile struct {
+	// The file's name, `<run id>.jsonl`; `GET /v1/archiving-runs/{id}/file` downloads it.
+	Name string `json:"name"`
+	// The SHA-256 of the file's content, in hexadecimal; the manifest names it too.
+	SHA256 string `json:"sha256"`
+	// The file's size in bytes.
+	SizeBytes int64 `json:"size_bytes"`
+	// The SHA-256 of the manifest, `<run id>.manifest.json`, kept beside the file in object storage.
+	ManifestSHA256 string `json:"manifest_sha256"`
+	// The journal entries in the file: every entry of the company's fiscal year, of every ledger.
+	EntryCount int32 `json:"entry_count"`
+	// Their lines.
+	LineCount int32 `json:"line_count"`
+	// The sum of the lines' debits in the company's currency.
+	DebitTotal Money `json:"debit_total"`
+}
+
+// GetName returns the value of Name.
+func (s *ArchiveFile) GetName() string {
+	return s.Name
+}
+
+// GetSHA256 returns the value of SHA256.
+func (s *ArchiveFile) GetSHA256() string {
+	return s.SHA256
+}
+
+// GetSizeBytes returns the value of SizeBytes.
+func (s *ArchiveFile) GetSizeBytes() int64 {
+	return s.SizeBytes
+}
+
+// GetManifestSHA256 returns the value of ManifestSHA256.
+func (s *ArchiveFile) GetManifestSHA256() string {
+	return s.ManifestSHA256
+}
+
+// GetEntryCount returns the value of EntryCount.
+func (s *ArchiveFile) GetEntryCount() int32 {
+	return s.EntryCount
+}
+
+// GetLineCount returns the value of LineCount.
+func (s *ArchiveFile) GetLineCount() int32 {
+	return s.LineCount
+}
+
+// GetDebitTotal returns the value of DebitTotal.
+func (s *ArchiveFile) GetDebitTotal() Money {
+	return s.DebitTotal
+}
+
+// SetName sets the value of Name.
+func (s *ArchiveFile) SetName(val string) {
+	s.Name = val
+}
+
+// SetSHA256 sets the value of SHA256.
+func (s *ArchiveFile) SetSHA256(val string) {
+	s.SHA256 = val
+}
+
+// SetSizeBytes sets the value of SizeBytes.
+func (s *ArchiveFile) SetSizeBytes(val int64) {
+	s.SizeBytes = val
+}
+
+// SetManifestSHA256 sets the value of ManifestSHA256.
+func (s *ArchiveFile) SetManifestSHA256(val string) {
+	s.ManifestSHA256 = val
+}
+
+// SetEntryCount sets the value of EntryCount.
+func (s *ArchiveFile) SetEntryCount(val int32) {
+	s.EntryCount = val
+}
+
+// SetLineCount sets the value of LineCount.
+func (s *ArchiveFile) SetLineCount(val int32) {
+	s.LineCount = val
+}
+
+// SetDebitTotal sets the value of DebitTotal.
+func (s *ArchiveFile) SetDebitTotal(val Money) {
+	s.DebitTotal = val
+}
+
+// An archiving run (records, ADR-0079 §6-§8, T99b): a company's documents of one kind and fiscal
+// year written to an archive file in object storage with a manifest. Nothing is deleted.
+// Ref: #/components/schemas/ArchivingRun
+type ArchivingRun struct {
+	// Archiving run id.
+	ID uuid.UUID `json:"id"`
+	// The company (`GET /v1/legal-entities/{id}`).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The kind of document archived. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	DocumentKind string `json:"document_kind"`
+	// The fiscal year archived.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The years of the retention rule that put the year past retention when the run was asked for.
+	RetentionYears int32 `json:"retention_years"`
+	// The active configuration version the rule was read from.
+	ConfigurationVersion int32 `json:"configuration_version"`
+	// `queued` (until the archiver writes its file), `completed` or `failed`. Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	Status string         `json:"status"`
+	File   OptArchiveFile `json:"file"`
+	// Failed: the problem code that stopped the run (`identity.principal_blocked`,
+	// `records.year_not_closed`, `records.archive_changed`, `records.amount_too_large` when the year's
+	// debits add up to more than an amount holds).
+	FailureCode OptString `json:"failure_code"`
+	// When the archiver completed it.
+	CompletedAt OptDateTime `json:"completed_at"`
+	// Who asked for the run.
+	RequestedBy uuid.UUID `json:"requested_by"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *ArchivingRun) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ArchivingRun) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ArchivingRun) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetDocumentKind returns the value of DocumentKind.
+func (s *ArchivingRun) GetDocumentKind() string {
+	return s.DocumentKind
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *ArchivingRun) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetRetentionYears returns the value of RetentionYears.
+func (s *ArchivingRun) GetRetentionYears() int32 {
+	return s.RetentionYears
+}
+
+// GetConfigurationVersion returns the value of ConfigurationVersion.
+func (s *ArchivingRun) GetConfigurationVersion() int32 {
+	return s.ConfigurationVersion
+}
+
+// GetStatus returns the value of Status.
+func (s *ArchivingRun) GetStatus() string {
+	return s.Status
+}
+
+// GetFile returns the value of File.
+func (s *ArchivingRun) GetFile() OptArchiveFile {
+	return s.File
+}
+
+// GetFailureCode returns the value of FailureCode.
+func (s *ArchivingRun) GetFailureCode() OptString {
+	return s.FailureCode
+}
+
+// GetCompletedAt returns the value of CompletedAt.
+func (s *ArchivingRun) GetCompletedAt() OptDateTime {
+	return s.CompletedAt
+}
+
+// GetRequestedBy returns the value of RequestedBy.
+func (s *ArchivingRun) GetRequestedBy() uuid.UUID {
+	return s.RequestedBy
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ArchivingRun) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *ArchivingRun) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *ArchivingRun) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ArchivingRun) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ArchivingRun) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetDocumentKind sets the value of DocumentKind.
+func (s *ArchivingRun) SetDocumentKind(val string) {
+	s.DocumentKind = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *ArchivingRun) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetRetentionYears sets the value of RetentionYears.
+func (s *ArchivingRun) SetRetentionYears(val int32) {
+	s.RetentionYears = val
+}
+
+// SetConfigurationVersion sets the value of ConfigurationVersion.
+func (s *ArchivingRun) SetConfigurationVersion(val int32) {
+	s.ConfigurationVersion = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ArchivingRun) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetFile sets the value of File.
+func (s *ArchivingRun) SetFile(val OptArchiveFile) {
+	s.File = val
+}
+
+// SetFailureCode sets the value of FailureCode.
+func (s *ArchivingRun) SetFailureCode(val OptString) {
+	s.FailureCode = val
+}
+
+// SetCompletedAt sets the value of CompletedAt.
+func (s *ArchivingRun) SetCompletedAt(val OptDateTime) {
+	s.CompletedAt = val
+}
+
+// SetRequestedBy sets the value of RequestedBy.
+func (s *ArchivingRun) SetRequestedBy(val uuid.UUID) {
+	s.RequestedBy = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ArchivingRun) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *ArchivingRun) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+func (*ArchivingRun) createArchivingRunRes() {}
+func (*ArchivingRun) getArchivingRunRes()    {}
+
+// An archiving run to start (ADR-0079 §6): a company, a document kind and a fiscal year past
+// retention.
+// Ref: #/components/schemas/ArchivingRunCreate
+type ArchivingRunCreate struct {
+	// The company whose documents are archived.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The kind of document; the first version archives `journal_entry`. Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	DocumentKind string `json:"document_kind"`
+	// The fiscal year, past retention and closed.
+	FiscalYear int32 `json:"fiscal_year"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ArchivingRunCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetDocumentKind returns the value of DocumentKind.
+func (s *ArchivingRunCreate) GetDocumentKind() string {
+	return s.DocumentKind
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *ArchivingRunCreate) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ArchivingRunCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetDocumentKind sets the value of DocumentKind.
+func (s *ArchivingRunCreate) SetDocumentKind(val string) {
+	s.DocumentKind = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *ArchivingRunCreate) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// ArchivingRunHeaders wraps ArchivingRun with response headers.
+type ArchivingRunHeaders struct {
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           ArchivingRun
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ArchivingRunHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *ArchivingRunHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *ArchivingRunHeaders) GetResponse() ArchivingRun {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ArchivingRunHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *ArchivingRunHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ArchivingRunHeaders) SetResponse(val ArchivingRun) {
+	s.Response = val
+}
+
+func (*ArchivingRunHeaders) createArchivingRunRes() {}
+
+// One page of archiving runs, newest first.
+// Ref: #/components/schemas/ArchivingRunPage
+type ArchivingRunPage struct {
+	// The runs on this page.
+	Items []ArchivingRun `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ArchivingRunPage) GetItems() []ArchivingRun {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ArchivingRunPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ArchivingRunPage) SetItems(val []ArchivingRun) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ArchivingRunPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ArchivingRunPage) listArchivingRunsRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/Asset
 type Asset struct {
@@ -24434,6 +24814,7 @@ func (*ConflictHeaders) confirmReturnsOrderRes()                   {}
 func (*ConflictHeaders) confirmSalesDeliveryRes()                  {}
 func (*ConflictHeaders) confirmSalesOrderRes()                     {}
 func (*ConflictHeaders) createAllocationCycleRes()                 {}
+func (*ConflictHeaders) createArchivingRunRes()                    {}
 func (*ConflictHeaders) createAssetAcquisitionRes()                {}
 func (*ConflictHeaders) createAssetRes()                           {}
 func (*ConflictHeaders) createAssetRetirementRes()                 {}
@@ -24511,6 +24892,7 @@ func (*ConflictHeaders) fileTaxReturnRes()                         {}
 func (*ConflictHeaders) finalizeConsolidationRunRes()              {}
 func (*ConflictHeaders) getAccrualProposalRes()                    {}
 func (*ConflictHeaders) getAnalyticsModelRes()                     {}
+func (*ConflictHeaders) getArchivingRunFileRes()                   {}
 func (*ConflictHeaders) getBankFileContentRes()                    {}
 func (*ConflictHeaders) getCloseCalendarRes()                      {}
 func (*ConflictHeaders) getConsolidatedStatementRes()              {}
@@ -30910,6 +31292,26 @@ func (*CreateAllocationCyclePreconditionRequired) createAllocationCycleRes() {}
 type CreateAllocationCycleUnprocessableEntity Problem
 
 func (*CreateAllocationCycleUnprocessableEntity) createAllocationCycleRes() {}
+
+type CreateArchivingRunBadRequest Problem
+
+func (*CreateArchivingRunBadRequest) createArchivingRunRes() {}
+
+type CreateArchivingRunForbidden Problem
+
+func (*CreateArchivingRunForbidden) createArchivingRunRes() {}
+
+type CreateArchivingRunNotFound Problem
+
+func (*CreateArchivingRunNotFound) createArchivingRunRes() {}
+
+type CreateArchivingRunPreconditionRequired Problem
+
+func (*CreateArchivingRunPreconditionRequired) createArchivingRunRes() {}
+
+type CreateArchivingRunUnprocessableEntity Problem
+
+func (*CreateArchivingRunUnprocessableEntity) createArchivingRunRes() {}
 
 type CreateAssetAcquisitionBadRequest Problem
 
@@ -40114,6 +40516,47 @@ func (*GetApprovalRequestForbidden) getApprovalRequestRes() {}
 type GetApprovalRequestNotFound Problem
 
 func (*GetApprovalRequestNotFound) getApprovalRequestRes() {}
+
+type GetArchivingRunBadRequest Problem
+
+func (*GetArchivingRunBadRequest) getArchivingRunRes() {}
+
+type GetArchivingRunFileBadRequest Problem
+
+func (*GetArchivingRunFileBadRequest) getArchivingRunFileRes() {}
+
+type GetArchivingRunFileForbidden Problem
+
+func (*GetArchivingRunFileForbidden) getArchivingRunFileRes() {}
+
+type GetArchivingRunFileNotFound Problem
+
+func (*GetArchivingRunFileNotFound) getArchivingRunFileRes() {}
+
+// The file's bytes.
+type GetArchivingRunFileOK struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetArchivingRunFileOK) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+func (*GetArchivingRunFileOK) getArchivingRunFileRes() {}
+
+type GetArchivingRunForbidden Problem
+
+func (*GetArchivingRunForbidden) getArchivingRunRes() {}
+
+type GetArchivingRunNotFound Problem
+
+func (*GetArchivingRunNotFound) getArchivingRunRes() {}
 
 type GetAssetAcquisitionBadRequest Problem
 
@@ -52448,6 +52891,14 @@ type ListApprovalRequestsForbidden Problem
 
 func (*ListApprovalRequestsForbidden) listApprovalRequestsRes() {}
 
+type ListArchivingRunsBadRequest Problem
+
+func (*ListArchivingRunsBadRequest) listArchivingRunsRes() {}
+
+type ListArchivingRunsForbidden Problem
+
+func (*ListArchivingRunsForbidden) listArchivingRunsRes() {}
+
 type ListAssetAcquisitionsBadRequest Problem
 
 func (*ListAssetAcquisitionsBadRequest) listAssetAcquisitionsRes() {}
@@ -58248,6 +58699,52 @@ func (o OptAnalyticsDerived) Get() (v AnalyticsDerived, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAnalyticsDerived) Or(d AnalyticsDerived) AnalyticsDerived {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptArchiveFile returns new OptArchiveFile with value set to v.
+func NewOptArchiveFile(v ArchiveFile) OptArchiveFile {
+	return OptArchiveFile{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptArchiveFile is optional ArchiveFile.
+type OptArchiveFile struct {
+	Value ArchiveFile
+	Set   bool
+}
+
+// IsSet returns true if OptArchiveFile was set.
+func (o OptArchiveFile) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptArchiveFile) Reset() {
+	var v ArchiveFile
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptArchiveFile) SetTo(v ArchiveFile) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptArchiveFile) Get() (v ArchiveFile, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptArchiveFile) Or(d ArchiveFile) ArchiveFile {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -75026,6 +75523,9 @@ type RetentionYear struct {
 	RetentionEnds OptDate `json:"retention_ends"`
 	// Whether `as_of` is after `retention_ends`; false without a rule.
 	PastRetention bool `json:"past_retention"`
+	// Whether a completed archiving run holds the year's documents of the kind (`listArchivingRuns`,
+	// T99b); they are still in the database, since archiving deletes nothing.
+	Archived bool `json:"archived"`
 }
 
 // GetFiscalYear returns the value of FiscalYear.
@@ -75053,6 +75553,11 @@ func (s *RetentionYear) GetPastRetention() bool {
 	return s.PastRetention
 }
 
+// GetArchived returns the value of Archived.
+func (s *RetentionYear) GetArchived() bool {
+	return s.Archived
+}
+
 // SetFiscalYear sets the value of FiscalYear.
 func (s *RetentionYear) SetFiscalYear(val int32) {
 	s.FiscalYear = val
@@ -75076,6 +75581,11 @@ func (s *RetentionYear) SetRetentionEnds(val OptDate) {
 // SetPastRetention sets the value of PastRetention.
 func (s *RetentionYear) SetPastRetention(val bool) {
 	s.PastRetention = val
+}
+
+// SetArchived sets the value of Archived.
+func (s *RetentionYear) SetArchived(val bool) {
+	s.Archived = val
 }
 
 type RetireCatalogItemBadRequest Problem
@@ -82817,6 +83327,7 @@ func (*ServiceUnavailableHeaders) closePurchaseOrderRes()                    {}
 func (*ServiceUnavailableHeaders) completeCloseTaskRes()                     {}
 func (*ServiceUnavailableHeaders) completeYearCloseTaskRes()                 {}
 func (*ServiceUnavailableHeaders) createAllocationCycleRes()                 {}
+func (*ServiceUnavailableHeaders) createArchivingRunRes()                    {}
 func (*ServiceUnavailableHeaders) createAssetAcquisitionRes()                {}
 func (*ServiceUnavailableHeaders) createAssetRes()                           {}
 func (*ServiceUnavailableHeaders) createAssetRetirementRes()                 {}
@@ -82875,6 +83386,7 @@ func (*ServiceUnavailableHeaders) endSodRuleRes()                            {}
 func (*ServiceUnavailableHeaders) excludeBankStatementLineRes()              {}
 func (*ServiceUnavailableHeaders) fetchEInvoicesRes()                        {}
 func (*ServiceUnavailableHeaders) fileTaxReturnRes()                         {}
+func (*ServiceUnavailableHeaders) getArchivingRunFileRes()                   {}
 func (*ServiceUnavailableHeaders) getBankStatementFileRes()                  {}
 func (*ServiceUnavailableHeaders) getEInvoiceContentRes()                    {}
 func (*ServiceUnavailableHeaders) getSupplierInvoiceDocumentRes()            {}
@@ -87939,6 +88451,7 @@ func (*TooManyRequestsHeaders) confirmReturnsOrderRes()                   {}
 func (*TooManyRequestsHeaders) confirmSalesDeliveryRes()                  {}
 func (*TooManyRequestsHeaders) confirmSalesOrderRes()                     {}
 func (*TooManyRequestsHeaders) createAllocationCycleRes()                 {}
+func (*TooManyRequestsHeaders) createArchivingRunRes()                    {}
 func (*TooManyRequestsHeaders) createAssetAcquisitionRes()                {}
 func (*TooManyRequestsHeaders) createAssetRes()                           {}
 func (*TooManyRequestsHeaders) createAssetRetirementRes()                 {}
@@ -88026,6 +88539,8 @@ func (*TooManyRequestsHeaders) getAllocationCycleRes()                    {}
 func (*TooManyRequestsHeaders) getAllocationRunRes()                      {}
 func (*TooManyRequestsHeaders) getAnalyticsModelRes()                     {}
 func (*TooManyRequestsHeaders) getApprovalRequestRes()                    {}
+func (*TooManyRequestsHeaders) getArchivingRunFileRes()                   {}
+func (*TooManyRequestsHeaders) getArchivingRunRes()                       {}
 func (*TooManyRequestsHeaders) getAssetAcquisitionRes()                   {}
 func (*TooManyRequestsHeaders) getAssetHistorySheetRes()                  {}
 func (*TooManyRequestsHeaders) getAssetOrderExpensesRes()                 {}
@@ -88145,6 +88660,7 @@ func (*TooManyRequestsHeaders) listAgentToolCallsRes()                    {}
 func (*TooManyRequestsHeaders) listAllocationCyclesRes()                  {}
 func (*TooManyRequestsHeaders) listAllocationRunsRes()                    {}
 func (*TooManyRequestsHeaders) listApprovalRequestsRes()                  {}
+func (*TooManyRequestsHeaders) listArchivingRunsRes()                     {}
 func (*TooManyRequestsHeaders) listAssetAcquisitionsRes()                 {}
 func (*TooManyRequestsHeaders) listAssetClassesRes()                      {}
 func (*TooManyRequestsHeaders) listAssetClearingItemsRes()                {}
@@ -88754,6 +89270,7 @@ func (*UnauthorizedHeaders) confirmReturnsOrderRes()                   {}
 func (*UnauthorizedHeaders) confirmSalesDeliveryRes()                  {}
 func (*UnauthorizedHeaders) confirmSalesOrderRes()                     {}
 func (*UnauthorizedHeaders) createAllocationCycleRes()                 {}
+func (*UnauthorizedHeaders) createArchivingRunRes()                    {}
 func (*UnauthorizedHeaders) createAssetAcquisitionRes()                {}
 func (*UnauthorizedHeaders) createAssetRes()                           {}
 func (*UnauthorizedHeaders) createAssetRetirementRes()                 {}
@@ -88841,6 +89358,8 @@ func (*UnauthorizedHeaders) getAllocationCycleRes()                    {}
 func (*UnauthorizedHeaders) getAllocationRunRes()                      {}
 func (*UnauthorizedHeaders) getAnalyticsModelRes()                     {}
 func (*UnauthorizedHeaders) getApprovalRequestRes()                    {}
+func (*UnauthorizedHeaders) getArchivingRunFileRes()                   {}
+func (*UnauthorizedHeaders) getArchivingRunRes()                       {}
 func (*UnauthorizedHeaders) getAssetAcquisitionRes()                   {}
 func (*UnauthorizedHeaders) getAssetHistorySheetRes()                  {}
 func (*UnauthorizedHeaders) getAssetOrderExpensesRes()                 {}
@@ -88960,6 +89479,7 @@ func (*UnauthorizedHeaders) listAgentToolCallsRes()                    {}
 func (*UnauthorizedHeaders) listAllocationCyclesRes()                  {}
 func (*UnauthorizedHeaders) listAllocationRunsRes()                    {}
 func (*UnauthorizedHeaders) listApprovalRequestsRes()                  {}
+func (*UnauthorizedHeaders) listArchivingRunsRes()                     {}
 func (*UnauthorizedHeaders) listAssetAcquisitionsRes()                 {}
 func (*UnauthorizedHeaders) listAssetClassesRes()                      {}
 func (*UnauthorizedHeaders) listAssetClearingItemsRes()                {}

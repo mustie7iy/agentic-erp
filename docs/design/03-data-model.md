@@ -5197,12 +5197,41 @@ erDiagram
 
 ## 3.32 Records management (`records`)
 
-ADR-0079, T99a (migration 000309). A leaf: it reads tenancy's legal
-entities, the configuration's retention rules (`companies[].retention[]`, described
-with the configuration document above) and the ledger's fiscal years through
-its ports. It has no table yet: the retention status is computed on read
-from the fiscal periods' dates (`ledger.fiscal_period`, through
-`ledger.Calendar.Years`) and the rule's years, and the context's schema
-comes with the archiving runs (T99b).
+ADR-0079, T99a (migration 000309), T99b (migration 000310). A leaf: it
+reads tenancy's legal entities, the configuration's retention rules
+(`companies[].retention[]`, described with the configuration document above)
+and the ledger's fiscal years and journal through its ports. The retention
+status is computed on read from the fiscal periods' dates
+(`ledger.fiscal_period`, through `ledger.Calendar.Years`), the rule's years
+and the completed archiving runs (`archived`). The schema `records` holds
+the archiving runs and the context's outbox and inbox.
 
-- Permission `records.retention.read`.
+```
+records.archiving_run  (tenant_id, id, legal_entity_id, document_kind, fiscal_year, retention_years, config_version,
+                        status, object_key, manifest_key, sha256, manifest_sha256, size_bytes, entry_count, line_count,
+                        debit_total, currency, failure_code, completed_at, requested_by, created_at, updated_at, version)
+```
+
+- An archiving run (ADR-0079 §6, T99b) archives one company's documents of
+  one kind (`journal_entry` only, `archiving_run_kind_check`) and one fiscal
+  year (1900 to 9999), with the rule's `retention_years` (0 to 99) and the
+  configuration version that put the year past retention. It is `queued`,
+  then `completed` or `failed` (`archiving_run_status_check`); either is its
+  last change (trigger `archiving_run_settled_fixed`, which holds for the
+  owner too), and the application may set only the settling columns
+  (column grants: what a run is for and who asked never change) and
+  deletes none. One run of a company, kind and year that is not failed
+  (`archiving_run_once`, a partial unique index): a second request answers
+  it, and a failed run leaves room for another.
+- A completed run names its file (`object_key`,
+  `tenants/<tenant>/archives/<run id>.jsonl`) and manifest (`manifest_key`,
+  `<run id>.manifest.json`) in object storage, their SHA-256 (32 bytes
+  each), the file's size, the counts of entries and lines and the sum of the
+  lines' debits in the company's currency, minor units, never negative, and
+  when it completed; a run that is not completed has none of them
+  (`archiving_run_completed_check`, `archiving_run_file_check`). A failed
+  run has its problem code (`archiving_run_failed_check`).
+- The archiver claims a tenant's queued runs by `archiving_run_queued`
+  (`FOR UPDATE SKIP LOCKED`); the worker role reads `tenant_id` and `status`
+  across tenants to find them. The list reads `archiving_run_by_created`.
+- Permissions `records.retention.read`, `records.archive.run`.
