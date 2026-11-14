@@ -11,8 +11,10 @@ import (
 // Leases is the lease accounting context as the API wires it (ADR-0073
 // §1): a leaf that reads tenancy, the partner context's suppliers and
 // names, the ledger's cost centers and calendar and the configuration's
-// number ranges and company dates through its ports.
+// number ranges and company dates through its ports, and posts through the
+// ledger's posting port with the account determination's accounts.
 func Leases(cfg Config) *leases.Endpoints {
 	return &leases.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Lessors: partner.Suppliers{}, Partners: partner.Payees{},
-		CostCenters: ledger.AssignmentBalances{}, Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{}, Now: cfg.Now}
+		CostCenters: ledger.AssignmentBalances{}, Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{},
+		Postings: postings(), Accounts: ledger.Accounts{}, Now: cfg.Now}
 }

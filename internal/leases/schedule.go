@@ -1,6 +1,7 @@
 package leases
 
 import (
+	"math/big"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
@@ -52,4 +53,94 @@ func (t Terms) Payments(amount money.Minor) []Payment {
 		out[i] = Payment{No: int32(i + 1), Due: due, Amount: amount}
 	}
 	return out
+}
+
+// Line is a line of a contract's schedule (ADR-0073 §8): one payment
+// interval, numbered as its payment, with the liability at its start and
+// end, the payment due in it and the interest, and the right-of-use
+// asset's depreciation and carrying amount at its end, in minor units of
+// the contract's currency.
+type Line struct {
+	No                 int32
+	Start, End         time.Time
+	PaymentDate        time.Time
+	Opening, Payment   money.Minor
+	Interest, Closing  money.Minor
+	Depreciation       money.Minor
+	RightOfUseCarrying money.Minor
+}
+
+// Schedule is a contract's schedule: the lease liability at commencement,
+// a payment due on the commencement date, the right-of-use asset, which
+// is both, and the lines.
+type Schedule struct {
+	Liability, CommencementPayment, RightOfUse money.Minor
+	Lines                                      []Line
+}
+
+// perYear is the number of payments a year, by which the annual rate is
+// divided into a period's (default 6).
+func (t Terms) perYear() int { return 12 / t.Interval }
+
+// Schedule computes the contract's schedule from its payments, one per
+// interval in order, and its annual discount rate in percent (ADR-0073
+// §8; IFRS 16 as §2's statements 2 to 5 take it, not yet confirmed). The
+// period's rate r is the annual rate divided by the payments a year
+// (default 6). From the last interval back, the exact present value at
+// each interval's end of the payments still to come is a rational:
+// (that of the next interval's end + its payment) / (1 + r) in arrears,
+// its payment + that / (1 + r) in advance, where the payment due at an
+// interval's start is still to come at the end of the interval before.
+// Each is rounded half away from zero to the minor unit once: the closing
+// liabilities, the last zero. The present value at commencement, rounded,
+// is the first opening liability: in advance it holds the payment due on
+// the commencement date, which is not part of the lease liability and is
+// added to the right-of-use asset (default 6); the right-of-use asset is
+// that opening liability. A line's interest is its closing liability less
+// its opening plus its payment, so no rounding difference is carried
+// forward. The depreciation is the right-of-use asset on a straight line,
+// shared out with money.Allocate so the shares add up to it exactly.
+func (t Terms) Schedule(payments []Payment, annualRate *big.Rat) Schedule {
+	growth := new(big.Rat).Mul(annualRate, big.NewRat(int64(t.Interval), 1200))
+	growth.Add(growth, big.NewRat(1, 1))
+	n := len(payments)
+	exact := make([]*big.Rat, n+1)
+	exact[n] = new(big.Rat)
+	for k := n; k >= 1; k-- {
+		p := new(big.Rat).SetInt64(int64(payments[k-1].Amount))
+		later := new(big.Rat).Quo(exact[k], growth)
+		if t.Timing == Arrears {
+			exact[k-1] = later.Add(later, new(big.Rat).Quo(p, growth))
+		} else {
+			exact[k-1] = later.Add(later, p)
+		}
+	}
+	balances := make([]money.Minor, n+1)
+	for k, x := range exact {
+		// A present value at a positive rate is not above the payments' sum,
+		// which a contract holds within an amount's range (Create), so it
+		// rounds in range.
+		balances[k], _ = money.Round(x, 0)
+	}
+	s := Schedule{RightOfUse: balances[0], Liability: balances[0]}
+	if t.Timing == Advance {
+		s.CommencementPayment = payments[0].Amount
+		s.Liability -= s.CommencementPayment
+	}
+	shares := make([]*big.Rat, n)
+	for i := range shares {
+		shares[i] = big.NewRat(int64(s.RightOfUse), int64(n))
+	}
+	// The shares add up to the right-of-use asset, an amount in range, so
+	// neither their sum nor one of them is out of range.
+	depreciation, _ := money.Allocate(shares)
+	s.Lines = make([]Line, n)
+	carrying := s.RightOfUse
+	for k := range n {
+		carrying -= depreciation[k]
+		s.Lines[k] = Line{No: payments[k].No, Start: t.start(k), End: t.start(k+1).AddDate(0, 0, -1), PaymentDate: payments[k].Due,
+			Opening: balances[k], Payment: payments[k].Amount, Interest: balances[k+1] - balances[k] + payments[k].Amount, Closing: balances[k+1],
+			Depreciation: depreciation[k], RightOfUseCarrying: carrying}
+	}
+	return s
 }

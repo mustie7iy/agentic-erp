@@ -151,6 +151,24 @@ type Invoker interface {
 	//
 	// POST /v1/change-requests/{id}:activate
 	ActivateChangeRequest(ctx context.Context, params ActivateChangeRequestParams) (ActivateChangeRequestRes, error)
+	// ActivateLeaseContract invokes activateLeaseContract operation.
+	//
+	// Activates a `draft` lease contract (ADR-0073 §7, T88b), at the version the caller read
+	// (`If-Match`): the contract is read under a row lock and moves to `active` once; a second activation
+	// is refused (409 `leases.invalid_status`). Its schedule (`getLeaseSchedule`) is computed and stored,
+	// so what later runs post is what was shown, and one journal entry is posted on the commencement date
+	// (document type `SA`, `source_context` `leases`): the right-of-use asset debited to the company's
+	// `right_of_use_asset` account and credited to its `lease_liability` account, both with the
+	// right-of-use amount, the lease liability at commencement and a payment due on the commencement date.
+	// The company's account determination must have both accounts (422 `leases.no_lease_accounts`, naming
+	// the keys missing). The commencement date must be in an open period of a fiscal year that is set up
+	// (409 `ledger.period_not_open`, 422 `ledger.no_fiscal_period`). The contract then names the
+	// liability, the right-of-use amount and the entry (`journal_entry_id`, `journal_entry_year`,
+	// `journal_entry_number`), and is fixed. Audited, and published as LeaseContractChanged. A retry with
+	// the same `Idempotency-Key` answers the active contract. Human-only (`x-agent: false`).
+	//
+	// POST /v1/lease-contracts/{id}:activate
+	ActivateLeaseContract(ctx context.Context, params ActivateLeaseContractParams) (ActivateLeaseContractRes, error)
 	// ActivateLegalEntity invokes activateLegalEntity operation.
 	//
 	// Makes a new legal entity usable for postings and documents. Requires status `inactive`.
@@ -2841,6 +2859,31 @@ type Invoker interface {
 	//
 	// GET /v1/lease-contracts/{id}
 	GetLeaseContract(ctx context.Context, params GetLeaseContractParams) (GetLeaseContractRes, error)
+	// GetLeaseSchedule invokes getLeaseSchedule operation.
+	//
+	// The schedule of one lease contract (ADR-0073 §8, T88b): the lease liability at commencement, the
+	// present value of the payments not paid on the commencement date, each discounted from its date at
+	// the period's rate, the annual discount rate divided by the payments a year (`payments_per_year`); a
+	// payment due on the commencement date (`commencement_payment`, in advance) is not in it and is added
+	// to the right-of-use asset, which is the liability and that payment. Then one line per payment
+	// interval, numbered as its payment: the liability at the interval's start (`opening_liability`; the
+	// first holds the commencement payment, which the activation credits to the liability too until the
+	// lessor's invoice for it is posted), the payment due in it, the interest, the liability at its end
+	// (`closing_liability`) and the right-of-use asset's depreciation on a straight line with its carrying
+	// amount at the interval's end. Each closing liability is the exact present value of the payments
+	// still to come, rounded half away from zero to the minor unit once, and the interest is the closing
+	// liability less the opening plus the payment: the period's rate × the balance outstanding during it
+	// (the opening balance for payments in arrears, the opening balance less the period's payment in
+	// advance, so the first payment in advance bears none), without a rounding difference carried from
+	// line to line; the last line's closing liability is zero. The depreciation's shares add up to the
+	// right-of-use asset exactly, a minor unit left by the rounding going to the earliest lines. `totals`
+	// sums the payments, the interest and the depreciation. A `draft` contract's schedule is computed on
+	// read from its payments; an `active` contract's is the one stored when it was activated, which later
+	// runs post from. Amounts are in the contract's currency. One of a company the caller may not act in
+	// is not found (404), as one that does not exist.
+	//
+	// GET /v1/lease-contracts/{id}/schedule
+	GetLeaseSchedule(ctx context.Context, params GetLeaseScheduleParams) (GetLeaseScheduleRes, error)
 	// GetLegalEntity invokes getLegalEntity operation.
 	//
 	// Returns one legal entity.
@@ -4189,8 +4232,9 @@ type Invoker interface {
 	//
 	// The lease contracts of the companies the caller may act in (ADR-0073 §3, T88a), each as
 	// `getLeaseContract` gives it but without its `payments`: with its company's code and name, its
-	// lessor's number and name, its cost center's code, its terms and the number and total of its
-	// payments. Filtered by company, lessor and status. Sortable by: `document_number`.
+	// lessor's number and name, its cost center's code, its terms, the number and total of its payments
+	// and, once it is `active`, what its activation posted. Filtered by company, lessor and status.
+	// Sortable by: `document_number`.
 	//
 	// GET /v1/lease-contracts
 	ListLeaseContracts(ctx context.Context, params ListLeaseContractsParams) (ListLeaseContractsRes, error)
@@ -8093,6 +8137,175 @@ func (c *Client) sendActivateChangeRequest(ctx context.Context, params ActivateC
 
 	stage = "DecodeResponse"
 	result, err := decodeActivateChangeRequestResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ActivateLeaseContract invokes activateLeaseContract operation.
+//
+// Activates a `draft` lease contract (ADR-0073 §7, T88b), at the version the caller read
+// (`If-Match`): the contract is read under a row lock and moves to `active` once; a second activation
+// is refused (409 `leases.invalid_status`). Its schedule (`getLeaseSchedule`) is computed and stored,
+// so what later runs post is what was shown, and one journal entry is posted on the commencement date
+// (document type `SA`, `source_context` `leases`): the right-of-use asset debited to the company's
+// `right_of_use_asset` account and credited to its `lease_liability` account, both with the
+// right-of-use amount, the lease liability at commencement and a payment due on the commencement date.
+// The company's account determination must have both accounts (422 `leases.no_lease_accounts`, naming
+// the keys missing). The commencement date must be in an open period of a fiscal year that is set up
+// (409 `ledger.period_not_open`, 422 `ledger.no_fiscal_period`). The contract then names the
+// liability, the right-of-use amount and the entry (`journal_entry_id`, `journal_entry_year`,
+// `journal_entry_number`), and is fixed. Audited, and published as LeaseContractChanged. A retry with
+// the same `Idempotency-Key` answers the active contract. Human-only (`x-agent: false`).
+//
+// POST /v1/lease-contracts/{id}:activate
+func (c *Client) ActivateLeaseContract(ctx context.Context, params ActivateLeaseContractParams) (ActivateLeaseContractRes, error) {
+	res, err := c.sendActivateLeaseContract(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendActivateLeaseContract(ctx context.Context, params ActivateLeaseContractParams) (res ActivateLeaseContractRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("activateLeaseContract"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/lease-contracts/{id}:activate"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ActivateLeaseContractOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/lease-contracts/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":activate"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ActivateLeaseContractOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeActivateLeaseContractResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -36634,6 +36847,157 @@ func (c *Client) sendGetLeaseContract(ctx context.Context, params GetLeaseContra
 	return result, nil
 }
 
+// GetLeaseSchedule invokes getLeaseSchedule operation.
+//
+// The schedule of one lease contract (ADR-0073 §8, T88b): the lease liability at commencement, the
+// present value of the payments not paid on the commencement date, each discounted from its date at
+// the period's rate, the annual discount rate divided by the payments a year (`payments_per_year`); a
+// payment due on the commencement date (`commencement_payment`, in advance) is not in it and is added
+// to the right-of-use asset, which is the liability and that payment. Then one line per payment
+// interval, numbered as its payment: the liability at the interval's start (`opening_liability`; the
+// first holds the commencement payment, which the activation credits to the liability too until the
+// lessor's invoice for it is posted), the payment due in it, the interest, the liability at its end
+// (`closing_liability`) and the right-of-use asset's depreciation on a straight line with its carrying
+// amount at the interval's end. Each closing liability is the exact present value of the payments
+// still to come, rounded half away from zero to the minor unit once, and the interest is the closing
+// liability less the opening plus the payment: the period's rate × the balance outstanding during it
+// (the opening balance for payments in arrears, the opening balance less the period's payment in
+// advance, so the first payment in advance bears none), without a rounding difference carried from
+// line to line; the last line's closing liability is zero. The depreciation's shares add up to the
+// right-of-use asset exactly, a minor unit left by the rounding going to the earliest lines. `totals`
+// sums the payments, the interest and the depreciation. A `draft` contract's schedule is computed on
+// read from its payments; an `active` contract's is the one stored when it was activated, which later
+// runs post from. Amounts are in the contract's currency. One of a company the caller may not act in
+// is not found (404), as one that does not exist.
+//
+// GET /v1/lease-contracts/{id}/schedule
+func (c *Client) GetLeaseSchedule(ctx context.Context, params GetLeaseScheduleParams) (GetLeaseScheduleRes, error) {
+	res, err := c.sendGetLeaseSchedule(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetLeaseSchedule(ctx context.Context, params GetLeaseScheduleParams) (res GetLeaseScheduleRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getLeaseSchedule"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/lease-contracts/{id}/schedule"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetLeaseScheduleOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/lease-contracts/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/schedule"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetLeaseScheduleOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetLeaseScheduleResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetLegalEntity invokes getLegalEntity operation.
 //
 // Returns one legal entity.
@@ -61550,8 +61914,9 @@ func (c *Client) sendListJournalEntries(ctx context.Context, params ListJournalE
 //
 // The lease contracts of the companies the caller may act in (ADR-0073 §3, T88a), each as
 // `getLeaseContract` gives it but without its `payments`: with its company's code and name, its
-// lessor's number and name, its cost center's code, its terms and the number and total of its
-// payments. Filtered by company, lessor and status. Sortable by: `document_number`.
+// lessor's number and name, its cost center's code, its terms, the number and total of its payments
+// and, once it is `active`, what its activation posted. Filtered by company, lessor and status.
+// Sortable by: `document_number`.
 //
 // GET /v1/lease-contracts
 func (c *Client) ListLeaseContracts(ctx context.Context, params ListLeaseContractsParams) (ListLeaseContractsRes, error) {

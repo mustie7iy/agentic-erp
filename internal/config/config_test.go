@@ -213,6 +213,14 @@ func TestValidationRules(t *testing.T) {
 		{"down payment account unknown", func(c *Config) { c.Companies[0].AccountDetermination.DownPayment = "159000" }, "companies[1000].account_determination.down_payment"},
 		{"down payment account not reconciliation", func(c *Config) { c.Companies[0].AccountDetermination.DownPayment = "100000" }, "companies[1000].account_determination.down_payment"},
 		{"down payment account a liability", func(c *Config) { c.Companies[0].AccountDetermination.DownPayment = "211000" }, "companies[1000].account_determination.down_payment"},
+		{"right-of-use account unknown", func(c *Config) { c.Companies[0].AccountDetermination.RightOfUseAsset = "160000" },
+			"companies[1000].account_determination.right_of_use_asset"},
+		{"right-of-use account an expense", func(c *Config) { c.Companies[0].AccountDetermination.RightOfUseAsset = "520000" },
+			"companies[1000].account_determination.right_of_use_asset"},
+		{"lease liability an asset", func(c *Config) { c.Companies[0].AccountDetermination.LeaseLiability = "100000" },
+			"companies[1000].account_determination.lease_liability"},
+		{"lease liability reconciles suppliers", func(c *Config) { c.Companies[0].AccountDetermination.LeaseLiability = "211000" },
+			"companies[1000].account_determination.lease_liability"},
 		{"asset reconciliation account not for down payments", func(c *Config) {
 			c.Companies[0].ChartOfAccounts = append(c.Companies[0].ChartOfAccounts, Account{Number: "159000", Name: "Advances", Type: Asset, VendorReconciliation: true})
 		}, "companies[1000].chart_of_accounts[159000]"},
@@ -512,6 +520,29 @@ func TestDownPaymentAccountValid(t *testing.T) {
 	co.AccountDetermination.DownPayment = "159000"
 	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
 		t.Fatalf("down payment account: got %v, want no errors", fs)
+	}
+}
+
+// TestLeaseAccountsValid (T88b; ADR-0073 §7): a company's right-of-use
+// asset and lease liability accounts are an asset and a liability that
+// reconcile nothing, and are among the accounts the system posts to.
+func TestLeaseAccountsValid(t *testing.T) {
+	c := fixture(t)
+	co := &c.Companies[0]
+	co.ChartOfAccounts = append(co.ChartOfAccounts, Account{Number: "160000", Name: "Right-of-use assets", Type: Asset},
+		Account{Number: "260000", Name: "Lease liabilities", Type: Liability})
+	co.AccountDetermination.RightOfUseAsset, co.AccountDetermination.LeaseLiability = "160000", "260000"
+	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
+		t.Fatalf("lease accounts: got %v, want no errors", fs)
+	}
+	var automatic []string
+	for _, a := range co.AutomaticAccounts() {
+		if a.Account == "160000" || a.Account == "260000" {
+			automatic = append(automatic, a.Path+" "+a.Account)
+		}
+	}
+	if got, want := strings.Join(automatic, ", "), "account_determination.right_of_use_asset 160000, account_determination.lease_liability 260000"; got != want {
+		t.Errorf("automatic accounts: got %s, want %s", got, want)
 	}
 }
 

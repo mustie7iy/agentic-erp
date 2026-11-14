@@ -33,6 +33,10 @@ type ActivateChangeRequestRes interface {
 	activateChangeRequestRes()
 }
 
+type ActivateLeaseContractRes interface {
+	activateLeaseContractRes()
+}
+
 type ActivateLegalEntityRes interface {
 	activateLegalEntityRes()
 }
@@ -783,6 +787,10 @@ type GetJournalEntryRes interface {
 
 type GetLeaseContractRes interface {
 	getLeaseContractRes()
+}
+
+type GetLeaseScheduleRes interface {
+	getLeaseScheduleRes()
 }
 
 type GetLegalEntityRes interface {

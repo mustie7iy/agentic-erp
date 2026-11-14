@@ -12,6 +12,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/leases"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -21,19 +22,37 @@ import (
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
-var perms = []string{"leases.contract.read", "leases.contract.write"}
+var perms = []string{"leases.contract.read", "leases.contract.write", "leases.contract.activate"}
 
 const contracts = "/v1/lease-contracts"
 
 // env is a configured tenant whose company 2000 (EUR) has a cost center
 // in force from 2026, so lease contracts can be entered there with the
-// fixture's supplier as lessor.
+// fixture's supplier as lessor, and the right-of-use asset (160000) and
+// lease liability (260000) accounts in its account determination, so
+// they can be activated.
 type env struct {
 	fixture.Env
-	center uuid.UUID // CC-LEASE of company 2000, in force from 2026-01-01
+	center     uuid.UUID // CC-LEASE of company 2000, in force from 2026-01-01
+	rightOfUse uuid.UUID // 160000 of company 2000
+	liability  uuid.UUID // 260000 of company 2000
 }
 
 func setup(t *testing.T) env {
+	t.Helper()
+	e := env{Env: fixture.NewWith(t, nil, func(doc *config.Config) {
+		de := doc.Company("2000")
+		de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "160000", Name: "Right-of-use assets", Type: config.Asset},
+			config.Account{Number: "260000", Name: "Lease liabilities", Type: config.Liability})
+		de.AccountDetermination.RightOfUseAsset, de.AccountDetermination.LeaseLiability = "160000", "260000"
+	}, perms...)}
+	e.center = e.costCenter(t, e.DE, "CC-LEASE", "2026-01-01", nil)
+	e.rightOfUse, e.liability = e.Account(t, "2000", "160000"), e.Account(t, "2000", "260000")
+	return e
+}
+
+// bare is a configured tenant as setup's, without the lease accounts.
+func bare(t *testing.T) env {
 	t.Helper()
 	e := env{Env: fixture.New(t, perms...)}
 	e.center = e.costCenter(t, e.DE, "CC-LEASE", "2026-01-01", nil)

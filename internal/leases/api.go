@@ -9,6 +9,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
@@ -63,7 +64,13 @@ func contractAPI(c Contract, refs references) gen.LeaseContract {
 		EndDate: c.Terms().End(), TermMonths: c.TermMonths, PaymentAmount: apitypes.Money(c.PaymentAmount, c.Currency, c.Exponent),
 		PaymentFrequency: c.Frequency, PaymentTiming: c.Timing, AnnualDiscountRatePercent: c.AnnualRate, CostCenterID: c.CostCenterID,
 		CostCenterCode: refs.costCenters[c.CostCenterID].Code, Currency: c.Currency, PaymentCount: c.PaymentCount,
-		TotalPayments: apitypes.Money(c.Total, c.Currency, c.Exponent), Status: c.Status}
+		TotalPayments: apitypes.Money(c.Total, c.Currency, c.Exponent), Status: c.Status,
+		JournalEntryID: apitypes.OptUUID(c.EntryID), JournalEntryNumber: apitypes.OptString(c.EntryNumber)}
+	if c.Liability != nil {
+		out.LeaseLiability = gen.NewOptMoney(apitypes.Money(*c.Liability, c.Currency, c.Exponent))
+		out.RightOfUseAsset = gen.NewOptMoney(apitypes.Money(*c.RightOfUse, c.Currency, c.Exponent))
+		out.JournalEntryYear = gen.NewOptInt32(int32(*c.EntryYear))
+	}
 	if c.Payments != nil {
 		out.Payments = make([]gen.LeasePayment, len(c.Payments))
 		for i, p := range c.Payments {
@@ -109,6 +116,62 @@ func (e *Endpoints) GetLeaseContract(ctx context.Context, params gen.GetLeaseCon
 		return nil, err
 	}
 	return &gen.GetLeaseContractOKHeaders{ETag: gen.NewOptString(etag.Format(c.Version)), Response: out}, nil
+}
+
+// ActivateLeaseContract implements POST /v1/lease-contracts/{id}:activate.
+func (e *Endpoints) ActivateLeaseContract(ctx context.Context, params gen.ActivateLeaseContractParams) (gen.ActivateLeaseContractRes, error) {
+	c, err := e.Activate(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	if err != nil {
+		return nil, err
+	}
+	out, err := e.answer(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.ActivateLeaseContractOKHeaders{ETag: gen.NewOptString(etag.Format(c.Version)), Response: out}, nil
+}
+
+// GetLeaseSchedule implements GET /v1/lease-contracts/{id}/schedule: a
+// draft's computed on read, an active contract's as stored.
+func (e *Endpoints) GetLeaseSchedule(ctx context.Context, params gen.GetLeaseScheduleParams) (gen.GetLeaseScheduleRes, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c, err := GetContract(ctx, params.ID)
+	if err != nil {
+		return nil, err
+	}
+	s, err := c.Schedule(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	le, _, err := e.LegalEntities.Entity(ctx, c.LegalEntityID) // a stored contract's legal entity exists
+	if err != nil {
+		return nil, fmt.Errorf("leases: company of contract %s: %w", c.ID, err)
+	}
+	return scheduleAPI(c, le, s), nil
+}
+
+// scheduleAPI is a schedule as the API gives it, every amount in the
+// contract's currency, with its totals.
+func scheduleAPI(c Contract, le tenancy.Entity, s Schedule) *gen.LeaseSchedule {
+	m := func(a money.Minor) gen.Money { return apitypes.Money(a, c.Currency, c.Exponent) }
+	t := c.Terms()
+	out := &gen.LeaseSchedule{LeaseContractID: c.ID, DocumentNumber: c.DocumentNumber, LegalEntityID: c.LegalEntityID, CompanyCode: le.Code,
+		CompanyName: le.Name, Status: c.Status, Currency: c.Currency, CommencementDate: c.CommencementDate, PaymentTiming: c.Timing,
+		PaymentsPerYear: int32(t.perYear()), AnnualDiscountRatePercent: c.AnnualRate, LeaseLiability: m(s.Liability),
+		CommencementPayment: m(s.CommencementPayment), RightOfUseAsset: m(s.RightOfUse), Lines: make([]gen.LeaseScheduleLine, len(s.Lines))}
+	var interest, depreciation money.Minor
+	for i, l := range s.Lines {
+		out.Lines[i] = gen.LeaseScheduleLine{LineNo: l.No, PeriodStart: l.Start, PeriodEnd: l.End, PaymentDate: l.PaymentDate, OpeningLiability: m(l.Opening),
+			Payment: m(l.Payment), Interest: m(l.Interest), ClosingLiability: m(l.Closing), Depreciation: m(l.Depreciation),
+			RightOfUseClosing: m(l.RightOfUseCarrying)}
+		interest += l.Interest
+		depreciation += l.Depreciation
+	}
+	out.Totals = gen.LeaseScheduleTotals{Payments: m(c.Total), Interest: m(interest), Depreciation: m(depreciation)}
+	return out
 }
 
 var contractSort = pagination.Sort{Default: "document_number", Fields: []pagination.Field{

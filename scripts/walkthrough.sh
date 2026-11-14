@@ -1551,7 +1551,9 @@ migrated_down_payment() {
 # number ranges for the returns orders of step 74 (T85a) and the lease
 # contracts of step 78 (T88a), which no pack ships (the ranges of
 # customer invoices, incoming payments, quotations, sales orders, billing
-# documents and RFQs come from the pack since Canada 2026.9),
+# documents and RFQs come from the pack since Canada 2026.9), the
+# right-of-use asset (1660) and lease liability (2650) accounts a lease's
+# activation posts to (T88b, ADR-0073 §7; no pack ships them),
 # and two codes of tax alone for the return's adjustments (kind adjustment,
 # rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
@@ -1579,7 +1581,11 @@ PILOT_SETTINGS='
       {"number": "1015", "name": "Bank incoming - RBC CAD", "type": "asset", "open_items": true},
       {"number": "1020", "name": "Bank clearing - RBC USD", "type": "asset", "open_items": true, "revalue_foreign_currency": true},
       {"number": "1030", "name": "Bank - RBC USD", "type": "asset", "revalue_foreign_currency": true},
-      {"number": "1040", "name": "Bank incoming - RBC USD", "type": "asset", "open_items": true, "revalue_foreign_currency": true}]
+      {"number": "1040", "name": "Bank incoming - RBC USD", "type": "asset", "open_items": true, "revalue_foreign_currency": true},
+      {"number": "1660", "name": "Right-of-use assets", "type": "asset"},
+      {"number": "2650", "name": "Lease liabilities", "type": "liability"}]
+    | .account_determination.right_of_use_asset = "1660"
+    | .account_determination.lease_liability = "2650"
     | .tax_codes = ((.tax_codes // []) + [{"code": "GO5", "description": "GST 5% on sales (walkthrough; the Canada pack codes purchases)",
         "direction": "output", "kind": "standard", "category": "S", "components": [{"key": "gst", "jurisdiction": "CA",
         "account_key": "output", "account": "2300", "rates": [{"rate_percent": "5", "valid_from": "@PREV@-01-01"}]}]},
@@ -1635,6 +1641,7 @@ step_pack() {
   say "above CAD 4,000 released only after a second person approves, a wire method W through RBC that payment"
   say "runs try first (order 1), before SAP's bank transfer T (step 7), a 2/10 net 30 cash discount term,"
   say "cost center categories, liquidity items, an output tax code for GST and two for the return's adjustments,"
+  say "the accounts a lease's activation posts the right-of-use asset and the lease liability to (1660, 2650),"
   say "the company's postal address in Toronto, where suppliers deliver (printed on its purchase orders),"
   say "the GST/HST registration and, for the"
   say "billing system's entries, a service posting limit of CAD 1,000 (step 11). The company keeps SAP's"
@@ -8314,7 +8321,7 @@ month_first() {
   printf '%04d-%02d-01' $((y + m / 12)) $((m % 12 + 1))
 }
 
-# step_lease is T88a (ADR-0073): Lena, the lease accountant, enters the
+# step_lease is T88a and T88b (ADR-0073): Lena, the lease accountant, enters the
 # lease of a floor of office space from Tyrell as lessee: three years
 # from the first of this month, 5,000.00 CAD a month in advance, at an
 # annual discount rate of 6 percent, on the finance office's cost center.
@@ -8322,9 +8329,15 @@ month_first() {
 # and reads back with its 36 payments, the first on the commencement date
 # and the last 35 months later, 180,000.00 CAD in all. A payment in
 # another currency and a frequency that does not divide the term are
-# refused naming their fields. Nothing is posted.
+# refused naming their fields. The draft posts nothing (T88a). Its
+# schedule, computed on read, has a liability below the payments' sum, no
+# interest on the payment due on the commencement date and a last
+# closing liability of zero; activating it posts one entry on the
+# commencement date, the right-of-use asset (1660) against the lease
+# liability (2650), and stores the schedule; a second activation is
+# refused (T88b).
 step_lease() {
-  heading "Step 78 — Lease contracts: a three-year lease of office space entered as lessee, paid monthly in advance, read back with its 36 payments; a payment in a foreign currency and a frequency that does not divide the term refused; nothing posted"
+  heading "Step 78 — Lease contracts: a three-year lease of office space entered as lessee, paid monthly in advance, read back with its 36 payments; a payment in a foreign currency and a frequency that does not divide the term refused; its schedule read; activated, posting the right-of-use asset against the lease liability"
   local supplier=$SUPPLIER start center contract number body open
   [ -n "$supplier" ] || fail "step 4's supplier is not there"
   as ada
@@ -8367,6 +8380,45 @@ step_lease() {
   say "A draft posts nothing: Tyrell's open items are as they were."
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$supplier"
   expect "the supplier's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  say "Lena reads the draft's schedule, computed on read (ADR-0073 §8). The lease liability is the present value of"
+  say "the 35 payments not paid on the commencement date, each discounted at 6 / 12 = 0.5 percent a month; the payment"
+  say "due that day is not in it and is added to the right-of-use asset. Each closing liability is the present value of"
+  say "what is still to come, rounded once; the interest is the difference, so the last line closes at zero:"
+  api 200 '"schedule of \(.document_number) (\(.status)): lease liability \(.lease_liability.amount), commencement payment \(.commencement_payment.amount), right-of-use asset \(.right_of_use_asset.amount) \(.currency)", (.lines[0, 1, 35] | "  line \(.line_no) \(.period_start) to \(.period_end): opening \(.opening_liability.amount), payment \(.payment.amount), interest \(.interest.amount), closing \(.closing_liability.amount); depreciation \(.depreciation.amount), right-of-use \(.right_of_use_closing.amount)"), "  totals: payments \(.totals.payments.amount), interest \(.totals.interest.amount), depreciation \(.totals.depreciation.amount)"' \
+    getLeaseSchedule -p "id=$contract"
+  local cents='(.amount | sub("\\."; "") | tonumber)' liability rou
+  liability=$(field .lease_liability.amount)
+  rou=$(field .right_of_use_asset.amount)
+  expect "the liability below the payments' sum, and the right-of-use asset the liability and the first payment" \
+    "$(field "[(.lease_liability | $cents) < (.totals.payments | $cents), (.right_of_use_asset | $cents) == (.lease_liability | $cents) + (.commencement_payment | $cents), .commencement_payment.amount, (.lines | length)] | map(tostring) | join(\" \")")" \
+    "true true 5000.00 36"
+  expect "the first interval's interest, half a percent of the liability alone: no interest on the payment of the day" \
+    "$(field "((.lines[0].interest | $cents) - ((.lease_liability | $cents) * 5 / 1000 | round)) | fabs <= 1")" true
+  expect "the last closing liability and right-of-use amount" "$(field '"\(.lines[35].closing_liability.amount) \(.lines[35].right_of_use_closing.amount)"')" "0.00 0.00"
+  expect "the depreciation adding up to the right-of-use asset, the interest to the payments less it" \
+    "$(field "[(.totals.depreciation | $cents) == (.right_of_use_asset | $cents), (.totals.interest | $cents) == (.totals.payments | $cents) - (.right_of_use_asset | $cents)] | map(tostring) | join(\" \")")" "true true"
+  say "Lena activates the contract at the version she read. One entry dated the commencement date debits the"
+  say "right-of-use asset (1660) and credits the lease liability (2650) with $rou CAD: the liability and the payment due"
+  say "that day, which the liability holds until Tyrell's invoice for it is posted (ADR-0073 §7)."
+  QUIET=1 api 200 '' getLeaseContract -p "id=$contract"
+  api 200 '"lease contract \(.document_number): \(.status), version \(.version), lease liability \(.lease_liability.amount), right-of-use asset \(.right_of_use_asset.amount) \(.right_of_use_asset.currency), journal entry \(.journal_entry_number)"' \
+    activateLeaseContract -p "id=$contract" -if-match "$ETAG"
+  expect "the active contract" "$(field '"\(.status) \(.version) \(.lease_liability.amount) \(.right_of_use_asset.amount)"')" "active 2 $liability $rou"
+  accounts
+  api 200 '"journal entry \(.document_number) of \(.posting_date), \(.source_context):", (.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' \
+    getJournalEntry -p "id=$(field .journal_entry_id)"
+  expect "the entry's lines" "$(field '.lines | length')" 2
+  expect "the right-of-use asset's line" "$(field "[.lines[] | select(.account_id == \"$(account 1660)\") | .amount.amount] | join(\" \")")" "$rou"
+  expect "the lease liability's line" "$(field "[.lines[] | select(.account_id == \"$(account 2650)\") | .amount.amount] | join(\" \")")" "-$rou"
+  expect "the entry's date and source" "$(field '"\(.posting_date) \(.source_context)"')" "$start leases"
+  say "The schedule is now the stored one, which later runs post from; an active contract is activated once:"
+  QUIET=1 api 200 '' getLeaseSchedule -p "id=$contract"
+  expect "the stored schedule" "$(field '"\(.status) \(.lease_liability.amount) \(.right_of_use_asset.amount) \(.lines | length) \(.lines[35].closing_liability.amount)"')" \
+    "active $liability $rou 36 0.00"
+  QUIET=1 api 200 '' getLeaseContract -p "id=$contract"
+  refused 409 leases.invalid_status activateLeaseContract -p "id=$contract" -if-match "$ETAG"
+  QUIET=1 api 200 '' listAuditEvents -p object_type=leases.contract -p "object_id=$contract"
+  expect "the contract's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "leases.contract.activate leases.contract.create"
   LEASE_CONTRACT=$contract
   passed
 }

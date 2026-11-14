@@ -8,11 +8,15 @@
 // here judges them. Every contract entered is capitalized; no exemption
 // for short-term or low-value leases is applied.
 //
+// Activating a contract posts the right-of-use asset against the lease
+// liability and stores its schedule (activate.go, ADR-0073 §7-§8).
+//
 // The context is a leaf (ADR-0073 §1; ADR-0051 §2): it reads tenancy's
 // legal entities, the partner context's suppliers, the ledger's cost
-// centers and calendar and the configuration's number ranges and
-// company dates through the ports below, which the composition root
-// wires, and no context imports it.
+// centers, calendar and account determination and the configuration's
+// number ranges and company dates, and posts through the ledger, through
+// the ports below, which the composition root wires; no context imports
+// it.
 //
 // What the context takes IFRS 16 to say is ADR-0073 §2's six statements,
 // each from memory and not yet confirmed by the accounting specialist.
@@ -103,6 +107,8 @@ type Endpoints struct {
 	Numbers       Numbers
 	Calendar      Calendar
 	Settings      Settings
+	Postings      Postings
+	Accounts      Accounts
 	// Now is the clock a contract is numbered by, in its company's time
 	// zone; nil: the wall clock.
 	Now func() time.Time
@@ -112,17 +118,26 @@ type Endpoints struct {
 // LeaseContractChanged in the same transaction (ADR-0007, ADR-0011);
 // before is its status before, nil when it had none. The event names the
 // lessor by id and number, never by name (product owner, 2026-11-05), and
-// carries each payment's amount, not the payments.
+// carries each payment's amount, not the payments; an active contract's
+// carries what its activation measured and the entry that posted it.
 func record(ctx context.Context, action string, c Contract, le tenancy.Entity, lessorNumber string, before *string) error {
 	amount := money.EventAmount(c.PaymentAmount, c.Currency, c.Exponent)
 	day := c.CommencementDate.Format(time.DateOnly)
 	payload := map[string]any{"lease_contract_id": c.ID, "document_number": c.DocumentNumber, "legal_entity_id": c.LegalEntityID,
 		"legal_entity_code": le.Code, "lessor_id": c.LessorID, "lessor_number": lessorNumber, "commencement_date": day, "term_months": c.TermMonths,
 		"payment_amount": amount, "payment_frequency": c.Frequency, "payment_timing": c.Timing, "payment_count": len(c.Payments),
-		"status": c.Status, "status_before": before, "version": c.Version}
+		"status": c.Status, "status_before": before, "lease_liability": nil, "right_of_use_amount": nil, "journal_entry_id": c.EntryID,
+		"journal_entry_year": c.EntryYear, "journal_entry_number": c.EntryNumber, "version": c.Version}
 	detail := map[string]any{"document_number": c.DocumentNumber, "lessor_id": c.LessorID, "commencement_date": day, "term_months": c.TermMonths,
 		"payment_amount": amount, "payment_frequency": c.Frequency, "payment_timing": c.Timing, "annual_discount_rate_percent": c.AnnualRate,
 		"cost_center_id": c.CostCenterID, "status": c.Status, "status_before": before}
+	if c.Liability != nil {
+		for _, m := range []map[string]any{payload, detail} {
+			m["lease_liability"] = money.EventAmount(*c.Liability, c.Currency, c.Exponent)
+			m["right_of_use_amount"] = money.EventAmount(*c.RightOfUse, c.Currency, c.Exponent)
+			m["journal_entry_id"], m["journal_entry_year"], m["journal_entry_number"] = c.EntryID, c.EntryYear, c.EntryNumber
+		}
+	}
 	if err := audit.Record(ctx, action, "leases.contract", c.ID, detail,
 		outbox.Event{Context: "leases", Name: "lease_contract_changed", AggregateType: "leases.contract", AggregateID: c.ID, Payload: payload}); err != nil {
 		return fmt.Errorf("leases: record %s of contract %s: %w", action, c.ID, err)

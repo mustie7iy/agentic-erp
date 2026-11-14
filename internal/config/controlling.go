@@ -105,12 +105,14 @@ type AutomaticAccount struct {
 func determinationKeys(ad AccountDetermination) [][2]string {
 	return [][2]string{{"ap_reconciliation", ad.APReconciliation}, {"input_tax", ad.InputTax}, {"bank", ad.Bank},
 		{"fx_gain", ad.FXGain}, {"fx_loss", ad.FXLoss}, {"gr_ir", ad.GRIR}, {"price_difference", ad.PriceDifference},
-		{"cash_discount", ad.CashDiscount}, {"down_payment", ad.DownPayment}}
+		{"cash_discount", ad.CashDiscount}, {"down_payment", ad.DownPayment}, {"right_of_use_asset", ad.RightOfUseAsset},
+		{"lease_liability", ad.LeaseLiability}}
 }
 
 // AutomaticAccounts are the accounts the company's automatic postings use
 // (ADR-0050 §4): the account determination (payables, payment runs, FX
-// differences, GR/IR, price differences, cash discounts, down payments),
+// differences, GR/IR, price differences, cash discounts, down payments,
+// leases),
 // tax codes in the single-rate form and each component's account (T61a: a
 // multi-component code posts each tax to its component's account),
 // withholding tax codes, the revaluation's accounts, the house banks'

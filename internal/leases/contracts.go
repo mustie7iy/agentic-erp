@@ -27,7 +27,8 @@ import (
 // Exponent; AnnualRate is the annual discount rate in percent as the
 // database prints it, without trailing zeros. PaymentCount and Total are
 // the number and sum of its payments; Payments are the payments by
-// number, nil where a list read them without.
+// number, nil where a list read them without. Liability, RightOfUse and the entry are
+// what its activation measured and posted, nil while it is a draft.
 type Contract struct {
 	ID               uuid.UUID
 	DocumentNumber   string
@@ -46,11 +47,24 @@ type Contract struct {
 	PaymentCount     int32
 	Total            money.Minor
 	Payments         []Payment
+	Liability        *money.Minor
+	RightOfUse       *money.Minor
+	EntryID          *uuid.UUID
+	EntryYear        *int16
+	EntryNumber      *string
 	Version          int32
 	CreatedAt        time.Time
 	CreatedBy        uuid.UUID
 	UpdatedAt        time.Time
 	UpdatedBy        uuid.UUID
+}
+
+// annualRate is the annual discount rate in percent, exact. AnnualRate is
+// a numeric as the database prints it, digits with at most one dot,
+// which always parses.
+func (c Contract) annualRate() *big.Rat {
+	r, _ := new(big.Rat).SetString(c.AnnualRate)
+	return r
 }
 
 // Terms are the terms the contract's schedule follows from.
@@ -64,7 +78,7 @@ const contractColumns = `k.id, k.document_number, k.legal_entity_id, k.lessor_id
 		k.currency, c.exponent, k.payment_frequency, k.payment_timing, trim_scale(k.annual_rate)::text, k.cost_center_id, k.status,
 		(SELECT count(*) FROM leases.payment p WHERE p.tenant_id = k.tenant_id AND p.contract_id = k.id)::int,
 		(SELECT coalesce(sum(p.amount), 0) FROM leases.payment p WHERE p.tenant_id = k.tenant_id AND p.contract_id = k.id)::bigint,
-		k.version, k.created_at, k.created_by, k.updated_at, k.updated_by`
+		k.lease_liability, k.right_of_use_amount, k.journal_entry_id, k.journal_entry_year, k.journal_entry_number, k.version, k.created_at, k.created_by, k.updated_at, k.updated_by`
 
 // contractSelect reads contracts with their payments by number. The
 // payments come from a subquery, not a join, and a due date is written as
@@ -83,7 +97,8 @@ const listSelect = `SELECT ` + contractColumns + `, NULL::json FROM leases.contr
 func scanContract(row pgx.Row) (Contract, error) {
 	var c Contract
 	err := row.Scan(&c.ID, &c.DocumentNumber, &c.LegalEntityID, &c.LessorID, &c.CommencementDate, &c.TermMonths, &c.PaymentAmount, &c.Currency,
-		&c.Exponent, &c.Frequency, &c.Timing, &c.AnnualRate, &c.CostCenterID, &c.Status, &c.PaymentCount, &c.Total, &c.Version, &c.CreatedAt,
+		&c.Exponent, &c.Frequency, &c.Timing, &c.AnnualRate, &c.CostCenterID, &c.Status, &c.PaymentCount, &c.Total, &c.Liability, &c.RightOfUse, &c.EntryID,
+		&c.EntryYear, &c.EntryNumber, &c.Version, &c.CreatedAt,
 		&c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy, &c.Payments)
 	return c, errs.Wrapf(err, "scan lease contract")
 }

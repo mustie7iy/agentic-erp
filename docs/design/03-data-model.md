@@ -5144,11 +5144,14 @@ suppliers and names, the ledger's cost centers and calendar and the
 configuration through its ports and keeps no foreign key out of its schema
 (02 §2.1). T88a (migration 000308) builds the schema with its outbox and
 inbox, the lease contract a company enters as lessee and its payments,
-written at creation. A draft posts nothing.
+written at creation. A draft posts nothing. T88b (migrations 000309,
+000310) activates a contract, which posts the right-of-use asset against
+the lease liability and stores its schedule.
 
 ```mermaid
 erDiagram
   contract ||--|{ payment : "paid by"
+  contract ||--o{ schedule_line : "stored at activation"
   contract { uuid id PK
     text document_number "lease_contract range, once per company"
     uuid legal_entity_id "tenancy"
@@ -5161,12 +5164,25 @@ erDiagram
     text payment_timing "advance, arrears"
     numeric annual_rate "percent, above 0, at most 100"
     uuid cost_center_id "ledger"
-    text status "draft"
+    text status "draft, active"
+    bigint lease_liability "at commencement, once active"
+    bigint right_of_use_amount "once active, not below the liability"
+    uuid journal_entry_id "ledger: the activation's entry"
     int version }
   payment { int payment_no PK
     uuid contract_id FK
     date due_date "one a day"
     bigint amount "above 0" }
+  schedule_line { int line_no PK
+    uuid contract_id FK
+    date period_start
+    date period_end
+    bigint opening_liability
+    bigint payment
+    bigint interest "closing - opening + payment"
+    bigint closing_liability
+    bigint depreciation
+    bigint right_of_use_closing }
 ```
 
 - `leases.contract`: a lease contract of a company as lessee. Its number
@@ -5179,15 +5195,36 @@ erDiagram
   is above zero (`contract_payment_amount_positive`), minor units of
   `currency`; the annual discount rate is a percentage above zero and at
   most 100 with six decimals (`contract_annual_rate_check`,
-  `numeric(9, 6)`), never a float; the status is `draft`
+  `numeric(9, 6)`), never a float; the status is `draft` or `active`
   (`contract_status_check`) and the version at least 1
-  (`contract_version_check`). The list reads the tenant's contracts by
-  number (`contract_by_number`) and a lessor's (`contract_by_lessor`).
-  The application creates contracts and neither changes nor deletes them.
+  (`contract_version_check`). An active contract, and only one, names
+  the lease liability at commencement (not negative,
+  `contract_lease_liability_check`), the right-of-use amount (above zero
+  and not below the liability, `contract_right_of_use_amount_check`,
+  `contract_right_of_use_covers_liability`) and the journal entry its
+  activation posted, by id, year and number
+  (`contract_activation_check`); it is fixed
+  (`lease_contract_fixed_once_active`, a trigger). The list reads the
+  tenant's contracts by number (`contract_by_number`) and a lessor's
+  (`contract_by_lessor`). The application creates contracts, may set
+  their status, version, `updated_by` and what activation writes, and
+  deletes none.
 - `leases.payment`: the contract's payments (`payment_contract_fkey`),
   numbered 1 to 600 (`payment_no_check`) in date order, one a day
   (`payment_date_once`), each above zero (`payment_amount_positive`);
   insert-only (no version, so no update grant, and no delete).
+- `leases.schedule_line` (T88b): an active contract's schedule as its
+  activation stored it (`schedule_line_contract_fkey`), one line per
+  payment, numbered 1 to 600 (`schedule_line_no_check`), its period
+  running forward (`schedule_line_period_check`); the opening and closing
+  liability, the payment, the depreciation and the carrying amount are
+  not negative (`schedule_line_opening_check`, `_closing_check`,
+  `_payment_check`, `_depreciation_check`, `_right_of_use_check`), and
+  the liability moves by the interest and the payment alone
+  (`schedule_line_balance_check`); insert-only.
+- `ledger.account_determination` takes the keys `right_of_use_asset` and
+  `lease_liability`, and `ledger.journal_entry` the source context
+  `leases` (T88b, both checks validated by 000310).
 - `leases.outbox`, `leases.inbox`: the context's events
   (`LeaseContractChanged`).
-- Permissions `leases.contract.read` and `.write`.
+- Permissions `leases.contract.read`, `.write` and `.activate`.

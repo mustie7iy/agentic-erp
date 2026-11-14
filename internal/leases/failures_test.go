@@ -18,6 +18,8 @@ func TestDatabaseFailures(t *testing.T) {
 	e := setup(t)
 	h := endpoints(t)
 	id := uuid.MustParse(e.create(t, office)["id"].(string))
+	active := e.create(t, yearly)["id"].(string)
+	e.Must(200, "POST", contracts+"/"+active+":activate", "", `"1"`)
 	calls := map[string]func(ctx context.Context) error{
 		"create": func(ctx context.Context) error {
 			_, err := h.CreateLeaseContract(ctx, &gen.LeaseContractCreate{LegalEntityID: e.DE, LessorID: e.Supplier, CostCenterID: e.center,
@@ -27,6 +29,18 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"get": func(ctx context.Context) error {
 			_, err := h.GetLeaseContract(ctx, gen.GetLeaseContractParams{ID: id})
+			return err
+		},
+		"activate": func(ctx context.Context) error {
+			_, err := h.ActivateLeaseContract(ctx, gen.ActivateLeaseContractParams{ID: id, IfMatch: `"1"`})
+			return err
+		},
+		"schedule of a draft": func(ctx context.Context) error {
+			_, err := h.GetLeaseSchedule(ctx, gen.GetLeaseScheduleParams{ID: id})
+			return err
+		},
+		"schedule of an active contract": func(ctx context.Context) error {
+			_, err := h.GetLeaseSchedule(ctx, gen.GetLeaseScheduleParams{ID: uuid.MustParse(active)})
 			return err
 		},
 		"list": func(ctx context.Context) error {

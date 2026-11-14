@@ -1765,6 +1765,213 @@ func (s *Server) handleActivateChangeRequestRequest(args [1]string, argsEscaped 
 	}
 }
 
+// handleActivateLeaseContractRequest handles activateLeaseContract operation.
+//
+// Activates a `draft` lease contract (ADR-0073 §7, T88b), at the version the caller read
+// (`If-Match`): the contract is read under a row lock and moves to `active` once; a second activation
+// is refused (409 `leases.invalid_status`). Its schedule (`getLeaseSchedule`) is computed and stored,
+// so what later runs post is what was shown, and one journal entry is posted on the commencement date
+// (document type `SA`, `source_context` `leases`): the right-of-use asset debited to the company's
+// `right_of_use_asset` account and credited to its `lease_liability` account, both with the
+// right-of-use amount, the lease liability at commencement and a payment due on the commencement date.
+// The company's account determination must have both accounts (422 `leases.no_lease_accounts`, naming
+// the keys missing). The commencement date must be in an open period of a fiscal year that is set up
+// (409 `ledger.period_not_open`, 422 `ledger.no_fiscal_period`). The contract then names the
+// liability, the right-of-use amount and the entry (`journal_entry_id`, `journal_entry_year`,
+// `journal_entry_number`), and is fixed. Audited, and published as LeaseContractChanged. A retry with
+// the same `Idempotency-Key` answers the active contract. Human-only (`x-agent: false`).
+//
+// POST /v1/lease-contracts/{id}:activate
+func (s *Server) handleActivateLeaseContractRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("activateLeaseContract"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/lease-contracts/{id}:activate"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ActivateLeaseContractOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ActivateLeaseContractOperation,
+			ID:   "activateLeaseContract",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ActivateLeaseContractOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeActivateLeaseContractParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ActivateLeaseContractRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ActivateLeaseContractOperation,
+			OperationSummary: "Activate a lease contract",
+			OperationID:      "activateLeaseContract",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ActivateLeaseContractParams
+			Response = ActivateLeaseContractRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackActivateLeaseContractParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ActivateLeaseContract(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ActivateLeaseContract(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeActivateLeaseContractResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleActivateLegalEntityRequest handles activateLegalEntity operation.
 //
 // Makes a new legal entity usable for postings and documents. Requires status `inactive`.
@@ -40499,6 +40706,212 @@ func (s *Server) handleGetLeaseContractRequest(args [1]string, argsEscaped bool,
 	}
 }
 
+// handleGetLeaseScheduleRequest handles getLeaseSchedule operation.
+//
+// The schedule of one lease contract (ADR-0073 §8, T88b): the lease liability at commencement, the
+// present value of the payments not paid on the commencement date, each discounted from its date at
+// the period's rate, the annual discount rate divided by the payments a year (`payments_per_year`); a
+// payment due on the commencement date (`commencement_payment`, in advance) is not in it and is added
+// to the right-of-use asset, which is the liability and that payment. Then one line per payment
+// interval, numbered as its payment: the liability at the interval's start (`opening_liability`; the
+// first holds the commencement payment, which the activation credits to the liability too until the
+// lessor's invoice for it is posted), the payment due in it, the interest, the liability at its end
+// (`closing_liability`) and the right-of-use asset's depreciation on a straight line with its carrying
+// amount at the interval's end. Each closing liability is the exact present value of the payments
+// still to come, rounded half away from zero to the minor unit once, and the interest is the closing
+// liability less the opening plus the payment: the period's rate × the balance outstanding during it
+// (the opening balance for payments in arrears, the opening balance less the period's payment in
+// advance, so the first payment in advance bears none), without a rounding difference carried from
+// line to line; the last line's closing liability is zero. The depreciation's shares add up to the
+// right-of-use asset exactly, a minor unit left by the rounding going to the earliest lines. `totals`
+// sums the payments, the interest and the depreciation. A `draft` contract's schedule is computed on
+// read from its payments; an `active` contract's is the one stored when it was activated, which later
+// runs post from. Amounts are in the contract's currency. One of a company the caller may not act in
+// is not found (404), as one that does not exist.
+//
+// GET /v1/lease-contracts/{id}/schedule
+func (s *Server) handleGetLeaseScheduleRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getLeaseSchedule"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/lease-contracts/{id}/schedule"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetLeaseScheduleOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetLeaseScheduleOperation,
+			ID:   "getLeaseSchedule",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetLeaseScheduleOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetLeaseScheduleParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetLeaseScheduleRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetLeaseScheduleOperation,
+			OperationSummary: "Get a lease contract's schedule",
+			OperationID:      "getLeaseSchedule",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetLeaseScheduleParams
+			Response = GetLeaseScheduleRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetLeaseScheduleParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetLeaseSchedule(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetLeaseSchedule(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetLeaseScheduleResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleGetLegalEntityRequest handles getLegalEntity operation.
 //
 // Returns one legal entity.
@@ -66023,8 +66436,9 @@ func (s *Server) handleListJournalEntriesRequest(args [0]string, argsEscaped boo
 //
 // The lease contracts of the companies the caller may act in (ADR-0073 §3, T88a), each as
 // `getLeaseContract` gives it but without its `payments`: with its company's code and name, its
-// lessor's number and name, its cost center's code, its terms and the number and total of its
-// payments. Filtered by company, lessor and status. Sortable by: `document_number`.
+// lessor's number and name, its cost center's code, its terms, the number and total of its payments
+// and, once it is `active`, what its activation posted. Filtered by company, lessor and status.
+// Sortable by: `document_number`.
 //
 // GET /v1/lease-contracts
 func (s *Server) handleListLeaseContractsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

@@ -147,6 +147,7 @@ func TestCreateRefusals(t *testing.T) {
 			"annual_discount_rate_percent"},
 		{"a rate that is no decimal", lease{"2026-01-01", 12, "10.00", "monthly", "advance", "1e2"}, nil, 422, "leases.invalid_discount_rate",
 			"annual_discount_rate_percent"},
+		{"a rate of 21 characters", lease{"2026-01-01", 12, "10.00", "monthly", "advance", "5.0000000000000000000"}, nil, 400, "request.invalid_body", nil},
 		{"a negative rate", lease{"2026-01-01", 12, "10.00", "monthly", "advance", "-5"}, nil, 422, "leases.invalid_discount_rate", "annual_discount_rate_percent"},
 		{"a term of no months", office, map[string]any{"term_months": 0}, 400, "request.invalid_body", nil},
 		{"a term of 601 months", office, map[string]any{"term_months": 601}, 400, "request.invalid_body", nil},

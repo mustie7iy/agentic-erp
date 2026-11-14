@@ -4362,12 +4362,15 @@ components:
     LeaseContractChanged:
       name: LeaseContractChanged
       title: Lease contract changed
-      summary: A lease contract was created.
+      summary: A lease contract was created or activated.
       description: |
-        Emitted at each change of a lease contract (ADR-0073 §5, T88a):
-        when a person creates it (`draft`, status_before null). It carries
-        the contract's terms and each payment's amount, not the payments,
-        and names the lessor by id and number, never by name.
+        Emitted at each change of a lease contract (ADR-0073 §5, T88a,
+        T88b): when a person creates it (`draft`, status_before null) and
+        when it is activated (`active`, status_before `draft`), which posts
+        the right-of-use asset against the lease liability and names the
+        amounts and the journal entry. It carries the contract's terms and
+        each payment's amount, not the payments or the schedule, and names
+        the lessor by id and number, never by name.
         `GET /v1/lease-contracts/{id}` returns the contract at `version` or
         later. Subject is the contract id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
@@ -4380,7 +4383,10 @@ components:
       examples:
         - name: created
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001201, source: /erp/eu-1/leases, type: com.example.erp.leases.lease_contract_changed.v1, subject: 0192a000-0000-7000-8000-000000001211, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {lease_contract_id: 0192a000-0000-7000-8000-000000001211, document_number: LC000001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', lessor_id: 0192a000-0000-7000-8000-000000000f55, lessor_number: BP100055, commencement_date: '2026-12-01', term_months: 36, payment_amount: {amount: '5000.00', currency: CAD}, payment_frequency: monthly, payment_timing: advance, payment_count: 36, status: draft, status_before: null, version: 1}
+          payload: {lease_contract_id: 0192a000-0000-7000-8000-000000001211, document_number: LC000001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', lessor_id: 0192a000-0000-7000-8000-000000000f55, lessor_number: BP100055, commencement_date: '2026-12-01', term_months: 36, payment_amount: {amount: '5000.00', currency: CAD}, payment_frequency: monthly, payment_timing: advance, payment_count: 36, status: draft, status_before: null, lease_liability: null, right_of_use_amount: null, journal_entry_id: null, journal_entry_year: null, journal_entry_number: null, version: 1}
+        - name: activated
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001202, source: /erp/eu-1/leases, type: com.example.erp.leases.lease_contract_changed.v1, subject: 0192a000-0000-7000-8000-000000001211, time: '2026-12-01T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {lease_contract_id: 0192a000-0000-7000-8000-000000001211, document_number: LC000001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', lessor_id: 0192a000-0000-7000-8000-000000000f55, lessor_number: BP100055, commencement_date: '2026-12-01', term_months: 36, payment_amount: {amount: '5000.00', currency: CAD}, payment_frequency: monthly, payment_timing: advance, payment_count: 36, status: active, status_before: draft, lease_liability: {amount: '159117.80', currency: CAD}, right_of_use_amount: {amount: '164117.80', currency: CAD}, journal_entry_id: 0192a000-0000-7000-8000-000000001221, journal_entry_year: 2026, journal_entry_number: '100000123', version: 2}
     RevenueContractChanged:
       name: RevenueContractChanged
       x-webhook: true
@@ -5375,7 +5381,7 @@ components:
         version: {type: integer, description: "The control's version after the change; a test or a link does not move it."}
     LeaseContractChangedV1:
       type: object
-      required: [lease_contract_id, document_number, legal_entity_id, legal_entity_code, lessor_id, lessor_number, commencement_date, term_months, payment_amount, payment_frequency, payment_timing, payment_count, status, status_before, version]
+      required: [lease_contract_id, document_number, legal_entity_id, legal_entity_code, lessor_id, lessor_number, commencement_date, term_months, payment_amount, payment_frequency, payment_timing, payment_count, status, status_before, lease_liability, right_of_use_amount, journal_entry_id, journal_entry_year, journal_entry_number, version]
       properties:
         lease_contract_id: {$ref: '#/components/schemas/Uuid', description: '`leases.contract.id`.'}
         document_number: {type: string, description: "The contract's number."}
@@ -5389,8 +5395,25 @@ components:
         payment_frequency: {type: string, description: 'How often a payment is due. Open enum: monthly, quarterly, yearly.'}
         payment_timing: {type: string, description: 'At the start or the end of each interval. Open enum: advance, arrears.'}
         payment_count: {type: integer, description: The number of payments.}
-        status: {type: string, description: "The contract's status after the change. Open enum: draft."}
+        status: {type: string, description: "The contract's status after the change. Open enum: draft, active."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
+        lease_liability:
+          description: "The lease liability at commencement the activation measured; null while the contract is a draft."
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        right_of_use_amount:
+          description: "The right-of-use asset the activation posted; null while the contract is a draft."
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        journal_entry_id:
+          description: "`ledger.journal_entry.id` of the activation's entry; null while the contract is a draft."
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        journal_entry_year: {type: [integer, 'null'], description: "The entry's fiscal year; null while the contract is a draft."}
+        journal_entry_number: {type: [string, 'null'], description: "The entry's document number; null while the contract is a draft."}
         version: {type: integer, description: "The contract's version after the change."}
     RevenueContractChangedV1:
       type: object

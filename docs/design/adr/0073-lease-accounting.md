@@ -4,7 +4,8 @@
 with the product owner's decisions of 2026-11-12; `go-reviewer` had no
 blocking finding on T88a's last commit). It decides the leases context and
 the slices T88a-T88c (`docs/design/plan-breadth-week3.md`, Lane A). Each
-slice records what it built under "As built". **The six statements about
+slice records what it built under "As built"; T88a's and T88b's are
+there now. **The six statements about
 IFRS 16 this ADR rests on (§2) are not yet confirmed by the accounting
 specialist.**
 
@@ -167,6 +168,78 @@ follow the caller's company access; a contract of another company is not
 found. Every write is human-only (`x-agent: false`): it records a
 person's judgement (§2) or posts it.
 
+### 7. Activation and the lease accounts (T88b)
+
+Activating a `draft` contract (`:activate`, with the caller's version)
+moves it to `active` once, under its row lock, and posts **one entry on
+the commencement date** through `ledger.Postings` (document type `SA`,
+`source_context` `leases`, the contract as its source document): the
+right-of-use amount debited to the company's `right_of_use_asset`
+account and credited to its `lease_liability` account (the plan's
+default 7). The right-of-use amount is the lease liability at
+commencement and a payment due on the commencement date (statement 3, as
+§2 reads it): the liability account holds that payment until a person
+posts the lessor's invoice for it against the liability that day.
+
+The two accounts are new keys of a company's account determination
+(`companies[].account_determination.right_of_use_asset`, an asset, and
+`.lease_liability`, a liability; neither a reconciliation account),
+optional in the configuration and among the accounts the system posts to
+(`config.Company.AutomaticAccounts`); a company without both activates
+no lease (422 `leases.no_lease_accounts`). The commencement date must be
+in an open period of a set-up fiscal year (the ledger's own refusals). An
+active contract names the liability, the right-of-use amount and the
+entry, and is fixed (`lease_contract_fixed_once_active`). The
+right-of-use asset is **not an asset of asset accounting** (the plan's
+boundary; the accounting specialist's question 3): it lives on its own
+account and schedule.
+
+### 8. The schedule (T88b)
+
+One line per payment interval, numbered as its payment, from the
+contract's stored payments (§4) and its rate (default 6 and the plan's
+acceptance, statements 2, 4 and 5):
+
+- The **period's rate** r is the annual rate divided by the payments a
+  year (12, 4 or 1). Whether it should be the effective rate instead is
+  the accounting specialist's question 2.
+- From the last interval back, the **exact present value** at each
+  interval's end of the payments still to come is a rational
+  (`math/big.Rat`): (the next one + its payment) / (1 + r) in arrears,
+  its payment + the next one / (1 + r) in advance, a payment due at an
+  interval's start being still to come at the end of the interval
+  before. Each is **rounded once**, half away from zero to the minor unit
+  (`money.Round`, as `money.Scale` rounds): these are the closing
+  liabilities, the last zero by construction.
+- The present value at commencement, rounded, is the first **opening
+  liability**. In advance it holds the payment due on the commencement
+  date, which is **not part of the lease liability** (statement 2) and
+  bears no interest; the lease liability is the opening liability less
+  that payment. The **right-of-use asset** is the opening liability.
+- A line's **interest** is its closing liability less its opening plus
+  its payment: the period's rate × the balance outstanding during it
+  (the opening balance in arrears, the opening balance less the payment
+  in advance), to within the rounding of the two balances, which is never
+  carried forward, so the liability ends at exactly zero with no
+  remainder absorbed by a last line.
+- The **depreciation** is the right-of-use asset on a straight line over
+  the intervals, shared out with `money.Allocate` so the shares add up to
+  it exactly (a minor unit left by the rounding going to the earliest
+  lines); each line shows the asset's carrying amount at its end.
+
+A draft's schedule is **computed on read**; activation stores it
+(`leases.schedule_line`) and an active contract's is the stored one, so
+what T88c's runs post is what was shown. The totals are the payments,
+the interest (the payments less the right-of-use asset) and the
+depreciation (the right-of-use asset).
+
+### 9. The lease run (T88c)
+
+Per company and period, each active contract's stored lines whose
+interval ends in the period are posted: interest expense against the
+liability and depreciation expense against accumulated depreciation, on
+the contract's cost center. T88c records the detail when it builds it.
+
 ## Consequences
 
 - A lease is a document of its own beside the ledger, as a revenue
@@ -224,3 +297,45 @@ person's judgement (§2) or posts it.
   payments; a foreign currency and a term the frequency does not divide
   refused; nothing posted. The pilot's settings add the company's
   `lease_contract` range, which no country pack ships.
+
+### T88b (2026-11-13)
+
+- Migrations 000309 and 000310: `leases.contract` gains `active` and what
+  activation measured and posted (`lease_liability`, `right_of_use_amount`,
+  the entry's id, year and number; all present exactly when active,
+  `contract_activation_check`; the asset not below the liability,
+  `contract_right_of_use_covers_liability`), fixed once active
+  (`lease_contract_fixed_once_active`, a trigger, so the table's owner is
+  held too); `leases.schedule_line`, insert-only, its liability moving by
+  its interest and payment alone (`schedule_line_balance_check`); the
+  account determination keys `right_of_use_asset` and `lease_liability`
+  and the journal's source context `leases`, both checks widened NOT VALID
+  and validated by 000310, the journal's partition by partition; the
+  permission `leases.contract.activate`. The down refuses while an active
+  contract exists.
+- `GET /v1/lease-contracts/{id}/schedule` (computed for a draft, stored
+  for an active contract; the company by code and name, every amount with
+  its currency, the totals) and `POST /v1/lease-contracts/{id}:activate`
+  (human-only, `If-Match`, idempotent by its key; 409
+  `leases.invalid_status`, 422 `leases.no_lease_accounts` and the
+  ledger's refusals). The contract and LeaseContractChanged carry the
+  liability, the right-of-use amount and the entry once active.
+- Decided by default: the entry is dated the **commencement date**,
+  whatever the date of the request (statement 1), and an activation
+  before that date is not refused: it posts into the commencement
+  date's period if that period is open. The contract's row is locked FOR
+  NO KEY UPDATE: its schedule lines' foreign key takes FOR KEY SHARE,
+  which does not wait for it, and no other writer locks a contract, so
+  two writers cannot meet in opposite order; of two activations at once,
+  one posts and the other meets the version it moved (412).
+- Three intervals of 100.00 a year at 10 percent are worked by hand in
+  `TestScheduleByHand`; thirty years of monthly payments in
+  `TestScheduleOf360Periods` (the liability in arrears 166,791.61, the
+  annuity's present value); `TestScheduleBudget` reads the schedule of a
+  contract of 600 payments, computed and stored, within 3 s at p95.
+- Walkthrough step 78 extended: the schedule read (the liability below
+  the payments' sum, the first interval's interest half a percent of the
+  liability alone, the last closing liability zero), the contract
+  activated and its entry's two lines read back, a second activation
+  refused. The pilot's settings add the accounts 1660 and 2650 and name
+  them in the account determination.
