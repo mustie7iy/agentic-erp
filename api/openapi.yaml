@@ -19402,6 +19402,7 @@ paths:
           schema:
             type: string
             description: "Lease contract status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            maxLength: 20
             x-extensible-enum:
               - draft
               - active
@@ -51339,10 +51340,12 @@ components:
         payment_amount: {$ref: "#/components/schemas/Money", description: "Each payment, more than zero, in the company's local currency."}
         payment_frequency:
           type: string
+          maxLength: 20
           x-extensible-enum: [monthly, quarterly, yearly]
           description: "How often a payment is due: every month, quarter or year; it divides the term. Open enumeration: values may be added within /v1."
         payment_timing:
           type: string
+          maxLength: 20
           x-extensible-enum: [advance, arrears]
           description: "When in its interval a payment is due: on the first day (`advance`) or the last (`arrears`). Open enumeration: values may be added within /v1."
         annual_discount_rate_percent: {type: string, maxLength: 20, description: "The annual discount rate in percent, a decimal string such as \"6\" or \"4.25\": above zero, at most 100, up to six decimals. The rate implicit in the lease or the lessee's incremental borrowing rate, a person's judgement.", example: "6"}

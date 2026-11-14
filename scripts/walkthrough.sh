@@ -8338,7 +8338,7 @@ month_first() {
 # refused (T88b).
 step_lease() {
   heading "Step 78 — Lease contracts: a three-year lease of office space entered as lessee, paid monthly in advance, read back with its 36 payments; a payment in a foreign currency and a frequency that does not divide the term refused; its schedule read; activated, posting the right-of-use asset against the lease liability"
-  local supplier=$SUPPLIER start center contract number body open
+  local supplier=$SUPPLIER start center contract number body open entry
   [ -n "$supplier" ] || fail "step 4's supplier is not there"
   as ada
   say "Ada adds Lena, the lease accountant, to the team:"
@@ -8404,9 +8404,10 @@ step_lease() {
   api 200 '"lease contract \(.document_number): \(.status), version \(.version), lease liability \(.lease_liability.amount), right-of-use asset \(.right_of_use_asset.amount) \(.right_of_use_asset.currency), journal entry \(.journal_entry_number)"' \
     activateLeaseContract -p "id=$contract" -if-match "$ETAG"
   expect "the active contract" "$(field '"\(.status) \(.version) \(.lease_liability.amount) \(.right_of_use_asset.amount)"')" "active 2 $liability $rou"
+  entry=$(field .journal_entry_id)
   accounts
   api 200 '"journal entry \(.document_number) of \(.posting_date), \(.source_context):", (.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' \
-    getJournalEntry -p "id=$(field .journal_entry_id)"
+    getJournalEntry -p "id=$entry"
   expect "the entry's lines" "$(field '.lines | length')" 2
   expect "the right-of-use asset's line" "$(field "[.lines[] | select(.account_id == \"$(account 1660)\") | .amount.amount] | join(\" \")")" "$rou"
   expect "the lease liability's line" "$(field "[.lines[] | select(.account_id == \"$(account 2650)\") | .amount.amount] | join(\" \")")" "-$rou"

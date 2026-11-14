@@ -30,6 +30,10 @@ type Terms struct {
 // intervals is the number of intervals, and payments, of the term.
 func (t Terms) intervals() int { return t.TermMonths / t.Interval }
 
+// perYear is the number of payments a year, by which the annual rate is
+// divided into a period's (default 6).
+func (t Terms) perYear() int { return 12 / t.Interval }
+
 // start is the first day of interval i, from 0: i intervals after the
 // commencement date, on its day of the month or the month's last day
 // when it has fewer, counted from the commencement date and not from the
@@ -77,10 +81,6 @@ type Schedule struct {
 	Liability, CommencementPayment, RightOfUse money.Minor
 	Lines                                      []Line
 }
-
-// perYear is the number of payments a year, by which the annual rate is
-// divided into a period's (default 6).
-func (t Terms) perYear() int { return 12 / t.Interval }
 
 // Schedule computes the contract's schedule from its payments, one per
 // interval in order, and its annual discount rate in percent (ADR-0073

@@ -2,7 +2,7 @@
 
 **Status:** accepted (T88a, 2026-11-13; decided by default under ADR-0053 d,
 with the product owner's decisions of 2026-11-12; `go-reviewer` had no
-blocking finding on T88a's last commit). It decides the leases context and
+blocking finding in round 1 on T88a and T88b, 2026-11-13). It decides the leases context and
 the slices T88a-T88c (`docs/design/plan-breadth-week3.md`, Lane A). Each
 slice records what it built under "As built"; T88a's and T88b's are
 there now. **The six statements about
