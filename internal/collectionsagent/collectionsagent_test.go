@@ -29,6 +29,8 @@ const (
 	plain    = "01a1aa00-0000-7000-8000-000000000c03" // no dispute case
 	entryA   = "01a1aa00-0000-7000-8000-000000000e01"
 	entryB   = "01a1aa00-0000-7000-8000-000000000e02"
+	ar       = "01a1aa00-0000-7000-8000-000000000a12" // the customer reconciliation account
+	ap       = "01a1aa00-0000-7000-8000-000000000a21" // a supplier reconciliation account
 	keyDate  = "2026-11-15"
 )
 
@@ -51,17 +53,18 @@ const threeCustomers = `{"company_code": "3000", "currency": "CAD", "customer_co
 	{"customer_id": "` + disputed + `", "customer_number": "100042", "customer_name": "Northwind", "overdue_amount": {"amount": "400.00", "currency": "CAD"}, "open_dispute_cases": 1},
 	{"customer_id": "` + plain + `", "customer_number": "100044", "customer_name": "Acme", "overdue_amount": {"amount": "250.00", "currency": "CAD"}, "open_dispute_cases": 0}]}`
 
-// The open items: Northwind's overdue invoice (disputed), a credit and an
-// invoice not yet due; Tyrell's disputed invoice and one posted without
+// The open items: Northwind's overdue invoice (disputed), a credit, an
+// invoice not yet due and, Northwind supplying too, a down payment made to
+// it on a supplier account, which the worklist does not count; Tyrell's disputed invoice and one posted without
 // terms, overdue since its posting date.
 var openItems = map[string]string{
 	disputed: `{"items": [
-		{"fiscal_year": 2026, "journal_entry_id": "` + entryA + `", "line_no": 1, "posting_date": "2026-10-01", "amount_lc": {"amount": "400.00"}, "payment_terms": {"net_due_date": "2026-10-31"}},
-		{"fiscal_year": 2026, "journal_entry_id": "` + entryB + `", "line_no": 2, "posting_date": "2026-09-01", "amount_lc": {"amount": "-420.00"}},
-		{"fiscal_year": 2026, "journal_entry_id": "` + entryB + `", "line_no": 1, "posting_date": "2026-11-01", "amount_lc": {"amount": "100.00"}, "payment_terms": {"net_due_date": "2026-12-01"}}]}`,
+		{"fiscal_year": 2026, "journal_entry_id": "` + entryA + `", "line_no": 1, "account_id": "` + ar + `", "posting_date": "2026-10-01", "amount_lc": {"amount": "400.00"}, "payment_terms": {"net_due_date": "2026-10-31"}},
+		{"fiscal_year": 2026, "journal_entry_id": "` + entryB + `", "line_no": 2, "account_id": "` + ar + `", "posting_date": "2026-09-01", "amount_lc": {"amount": "-420.00"}},
+		{"fiscal_year": 2026, "journal_entry_id": "` + entryB + `", "line_no": 1, "account_id": "` + ar + `", "posting_date": "2026-11-01", "amount_lc": {"amount": "100.00"}, "payment_terms": {"net_due_date": "2026-12-01"}}]}`,
 	partly: `{"items": [
-		{"fiscal_year": 2026, "journal_entry_id": "` + entryA + `", "line_no": 3, "posting_date": "2026-10-01", "amount_lc": {"amount": "300.00"}, "payment_terms": {"net_due_date": "2026-10-31"}},
-		{"fiscal_year": 2026, "journal_entry_id": "` + entryB + `", "line_no": 3, "posting_date": "2026-10-01", "amount_lc": {"amount": "600.00"}}]}`,
+		{"fiscal_year": 2026, "journal_entry_id": "` + entryA + `", "line_no": 3, "account_id": "` + ar + `", "posting_date": "2026-10-01", "amount_lc": {"amount": "300.00"}, "payment_terms": {"net_due_date": "2026-10-31"}},
+		{"fiscal_year": 2026, "journal_entry_id": "` + entryB + `", "line_no": 3, "account_id": "` + ar + `", "posting_date": "2026-10-01", "amount_lc": {"amount": "600.00"}}]}`,
 }
 
 var cases = map[string]string{
@@ -87,6 +90,8 @@ func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch path := r.URL.Path; path {
 	case "/v1/legal-entities":
 		answer(200, `{"items": [{"id": "`+le+`", "code": "3000"}]}`)
+	case "/v1/accounts":
+		answer(200, `{"items": [{"id": "`+ar+`", "reconciliation_kind": "customer"}, {"id": "`+ap+`", "reconciliation_kind": "supplier"}]}`)
 	case "/v1/collection-worklist":
 		body := a.worklist
 		if body == "" {
@@ -270,6 +275,7 @@ func TestAdviseRefusals(t *testing.T) {
 		"the worklist refused":    {client(t, &fakeAPI{status: map[string]int{"/v1/collection-worklist": 403}}), "3000", keyDate, "the collection worklist of company 3000"},
 		"the cases refused":       {client(t, &fakeAPI{status: map[string]int{"/v1/dispute-cases": 403}}), "3000", keyDate, "the open dispute cases of customer 100043"},
 		"the open items refused":  {client(t, &fakeAPI{status: map[string]int{"/v1/open-items": 403}}), "3000", keyDate, "the open items of customer 100043"},
+		"the accounts refused":    {client(t, &fakeAPI{status: map[string]int{"/v1/accounts": 403}}), "3000", keyDate, "the accounts of legal entity " + le},
 		"the API gone":            {gone, "3000", keyDate, "127.0.0.1:1"},
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -205,7 +205,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `regulatory` | `internal/regulatoryagent`, `erp agent regulatory-notice -file F` | `listCountryPacks`, `listConfigVersions`, `getConfigVersion`, `listTaxRegistrations`, `listTaxPeriods` | on `config_version`: `change_needed`, `no_change` | every write of the configuration (change requests, a pack applied, a regression suite) |
 | `regulatory` (drafting, T107b) | `erp agent regulatory-draft -recommendation ID` | `getRecommendation`, `listConfigVersions`, `getConfigVersion`, `listFiscalPeriods`, `getChangeRequest`, `getOperation`; writes `createChangeRequest`, `updateChangeRequest`, `simulateChangeRequest` | on `change_request`: `ready_to_submit`, `simulation_failed` | submitting, withdrawing or activating a change request, a pack applied, a regression suite, a decision on an approval or a recommendation |
 | `bid_comparison` | `internal/bidagent`, `erp agent bid-compare -rfq ID` | `getRfq`, `listSupplierQuotations`, `getRfqComparison`, `getBusinessPartner`, `listContracts`, `listPurchaseOrders` | on `rfq`: `award`, `no_award` | `awardRfq`, `publishRfq`, `createSupplierQuotation`, `createRfq` |
-| `collections` | `internal/collectionsagent`, `erp agent collections -company CODE [-key-date YYYY-MM-DD]` | `getCollectionWorklist`, `getReceivablesAging`, `listDunningRuns`, `listDunningNotices`, `listIncomingPayments`, `listCustomerInvoices`, `listDisputeCases`, `getDisputeCase`, `listOpenItems`, `getBusinessPartner` | on `business_partner` (a customer of the worklist): `call`, `send_reminder`, `escalate`, `wait_for_dispute`, `no_action` | `createDunningRun`, `confirmDunningRun`, `createDisputeCase`, `updateDisputeCase`, `closeDisputeCase`; nothing in the contract sends to a customer |
+| `collections` | `internal/collectionsagent`, `erp agent collections -company CODE [-key-date YYYY-MM-DD]` | `getCollectionWorklist`, `getReceivablesAging`, `listDunningRuns`, `listDunningNotices`, `listIncomingPayments`, `listCustomerInvoices`, `listDisputeCases`, `getDisputeCase`, `listOpenItems`, `listAccounts`, `getBusinessPartner` | on `business_partner` (a customer of the worklist): `call`, `send_reminder`, `escalate`, `wait_for_dispute`, `no_action` | `createDunningRun`, `confirmDunningRun`, `createDisputeCase`, `updateDisputeCase`, `closeDisputeCase`; nothing in the contract sends to a customer |
 | `support` (diagnosis, T108b) | `internal/supportagent`, `erp agent support-diagnose -type KIND -id ID [WHAT HAPPENED]` | T108a's (`listConfigVersions`, `getConfigVersion`, `getSchema`, `getCurrentPrincipal`), `listAuditEvents`, `listOperations`, `listApprovalRequests`, each document's read (`getSupplierInvoice`, `getCustomerInvoice`, `getJournalEntry`, `getPurchaseOrder`, `getSalesOrder`, `getPaymentRun`, `getChangeRequest`, `getOperation`), the contract's search (`findOperations`) | on the document (its kind): `root_cause` | every write: its tools hold none |
 
 A later slice adds its row here and its section under "As built".
@@ -733,7 +733,11 @@ A later slice adds its row here and its section under "As built".
   customers (`MaxCustomers`, the largest overdue amount first: the run's
   objects; the rest wait for a later run, and the prompt says how many the
   worklist lists), and, for each customer with open dispute cases, those
-  cases and its open items (`listDisputeCases`, `listOpenItems`). A
+  cases and its open items on the company's customer reconciliation
+  accounts (`listDisputeCases`, `listOpenItems`, and `listAccounts` for
+  the accounts whose `reconciliation_kind` is `customer`: a partner that
+  also supplies has items on supplier accounts, which the worklist does
+  not count). A
   worklist without customers starts no session and says so; a read
   refused stops the run before a session.
 - **A customer whose every overdue item is disputed** (each open debit
@@ -754,8 +758,8 @@ A later slice adds its row here and its section under "As built".
   read; a contact ends with a line `Draft message:` and the message. So
   the draft states no figure the API did not return; a person sends it.
 - Its reads are the plan's, with `listDunningRuns` (a notice is read
-  under its run), `getDisputeCase` and `listOpenItems`, which needs
-  `ledger.entry.read`; its never list is every write of dunning and of
+  under its run), `getDisputeCase`, `listOpenItems` and `listAccounts`,
+  which need `ledger.entry.read` and `ledger.account.read`; its never list is every write of dunning and of
   dispute cases, all `x-agent: false`; nothing in the contract sends a
   message to a customer.
 - `erp agent collections` prints each recommendation with the customer's
@@ -804,7 +808,9 @@ A later slice adds its row here and its section under "As built".
   one `listAuditEvents` returned in the run for that document (its
   `object_id`); a class other than `unknown` cites at least one; every
   setting cited as `` `path` = `value` `` is the active configuration's;
-  every other number is one the run read (§4). So a cause the events do
+  every other number, in backticks or not, is one the run read (§4). The
+  document's id is read as the API writes it (lower case), whatever case
+  it was given in. So a cause the events do
   not show is `unknown`. The service's logs are not behind the API and
   are not read.
 - **A refused posting of a supplier invoice is audited** on the invoice
@@ -813,7 +819,10 @@ A later slice adds its row here and its section under "As built".
   records the action `payables.supplier_invoice.post` with outcome
   `refused`, the problem's code and detail and the posting date asked
   for; a rule's refusal stays the rule's own record, and an invoice not
-  found records nothing. Without it the trail of a parked invoice shows no
+  found records nothing. The problem's detail is written into the
+  insert-only trail, so a problem detail of that operation names no
+  person (today they carry codes, ids, dates and amounts). Without it the
+  trail of a parked invoice shows no
   cause; refusals of other documents' writes are not audited yet (a gap
   listed for the product owner).
 - Its role needs, beside T108a's, the reads of the documents it
@@ -928,8 +937,10 @@ A later slice adds its row here and its section under "As built".
     undisputed overdue item beside disputed ones may be contacted; "every
     overdue item disputed" is told from the open items and open cases
     before the session, an item without payment terms taken as due on its
-    posting date; its reads add `listDunningRuns`, `getDisputeCase` and
-    `listOpenItems` (so its role holds `ledger.entry.read`) to the plan's;
+    posting date, and only items on customer reconciliation accounts
+    counted; its reads add `listDunningRuns`, `getDisputeCase`,
+    `listOpenItems` and `listAccounts` (so its role holds
+    `ledger.entry.read` and `ledger.account.read`) to the plan's;
     a contact needs a draft message, `wait_for_dispute` an open case.
 19. (T108b) The diagnosis recommends on the document under its kind's
     name as object type, kind `root_cause`, the class on the first line;

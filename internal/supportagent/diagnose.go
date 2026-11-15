@@ -12,6 +12,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
+
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/recommend"
@@ -126,9 +128,11 @@ var (
 // recommended, also when the run fails after recommending.
 func (a *Agent) Diagnose(ctx context.Context, kind, id, report string) (recommend.Result, error) {
 	read, ok := Documents[kind]
-	if !ok || !uuidRe.MatchString(id) {
+	u, err := uuid.Parse(id)
+	if !ok || err != nil {
 		return recommend.Result{}, fmt.Errorf("%w: not %s %q", ErrDocument, kind, id)
 	}
+	id = u.String() // as the API writes it, which the events' object ids are compared with
 	if len(report) > MaxReport || !utf8.ValidString(report) {
 		return recommend.Result{}, ErrReport
 	}
@@ -155,9 +159,6 @@ func (a *Agent) Diagnose(ctx context.Context, kind, id, report string) (recommen
 	return diagnoser(a.MaxIterations).Run(ctx, a.LLM, a.API, task)
 }
 
-// uuidRe is an id as the API writes one.
-var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-
 // diagnoser is the diagnosing agent as the pattern runs it.
 func diagnoser(maxIterations int) recommend.Agent {
 	kinds := map[string][]string{}
@@ -169,9 +170,7 @@ func diagnoser(maxIterations int) recommend.Agent {
 
 // DiagnoseTools are the tools the agent may call when it diagnoses: its
 // reads, the contract's search and the one that recommends.
-func DiagnoseTools() []string {
-	return append(diagnoser(0).Tools(), apitools.FindOperations)
-}
+func DiagnoseTools() []string { return diagnoser(0).Tools() }
 
 // diagnosis is what one run's check knows: the document, the active
 // configuration and the seq numbers of the document's audit events the
@@ -201,8 +200,10 @@ func (d *diagnosis) read(resp apitools.Response) {
 	}
 }
 
-// eventRe is an audit event cited by its seq.
-var eventRe = regexp.MustCompile(`(?i)\bevents?\s+(?:no\.?\s*|#\s*|seq\s+)?(\d+)`)
+// eventRe is an audit event cited by its seq: a number after "event"
+// that is not the start of a date or a fraction ("events 2026-11-15" is
+// none).
+var eventRe = regexp.MustCompile(`(?i)\bevents?\s+(?:no\.?\s*|#\s*|seq\s+)?(\d+)\b(?:[^-/.,\d]|[.,](?:\s|$)|$)`)
 
 // check is the agent's rule on a diagnosis (T108b): its first line names
 // a class, every event it cites is the document's as read in the run, a
@@ -230,7 +231,9 @@ func (d *diagnosis) check(p recommend.Proposed, f *recommend.Figures) error {
 			return fmt.Errorf("%w: not %s = %s", ErrSetting, m[1], m[2])
 		}
 	}
-	if unread := f.Unread(codeRe.ReplaceAllString(p.Content, " ")); len(unread) > 0 {
+	// The settings cited were held to the configuration above; any other
+	// number, in backticks or not, is one the run read.
+	if unread := f.Unread(citationRe.ReplaceAllString(p.Content, " ")); len(unread) > 0 {
 		return fmt.Errorf("%w: not %s", ErrDiagnosisNumber, strings.Join(unread, ", "))
 	}
 	return nil

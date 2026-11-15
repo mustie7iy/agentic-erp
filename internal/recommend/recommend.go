@@ -80,9 +80,17 @@ type Agent struct {
 	Contract bool
 }
 
-// Tools are the operations the agent may call: its reads, its writes and
-// Proposer.
-func (a Agent) Tools() []string { return append(slices.Concat(a.Reads, a.Writes), Proposer) }
+// Tools are the tools the agent may call: its reads, its writes and
+// Proposer, and the contract's search where it asks for it.
+func (a Agent) Tools() []string {
+	if a.Contract {
+		return append(a.operations(), apitools.FindOperations)
+	}
+	return a.operations()
+}
+
+// operations are the API's operations among its tools.
+func (a Agent) operations() []string { return append(slices.Concat(a.Reads, a.Writes), Proposer) }
 
 // Task is one run: what it is about and what it may recommend on.
 type Task struct {
@@ -172,7 +180,7 @@ func (a Agent) Run(ctx context.Context, model *llm.Runner, client *apitools.Clie
 		return Result{}, err
 	}
 	res := Result{Session: s.ID}
-	tools, err := apitools.Tools(client, s, a.Tools()...)
+	tools, err := apitools.Tools(client, s, a.operations()...)
 	if err != nil {
 		// The session is ended rather than left running: nothing was asked.
 		return res, errors.Join(err, s.End(ctx, "failed", anthropic.BetaUsage{}))

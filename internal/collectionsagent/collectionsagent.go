@@ -71,10 +71,11 @@ var Never = []string{"createDunningRun", "confirmDunningRun", "createDisputeCase
 
 // Reads are the operations the agent reads with (ADR-0072 As built,
 // T105b): the plan's, the dunning runs a notice is listed under, a
-// dispute case, and the open items, which the run reads before its
-// session to tell a customer whose overdue items are all disputed.
+// dispute case, and the open items and the accounts, which the run reads
+// before its session to tell a customer whose overdue items are all
+// disputed.
 var Reads = []string{"getCollectionWorklist", "getReceivablesAging", "listDunningRuns", "listDunningNotices", "listIncomingPayments",
-	"listCustomerInvoices", "listDisputeCases", "getDisputeCase", "listOpenItems", "getBusinessPartner"}
+	"listCustomerInvoices", "listDisputeCases", "getDisputeCase", "listOpenItems", "listAccounts", "getBusinessPartner"}
 
 const system = `You prepare a company's collections for a collections specialist to decide: for each customer on the
 collection worklist you are given, the next action.
@@ -186,12 +187,21 @@ func (a *Agent) Advise(ctx context.Context, company, keyDate string) (recommend.
 	if len(w.Items) == 0 {
 		return recommend.Result{Reply: fmt.Sprintf("Nothing of company %s is overdue on %s: no customer to recommend on.", company, keyDate)}, nil
 	}
+	var receivables map[string]bool // read once, for the first customer with a case
 	for i := range w.Items {
-		if err := a.disputes(ctx, le, keyDate, &w.Items[i]); err != nil {
+		if w.Items[i].Cases == 0 {
+			continue
+		}
+		if receivables == nil {
+			if receivables, err = a.receivables(ctx, le); err != nil {
+				return recommend.Result{}, err
+			}
+		}
+		if err := a.disputes(ctx, le, keyDate, receivables, &w.Items[i]); err != nil {
 			return recommend.Result{}, err
 		}
 	}
-	r := &review{currency: w.Currency, customers: map[string]customer{}}
+	r := &review{customers: map[string]customer{}}
 	task := recommend.Task{
 		Purpose: fmt.Sprintf("Recommend the next collection action per customer of company %s on %s", w.CompanyCode, keyDate),
 		Prompt:  r.prompt(w, company, le, keyDate),
@@ -225,6 +235,7 @@ type openItem struct {
 	FiscalYear     int    `json:"fiscal_year"`
 	JournalEntryID string `json:"journal_entry_id"`
 	LineNo         int    `json:"line_no"`
+	AccountID      string `json:"account_id"`
 	PostingDate    string `json:"posting_date"`
 	Amount         money  `json:"amount_lc"`
 	Terms          *struct {
@@ -235,18 +246,36 @@ type openItem struct {
 // line names an item by its journal line, as a dispute case names it.
 func line(year int, entry string, no int) string { return fmt.Sprintf("%d/%s/%d", year, entry, no) }
 
+// receivables are the company's customer reconciliation accounts, by id:
+// the accounts whose open items the worklist counts.
+func (a *Agent) receivables(ctx context.Context, le string) (map[string]bool, error) {
+	accounts, err := apitools.List[struct {
+		ID   string `json:"id"`
+		Kind string `json:"reconciliation_kind"`
+	}](ctx, a.API, "/v1/accounts", url.Values{"legal_entity_id": {le}})
+	if err != nil {
+		return nil, fmt.Errorf("collectionsagent: the accounts of legal entity %s: %w", le, err)
+	}
+	out := map[string]bool{}
+	for _, acc := range accounts {
+		if acc.Kind == "customer" {
+			out[acc.ID] = true
+		}
+	}
+	return out, nil
+}
+
 // disputes works out whether every overdue item of a customer with open
-// dispute cases has one: its open items overdue on the key date (a debit
+// dispute cases has one: its open items on a customer reconciliation
+// account (a partner that also supplies has items on supplier accounts,
+// which the worklist does not count) overdue on the key date (a debit
 // past its net due date, or, posted without terms, past its posting date)
 // each have an open case. An item posted without terms is taken as due on
 // its posting date, which is never before its document date, the date the
 // worklist takes: the run may count an item overdue a few days late, and
 // so tell a customer disputed that the worklist still lists with an item
 // overdue only by those days, never the other way round.
-func (a *Agent) disputes(ctx context.Context, le, keyDate string, c *customer) error {
-	if c.Cases == 0 {
-		return nil
-	}
+func (a *Agent) disputes(ctx context.Context, le, keyDate string, receivables map[string]bool, c *customer) error {
 	cases, err := apitools.List[struct {
 		FiscalYear     int    `json:"fiscal_year"`
 		JournalEntryID string `json:"journal_entry_id"`
@@ -270,7 +299,7 @@ func (a *Agent) disputes(ctx context.Context, le, keyDate string, c *customer) e
 			due = it.Terms.NetDueDate
 		}
 		// Dates as the API writes them, YYYY-MM-DD, order as text.
-		overdue := !strings.HasPrefix(it.Amount.Amount, "-") && due < keyDate
+		overdue := receivables[it.AccountID] && !strings.HasPrefix(it.Amount.Amount, "-") && due < keyDate
 		if overdue && !disputed[line(it.FiscalYear, it.JournalEntryID, it.LineNo)] {
 			c.disputed = false
 		}
@@ -288,10 +317,9 @@ func agent(maxIterations int) recommend.Agent {
 // that recommends.
 func Tools() []string { return agent(0).Tools() }
 
-// review is what one run's check knows: the company's currency and the
-// customers of the worklist by id.
+// review is what one run's check knows: the customers of the worklist by
+// id.
 type review struct {
-	currency  string
 	customers map[string]customer
 }
 
@@ -340,7 +368,7 @@ func (r *review) check(p recommend.Proposed, f *recommend.Figures) error {
 		return ErrNoDispute
 	}
 	stated := recommend.Numbers(p.Content)
-	if len(stated) == 0 || stated[0] != c.Overdue.Amount || !strings.HasPrefix(p.Content, "Overdue "+c.Overdue.Amount+" "+r.currency) {
+	if len(stated) == 0 || stated[0] != c.Overdue.Amount || !strings.HasPrefix(p.Content, "Overdue "+c.Overdue.Amount+" "+c.Overdue.Currency) {
 		return ErrNoOverdue
 	}
 	if unread := f.Unread(p.Content); len(unread) > 0 {

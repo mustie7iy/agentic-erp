@@ -119,11 +119,13 @@ func TestDiagnose(t *testing.T) {
 		cause("Root cause: master_data\nThe supplier is blocked."),
 		cause("Root cause: configuration\nevent 41, under `companies[1000].invoice_tolerance.price_percent` = `3`."),
 		cause("Root cause: closed_period\nevent 41: period 6/2025 is closed since 12 days."),
+		cause("Root cause: closed_period\nevent 41: the posting of `98765.43` was refused."),
 		llmtest.Tool(apitools.FindOperations, map[string]any{"operation_ids": []any{"postSupplierInvoice"}}),
 		cause("Root cause: closed_period.\nThe posting was refused, event 41: \"Period 6/2025 is closed; postings need it open.\" "+
-			"The tolerance `companies[1000].invoice_tolerance.price_percent` = `2` played no part. Open the period, or post on a date of an open one."),
+			"The tolerance `companies[1000].invoice_tolerance.price_percent` = `2` played no part; the report names no events 2025-06-15. Open the period, or post on a date of an open one."),
 		llmtest.Final("The invoice's period is closed."))
-	res, err := (&supportagent.Agent{LLM: model.Runner(), API: diagClient(t, a)}).Diagnose(context.Background(), "supplier_invoice", invoice,
+	// The id as a person may type it, in capitals: the run reads it as the API writes it.
+	res, err := (&supportagent.Agent{LLM: model.Runner(), API: diagClient(t, a)}).Diagnose(context.Background(), "supplier_invoice", strings.ToUpper(invoice),
 		"Posting it on 2025-06-15 was refused.")
 	if err != nil {
 		t.Fatal(err)
@@ -132,8 +134,8 @@ func TestDiagnose(t *testing.T) {
 	if !slices.Equal(res.Recommendations, want) {
 		t.Errorf("recommendations: got %v, want %v", res.Recommendations, want)
 	}
-	if res.Refused != 7 {
-		t.Errorf("refused: got %d, want 7", res.Refused)
+	if res.Refused != 8 {
+		t.Errorf("refused: got %d, want 8", res.Refused)
 	}
 	prompt := "The document is the supplier_invoice " + invoice + " (read it with getSupplierInvoice). The tenant's active configuration is version 3 (id " +
 		version + ").\n<report>\nPosting it on 2025-06-15 was refused.\n</report>"
@@ -147,7 +149,7 @@ func TestDiagnose(t *testing.T) {
 			t.Errorf("the model was not told %q", want)
 		}
 	}
-	for _, want := range []string{"not event 7", "not event 42", "not 12"} {
+	for _, want := range []string{"not event 7", "not event 42", "not 12", "not 98765.43"} {
 		if !strings.Contains(refusals, want) {
 			t.Errorf("refusals: want %q among them", want)
 		}

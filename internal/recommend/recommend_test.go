@@ -408,6 +408,9 @@ func TestRunWithTheContract(t *testing.T) {
 	if !slices.Equal(read, []string{"9876"}) {
 		t.Errorf("unread: got %v, want only 9876, which the contract's answer does not write", read)
 	}
+	if got := contractual.Tools(); !slices.Equal(got, append(agent.Tools(), apitools.FindOperations)) {
+		t.Errorf("declared tools: got %v, want the agent's and %s", got, apitools.FindOperations)
+	}
 	if !slices.Contains(model.ToolNames(), apitools.FindOperations) {
 		t.Errorf("tools offered: got %v, want %s among them", model.ToolNames(), apitools.FindOperations)
 	}

@@ -10064,12 +10064,12 @@ step_collections_agent() {
   [ -n "$id" ] || fail "the dispute case of step 95 is not there"
   as ada
   say "Ada sets up the collections agent (ADR-0072): an agent principal of type collections at autonomy level 1 on"
-  say "erp-default. Its role reads the worklist, dispute cases, dunning, receivables, open items and partners, and records"
+  say "erp-default. Its role reads the worklist, dispute cases, dunning, receivables, open items, accounts and partners, and records"
   say "its sessions and recommendations; it holds no permission that runs dunning or works a dispute case."
   api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "collections_agent", "name": "Collections agent"}'
   role=$(field .id)
   grant "$role" tenancy.org.read collections.worklist.read collections.dispute.read collections.dunning.read receivables.invoice.read \
-    ledger.entry.read partner.supplier.read agents.session.read agents.session.record agents.model.invoke
+    ledger.entry.read ledger.account.read partner.supplier.read agents.session.read agents.session.record agents.model.invoke
   api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' \
     createPrincipal -body '{"kind": "agent", "external_subject": "collections-agent", "display_name": "Collections agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "collections", "model": "erp-default", "description": "Recommends the next collection action per customer (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
   QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
