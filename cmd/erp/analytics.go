@@ -133,13 +133,19 @@ func queryCmd(ctx context.Context, args []string) error {
 		r.AsOf.UTC().Format(time.RFC3339)); err != nil {
 		return fmt.Errorf("query: print summary: %w", err)
 	}
-	if *csvOut != "" {
-		if err := writeResult(*csvOut, "CSV", func(w io.Writer) error { return analytics.WriteCSV(w, r) }); err != nil {
+	return writeFiles(r, *csvOut, *xlsxOut)
+}
+
+// writeFiles writes the result as CSV and as an Excel workbook to the
+// files named, each when named.
+func writeFiles(r *analytics.Result, csvOut, xlsxOut string) error {
+	if csvOut != "" {
+		if err := writeResult(csvOut, "CSV", func(w io.Writer) error { return analytics.WriteCSV(w, r) }); err != nil {
 			return err
 		}
 	}
-	if *xlsxOut != "" {
-		return writeResult(*xlsxOut, "workbook", func(w io.Writer) error { return analytics.WriteXLSX(w, analytics.SheetQuery, r) })
+	if xlsxOut != "" {
+		return writeResult(xlsxOut, "workbook", func(w io.Writer) error { return analytics.WriteXLSX(w, analytics.SheetQuery, r) })
 	}
 	return nil
 }
