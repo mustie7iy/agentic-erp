@@ -71,6 +71,7 @@ type Endpoints struct {
 	Calendar      Calendar
 	Journal       Journal
 	People        People
+	Privacy       Privacy // the partner context's blocked personal data (T100c)
 	Pages         *pagination.Codec
 	Objects       blobstore.Store  // archive files; nil: no run is asked for and no file is read
 	Now           func() time.Time // nil: the wall clock

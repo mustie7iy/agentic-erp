@@ -47,6 +47,8 @@ func NormalizedName(name string) string {
 // or its normalized name and country, whatever their roles, a blocked one
 // included, by number, at most MaxPossibleDuplicates. A partner whose
 // create change was rejected or cancelled never existed and is left out.
+// One whose personal data is blocked is listed by its number, its name
+// masked (ADR-0079 §11), here and so on the change that keeps the list.
 // The tax identifiers' advisory locks are taken first, one per scheme and
 // value in their order, so of two partners with the same number created
 // at once the second waits and then finds the first (ADR-0008).
@@ -63,7 +65,7 @@ func possibleDuplicates(ctx context.Context, tx pgx.Tx, name, country string, ta
 			return nil, fmt.Errorf("partner: lock tax registration number %s: %w", k, err)
 		}
 	}
-	rows, _ := tx.Query(ctx, `SELECT p.id, p.number, p.name,
+	rows, _ := tx.Query(ctx, `SELECT p.id, p.number, CASE WHEN p.personal_data_blocked_at IS NULL OR p.personal_data_deleted_at IS NOT NULL THEN p.name ELSE $6 END,
 			EXISTS (SELECT FROM partner.tax_identifier t JOIN unnest($3::text[], $4::text[]) AS x(scheme, print)
 				ON t.scheme = x.scheme AND t.value_fingerprint = x.print WHERE t.tenant_id = p.tenant_id AND t.partner_id = p.id),
 			p.country_code = $2 AND partner.normalized_name(p.name) = $1
@@ -73,7 +75,7 @@ func possibleDuplicates(ctx context.Context, tx pgx.Tx, name, country string, ta
 					ON t.scheme = x.scheme AND t.value_fingerprint = x.print))
 			AND (p.status <> 'pending' OR EXISTS (SELECT FROM partner.partner_change c
 				WHERE c.tenant_id = p.tenant_id AND c.partner_id = p.id AND c.kind = 'create' AND c.status = 'pending'))
-		ORDER BY p.number, p.id LIMIT $5`, NormalizedName(name), country, schemes, prints, MaxPossibleDuplicates)
+		ORDER BY p.number, p.id LIMIT $5`, NormalizedName(name), country, schemes, prints, MaxPossibleDuplicates, MaskedText)
 	var d Duplicate
 	var tax, named bool
 	out := []Duplicate{}

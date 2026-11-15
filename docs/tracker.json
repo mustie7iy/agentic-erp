@@ -6280,13 +6280,13 @@
     "ph": 9,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Personal data blocking",
       "c": [
        {
-        "s": "T",
-        "t": "The privacy officer blocks a business partner's personal data once nothing is open for it: the partner's own reads and the names other contexts take from the partner then answer its name, address and bank details masked, except to holders of a permission, and new documents for it are refused (POST /v1/business-partners/{id}:block-personal-data)",
-        "r": "T100b · docs/design/plan-breadth-week3.md §T100b",
+        "s": "D",
+        "t": "The privacy officer blocks a business partner's personal data once nothing is open for it: the partner's own reads and the names other contexts take from the partner then answer its name, address and bank details masked, except to holders of a permission, and new documents for it are refused (POST /v1/business-partners/{id}:blockPersonalData)",
+        "r": "T100b · docs/design/plan-breadth-week3.md §T100b · partner.business_partner.personal_data_blocked_at · db/migrations/000331 · POST /v1/business-partners/{id}:blockPersonalData, :unblockPersonalData · partner.privacy.block, partner.privacy.read_blocked · partner.Payees.Names and BankAccounts masked · ledger.OpenItems.OpenCompanies · partner_change.possible_duplicates inventoried and masked · BusinessPartnerUpdated personal_data_blocked_at · walkthrough step_privacy (privacy_block) · ADR-0079 §11 and As built · 03-data-model §3.6",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -6301,13 +6301,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Deletion runs",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The privacy officer previews and starts a deletion run: for each business partner blocked longer than the retention rule for personal data, its name, address and bank details are blanked; ledger documents and audit events stay (POST /v1/personal-data-deletion-runs)",
-        "r": "T100c · docs/design/plan-breadth-week3.md §T100c",
+        "r": "T100c · docs/design/plan-breadth-week3.md §T100c · records.deletion_run, records.deletion_run_subject, partner.business_partner.personal_data_deleted_at · db/migrations/000332 · GET /v1/personal-data-deletion-preview, POST /v1/personal-data-deletion-runs, GET /v1/personal-data-deletion-runs/{id}, GET /v1/personal-data-deletion-runs/{id}/subjects · PersonalDataDeleted · records.privacy.delete · records.Deleter · partner.Privacy.Blocked, Blank · walkthrough step_privacy (privacy_delete) · ADR-0079 §12 and As built · 03-data-model §3.6, §3.32",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

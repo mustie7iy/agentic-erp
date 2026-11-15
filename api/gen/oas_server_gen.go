@@ -318,6 +318,24 @@ type Handler interface {
 	//
 	// POST /v1/org-units/{id}:block
 	BlockOrgUnit(ctx context.Context, req *ReasonInput, params BlockOrgUnitParams) (BlockOrgUnitRes, error)
+	// BlockPersonalData implements blockPersonalData operation.
+	//
+	// Blocks the partner's personal data once nothing is open for it (ADR-0079 §11, T100b): a partner
+	// with an open item in the ledger of any company, on a supplier or customer reconciliation account, is
+	// refused with 409 `partner.open_items` naming the company; open orders and unposted documents are the
+	// caller's to check in the first version. Blocking also blocks the partner (status `blocked`, as
+	// `blockBusinessPartner` does), so entering and posting documents for it are refused by the checks in
+	// place, and records an applied partner change of kind `block`. From then on the partner's name, legal
+	// name, addresses, tax identifiers and bank accounts are answered masked by every read of the partner
+	// context, and its name by the names other contexts show beside its id, to a caller without
+	// `partner.privacy.read_blocked`; names other contexts stored on their own documents, and events and
+	// exports written before, stay as they are. A partner that is not `active` or `blocked`, or has a
+	// pending partner change, is refused (409). Publishes BusinessPartnerUpdated naming
+	// `personal_data_blocked_at`. Returns the partner as the caller sees it. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/business-partners/{id}:blockPersonalData
+	BlockPersonalData(ctx context.Context, req *ReasonInput, params BlockPersonalDataParams) (BlockPersonalDataRes, error)
 	// BlockPrincipal implements blockPrincipal operation.
 	//
 	// Blocks the principal; its tokens are refused from now on. Requires status `active`.
@@ -1619,6 +1637,28 @@ type Handler interface {
 	//
 	// POST /v1/period-closes
 	CreatePeriodClose(ctx context.Context, req *PeriodCloseCreate, params CreatePeriodCloseParams) (CreatePeriodCloseRes, error)
+	// CreatePersonalDataDeletionRun implements createPersonalDataDeletionRun operation.
+	//
+	// Starts a deletion run (ADR-0079 §12, T100c) of the subjects `getPersonalDataDeletionPreview` lists
+	// now; none is refused (422 `records.nothing_to_delete`). The run is queued with its subjects and the
+	// active configuration version, and the deleter blanks them in the background, each in a transaction
+	// of its own, as `getPersonalDataDeletionRun` then shows: a subject `blanked`, or `skipped` when its
+	// block was lifted, or lifted and set again, since, or an item of it is open (a later run lists it
+	// again once the item is cleared); the run `completed` once none is pending, or `failed` with the
+	// problem code that stopped it (`identity.principal_blocked` when the requester was blocked or
+	// deprovisioned since). Blanking replaces each field of the personal data inventory of the partner
+	// (its name and legal name, addresses, bank accounts, tax identifiers, its changes' payloads and its
+	// name where another change lists it as a possible duplicate) by a fixed marker (`[deleted]`; `XXXX`
+	// for the last four characters of an account or a tax identifier) and ends its bank accounts, and
+	// cannot be undone: the partner then reads `personal_data_deleted_at`, its block can no longer be
+	// lifted, and its documents name it by number. Journal entries, invoices and audit events are neither
+	// removed nor changed. One run is queued at a time: asking again while one is queued answers that run
+	// (200). The subjects are the whole tenant's, so the caller needs access to all companies (403
+	// `records.all_companies_required`). Audited (`records.deletion_run.request`), and each subject's
+	// blanking audited and published as PersonalDataDeleted, by ids only. Human-only (`x-agent: false`).
+	//
+	// POST /v1/personal-data-deletion-runs
+	CreatePersonalDataDeletionRun(ctx context.Context, req *ReasonInput, params CreatePersonalDataDeletionRunParams) (CreatePersonalDataDeletionRunRes, error)
 	// CreatePlanCategory implements createPlanCategory operation.
 	//
 	// Creates an open plan category (ADR-0050 §8). A code is unique in the tenant (409
@@ -3563,6 +3603,32 @@ type Handler interface {
 	//
 	// GET /v1/period-closes/{id}
 	GetPeriodClose(ctx context.Context, params GetPeriodCloseParams) (GetPeriodCloseRes, error)
+	// GetPersonalDataDeletionPreview implements getPersonalDataDeletionPreview operation.
+	//
+	// The business partners a deletion run started now would blank (ADR-0079 §12, T100c), changing
+	// nothing: each partner whose personal data is blocked (`blockPersonalData`) and not deleted, that has
+	// supplier or customer data in at least one company, and whose block has lasted, in every such
+	// company, the whole years of the company's retention rule for `personal_data` in the active
+	// configuration, counted from the block's day on the company's date (a rule of zero years: from the
+	// day of the block). A company without a `personal_data` rule keeps its partners: without one, nothing
+	// is eligible. Each subject is listed by id and number with when its block began, the longest rule it
+	// is held to and the day that rule's years ended, a page at a time by number; `count` is how many
+	// there are in all. Sortable by: `partner_number` (default). `createPersonalDataDeletionRun` lists the
+	// same subjects. The subjects are the whole tenant's, so the caller needs access to all companies (403
+	// `records.all_companies_required`). A tenant without a configuration is 409
+	// `config.not_bootstrapped`. Human-only (`x-agent: false`).
+	//
+	// GET /v1/personal-data-deletion-preview
+	GetPersonalDataDeletionPreview(ctx context.Context, params GetPersonalDataDeletionPreviewParams) (GetPersonalDataDeletionPreviewRes, error)
+	// GetPersonalDataDeletionRun implements getPersonalDataDeletionRun operation.
+	//
+	// One deletion run (ADR-0079 §12, T100c): `queued` while a subject is pending, then `completed`, or
+	// `failed` with the problem code that stopped it, with how many of its subjects are pending, blanked
+	// and skipped; `listPersonalDataDeletionSubjects` lists them. It needs access to all companies (403
+	// `records.all_companies_required`), as starting one does. Human-only (`x-agent: false`).
+	//
+	// GET /v1/personal-data-deletion-runs/{id}
+	GetPersonalDataDeletionRun(ctx context.Context, params GetPersonalDataDeletionRunParams) (GetPersonalDataDeletionRunRes, error)
 	// GetPersonalDataInventory implements getPersonalDataInventory operation.
 	//
 	// The personal data inventory (ADR-0079 §9-§10, T100a): each column of the database that holds
@@ -5083,6 +5149,17 @@ type Handler interface {
 	//
 	// GET /v1/period-closes
 	ListPeriodCloses(ctx context.Context, params ListPeriodClosesParams) (ListPeriodClosesRes, error)
+	// ListPersonalDataDeletionSubjects implements listPersonalDataDeletionSubjects operation.
+	//
+	// The subjects of a deletion run (ADR-0079 §12, T100c), by partner number, a page at a time,
+	// optionally of one status: each business partner by id and number, never by name, with when its block
+	// began, the rule it was held to, and its status (`pending`, `blanked`, or `skipped` when its block
+	// was lifted or set again since, or an item of it was open) with when it was settled. It needs access
+	// to all companies (403 `records.all_companies_required`). A run the tenant does not have is 404.
+	// Human-only (`x-agent: false`). Sortable by: `partner_number` (default).
+	//
+	// GET /v1/personal-data-deletion-runs/{id}/subjects
+	ListPersonalDataDeletionSubjects(ctx context.Context, params ListPersonalDataDeletionSubjectsParams) (ListPersonalDataDeletionSubjectsRes, error)
 	// ListPlanCategories implements listPlanCategories operation.
 	//
 	// The tenant's plan categories (ADR-0050 §8), such as `PLAN` and `FORECAST`: open, or locked so their
@@ -7219,6 +7296,17 @@ type Handler interface {
 	//
 	// POST /v1/org-units/{id}:unblock
 	UnblockOrgUnit(ctx context.Context, params UnblockOrgUnitParams) (UnblockOrgUnitRes, error)
+	// UnblockPersonalData implements unblockPersonalData operation.
+	//
+	// Lifts the block of the partner's personal data (ADR-0079 §11, T100b): its reads are answered in
+	// full again. The partner itself stays `blocked`; unblocking it is `unblockBusinessPartner`, with its
+	// approval. A partner whose personal data is not blocked is refused with 409
+	// `partner.personal_data_not_blocked`, one whose personal data a deletion run blanked with 409
+	// `partner.personal_data_deleted`. Publishes BusinessPartnerUpdated naming `personal_data_blocked_at`.
+	// Returns the partner as the caller sees it. Human-only (`x-agent: false`).
+	//
+	// POST /v1/business-partners/{id}:unblockPersonalData
+	UnblockPersonalData(ctx context.Context, req *ReasonInput, params UnblockPersonalDataParams) (UnblockPersonalDataRes, error)
 	// UnlockFiscalPeriod implements unlockFiscalPeriod operation.
 	//
 	// Opens a `period_unlock` approval request for a locked period and names it on the period

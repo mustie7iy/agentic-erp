@@ -111,8 +111,12 @@ const (
 		JOIN ledger.gl_account a ON a.tenant_id = ca.tenant_id AND a.id = ca.account_id
 		JOIN tenancy.legal_entity le ON le.tenant_id = ca.tenant_id AND le.id = ca.legal_entity_id
 		ORDER BY le.code, a.number`
-	// Every partner, as /v1/business-partners lists them, with its roles.
-	partnersSQL = `SELECT bp.tenant_id, bp.number, bp.name,
+	// Every partner, as /v1/business-partners lists them, with its roles;
+	// the name of one whose personal data is blocked masked, as the
+	// partner context answers it to a reader without the permission to
+	// read it (ADR-0079 §11): analytics readers hold no such permission.
+	partnersSQL = `SELECT bp.tenant_id, bp.number,
+		CASE WHEN bp.personal_data_blocked_at IS NOT NULL AND bp.personal_data_deleted_at IS NULL THEN '[blocked]' ELSE bp.name END,
 		EXISTS (SELECT FROM partner.partner_role r WHERE r.tenant_id = bp.tenant_id AND r.partner_id = bp.id AND r.role = 'supplier'),
 		EXISTS (SELECT FROM partner.partner_role r WHERE r.tenant_id = bp.tenant_id AND r.partner_id = bp.id AND r.role = 'customer')
 		FROM partner.business_partner bp ORDER BY bp.number`

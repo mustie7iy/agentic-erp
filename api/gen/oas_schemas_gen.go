@@ -16267,6 +16267,70 @@ type BlockOrgUnitUnprocessableEntity Problem
 
 func (*BlockOrgUnitUnprocessableEntity) blockOrgUnitRes() {}
 
+type BlockPersonalDataBadRequest Problem
+
+func (*BlockPersonalDataBadRequest) blockPersonalDataRes() {}
+
+type BlockPersonalDataForbidden Problem
+
+func (*BlockPersonalDataForbidden) blockPersonalDataRes() {}
+
+type BlockPersonalDataNotFound Problem
+
+func (*BlockPersonalDataNotFound) blockPersonalDataRes() {}
+
+// BlockPersonalDataOKHeaders wraps BusinessPartner with response headers.
+type BlockPersonalDataOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           BusinessPartner
+}
+
+// GetETag returns the value of ETag.
+func (s *BlockPersonalDataOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *BlockPersonalDataOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *BlockPersonalDataOKHeaders) GetResponse() BusinessPartner {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *BlockPersonalDataOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *BlockPersonalDataOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *BlockPersonalDataOKHeaders) SetResponse(val BusinessPartner) {
+	s.Response = val
+}
+
+func (*BlockPersonalDataOKHeaders) blockPersonalDataRes()   {}
+func (*BlockPersonalDataOKHeaders) unblockPersonalDataRes() {}
+
+type BlockPersonalDataPreconditionFailed Problem
+
+func (*BlockPersonalDataPreconditionFailed) blockPersonalDataRes() {}
+
+type BlockPersonalDataPreconditionRequired Problem
+
+func (*BlockPersonalDataPreconditionRequired) blockPersonalDataRes() {}
+
+type BlockPersonalDataUnprocessableEntity Problem
+
+func (*BlockPersonalDataUnprocessableEntity) blockPersonalDataRes() {}
+
 type BlockPrincipalBadRequest Problem
 
 func (*BlockPrincipalBadRequest) blockPrincipalRes() {}
@@ -16343,6 +16407,15 @@ type BusinessPartner struct {
 	// `group_company_id` by its company code and its name as they are now, both only to a caller who may
 	// act in that company (the id alone otherwise); absent with it.
 	GroupCompany OptGroupCompany `json:"group_company"`
+	// When the partner's personal data was blocked (`blockPersonalData`, ADR-0079 §11); absent while it
+	// is not. While it is set, and the data is not deleted, a caller without
+	// `partner.privacy.read_blocked` reads `name`, `legal_name`, the addresses' lines, city, postal code
+	// and region as `[blocked]` and the tax identifiers' `value_last4` as `XXXX`.
+	PersonalDataBlockedAt OptDateTime `json:"personal_data_blocked_at"`
+	// When a deletion run blanked the partner's personal data (`createPersonalDataDeletionRun`, ADR-0079
+	// §12): its names, addresses, tax identifiers and bank accounts read `[deleted]` (`XXXX` for the last
+	// four characters), to every caller. Absent while it is not deleted. Not reversible.
+	PersonalDataDeletedAt OptDateTime `json:"personal_data_deleted_at"`
 }
 
 // GetID returns the value of ID.
@@ -16450,6 +16523,16 @@ func (s *BusinessPartner) GetGroupCompany() OptGroupCompany {
 	return s.GroupCompany
 }
 
+// GetPersonalDataBlockedAt returns the value of PersonalDataBlockedAt.
+func (s *BusinessPartner) GetPersonalDataBlockedAt() OptDateTime {
+	return s.PersonalDataBlockedAt
+}
+
+// GetPersonalDataDeletedAt returns the value of PersonalDataDeletedAt.
+func (s *BusinessPartner) GetPersonalDataDeletedAt() OptDateTime {
+	return s.PersonalDataDeletedAt
+}
+
 // SetID sets the value of ID.
 func (s *BusinessPartner) SetID(val uuid.UUID) {
 	s.ID = val
@@ -16553,6 +16636,16 @@ func (s *BusinessPartner) SetGroupCompanyID(val OptUUID) {
 // SetGroupCompany sets the value of GroupCompany.
 func (s *BusinessPartner) SetGroupCompany(val OptGroupCompany) {
 	s.GroupCompany = val
+}
+
+// SetPersonalDataBlockedAt sets the value of PersonalDataBlockedAt.
+func (s *BusinessPartner) SetPersonalDataBlockedAt(val OptDateTime) {
+	s.PersonalDataBlockedAt = val
+}
+
+// SetPersonalDataDeletedAt sets the value of PersonalDataDeletedAt.
+func (s *BusinessPartner) SetPersonalDataDeletedAt(val OptDateTime) {
+	s.PersonalDataDeletedAt = val
 }
 
 // Changes to business partner master data (merge-patch semantics), applied when the partner change is
@@ -25694,6 +25787,7 @@ func (*ConflictHeaders) awardRfqRes()                              {}
 func (*ConflictHeaders) blockBusinessPartnerRes()                  {}
 func (*ConflictHeaders) blockLegalEntityRes()                      {}
 func (*ConflictHeaders) blockOrgUnitRes()                          {}
+func (*ConflictHeaders) blockPersonalDataRes()                     {}
 func (*ConflictHeaders) blockPrincipalRes()                        {}
 func (*ConflictHeaders) callOffScheduleLineRes()                   {}
 func (*ConflictHeaders) cancelApprovalRequestRes()                 {}
@@ -25767,6 +25861,7 @@ func (*ConflictHeaders) createMigrationRunRes()                    {}
 func (*ConflictHeaders) createOrgUnitRes()                         {}
 func (*ConflictHeaders) createPartnerChangeRes()                   {}
 func (*ConflictHeaders) createPeriodCloseRes()                     {}
+func (*ConflictHeaders) createPersonalDataDeletionRunRes()         {}
 func (*ConflictHeaders) createPlanCategoryRes()                    {}
 func (*ConflictHeaders) createPrincipalRes()                       {}
 func (*ConflictHeaders) createProfitCenterRes()                    {}
@@ -25828,6 +25923,7 @@ func (*ConflictHeaders) getLegalEntityTodayRes()                   {}
 func (*ConflictHeaders) getLiquidityForecastVarianceRes()          {}
 func (*ConflictHeaders) getMarginReportRes()                       {}
 func (*ConflictHeaders) getPeriodCloseRes()                        {}
+func (*ConflictHeaders) getPersonalDataDeletionPreviewRes()        {}
 func (*ConflictHeaders) getPurchaseOrderDocumentRes()              {}
 func (*ConflictHeaders) getReportRunRes()                          {}
 func (*ConflictHeaders) getRetentionStatusRes()                    {}
@@ -25953,6 +26049,7 @@ func (*ConflictHeaders) transmitBankFileRes()                      {}
 func (*ConflictHeaders) unblockBusinessPartnerRes()                {}
 func (*ConflictHeaders) unblockLegalEntityRes()                    {}
 func (*ConflictHeaders) unblockOrgUnitRes()                        {}
+func (*ConflictHeaders) unblockPersonalDataRes()                   {}
 func (*ConflictHeaders) unlockFiscalPeriodRes()                    {}
 func (*ConflictHeaders) unlockPlanCategoryRes()                    {}
 func (*ConflictHeaders) unscheduleReportRes()                      {}
@@ -33062,6 +33159,22 @@ func (*CreatePeriodClosePreconditionRequired) createPeriodCloseRes() {}
 type CreatePeriodCloseUnprocessableEntity Problem
 
 func (*CreatePeriodCloseUnprocessableEntity) createPeriodCloseRes() {}
+
+type CreatePersonalDataDeletionRunBadRequest Problem
+
+func (*CreatePersonalDataDeletionRunBadRequest) createPersonalDataDeletionRunRes() {}
+
+type CreatePersonalDataDeletionRunForbidden Problem
+
+func (*CreatePersonalDataDeletionRunForbidden) createPersonalDataDeletionRunRes() {}
+
+type CreatePersonalDataDeletionRunPreconditionRequired Problem
+
+func (*CreatePersonalDataDeletionRunPreconditionRequired) createPersonalDataDeletionRunRes() {}
+
+type CreatePersonalDataDeletionRunUnprocessableEntity Problem
+
+func (*CreatePersonalDataDeletionRunUnprocessableEntity) createPersonalDataDeletionRunRes() {}
 
 type CreatePlanCategoryBadRequest Problem
 
@@ -46184,6 +46297,18 @@ func (s *GetPeriodCloseOKHeaders) SetResponse(val PeriodClose) {
 
 func (*GetPeriodCloseOKHeaders) getPeriodCloseRes() {}
 
+type GetPersonalDataDeletionRunBadRequest Problem
+
+func (*GetPersonalDataDeletionRunBadRequest) getPersonalDataDeletionRunRes() {}
+
+type GetPersonalDataDeletionRunForbidden Problem
+
+func (*GetPersonalDataDeletionRunForbidden) getPersonalDataDeletionRunRes() {}
+
+type GetPersonalDataDeletionRunNotFound Problem
+
+func (*GetPersonalDataDeletionRunNotFound) getPersonalDataDeletionRunRes() {}
+
 type GetPersonalDataSubjectBadRequest Problem
 
 func (*GetPersonalDataSubjectBadRequest) getPersonalDataSubjectRes() {}
@@ -58606,6 +58731,18 @@ func (*ListPeriodClosesBadRequest) listPeriodClosesRes() {}
 type ListPeriodClosesForbidden Problem
 
 func (*ListPeriodClosesForbidden) listPeriodClosesRes() {}
+
+type ListPersonalDataDeletionSubjectsBadRequest Problem
+
+func (*ListPersonalDataDeletionSubjectsBadRequest) listPersonalDataDeletionSubjectsRes() {}
+
+type ListPersonalDataDeletionSubjectsForbidden Problem
+
+func (*ListPersonalDataDeletionSubjectsForbidden) listPersonalDataDeletionSubjectsRes() {}
+
+type ListPersonalDataDeletionSubjectsNotFound Problem
+
+func (*ListPersonalDataDeletionSubjectsNotFound) listPersonalDataDeletionSubjectsRes() {}
 
 type ListPlanCategoriesBadRequest Problem
 
@@ -74596,6 +74733,387 @@ func (s *PeriodCloseVarianceTotals) SetRowsExplained(val int32) {
 	s.RowsExplained = val
 }
 
+// The subjects a deletion run started now would blank (records, ADR-0079 §12, T100c).
+// Ref: #/components/schemas/PersonalDataDeletionPreview
+type PersonalDataDeletionPreview struct {
+	// The active configuration version the retention rules were read from.
+	ConfigurationVersion int32 `json:"configuration_version"`
+	// How many subjects a run would blank, on every page.
+	Count int32 `json:"count"`
+	// This page's subjects, by partner number.
+	Items []PersonalDataDeletionSubject `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetConfigurationVersion returns the value of ConfigurationVersion.
+func (s *PersonalDataDeletionPreview) GetConfigurationVersion() int32 {
+	return s.ConfigurationVersion
+}
+
+// GetCount returns the value of Count.
+func (s *PersonalDataDeletionPreview) GetCount() int32 {
+	return s.Count
+}
+
+// GetItems returns the value of Items.
+func (s *PersonalDataDeletionPreview) GetItems() []PersonalDataDeletionSubject {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *PersonalDataDeletionPreview) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetConfigurationVersion sets the value of ConfigurationVersion.
+func (s *PersonalDataDeletionPreview) SetConfigurationVersion(val int32) {
+	s.ConfigurationVersion = val
+}
+
+// SetCount sets the value of Count.
+func (s *PersonalDataDeletionPreview) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetItems sets the value of Items.
+func (s *PersonalDataDeletionPreview) SetItems(val []PersonalDataDeletionSubject) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *PersonalDataDeletionPreview) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*PersonalDataDeletionPreview) getPersonalDataDeletionPreviewRes() {}
+
+// A deletion run (records, ADR-0079 §12, T100c): the subjects eligible when it was asked for, blanked
+// by the deleter one by one. Not reversible.
+// Ref: #/components/schemas/PersonalDataDeletionRun
+type PersonalDataDeletionRun struct {
+	// Deletion run id.
+	ID uuid.UUID `json:"id"`
+	// `queued` (while a subject is pending), `completed` or `failed`. Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The active configuration version the retention rules were read from.
+	ConfigurationVersion int32 `json:"configuration_version"`
+	// How many subjects it has; `listPersonalDataDeletionSubjects` lists them.
+	SubjectCount int32 `json:"subject_count"`
+	// How many of them are pending.
+	PendingCount int32 `json:"pending_count"`
+	// How many of them were blanked.
+	BlankedCount int32 `json:"blanked_count"`
+	// How many of them were skipped.
+	SkippedCount int32 `json:"skipped_count"`
+	// Failed: the problem code that stopped the run (`identity.principal_blocked`).
+	FailureCode OptString `json:"failure_code"`
+	// When the deleter completed it.
+	CompletedAt OptDateTime `json:"completed_at"`
+	// Who asked for the run.
+	RequestedBy uuid.UUID `json:"requested_by"`
+	// Their name, as the identity context gives it now.
+	RequestedByName string    `json:"requested_by_name"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *PersonalDataDeletionRun) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetStatus returns the value of Status.
+func (s *PersonalDataDeletionRun) GetStatus() string {
+	return s.Status
+}
+
+// GetConfigurationVersion returns the value of ConfigurationVersion.
+func (s *PersonalDataDeletionRun) GetConfigurationVersion() int32 {
+	return s.ConfigurationVersion
+}
+
+// GetSubjectCount returns the value of SubjectCount.
+func (s *PersonalDataDeletionRun) GetSubjectCount() int32 {
+	return s.SubjectCount
+}
+
+// GetPendingCount returns the value of PendingCount.
+func (s *PersonalDataDeletionRun) GetPendingCount() int32 {
+	return s.PendingCount
+}
+
+// GetBlankedCount returns the value of BlankedCount.
+func (s *PersonalDataDeletionRun) GetBlankedCount() int32 {
+	return s.BlankedCount
+}
+
+// GetSkippedCount returns the value of SkippedCount.
+func (s *PersonalDataDeletionRun) GetSkippedCount() int32 {
+	return s.SkippedCount
+}
+
+// GetFailureCode returns the value of FailureCode.
+func (s *PersonalDataDeletionRun) GetFailureCode() OptString {
+	return s.FailureCode
+}
+
+// GetCompletedAt returns the value of CompletedAt.
+func (s *PersonalDataDeletionRun) GetCompletedAt() OptDateTime {
+	return s.CompletedAt
+}
+
+// GetRequestedBy returns the value of RequestedBy.
+func (s *PersonalDataDeletionRun) GetRequestedBy() uuid.UUID {
+	return s.RequestedBy
+}
+
+// GetRequestedByName returns the value of RequestedByName.
+func (s *PersonalDataDeletionRun) GetRequestedByName() string {
+	return s.RequestedByName
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *PersonalDataDeletionRun) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *PersonalDataDeletionRun) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *PersonalDataDeletionRun) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetStatus sets the value of Status.
+func (s *PersonalDataDeletionRun) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetConfigurationVersion sets the value of ConfigurationVersion.
+func (s *PersonalDataDeletionRun) SetConfigurationVersion(val int32) {
+	s.ConfigurationVersion = val
+}
+
+// SetSubjectCount sets the value of SubjectCount.
+func (s *PersonalDataDeletionRun) SetSubjectCount(val int32) {
+	s.SubjectCount = val
+}
+
+// SetPendingCount sets the value of PendingCount.
+func (s *PersonalDataDeletionRun) SetPendingCount(val int32) {
+	s.PendingCount = val
+}
+
+// SetBlankedCount sets the value of BlankedCount.
+func (s *PersonalDataDeletionRun) SetBlankedCount(val int32) {
+	s.BlankedCount = val
+}
+
+// SetSkippedCount sets the value of SkippedCount.
+func (s *PersonalDataDeletionRun) SetSkippedCount(val int32) {
+	s.SkippedCount = val
+}
+
+// SetFailureCode sets the value of FailureCode.
+func (s *PersonalDataDeletionRun) SetFailureCode(val OptString) {
+	s.FailureCode = val
+}
+
+// SetCompletedAt sets the value of CompletedAt.
+func (s *PersonalDataDeletionRun) SetCompletedAt(val OptDateTime) {
+	s.CompletedAt = val
+}
+
+// SetRequestedBy sets the value of RequestedBy.
+func (s *PersonalDataDeletionRun) SetRequestedBy(val uuid.UUID) {
+	s.RequestedBy = val
+}
+
+// SetRequestedByName sets the value of RequestedByName.
+func (s *PersonalDataDeletionRun) SetRequestedByName(val string) {
+	s.RequestedByName = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *PersonalDataDeletionRun) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *PersonalDataDeletionRun) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+func (*PersonalDataDeletionRun) createPersonalDataDeletionRunRes() {}
+func (*PersonalDataDeletionRun) getPersonalDataDeletionRunRes()    {}
+
+// PersonalDataDeletionRunHeaders wraps PersonalDataDeletionRun with response headers.
+type PersonalDataDeletionRunHeaders struct {
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           PersonalDataDeletionRun
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *PersonalDataDeletionRunHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *PersonalDataDeletionRunHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *PersonalDataDeletionRunHeaders) GetResponse() PersonalDataDeletionRun {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *PersonalDataDeletionRunHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *PersonalDataDeletionRunHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *PersonalDataDeletionRunHeaders) SetResponse(val PersonalDataDeletionRun) {
+	s.Response = val
+}
+
+func (*PersonalDataDeletionRunHeaders) createPersonalDataDeletionRunRes() {}
+
+// A business partner a deletion run blanks, by id and number; never its name.
+// Ref: #/components/schemas/PersonalDataDeletionSubject
+type PersonalDataDeletionSubject struct {
+	// The business partner (`GET /v1/business-partners/{id}`).
+	PartnerID uuid.UUID `json:"partner_id"`
+	// Its number.
+	PartnerNumber string `json:"partner_number"`
+	// When its personal data was blocked.
+	PersonalDataBlockedAt time.Time `json:"personal_data_blocked_at"`
+	// The longest retention rule for personal data of the companies it has data in.
+	RetentionYears int32 `json:"retention_years"`
+	// The day that rule's years ended, counted from the block's day on the company's date: from that day
+	// on it is eligible.
+	RetentionEnds time.Time `json:"retention_ends"`
+	// In a run: `pending`, `blanked`, or `skipped` when its block was lifted or set again since the run
+	// was asked for, or an item of it was open; absent in a preview. Open enumeration: clients must accept
+	// and preserve values not listed here; values may be added within /v1.
+	Status OptString `json:"status"`
+	// In a run: when it was blanked or skipped.
+	SettledAt OptDateTime `json:"settled_at"`
+}
+
+// GetPartnerID returns the value of PartnerID.
+func (s *PersonalDataDeletionSubject) GetPartnerID() uuid.UUID {
+	return s.PartnerID
+}
+
+// GetPartnerNumber returns the value of PartnerNumber.
+func (s *PersonalDataDeletionSubject) GetPartnerNumber() string {
+	return s.PartnerNumber
+}
+
+// GetPersonalDataBlockedAt returns the value of PersonalDataBlockedAt.
+func (s *PersonalDataDeletionSubject) GetPersonalDataBlockedAt() time.Time {
+	return s.PersonalDataBlockedAt
+}
+
+// GetRetentionYears returns the value of RetentionYears.
+func (s *PersonalDataDeletionSubject) GetRetentionYears() int32 {
+	return s.RetentionYears
+}
+
+// GetRetentionEnds returns the value of RetentionEnds.
+func (s *PersonalDataDeletionSubject) GetRetentionEnds() time.Time {
+	return s.RetentionEnds
+}
+
+// GetStatus returns the value of Status.
+func (s *PersonalDataDeletionSubject) GetStatus() OptString {
+	return s.Status
+}
+
+// GetSettledAt returns the value of SettledAt.
+func (s *PersonalDataDeletionSubject) GetSettledAt() OptDateTime {
+	return s.SettledAt
+}
+
+// SetPartnerID sets the value of PartnerID.
+func (s *PersonalDataDeletionSubject) SetPartnerID(val uuid.UUID) {
+	s.PartnerID = val
+}
+
+// SetPartnerNumber sets the value of PartnerNumber.
+func (s *PersonalDataDeletionSubject) SetPartnerNumber(val string) {
+	s.PartnerNumber = val
+}
+
+// SetPersonalDataBlockedAt sets the value of PersonalDataBlockedAt.
+func (s *PersonalDataDeletionSubject) SetPersonalDataBlockedAt(val time.Time) {
+	s.PersonalDataBlockedAt = val
+}
+
+// SetRetentionYears sets the value of RetentionYears.
+func (s *PersonalDataDeletionSubject) SetRetentionYears(val int32) {
+	s.RetentionYears = val
+}
+
+// SetRetentionEnds sets the value of RetentionEnds.
+func (s *PersonalDataDeletionSubject) SetRetentionEnds(val time.Time) {
+	s.RetentionEnds = val
+}
+
+// SetStatus sets the value of Status.
+func (s *PersonalDataDeletionSubject) SetStatus(val OptString) {
+	s.Status = val
+}
+
+// SetSettledAt sets the value of SettledAt.
+func (s *PersonalDataDeletionSubject) SetSettledAt(val OptDateTime) {
+	s.SettledAt = val
+}
+
+// One page of a deletion run's subjects, by partner number.
+// Ref: #/components/schemas/PersonalDataDeletionSubjectPage
+type PersonalDataDeletionSubjectPage struct {
+	// The subjects on this page.
+	Items []PersonalDataDeletionSubject `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *PersonalDataDeletionSubjectPage) GetItems() []PersonalDataDeletionSubject {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *PersonalDataDeletionSubjectPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *PersonalDataDeletionSubjectPage) SetItems(val []PersonalDataDeletionSubject) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *PersonalDataDeletionSubjectPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*PersonalDataDeletionSubjectPage) listPersonalDataDeletionSubjectsRes() {}
+
 // A column of the database that holds personal data.
 // Ref: #/components/schemas/PersonalDataEntry
 type PersonalDataEntry struct {
@@ -76790,7 +77308,8 @@ func (s *Problem) SetCreditLimit(val OptCreditLimit) {
 	s.CreditLimit = val
 }
 
-func (*Problem) getPersonalDataInventoryRes() {}
+func (*Problem) getPersonalDataDeletionPreviewRes() {}
+func (*Problem) getPersonalDataInventoryRes()       {}
 
 // Merged schema.
 // Ref: #/components/schemas/ProfitCenter
@@ -93300,6 +93819,7 @@ func (*ServiceUnavailableHeaders) awardRfqRes()                              {}
 func (*ServiceUnavailableHeaders) blockBusinessPartnerRes()                  {}
 func (*ServiceUnavailableHeaders) blockLegalEntityRes()                      {}
 func (*ServiceUnavailableHeaders) blockOrgUnitRes()                          {}
+func (*ServiceUnavailableHeaders) blockPersonalDataRes()                     {}
 func (*ServiceUnavailableHeaders) blockPrincipalRes()                        {}
 func (*ServiceUnavailableHeaders) callOffScheduleLineRes()                   {}
 func (*ServiceUnavailableHeaders) cancelApprovalRequestRes()                 {}
@@ -93352,6 +93872,7 @@ func (*ServiceUnavailableHeaders) createMigrationRunRes()                    {}
 func (*ServiceUnavailableHeaders) createOrgUnitRes()                         {}
 func (*ServiceUnavailableHeaders) createPartnerChangeRes()                   {}
 func (*ServiceUnavailableHeaders) createPeriodCloseRes()                     {}
+func (*ServiceUnavailableHeaders) createPersonalDataDeletionRunRes()         {}
 func (*ServiceUnavailableHeaders) createPlanCategoryRes()                    {}
 func (*ServiceUnavailableHeaders) createPrincipalRes()                       {}
 func (*ServiceUnavailableHeaders) createProfitCenterRes()                    {}
@@ -93485,6 +94006,7 @@ func (*ServiceUnavailableHeaders) transmitBankFileRes()                      {}
 func (*ServiceUnavailableHeaders) unblockBusinessPartnerRes()                {}
 func (*ServiceUnavailableHeaders) unblockLegalEntityRes()                    {}
 func (*ServiceUnavailableHeaders) unblockOrgUnitRes()                        {}
+func (*ServiceUnavailableHeaders) unblockPersonalDataRes()                   {}
 func (*ServiceUnavailableHeaders) unlockFiscalPeriodRes()                    {}
 func (*ServiceUnavailableHeaders) unlockPlanCategoryRes()                    {}
 func (*ServiceUnavailableHeaders) updateAiPolicyRes()                        {}
@@ -98428,6 +98950,7 @@ func (*TooManyRequestsHeaders) awardRfqRes()                              {}
 func (*TooManyRequestsHeaders) blockBusinessPartnerRes()                  {}
 func (*TooManyRequestsHeaders) blockLegalEntityRes()                      {}
 func (*TooManyRequestsHeaders) blockOrgUnitRes()                          {}
+func (*TooManyRequestsHeaders) blockPersonalDataRes()                     {}
 func (*TooManyRequestsHeaders) blockPrincipalRes()                        {}
 func (*TooManyRequestsHeaders) callOffScheduleLineRes()                   {}
 func (*TooManyRequestsHeaders) cancelApprovalRequestRes()                 {}
@@ -98501,6 +99024,7 @@ func (*TooManyRequestsHeaders) createMigrationRunRes()                    {}
 func (*TooManyRequestsHeaders) createOrgUnitRes()                         {}
 func (*TooManyRequestsHeaders) createPartnerChangeRes()                   {}
 func (*TooManyRequestsHeaders) createPeriodCloseRes()                     {}
+func (*TooManyRequestsHeaders) createPersonalDataDeletionRunRes()         {}
 func (*TooManyRequestsHeaders) createPlanCategoryRes()                    {}
 func (*TooManyRequestsHeaders) createPrincipalRes()                       {}
 func (*TooManyRequestsHeaders) createProfitCenterRes()                    {}
@@ -98644,6 +99168,8 @@ func (*TooManyRequestsHeaders) getParkedJournalEntryRes()                 {}
 func (*TooManyRequestsHeaders) getPartnerChangeRes()                      {}
 func (*TooManyRequestsHeaders) getPaymentRunRes()                         {}
 func (*TooManyRequestsHeaders) getPeriodCloseRes()                        {}
+func (*TooManyRequestsHeaders) getPersonalDataDeletionPreviewRes()        {}
+func (*TooManyRequestsHeaders) getPersonalDataDeletionRunRes()            {}
 func (*TooManyRequestsHeaders) getPersonalDataInventoryRes()              {}
 func (*TooManyRequestsHeaders) getPersonalDataSubjectRes()                {}
 func (*TooManyRequestsHeaders) getPlanCategoryRes()                       {}
@@ -98788,6 +99314,7 @@ func (*TooManyRequestsHeaders) listPaymentRunsRes()                       {}
 func (*TooManyRequestsHeaders) listPaymentsRes()                          {}
 func (*TooManyRequestsHeaders) listPeriodCloseVariancesRes()              {}
 func (*TooManyRequestsHeaders) listPeriodClosesRes()                      {}
+func (*TooManyRequestsHeaders) listPersonalDataDeletionSubjectsRes()      {}
 func (*TooManyRequestsHeaders) listPlanCategoriesRes()                    {}
 func (*TooManyRequestsHeaders) listPlanLinesRes()                         {}
 func (*TooManyRequestsHeaders) listPrincipalNamesRes()                    {}
@@ -98935,6 +99462,7 @@ func (*TooManyRequestsHeaders) transmitBankFileRes()                      {}
 func (*TooManyRequestsHeaders) unblockBusinessPartnerRes()                {}
 func (*TooManyRequestsHeaders) unblockLegalEntityRes()                    {}
 func (*TooManyRequestsHeaders) unblockOrgUnitRes()                        {}
+func (*TooManyRequestsHeaders) unblockPersonalDataRes()                   {}
 func (*TooManyRequestsHeaders) unlockFiscalPeriodRes()                    {}
 func (*TooManyRequestsHeaders) unlockPlanCategoryRes()                    {}
 func (*TooManyRequestsHeaders) unscheduleReportRes()                      {}
@@ -99297,6 +99825,7 @@ func (*UnauthorizedHeaders) awardRfqRes()                              {}
 func (*UnauthorizedHeaders) blockBusinessPartnerRes()                  {}
 func (*UnauthorizedHeaders) blockLegalEntityRes()                      {}
 func (*UnauthorizedHeaders) blockOrgUnitRes()                          {}
+func (*UnauthorizedHeaders) blockPersonalDataRes()                     {}
 func (*UnauthorizedHeaders) blockPrincipalRes()                        {}
 func (*UnauthorizedHeaders) callOffScheduleLineRes()                   {}
 func (*UnauthorizedHeaders) cancelApprovalRequestRes()                 {}
@@ -99370,6 +99899,7 @@ func (*UnauthorizedHeaders) createMigrationRunRes()                    {}
 func (*UnauthorizedHeaders) createOrgUnitRes()                         {}
 func (*UnauthorizedHeaders) createPartnerChangeRes()                   {}
 func (*UnauthorizedHeaders) createPeriodCloseRes()                     {}
+func (*UnauthorizedHeaders) createPersonalDataDeletionRunRes()         {}
 func (*UnauthorizedHeaders) createPlanCategoryRes()                    {}
 func (*UnauthorizedHeaders) createPrincipalRes()                       {}
 func (*UnauthorizedHeaders) createProfitCenterRes()                    {}
@@ -99513,6 +100043,8 @@ func (*UnauthorizedHeaders) getParkedJournalEntryRes()                 {}
 func (*UnauthorizedHeaders) getPartnerChangeRes()                      {}
 func (*UnauthorizedHeaders) getPaymentRunRes()                         {}
 func (*UnauthorizedHeaders) getPeriodCloseRes()                        {}
+func (*UnauthorizedHeaders) getPersonalDataDeletionPreviewRes()        {}
+func (*UnauthorizedHeaders) getPersonalDataDeletionRunRes()            {}
 func (*UnauthorizedHeaders) getPersonalDataInventoryRes()              {}
 func (*UnauthorizedHeaders) getPersonalDataSubjectRes()                {}
 func (*UnauthorizedHeaders) getPlanCategoryRes()                       {}
@@ -99657,6 +100189,7 @@ func (*UnauthorizedHeaders) listPaymentRunsRes()                       {}
 func (*UnauthorizedHeaders) listPaymentsRes()                          {}
 func (*UnauthorizedHeaders) listPeriodCloseVariancesRes()              {}
 func (*UnauthorizedHeaders) listPeriodClosesRes()                      {}
+func (*UnauthorizedHeaders) listPersonalDataDeletionSubjectsRes()      {}
 func (*UnauthorizedHeaders) listPlanCategoriesRes()                    {}
 func (*UnauthorizedHeaders) listPlanLinesRes()                         {}
 func (*UnauthorizedHeaders) listPrincipalNamesRes()                    {}
@@ -99804,6 +100337,7 @@ func (*UnauthorizedHeaders) transmitBankFileRes()                      {}
 func (*UnauthorizedHeaders) unblockBusinessPartnerRes()                {}
 func (*UnauthorizedHeaders) unblockLegalEntityRes()                    {}
 func (*UnauthorizedHeaders) unblockOrgUnitRes()                        {}
+func (*UnauthorizedHeaders) unblockPersonalDataRes()                   {}
 func (*UnauthorizedHeaders) unlockFiscalPeriodRes()                    {}
 func (*UnauthorizedHeaders) unlockPlanCategoryRes()                    {}
 func (*UnauthorizedHeaders) unscheduleReportRes()                      {}
@@ -99912,6 +100446,30 @@ func (*UnblockOrgUnitPreconditionRequired) unblockOrgUnitRes() {}
 type UnblockOrgUnitUnprocessableEntity Problem
 
 func (*UnblockOrgUnitUnprocessableEntity) unblockOrgUnitRes() {}
+
+type UnblockPersonalDataBadRequest Problem
+
+func (*UnblockPersonalDataBadRequest) unblockPersonalDataRes() {}
+
+type UnblockPersonalDataForbidden Problem
+
+func (*UnblockPersonalDataForbidden) unblockPersonalDataRes() {}
+
+type UnblockPersonalDataNotFound Problem
+
+func (*UnblockPersonalDataNotFound) unblockPersonalDataRes() {}
+
+type UnblockPersonalDataPreconditionFailed Problem
+
+func (*UnblockPersonalDataPreconditionFailed) unblockPersonalDataRes() {}
+
+type UnblockPersonalDataPreconditionRequired Problem
+
+func (*UnblockPersonalDataPreconditionRequired) unblockPersonalDataRes() {}
+
+type UnblockPersonalDataUnprocessableEntity Problem
+
+func (*UnblockPersonalDataUnprocessableEntity) unblockPersonalDataRes() {}
 
 type UnlockFiscalPeriodBadRequest Problem
 

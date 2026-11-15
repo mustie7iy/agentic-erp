@@ -141,3 +141,46 @@ func TestKeyset(t *testing.T) {
 		t.Errorf("last page token: got %q, want none", tok)
 	}
 }
+
+// TestInMemory: rows read whole, in any order, are paged as a statement
+// in the C collation pages them, in either direction, from the cursor on;
+// a hyphen sorts before a digit, as bytes compare.
+func TestInMemory(t *testing.T) {
+	c, _ := NewCodec([]byte(strings.Repeat("k", 32)))
+	sort := Sort{Default: "number", Fields: []Field{{Name: "number", Column: "number", Type: "text"}}}
+	type row struct {
+		v  string
+		id uuid.UUID
+	}
+	one, two := uuid.MustParse("00000000-0000-7000-8000-000000000001"), uuid.MustParse("00000000-0000-7000-8000-000000000002")
+	rows := []row{{"AB0", two}, {"C", one}, {"AB-1", one}, {"AB0", one}} // as a database's collation may order them
+	key := func(r row) (string, uuid.UUID) { return r.v, r.id }
+	for _, c2 := range []struct{ order, want string }{
+		{"number", "AB-1/1 AB0/1 AB0/2 C/1"},
+		{"number desc", "C/1 AB0/2 AB0/1 AB-1/1"},
+	} {
+		t.Run(c2.order, func(t *testing.T) {
+			var got []string
+			tok := ""
+			for page := 0; page < 5; page++ {
+				r := Request{OrderBy: c2.order, PageSize: 1, PageSizeSet: true, PageToken: tok, PageTokenSet: tok != ""}
+				k, err := c.Keyset(sort, "s", r)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var items []row
+				items, tok = InMemory(k, rows, key)
+				for _, it := range items {
+					s := it.id.String()
+					got = append(got, it.v+"/"+s[len(s)-1:])
+				}
+				if tok == "" {
+					break
+				}
+			}
+			if g := strings.Join(got, " "); g != c2.want {
+				t.Errorf("got %s, want %s", g, c2.want)
+			}
+		})
+	}
+}

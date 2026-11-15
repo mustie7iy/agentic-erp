@@ -120,19 +120,37 @@ type Named struct{ Number, Name string }
 
 // Names returns the partners' numbers and names, keyed by id: what a
 // payment shows beside its supplier's id, and how a refusal names the
-// supplier. An id that names no partner is left out.
+// supplier. An id that names no partner is left out. The name of a
+// partner whose personal data is blocked is MaskedText to a caller who
+// may not read it (ADR-0079 §11): the number still names it.
 func (Payees) Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Named, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT id, number, name FROM partner.business_partner WHERE id = ANY($1)`, ids)
+	rows, _ := tx.Query(ctx, `SELECT id, number, name, personal_data_blocked_at IS NOT NULL AND personal_data_deleted_at IS NULL
+		FROM partner.business_partner WHERE id = ANY($1)`, ids)
 	out := map[uuid.UUID]Named{}
+	var blocked []uuid.UUID
 	var id uuid.UUID
 	var n Named
-	_, err = pgx.ForEachRow(rows, []any{&id, &n.Number, &n.Name}, func() error { out[id] = n; return nil })
+	var b bool
+	_, err = pgx.ForEachRow(rows, []any{&id, &n.Number, &n.Name, &b}, func() error {
+		out[id] = n
+		if b {
+			blocked = append(blocked, id)
+		}
+		return nil
+	})
 	if err != nil {
 		return out, fmt.Errorf("partner: names of %d partners: %w", len(ids), err)
+	}
+	full, err := readsBlocked(ctx, len(blocked) > 0)
+	if err != nil || full {
+		return out, err
+	}
+	for _, id := range blocked {
+		out[id] = Named{Number: out[id].Number, Name: MaskedText}
 	}
 	return out, nil
 }
@@ -140,7 +158,9 @@ func (Payees) Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Named, 
 // BankAccounts returns the bank accounts, masked, keyed by id: what a
 // payment shows beside its bank account's id. The account number stays
 // sealed (BankDetails opens it, only for a bank file). An id that names no
-// account is left out.
+// account is left out. An account of a partner whose personal data is
+// blocked has its holder and identifiers masked too to a caller who may
+// not read them (ADR-0079 §11).
 func (Payees) BankAccounts(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]BankAccount, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -151,8 +171,23 @@ func (Payees) BankAccounts(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]
 	if err != nil {
 		return nil, fmt.Errorf("partner: bank accounts of %d ids: %w", len(ids), err)
 	}
+	partners := make([]uuid.UUID, len(accounts))
+	for i, a := range accounts {
+		partners[i] = a.PartnerID
+	}
+	blocked, err := blockedAmong(ctx, tx, partners)
+	if err != nil {
+		return nil, err
+	}
+	full, err := readsBlocked(ctx, len(blocked) > 0)
+	if err != nil {
+		return nil, err
+	}
 	out := make(map[uuid.UUID]BankAccount, len(accounts))
 	for _, a := range accounts {
+		if !full && blocked[a.PartnerID] {
+			a = maskedBank(a)
+		}
 		out[a.ID] = a
 	}
 	return out, nil

@@ -89,6 +89,10 @@ type BlockOrgUnitRes interface {
 	blockOrgUnitRes()
 }
 
+type BlockPersonalDataRes interface {
+	blockPersonalDataRes()
+}
+
 type BlockPrincipalRes interface {
 	blockPrincipalRes()
 }
@@ -379,6 +383,10 @@ type CreatePartnerChangeRes interface {
 
 type CreatePeriodCloseRes interface {
 	createPeriodCloseRes()
+}
+
+type CreatePersonalDataDeletionRunRes interface {
+	createPersonalDataDeletionRunRes()
 }
 
 type CreatePlanCategoryRes interface {
@@ -951,6 +959,14 @@ type GetPaymentRunRes interface {
 
 type GetPeriodCloseRes interface {
 	getPeriodCloseRes()
+}
+
+type GetPersonalDataDeletionPreviewRes interface {
+	getPersonalDataDeletionPreviewRes()
+}
+
+type GetPersonalDataDeletionRunRes interface {
+	getPersonalDataDeletionRunRes()
 }
 
 type GetPersonalDataInventoryRes interface {
@@ -1527,6 +1543,10 @@ type ListPeriodCloseVariancesRes interface {
 
 type ListPeriodClosesRes interface {
 	listPeriodClosesRes()
+}
+
+type ListPersonalDataDeletionSubjectsRes interface {
+	listPersonalDataDeletionSubjectsRes()
 }
 
 type ListPlanCategoriesRes interface {
@@ -2115,6 +2135,10 @@ type UnblockLegalEntityRes interface {
 
 type UnblockOrgUnitRes interface {
 	unblockOrgUnitRes()
+}
+
+type UnblockPersonalDataRes interface {
+	unblockPersonalDataRes()
 }
 
 type UnlockFiscalPeriodRes interface {

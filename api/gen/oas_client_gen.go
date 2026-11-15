@@ -339,6 +339,24 @@ type Invoker interface {
 	//
 	// POST /v1/org-units/{id}:block
 	BlockOrgUnit(ctx context.Context, request *ReasonInput, params BlockOrgUnitParams) (BlockOrgUnitRes, error)
+	// BlockPersonalData invokes blockPersonalData operation.
+	//
+	// Blocks the partner's personal data once nothing is open for it (ADR-0079 §11, T100b): a partner
+	// with an open item in the ledger of any company, on a supplier or customer reconciliation account, is
+	// refused with 409 `partner.open_items` naming the company; open orders and unposted documents are the
+	// caller's to check in the first version. Blocking also blocks the partner (status `blocked`, as
+	// `blockBusinessPartner` does), so entering and posting documents for it are refused by the checks in
+	// place, and records an applied partner change of kind `block`. From then on the partner's name, legal
+	// name, addresses, tax identifiers and bank accounts are answered masked by every read of the partner
+	// context, and its name by the names other contexts show beside its id, to a caller without
+	// `partner.privacy.read_blocked`; names other contexts stored on their own documents, and events and
+	// exports written before, stay as they are. A partner that is not `active` or `blocked`, or has a
+	// pending partner change, is refused (409). Publishes BusinessPartnerUpdated naming
+	// `personal_data_blocked_at`. Returns the partner as the caller sees it. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/business-partners/{id}:blockPersonalData
+	BlockPersonalData(ctx context.Context, request *ReasonInput, params BlockPersonalDataParams) (BlockPersonalDataRes, error)
 	// BlockPrincipal invokes blockPrincipal operation.
 	//
 	// Blocks the principal; its tokens are refused from now on. Requires status `active`.
@@ -1640,6 +1658,28 @@ type Invoker interface {
 	//
 	// POST /v1/period-closes
 	CreatePeriodClose(ctx context.Context, request *PeriodCloseCreate, params CreatePeriodCloseParams) (CreatePeriodCloseRes, error)
+	// CreatePersonalDataDeletionRun invokes createPersonalDataDeletionRun operation.
+	//
+	// Starts a deletion run (ADR-0079 §12, T100c) of the subjects `getPersonalDataDeletionPreview` lists
+	// now; none is refused (422 `records.nothing_to_delete`). The run is queued with its subjects and the
+	// active configuration version, and the deleter blanks them in the background, each in a transaction
+	// of its own, as `getPersonalDataDeletionRun` then shows: a subject `blanked`, or `skipped` when its
+	// block was lifted, or lifted and set again, since, or an item of it is open (a later run lists it
+	// again once the item is cleared); the run `completed` once none is pending, or `failed` with the
+	// problem code that stopped it (`identity.principal_blocked` when the requester was blocked or
+	// deprovisioned since). Blanking replaces each field of the personal data inventory of the partner
+	// (its name and legal name, addresses, bank accounts, tax identifiers, its changes' payloads and its
+	// name where another change lists it as a possible duplicate) by a fixed marker (`[deleted]`; `XXXX`
+	// for the last four characters of an account or a tax identifier) and ends its bank accounts, and
+	// cannot be undone: the partner then reads `personal_data_deleted_at`, its block can no longer be
+	// lifted, and its documents name it by number. Journal entries, invoices and audit events are neither
+	// removed nor changed. One run is queued at a time: asking again while one is queued answers that run
+	// (200). The subjects are the whole tenant's, so the caller needs access to all companies (403
+	// `records.all_companies_required`). Audited (`records.deletion_run.request`), and each subject's
+	// blanking audited and published as PersonalDataDeleted, by ids only. Human-only (`x-agent: false`).
+	//
+	// POST /v1/personal-data-deletion-runs
+	CreatePersonalDataDeletionRun(ctx context.Context, request *ReasonInput, params CreatePersonalDataDeletionRunParams) (CreatePersonalDataDeletionRunRes, error)
 	// CreatePlanCategory invokes createPlanCategory operation.
 	//
 	// Creates an open plan category (ADR-0050 §8). A code is unique in the tenant (409
@@ -3584,6 +3624,32 @@ type Invoker interface {
 	//
 	// GET /v1/period-closes/{id}
 	GetPeriodClose(ctx context.Context, params GetPeriodCloseParams) (GetPeriodCloseRes, error)
+	// GetPersonalDataDeletionPreview invokes getPersonalDataDeletionPreview operation.
+	//
+	// The business partners a deletion run started now would blank (ADR-0079 §12, T100c), changing
+	// nothing: each partner whose personal data is blocked (`blockPersonalData`) and not deleted, that has
+	// supplier or customer data in at least one company, and whose block has lasted, in every such
+	// company, the whole years of the company's retention rule for `personal_data` in the active
+	// configuration, counted from the block's day on the company's date (a rule of zero years: from the
+	// day of the block). A company without a `personal_data` rule keeps its partners: without one, nothing
+	// is eligible. Each subject is listed by id and number with when its block began, the longest rule it
+	// is held to and the day that rule's years ended, a page at a time by number; `count` is how many
+	// there are in all. Sortable by: `partner_number` (default). `createPersonalDataDeletionRun` lists the
+	// same subjects. The subjects are the whole tenant's, so the caller needs access to all companies (403
+	// `records.all_companies_required`). A tenant without a configuration is 409
+	// `config.not_bootstrapped`. Human-only (`x-agent: false`).
+	//
+	// GET /v1/personal-data-deletion-preview
+	GetPersonalDataDeletionPreview(ctx context.Context, params GetPersonalDataDeletionPreviewParams) (GetPersonalDataDeletionPreviewRes, error)
+	// GetPersonalDataDeletionRun invokes getPersonalDataDeletionRun operation.
+	//
+	// One deletion run (ADR-0079 §12, T100c): `queued` while a subject is pending, then `completed`, or
+	// `failed` with the problem code that stopped it, with how many of its subjects are pending, blanked
+	// and skipped; `listPersonalDataDeletionSubjects` lists them. It needs access to all companies (403
+	// `records.all_companies_required`), as starting one does. Human-only (`x-agent: false`).
+	//
+	// GET /v1/personal-data-deletion-runs/{id}
+	GetPersonalDataDeletionRun(ctx context.Context, params GetPersonalDataDeletionRunParams) (GetPersonalDataDeletionRunRes, error)
 	// GetPersonalDataInventory invokes getPersonalDataInventory operation.
 	//
 	// The personal data inventory (ADR-0079 §9-§10, T100a): each column of the database that holds
@@ -5104,6 +5170,17 @@ type Invoker interface {
 	//
 	// GET /v1/period-closes
 	ListPeriodCloses(ctx context.Context, params ListPeriodClosesParams) (ListPeriodClosesRes, error)
+	// ListPersonalDataDeletionSubjects invokes listPersonalDataDeletionSubjects operation.
+	//
+	// The subjects of a deletion run (ADR-0079 §12, T100c), by partner number, a page at a time,
+	// optionally of one status: each business partner by id and number, never by name, with when its block
+	// began, the rule it was held to, and its status (`pending`, `blanked`, or `skipped` when its block
+	// was lifted or set again since, or an item of it was open) with when it was settled. It needs access
+	// to all companies (403 `records.all_companies_required`). A run the tenant does not have is 404.
+	// Human-only (`x-agent: false`). Sortable by: `partner_number` (default).
+	//
+	// GET /v1/personal-data-deletion-runs/{id}/subjects
+	ListPersonalDataDeletionSubjects(ctx context.Context, params ListPersonalDataDeletionSubjectsParams) (ListPersonalDataDeletionSubjectsRes, error)
 	// ListPlanCategories invokes listPlanCategories operation.
 	//
 	// The tenant's plan categories (ADR-0050 §8), such as `PLAN` and `FORECAST`: open, or locked so their
@@ -7240,6 +7317,17 @@ type Invoker interface {
 	//
 	// POST /v1/org-units/{id}:unblock
 	UnblockOrgUnit(ctx context.Context, params UnblockOrgUnitParams) (UnblockOrgUnitRes, error)
+	// UnblockPersonalData invokes unblockPersonalData operation.
+	//
+	// Lifts the block of the partner's personal data (ADR-0079 §11, T100b): its reads are answered in
+	// full again. The partner itself stays `blocked`; unblocking it is `unblockBusinessPartner`, with its
+	// approval. A partner whose personal data is not blocked is refused with 409
+	// `partner.personal_data_not_blocked`, one whose personal data a deletion run blanked with 409
+	// `partner.personal_data_deleted`. Publishes BusinessPartnerUpdated naming `personal_data_blocked_at`.
+	// Returns the partner as the caller sees it. Human-only (`x-agent: false`).
+	//
+	// POST /v1/business-partners/{id}:unblockPersonalData
+	UnblockPersonalData(ctx context.Context, request *ReasonInput, params UnblockPersonalDataParams) (UnblockPersonalDataRes, error)
 	// UnlockFiscalPeriod invokes unlockFiscalPeriod operation.
 	//
 	// Opens a `period_unlock` approval request for a locked period and names it on the period
@@ -11365,6 +11453,178 @@ func (c *Client) sendBlockOrgUnit(ctx context.Context, request *ReasonInput, par
 
 	stage = "DecodeResponse"
 	result, err := decodeBlockOrgUnitResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// BlockPersonalData invokes blockPersonalData operation.
+//
+// Blocks the partner's personal data once nothing is open for it (ADR-0079 §11, T100b): a partner
+// with an open item in the ledger of any company, on a supplier or customer reconciliation account, is
+// refused with 409 `partner.open_items` naming the company; open orders and unposted documents are the
+// caller's to check in the first version. Blocking also blocks the partner (status `blocked`, as
+// `blockBusinessPartner` does), so entering and posting documents for it are refused by the checks in
+// place, and records an applied partner change of kind `block`. From then on the partner's name, legal
+// name, addresses, tax identifiers and bank accounts are answered masked by every read of the partner
+// context, and its name by the names other contexts show beside its id, to a caller without
+// `partner.privacy.read_blocked`; names other contexts stored on their own documents, and events and
+// exports written before, stay as they are. A partner that is not `active` or `blocked`, or has a
+// pending partner change, is refused (409). Publishes BusinessPartnerUpdated naming
+// `personal_data_blocked_at`. Returns the partner as the caller sees it. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/business-partners/{id}:blockPersonalData
+func (c *Client) BlockPersonalData(ctx context.Context, request *ReasonInput, params BlockPersonalDataParams) (BlockPersonalDataRes, error) {
+	res, err := c.sendBlockPersonalData(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendBlockPersonalData(ctx context.Context, request *ReasonInput, params BlockPersonalDataParams) (res BlockPersonalDataRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("blockPersonalData"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/business-partners/{id}:blockPersonalData"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, BlockPersonalDataOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/business-partners/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":blockPersonalData"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeBlockPersonalDataRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, BlockPersonalDataOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeBlockPersonalDataResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -22741,6 +23001,152 @@ func (c *Client) sendCreatePeriodClose(ctx context.Context, request *PeriodClose
 
 	stage = "DecodeResponse"
 	result, err := decodeCreatePeriodCloseResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreatePersonalDataDeletionRun invokes createPersonalDataDeletionRun operation.
+//
+// Starts a deletion run (ADR-0079 §12, T100c) of the subjects `getPersonalDataDeletionPreview` lists
+// now; none is refused (422 `records.nothing_to_delete`). The run is queued with its subjects and the
+// active configuration version, and the deleter blanks them in the background, each in a transaction
+// of its own, as `getPersonalDataDeletionRun` then shows: a subject `blanked`, or `skipped` when its
+// block was lifted, or lifted and set again, since, or an item of it is open (a later run lists it
+// again once the item is cleared); the run `completed` once none is pending, or `failed` with the
+// problem code that stopped it (`identity.principal_blocked` when the requester was blocked or
+// deprovisioned since). Blanking replaces each field of the personal data inventory of the partner
+// (its name and legal name, addresses, bank accounts, tax identifiers, its changes' payloads and its
+// name where another change lists it as a possible duplicate) by a fixed marker (`[deleted]`; `XXXX`
+// for the last four characters of an account or a tax identifier) and ends its bank accounts, and
+// cannot be undone: the partner then reads `personal_data_deleted_at`, its block can no longer be
+// lifted, and its documents name it by number. Journal entries, invoices and audit events are neither
+// removed nor changed. One run is queued at a time: asking again while one is queued answers that run
+// (200). The subjects are the whole tenant's, so the caller needs access to all companies (403
+// `records.all_companies_required`). Audited (`records.deletion_run.request`), and each subject's
+// blanking audited and published as PersonalDataDeleted, by ids only. Human-only (`x-agent: false`).
+//
+// POST /v1/personal-data-deletion-runs
+func (c *Client) CreatePersonalDataDeletionRun(ctx context.Context, request *ReasonInput, params CreatePersonalDataDeletionRunParams) (CreatePersonalDataDeletionRunRes, error) {
+	res, err := c.sendCreatePersonalDataDeletionRun(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreatePersonalDataDeletionRun(ctx context.Context, request *ReasonInput, params CreatePersonalDataDeletionRunParams) (res CreatePersonalDataDeletionRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createPersonalDataDeletionRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/personal-data-deletion-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreatePersonalDataDeletionRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/personal-data-deletion-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreatePersonalDataDeletionRunRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreatePersonalDataDeletionRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreatePersonalDataDeletionRunResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -44170,6 +44576,319 @@ func (c *Client) sendGetPeriodClose(ctx context.Context, params GetPeriodClosePa
 
 	stage = "DecodeResponse"
 	result, err := decodeGetPeriodCloseResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetPersonalDataDeletionPreview invokes getPersonalDataDeletionPreview operation.
+//
+// The business partners a deletion run started now would blank (ADR-0079 §12, T100c), changing
+// nothing: each partner whose personal data is blocked (`blockPersonalData`) and not deleted, that has
+// supplier or customer data in at least one company, and whose block has lasted, in every such
+// company, the whole years of the company's retention rule for `personal_data` in the active
+// configuration, counted from the block's day on the company's date (a rule of zero years: from the
+// day of the block). A company without a `personal_data` rule keeps its partners: without one, nothing
+// is eligible. Each subject is listed by id and number with when its block began, the longest rule it
+// is held to and the day that rule's years ended, a page at a time by number; `count` is how many
+// there are in all. Sortable by: `partner_number` (default). `createPersonalDataDeletionRun` lists the
+// same subjects. The subjects are the whole tenant's, so the caller needs access to all companies (403
+// `records.all_companies_required`). A tenant without a configuration is 409
+// `config.not_bootstrapped`. Human-only (`x-agent: false`).
+//
+// GET /v1/personal-data-deletion-preview
+func (c *Client) GetPersonalDataDeletionPreview(ctx context.Context, params GetPersonalDataDeletionPreviewParams) (GetPersonalDataDeletionPreviewRes, error) {
+	res, err := c.sendGetPersonalDataDeletionPreview(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetPersonalDataDeletionPreview(ctx context.Context, params GetPersonalDataDeletionPreviewParams) (res GetPersonalDataDeletionPreviewRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getPersonalDataDeletionPreview"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/personal-data-deletion-preview"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetPersonalDataDeletionPreviewOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/personal-data-deletion-preview"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetPersonalDataDeletionPreviewOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetPersonalDataDeletionPreviewResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetPersonalDataDeletionRun invokes getPersonalDataDeletionRun operation.
+//
+// One deletion run (ADR-0079 §12, T100c): `queued` while a subject is pending, then `completed`, or
+// `failed` with the problem code that stopped it, with how many of its subjects are pending, blanked
+// and skipped; `listPersonalDataDeletionSubjects` lists them. It needs access to all companies (403
+// `records.all_companies_required`), as starting one does. Human-only (`x-agent: false`).
+//
+// GET /v1/personal-data-deletion-runs/{id}
+func (c *Client) GetPersonalDataDeletionRun(ctx context.Context, params GetPersonalDataDeletionRunParams) (GetPersonalDataDeletionRunRes, error) {
+	res, err := c.sendGetPersonalDataDeletionRun(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetPersonalDataDeletionRun(ctx context.Context, params GetPersonalDataDeletionRunParams) (res GetPersonalDataDeletionRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getPersonalDataDeletionRun"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/personal-data-deletion-runs/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetPersonalDataDeletionRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/personal-data-deletion-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetPersonalDataDeletionRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetPersonalDataDeletionRunResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -74503,6 +75222,215 @@ func (c *Client) sendListPeriodCloses(ctx context.Context, params ListPeriodClos
 	return result, nil
 }
 
+// ListPersonalDataDeletionSubjects invokes listPersonalDataDeletionSubjects operation.
+//
+// The subjects of a deletion run (ADR-0079 §12, T100c), by partner number, a page at a time,
+// optionally of one status: each business partner by id and number, never by name, with when its block
+// began, the rule it was held to, and its status (`pending`, `blanked`, or `skipped` when its block
+// was lifted or set again since, or an item of it was open) with when it was settled. It needs access
+// to all companies (403 `records.all_companies_required`). A run the tenant does not have is 404.
+// Human-only (`x-agent: false`). Sortable by: `partner_number` (default).
+//
+// GET /v1/personal-data-deletion-runs/{id}/subjects
+func (c *Client) ListPersonalDataDeletionSubjects(ctx context.Context, params ListPersonalDataDeletionSubjectsParams) (ListPersonalDataDeletionSubjectsRes, error) {
+	res, err := c.sendListPersonalDataDeletionSubjects(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListPersonalDataDeletionSubjects(ctx context.Context, params ListPersonalDataDeletionSubjectsParams) (res ListPersonalDataDeletionSubjectsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listPersonalDataDeletionSubjects"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/personal-data-deletion-runs/{id}/subjects"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListPersonalDataDeletionSubjectsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/personal-data-deletion-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/subjects"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListPersonalDataDeletionSubjectsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListPersonalDataDeletionSubjectsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListPlanCategories invokes listPlanCategories operation.
 //
 // The tenant's plan categories (ADR-0050 §8), such as `PLAN` and `FORECAST`: open, or locked so their
@@ -101968,6 +102896,171 @@ func (c *Client) sendUnblockOrgUnit(ctx context.Context, params UnblockOrgUnitPa
 
 	stage = "DecodeResponse"
 	result, err := decodeUnblockOrgUnitResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UnblockPersonalData invokes unblockPersonalData operation.
+//
+// Lifts the block of the partner's personal data (ADR-0079 §11, T100b): its reads are answered in
+// full again. The partner itself stays `blocked`; unblocking it is `unblockBusinessPartner`, with its
+// approval. A partner whose personal data is not blocked is refused with 409
+// `partner.personal_data_not_blocked`, one whose personal data a deletion run blanked with 409
+// `partner.personal_data_deleted`. Publishes BusinessPartnerUpdated naming `personal_data_blocked_at`.
+// Returns the partner as the caller sees it. Human-only (`x-agent: false`).
+//
+// POST /v1/business-partners/{id}:unblockPersonalData
+func (c *Client) UnblockPersonalData(ctx context.Context, request *ReasonInput, params UnblockPersonalDataParams) (UnblockPersonalDataRes, error) {
+	res, err := c.sendUnblockPersonalData(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUnblockPersonalData(ctx context.Context, request *ReasonInput, params UnblockPersonalDataParams) (res UnblockPersonalDataRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("unblockPersonalData"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/business-partners/{id}:unblockPersonalData"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UnblockPersonalDataOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/business-partners/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":unblockPersonalData"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUnblockPersonalDataRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UnblockPersonalDataOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUnblockPersonalDataResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

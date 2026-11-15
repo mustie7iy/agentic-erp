@@ -6,7 +6,7 @@ management context and the slices T99a, T99b and T100a to T100c
 (`docs/design/plan-breadth-week3.md`, Lane C), each of which records what
 it built under "As built". T99a builds §1 to §4; §5 states the security
 posture the product owner gave, which the later slices build to; T99b
-builds §6 to §8, T100a §9 and §10.
+builds §6 to §8, T100a §9 and §10, T100b §11, T100c §12.
 
 ## Context
 
@@ -269,6 +269,133 @@ writes nothing. The audit trail is counted by actor without an index of
 its own: 200,000 changes of one person read in about 0.1 s
 (`TestPersonalDataSubjectBudget`).
 
+### 11. Personal data blocked (T100b)
+
+The privacy officer, with `partner.privacy.block`, blocks a business
+partner's personal data (`POST /v1/business-partners/{id}:blockPersonalData`)
+once nothing is open for it:
+
+- no open item in the ledger of any company, on a supplier or customer
+  reconciliation account of the leading ledger, neither cleared nor
+  reversed, down payments included (409 `partner.open_items`, naming the
+  companies; read through the partner context's port `OpenItems`,
+  `ledger.OpenItems.OpenCompanies`). Open orders and unposted documents
+  are the person's to check in the first version;
+- no pending partner change (409 `partner.change_pending`), and the
+  partner `active` or `blocked` (409 `partner.invalid_status`).
+
+Blocking sets `personal_data_blocked_at`, blocks the partner (status
+`blocked`, as `blockBusinessPartner` does, so entering and posting
+documents for it are refused by the checks in place), records an applied
+change of kind `block`, is audited and publishes BusinessPartnerUpdated
+naming `personal_data_blocked_at` (and PartnerBlocked when the partner was
+active). While the block lasts, no change of the partner is requested (an
+update, a bank account added or ended, an unblock: 409
+`partner.personal_data_blocked`); the request holds the partner `FOR NO
+KEY UPDATE` (not `FOR SHARE`: a change applied at once takes it `FOR
+UPDATE` in the same transaction, and two share locks would deadlock) and
+the block takes it `FOR UPDATE` and refuses a pending change, so of the
+two the later finds the earlier. A posting does not lock the partner: one
+that passed its partner check before the block committed may still post
+after it, leaving an item open on a blocked partner. The window is
+accepted (the posting checks are read unlocked in every context, and
+locking them would add a lock to every posting); a deletion run skips a
+partner with an open item (§12), so no data is blanked while an item is
+open. Lifting the block
+(`:unblockPersonalData`, the same permission) reads the data in full again
+and leaves the partner blocked: unblocking it is its approved change.
+
+Masking is at the source only. To a caller without
+`partner.privacy.read_blocked` (authz.MayUse, read only when a blocked
+partner is in the answer), the partner context answers the partner's
+name, legal name, addresses' lines, city, postal code and region and tax
+identifiers' last four characters as `[blocked]` (`XXXX` for the last
+four), its bank accounts' holder and last four likewise with no bank
+identifiers, a change's payload with every name, address and bank value
+masked, a possible duplicate naming it by number with its name masked; a
+search by name finds it not, and a list ordered by name orders it, and
+writes its page token, by the masked name. The names other contexts take from the
+partner (`partner.Payees.Names`, `partner.Payees.BankAccounts`, the
+ledger's `expand=partners`) answer it masked to such a caller too, and
+the analytics extract copies it masked from the next run on (its readers
+hold no permission to read it). Not masked, and listed so: a name a
+context stored on its own document (a sales order's or an invoice's
+copy), and events, exports, archive files and analytics snapshots written
+before. The ETag of a bank account
+is of the account as stored, whoever reads it. Both operations are
+human-only.
+
+### 12. Deletion runs (T100c)
+
+The privacy officer, with `records.privacy.delete` and access to all
+companies (the partners are the tenant's, 403
+`records.all_companies_required`), previews
+(`GET /v1/personal-data-deletion-preview`) and starts
+(`POST /v1/personal-data-deletion-runs`) a deletion run. Its subjects are
+the business partners whose personal data is blocked (§11) and not
+deleted, that have supplier or customer data in at least one company, and
+whose block has lasted, in every such company, the whole years of the
+company's rule for `personal_data` (§2) in the active configuration,
+counted from the block's day on the company's date: retention of personal
+data runs from the block, the end of the purpose, not from a fiscal
+year's end, and a rule of zero years makes a partner eligible on the day
+of its block. A company without a rule keeps its partners, so without a
+rule nothing is eligible; a partner in no company is not eligible. The
+partners are read through the partner context's port `Privacy`
+(`partner.Privacy.Blocked`); the preview and the run list the same
+subjects, by id and number, never by name; the preview is paged by
+number (computed whole, then paged, `pagination.InMemory`) with the count
+of all. None eligible is refused (422 `records.nothing_to_delete`). A run
+reads with its counts of pending, blanked and skipped subjects; its
+subjects are listed a page at a time
+(`GET /v1/personal-data-deletion-runs/{id}/subjects`, by status). Company
+access is checked before a queued run is answered.
+
+The run is queued in the request's transaction
+(`records.deletion_run`, with its subjects in
+`records.deletion_run_subject` and the configuration version) and
+audited; one run is queued per tenant, and a second request answers it
+(200). The deleter (`records.Deleter`), a worker of every replica as the
+archiver is, takes one step per transaction: it claims the tenant's
+queued run (`FOR UPDATE SKIP LOCKED`), refuses a requester blocked or
+deprovisioned since (the run fails, `identity.principal_blocked`), takes
+the next pending subject by number `FOR UPDATE`, and blanks it through
+`partner.Privacy.Blank`, which holds the partner `FOR UPDATE` (as a block
+and its lifting do) and blanks it only if its personal data is still
+blocked since the moment the run saw and it has no open item (§11):
+otherwise the subject is `skipped`.
+A blanked subject is audited (`records.deletion_run.blank`) and published
+as PersonalDataDeleted, by ids only; with no subject pending the run
+completes. A step run again after a commit whose acknowledgement was lost
+finds its subject settled and goes on, so each subject is blanked and
+published once. Lock order: the run, then its subject, then the partner;
+nothing in the partner context locks a records row.
+
+Blanking replaces each field of the inventory (§9) of the partner by a
+fixed marker, in one transaction per subject, and is not reversible:
+its name and legal name, its addresses' lines, city, postal code and
+region (`[deleted]`; a value it had not stays absent), its tax
+identifiers (the marker sealed and fingerprinted, last four `XXXX`), its
+bank accounts (holder `[deleted]`, last four `XXXX`, no BIC, a Canadian
+account's institution and transit numbers zeros, which their check
+requires, the marker sealed in place of the account, and the account
+ended today, or the day after it starts), the payloads of its own changes
+(every personal value the marker, sealed values and fingerprints left
+out) and its name where another change lists it as a possible duplicate.
+It sets `personal_data_deleted_at`; from then on the partner is not
+unblocked or renamed and its block is not lifted
+(`business_partner_personal_data_deleted_fixed`), and its markers are
+read by everyone, unmasked. The database lets the application write an
+address's or a bank account's personal columns only to the markers
+(`address_personal_fixed`, `bank_account_personal_fixed`) and only of a
+partner whose personal data is deleted (`personal_data_not_deleted`; the
+run sets `personal_data_deleted_at` first, in the same transaction), and
+such a change alone passes the validity trigger
+(`platform.end_validity`), which holds every other change as before. No row is removed; journal entries,
+invoices and other documents keep the partner's id and read it by number
+(the ledger's `expand=partners` gives `[deleted]`); no audit event is
+touched, so the audit schema and `audit.event_immutable` do not change.
+
 ## Alternatives
 
 - **Retention per document type or per account.** SAP's retention is per
@@ -344,6 +471,45 @@ its own: 200,000 changes of one person read in about 0.1 s
     sign-off) and the proposed partner changes are inventoried as
     personal data of the principal or partner they name.
 
+## Defaults chosen in T100b (for the product owner's digest)
+
+14. Blocking needs no open item in any company, down payments included,
+    and no pending partner change; open orders and unposted documents are
+    the person's to check.
+15. Lifting the block (`unblockPersonalData`) needs the same permission
+    and no approval, and leaves the partner blocked; a partner is not
+    changed or unblocked while its personal data is blocked.
+16. Masked values read `[blocked]`, the last four characters `XXXX`; tax
+    identifiers' last four characters are masked with the name, address
+    and bank details, the inventory listing them as personal data.
+17. A search by name does not find a blocked partner for a caller who
+    reads it masked; a list ordered by name orders it by its masked name.
+18. `partner_change.possible_duplicates` (T89a's copied names) is in the
+    inventory and treated as the partner's data: masked while the partner
+    named is blocked (coordinator's default, 2026-11-15).
+
+## Defaults chosen in T100c (for the product owner's digest)
+
+19. Retention of personal data is counted from the day of the block, on
+    each company's date, in whole years; a rule of zero years makes a
+    partner eligible on the day of its block, and the longest rule of the
+    companies it has data in holds; a partner in no company is not
+    eligible.
+20. One deletion run is queued per tenant; a second request answers it;
+    none eligible is refused (422 `records.nothing_to_delete`).
+21. A subject whose block was lifted, or lifted and set again, since the
+    run was asked for, or that has an open item, is skipped, not blanked;
+    the window in which a posting may leave an item open on a blocked
+    partner is accepted (§11).
+22. Blanking writes `[deleted]`, `XXXX` for last four characters, zeros
+    for a Canadian account's institution and transit numbers, seals the
+    marker in place of an account or tax identifier, and ends bank
+    accounts today (or the day after one that starts later); a blanked
+    partner reads unmasked to everyone.
+23. Previewing, starting and reading a run need `records.privacy.delete`
+    and access to all companies, and are human-only; a run needs a
+    reason, kept in its audit record.
+
 ## Questions
 
 None for the product owner from T99a: questions 2 and 3 of the plan were
@@ -417,3 +583,65 @@ question for the legal specialists before any period is shipped (plan,
   client addresses among it) and Tyrell's rows per entry, counts and no
   value; her own name is counted once; an unknown kind is refused.
 - Decided by default while building: the defaults 11 to 13 above.
+
+### T100b Personal data blocked (migration 000331)
+
+- Migration 000331: `partner.business_partner.personal_data_blocked_at`
+  with `business_partner_personal_data_blocked_check`, and the
+  permissions `partner.privacy.block` and `partner.privacy.read_blocked`
+  (`db/partner_privacy_test.go`).
+- `internal/ledger`: `OpenItems.OpenCompanies`, the companies with an
+  open item of a partner, read company by company through
+  `journal_line_partner`.
+- `internal/partner`: `BlockPersonalData`, `UnblockPersonalData` and
+  their handlers, the masking of the partner's reads, bank accounts,
+  changes and possible duplicates, `Payees.Names` and
+  `Payees.BankAccounts` (`privacy.go`), the refusal of changes while the
+  data is blocked; `app.go` wires the port `OpenItems`.
+- `internal/records`: `partner.partner_change.possible_duplicates` in the
+  inventory (category `name`, no subject link: the partners it names are
+  not the change's own).
+- `internal/analytics/extract`: the partners snapshot copies a blocked
+  partner's name masked.
+- BusinessPartnerUpdated gains `personal_data_blocked_at` within v1.
+- Walkthrough `step_privacy` (step 91, `privacy_block`): Petra, given the
+  privacy officer's role, is refused blocking Tyrell, who has open items;
+  Alex's consultant Ivy Moreau, whose invoice is posted and reversed, is
+  blocked; Ben reads her name, address, bank account and the ledger's
+  name for her masked, Petra in full; a new invoice for her is refused
+  (`payables.supplier_not_usable`).
+- Decided by default while building: the defaults 14 to 18 above.
+
+### T100c Deletion runs (migration 000332)
+
+- Migration 000332: `partner.business_partner.personal_data_deleted_at`
+  with `business_partner_personal_data_deleted_check` and the trigger
+  `business_partner_personal_data_deleted_fixed`; the triggers
+  `address_personal_fixed` and `bank_account_personal_fixed` with the
+  column grants for blanking, and `address_end` and `bank_account_end`
+  recreated with a `WHEN` clause letting blanking alone through
+  (`partner.address_blanked`, `partner.bank_account_blanked`); the tables
+  `records.deletion_run` and `records.deletion_run_subject` (their checks,
+  the guard `personal_data_not_deleted`,
+  `deletion_run_one_queued`, the settled-fixed triggers and the column
+  grants); the permission `records.privacy.delete`
+  (`db/personal_data_deletion_test.go`).
+- `internal/partner`: `Privacy.Blocked` and `Privacy.Blank`
+  (`deletion.go`); `personal_data_deleted_at` on the partner, unmasked;
+  `unblockPersonalData` refused once deleted
+  (`partner.personal_data_deleted`).
+- `internal/platform/pagination`: `InMemory`, a page of rows read whole.
+- `internal/records`: `Eligible`, `Preview`, `RequestDeletion`,
+  `DeletionRun`, `Subjects` and their handlers (`deletion.go`, `deletion_api.go`), the worker `Deleter`
+  (`deleter.go`), started by `erp-server` on every replica;
+  `app.Records` wires `partner.Privacy`. `records` now imports the
+  partner context's published types (`internal/layout`).
+  PersonalDataDeleted in `api/asyncapi.yaml` (not a webhook event).
+- Walkthrough `step_privacy` (step 91, `privacy_delete`): Ada sets a
+  personal data rule of zero years through a tier 3 change; Petra's
+  preview lists Ivy Moreau by number; the run is started, the deleter
+  blanks her; her name and bank account read `[deleted]`, the account is
+  ended, her invoice still reads and the ledger names her by number; her
+  block can no longer be lifted.
+- Decided by default while building: the defaults 19 to 23 above.
+

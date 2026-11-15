@@ -84,6 +84,7 @@ var Inventory = []Entry{
 	{"partner", "business_partner", "name", CategoryName, "A business partner's name, shown and printed on its documents and payments.", partner("id")},
 	{"partner", "business_partner", "name_norm", CategoryName, "The name normalised for searching.", partner("id")},
 	{"partner", "partner_change", "payload", CategoryFreeText, "A proposed change of a business partner's name, address or bank details, kept with its approval.", partner("partner_id")},
+	{"partner", "partner_change", "possible_duplicates", CategoryName, "The numbers and names of the existing partners a new one may duplicate, as they were when it was requested, kept with its approval (T89a); a partner named there is not the change's own.", nil},
 	{"partner", "tax_identifier", "value_cipher", CategoryIdentifier, "A business partner's tax identifier, encrypted (a person's social insurance or security number when the partner is a sole trader).", partner("partner_id")},
 	{"partner", "tax_identifier", "value_fingerprint", CategoryIdentifier, "A keyed hash of the tax identifier, by which it is found without decrypting it.", partner("partner_id")},
 	{"partner", "tax_identifier", "value_last4", CategoryIdentifier, "The tax identifier's last four characters, shown instead of it.", partner("partner_id")},
