@@ -185,19 +185,19 @@ func oneOf(field, value string, accepted []string) error {
 		problem.FieldError{Field: field, Code: "invalid", Message: "one of " + list})
 }
 
-// owner checks the person a control names as its owner: an active
-// person of the tenant, never an agent or a service.
-func (e *Endpoints) owner(ctx context.Context, id uuid.UUID) error {
+// owner checks the person a control or a risk (what) names as its
+// owner: an active person of the tenant, never an agent or a service.
+func (e *Endpoints) owner(ctx context.Context, id uuid.UUID, what string) error {
 	people, err := e.People.Named(ctx, []uuid.UUID{id})
 	if err != nil {
-		return fmt.Errorf("grc: owner %s of a control: %w", id, err)
+		return fmt.Errorf("grc: owner %s of a %s: %w", id, what, err)
 	}
 	p, ok := people[id]
 	switch {
 	case !ok:
 		return problem.ReferenceNotFound("owner_id", "principal", "no principal with this id")
 	case p.Kind != "human" || p.Status != "active":
-		return problem.Invalid("grc.invalid_owner", "owner_id", "The owner of a control is an active person, not an agent or a service.")
+		return problem.Invalid("grc.invalid_owner", "owner_id", "The owner of a "+what+" is an active person, not an agent or a service.")
 	}
 	return nil
 }

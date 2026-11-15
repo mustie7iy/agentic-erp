@@ -8235,6 +8235,204 @@ func decodeClosePurchaseOrderParams(args [1]string, argsEscaped bool, r *http.Re
 	return params, nil
 }
 
+// CloseRiskParams is parameters of closeRisk operation.
+type CloseRiskParams struct {
+	// Resource identifier (UUIDv7).
+	ID uuid.UUID
+	// The ETag (version) the client last read. A mismatch returns 412 and changes nothing; a missing
+	// header returns 428 (ADR-0008).
+	IfMatch string
+	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
+	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
+	// different body returns 422; a repeat while the first is still running returns 409 with
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
+	IdempotencyKey string
+}
+
+func unpackCloseRiskParams(packed middleware.Parameters) (params CloseRiskParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "id",
+			In:   "path",
+		}
+		params.ID = packed[key].(uuid.UUID)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "If-Match",
+			In:   "header",
+		}
+		params.IfMatch = packed[key].(string)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "Idempotency-Key",
+			In:   "header",
+		}
+		params.IdempotencyKey = packed[key].(string)
+	}
+	return params
+}
+
+func decodeCloseRiskParams(args [1]string, argsEscaped bool, r *http.Request) (params CloseRiskParams, _ error) {
+	h := uri.NewHeaderDecoder(r.Header)
+	// Decode path: id.
+	if err := func() error {
+		param := args[0]
+		if argsEscaped {
+			unescaped, err := url.PathUnescape(args[0])
+			if err != nil {
+				return errors.Wrap(err, "unescape path")
+			}
+			param = unescaped
+		}
+		if len(param) > 0 {
+			d := uri.NewPathDecoder(uri.PathDecoderConfig{
+				Param:   "id",
+				Value:   param,
+				Style:   uri.PathStyleSimple,
+				Explode: false,
+			})
+
+			if err := func() error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToUUID(val)
+				if err != nil {
+					return err
+				}
+
+				params.ID = c
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return validate.ErrFieldRequired
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "id",
+			In:   "path",
+			Err:  err,
+		}
+	}
+	// Decode header: If-Match.
+	if err := func() error {
+		cfg := uri.HeaderParameterDecodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.HasParam(cfg); err == nil {
+			if err := h.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToString(val)
+				if err != nil {
+					return err
+				}
+
+				params.IfMatch = c
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if err := (validate.String{
+					MinLength:     1,
+					MinLengthSet:  true,
+					MaxLength:     64,
+					MaxLengthSet:  true,
+					Email:         false,
+					Hostname:      false,
+					Regex:         nil,
+					MinNumeric:    0,
+					MinNumericSet: false,
+					MaxNumeric:    0,
+					MaxNumericSet: false,
+				}).Validate(string(params.IfMatch)); err != nil {
+					return errors.Wrap(err, "string")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "If-Match",
+			In:   "header",
+			Err:  err,
+		}
+	}
+	// Decode header: Idempotency-Key.
+	if err := func() error {
+		cfg := uri.HeaderParameterDecodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.HasParam(cfg); err == nil {
+			if err := h.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToString(val)
+				if err != nil {
+					return err
+				}
+
+				params.IdempotencyKey = c
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if err := (validate.String{
+					MinLength:     8,
+					MinLengthSet:  true,
+					MaxLength:     255,
+					MaxLengthSet:  true,
+					Email:         false,
+					Hostname:      false,
+					Regex:         nil,
+					MinNumeric:    0,
+					MinNumericSet: false,
+					MaxNumeric:    0,
+					MaxNumericSet: false,
+				}).Validate(string(params.IdempotencyKey)); err != nil {
+					return errors.Wrap(err, "string")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "Idempotency-Key",
+			In:   "header",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
 // CompleteCloseTaskParams is parameters of completeCloseTask operation.
 type CompleteCloseTaskParams struct {
 	// Resource identifier (UUIDv7).
@@ -9861,6 +10059,86 @@ func unpackCreateAllocationCycleParams(packed middleware.Parameters) (params Cre
 }
 
 func decodeCreateAllocationCycleParams(args [0]string, argsEscaped bool, r *http.Request) (params CreateAllocationCycleParams, _ error) {
+	h := uri.NewHeaderDecoder(r.Header)
+	// Decode header: Idempotency-Key.
+	if err := func() error {
+		cfg := uri.HeaderParameterDecodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.HasParam(cfg); err == nil {
+			if err := h.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToString(val)
+				if err != nil {
+					return err
+				}
+
+				params.IdempotencyKey = c
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if err := (validate.String{
+					MinLength:     8,
+					MinLengthSet:  true,
+					MaxLength:     255,
+					MaxLengthSet:  true,
+					Email:         false,
+					Hostname:      false,
+					Regex:         nil,
+					MinNumeric:    0,
+					MinNumericSet: false,
+					MaxNumeric:    0,
+					MaxNumericSet: false,
+				}).Validate(string(params.IdempotencyKey)); err != nil {
+					return errors.Wrap(err, "string")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "Idempotency-Key",
+			In:   "header",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
+// CreateArchivingRunParams is parameters of createArchivingRun operation.
+type CreateArchivingRunParams struct {
+	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
+	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
+	// different body returns 422; a repeat while the first is still running returns 409 with
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
+	IdempotencyKey string
+}
+
+func unpackCreateArchivingRunParams(packed middleware.Parameters) (params CreateArchivingRunParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "Idempotency-Key",
+			In:   "header",
+		}
+		params.IdempotencyKey = packed[key].(string)
+	}
+	return params
+}
+
+func decodeCreateArchivingRunParams(args [0]string, argsEscaped bool, r *http.Request) (params CreateArchivingRunParams, _ error) {
 	h := uri.NewHeaderDecoder(r.Header)
 	// Decode header: Idempotency-Key.
 	if err := func() error {
@@ -14052,6 +14330,220 @@ func unpackCreateRfqParams(packed middleware.Parameters) (params CreateRfqParams
 
 func decodeCreateRfqParams(args [0]string, argsEscaped bool, r *http.Request) (params CreateRfqParams, _ error) {
 	h := uri.NewHeaderDecoder(r.Header)
+	// Decode header: Idempotency-Key.
+	if err := func() error {
+		cfg := uri.HeaderParameterDecodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.HasParam(cfg); err == nil {
+			if err := h.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToString(val)
+				if err != nil {
+					return err
+				}
+
+				params.IdempotencyKey = c
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if err := (validate.String{
+					MinLength:     8,
+					MinLengthSet:  true,
+					MaxLength:     255,
+					MaxLengthSet:  true,
+					Email:         false,
+					Hostname:      false,
+					Regex:         nil,
+					MinNumeric:    0,
+					MinNumericSet: false,
+					MaxNumeric:    0,
+					MaxNumericSet: false,
+				}).Validate(string(params.IdempotencyKey)); err != nil {
+					return errors.Wrap(err, "string")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "Idempotency-Key",
+			In:   "header",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
+// CreateRiskParams is parameters of createRisk operation.
+type CreateRiskParams struct {
+	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
+	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
+	// different body returns 422; a repeat while the first is still running returns 409 with
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
+	IdempotencyKey string
+}
+
+func unpackCreateRiskParams(packed middleware.Parameters) (params CreateRiskParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "Idempotency-Key",
+			In:   "header",
+		}
+		params.IdempotencyKey = packed[key].(string)
+	}
+	return params
+}
+
+func decodeCreateRiskParams(args [0]string, argsEscaped bool, r *http.Request) (params CreateRiskParams, _ error) {
+	h := uri.NewHeaderDecoder(r.Header)
+	// Decode header: Idempotency-Key.
+	if err := func() error {
+		cfg := uri.HeaderParameterDecodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.HasParam(cfg); err == nil {
+			if err := h.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToString(val)
+				if err != nil {
+					return err
+				}
+
+				params.IdempotencyKey = c
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if err := (validate.String{
+					MinLength:     8,
+					MinLengthSet:  true,
+					MaxLength:     255,
+					MaxLengthSet:  true,
+					Email:         false,
+					Hostname:      false,
+					Regex:         nil,
+					MinNumeric:    0,
+					MinNumericSet: false,
+					MaxNumeric:    0,
+					MaxNumericSet: false,
+				}).Validate(string(params.IdempotencyKey)); err != nil {
+					return errors.Wrap(err, "string")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "Idempotency-Key",
+			In:   "header",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
+// CreateRiskRatingParams is parameters of createRiskRating operation.
+type CreateRiskRatingParams struct {
+	// Resource identifier (UUIDv7).
+	ID uuid.UUID
+	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
+	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
+	// different body returns 422; a repeat while the first is still running returns 409 with
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
+	IdempotencyKey string
+}
+
+func unpackCreateRiskRatingParams(packed middleware.Parameters) (params CreateRiskRatingParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "id",
+			In:   "path",
+		}
+		params.ID = packed[key].(uuid.UUID)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "Idempotency-Key",
+			In:   "header",
+		}
+		params.IdempotencyKey = packed[key].(string)
+	}
+	return params
+}
+
+func decodeCreateRiskRatingParams(args [1]string, argsEscaped bool, r *http.Request) (params CreateRiskRatingParams, _ error) {
+	h := uri.NewHeaderDecoder(r.Header)
+	// Decode path: id.
+	if err := func() error {
+		param := args[0]
+		if argsEscaped {
+			unescaped, err := url.PathUnescape(args[0])
+			if err != nil {
+				return errors.Wrap(err, "unescape path")
+			}
+			param = unescaped
+		}
+		if len(param) > 0 {
+			d := uri.NewPathDecoder(uri.PathDecoderConfig{
+				Param:   "id",
+				Value:   param,
+				Style:   uri.PathStyleSimple,
+				Explode: false,
+			})
+
+			if err := func() error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToUUID(val)
+				if err != nil {
+					return err
+				}
+
+				params.ID = c
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return validate.ErrFieldRequired
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "id",
+			In:   "path",
+			Err:  err,
+		}
+	}
 	// Decode header: Idempotency-Key.
 	if err := func() error {
 		cfg := uri.HeaderParameterDecodingConfig{
@@ -19286,6 +19778,138 @@ func unpackGetApprovalRequestParams(packed middleware.Parameters) (params GetApp
 }
 
 func decodeGetApprovalRequestParams(args [1]string, argsEscaped bool, r *http.Request) (params GetApprovalRequestParams, _ error) {
+	// Decode path: id.
+	if err := func() error {
+		param := args[0]
+		if argsEscaped {
+			unescaped, err := url.PathUnescape(args[0])
+			if err != nil {
+				return errors.Wrap(err, "unescape path")
+			}
+			param = unescaped
+		}
+		if len(param) > 0 {
+			d := uri.NewPathDecoder(uri.PathDecoderConfig{
+				Param:   "id",
+				Value:   param,
+				Style:   uri.PathStyleSimple,
+				Explode: false,
+			})
+
+			if err := func() error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToUUID(val)
+				if err != nil {
+					return err
+				}
+
+				params.ID = c
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return validate.ErrFieldRequired
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "id",
+			In:   "path",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
+// GetArchivingRunParams is parameters of getArchivingRun operation.
+type GetArchivingRunParams struct {
+	// Resource identifier (UUIDv7).
+	ID uuid.UUID
+}
+
+func unpackGetArchivingRunParams(packed middleware.Parameters) (params GetArchivingRunParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "id",
+			In:   "path",
+		}
+		params.ID = packed[key].(uuid.UUID)
+	}
+	return params
+}
+
+func decodeGetArchivingRunParams(args [1]string, argsEscaped bool, r *http.Request) (params GetArchivingRunParams, _ error) {
+	// Decode path: id.
+	if err := func() error {
+		param := args[0]
+		if argsEscaped {
+			unescaped, err := url.PathUnescape(args[0])
+			if err != nil {
+				return errors.Wrap(err, "unescape path")
+			}
+			param = unescaped
+		}
+		if len(param) > 0 {
+			d := uri.NewPathDecoder(uri.PathDecoderConfig{
+				Param:   "id",
+				Value:   param,
+				Style:   uri.PathStyleSimple,
+				Explode: false,
+			})
+
+			if err := func() error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToUUID(val)
+				if err != nil {
+					return err
+				}
+
+				params.ID = c
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return validate.ErrFieldRequired
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "id",
+			In:   "path",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
+// GetArchivingRunFileParams is parameters of getArchivingRunFile operation.
+type GetArchivingRunFileParams struct {
+	// Resource identifier (UUIDv7).
+	ID uuid.UUID
+}
+
+func unpackGetArchivingRunFileParams(packed middleware.Parameters) (params GetArchivingRunFileParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "id",
+			In:   "path",
+		}
+		params.ID = packed[key].(uuid.UUID)
+	}
+	return params
+}
+
+func decodeGetArchivingRunFileParams(args [1]string, argsEscaped bool, r *http.Request) (params GetArchivingRunFileParams, _ error) {
 	// Decode path: id.
 	if err := func() error {
 		param := args[0]
@@ -28102,6 +28726,126 @@ func decodeGetPeriodCloseParams(args [1]string, argsEscaped bool, r *http.Reques
 	return params, nil
 }
 
+// GetPersonalDataSubjectParams is parameters of getPersonalDataSubject operation.
+type GetPersonalDataSubjectParams struct {
+	// The kind of data subject: `business_partner` or `principal`.
+	Kind string
+	// Resource identifier (UUIDv7).
+	ID uuid.UUID
+}
+
+func unpackGetPersonalDataSubjectParams(packed middleware.Parameters) (params GetPersonalDataSubjectParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "kind",
+			In:   "path",
+		}
+		params.Kind = packed[key].(string)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "id",
+			In:   "path",
+		}
+		params.ID = packed[key].(uuid.UUID)
+	}
+	return params
+}
+
+func decodeGetPersonalDataSubjectParams(args [2]string, argsEscaped bool, r *http.Request) (params GetPersonalDataSubjectParams, _ error) {
+	// Decode path: kind.
+	if err := func() error {
+		param := args[0]
+		if argsEscaped {
+			unescaped, err := url.PathUnescape(args[0])
+			if err != nil {
+				return errors.Wrap(err, "unescape path")
+			}
+			param = unescaped
+		}
+		if len(param) > 0 {
+			d := uri.NewPathDecoder(uri.PathDecoderConfig{
+				Param:   "kind",
+				Value:   param,
+				Style:   uri.PathStyleSimple,
+				Explode: false,
+			})
+
+			if err := func() error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToString(val)
+				if err != nil {
+					return err
+				}
+
+				params.Kind = c
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return validate.ErrFieldRequired
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "kind",
+			In:   "path",
+			Err:  err,
+		}
+	}
+	// Decode path: id.
+	if err := func() error {
+		param := args[1]
+		if argsEscaped {
+			unescaped, err := url.PathUnescape(args[1])
+			if err != nil {
+				return errors.Wrap(err, "unescape path")
+			}
+			param = unescaped
+		}
+		if len(param) > 0 {
+			d := uri.NewPathDecoder(uri.PathDecoderConfig{
+				Param:   "id",
+				Value:   param,
+				Style:   uri.PathStyleSimple,
+				Explode: false,
+			})
+
+			if err := func() error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToUUID(val)
+				if err != nil {
+					return err
+				}
+
+				params.ID = c
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return validate.ErrFieldRequired
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "id",
+			In:   "path",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
 // GetPlanCategoryParams is parameters of getPlanCategory operation.
 type GetPlanCategoryParams struct {
 	// Resource identifier (UUIDv7).
@@ -29437,6 +30181,109 @@ func decodeGetRequisitionParams(args [1]string, argsEscaped bool, r *http.Reques
 	return params, nil
 }
 
+// GetRetentionStatusParams is parameters of getRetentionStatus operation.
+type GetRetentionStatusParams struct {
+	// The company whose documents are meant.
+	LegalEntityID uuid.UUID
+	// The kind of document.
+	DocumentKind string
+}
+
+func unpackGetRetentionStatusParams(packed middleware.Parameters) (params GetRetentionStatusParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "legal_entity_id",
+			In:   "query",
+		}
+		params.LegalEntityID = packed[key].(uuid.UUID)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "document_kind",
+			In:   "query",
+		}
+		params.DocumentKind = packed[key].(string)
+	}
+	return params
+}
+
+func decodeGetRetentionStatusParams(args [0]string, argsEscaped bool, r *http.Request) (params GetRetentionStatusParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
+	// Decode query: legal_entity_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToUUID(val)
+				if err != nil {
+					return err
+				}
+
+				params.LegalEntityID = c
+				return nil
+			}); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "legal_entity_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: document_kind.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "document_kind",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToString(val)
+				if err != nil {
+					return err
+				}
+
+				params.DocumentKind = c
+				return nil
+			}); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "document_kind",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
 // GetReturnsOrderParams is parameters of getReturnsOrder operation.
 type GetReturnsOrderParams struct {
 	// Resource identifier (UUIDv7).
@@ -29851,6 +30698,72 @@ func unpackGetRfqComparisonParams(packed middleware.Parameters) (params GetRfqCo
 }
 
 func decodeGetRfqComparisonParams(args [1]string, argsEscaped bool, r *http.Request) (params GetRfqComparisonParams, _ error) {
+	// Decode path: id.
+	if err := func() error {
+		param := args[0]
+		if argsEscaped {
+			unescaped, err := url.PathUnescape(args[0])
+			if err != nil {
+				return errors.Wrap(err, "unescape path")
+			}
+			param = unescaped
+		}
+		if len(param) > 0 {
+			d := uri.NewPathDecoder(uri.PathDecoderConfig{
+				Param:   "id",
+				Value:   param,
+				Style:   uri.PathStyleSimple,
+				Explode: false,
+			})
+
+			if err := func() error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToUUID(val)
+				if err != nil {
+					return err
+				}
+
+				params.ID = c
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return validate.ErrFieldRequired
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "id",
+			In:   "path",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
+// GetRiskParams is parameters of getRisk operation.
+type GetRiskParams struct {
+	// Resource identifier (UUIDv7).
+	ID uuid.UUID
+}
+
+func unpackGetRiskParams(packed middleware.Parameters) (params GetRiskParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "id",
+			In:   "path",
+		}
+		params.ID = packed[key].(uuid.UUID)
+	}
+	return params
+}
+
+func decodeGetRiskParams(args [1]string, argsEscaped bool, r *http.Request) (params GetRiskParams, _ error) {
 	// Decode path: id.
 	if err := func() error {
 		param := args[0]
@@ -35138,6 +36051,494 @@ func decodeListApprovalRequestsParams(args [0]string, argsEscaped bool, r *http.
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "include",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
+// ListArchivingRunsParams is parameters of listArchivingRuns operation.
+type ListArchivingRunsParams struct {
+	// Only resources of this legal entity (company code).
+	LegalEntityID OptUUID `json:",omitempty,omitzero"`
+	// Only the runs of this kind of document.
+	DocumentKind OptString `json:",omitempty,omitzero"`
+	// Only the runs of this fiscal year.
+	FiscalYear OptInt32 `json:",omitempty,omitzero"`
+	// Only runs of this status: `queued`, `completed` or `failed`.
+	Status OptString `json:",omitempty,omitzero"`
+	// Maximum number of items to return. Defaults to 50, maximum 500.
+	PageSize OptInt32 `json:",omitempty,omitzero"`
+	// Opaque cursor from `next_page_token` of the previous page. Tokens are signed and encode the sort
+	// keys; they are only valid with the same filters and `order_by`.
+	PageToken OptString `json:",omitempty,omitzero"`
+	// Sort order as `field [asc|desc]`, comma-separated. Only the fields listed in the operation
+	// description are accepted; others return 400.
+	OrderBy OptString `json:",omitempty,omitzero"`
+}
+
+func unpackListArchivingRunsParams(packed middleware.Parameters) (params ListArchivingRunsParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "legal_entity_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.LegalEntityID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "document_kind",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.DocumentKind = v.(OptString)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "fiscal_year",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.FiscalYear = v.(OptInt32)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "status",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Status = v.(OptString)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "page_size",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.PageSize = v.(OptInt32)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "page_token",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.PageToken = v.(OptString)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "order_by",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.OrderBy = v.(OptString)
+		}
+	}
+	return params
+}
+
+func decodeListArchivingRunsParams(args [0]string, argsEscaped bool, r *http.Request) (params ListArchivingRunsParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
+	// Decode query: legal_entity_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotLegalEntityIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotLegalEntityIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.LegalEntityID.SetTo(paramsDotLegalEntityIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "legal_entity_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: document_kind.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "document_kind",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotDocumentKindVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotDocumentKindVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.DocumentKind.SetTo(paramsDotDocumentKindVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "document_kind",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: fiscal_year.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotFiscalYearVal int32
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToInt32(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotFiscalYearVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.FiscalYear.SetTo(paramsDotFiscalYearVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.FiscalYear.Get(); ok {
+					if err := func() error {
+						if err := (validate.Int{
+							MinSet:        true,
+							Min:           1900,
+							MaxSet:        true,
+							Max:           9999,
+							MinExclusive:  false,
+							MaxExclusive:  false,
+							MultipleOfSet: false,
+							MultipleOf:    0,
+							Pattern:       nil,
+						}).Validate(int64(value)); err != nil {
+							return errors.Wrap(err, "int")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "fiscal_year",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: status.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotStatusVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotStatusVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Status.SetTo(paramsDotStatusVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "status",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Set default value for query: page_size.
+	{
+		val := int32(50)
+		params.PageSize.SetTo(val)
+	}
+	// Decode query: page_size.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotPageSizeVal int32
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToInt32(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotPageSizeVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.PageSize.SetTo(paramsDotPageSizeVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.PageSize.Get(); ok {
+					if err := func() error {
+						if err := (validate.Int{
+							MinSet:        true,
+							Min:           1,
+							MaxSet:        true,
+							Max:           500,
+							MinExclusive:  false,
+							MaxExclusive:  false,
+							MultipleOfSet: false,
+							MultipleOf:    0,
+							Pattern:       nil,
+						}).Validate(int64(value)); err != nil {
+							return errors.Wrap(err, "int")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "page_size",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: page_token.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotPageTokenVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotPageTokenVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.PageToken.SetTo(paramsDotPageTokenVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.PageToken.Get(); ok {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     0,
+							MinLengthSet:  false,
+							MaxLength:     2048,
+							MaxLengthSet:  true,
+							Email:         false,
+							Hostname:      false,
+							Regex:         nil,
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(value)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "page_token",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: order_by.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotOrderByVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotOrderByVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.OrderBy.SetTo(paramsDotOrderByVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.OrderBy.Get(); ok {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     0,
+							MinLengthSet:  false,
+							MaxLength:     200,
+							MaxLengthSet:  true,
+							Email:         false,
+							Hostname:      false,
+							Regex:         regexMap["^[a-z_]+( (asc|desc))?(, ?[a-z_]+( (asc|desc))?)*$"],
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(value)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "order_by",
 			In:   "query",
 			Err:  err,
 		}
@@ -86094,6 +87495,645 @@ func decodeListRfqsParams(args [0]string, argsEscaped bool, r *http.Request) (pa
 	return params, nil
 }
 
+// ListRiskRatingsParams is parameters of listRiskRatings operation.
+type ListRiskRatingsParams struct {
+	// Resource identifier (UUIDv7).
+	ID uuid.UUID
+	// Maximum number of items to return. Defaults to 50, maximum 500.
+	PageSize OptInt32 `json:",omitempty,omitzero"`
+	// Opaque cursor from `next_page_token` of the previous page. Tokens are signed and encode the sort
+	// keys; they are only valid with the same filters and `order_by`.
+	PageToken OptString `json:",omitempty,omitzero"`
+}
+
+func unpackListRiskRatingsParams(packed middleware.Parameters) (params ListRiskRatingsParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "id",
+			In:   "path",
+		}
+		params.ID = packed[key].(uuid.UUID)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "page_size",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.PageSize = v.(OptInt32)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "page_token",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.PageToken = v.(OptString)
+		}
+	}
+	return params
+}
+
+func decodeListRiskRatingsParams(args [1]string, argsEscaped bool, r *http.Request) (params ListRiskRatingsParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
+	// Decode path: id.
+	if err := func() error {
+		param := args[0]
+		if argsEscaped {
+			unescaped, err := url.PathUnescape(args[0])
+			if err != nil {
+				return errors.Wrap(err, "unescape path")
+			}
+			param = unescaped
+		}
+		if len(param) > 0 {
+			d := uri.NewPathDecoder(uri.PathDecoderConfig{
+				Param:   "id",
+				Value:   param,
+				Style:   uri.PathStyleSimple,
+				Explode: false,
+			})
+
+			if err := func() error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToUUID(val)
+				if err != nil {
+					return err
+				}
+
+				params.ID = c
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return validate.ErrFieldRequired
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "id",
+			In:   "path",
+			Err:  err,
+		}
+	}
+	// Set default value for query: page_size.
+	{
+		val := int32(50)
+		params.PageSize.SetTo(val)
+	}
+	// Decode query: page_size.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotPageSizeVal int32
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToInt32(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotPageSizeVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.PageSize.SetTo(paramsDotPageSizeVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.PageSize.Get(); ok {
+					if err := func() error {
+						if err := (validate.Int{
+							MinSet:        true,
+							Min:           1,
+							MaxSet:        true,
+							Max:           500,
+							MinExclusive:  false,
+							MaxExclusive:  false,
+							MultipleOfSet: false,
+							MultipleOf:    0,
+							Pattern:       nil,
+						}).Validate(int64(value)); err != nil {
+							return errors.Wrap(err, "int")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "page_size",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: page_token.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotPageTokenVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotPageTokenVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.PageToken.SetTo(paramsDotPageTokenVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.PageToken.Get(); ok {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     0,
+							MinLengthSet:  false,
+							MaxLength:     2048,
+							MaxLengthSet:  true,
+							Email:         false,
+							Hostname:      false,
+							Regex:         nil,
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(value)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "page_token",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
+// ListRisksParams is parameters of listRisks operation.
+type ListRisksParams struct {
+	// Only risks in this status.
+	Status OptString `json:",omitempty,omitzero"`
+	// Only the risks of this category, by its exact text.
+	Category OptString `json:",omitempty,omitzero"`
+	// Only the risks this person owns.
+	OwnerID OptUUID `json:",omitempty,omitzero"`
+	// Only the risks this control mitigates now.
+	ControlID OptUUID `json:",omitempty,omitzero"`
+	// Maximum number of items to return. Defaults to 50, maximum 500.
+	PageSize OptInt32 `json:",omitempty,omitzero"`
+	// Opaque cursor from `next_page_token` of the previous page. Tokens are signed and encode the sort
+	// keys; they are only valid with the same filters and `order_by`.
+	PageToken OptString `json:",omitempty,omitzero"`
+}
+
+func unpackListRisksParams(packed middleware.Parameters) (params ListRisksParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "status",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Status = v.(OptString)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "category",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Category = v.(OptString)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "owner_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.OwnerID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "control_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.ControlID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "page_size",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.PageSize = v.(OptInt32)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "page_token",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.PageToken = v.(OptString)
+		}
+	}
+	return params
+}
+
+func decodeListRisksParams(args [0]string, argsEscaped bool, r *http.Request) (params ListRisksParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
+	// Decode query: status.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotStatusVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotStatusVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Status.SetTo(paramsDotStatusVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "status",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: category.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "category",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotCategoryVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotCategoryVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Category.SetTo(paramsDotCategoryVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.Category.Get(); ok {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     1,
+							MinLengthSet:  true,
+							MaxLength:     100,
+							MaxLengthSet:  true,
+							Email:         false,
+							Hostname:      false,
+							Regex:         nil,
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(value)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "category",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: owner_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "owner_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotOwnerIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotOwnerIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.OwnerID.SetTo(paramsDotOwnerIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "owner_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: control_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "control_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotControlIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotControlIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.ControlID.SetTo(paramsDotControlIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "control_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Set default value for query: page_size.
+	{
+		val := int32(50)
+		params.PageSize.SetTo(val)
+	}
+	// Decode query: page_size.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotPageSizeVal int32
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToInt32(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotPageSizeVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.PageSize.SetTo(paramsDotPageSizeVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.PageSize.Get(); ok {
+					if err := func() error {
+						if err := (validate.Int{
+							MinSet:        true,
+							Min:           1,
+							MaxSet:        true,
+							Max:           500,
+							MinExclusive:  false,
+							MaxExclusive:  false,
+							MultipleOfSet: false,
+							MultipleOf:    0,
+							Pattern:       nil,
+						}).Validate(int64(value)); err != nil {
+							return errors.Wrap(err, "int")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "page_size",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: page_token.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotPageTokenVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotPageTokenVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.PageToken.SetTo(paramsDotPageTokenVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.PageToken.Get(); ok {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     0,
+							MinLengthSet:  false,
+							MaxLength:     2048,
+							MaxLengthSet:  true,
+							Email:         false,
+							Hostname:      false,
+							Regex:         nil,
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(value)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "page_token",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
 // ListRoleAssignmentsParams is parameters of listRoleAssignments operation.
 type ListRoleAssignmentsParams struct {
 	// Only grants to this principal.
@@ -117671,6 +119711,204 @@ func unpackUpdateRevenueContractParams(packed middleware.Parameters) (params Upd
 }
 
 func decodeUpdateRevenueContractParams(args [1]string, argsEscaped bool, r *http.Request) (params UpdateRevenueContractParams, _ error) {
+	h := uri.NewHeaderDecoder(r.Header)
+	// Decode path: id.
+	if err := func() error {
+		param := args[0]
+		if argsEscaped {
+			unescaped, err := url.PathUnescape(args[0])
+			if err != nil {
+				return errors.Wrap(err, "unescape path")
+			}
+			param = unescaped
+		}
+		if len(param) > 0 {
+			d := uri.NewPathDecoder(uri.PathDecoderConfig{
+				Param:   "id",
+				Value:   param,
+				Style:   uri.PathStyleSimple,
+				Explode: false,
+			})
+
+			if err := func() error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToUUID(val)
+				if err != nil {
+					return err
+				}
+
+				params.ID = c
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return validate.ErrFieldRequired
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "id",
+			In:   "path",
+			Err:  err,
+		}
+	}
+	// Decode header: If-Match.
+	if err := func() error {
+		cfg := uri.HeaderParameterDecodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.HasParam(cfg); err == nil {
+			if err := h.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToString(val)
+				if err != nil {
+					return err
+				}
+
+				params.IfMatch = c
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if err := (validate.String{
+					MinLength:     1,
+					MinLengthSet:  true,
+					MaxLength:     64,
+					MaxLengthSet:  true,
+					Email:         false,
+					Hostname:      false,
+					Regex:         nil,
+					MinNumeric:    0,
+					MinNumericSet: false,
+					MaxNumeric:    0,
+					MaxNumericSet: false,
+				}).Validate(string(params.IfMatch)); err != nil {
+					return errors.Wrap(err, "string")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "If-Match",
+			In:   "header",
+			Err:  err,
+		}
+	}
+	// Decode header: Idempotency-Key.
+	if err := func() error {
+		cfg := uri.HeaderParameterDecodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.HasParam(cfg); err == nil {
+			if err := h.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToString(val)
+				if err != nil {
+					return err
+				}
+
+				params.IdempotencyKey = c
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if err := (validate.String{
+					MinLength:     8,
+					MinLengthSet:  true,
+					MaxLength:     255,
+					MaxLengthSet:  true,
+					Email:         false,
+					Hostname:      false,
+					Regex:         nil,
+					MinNumeric:    0,
+					MinNumericSet: false,
+					MaxNumeric:    0,
+					MaxNumericSet: false,
+				}).Validate(string(params.IdempotencyKey)); err != nil {
+					return errors.Wrap(err, "string")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "Idempotency-Key",
+			In:   "header",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
+// UpdateRiskParams is parameters of updateRisk operation.
+type UpdateRiskParams struct {
+	// Resource identifier (UUIDv7).
+	ID uuid.UUID
+	// The ETag (version) the client last read. A mismatch returns 412 and changes nothing; a missing
+	// header returns 428 (ADR-0008).
+	IfMatch string
+	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
+	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
+	// different body returns 422; a repeat while the first is still running returns 409 with
+	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
+	// with the same key runs. Missing returns 428.
+	IdempotencyKey string
+}
+
+func unpackUpdateRiskParams(packed middleware.Parameters) (params UpdateRiskParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "id",
+			In:   "path",
+		}
+		params.ID = packed[key].(uuid.UUID)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "If-Match",
+			In:   "header",
+		}
+		params.IfMatch = packed[key].(string)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "Idempotency-Key",
+			In:   "header",
+		}
+		params.IdempotencyKey = packed[key].(string)
+	}
+	return params
+}
+
+func decodeUpdateRiskParams(args [1]string, argsEscaped bool, r *http.Request) (params UpdateRiskParams, _ error) {
 	h := uri.NewHeaderDecoder(r.Header)
 	// Decode path: id.
 	if err := func() error {

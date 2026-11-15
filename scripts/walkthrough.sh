@@ -7910,6 +7910,243 @@ step_control_matrix() {
   passed
 }
 
+# step_risks is T98c (ADR-0078 §10-§13): Tara, the treasury manager,
+# records the risk of paying a supplier twice in Maple's risk register,
+# mitigated by step 76's control, and rates it 2 by 4. After a quarter
+# with the control in place she rates it again, 1 by 4: the rating is
+# kept with who rated and when, and the risk's score is the latest
+# rating's. A second risk, scored higher, lists first; it is closed with
+# a reason, and the register of open risks shows the first with its
+# score.
+step_risks() {
+  heading "Step 89 — The risk register: a risk of duplicate payments recorded with the control that mitigates it, rated 2 by 4, rated again 1 by 4, and listed by its score"
+  local owner risk other tag
+  [ -n "${CONTROL:-}" ] || fail "step 76's control is not there"
+  owner=$(awk -F'\t' '$2 == "Tara Treasury Manager" { print $1 }' "$WORK/names")
+  [ -n "$owner" ] || fail "step 1's Tara is not there"
+  as tara
+  say "Maple's risk register is its own: nothing is shipped, so it starts empty (ADR-0078 §10)."
+  api 200 '"risks in the register: \(.items | length)"' listRisks
+  expect "an empty register" "$(field '.items | length')" 0
+  say "Tara records the risk of paying a supplier twice, which she owns, and the control of step 76 that mitigates"
+  say "it. She rates it: likelihood 2 and impact 4, each from 1 to 5; the score is their product."
+  api 201 '"risk \(.title) (\(.category)), owned by \(.owner_name): likelihood \(.likelihood), impact \(.impact), score \(.score), \(.status)", (.controls[] | "  mitigated by \(.code) (\(.status))")' \
+    createRisk -body "{\"title\": \"Duplicate payments to suppliers\", \"category\": \"Payments\", \"owner_id\": \"$owner\", \"likelihood\": 2, \"impact\": 4, \"control_ids\": [\"$CONTROL\"]}"
+  risk=$(field .id)
+  expect "the risk" "$(field '"\(.owner_id) \(.likelihood) \(.impact) \(.score) \(.rated_by_name) \(.status) \(.version) \([.controls[] | "\(.control_id) \(.code)"] | join(","))"')" \
+    "$owner 2 4 8 Tara Treasury Manager open 1 $CONTROL PAY-01"
+  say "A control is named once, and a likelihood is from 1 to 5:"
+  refused 422 grc.invalid_control createRisk \
+    -body "{\"title\": \"Another risk\", \"category\": \"Payments\", \"owner_id\": \"$owner\", \"likelihood\": 1, \"impact\": 1, \"control_ids\": [\"$CONTROL\", \"$CONTROL\"]}"
+  refused 400 request.invalid_body createRisk \
+    -body "{\"title\": \"Another risk\", \"category\": \"Payments\", \"owner_id\": \"$owner\", \"likelihood\": 6, \"impact\": 1}"
+  say "A quarter later, with the control in place and no duplicate paid, she rates it again: likelihood 1, impact 4."
+  say "The rating is kept with who rated and when, and becomes the risk's:"
+  api 201 '"rating of the risk: likelihood \(.likelihood), impact \(.impact), score \(.score), by \(.rated_by_name) at \(.rated_at)"' \
+    createRiskRating -p "id=$risk" -body '{"likelihood": 1, "impact": 4}'
+  expect "the rating" "$(field '"\(.risk_id) \(.likelihood) \(.impact) \(.score) \(.rated_by)"')" "$risk 1 4 4 $owner"
+  api 200 '"risk \(.title): score \(.score), version \(.version)"' getRisk -p "id=$risk"
+  expect "the risk after its second rating" "$(field '"\(.likelihood) \(.impact) \(.score) \(.version)"')" "1 4 4 2"
+  QUIET=1 api 200 '' listRiskRatings -p "id=$risk"
+  expect "its ratings, the latest first" "$(field '[.items[] | "\(.score) \(.rated_by_name)"] | join(", ")')" \
+    "4 Tara Treasury Manager, 8 Tara Treasury Manager"
+  say "She records a second risk, a supplier's bank details changed by a fraudster, rated higher, 3 by 5. The register"
+  say "lists the risks by score, the highest first:"
+  QUIET=1 api 201 '' createRisk -body "{\"title\": \"Supplier bank details changed by fraud\", \"category\": \"Payments\", \"owner_id\": \"$owner\", \"likelihood\": 3, \"impact\": 5}"
+  other=$(field .id) tag=$ETAG
+  api 200 '.items[] | "  \(.score) \(.title) (\(.category)), owned by \(.owner_name), \(.status)"' listRisks
+  expect "the register by score" "$(field '[.items[] | "\(.id) \(.score)"] | join(", ")')" "$other 15, $risk 4"
+  say "The bank details change is covered by the vendor master's approval, so she closes that risk with the reason:"
+  api 200 '"risk \(.title): \(.status), \(.close_reason)"' closeRisk -p "id=$other" -if-match "$tag" \
+    -body '{"reason": "Bank details changes need the vendor master approver; no fraud in four quarters."}'
+  expect "the closed risk" "$(field '"\(.status) \(.closed_by_name) \(.version)"')" "closed Tara Treasury Manager 2"
+  refused 409 grc.risk_closed createRiskRating -p "id=$other" -body '{"likelihood": 1, "impact": 1}'
+  say "The open risks of the register, with their scores:"
+  api 200 '.items[] | "  \(.score) \(.title), mitigated by \([.controls[].code] | join(", "))"' listRisks -p status=open -p category=Payments
+  expect "the open register" "$(field '[.items[] | "\(.id) \(.score) \([.controls[].code] | join(","))"] | join(", ")')" "$risk 4 PAY-01"
+  QUIET=1 api 200 '' listRisks -p "control_id=$CONTROL"
+  expect "the risks the control mitigates" "$(field '[.items[].id] | join(" ")')" "$risk"
+  QUIET=1 api 200 '' listAuditEvents -p object_type=grc.risk -p "object_id=$risk"
+  expect "the risk's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "grc.risk.create grc.risk.rate"
+  passed
+}
+
+# retention_rule YEARS TITLE has Ada propose Maple's retention rule for
+# journal entries, YEARS after the fiscal year's end, through a change
+# request: tier 3, since an erasure cannot be undone (product owner,
+# 2026-11-13): replayed, approved by the process owner and the
+# controller, then activated.
+retention_rule() {
+  local years=$1 title=$2 base cr request
+  as ada
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq --arg cc "$CC" --argjson years "$years" --arg title "$title" --argjson base "$base" '{title: $title,
+    rationale: "Maple'"'"'s retention of journal entries (T99a)", base_version: $base,
+    proposed: (.items[0].document | .companies |= map(if .code == $cc then .retention = [{kind: "journal_entry", years: $years}] else . end))}' \
+    "$WORK/last.json" >"$WORK/retention.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @retention.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 3
+  QUIET=1 api 201 '' createRegressionSuite -body "{\"name\": \"Before $title\", \"window_days\": 366}"
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  wait_op
+  api 200 '.evidence[] | "evidence \(.kind): \(if .passed then "passed" else "FAILED" end), \(.summary)"' getChangeRequest -p "id=$cr"
+  expect "status after the evidence" "$(field .status)" pending_approval
+  request=$(field .workflow_request_id)
+  approve priya "$request" "The retention of journal entries, as the records administrator asked"
+  approve carla "$request" "Erasure after this period cannot be undone; the period is the company's"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+}
+
+# wait_archive RUN polls an archiving run until the server's archiver has
+# completed it (T99b); a failed run stops the walkthrough.
+wait_archive() {
+  local status i
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' getArchivingRun -p "id=$1"
+    status=$(field .status)
+    case "$status" in
+    completed) return 0 ;;
+    failed) fail "archiving run $1 failed: $(field .failure_code)" ;;
+    esac
+    sleep 0.25
+  done
+  fail "archiving run $1 still $status after a minute (attempt $i)"
+}
+
+# retention_archive is T99b: Rhea archives the prior year, past
+# retention under the zero-year rule and closed, and checks the file
+# against the run and the ledger; the current year is refused.
+retention_archive() {
+  local run sum count listed token ledger
+  say "The prior year is past retention and closed by its year-end close. Rhea starts an archiving run: the year's journal"
+  say "entries, of every ledger, go to an archive file in object storage with a manifest; nothing is deleted. The run is"
+  say "queued and the server's archiver writes the file in the background (ADR-0079 §6):"
+  api 201 '"archiving run of \(.document_kind) \(.fiscal_year) of \(.company_code): \(.status), rule of \(.retention_years) years (configuration version \(.configuration_version))"' \
+    createArchivingRun -body "{\"legal_entity_id\": \"$LE\", \"document_kind\": \"journal_entry\", \"fiscal_year\": $PREV}"
+  run=$(field .id)
+  wait_archive "$run"
+  excerpt '"  \(.status): \(.file.name), \(.file.size_bytes) bytes, SHA-256 \(.file.sha256[0:16])…", "  manifest: \(.file.entry_count) entries, \(.file.line_count) lines, debits \(.file.debit_total.amount) \(.file.debit_total.currency)"'
+  sum=$(field .file.sha256)
+  count=$(field .file.entry_count)
+  say "Rhea downloads the file (JSON Lines, one entry per line with its lines) and checks it against the run:"
+  api 200 '' getArchivingRunFile -p "id=$run" -out "$WORK/archive-$PREV.jsonl"
+  expect "the file's SHA-256, the run's" "$(shasum -a 256 "$WORK/archive-$PREV.jsonl" | cut -d' ' -f1)" "$sum"
+  expect "one line per entry" "$(wc -l <"$WORK/archive-$PREV.jsonl" | tr -d ' ')" "$count"
+  listed=0
+  QUIET=1 api 200 '' listLedgers
+  for ledger in $(field '.items[].id'); do
+    token=''
+    while :; do
+      QUIET=1 api 200 '' listJournalEntries -p "legal_entity_id=$LE" -p "ledger_id=$ledger" -p "fiscal_year=$PREV" -p page_size=500 ${token:+-p "page_token=$token"}
+      listed=$((listed + $(field '.items | length')))
+      token=$(field '.next_page_token // ""')
+      [ -n "$token" ] || break
+    done
+  done
+  say "  the ledgers list $listed journal entries of $PREV, the leading and the parallel ones; the manifest counts $count"
+  expect "the manifest's count, the ledgers'" "$count" "$listed"
+  QUIET=1 api 200 '' createArchivingRun -body "{\"legal_entity_id\": \"$LE\", \"document_kind\": \"journal_entry\", \"fiscal_year\": $PREV}"
+  expect "a second request answers the run" "$(field '"\(.id) \(.status)"')" "$run completed"
+  api 200 '(.years[] | select(.fiscal_year == '"$PREV"') | "  \(.fiscal_year): past retention \(.past_retention), archived \(.archived)")' \
+    getRetentionStatus -p "legal_entity_id=$LE" -p document_kind=journal_entry
+  expect "the prior year archived" "$(field "[.years[] | select(.fiscal_year == $PREV) | .archived] | first")" true
+  say "The current year is within retention, so it is not archived:"
+  refused 422 records.year_not_past_retention createArchivingRun -body "{\"legal_entity_id\": \"$LE\", \"document_kind\": \"journal_entry\", \"fiscal_year\": $YEAR}"
+}
+
+# step_retention is T99a (ADR-0079 §2-§4): Maple keeps no retention
+# rule, since none is shipped or defaulted for any jurisdiction, so
+# nothing of it is past retention. Ada sets a rule of ten years for
+# journal entries through a governed change; Rhea, the records
+# administrator, reads that the migrated prior year is kept until ten
+# years after its last day. A rule of zero years, activated the same
+# way, puts the ended prior year past retention and leaves the current
+# one within it. T99b (ADR-0079 §6-§8): Rhea archives the prior year,
+# closed by its year-end close (step 42); the server's archiver writes
+# its journal entries to an archive file in object storage with a
+# manifest, and the file she downloads has one line per entry of the
+# year, as the ledger lists them, and the run's SHA-256. Nothing is
+# deleted.
+step_retention() {
+  heading "Step 90 — Retention rules and archiving: a retention rule for journal entries set through a governed change; the retention status shows the migrated prior year within retention, and past it under a rule of zero years; the prior year archived to object storage with its manifest"
+  local prev_end
+  as ada
+  say "Ada adds Rhea, the records administrator, to the team:"
+  person rhea "Rhea Records Administrator" finance_staff
+  as rhea
+  say "No retention period of any jurisdiction is shipped (ADR-0079 §2): without a rule, nothing is past retention."
+  api 200 '"retention of \(.document_kind) in \(.company_code) \(.company_name): rule \(.has_rule), \(.past_retention_count) of \(.year_count) year(s) past retention"' \
+    getRetentionStatus -p "legal_entity_id=$LE" -p document_kind=journal_entry
+  expect "the status without a rule" "$(field '"\(.has_rule) \(.past_retention_count) \(has("retention_years"))"')" "false 0 false"
+  prev_end=$(field "[.years[] | select(.fiscal_year == $PREV) | .end_date] | first // \"\"")
+  [ -n "$prev_end" ] || fail "$PREV is not set up for $CC (step_year_end)"
+  say "Rhea asks Ada for Maple's rule: journal entries are kept ten years after their fiscal year ends. Retention"
+  say "rules are the tenant's configuration and change only through a change request and its approval:"
+  retention_rule 10 "Retention of journal entries: ten years"
+  as rhea
+  api 200 '"retention of \(.document_kind), \(.retention_years) years, as of \(.as_of) (configuration version \(.configuration_version)):", (.years[] | "  \(.fiscal_year): \(.start_date) to \(.end_date), kept until \(.retention_ends), past retention \(.past_retention)")' \
+    getRetentionStatus -p "legal_entity_id=$LE" -p document_kind=journal_entry
+  expect "the migrated prior year under ten years" "$(field "[.years[] | select(.fiscal_year == $PREV) | \"\(.end_date) \(.retention_ends) \(.past_retention)\"] | first")" \
+    "$prev_end $((PREV + 10))${prev_end:4} false"
+  expect "nothing past retention" "$(field '"\(.retention_years) \(.past_retention_count)"')" "10 0"
+  say "A rule of zero years keeps a document only until its fiscal year ends. Activated the same way, it puts the"
+  say "ended prior year past retention; the current year is within it until its last day:"
+  retention_rule 0 "Retention of journal entries: until the fiscal year ends"
+  as rhea
+  api 200 '"retention of \(.document_kind), \(.retention_years) years, as of \(.as_of):", (.years[] | "  \(.fiscal_year): kept until \(.retention_ends), past retention \(.past_retention)")' \
+    getRetentionStatus -p "legal_entity_id=$LE" -p document_kind=journal_entry
+  expect "the prior and the current year under zero years" \
+    "$(field "[.years[] | select(.fiscal_year == $PREV or .fiscal_year == $YEAR) | \"\(.fiscal_year) \(.retention_ends == .end_date) \(.past_retention)\"] | join(\", \")")" \
+    "$PREV true true, $YEAR true false"
+  expect "the totals" "$(field '"\(.past_retention_count) \(.year_count == (.years | length))"')" "$(field '[.years[] | select(.past_retention)] | length') true"
+  retention_archive
+  say "Personal data has no rule, so none of it is past retention, and a kind of the first version's list only is read:"
+  QUIET=1 api 200 '' getRetentionStatus -p "legal_entity_id=$LE" -p document_kind=personal_data
+  expect "personal data without a rule" "$(field '"\(.has_rule) \(.past_retention_count)"')" "false 0"
+  refused 422 request.validation_failed getRetentionStatus -p "legal_entity_id=$LE" -p document_kind=invoice
+  passed
+}
+
+# step_privacy is T100a (ADR-0079 §9-§10): Petra, the privacy officer,
+# reads the personal data inventory, the columns that hold personal data
+# with why each is kept, among them the business partner's name and bank
+# details and the audit trail's client addresses; then, for Tyrell, the
+# supplier migrated in step 3, how many rows of each entry name it. The
+# read counts rows and returns no name, address or account. Closed to
+# agents.
+step_privacy() {
+  heading "Step 91 — The personal data inventory: the columns holding personal data with their purpose, and where the supplier Tyrell's data is held, counted without being shown"
+  local want got
+  as ada
+  say "Ada adds Petra, the privacy officer, to the team:"
+  person petra "Petra Privacy Officer" finance_staff
+  as petra
+  say "The inventory is declared with the product and checked against the database by its tests (ADR-0079 §9):"
+  api 200 '"\(.count) entries", (.items[] | select(.schema == "partner" or .schema == "audit") | "  \(.schema).\(.table).\(.column): \(.category), counted for \(.subject_kinds | join(", "))")' \
+    getPersonalDataInventory
+  for want in "partner.business_partner.name name" "partner.bank_account.account_cipher bank_details" "partner.bank_account.holder_name name" \
+    "audit.audit_event.client_address network_address"; do
+    got=$(field "[.items[] | select(\"\(.schema).\(.table).\(.column)\" == \"${want% *}\") | .category] | first // \"\"")
+    expect "the inventory's ${want% *}" "$got" "${want#* }"
+  done
+  say "Where Tyrell's data is held, row counts per entry, the business partner's own rows and those naming it:"
+  api 200 '"\(.total_rows) rows in all", (.items[] | select(.rows > 0) | "  \(.schema).\(.table).\(.column): \(.rows)")' \
+    getPersonalDataSubject -p kind=business_partner -p "id=$SUPPLIER"
+  expect "Tyrell's name, once" "$(field '[.items[] | select(.table == "business_partner" and .column == "name") | .rows] | first')" 1
+  expect "counts, not data" "$(field '[.items[] | keys | join(",")] | unique | join(" ")')" "category,column,rows,schema,table"
+  QUIET=1 api 200 '' getPersonalDataSubject -p kind=principal -p "id=$(awk -F'\t' '$2 == "Petra Privacy Officer" { print $1 }' "$WORK/names")"
+  expect "Petra's own name, once" "$(field '[.items[] | select(.table == "principal" and .column == "display_name") | .rows] | first')" 1
+  refused 422 request.validation_failed getPersonalDataSubject -p kind=employee -p "id=$SUPPLIER"
+  passed
+}
+
 # step_sales_analytics is T91a (ADR-0044 As built T91a): Anna, a sales
 # analyst, asks the semantic layer for the month's order intake and billed
 # value by customer. Order intake is the confirmed sales orders' items by
@@ -11399,7 +11636,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_close'
 
 main() {
   stop_unseen

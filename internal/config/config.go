@@ -296,6 +296,10 @@ type Company struct {
 	// Dunning is how the company duns its customers' overdue items
 	// (ADR-0065 §2): its dunning levels. None: the company has no dunning.
 	Dunning Dunning `yaml:"dunning,omitempty" json:"dunning,omitzero"`
+	// Retention is how long the company keeps its documents, per kind
+	// (ADR-0079 §2): the tenant's own rules, none shipped. None: nothing
+	// of the company is past retention.
+	Retention []RetentionRule `yaml:"retention,omitempty" json:"retention,omitempty"`
 }
 
 // YearEnd is a company's year-end settings (ADR-0060 §4). Without a

@@ -520,7 +520,7 @@ entry, by its debits, a service principal posts; above it the entry is
 parked for a person; without it the manual entry approval limit; posting-relevant) and its dunning levels
 (`dunning.levels`, optional, ADR-0065 §2: each a `level` numbered from 1 and
 the `days_overdue` an item must have reached for it, ascending, at most
-nine; operational, tier 2; a company without any has no dunning, §3.27). The amounts are read with the digits of the
+nine; operational, tier 2; a company without any has no dunning, §3.27). Its retention rules (`retention`, optional, ADR-0079 §2: per document kind, `journal_entry` or `personal_data`, once each, the whole `years` from 0 to 99 a document is kept after its fiscal year's last day; tier 3, two approvers, product owner 2026-11-13; none shipped, and a kind without a rule has nothing past retention, §3.32). The amounts are read with the digits of the
 document's `companies[].currency`, and documents are converted into the
 legal entity's `local_currency`; the two are one currency because a
 configuration whose company currency differs from its legal entity's local
@@ -5193,20 +5193,44 @@ erDiagram
 
 ## 3.31 Governance, risk and compliance (`grc`)
 
-ADR-0078, T98a (migration 000304) and T98b (migration 000305). A leaf: it
+ADR-0078, T98a (migration 000304), T98b (migration 000305) and T98c
+(migration 000315). A leaf: it
 reads the identity context (principals, the permission catalog,
 segregation-of-duties rules) and the active configuration version through
 its ports, in types of its own, imports no other context, posts nothing
 and keeps no foreign key out of its schema (02 §2.1). It stores the
-tenant's control library, the results of testing its controls and each
-control's links to what enforces it. The library is the tenant's own: no
-control is shipped. The control matrix has no table: whether a link holds
+tenant's control library, the results of testing its controls, each
+control's links to what enforces it, and the risk register with the
+ratings of its risks and the controls that mitigate them. The library and
+the register are the tenant's own: no control or risk is shipped. The control matrix has no table: whether a link holds
 is computed on read (ADR-0078 §8).
 
 ```mermaid
 erDiagram
   control ||--o{ control_test : "tested"
   control ||--o{ control_link : "enforced by"
+  risk ||--o{ risk_rating : "rated"
+  risk ||--o{ risk_control : "mitigated by"
+  control ||--o{ risk_control : "mitigates"
+  risk { uuid id PK
+    text title
+    text category "free text"
+    uuid owner_id "identity: a person"
+    smallint likelihood "1-5, the latest rating's"
+    smallint impact "1-5, the latest rating's"
+    smallint score "generated: likelihood x impact"
+    text status "open | closed"
+    text close_reason
+    int version }
+  risk_rating { uuid id PK
+    uuid risk_id FK
+    smallint likelihood
+    smallint impact
+    uuid rated_by "identity: the person" }
+  risk_control { uuid id PK
+    uuid risk_id FK
+    uuid control_id FK
+    text status "active | removed" }
   control { uuid id PK
     text code "the tenant's, unique in any case, fixed"
     text objective
@@ -5286,6 +5310,93 @@ erDiagram
   order they were made (`control_link_by_control`). That the target is
   there when the link is made, and that the control is active, are the
   application's checks, under the control's row lock.
-- `grc.outbox`, `grc.inbox`: the context's events (`ControlChanged`).
-- Permissions `grc.control.read`, `grc.control.write` and
-  `grc.control.test`.
+- `grc.risk` (T98c): a risk of the register, with a title of up to 200
+  characters and a category of up to 100, each without white space
+  around it (`risk_title_check`, `risk_category_check`), the person who
+  owns it, and the likelihood and impact of its latest rating, each 1 to
+  5 (`risk_likelihood_check`, `risk_impact_check`); `score` is generated
+  as their product. The status is `open` or `closed`
+  (`risk_status_check`); a closed risk has a reason of up to 1,000
+  characters (`risk_close_reason_check`), when and by whom, and an open
+  one none (`risk_closed_check`), and a closed row is fixed
+  (`risk_closed_fixed`). A change, a rating and the closing move the
+  version by one (`platform.touch`); the application is granted the
+  update of what a risk says, its rating, its closing, `version` and
+  `updated_by`, and no delete. The register is read by score, the
+  highest first, then by title (`risk_by_score`). That the owner is an
+  active person, and that the risk's likelihood and impact are its
+  latest rating's, are the application's, in one transaction under the
+  risk's row lock.
+- `grc.risk_rating` (T98c): a rating of a risk (`risk_rating_risk_fkey`),
+  its likelihood and impact 1 to 5 (`risk_rating_likelihood_check`,
+  `risk_rating_impact_check`), who rated and when; insert-only
+  (`risk_rating_immutable`). The latest, by `id` (a UUIDv7), is the
+  risk's (`risk_rating_latest`).
+- `grc.risk_control` (T98c): a control of the library
+  (`risk_control_control_fkey`) that mitigates a risk
+  (`risk_control_risk_fkey`). A risk names a control once at a time
+  (`risk_control_once`); a control left out by a change is kept as
+  `removed`, with when and by whom (`risk_control_status_check`,
+  `risk_control_removed_check`), removing being its only change (the
+  application is granted the update of `status`, `removed_at` and
+  `removed_by`, and no delete) and a removed row fixed
+  (`risk_control_removed_fixed`). The register is filtered by a control
+  (`risk_control_by_control`). That a control named is active is the
+  application's check, under a share lock of the control.
+- `grc.outbox`, `grc.inbox`: the context's events (`ControlChanged`,
+  `RiskChanged`).
+- Permissions `grc.control.read`, `grc.control.write`,
+  `grc.control.test`, `grc.risk.read` and `grc.risk.write`.
+
+## 3.32 Records management (`records`)
+
+ADR-0079, T99a (migration 000316), T99b (migration 000317). A leaf: it
+reads tenancy's legal entities, the configuration's retention rules
+(`companies[].retention[]`, described with the configuration document above)
+and the ledger's fiscal years and journal through its ports. The retention
+status is computed on read from the fiscal periods' dates
+(`ledger.fiscal_period`, through `ledger.Calendar.Years`), the rule's years
+and the completed archiving runs (`archived`). The schema `records` holds
+the archiving runs and the context's outbox and inbox.
+
+```
+records.archiving_run  (tenant_id, id, legal_entity_id, document_kind, fiscal_year, retention_years, config_version,
+                        status, object_key, manifest_key, sha256, manifest_sha256, size_bytes, entry_count, line_count,
+                        debit_total, currency, failure_code, completed_at, requested_by, created_at, updated_at, version)
+```
+
+- An archiving run (ADR-0079 §6, T99b) archives one company's documents of
+  one kind (`journal_entry` only, `archiving_run_kind_check`) and one fiscal
+  year (1900 to 9999), with the rule's `retention_years` (0 to 99) and the
+  configuration version that put the year past retention. It is `queued`,
+  then `completed` or `failed` (`archiving_run_status_check`); either is its
+  last change (trigger `archiving_run_settled_fixed`, which holds for the
+  owner too), and the application may set only the settling columns
+  (column grants: what a run is for and who asked never change) and
+  deletes none. One run of a company, kind and year that is not failed
+  (`archiving_run_once`, a partial unique index): a second request answers
+  it, and a failed run leaves room for another.
+- A completed run names its file (`object_key`,
+  `tenants/<tenant>/archives/<run id>.jsonl`) and manifest (`manifest_key`,
+  `<run id>.manifest.json`) in object storage, their SHA-256 (32 bytes
+  each), the file's size, the counts of entries and lines and the sum of the
+  lines' debits in the company's currency, minor units, never negative, and
+  when it completed; a run that is not completed has none of them
+  (`archiving_run_completed_check`, `archiving_run_file_check`). A failed
+  run has its problem code (`archiving_run_failed_check`).
+- The archiver claims a tenant's queued runs by `archiving_run_queued`
+  (`FOR UPDATE SKIP LOCKED`); the worker role reads `tenant_id` and `status`
+  across tenants to find them. The list reads `archiving_run_by_created`.
+- The personal data inventory (ADR-0079 §9, T100a) is not a table: it is
+  declared in `internal/records` (`records.Inventory`), each entry a column
+  of another context's table that holds personal data (schema, table,
+  column, category, purpose and, per kind of data subject, the column naming
+  the subject). `TestInventoryCoversTheDatabase` checks every entry against
+  the database and refuses a column of a known personal kind (names,
+  addresses and contacts, bank details, subjects, client addresses) that the
+  inventory does not name or set aside, and a schema with no entry that does
+  not say why (`records.SchemasWithout`). The subject read counts rows of
+  those tables by the subject's column, through RLS in the request's
+  transaction; it reads no value.
+- Permissions `records.retention.read`, `records.archive.run`,
+  `records.privacy.read` (migration 000318).

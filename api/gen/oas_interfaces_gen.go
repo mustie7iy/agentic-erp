@@ -165,6 +165,10 @@ type ClosePurchaseOrderRes interface {
 	closePurchaseOrderRes()
 }
 
+type CloseRiskRes interface {
+	closeRiskRes()
+}
+
 type CompleteCloseTaskRes interface {
 	completeCloseTaskRes()
 }
@@ -199,6 +203,10 @@ type CopyPlanCategoryRes interface {
 
 type CreateAllocationCycleRes interface {
 	createAllocationCycleRes()
+}
+
+type CreateArchivingRunRes interface {
+	createArchivingRunRes()
 }
 
 type CreateAssetAcquisitionRes interface {
@@ -397,6 +405,14 @@ type CreateRfqRes interface {
 	createRfqRes()
 }
 
+type CreateRiskRatingRes interface {
+	createRiskRatingRes()
+}
+
+type CreateRiskRes interface {
+	createRiskRes()
+}
+
 type CreateRoleAssignmentRes interface {
 	createRoleAssignmentRes()
 }
@@ -555,6 +571,14 @@ type GetAnalyticsModelRes interface {
 
 type GetApprovalRequestRes interface {
 	getApprovalRequestRes()
+}
+
+type GetArchivingRunFileRes interface {
+	getArchivingRunFileRes()
+}
+
+type GetArchivingRunRes interface {
+	getArchivingRunRes()
 }
 
 type GetAssetAcquisitionRes interface {
@@ -861,6 +885,14 @@ type GetPeriodCloseRes interface {
 	getPeriodCloseRes()
 }
 
+type GetPersonalDataInventoryRes interface {
+	getPersonalDataInventoryRes()
+}
+
+type GetPersonalDataSubjectRes interface {
+	getPersonalDataSubjectRes()
+}
+
 type GetPlanCategoryRes interface {
 	getPlanCategoryRes()
 }
@@ -905,6 +937,10 @@ type GetRequisitionRes interface {
 	getRequisitionRes()
 }
 
+type GetRetentionStatusRes interface {
+	getRetentionStatusRes()
+}
+
 type GetReturnsOrderRes interface {
 	getReturnsOrderRes()
 }
@@ -931,6 +967,10 @@ type GetRfqComparisonRes interface {
 
 type GetRfqRes interface {
 	getRfqRes()
+}
+
+type GetRiskRes interface {
+	getRiskRes()
 }
 
 type GetRoleAssignmentRes interface {
@@ -1039,6 +1079,10 @@ type ListAllocationRunsRes interface {
 
 type ListApprovalRequestsRes interface {
 	listApprovalRequestsRes()
+}
+
+type ListArchivingRunsRes interface {
+	listArchivingRunsRes()
 }
 
 type ListAssetAcquisitionsRes interface {
@@ -1467,6 +1511,14 @@ type ListRevenueRecognitionRunsRes interface {
 
 type ListRfqsRes interface {
 	listRfqsRes()
+}
+
+type ListRiskRatingsRes interface {
+	listRiskRatingsRes()
+}
+
+type ListRisksRes interface {
+	listRisksRes()
 }
 
 type ListRoleAssignmentsRes interface {
@@ -2027,6 +2079,10 @@ type UpdateRequisitionRes interface {
 
 type UpdateRevenueContractRes interface {
 	updateRevenueContractRes()
+}
+
+type UpdateRiskRes interface {
+	updateRiskRes()
 }
 
 type UpdateRoleRes interface {

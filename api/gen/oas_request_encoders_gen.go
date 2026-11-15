@@ -436,6 +436,20 @@ func encodeClearSupplierInvoiceDownPaymentsRequest(
 	return nil
 }
 
+func encodeCloseRiskRequest(
+	req *RiskClose,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCompleteCloseTaskRequest(
 	req OptCloseTaskComplete,
 	r *http.Request,
@@ -520,6 +534,20 @@ func encodeCopyPlanCategoryRequest(
 
 func encodeCreateAllocationCycleRequest(
 	req *AllocationCycleCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateArchivingRunRequest(
+	req *ArchivingRunCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -1206,6 +1234,34 @@ func encodeCreateRevenueRecognitionRunRequest(
 
 func encodeCreateRfqRequest(
 	req *RfqCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateRiskRequest(
+	req *RiskCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateRiskRatingRequest(
+	req *RiskRatingCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -2945,6 +3001,20 @@ func encodeUpdateRequisitionRequest(
 
 func encodeUpdateRevenueContractRequest(
 	req *RevenueContractUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateRiskRequest(
+	req *RiskUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

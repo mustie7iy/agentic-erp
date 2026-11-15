@@ -480,11 +480,20 @@ channels:
   grc:
     address: 'erp.{cell}.grc.{tenant}.{event}'
     title: Governance, risk and compliance events
-    description: The control library and the results of testing its controls (ADR-0078 §5).
+    description: The control library and the results of testing its controls (ADR-0078 §5), and the risk register (§12).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       ControlChanged: {$ref: '#/components/messages/ControlChanged'}
+      RiskChanged: {$ref: '#/components/messages/RiskChanged'}
+  records:
+    address: 'erp.{cell}.records.{tenant}.{event}'
+    title: Records management events
+    description: Archiving runs of fiscal years past retention (ADR-0079 §6).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      ArchivingRunCompleted: {$ref: '#/components/messages/ArchivingRunCompleted'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -800,6 +809,13 @@ operations:
     channel: {$ref: '#/channels/grc'}
     messages:
       - $ref: '#/channels/grc/messages/ControlChanged'
+      - $ref: '#/channels/grc/messages/RiskChanged'
+  publishRecordsEvents:
+    action: send
+    title: Records management publishes
+    channel: {$ref: '#/channels/records'}
+    messages:
+      - $ref: '#/channels/records/messages/ArchivingRunCompleted'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -4355,6 +4371,56 @@ components:
         - name: tested
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000fa2, source: /erp/eu-1/grc, type: com.example.erp.grc.control_changed.v1, subject: 0192a000-0000-7000-8000-000000000fa0, time: '2026-11-25T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {control_id: 0192a000-0000-7000-8000-000000000fa0, code: PAY-01, process: Payments, owner_id: 0192a000-0000-7000-8000-000000000101, frequency: continuous, nature: automated, status: active, change: tested, test: {test_id: 0192a000-0000-7000-8000-000000000fa3, tested_on: '2026-11-25', result: passed, tested_by: 0192a000-0000-7000-8000-000000000101}, link: null, version: 1}
+    RiskChanged:
+      name: RiskChanged
+      title: Risk changed
+      summary: A risk of the risk register was recorded, changed, rated or closed.
+      description: |
+        Emitted when a risk is recorded with its first rating (`created`),
+        when its title, category, owner or controls change (`changed`),
+        when it is rated again (`rated`) and when it is closed (`closed`;
+        ADR-0078 §12, T98c). `rating` is the rating recorded, with
+        `created` and `rated`, null for every other change. It carries
+        the risk's likelihood, impact and score after the change and the
+        ids of the controls that mitigate it now; never a closing's
+        reason. The event names the owner and the rater by id, never by
+        name. It is not offered as a webhook event. `GET /v1/risks/{id}`
+        returns the risk at `version` or later. Subject is the risk id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.grc.risk_changed.v1}
+      payload: {$ref: '#/components/schemas/RiskChangedV1'}
+      examples:
+        - name: rated
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000fb1, source: /erp/eu-1/grc, type: com.example.erp.grc.risk_changed.v1, subject: 0192a000-0000-7000-8000-000000000fb0, time: '2026-11-26T09:12:40Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {risk_id: 0192a000-0000-7000-8000-000000000fb0, title: Duplicate payments to suppliers, category: Payments, owner_id: 0192a000-0000-7000-8000-000000000101, likelihood: 1, impact: 4, score: 4, control_ids: [0192a000-0000-7000-8000-000000000fa0], status: open, change: rated, rating: {rating_id: 0192a000-0000-7000-8000-000000000fb2, likelihood: 1, impact: 4, score: 4, rated_by: 0192a000-0000-7000-8000-000000000101}, version: 2}
+    ArchivingRunCompleted:
+      name: ArchivingRunCompleted
+      title: Archiving run completed
+      summary: A fiscal year's documents were written to an archive file in object storage.
+      description: |
+        Emitted when the archiver completes an archiving run (ADR-0079
+        §6-§7, T99b): the company's documents of the kind (journal
+        entries in the first version) of the fiscal year are in the
+        archive file named, with its SHA-256 and size, and its manifest
+        beside it with its own SHA-256. It carries the manifest's counts
+        and debit total; never an entry or a line. Nothing was deleted.
+        It names the requester by id. It is not offered as a webhook
+        event. Subject is the archiving run id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.records.archiving_run_completed.v1}
+      payload: {$ref: '#/components/schemas/ArchivingRunCompletedV1'}
+      examples:
+        - name: completed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f72, source: /erp/eu-1/records, type: com.example.erp.records.archiving_run_completed.v1, subject: 0192a000-0000-7000-8000-000000000f71, time: '2026-11-25T10:00:04Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000f00}
+          payload: {archiving_run_id: 0192a000-0000-7000-8000-000000000f71, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', document_kind: journal_entry, fiscal_year: 2025, file_name: 0192a000-0000-7000-8000-000000000f71.jsonl, sha256: 4f2c1e0b9a7d6c5b4a3928170615f4e3d2c1b0a99887766554433221100ffeed, size_bytes: 48213, manifest_sha256: 9b1d0e2f3a4c5b6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f, entry_count: 41, line_count: 118, debit_total: {amount: '1840522.17', currency: CAD}, requested_by: 0192a000-0000-7000-8000-000000000101}
     RevenueContractChanged:
       name: RevenueContractChanged
       x-webhook: true
@@ -5433,6 +5499,53 @@ components:
                 target: {type: string, description: "What the link names: the permission's code, the segregation-of-duties rule's id or the configuration path."}
             - type: 'null'
         version: {type: integer, description: "The control's version after the change; a test or a link does not move it."}
+    RiskChangedV1:
+      type: object
+      required: [risk_id, title, category, owner_id, likelihood, impact, score, control_ids, status, change, rating, version]
+      properties:
+        risk_id: {$ref: '#/components/schemas/Uuid', description: '`grc.risk.id`.'}
+        title: {type: string, description: What the risk is.}
+        category: {type: string, description: "The risk's category, in the tenant's own words."}
+        owner_id: {$ref: '#/components/schemas/Uuid', description: 'The person who owns the risk: `identity.principal.id`.'}
+        likelihood: {type: integer, description: The likelihood of the latest rating, from 1 to 5.}
+        impact: {type: integer, description: The impact of the latest rating, from 1 to 5.}
+        score: {type: integer, description: The likelihood times the impact.}
+        control_ids:
+          type: array
+          items: {$ref: '#/components/schemas/Uuid'}
+          description: "The controls that mitigate the risk now (`grc.control.id`), by the controls' codes."
+        status: {type: string, description: 'open or closed. Open enumeration.'}
+        change: {type: string, description: 'What happened: created, changed, rated or closed. Open enumeration.'}
+        rating:
+          description: 'The rating recorded, when `change` is created or rated; null otherwise.'
+          oneOf:
+            - type: object
+              required: [rating_id, likelihood, impact, score, rated_by]
+              properties:
+                rating_id: {$ref: '#/components/schemas/Uuid', description: '`grc.risk_rating.id`.'}
+                likelihood: {type: integer, description: The likelihood rated.}
+                impact: {type: integer, description: The impact rated.}
+                score: {type: integer, description: The likelihood times the impact.}
+                rated_by: {$ref: '#/components/schemas/Uuid', description: 'The person who rated: `identity.principal.id`.'}
+            - type: 'null'
+        version: {type: integer, description: "The risk's version after the change."}
+    ArchivingRunCompletedV1:
+      type: object
+      required: [archiving_run_id, legal_entity_id, legal_entity_code, document_kind, fiscal_year, file_name, sha256, size_bytes, manifest_sha256, entry_count, line_count, debit_total, requested_by]
+      properties:
+        archiving_run_id: {$ref: '#/components/schemas/Uuid', description: '`records.archiving_run.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company whose documents were archived.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        document_kind: {type: string, description: 'The kind of document archived. Open enum: journal_entry.'}
+        fiscal_year: {type: integer, description: The fiscal year archived.}
+        file_name: {type: string, description: 'The archive file, `<run id>.jsonl`, in JSON Lines (ADR-0079 §7).'}
+        sha256: {type: string, pattern: '^[0-9a-f]{64}$', description: "The file's SHA-256 in hexadecimal."}
+        size_bytes: {type: integer, description: "The file's size in bytes."}
+        manifest_sha256: {type: string, pattern: '^[0-9a-f]{64}$', description: "The manifest's SHA-256 in hexadecimal."}
+        entry_count: {type: integer, description: The journal entries in the file.}
+        line_count: {type: integer, description: Their lines.}
+        debit_total: {$ref: '#/components/schemas/Money', description: "The sum of the lines' debits in the company's currency."}
+        requested_by: {$ref: '#/components/schemas/Uuid', description: 'Who asked for the run: `identity.principal.id`.'}
     RevenueContractChangedV1:
       type: object
       required: [revenue_contract_id, sales_order_id, sales_order_number, legal_entity_id, legal_entity_code, customer_id, customer_number, transaction_price, obligation_count, status, status_before, version]

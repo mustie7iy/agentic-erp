@@ -825,6 +825,34 @@ func (c Calendar) Periods(ctx context.Context, legalEntity uuid.UUID, year int16
 	return periods, nil
 }
 
+// FiscalYearSpan is a set-up fiscal year with the first day of its first
+// regular period and the last day of its last.
+type FiscalYearSpan struct {
+	FiscalYear int16
+	Start, End time.Time
+}
+
+// Years are the fiscal years set up for the legal entity, in order
+// (ADR-0079 §3: retention counts from a year's last day); none for a
+// legal entity without any, or one the tenant does not have.
+func (c Calendar) Years(ctx context.Context, legalEntity uuid.UUID) ([]FiscalYearSpan, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	le, ok, err := c.LegalEntities.Entity(ctx, legalEntity)
+	if err != nil || !ok {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT fiscal_year, min(start_date), max(end_date) FROM ledger.fiscal_period
+		WHERE calendar_id = $1 AND NOT is_special GROUP BY fiscal_year ORDER BY fiscal_year`, le.FiscalCalendarID)
+	years, err := pgx.CollectRows(rows, pgx.RowToStructByPos[FiscalYearSpan])
+	if err != nil {
+		return nil, fmt.Errorf("ledger: fiscal years of %s: %w", legalEntity, err)
+	}
+	return years, nil
+}
+
 // WithholdingTaxCode is a legal entity's active withholding tax code
 // (T46e): a rate of the invoice's net or gross, deducted when the invoice
 // posts or when it is paid, owed on the account.

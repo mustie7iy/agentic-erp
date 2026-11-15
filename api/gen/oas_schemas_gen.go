@@ -5085,6 +5085,399 @@ type ApproveApprovalRequestUnprocessableEntity Problem
 
 func (*ApproveApprovalRequestUnprocessableEntity) approveApprovalRequestRes() {}
 
+// A completed run's archive file and its manifest (ADR-0079 §7).
+// Ref: #/components/schemas/ArchiveFile
+type ArchiveFile struct {
+	// The file's name, `<run id>.jsonl`; `GET /v1/archiving-runs/{id}/file` downloads it.
+	Name string `json:"name"`
+	// The SHA-256 of the file's content, in hexadecimal; the manifest names it too.
+	SHA256 string `json:"sha256"`
+	// The file's size in bytes.
+	SizeBytes int64 `json:"size_bytes"`
+	// The SHA-256 of the manifest, `<run id>.manifest.json`, kept beside the file in object storage; the
+	// API does not hand the manifest out, its figures are these fields.
+	ManifestSHA256 string `json:"manifest_sha256"`
+	// The journal entries in the file: every entry of the company's fiscal year, of every ledger.
+	EntryCount int32 `json:"entry_count"`
+	// Their lines.
+	LineCount int32 `json:"line_count"`
+	// The sum of the lines' debits in the company's currency.
+	DebitTotal Money `json:"debit_total"`
+}
+
+// GetName returns the value of Name.
+func (s *ArchiveFile) GetName() string {
+	return s.Name
+}
+
+// GetSHA256 returns the value of SHA256.
+func (s *ArchiveFile) GetSHA256() string {
+	return s.SHA256
+}
+
+// GetSizeBytes returns the value of SizeBytes.
+func (s *ArchiveFile) GetSizeBytes() int64 {
+	return s.SizeBytes
+}
+
+// GetManifestSHA256 returns the value of ManifestSHA256.
+func (s *ArchiveFile) GetManifestSHA256() string {
+	return s.ManifestSHA256
+}
+
+// GetEntryCount returns the value of EntryCount.
+func (s *ArchiveFile) GetEntryCount() int32 {
+	return s.EntryCount
+}
+
+// GetLineCount returns the value of LineCount.
+func (s *ArchiveFile) GetLineCount() int32 {
+	return s.LineCount
+}
+
+// GetDebitTotal returns the value of DebitTotal.
+func (s *ArchiveFile) GetDebitTotal() Money {
+	return s.DebitTotal
+}
+
+// SetName sets the value of Name.
+func (s *ArchiveFile) SetName(val string) {
+	s.Name = val
+}
+
+// SetSHA256 sets the value of SHA256.
+func (s *ArchiveFile) SetSHA256(val string) {
+	s.SHA256 = val
+}
+
+// SetSizeBytes sets the value of SizeBytes.
+func (s *ArchiveFile) SetSizeBytes(val int64) {
+	s.SizeBytes = val
+}
+
+// SetManifestSHA256 sets the value of ManifestSHA256.
+func (s *ArchiveFile) SetManifestSHA256(val string) {
+	s.ManifestSHA256 = val
+}
+
+// SetEntryCount sets the value of EntryCount.
+func (s *ArchiveFile) SetEntryCount(val int32) {
+	s.EntryCount = val
+}
+
+// SetLineCount sets the value of LineCount.
+func (s *ArchiveFile) SetLineCount(val int32) {
+	s.LineCount = val
+}
+
+// SetDebitTotal sets the value of DebitTotal.
+func (s *ArchiveFile) SetDebitTotal(val Money) {
+	s.DebitTotal = val
+}
+
+// An archiving run (records, ADR-0079 §6-§8, T99b): a company's documents of one kind and fiscal
+// year written to an archive file in object storage with a manifest. Nothing is deleted.
+// Ref: #/components/schemas/ArchivingRun
+type ArchivingRun struct {
+	// Archiving run id.
+	ID uuid.UUID `json:"id"`
+	// The company (`GET /v1/legal-entities/{id}`).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The kind of document archived. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	DocumentKind string `json:"document_kind"`
+	// The fiscal year archived.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The years of the retention rule that put the year past retention when the run was asked for.
+	RetentionYears int32 `json:"retention_years"`
+	// The active configuration version the rule was read from.
+	ConfigurationVersion int32 `json:"configuration_version"`
+	// `queued` (until the archiver writes its file), `completed` or `failed`. Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	Status string         `json:"status"`
+	File   OptArchiveFile `json:"file"`
+	// Failed: the problem code that stopped the run (`identity.principal_blocked`,
+	// `records.year_not_closed`, `records.archive_changed`, `records.amount_too_large` when the year's
+	// debits add up to more than an amount holds).
+	FailureCode OptString `json:"failure_code"`
+	// When the archiver completed it.
+	CompletedAt OptDateTime `json:"completed_at"`
+	// Who asked for the run.
+	RequestedBy uuid.UUID `json:"requested_by"`
+	// Their name, as the identity context gives it now.
+	RequestedByName string    `json:"requested_by_name"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *ArchivingRun) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ArchivingRun) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ArchivingRun) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetDocumentKind returns the value of DocumentKind.
+func (s *ArchivingRun) GetDocumentKind() string {
+	return s.DocumentKind
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *ArchivingRun) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetRetentionYears returns the value of RetentionYears.
+func (s *ArchivingRun) GetRetentionYears() int32 {
+	return s.RetentionYears
+}
+
+// GetConfigurationVersion returns the value of ConfigurationVersion.
+func (s *ArchivingRun) GetConfigurationVersion() int32 {
+	return s.ConfigurationVersion
+}
+
+// GetStatus returns the value of Status.
+func (s *ArchivingRun) GetStatus() string {
+	return s.Status
+}
+
+// GetFile returns the value of File.
+func (s *ArchivingRun) GetFile() OptArchiveFile {
+	return s.File
+}
+
+// GetFailureCode returns the value of FailureCode.
+func (s *ArchivingRun) GetFailureCode() OptString {
+	return s.FailureCode
+}
+
+// GetCompletedAt returns the value of CompletedAt.
+func (s *ArchivingRun) GetCompletedAt() OptDateTime {
+	return s.CompletedAt
+}
+
+// GetRequestedBy returns the value of RequestedBy.
+func (s *ArchivingRun) GetRequestedBy() uuid.UUID {
+	return s.RequestedBy
+}
+
+// GetRequestedByName returns the value of RequestedByName.
+func (s *ArchivingRun) GetRequestedByName() string {
+	return s.RequestedByName
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ArchivingRun) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *ArchivingRun) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *ArchivingRun) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ArchivingRun) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ArchivingRun) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetDocumentKind sets the value of DocumentKind.
+func (s *ArchivingRun) SetDocumentKind(val string) {
+	s.DocumentKind = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *ArchivingRun) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetRetentionYears sets the value of RetentionYears.
+func (s *ArchivingRun) SetRetentionYears(val int32) {
+	s.RetentionYears = val
+}
+
+// SetConfigurationVersion sets the value of ConfigurationVersion.
+func (s *ArchivingRun) SetConfigurationVersion(val int32) {
+	s.ConfigurationVersion = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ArchivingRun) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetFile sets the value of File.
+func (s *ArchivingRun) SetFile(val OptArchiveFile) {
+	s.File = val
+}
+
+// SetFailureCode sets the value of FailureCode.
+func (s *ArchivingRun) SetFailureCode(val OptString) {
+	s.FailureCode = val
+}
+
+// SetCompletedAt sets the value of CompletedAt.
+func (s *ArchivingRun) SetCompletedAt(val OptDateTime) {
+	s.CompletedAt = val
+}
+
+// SetRequestedBy sets the value of RequestedBy.
+func (s *ArchivingRun) SetRequestedBy(val uuid.UUID) {
+	s.RequestedBy = val
+}
+
+// SetRequestedByName sets the value of RequestedByName.
+func (s *ArchivingRun) SetRequestedByName(val string) {
+	s.RequestedByName = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ArchivingRun) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *ArchivingRun) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+func (*ArchivingRun) createArchivingRunRes() {}
+func (*ArchivingRun) getArchivingRunRes()    {}
+
+// An archiving run to start (ADR-0079 §6): a company, a document kind and a fiscal year past
+// retention.
+// Ref: #/components/schemas/ArchivingRunCreate
+type ArchivingRunCreate struct {
+	// The company whose documents are archived.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The kind of document; the first version archives `journal_entry`. Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	DocumentKind string `json:"document_kind"`
+	// The fiscal year, past retention and closed.
+	FiscalYear int32 `json:"fiscal_year"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ArchivingRunCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetDocumentKind returns the value of DocumentKind.
+func (s *ArchivingRunCreate) GetDocumentKind() string {
+	return s.DocumentKind
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *ArchivingRunCreate) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ArchivingRunCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetDocumentKind sets the value of DocumentKind.
+func (s *ArchivingRunCreate) SetDocumentKind(val string) {
+	s.DocumentKind = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *ArchivingRunCreate) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// ArchivingRunHeaders wraps ArchivingRun with response headers.
+type ArchivingRunHeaders struct {
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           ArchivingRun
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ArchivingRunHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *ArchivingRunHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *ArchivingRunHeaders) GetResponse() ArchivingRun {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ArchivingRunHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *ArchivingRunHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ArchivingRunHeaders) SetResponse(val ArchivingRun) {
+	s.Response = val
+}
+
+func (*ArchivingRunHeaders) createArchivingRunRes() {}
+
+// One page of archiving runs, newest first.
+// Ref: #/components/schemas/ArchivingRunPage
+type ArchivingRunPage struct {
+	// The runs on this page.
+	Items []ArchivingRun `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ArchivingRunPage) GetItems() []ArchivingRun {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ArchivingRunPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ArchivingRunPage) SetItems(val []ArchivingRun) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ArchivingRunPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ArchivingRunPage) listArchivingRunsRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/Asset
 type Asset struct {
@@ -23116,6 +23509,30 @@ type ClosePurchaseOrderUnprocessableEntity Problem
 
 func (*ClosePurchaseOrderUnprocessableEntity) closePurchaseOrderRes() {}
 
+type CloseRiskBadRequest Problem
+
+func (*CloseRiskBadRequest) closeRiskRes() {}
+
+type CloseRiskForbidden Problem
+
+func (*CloseRiskForbidden) closeRiskRes() {}
+
+type CloseRiskNotFound Problem
+
+func (*CloseRiskNotFound) closeRiskRes() {}
+
+type CloseRiskPreconditionFailed Problem
+
+func (*CloseRiskPreconditionFailed) closeRiskRes() {}
+
+type CloseRiskPreconditionRequired Problem
+
+func (*CloseRiskPreconditionRequired) closeRiskRes() {}
+
+type CloseRiskUnprocessableEntity Problem
+
+func (*CloseRiskUnprocessableEntity) closeRiskRes() {}
+
 // A task of a period close (ADR-0058 §6), with its close and company.
 // Ref: #/components/schemas/CloseTask
 type CloseTask struct {
@@ -24662,6 +25079,7 @@ func (*ConflictHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*ConflictHeaders) closeFiscalPeriodRes()                     {}
 func (*ConflictHeaders) closeInternalOrderRes()                    {}
 func (*ConflictHeaders) closePurchaseOrderRes()                    {}
+func (*ConflictHeaders) closeRiskRes()                             {}
 func (*ConflictHeaders) completeCloseTaskRes()                     {}
 func (*ConflictHeaders) completeYearCloseTaskRes()                 {}
 func (*ConflictHeaders) confirmDunningRunRes()                     {}
@@ -24671,6 +25089,7 @@ func (*ConflictHeaders) confirmSalesDeliveryRes()                  {}
 func (*ConflictHeaders) confirmSalesOrderRes()                     {}
 func (*ConflictHeaders) copyPlanCategoryRes()                      {}
 func (*ConflictHeaders) createAllocationCycleRes()                 {}
+func (*ConflictHeaders) createArchivingRunRes()                    {}
 func (*ConflictHeaders) createAssetAcquisitionRes()                {}
 func (*ConflictHeaders) createAssetRes()                           {}
 func (*ConflictHeaders) createAssetRetirementRes()                 {}
@@ -24719,6 +25138,7 @@ func (*ConflictHeaders) createReturnsOrderRes()                    {}
 func (*ConflictHeaders) createRevenueContractRes()                 {}
 func (*ConflictHeaders) createRevenueRecognitionRunRes()           {}
 func (*ConflictHeaders) createRfqRes()                             {}
+func (*ConflictHeaders) createRiskRatingRes()                      {}
 func (*ConflictHeaders) createRoleAssignmentRes()                  {}
 func (*ConflictHeaders) createRoleRes()                            {}
 func (*ConflictHeaders) createSalesOrderRes()                      {}
@@ -24751,6 +25171,7 @@ func (*ConflictHeaders) fileTaxReturnRes()                         {}
 func (*ConflictHeaders) finalizeConsolidationRunRes()              {}
 func (*ConflictHeaders) getAccrualProposalRes()                    {}
 func (*ConflictHeaders) getAnalyticsModelRes()                     {}
+func (*ConflictHeaders) getArchivingRunFileRes()                   {}
 func (*ConflictHeaders) getBankFileContentRes()                    {}
 func (*ConflictHeaders) getCloseCalendarRes()                      {}
 func (*ConflictHeaders) getConsolidatedStatementRes()              {}
@@ -24763,6 +25184,7 @@ func (*ConflictHeaders) getLiquidityForecastVarianceRes()          {}
 func (*ConflictHeaders) getMarginReportRes()                       {}
 func (*ConflictHeaders) getPeriodCloseRes()                        {}
 func (*ConflictHeaders) getPurchaseOrderDocumentRes()              {}
+func (*ConflictHeaders) getRetentionStatusRes()                    {}
 func (*ConflictHeaders) getRevenueScheduleRes()                    {}
 func (*ConflictHeaders) getTaxReturnDraftRes()                     {}
 func (*ConflictHeaders) getVarianceCommentRes()                    {}
@@ -24901,6 +25323,7 @@ func (*ConflictHeaders) updatePurchaseOrderChangeRes()             {}
 func (*ConflictHeaders) updatePurchaseOrderRes()                   {}
 func (*ConflictHeaders) updateRequisitionRes()                     {}
 func (*ConflictHeaders) updateRevenueContractRes()                 {}
+func (*ConflictHeaders) updateRiskRes()                            {}
 func (*ConflictHeaders) updateRoleRes()                            {}
 func (*ConflictHeaders) updateSegmentRes()                         {}
 func (*ConflictHeaders) updateSupplierInvoiceRes()                 {}
@@ -31177,6 +31600,26 @@ type CreateAllocationCycleUnprocessableEntity Problem
 
 func (*CreateAllocationCycleUnprocessableEntity) createAllocationCycleRes() {}
 
+type CreateArchivingRunBadRequest Problem
+
+func (*CreateArchivingRunBadRequest) createArchivingRunRes() {}
+
+type CreateArchivingRunForbidden Problem
+
+func (*CreateArchivingRunForbidden) createArchivingRunRes() {}
+
+type CreateArchivingRunNotFound Problem
+
+func (*CreateArchivingRunNotFound) createArchivingRunRes() {}
+
+type CreateArchivingRunPreconditionRequired Problem
+
+func (*CreateArchivingRunPreconditionRequired) createArchivingRunRes() {}
+
+type CreateArchivingRunUnprocessableEntity Problem
+
+func (*CreateArchivingRunUnprocessableEntity) createArchivingRunRes() {}
+
 type CreateAssetAcquisitionBadRequest Problem
 
 func (*CreateAssetAcquisitionBadRequest) createAssetAcquisitionRes() {}
@@ -32113,6 +32556,38 @@ func (*CreateRfqPreconditionRequired) createRfqRes() {}
 type CreateRfqUnprocessableEntity Problem
 
 func (*CreateRfqUnprocessableEntity) createRfqRes() {}
+
+type CreateRiskBadRequest Problem
+
+func (*CreateRiskBadRequest) createRiskRes() {}
+
+type CreateRiskForbidden Problem
+
+func (*CreateRiskForbidden) createRiskRes() {}
+
+type CreateRiskPreconditionRequired Problem
+
+func (*CreateRiskPreconditionRequired) createRiskRes() {}
+
+type CreateRiskRatingBadRequest Problem
+
+func (*CreateRiskRatingBadRequest) createRiskRatingRes() {}
+
+type CreateRiskRatingForbidden Problem
+
+func (*CreateRiskRatingForbidden) createRiskRatingRes() {}
+
+type CreateRiskRatingNotFound Problem
+
+func (*CreateRiskRatingNotFound) createRiskRatingRes() {}
+
+type CreateRiskRatingPreconditionRequired Problem
+
+func (*CreateRiskRatingPreconditionRequired) createRiskRatingRes() {}
+
+type CreateRiskUnprocessableEntity Problem
+
+func (*CreateRiskUnprocessableEntity) createRiskRes() {}
 
 type CreateRoleAssignmentBadRequest Problem
 
@@ -41225,6 +41700,47 @@ type GetApprovalRequestNotFound Problem
 
 func (*GetApprovalRequestNotFound) getApprovalRequestRes() {}
 
+type GetArchivingRunBadRequest Problem
+
+func (*GetArchivingRunBadRequest) getArchivingRunRes() {}
+
+type GetArchivingRunFileBadRequest Problem
+
+func (*GetArchivingRunFileBadRequest) getArchivingRunFileRes() {}
+
+type GetArchivingRunFileForbidden Problem
+
+func (*GetArchivingRunFileForbidden) getArchivingRunFileRes() {}
+
+type GetArchivingRunFileNotFound Problem
+
+func (*GetArchivingRunFileNotFound) getArchivingRunFileRes() {}
+
+// The file's bytes.
+type GetArchivingRunFileOK struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetArchivingRunFileOK) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+func (*GetArchivingRunFileOK) getArchivingRunFileRes() {}
+
+type GetArchivingRunForbidden Problem
+
+func (*GetArchivingRunForbidden) getArchivingRunRes() {}
+
+type GetArchivingRunNotFound Problem
+
+func (*GetArchivingRunNotFound) getArchivingRunRes() {}
+
 type GetAssetAcquisitionBadRequest Problem
 
 func (*GetAssetAcquisitionBadRequest) getAssetAcquisitionRes() {}
@@ -43176,6 +43692,22 @@ func (s *GetPeriodCloseOKHeaders) SetResponse(val PeriodClose) {
 
 func (*GetPeriodCloseOKHeaders) getPeriodCloseRes() {}
 
+type GetPersonalDataSubjectBadRequest Problem
+
+func (*GetPersonalDataSubjectBadRequest) getPersonalDataSubjectRes() {}
+
+type GetPersonalDataSubjectForbidden Problem
+
+func (*GetPersonalDataSubjectForbidden) getPersonalDataSubjectRes() {}
+
+type GetPersonalDataSubjectNotFound Problem
+
+func (*GetPersonalDataSubjectNotFound) getPersonalDataSubjectRes() {}
+
+type GetPersonalDataSubjectUnprocessableEntity Problem
+
+func (*GetPersonalDataSubjectUnprocessableEntity) getPersonalDataSubjectRes() {}
+
 type GetPlanCategoryBadRequest Problem
 
 func (*GetPlanCategoryBadRequest) getPlanCategoryRes() {}
@@ -43581,6 +44113,22 @@ func (s *GetRequisitionOKHeaders) SetResponse(val Requisition) {
 
 func (*GetRequisitionOKHeaders) getRequisitionRes() {}
 
+type GetRetentionStatusBadRequest Problem
+
+func (*GetRetentionStatusBadRequest) getRetentionStatusRes() {}
+
+type GetRetentionStatusForbidden Problem
+
+func (*GetRetentionStatusForbidden) getRetentionStatusRes() {}
+
+type GetRetentionStatusNotFound Problem
+
+func (*GetRetentionStatusNotFound) getRetentionStatusRes() {}
+
+type GetRetentionStatusUnprocessableEntity Problem
+
+func (*GetRetentionStatusUnprocessableEntity) getRetentionStatusRes() {}
+
 type GetReturnsOrderBadRequest Problem
 
 func (*GetReturnsOrderBadRequest) getReturnsOrderRes() {}
@@ -43780,6 +44328,46 @@ func (s *GetRfqOKHeaders) SetResponse(val Rfq) {
 }
 
 func (*GetRfqOKHeaders) getRfqRes() {}
+
+type GetRiskBadRequest Problem
+
+func (*GetRiskBadRequest) getRiskRes() {}
+
+type GetRiskForbidden Problem
+
+func (*GetRiskForbidden) getRiskRes() {}
+
+type GetRiskNotFound Problem
+
+func (*GetRiskNotFound) getRiskRes() {}
+
+// GetRiskOKHeaders wraps Risk with response headers.
+type GetRiskOKHeaders struct {
+	ETag     OptString
+	Response Risk
+}
+
+// GetETag returns the value of ETag.
+func (s *GetRiskOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetRiskOKHeaders) GetResponse() Risk {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetRiskOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetRiskOKHeaders) SetResponse(val Risk) {
+	s.Response = val
+}
+
+func (*GetRiskOKHeaders) getRiskRes() {}
 
 type GetRoleAssignmentBadRequest Problem
 
@@ -53582,6 +54170,14 @@ type ListApprovalRequestsForbidden Problem
 
 func (*ListApprovalRequestsForbidden) listApprovalRequestsRes() {}
 
+type ListArchivingRunsBadRequest Problem
+
+func (*ListArchivingRunsBadRequest) listArchivingRunsRes() {}
+
+type ListArchivingRunsForbidden Problem
+
+func (*ListArchivingRunsForbidden) listArchivingRunsRes() {}
+
 type ListAssetAcquisitionsBadRequest Problem
 
 func (*ListAssetAcquisitionsBadRequest) listAssetAcquisitionsRes() {}
@@ -54561,6 +55157,26 @@ func (*ListRfqsBadRequest) listRfqsRes() {}
 type ListRfqsForbidden Problem
 
 func (*ListRfqsForbidden) listRfqsRes() {}
+
+type ListRiskRatingsBadRequest Problem
+
+func (*ListRiskRatingsBadRequest) listRiskRatingsRes() {}
+
+type ListRiskRatingsForbidden Problem
+
+func (*ListRiskRatingsForbidden) listRiskRatingsRes() {}
+
+type ListRiskRatingsNotFound Problem
+
+func (*ListRiskRatingsNotFound) listRiskRatingsRes() {}
+
+type ListRisksBadRequest Problem
+
+func (*ListRisksBadRequest) listRisksRes() {}
+
+type ListRisksForbidden Problem
+
+func (*ListRisksForbidden) listRisksRes() {}
 
 type ListRoleAssignmentsBadRequest Problem
 
@@ -59641,6 +60257,52 @@ func (o OptAnalyticsDerived) Get() (v AnalyticsDerived, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAnalyticsDerived) Or(d AnalyticsDerived) AnalyticsDerived {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptArchiveFile returns new OptArchiveFile with value set to v.
+func NewOptArchiveFile(v ArchiveFile) OptArchiveFile {
+	return OptArchiveFile{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptArchiveFile is optional ArchiveFile.
+type OptArchiveFile struct {
+	Value ArchiveFile
+	Set   bool
+}
+
+// IsSet returns true if OptArchiveFile was set.
+func (o OptArchiveFile) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptArchiveFile) Reset() {
+	var v ArchiveFile
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptArchiveFile) SetTo(v ArchiveFile) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptArchiveFile) Get() (v ArchiveFile, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptArchiveFile) Or(d ArchiveFile) ArchiveFile {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -68939,6 +69601,240 @@ func (s *PeriodCloseVarianceTotals) SetRowsExplained(val int32) {
 	s.RowsExplained = val
 }
 
+// A column of the database that holds personal data.
+// Ref: #/components/schemas/PersonalDataEntry
+type PersonalDataEntry struct {
+	// The database schema: the context that keeps the data.
+	Schema string `json:"schema"`
+	// The table.
+	Table string `json:"table"`
+	// The column.
+	Column string `json:"column"`
+	// What kind of personal data it is: `name`, `address`, `contact`, `bank_details`, `identifier`,
+	// `network_address` or `free_text`. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Category string `json:"category"`
+	// Why it is kept.
+	Purpose string `json:"purpose"`
+	// The kinds of data subject whose rows can be counted in it (`getPersonalDataSubject`); empty when who
+	// a row concerns cannot be told from it.
+	SubjectKinds []string `json:"subject_kinds"`
+}
+
+// GetSchema returns the value of Schema.
+func (s *PersonalDataEntry) GetSchema() string {
+	return s.Schema
+}
+
+// GetTable returns the value of Table.
+func (s *PersonalDataEntry) GetTable() string {
+	return s.Table
+}
+
+// GetColumn returns the value of Column.
+func (s *PersonalDataEntry) GetColumn() string {
+	return s.Column
+}
+
+// GetCategory returns the value of Category.
+func (s *PersonalDataEntry) GetCategory() string {
+	return s.Category
+}
+
+// GetPurpose returns the value of Purpose.
+func (s *PersonalDataEntry) GetPurpose() string {
+	return s.Purpose
+}
+
+// GetSubjectKinds returns the value of SubjectKinds.
+func (s *PersonalDataEntry) GetSubjectKinds() []string {
+	return s.SubjectKinds
+}
+
+// SetSchema sets the value of Schema.
+func (s *PersonalDataEntry) SetSchema(val string) {
+	s.Schema = val
+}
+
+// SetTable sets the value of Table.
+func (s *PersonalDataEntry) SetTable(val string) {
+	s.Table = val
+}
+
+// SetColumn sets the value of Column.
+func (s *PersonalDataEntry) SetColumn(val string) {
+	s.Column = val
+}
+
+// SetCategory sets the value of Category.
+func (s *PersonalDataEntry) SetCategory(val string) {
+	s.Category = val
+}
+
+// SetPurpose sets the value of Purpose.
+func (s *PersonalDataEntry) SetPurpose(val string) {
+	s.Purpose = val
+}
+
+// SetSubjectKinds sets the value of SubjectKinds.
+func (s *PersonalDataEntry) SetSubjectKinds(val []string) {
+	s.SubjectKinds = val
+}
+
+// The personal data inventory (records, ADR-0079 §9, T100a).
+// Ref: #/components/schemas/PersonalDataInventory
+type PersonalDataInventory struct {
+	// How many entries are listed.
+	Count int32 `json:"count"`
+	// The entries, by schema, table and column.
+	Items []PersonalDataEntry `json:"items"`
+}
+
+// GetCount returns the value of Count.
+func (s *PersonalDataInventory) GetCount() int32 {
+	return s.Count
+}
+
+// GetItems returns the value of Items.
+func (s *PersonalDataInventory) GetItems() []PersonalDataEntry {
+	return s.Items
+}
+
+// SetCount sets the value of Count.
+func (s *PersonalDataInventory) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetItems sets the value of Items.
+func (s *PersonalDataInventory) SetItems(val []PersonalDataEntry) {
+	s.Items = val
+}
+
+func (*PersonalDataInventory) getPersonalDataInventoryRes() {}
+
+// Where one data subject's personal data is held: rows counted per inventory entry (ADR-0079 §10,
+// T100a). It holds no personal data.
+// Ref: #/components/schemas/PersonalDataSubject
+type PersonalDataSubject struct {
+	// The kind of data subject. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	SubjectKind string `json:"subject_kind"`
+	// The business partner or principal.
+	SubjectID uuid.UUID `json:"subject_id"`
+	// The sum of the entries' rows.
+	TotalRows int64 `json:"total_rows"`
+	// Each inventory entry linked to the kind, by schema, table and column, with its count, zero included.
+	Items []PersonalDataSubjectEntry `json:"items"`
+}
+
+// GetSubjectKind returns the value of SubjectKind.
+func (s *PersonalDataSubject) GetSubjectKind() string {
+	return s.SubjectKind
+}
+
+// GetSubjectID returns the value of SubjectID.
+func (s *PersonalDataSubject) GetSubjectID() uuid.UUID {
+	return s.SubjectID
+}
+
+// GetTotalRows returns the value of TotalRows.
+func (s *PersonalDataSubject) GetTotalRows() int64 {
+	return s.TotalRows
+}
+
+// GetItems returns the value of Items.
+func (s *PersonalDataSubject) GetItems() []PersonalDataSubjectEntry {
+	return s.Items
+}
+
+// SetSubjectKind sets the value of SubjectKind.
+func (s *PersonalDataSubject) SetSubjectKind(val string) {
+	s.SubjectKind = val
+}
+
+// SetSubjectID sets the value of SubjectID.
+func (s *PersonalDataSubject) SetSubjectID(val uuid.UUID) {
+	s.SubjectID = val
+}
+
+// SetTotalRows sets the value of TotalRows.
+func (s *PersonalDataSubject) SetTotalRows(val int64) {
+	s.TotalRows = val
+}
+
+// SetItems sets the value of Items.
+func (s *PersonalDataSubject) SetItems(val []PersonalDataSubjectEntry) {
+	s.Items = val
+}
+
+func (*PersonalDataSubject) getPersonalDataSubjectRes() {}
+
+// How many rows of an inventory entry name the subject and hold a value in its column.
+// Ref: #/components/schemas/PersonalDataSubjectEntry
+type PersonalDataSubjectEntry struct {
+	// The database schema.
+	Schema string `json:"schema"`
+	// The table.
+	Table string `json:"table"`
+	// The column.
+	Column string `json:"column"`
+	// The entry's category. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Category string `json:"category"`
+	// The rows that name the subject and hold a value in the column.
+	Rows int64 `json:"rows"`
+}
+
+// GetSchema returns the value of Schema.
+func (s *PersonalDataSubjectEntry) GetSchema() string {
+	return s.Schema
+}
+
+// GetTable returns the value of Table.
+func (s *PersonalDataSubjectEntry) GetTable() string {
+	return s.Table
+}
+
+// GetColumn returns the value of Column.
+func (s *PersonalDataSubjectEntry) GetColumn() string {
+	return s.Column
+}
+
+// GetCategory returns the value of Category.
+func (s *PersonalDataSubjectEntry) GetCategory() string {
+	return s.Category
+}
+
+// GetRows returns the value of Rows.
+func (s *PersonalDataSubjectEntry) GetRows() int64 {
+	return s.Rows
+}
+
+// SetSchema sets the value of Schema.
+func (s *PersonalDataSubjectEntry) SetSchema(val string) {
+	s.Schema = val
+}
+
+// SetTable sets the value of Table.
+func (s *PersonalDataSubjectEntry) SetTable(val string) {
+	s.Table = val
+}
+
+// SetColumn sets the value of Column.
+func (s *PersonalDataSubjectEntry) SetColumn(val string) {
+	s.Column = val
+}
+
+// SetCategory sets the value of Category.
+func (s *PersonalDataSubjectEntry) SetCategory(val string) {
+	s.Category = val
+}
+
+// SetRows sets the value of Rows.
+func (s *PersonalDataSubjectEntry) SetRows(val int64) {
+	s.Rows = val
+}
+
 type PingWebhookSubscriptionBadRequest Problem
 
 func (*PingWebhookSubscriptionBadRequest) pingWebhookSubscriptionRes() {}
@@ -70779,6 +71675,8 @@ func (s *Problem) SetFailingChecks(val []FailingCheck) {
 func (s *Problem) SetCreditLimit(val OptCreditLimit) {
 	s.CreditLimit = val
 }
+
+func (*Problem) getPersonalDataInventoryRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/ProfitCenter
@@ -76491,6 +77389,227 @@ type ResumeWebhookSubscriptionUnprocessableEntity Problem
 
 func (*ResumeWebhookSubscriptionUnprocessableEntity) resumeWebhookSubscriptionRes() {}
 
+// Which fiscal years of a company's documents of one kind are past retention (records, ADR-0079
+// §2-§4).
+// Ref: #/components/schemas/RetentionStatus
+type RetentionStatus struct {
+	// The company (`GET /v1/legal-entities/{id}`).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// The kind of document. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	DocumentKind string `json:"document_kind"`
+	// Whether the company has a retention rule for the kind in the active configuration version; without
+	// one nothing is past retention.
+	HasRule bool `json:"has_rule"`
+	// The years the rule keeps a document after its fiscal year's last day, 0 to 99; absent without a
+	// rule.
+	RetentionYears OptInt32 `json:"retention_years"`
+	// The number of the active configuration version the rule was read from (`GET /v1/config-versions`).
+	ConfigurationVersion int32 `json:"configuration_version"`
+	// The company's date today in its time zone, by which a year is past retention.
+	AsOf time.Time `json:"as_of"`
+	// How many fiscal years are listed.
+	YearCount int32 `json:"year_count"`
+	// How many of them are past retention.
+	PastRetentionCount int32 `json:"past_retention_count"`
+	// The fiscal years set up for the company, the earliest first.
+	Years []RetentionYear `json:"years"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *RetentionStatus) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *RetentionStatus) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *RetentionStatus) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetDocumentKind returns the value of DocumentKind.
+func (s *RetentionStatus) GetDocumentKind() string {
+	return s.DocumentKind
+}
+
+// GetHasRule returns the value of HasRule.
+func (s *RetentionStatus) GetHasRule() bool {
+	return s.HasRule
+}
+
+// GetRetentionYears returns the value of RetentionYears.
+func (s *RetentionStatus) GetRetentionYears() OptInt32 {
+	return s.RetentionYears
+}
+
+// GetConfigurationVersion returns the value of ConfigurationVersion.
+func (s *RetentionStatus) GetConfigurationVersion() int32 {
+	return s.ConfigurationVersion
+}
+
+// GetAsOf returns the value of AsOf.
+func (s *RetentionStatus) GetAsOf() time.Time {
+	return s.AsOf
+}
+
+// GetYearCount returns the value of YearCount.
+func (s *RetentionStatus) GetYearCount() int32 {
+	return s.YearCount
+}
+
+// GetPastRetentionCount returns the value of PastRetentionCount.
+func (s *RetentionStatus) GetPastRetentionCount() int32 {
+	return s.PastRetentionCount
+}
+
+// GetYears returns the value of Years.
+func (s *RetentionStatus) GetYears() []RetentionYear {
+	return s.Years
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *RetentionStatus) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *RetentionStatus) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *RetentionStatus) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetDocumentKind sets the value of DocumentKind.
+func (s *RetentionStatus) SetDocumentKind(val string) {
+	s.DocumentKind = val
+}
+
+// SetHasRule sets the value of HasRule.
+func (s *RetentionStatus) SetHasRule(val bool) {
+	s.HasRule = val
+}
+
+// SetRetentionYears sets the value of RetentionYears.
+func (s *RetentionStatus) SetRetentionYears(val OptInt32) {
+	s.RetentionYears = val
+}
+
+// SetConfigurationVersion sets the value of ConfigurationVersion.
+func (s *RetentionStatus) SetConfigurationVersion(val int32) {
+	s.ConfigurationVersion = val
+}
+
+// SetAsOf sets the value of AsOf.
+func (s *RetentionStatus) SetAsOf(val time.Time) {
+	s.AsOf = val
+}
+
+// SetYearCount sets the value of YearCount.
+func (s *RetentionStatus) SetYearCount(val int32) {
+	s.YearCount = val
+}
+
+// SetPastRetentionCount sets the value of PastRetentionCount.
+func (s *RetentionStatus) SetPastRetentionCount(val int32) {
+	s.PastRetentionCount = val
+}
+
+// SetYears sets the value of Years.
+func (s *RetentionStatus) SetYears(val []RetentionYear) {
+	s.Years = val
+}
+
+func (*RetentionStatus) getRetentionStatusRes() {}
+
+// A fiscal year of a company and whether its documents of a kind are past retention.
+// Ref: #/components/schemas/RetentionYear
+type RetentionYear struct {
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The first day of its first regular period.
+	StartDate time.Time `json:"start_date"`
+	// The last day of its last regular period, from which retention is counted.
+	EndDate time.Time `json:"end_date"`
+	// The last day its documents are kept under the rule; absent without a rule.
+	RetentionEnds OptDate `json:"retention_ends"`
+	// Whether `as_of` is after `retention_ends`; false without a rule.
+	PastRetention bool `json:"past_retention"`
+	// Whether a completed archiving run holds the year's documents of the kind (`listArchivingRuns`,
+	// T99b); they are still in the database, since archiving deletes nothing.
+	Archived bool `json:"archived"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *RetentionYear) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetStartDate returns the value of StartDate.
+func (s *RetentionYear) GetStartDate() time.Time {
+	return s.StartDate
+}
+
+// GetEndDate returns the value of EndDate.
+func (s *RetentionYear) GetEndDate() time.Time {
+	return s.EndDate
+}
+
+// GetRetentionEnds returns the value of RetentionEnds.
+func (s *RetentionYear) GetRetentionEnds() OptDate {
+	return s.RetentionEnds
+}
+
+// GetPastRetention returns the value of PastRetention.
+func (s *RetentionYear) GetPastRetention() bool {
+	return s.PastRetention
+}
+
+// GetArchived returns the value of Archived.
+func (s *RetentionYear) GetArchived() bool {
+	return s.Archived
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *RetentionYear) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetStartDate sets the value of StartDate.
+func (s *RetentionYear) SetStartDate(val time.Time) {
+	s.StartDate = val
+}
+
+// SetEndDate sets the value of EndDate.
+func (s *RetentionYear) SetEndDate(val time.Time) {
+	s.EndDate = val
+}
+
+// SetRetentionEnds sets the value of RetentionEnds.
+func (s *RetentionYear) SetRetentionEnds(val OptDate) {
+	s.RetentionEnds = val
+}
+
+// SetPastRetention sets the value of PastRetention.
+func (s *RetentionYear) SetPastRetention(val bool) {
+	s.PastRetention = val
+}
+
+// SetArchived sets the value of Archived.
+func (s *RetentionYear) SetArchived(val bool) {
+	s.Archived = val
+}
+
 type RetireCatalogItemBadRequest Problem
 
 func (*RetireCatalogItemBadRequest) retireCatalogItemRes() {}
@@ -81204,6 +82323,739 @@ func (s *RfqSupplier) SetSupplierName(val string) {
 }
 
 // Merged schema.
+// Ref: #/components/schemas/Risk
+type Risk struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// What the risk is.
+	Title string `json:"title"`
+	// The category of the risk, in the tenant's own words.
+	Category string `json:"category"`
+	// The person who owns the risk (`GET /v1/principals/{id}`).
+	OwnerID uuid.UUID `json:"owner_id"`
+	// The owner's name, as it is now.
+	OwnerName string `json:"owner_name"`
+	// The likelihood of the latest rating, from 1 to 5.
+	Likelihood int32 `json:"likelihood"`
+	// The impact of the latest rating, from 1 to 5.
+	Impact int32 `json:"impact"`
+	// The likelihood times the impact of the latest rating, from 1 to 25; the register is listed by it.
+	Score int32 `json:"score"`
+	// When the latest rating was recorded (UTC).
+	RatedAt time.Time `json:"rated_at"`
+	// The person who recorded the latest rating (`GET /v1/principals/{id}`).
+	RatedBy uuid.UUID `json:"rated_by"`
+	// The rater's name, as it is now.
+	RatedByName string `json:"rated_by_name"`
+	// The controls that mitigate the risk now, by code; empty when it names none.
+	Controls []RiskControl `json:"controls"`
+	// `open`, or `closed` for good (`closeRisk`). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// Why the risk was closed; absent while it is open.
+	CloseReason OptString `json:"close_reason"`
+	// When it was closed (UTC); absent while it is open.
+	ClosedAt OptDateTime `json:"closed_at"`
+	// The person who closed it; absent while it is open.
+	ClosedBy OptUUID `json:"closed_by"`
+	// That person's name, as it is now; absent while it is open.
+	ClosedByName OptString `json:"closed_by_name"`
+}
+
+// GetID returns the value of ID.
+func (s *Risk) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *Risk) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *Risk) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *Risk) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *Risk) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *Risk) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetTitle returns the value of Title.
+func (s *Risk) GetTitle() string {
+	return s.Title
+}
+
+// GetCategory returns the value of Category.
+func (s *Risk) GetCategory() string {
+	return s.Category
+}
+
+// GetOwnerID returns the value of OwnerID.
+func (s *Risk) GetOwnerID() uuid.UUID {
+	return s.OwnerID
+}
+
+// GetOwnerName returns the value of OwnerName.
+func (s *Risk) GetOwnerName() string {
+	return s.OwnerName
+}
+
+// GetLikelihood returns the value of Likelihood.
+func (s *Risk) GetLikelihood() int32 {
+	return s.Likelihood
+}
+
+// GetImpact returns the value of Impact.
+func (s *Risk) GetImpact() int32 {
+	return s.Impact
+}
+
+// GetScore returns the value of Score.
+func (s *Risk) GetScore() int32 {
+	return s.Score
+}
+
+// GetRatedAt returns the value of RatedAt.
+func (s *Risk) GetRatedAt() time.Time {
+	return s.RatedAt
+}
+
+// GetRatedBy returns the value of RatedBy.
+func (s *Risk) GetRatedBy() uuid.UUID {
+	return s.RatedBy
+}
+
+// GetRatedByName returns the value of RatedByName.
+func (s *Risk) GetRatedByName() string {
+	return s.RatedByName
+}
+
+// GetControls returns the value of Controls.
+func (s *Risk) GetControls() []RiskControl {
+	return s.Controls
+}
+
+// GetStatus returns the value of Status.
+func (s *Risk) GetStatus() string {
+	return s.Status
+}
+
+// GetCloseReason returns the value of CloseReason.
+func (s *Risk) GetCloseReason() OptString {
+	return s.CloseReason
+}
+
+// GetClosedAt returns the value of ClosedAt.
+func (s *Risk) GetClosedAt() OptDateTime {
+	return s.ClosedAt
+}
+
+// GetClosedBy returns the value of ClosedBy.
+func (s *Risk) GetClosedBy() OptUUID {
+	return s.ClosedBy
+}
+
+// GetClosedByName returns the value of ClosedByName.
+func (s *Risk) GetClosedByName() OptString {
+	return s.ClosedByName
+}
+
+// SetID sets the value of ID.
+func (s *Risk) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *Risk) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *Risk) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *Risk) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *Risk) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *Risk) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetTitle sets the value of Title.
+func (s *Risk) SetTitle(val string) {
+	s.Title = val
+}
+
+// SetCategory sets the value of Category.
+func (s *Risk) SetCategory(val string) {
+	s.Category = val
+}
+
+// SetOwnerID sets the value of OwnerID.
+func (s *Risk) SetOwnerID(val uuid.UUID) {
+	s.OwnerID = val
+}
+
+// SetOwnerName sets the value of OwnerName.
+func (s *Risk) SetOwnerName(val string) {
+	s.OwnerName = val
+}
+
+// SetLikelihood sets the value of Likelihood.
+func (s *Risk) SetLikelihood(val int32) {
+	s.Likelihood = val
+}
+
+// SetImpact sets the value of Impact.
+func (s *Risk) SetImpact(val int32) {
+	s.Impact = val
+}
+
+// SetScore sets the value of Score.
+func (s *Risk) SetScore(val int32) {
+	s.Score = val
+}
+
+// SetRatedAt sets the value of RatedAt.
+func (s *Risk) SetRatedAt(val time.Time) {
+	s.RatedAt = val
+}
+
+// SetRatedBy sets the value of RatedBy.
+func (s *Risk) SetRatedBy(val uuid.UUID) {
+	s.RatedBy = val
+}
+
+// SetRatedByName sets the value of RatedByName.
+func (s *Risk) SetRatedByName(val string) {
+	s.RatedByName = val
+}
+
+// SetControls sets the value of Controls.
+func (s *Risk) SetControls(val []RiskControl) {
+	s.Controls = val
+}
+
+// SetStatus sets the value of Status.
+func (s *Risk) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetCloseReason sets the value of CloseReason.
+func (s *Risk) SetCloseReason(val OptString) {
+	s.CloseReason = val
+}
+
+// SetClosedAt sets the value of ClosedAt.
+func (s *Risk) SetClosedAt(val OptDateTime) {
+	s.ClosedAt = val
+}
+
+// SetClosedBy sets the value of ClosedBy.
+func (s *Risk) SetClosedBy(val OptUUID) {
+	s.ClosedBy = val
+}
+
+// SetClosedByName sets the value of ClosedByName.
+func (s *Risk) SetClosedByName(val OptString) {
+	s.ClosedByName = val
+}
+
+// Close a risk for good.
+// Ref: #/components/schemas/RiskClose
+type RiskClose struct {
+	// Why the risk is closed, without white space around it.
+	Reason string `json:"reason"`
+}
+
+// GetReason returns the value of Reason.
+func (s *RiskClose) GetReason() string {
+	return s.Reason
+}
+
+// SetReason sets the value of Reason.
+func (s *RiskClose) SetReason(val string) {
+	s.Reason = val
+}
+
+// A control that mitigates a risk.
+// Ref: #/components/schemas/RiskControl
+type RiskControl struct {
+	// The control (`GET /v1/controls/{id}`).
+	ControlID uuid.UUID `json:"control_id"`
+	// The control's code.
+	Code string `json:"code"`
+	// The control's status now: a control retired after the risk named it stays, shown as `retired`. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Status string `json:"status"`
+}
+
+// GetControlID returns the value of ControlID.
+func (s *RiskControl) GetControlID() uuid.UUID {
+	return s.ControlID
+}
+
+// GetCode returns the value of Code.
+func (s *RiskControl) GetCode() string {
+	return s.Code
+}
+
+// GetStatus returns the value of Status.
+func (s *RiskControl) GetStatus() string {
+	return s.Status
+}
+
+// SetControlID sets the value of ControlID.
+func (s *RiskControl) SetControlID(val uuid.UUID) {
+	s.ControlID = val
+}
+
+// SetCode sets the value of Code.
+func (s *RiskControl) SetCode(val string) {
+	s.Code = val
+}
+
+// SetStatus sets the value of Status.
+func (s *RiskControl) SetStatus(val string) {
+	s.Status = val
+}
+
+// Record a risk in the risk register with its first rating. It is created `open`.
+// Ref: #/components/schemas/RiskCreate
+type RiskCreate struct {
+	// What the risk is, without white space around it.
+	Title string `json:"title"`
+	// The category of the risk, in the tenant's own words, without white space around it; the register is
+	// filtered by it.
+	Category string `json:"category"`
+	// The person who owns the risk: an active person of the tenant (`GET /v1/principals/{id}`).
+	OwnerID uuid.UUID `json:"owner_id"`
+	// How likely the risk is to occur, from 1 (least) to 5 (most).
+	Likelihood int32 `json:"likelihood"`
+	// How much it would weigh if it occurred, from 1 (least) to 5 (most).
+	Impact int32 `json:"impact"`
+	// The active controls of the library that mitigate the risk (`GET /v1/controls/{id}`), each once. None
+	// when left out.
+	ControlIds []uuid.UUID `json:"control_ids"`
+}
+
+// GetTitle returns the value of Title.
+func (s *RiskCreate) GetTitle() string {
+	return s.Title
+}
+
+// GetCategory returns the value of Category.
+func (s *RiskCreate) GetCategory() string {
+	return s.Category
+}
+
+// GetOwnerID returns the value of OwnerID.
+func (s *RiskCreate) GetOwnerID() uuid.UUID {
+	return s.OwnerID
+}
+
+// GetLikelihood returns the value of Likelihood.
+func (s *RiskCreate) GetLikelihood() int32 {
+	return s.Likelihood
+}
+
+// GetImpact returns the value of Impact.
+func (s *RiskCreate) GetImpact() int32 {
+	return s.Impact
+}
+
+// GetControlIds returns the value of ControlIds.
+func (s *RiskCreate) GetControlIds() []uuid.UUID {
+	return s.ControlIds
+}
+
+// SetTitle sets the value of Title.
+func (s *RiskCreate) SetTitle(val string) {
+	s.Title = val
+}
+
+// SetCategory sets the value of Category.
+func (s *RiskCreate) SetCategory(val string) {
+	s.Category = val
+}
+
+// SetOwnerID sets the value of OwnerID.
+func (s *RiskCreate) SetOwnerID(val uuid.UUID) {
+	s.OwnerID = val
+}
+
+// SetLikelihood sets the value of Likelihood.
+func (s *RiskCreate) SetLikelihood(val int32) {
+	s.Likelihood = val
+}
+
+// SetImpact sets the value of Impact.
+func (s *RiskCreate) SetImpact(val int32) {
+	s.Impact = val
+}
+
+// SetControlIds sets the value of ControlIds.
+func (s *RiskCreate) SetControlIds(val []uuid.UUID) {
+	s.ControlIds = val
+}
+
+// RiskHeaders wraps Risk with response headers.
+type RiskHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           Risk
+}
+
+// GetETag returns the value of ETag.
+func (s *RiskHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *RiskHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *RiskHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *RiskHeaders) GetResponse() Risk {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *RiskHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *RiskHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *RiskHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RiskHeaders) SetResponse(val Risk) {
+	s.Response = val
+}
+
+func (*RiskHeaders) createRiskRes() {}
+
+// One page of the risk register.
+// Ref: #/components/schemas/RiskPage
+type RiskPage struct {
+	// The risks on this page.
+	Items []Risk `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *RiskPage) GetItems() []Risk {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *RiskPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *RiskPage) SetItems(val []Risk) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *RiskPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*RiskPage) listRisksRes() {}
+
+// A rating of a risk (grc, ADR-0078 §11). It is never changed.
+// Ref: #/components/schemas/RiskRating
+type RiskRating struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The risk rated (`GET /v1/risks/{id}`).
+	RiskID uuid.UUID `json:"risk_id"`
+	// The likelihood, from 1 to 5.
+	Likelihood int32 `json:"likelihood"`
+	// The impact, from 1 to 5.
+	Impact int32 `json:"impact"`
+	// The likelihood times the impact.
+	Score int32 `json:"score"`
+	// The person who rated (`GET /v1/principals/{id}`).
+	RatedBy uuid.UUID `json:"rated_by"`
+	// The rater's name, as it is now.
+	RatedByName string `json:"rated_by_name"`
+	// When the rating was recorded (UTC).
+	RatedAt time.Time `json:"rated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *RiskRating) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetRiskID returns the value of RiskID.
+func (s *RiskRating) GetRiskID() uuid.UUID {
+	return s.RiskID
+}
+
+// GetLikelihood returns the value of Likelihood.
+func (s *RiskRating) GetLikelihood() int32 {
+	return s.Likelihood
+}
+
+// GetImpact returns the value of Impact.
+func (s *RiskRating) GetImpact() int32 {
+	return s.Impact
+}
+
+// GetScore returns the value of Score.
+func (s *RiskRating) GetScore() int32 {
+	return s.Score
+}
+
+// GetRatedBy returns the value of RatedBy.
+func (s *RiskRating) GetRatedBy() uuid.UUID {
+	return s.RatedBy
+}
+
+// GetRatedByName returns the value of RatedByName.
+func (s *RiskRating) GetRatedByName() string {
+	return s.RatedByName
+}
+
+// GetRatedAt returns the value of RatedAt.
+func (s *RiskRating) GetRatedAt() time.Time {
+	return s.RatedAt
+}
+
+// SetID sets the value of ID.
+func (s *RiskRating) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetRiskID sets the value of RiskID.
+func (s *RiskRating) SetRiskID(val uuid.UUID) {
+	s.RiskID = val
+}
+
+// SetLikelihood sets the value of Likelihood.
+func (s *RiskRating) SetLikelihood(val int32) {
+	s.Likelihood = val
+}
+
+// SetImpact sets the value of Impact.
+func (s *RiskRating) SetImpact(val int32) {
+	s.Impact = val
+}
+
+// SetScore sets the value of Score.
+func (s *RiskRating) SetScore(val int32) {
+	s.Score = val
+}
+
+// SetRatedBy sets the value of RatedBy.
+func (s *RiskRating) SetRatedBy(val uuid.UUID) {
+	s.RatedBy = val
+}
+
+// SetRatedByName sets the value of RatedByName.
+func (s *RiskRating) SetRatedByName(val string) {
+	s.RatedByName = val
+}
+
+// SetRatedAt sets the value of RatedAt.
+func (s *RiskRating) SetRatedAt(val time.Time) {
+	s.RatedAt = val
+}
+
+// Rate a risk again. The rater is the caller.
+// Ref: #/components/schemas/RiskRatingCreate
+type RiskRatingCreate struct {
+	// How likely the risk is to occur now, from 1 (least) to 5 (most).
+	Likelihood int32 `json:"likelihood"`
+	// How much it would weigh now if it occurred, from 1 (least) to 5 (most).
+	Impact int32 `json:"impact"`
+}
+
+// GetLikelihood returns the value of Likelihood.
+func (s *RiskRatingCreate) GetLikelihood() int32 {
+	return s.Likelihood
+}
+
+// GetImpact returns the value of Impact.
+func (s *RiskRatingCreate) GetImpact() int32 {
+	return s.Impact
+}
+
+// SetLikelihood sets the value of Likelihood.
+func (s *RiskRatingCreate) SetLikelihood(val int32) {
+	s.Likelihood = val
+}
+
+// SetImpact sets the value of Impact.
+func (s *RiskRatingCreate) SetImpact(val int32) {
+	s.Impact = val
+}
+
+// RiskRatingHeaders wraps RiskRating with response headers.
+type RiskRatingHeaders struct {
+	IdempotentReplayed OptBool
+	Response           RiskRating
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *RiskRatingHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *RiskRatingHeaders) GetResponse() RiskRating {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *RiskRatingHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RiskRatingHeaders) SetResponse(val RiskRating) {
+	s.Response = val
+}
+
+func (*RiskRatingHeaders) createRiskRatingRes() {}
+
+// One page of a risk's ratings.
+// Ref: #/components/schemas/RiskRatingPage
+type RiskRatingPage struct {
+	// The ratings on this page, the latest first.
+	Items []RiskRating `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *RiskRatingPage) GetItems() []RiskRating {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *RiskRatingPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *RiskRatingPage) SetItems(val []RiskRating) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *RiskRatingPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*RiskRatingPage) listRiskRatingsRes() {}
+
+// Merge patch of a risk: its title, category, owner or controls. A new rating is `createRiskRating`'s.
+// Ref: #/components/schemas/RiskUpdate
+type RiskUpdate struct {
+	// What the risk is, without white space around it.
+	Title OptString `json:"title"`
+	// The category of the risk, without white space around it.
+	Category OptString `json:"category"`
+	// The person who owns the risk: an active person of the tenant.
+	OwnerID OptUUID `json:"owner_id"`
+	// The controls that mitigate the risk, each once. The list given replaces the risk's; a control added
+	// is an active one of the library; an empty list leaves the risk without controls.
+	ControlIds []uuid.UUID `json:"control_ids"`
+}
+
+// GetTitle returns the value of Title.
+func (s *RiskUpdate) GetTitle() OptString {
+	return s.Title
+}
+
+// GetCategory returns the value of Category.
+func (s *RiskUpdate) GetCategory() OptString {
+	return s.Category
+}
+
+// GetOwnerID returns the value of OwnerID.
+func (s *RiskUpdate) GetOwnerID() OptUUID {
+	return s.OwnerID
+}
+
+// GetControlIds returns the value of ControlIds.
+func (s *RiskUpdate) GetControlIds() []uuid.UUID {
+	return s.ControlIds
+}
+
+// SetTitle sets the value of Title.
+func (s *RiskUpdate) SetTitle(val OptString) {
+	s.Title = val
+}
+
+// SetCategory sets the value of Category.
+func (s *RiskUpdate) SetCategory(val OptString) {
+	s.Category = val
+}
+
+// SetOwnerID sets the value of OwnerID.
+func (s *RiskUpdate) SetOwnerID(val OptUUID) {
+	s.OwnerID = val
+}
+
+// SetControlIds sets the value of ControlIds.
+func (s *RiskUpdate) SetControlIds(val []uuid.UUID) {
+	s.ControlIds = val
+}
+
+// Merged schema.
 // Ref: #/components/schemas/Role
 type Role struct {
 	// Identifier (UUIDv7).
@@ -84626,6 +86478,7 @@ func (*ServiceUnavailableHeaders) completeCloseTaskRes()                     {}
 func (*ServiceUnavailableHeaders) completeYearCloseTaskRes()                 {}
 func (*ServiceUnavailableHeaders) copyPlanCategoryRes()                      {}
 func (*ServiceUnavailableHeaders) createAllocationCycleRes()                 {}
+func (*ServiceUnavailableHeaders) createArchivingRunRes()                    {}
 func (*ServiceUnavailableHeaders) createAssetAcquisitionRes()                {}
 func (*ServiceUnavailableHeaders) createAssetRes()                           {}
 func (*ServiceUnavailableHeaders) createAssetRetirementRes()                 {}
@@ -84685,6 +86538,7 @@ func (*ServiceUnavailableHeaders) endSodRuleRes()                            {}
 func (*ServiceUnavailableHeaders) excludeBankStatementLineRes()              {}
 func (*ServiceUnavailableHeaders) fetchEInvoicesRes()                        {}
 func (*ServiceUnavailableHeaders) fileTaxReturnRes()                         {}
+func (*ServiceUnavailableHeaders) getArchivingRunFileRes()                   {}
 func (*ServiceUnavailableHeaders) getBankStatementFileRes()                  {}
 func (*ServiceUnavailableHeaders) getEInvoiceContentRes()                    {}
 func (*ServiceUnavailableHeaders) getSupplierInvoiceDocumentRes()            {}
@@ -89740,6 +91594,7 @@ func (*TooManyRequestsHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*TooManyRequestsHeaders) closeFiscalPeriodRes()                     {}
 func (*TooManyRequestsHeaders) closeInternalOrderRes()                    {}
 func (*TooManyRequestsHeaders) closePurchaseOrderRes()                    {}
+func (*TooManyRequestsHeaders) closeRiskRes()                             {}
 func (*TooManyRequestsHeaders) completeCloseTaskRes()                     {}
 func (*TooManyRequestsHeaders) completeYearCloseTaskRes()                 {}
 func (*TooManyRequestsHeaders) confirmDunningRunRes()                     {}
@@ -89749,6 +91604,7 @@ func (*TooManyRequestsHeaders) confirmSalesDeliveryRes()                  {}
 func (*TooManyRequestsHeaders) confirmSalesOrderRes()                     {}
 func (*TooManyRequestsHeaders) copyPlanCategoryRes()                      {}
 func (*TooManyRequestsHeaders) createAllocationCycleRes()                 {}
+func (*TooManyRequestsHeaders) createArchivingRunRes()                    {}
 func (*TooManyRequestsHeaders) createAssetAcquisitionRes()                {}
 func (*TooManyRequestsHeaders) createAssetRes()                           {}
 func (*TooManyRequestsHeaders) createAssetRetirementRes()                 {}
@@ -89798,6 +91654,8 @@ func (*TooManyRequestsHeaders) createReturnsOrderRes()                    {}
 func (*TooManyRequestsHeaders) createRevenueContractRes()                 {}
 func (*TooManyRequestsHeaders) createRevenueRecognitionRunRes()           {}
 func (*TooManyRequestsHeaders) createRfqRes()                             {}
+func (*TooManyRequestsHeaders) createRiskRatingRes()                      {}
+func (*TooManyRequestsHeaders) createRiskRes()                            {}
 func (*TooManyRequestsHeaders) createRoleAssignmentRes()                  {}
 func (*TooManyRequestsHeaders) createRoleRes()                            {}
 func (*TooManyRequestsHeaders) createSalesOrderRes()                      {}
@@ -89838,6 +91696,8 @@ func (*TooManyRequestsHeaders) getAllocationCycleRes()                    {}
 func (*TooManyRequestsHeaders) getAllocationRunRes()                      {}
 func (*TooManyRequestsHeaders) getAnalyticsModelRes()                     {}
 func (*TooManyRequestsHeaders) getApprovalRequestRes()                    {}
+func (*TooManyRequestsHeaders) getArchivingRunFileRes()                   {}
+func (*TooManyRequestsHeaders) getArchivingRunRes()                       {}
 func (*TooManyRequestsHeaders) getAssetAcquisitionRes()                   {}
 func (*TooManyRequestsHeaders) getAssetHistorySheetRes()                  {}
 func (*TooManyRequestsHeaders) getAssetOrderExpensesRes()                 {}
@@ -89914,6 +91774,8 @@ func (*TooManyRequestsHeaders) getParkedJournalEntryRes()                 {}
 func (*TooManyRequestsHeaders) getPartnerChangeRes()                      {}
 func (*TooManyRequestsHeaders) getPaymentRunRes()                         {}
 func (*TooManyRequestsHeaders) getPeriodCloseRes()                        {}
+func (*TooManyRequestsHeaders) getPersonalDataInventoryRes()              {}
+func (*TooManyRequestsHeaders) getPersonalDataSubjectRes()                {}
 func (*TooManyRequestsHeaders) getPlanCategoryRes()                       {}
 func (*TooManyRequestsHeaders) getPrincipalRes()                          {}
 func (*TooManyRequestsHeaders) getProfitCenterRes()                       {}
@@ -89925,6 +91787,7 @@ func (*TooManyRequestsHeaders) getReceivablesAgingRes()                   {}
 func (*TooManyRequestsHeaders) getRecommendationRes()                     {}
 func (*TooManyRequestsHeaders) getRegressionSuiteRes()                    {}
 func (*TooManyRequestsHeaders) getRequisitionRes()                        {}
+func (*TooManyRequestsHeaders) getRetentionStatusRes()                    {}
 func (*TooManyRequestsHeaders) getReturnsOrderRes()                       {}
 func (*TooManyRequestsHeaders) getRevaluationRunRes()                     {}
 func (*TooManyRequestsHeaders) getRevenueContractRes()                    {}
@@ -89932,6 +91795,7 @@ func (*TooManyRequestsHeaders) getRevenueRecognitionRunRes()              {}
 func (*TooManyRequestsHeaders) getRevenueScheduleRes()                    {}
 func (*TooManyRequestsHeaders) getRfqComparisonRes()                      {}
 func (*TooManyRequestsHeaders) getRfqRes()                                {}
+func (*TooManyRequestsHeaders) getRiskRes()                               {}
 func (*TooManyRequestsHeaders) getRoleAssignmentRes()                     {}
 func (*TooManyRequestsHeaders) getRolePermissionRes()                     {}
 func (*TooManyRequestsHeaders) getRoleRes()                               {}
@@ -89959,6 +91823,7 @@ func (*TooManyRequestsHeaders) listAgentToolCallsRes()                    {}
 func (*TooManyRequestsHeaders) listAllocationCyclesRes()                  {}
 func (*TooManyRequestsHeaders) listAllocationRunsRes()                    {}
 func (*TooManyRequestsHeaders) listApprovalRequestsRes()                  {}
+func (*TooManyRequestsHeaders) listArchivingRunsRes()                     {}
 func (*TooManyRequestsHeaders) listAssetAcquisitionsRes()                 {}
 func (*TooManyRequestsHeaders) listAssetClassesRes()                      {}
 func (*TooManyRequestsHeaders) listAssetClearingItemsRes()                {}
@@ -90066,6 +91931,8 @@ func (*TooManyRequestsHeaders) listRevaluationRunsRes()                   {}
 func (*TooManyRequestsHeaders) listRevenueContractsRes()                  {}
 func (*TooManyRequestsHeaders) listRevenueRecognitionRunsRes()            {}
 func (*TooManyRequestsHeaders) listRfqsRes()                              {}
+func (*TooManyRequestsHeaders) listRiskRatingsRes()                       {}
+func (*TooManyRequestsHeaders) listRisksRes()                             {}
 func (*TooManyRequestsHeaders) listRoleAssignmentsRes()                   {}
 func (*TooManyRequestsHeaders) listRolePermissionsRes()                   {}
 func (*TooManyRequestsHeaders) listRolesRes()                             {}
@@ -90206,6 +92073,7 @@ func (*TooManyRequestsHeaders) updatePurchaseOrderChangeRes()             {}
 func (*TooManyRequestsHeaders) updatePurchaseOrderRes()                   {}
 func (*TooManyRequestsHeaders) updateRequisitionRes()                     {}
 func (*TooManyRequestsHeaders) updateRevenueContractRes()                 {}
+func (*TooManyRequestsHeaders) updateRiskRes()                            {}
 func (*TooManyRequestsHeaders) updateRoleRes()                            {}
 func (*TooManyRequestsHeaders) updateSegmentRes()                         {}
 func (*TooManyRequestsHeaders) updateSupplierInvoiceRes()                 {}
@@ -90560,6 +92428,7 @@ func (*UnauthorizedHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*UnauthorizedHeaders) closeFiscalPeriodRes()                     {}
 func (*UnauthorizedHeaders) closeInternalOrderRes()                    {}
 func (*UnauthorizedHeaders) closePurchaseOrderRes()                    {}
+func (*UnauthorizedHeaders) closeRiskRes()                             {}
 func (*UnauthorizedHeaders) completeCloseTaskRes()                     {}
 func (*UnauthorizedHeaders) completeYearCloseTaskRes()                 {}
 func (*UnauthorizedHeaders) confirmDunningRunRes()                     {}
@@ -90569,6 +92438,7 @@ func (*UnauthorizedHeaders) confirmSalesDeliveryRes()                  {}
 func (*UnauthorizedHeaders) confirmSalesOrderRes()                     {}
 func (*UnauthorizedHeaders) copyPlanCategoryRes()                      {}
 func (*UnauthorizedHeaders) createAllocationCycleRes()                 {}
+func (*UnauthorizedHeaders) createArchivingRunRes()                    {}
 func (*UnauthorizedHeaders) createAssetAcquisitionRes()                {}
 func (*UnauthorizedHeaders) createAssetRes()                           {}
 func (*UnauthorizedHeaders) createAssetRetirementRes()                 {}
@@ -90618,6 +92488,8 @@ func (*UnauthorizedHeaders) createReturnsOrderRes()                    {}
 func (*UnauthorizedHeaders) createRevenueContractRes()                 {}
 func (*UnauthorizedHeaders) createRevenueRecognitionRunRes()           {}
 func (*UnauthorizedHeaders) createRfqRes()                             {}
+func (*UnauthorizedHeaders) createRiskRatingRes()                      {}
+func (*UnauthorizedHeaders) createRiskRes()                            {}
 func (*UnauthorizedHeaders) createRoleAssignmentRes()                  {}
 func (*UnauthorizedHeaders) createRoleRes()                            {}
 func (*UnauthorizedHeaders) createSalesOrderRes()                      {}
@@ -90658,6 +92530,8 @@ func (*UnauthorizedHeaders) getAllocationCycleRes()                    {}
 func (*UnauthorizedHeaders) getAllocationRunRes()                      {}
 func (*UnauthorizedHeaders) getAnalyticsModelRes()                     {}
 func (*UnauthorizedHeaders) getApprovalRequestRes()                    {}
+func (*UnauthorizedHeaders) getArchivingRunFileRes()                   {}
+func (*UnauthorizedHeaders) getArchivingRunRes()                       {}
 func (*UnauthorizedHeaders) getAssetAcquisitionRes()                   {}
 func (*UnauthorizedHeaders) getAssetHistorySheetRes()                  {}
 func (*UnauthorizedHeaders) getAssetOrderExpensesRes()                 {}
@@ -90734,6 +92608,8 @@ func (*UnauthorizedHeaders) getParkedJournalEntryRes()                 {}
 func (*UnauthorizedHeaders) getPartnerChangeRes()                      {}
 func (*UnauthorizedHeaders) getPaymentRunRes()                         {}
 func (*UnauthorizedHeaders) getPeriodCloseRes()                        {}
+func (*UnauthorizedHeaders) getPersonalDataInventoryRes()              {}
+func (*UnauthorizedHeaders) getPersonalDataSubjectRes()                {}
 func (*UnauthorizedHeaders) getPlanCategoryRes()                       {}
 func (*UnauthorizedHeaders) getPrincipalRes()                          {}
 func (*UnauthorizedHeaders) getProfitCenterRes()                       {}
@@ -90745,6 +92621,7 @@ func (*UnauthorizedHeaders) getReceivablesAgingRes()                   {}
 func (*UnauthorizedHeaders) getRecommendationRes()                     {}
 func (*UnauthorizedHeaders) getRegressionSuiteRes()                    {}
 func (*UnauthorizedHeaders) getRequisitionRes()                        {}
+func (*UnauthorizedHeaders) getRetentionStatusRes()                    {}
 func (*UnauthorizedHeaders) getReturnsOrderRes()                       {}
 func (*UnauthorizedHeaders) getRevaluationRunRes()                     {}
 func (*UnauthorizedHeaders) getRevenueContractRes()                    {}
@@ -90752,6 +92629,7 @@ func (*UnauthorizedHeaders) getRevenueRecognitionRunRes()              {}
 func (*UnauthorizedHeaders) getRevenueScheduleRes()                    {}
 func (*UnauthorizedHeaders) getRfqComparisonRes()                      {}
 func (*UnauthorizedHeaders) getRfqRes()                                {}
+func (*UnauthorizedHeaders) getRiskRes()                               {}
 func (*UnauthorizedHeaders) getRoleAssignmentRes()                     {}
 func (*UnauthorizedHeaders) getRolePermissionRes()                     {}
 func (*UnauthorizedHeaders) getRoleRes()                               {}
@@ -90779,6 +92657,7 @@ func (*UnauthorizedHeaders) listAgentToolCallsRes()                    {}
 func (*UnauthorizedHeaders) listAllocationCyclesRes()                  {}
 func (*UnauthorizedHeaders) listAllocationRunsRes()                    {}
 func (*UnauthorizedHeaders) listApprovalRequestsRes()                  {}
+func (*UnauthorizedHeaders) listArchivingRunsRes()                     {}
 func (*UnauthorizedHeaders) listAssetAcquisitionsRes()                 {}
 func (*UnauthorizedHeaders) listAssetClassesRes()                      {}
 func (*UnauthorizedHeaders) listAssetClearingItemsRes()                {}
@@ -90886,6 +92765,8 @@ func (*UnauthorizedHeaders) listRevaluationRunsRes()                   {}
 func (*UnauthorizedHeaders) listRevenueContractsRes()                  {}
 func (*UnauthorizedHeaders) listRevenueRecognitionRunsRes()            {}
 func (*UnauthorizedHeaders) listRfqsRes()                              {}
+func (*UnauthorizedHeaders) listRiskRatingsRes()                       {}
+func (*UnauthorizedHeaders) listRisksRes()                             {}
 func (*UnauthorizedHeaders) listRoleAssignmentsRes()                   {}
 func (*UnauthorizedHeaders) listRolePermissionsRes()                   {}
 func (*UnauthorizedHeaders) listRolesRes()                             {}
@@ -91026,6 +92907,7 @@ func (*UnauthorizedHeaders) updatePurchaseOrderChangeRes()             {}
 func (*UnauthorizedHeaders) updatePurchaseOrderRes()                   {}
 func (*UnauthorizedHeaders) updateRequisitionRes()                     {}
 func (*UnauthorizedHeaders) updateRevenueContractRes()                 {}
+func (*UnauthorizedHeaders) updateRiskRes()                            {}
 func (*UnauthorizedHeaders) updateRoleRes()                            {}
 func (*UnauthorizedHeaders) updateSegmentRes()                         {}
 func (*UnauthorizedHeaders) updateSupplierInvoiceRes()                 {}
@@ -92527,6 +94409,70 @@ func (*UpdateRevenueContractPreconditionRequired) updateRevenueContractRes() {}
 type UpdateRevenueContractUnprocessableEntity Problem
 
 func (*UpdateRevenueContractUnprocessableEntity) updateRevenueContractRes() {}
+
+type UpdateRiskBadRequest Problem
+
+func (*UpdateRiskBadRequest) updateRiskRes() {}
+
+type UpdateRiskForbidden Problem
+
+func (*UpdateRiskForbidden) updateRiskRes() {}
+
+type UpdateRiskNotFound Problem
+
+func (*UpdateRiskNotFound) updateRiskRes() {}
+
+// UpdateRiskOKHeaders wraps Risk with response headers.
+type UpdateRiskOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           Risk
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateRiskOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateRiskOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateRiskOKHeaders) GetResponse() Risk {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateRiskOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateRiskOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateRiskOKHeaders) SetResponse(val Risk) {
+	s.Response = val
+}
+
+func (*UpdateRiskOKHeaders) closeRiskRes()  {}
+func (*UpdateRiskOKHeaders) updateRiskRes() {}
+
+type UpdateRiskPreconditionFailed Problem
+
+func (*UpdateRiskPreconditionFailed) updateRiskRes() {}
+
+type UpdateRiskPreconditionRequired Problem
+
+func (*UpdateRiskPreconditionRequired) updateRiskRes() {}
+
+type UpdateRiskUnprocessableEntity Problem
+
+func (*UpdateRiskUnprocessableEntity) updateRiskRes() {}
 
 type UpdateRoleBadRequest Problem
 

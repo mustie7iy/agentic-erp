@@ -5953,13 +5953,13 @@
     "ph": 9,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Retention rules",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A records administrator sets retention rules in the configuration (per company and document kind, the years a document is kept after its fiscal year ends; none is shipped) and reads which fiscal years of a document kind are past retention (configuration section retention; GET /v1/retention-status)",
-        "r": "T99a · docs/design/plan-breadth-week3.md §T99a",
+        "r": "T99a · docs/design/plan-breadth-week3.md §T99a · companies[].retention[] (tier 3, two approvers, po:2026-11-13) · db/migrations/000316 · GET /v1/retention-status · records.retention.read · ledger.Calendar.Years · the leaf context records · walkthrough step_retention · ADR-0079 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -5974,13 +5974,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Archiving runs",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The records administrator starts an archiving run for a company, a document kind and a fiscal year past retention: its documents are written to an archive file in object storage with a manifest and its SHA-256, and the year reads as archived; nothing is deleted (POST /v1/archiving-runs)",
-        "r": "T99b · docs/design/plan-breadth-week3.md §T99b",
+        "r": "T99b · docs/design/plan-breadth-week3.md §T99b · records.archiving_run, records outbox · db/migrations/000317 · POST/GET /v1/archiving-runs, GET /v1/archiving-runs/{id}, GET /v1/archiving-runs/{id}/file · archived in GET /v1/retention-status · ArchivingRunCompleted · records.archive.run · records.Archiver · ledger.Archive · walkthrough step_retention (retention_archive) · ADR-0079 §6-§8 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -6231,13 +6231,13 @@
     "ph": 9,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Risk register",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A risk owner records a risk (title, category, owner, likelihood and impact from 1 to 5, the controls that mitigate it), rates it again and closes it; the register lists the risks by score (POST /v1/risks)",
-        "r": "T98c · docs/design/plan-breadth-week3.md §T98c",
+        "r": "T98c · docs/design/plan-breadth-week3.md §T98c · db/migrations/000315 · grc.risk, grc.risk_rating, grc.risk_control · POST /v1/risks · GET /v1/risks · GET /v1/risks/{id} · PATCH /v1/risks/{id} · POST /v1/risks/{id}:close · POST /v1/risks/{id}/ratings · GET /v1/risks/{id}/ratings · RiskChanged · grc.risk.read, .write · walkthrough step_risks · ADR-0078 §10-§13 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -9762,13 +9762,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T66"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "GDPR: personal data inventory, blocking and deletion; the inventory includes the API audit trail's client addresses (audit.audit_event.client_address, T73c), and a person's erasure blanks those of their events as the tenant's erasure does (audit.event_immutable allows that alone)",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A privacy officer reads the personal data inventory (each table and field holding personal data, with its category and purpose, the audit trail's client addresses among them) and, for one business partner or principal, where data about them is held (GET /v1/personal-data-inventory)",
-        "r": "T100a · docs/design/plan-breadth-week3.md §T100a",
+        "r": "T100a · docs/design/plan-breadth-week3.md §T100a · records.Inventory (declared; TestInventoryCoversTheDatabase refuses an unnamed column of a known personal kind) · db/migrations/000318 · GET /v1/personal-data-inventory, GET /v1/personal-data-inventory/subjects/{kind}/{id} · records.privacy.read · TestPersonalDataSubjectBudget · walkthrough step_privacy · ADR-0079 §9-§10 and As built · 03-data-model §3.32",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
