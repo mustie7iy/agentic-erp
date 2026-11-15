@@ -1023,7 +1023,16 @@ only: it reads the contract through a local search of its operations
 (`findOperations`: method, path, summary, description, permission,
 problem codes) and the active configuration, and its reply names only
 operations of the contract and cites settings as the active version
-holds them; it has no tool that writes.
+holds them; it has no tool that writes. The collections agent
+(`erp agent collections -company CODE [-key-date D]`, agent type
+`collections`, T105b) recommends on each `business_partner` of a
+company's collection worklist (the first 20, the largest overdue amount
+first): `call`, `send_reminder`, `escalate`, `wait_for_dispute` or
+`no_action`, starting with the customer's overdue amount as the worklist
+returned it, a contact ending with a draft message; a customer whose
+every overdue item has an open dispute case is never contacted; running
+dunning and working a dispute case stay people's (`x-agent: false`), and
+nothing sends a message to a customer.
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation

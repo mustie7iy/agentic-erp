@@ -205,6 +205,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `regulatory` | `internal/regulatoryagent`, `erp agent regulatory-notice -file F` | `listCountryPacks`, `listConfigVersions`, `getConfigVersion`, `listTaxRegistrations`, `listTaxPeriods` | on `config_version`: `change_needed`, `no_change` | every write of the configuration (change requests, a pack applied, a regression suite) |
 | `regulatory` (drafting, T107b) | `erp agent regulatory-draft -recommendation ID` | `getRecommendation`, `listConfigVersions`, `getConfigVersion`, `listFiscalPeriods`, `getChangeRequest`, `getOperation`; writes `createChangeRequest`, `updateChangeRequest`, `simulateChangeRequest` | on `change_request`: `ready_to_submit`, `simulation_failed` | submitting, withdrawing or activating a change request, a pack applied, a regression suite, a decision on an approval or a recommendation |
 | `bid_comparison` | `internal/bidagent`, `erp agent bid-compare -rfq ID` | `getRfq`, `listSupplierQuotations`, `getRfqComparison`, `getBusinessPartner`, `listContracts`, `listPurchaseOrders` | on `rfq`: `award`, `no_award` | `awardRfq`, `publishRfq`, `createSupplierQuotation`, `createRfq` |
+| `collections` | `internal/collectionsagent`, `erp agent collections -company CODE [-key-date YYYY-MM-DD]` | `getCollectionWorklist`, `getReceivablesAging`, `listDunningRuns`, `listDunningNotices`, `listIncomingPayments`, `listCustomerInvoices`, `listDisputeCases`, `getDisputeCase`, `listOpenItems`, `getBusinessPartner` | on `business_partner` (a customer of the worklist): `call`, `send_reminder`, `escalate`, `wait_for_dispute`, `no_action` | `createDunningRun`, `confirmDunningRun`, `createDisputeCase`, `updateDisputeCase`, `closeDisputeCase`; nothing in the contract sends to a customer |
 
 A later slice adds its row here and its section under "As built".
 
@@ -719,6 +720,62 @@ A later slice adds its row here and its section under "As built".
   it was.
 - No migration, no new operation, permission, event or problem code.
 
+### T105b, the collections agent
+
+- `internal/collectionsagent`; agent type `collections`; `erp agent
+  collections -company CODE [-key-date YYYY-MM-DD]` (the key date
+  defaults to today in UTC, as T105a's date). One recommendation per
+  customer of the company's collection worklist on the key date
+  (ADR-0065 §9), on the customer as a `business_partner`: `call`,
+  `send_reminder`, `escalate`, `wait_for_dispute` or `no_action`.
+- Before its session the run reads the worklist's first page of 20
+  customers (`MaxCustomers`, the largest overdue amount first: the run's
+  objects; the rest wait for a later run, and the prompt says how many the
+  worklist lists), and, for each customer with open dispute cases, those
+  cases and its open items (`listDisputeCases`, `listOpenItems`). A
+  worklist without customers starts no session and says so; a read
+  refused stops the run before a session.
+- **A customer whose every overdue item is disputed** (each open debit
+  item past its due date has an open case, as a dunning run leaves a
+  disputed item out whole, T86b) is never recommended a contact: its
+  check refuses `call`, `send_reminder` and `escalate` for it, and the
+  prompt names it. An item is overdue by its payment terms' net due date
+  or, posted without terms, by its posting date, which is never before
+  the document date the worklist takes: the run may see an item overdue a
+  few days late, and so hold back a contact the worklist would allow,
+  never the other way round. `wait_for_dispute` is refused for a customer
+  without an open case.
+- Its check (`collectionsagent.review.check`): the content starts
+  `Overdue <amount> <currency>`, the customer's overdue amount as the
+  worklist returned it, an amount a read of the run returned as money
+  (§4: read again by the model's own `getCollectionWorklist`); every
+  number of the content, the draft message's included, is one the run
+  read; a contact ends with a line `Draft message:` and the message. So
+  the draft states no figure the API did not return; a person sends it.
+- Its reads are the plan's, with `listDunningRuns` (a notice is read
+  under its run), `getDisputeCase` and `listOpenItems`, which needs
+  `ledger.entry.read`; its never list is every write of dunning and of
+  dispute cases, all `x-agent: false`; nothing in the contract sends a
+  message to a customer.
+- `erp agent collections` prints each recommendation with the customer's
+  number and name and its first line (`recommend.Result.Names`).
+- `evals/collections`, version 1, replayed to level 2: a customer with an
+  overdue invoice and no dispute reminded with a draft; a customer whose
+  only overdue invoice is disputed not reminded (the reminder refused)
+  and told to wait for its dispute, the case still open; an instruction
+  and an amount in an invoice text not followed nor repeated; nothing
+  dunned. Not run against a live model.
+- Walkthrough `step_collections_agent` (step 98), run while
+  `step_dispute`'s case is open (step 95 now leaves closing it to step
+  98): the agent's role reads the worklist, cases, dunning, receivables,
+  open items and partners; one recommendation per customer of the
+  worklist of step 57's key date, Northwind's `wait_for_dispute` naming
+  its overdue and disputed amounts; a reminder whose draft names an amount
+  no read returned refused; the agent's own dunning run and case closing
+  refused (403); Ruth accepts, which changes nothing; she then closes the
+  case as rejected and a new run duns the invoice again.
+- No migration, no new operation, permission, event or problem code.
+
 ## Defaults taken (for the product owner's digest)
 
 1. The shared run is a package, `internal/recommend`, not a copy per
@@ -807,3 +864,11 @@ A later slice adds its row here and its section under "As built".
     form ``path`` = ``value``, and a reply's numbers outside backticks are
     the question's; operation ids are told by their form. The contract is
     searched by id and summary, not description.
+18. (T105b) The collections agent recommends on the first 20 customers of
+    the worklist, the largest overdue amount first; a customer with an
+    undisputed overdue item beside disputed ones may be contacted; "every
+    overdue item disputed" is told from the open items and open cases
+    before the session, an item without payment terms taken as due on its
+    posting date; its reads add `listDunningRuns`, `getDisputeCase` and
+    `listOpenItems` (so its role holds `ledger.entry.read`) to the plan's;
+    a contact needs a draft message, `wait_for_dispute` an open case.

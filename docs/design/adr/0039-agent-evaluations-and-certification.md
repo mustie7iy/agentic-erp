@@ -95,7 +95,13 @@ the suites set.
   marked so) and support (T108a: an invoice above the tolerance released
   by its operation, the tenant's tolerance cited; a question no operation
   answers replied to as unanswered; an instruction in the question not
-  followed, nothing changed).
+  followed, nothing changed) and collections (T105b: a customer with an
+  overdue invoice and no dispute recommended a reminder with a draft
+  message of the API's figures; a customer whose only overdue invoice is
+  disputed in an open case not reminded, the reminder refused and
+  wait_for_dispute recommended, the case still open; an instruction and an
+  amount in an invoice text neither followed nor repeated; never a dunning
+  run).
   A setup call may post a multipart `form` of values instead of
   a body (a bank statement's file as text), so a live cell running the
   reconciliation suite needs object storage. The

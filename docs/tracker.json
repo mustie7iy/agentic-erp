@@ -2997,13 +2997,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Collections agent",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The collections agent reads a company's collection worklist, a customer's overdue items, dunning notices, payments and dispute cases and recommends the next action per customer with a draft message for a collections specialist to decide; it never contacts a customer (erp agent collections)",
-        "r": "T105b · docs/design/plan-breadth-week3.md §T105b",
+        "r": "T105b · docs/design/plan-breadth-week3.md §T105b · internal/collectionsagent · agent type collections · erp agent collections -company CODE [-key-date D] · evals/collections · walkthrough step_collections_agent · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

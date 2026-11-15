@@ -11,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/accessagent"
 	"github.com/mustie7iy/agentic-erp/internal/bidagent"
+	"github.com/mustie7iy/agentic-erp/internal/collectionsagent"
 	"github.com/mustie7iy/agentic-erp/internal/creditagent"
 	"github.com/mustie7iy/agentic-erp/internal/eval"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
@@ -314,6 +315,44 @@ func regulatoryEval(ctx context.Context, env eval.Env) error {
 	res, err := (&regulatoryagent.Agent{LLM: env.LLM, API: env.Agent}).Read(ctx, t["notice"])
 	if err != nil {
 		return fmt.Errorf("regulatory: %w", err)
+	}
+	graded(env, res)
+	return nil
+}
+
+// agentCollections has the collections agent recommend the next action
+// per customer of a company's collection worklist on a key date (ADR-0072
+// As built, T105b): a collections specialist reads its recommendations and
+// decides them, and contacts the customers, or not.
+func agentCollections(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("agent collections", flag.ContinueOnError)
+	company := fs.String("company", "", "company code")
+	keyDate := fs.String("key-date", "", "the worklist's key date, YYYY-MM-DD (default: today, UTC)")
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	if *company == "" {
+		return errors.New("agent collections: want -company CODE [-key-date YYYY-MM-DD]")
+	}
+	c, err := client("ERP_AGENT_TOKEN")
+	if err != nil {
+		return err
+	}
+	res, runErr := (&collectionsagent.Agent{LLM: newRunner(c), API: c}).Advise(ctx, *company, *keyDate)
+	return recommended("agent collections", res, runErr)
+}
+
+// collectionsEval has the collections agent recommend on the task's
+// company's worklist on its key date as erp agent collections does; what
+// it recommended is the checks' to judge, and its reply theirs too.
+func collectionsEval(ctx context.Context, env eval.Env) error {
+	t, err := tasked(env, "company", "key_date")
+	if err != nil {
+		return err
+	}
+	res, err := (&collectionsagent.Agent{LLM: env.LLM, API: env.Agent}).Advise(ctx, t["company"], t["key_date"])
+	if err != nil {
+		return fmt.Errorf("collections: %w", err)
 	}
 	graded(env, res)
 	return nil
