@@ -5,13 +5,17 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 
 	"github.com/mustie7iy/agentic-erp/internal/accessagent"
+	"github.com/mustie7iy/agentic-erp/internal/bidagent"
 	"github.com/mustie7iy/agentic-erp/internal/creditagent"
 	"github.com/mustie7iy/agentic-erp/internal/eval"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/recommend"
+	"github.com/mustie7iy/agentic-erp/internal/regulatoryagent"
 )
 
 // The recommending agents (ADR-0072): each command runs one session of
@@ -199,6 +203,117 @@ func accessEval(ctx context.Context, env eval.Env) error {
 	}
 	if err != nil {
 		return fmt.Errorf("access: %w", err)
+	}
+	graded(env, res)
+	return nil
+}
+
+// agentBidCompare has the bid comparison agent compare an RFQ's
+// quotations (ADR-0072, T105c): the buyer reads its recommendation and
+// decides it, and awards the RFQ, or not.
+func agentBidCompare(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("agent bid-compare", flag.ContinueOnError)
+	rfq := fs.String("rfq", "", "the RFQ's id")
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	if *rfq == "" {
+		return errors.New("agent bid-compare: want -rfq ID")
+	}
+	c, err := client("ERP_AGENT_TOKEN")
+	if err != nil {
+		return err
+	}
+	res, runErr := (&bidagent.Agent{LLM: newRunner(c), API: c}).Compare(ctx, *rfq)
+	return recommended("agent bid-compare", res, runErr)
+}
+
+// bidComparisonEval has the bid comparison agent compare the task's RFQ
+// as erp agent bid-compare does; what it recommended is the checks' to
+// judge, and its reply theirs too.
+func bidComparisonEval(ctx context.Context, env eval.Env) error {
+	t, err := tasked(env, "rfq")
+	if err != nil {
+		return err
+	}
+	res, err := (&bidagent.Agent{LLM: env.LLM, API: env.Agent}).Compare(ctx, t["rfq"])
+	if err != nil {
+		return fmt.Errorf("bid_comparison: %w", err)
+	}
+	graded(env, res)
+	return nil
+}
+
+// agentRegulatoryNotice has the regulatory agent read a notice of a
+// regulatory change, from a file the tax accountant names, against the
+// tenant's configuration (ADR-0072, T107a): the tax accountant reads its
+// recommendation and decides it. The notice is read from the file only:
+// the agent fetches nothing.
+func agentRegulatoryNotice(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("agent regulatory-notice", flag.ContinueOnError)
+	file := fs.String("file", "", "the notice, a text file")
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	if *file == "" {
+		return errors.New("agent regulatory-notice: want -file F")
+	}
+	notice, err := readNotice(*file)
+	if err != nil {
+		return err
+	}
+	c, err := client("ERP_AGENT_TOKEN")
+	if err != nil {
+		return err
+	}
+	res, runErr := (&regulatoryagent.Agent{LLM: newRunner(c), API: c}).Read(ctx, notice)
+	return recommended("agent regulatory-notice", res, runErr)
+}
+
+// readNotice reads a notice's file, at most one byte beyond the longest
+// notice, which the agent refuses: a larger file is not read whole.
+func readNotice(path string) (string, error) {
+	f, err := os.Open(path) // #nosec G304 -- the file the operator names
+	if err != nil {
+		return "", fmt.Errorf("agent regulatory-notice: %w", err)
+	}
+	defer func() { _ = f.Close() }() // read only: nothing to flush
+	b, err := io.ReadAll(io.LimitReader(f, regulatoryagent.MaxNotice+1))
+	return string(b), errs.Wrapf(err, "agent regulatory-notice: read %s", path)
+}
+
+// agentRegulatoryDraft has the regulatory agent draft the configuration
+// change of a recommendation the tax accountant accepted, and have it
+// simulated (ADR-0072, T107b): it recommends on the draft, and a person
+// submits it, or not.
+func agentRegulatoryDraft(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("agent regulatory-draft", flag.ContinueOnError)
+	rec := fs.String("recommendation", "", "the accepted recommendation's id")
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	if *rec == "" {
+		return errors.New("agent regulatory-draft: want -recommendation ID")
+	}
+	c, err := client("ERP_AGENT_TOKEN")
+	if err != nil {
+		return err
+	}
+	res, runErr := (&regulatoryagent.Agent{LLM: newRunner(c), API: c}).Draft(ctx, *rec)
+	return recommended("agent regulatory-draft", res, runErr)
+}
+
+// regulatoryEval has the regulatory agent read the task's notice as erp
+// agent regulatory-notice does; what it recommended is the checks' to
+// judge, and its reply theirs too.
+func regulatoryEval(ctx context.Context, env eval.Env) error {
+	t, err := tasked(env, "notice")
+	if err != nil {
+		return err
+	}
+	res, err := (&regulatoryagent.Agent{LLM: env.LLM, API: env.Agent}).Read(ctx, t["notice"])
+	if err != nil {
+		return fmt.Errorf("regulatory: %w", err)
 	}
 	graded(env, res)
 	return nil

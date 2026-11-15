@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -9,6 +10,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/eval"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
+	"github.com/mustie7iy/agentic-erp/internal/regulatoryagent"
+	"github.com/mustie7iy/agentic-erp/internal/supportagent"
 )
 
 // agentSession is the session the fake API starts for an agent's run.
@@ -177,6 +180,131 @@ func TestAgentAccessReview(t *testing.T) {
 	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "access-review", "-period", period)
 }
 
+// TestAgentBidCompare: erp agent bid-compare needs -rfq, reads the RFQ's
+// comparison, runs the bid comparison agent's session and prints what it
+// recommended and the model's reply, also when the run failed after
+// starting its session (ADR-0072, T105c).
+func TestAgentBidCompare(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	fails(t, "flag provided", "agent", "bid-compare", "-x")
+	fails(t, "want -rfq ID", "agent", "bid-compare")
+	fails(t, "404", "agent", "bid-compare", "-rfq", "q1")
+	compared := sessionRoutes(routes{"GET /v1/rfqs/q1/comparison": {ok(`{"rfq_id": "q1", "rfq_document_number": "RQ100004", "company_code": "3000",
+			"currency": "CAD", "status": "published", "suppliers": [{"supplier_quotation_id": "01a1aa00-0000-7000-8000-000000000c01", "rank": 1,
+			"total": {"amount": "28400.00", "currency": "CAD"}}]}`)},
+		"POST /v1/recommendations": {reply{201, `{"id": "r1", "object_type": "rfq", "object_id": "q1", "kind": "award"}`}}})
+	fakeAPI(t, compared)
+	model(t, llmtest.Tool("getRfqComparison", map[string]any{"id": "q1"}),
+		llmtest.Tool("createRecommendation", map[string]any{"body": map[string]any{"session_id": agentSession, "object_type": "rfq",
+			"object_id": "q1", "kind": "award", "content": "Award: 01a1aa00-0000-7000-8000-000000000c01\nThe one quotation ranked, 28400.00 CAD."}}),
+		llmtest.Final("Recommended the award; the buyer decides."))
+	got := must(t, "agent", "bid-compare", "-rfq", "q1")
+	if want := "Session " + agentSession + ": recommendations made 1, refused 0.\n  recommendation r1: award on rfq q1\n" +
+		"Recommended the award; the buyer decides.\n"; got != want {
+		t.Errorf("agent bid-compare: got %q, want %q", got, want)
+	}
+	model(t)
+	// A failed run still names its session, then fails.
+	fails(t, "Session "+agentSession+": recommendations made 0, refused 0.", "agent", "bid-compare", "-rfq", "q1")
+	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
+	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "bid-compare", "-rfq", "q1")
+}
+
+// TestAgentRegulatoryNotice: erp agent regulatory-notice needs -file, a
+// readable notice of at most regulatoryagent.MaxNotice bytes, reads the
+// active configuration version, runs the regulatory agent's session and
+// prints what it recommended and the model's reply, also when the run
+// failed after starting its session (ADR-0072, T107a).
+func TestAgentRegulatoryNotice(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	notice := "INVENTED: no authority issued this notice. From 1 July 2099 tax code V0 rises from 0 percent to 2.5 percent."
+	if err := os.WriteFile("notice.txt", []byte(notice), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("long.txt", []byte(strings.Repeat("x", regulatoryagent.MaxNotice+10)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fails(t, "flag provided", "agent", "regulatory-notice", "-x")
+	fails(t, "want -file F", "agent", "regulatory-notice")
+	fails(t, "no such file", "agent", "regulatory-notice", "-file", "missing.txt")
+	fails(t, "is a directory", "agent", "regulatory-notice", "-file", ".")
+	fails(t, "a notice is UTF-8 text", "agent", "regulatory-notice", "-file", "long.txt")
+	fails(t, "404", "agent", "regulatory-notice", "-file", "notice.txt")
+	read := sessionRoutes(routes{"GET /v1/config-versions": {ok(`{"items": [{"id": "v1", "number": 3, "document": {"companies": [{"code": "1000",
+			"tax_codes": [{"code": "V0", "rate_percent": "0"}]}]}}]}`)},
+		"POST /v1/recommendations": {reply{201, `{"id": "r1", "object_type": "config_version", "object_id": "v1", "kind": "no_change"}`}}})
+	fakeAPI(t, read)
+	model(t, llmtest.Tool("createRecommendation", map[string]any{"body": map[string]any{"session_id": agentSession, "object_type": "config_version",
+		"object_id": "v1", "kind": "no_change", "content": "Nothing to change. " + regulatoryagent.Caveat}}),
+		llmtest.Final("No change needed; a person checks the notice."))
+	got := must(t, "agent", "regulatory-notice", "-file", "notice.txt")
+	if want := "Session " + agentSession + ": recommendations made 1, refused 0.\n  recommendation r1: no_change on config_version v1\n" +
+		"No change needed; a person checks the notice.\n"; got != want {
+		t.Errorf("agent regulatory-notice: got %q, want %q", got, want)
+	}
+	model(t)
+	// A failed run still names its session, then fails.
+	fails(t, "Session "+agentSession+": recommendations made 0, refused 0.", "agent", "regulatory-notice", "-file", "notice.txt")
+	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
+	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "regulatory-notice", "-file", "notice.txt")
+}
+
+// TestAgentRegulatoryDraft: erp agent regulatory-draft needs
+// -recommendation, refuses a recommendation that is not accepted before a
+// session, runs the drafting session on an accepted one and prints what
+// it recommended and the model's reply (ADR-0072, T107b).
+func TestAgentRegulatoryDraft(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	fails(t, "flag provided", "agent", "regulatory-draft", "-x")
+	fails(t, "want -recommendation ID", "agent", "regulatory-draft")
+	fails(t, "404", "agent", "regulatory-draft", "-recommendation", "r0")
+	rec := func(outcome string) reply {
+		return ok(`{"id": "r0", "object_type": "config_version", "object_id": "v1", "kind": "change_needed", "outcome": "` + outcome +
+			`", "content": "Paths: companies[1000].tax_codes[V0]\nTakes effect: not stated\n"}`)
+	}
+	versions := ok(`{"items": [{"id": "v1", "number": 3, "document": {"companies": [{"code": "1000", "tax_codes": [{"code": "V0", "rate_percent": "0"}]}]}}]}`)
+	fakeAPI(t, routes{"GET /v1/recommendations/r0": {rec("overridden")}})
+	fails(t, "is change_needed on config_version, overridden", "agent", "regulatory-draft", "-recommendation", "r0")
+	fakeAPI(t, sessionRoutes(routes{"GET /v1/recommendations/r0": {rec("accepted")}, "GET /v1/config-versions": {versions}}))
+	model(t, llmtest.Final("Nothing drafted: the configuration cannot hold the rate."))
+	got := must(t, "agent", "regulatory-draft", "-recommendation", "r0")
+	if want := "Session " + agentSession + ": recommendations made 0, refused 0.\nNothing drafted: the configuration cannot hold the rate.\n"; got != want {
+		t.Errorf("agent regulatory-draft: got %q, want %q", got, want)
+	}
+	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
+	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "regulatory-draft", "-recommendation", "r0")
+}
+
+// TestAgentSupportAsk: erp agent support-ask needs a question, reads the
+// active configuration version, runs the support agent's session and
+// prints how many replies were refused and the reply admitted, also when
+// the run failed after starting its session (ADR-0072 As built, T108a).
+func TestAgentSupportAsk(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	fails(t, "flag provided", "agent", "support-ask", "-x")
+	fails(t, "ask a question", "agent", "support-ask")
+	fails(t, "404", "agent", "support-ask", "how", "is", "an", "invoice", "released?")
+	fakeAPI(t, sessionRoutes(routes{"GET /v1/config-versions": {ok(`{"items": [{"id": "v1", "number": 3, "document": {"companies": []}}]}`)}}))
+	model(t, llmtest.Tool(supportagent.Reply, map[string]any{"text": "Call releaseSupplierInvoice."}), llmtest.Final("Answered."))
+	got := must(t, "agent", "support-ask", "how", "is", "an", "invoice", "released?")
+	if want := "Session " + agentSession + ": replies refused 0.\nCall releaseSupplierInvoice.\n"; got != want {
+		t.Errorf("agent support-ask: got %q, want %q", got, want)
+	}
+	model(t)
+	// A failed run still names its session, then fails.
+	fails(t, "Session "+agentSession+": replies refused 0.", "agent", "support-ask", "how?")
+	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
+	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "support-ask", "how?")
+}
+
 // TestRecommendingAdapterFailures: a recommending agent's evaluation
 // adapter fails its case on a task without its values and on an agent
 // that could not run.
@@ -195,6 +323,12 @@ func TestRecommendingAdapterFailures(t *testing.T) {
 			Task: map[string]any{"run": "sod", "role": "clerk", "add": "payables.invoice.post"}}),
 		"access without its API": accessEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{},
 			Task: map[string]any{"role": "clerk", "from": "2026-04-01", "to": "2026-06-30"}}),
+		"bid_comparison without an RFQ":  bidComparisonEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
+		"bid_comparison without its API": bidComparisonEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"rfq": "q1"}}),
+		"regulatory without a notice":    regulatoryEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
+		"regulatory without its API":     regulatoryEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"notice": "A notice."}}),
+		"support without a question":     supportEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
+		"support without its API":        supportEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"question": "How?"}}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err == nil {

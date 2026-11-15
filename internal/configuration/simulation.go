@@ -212,8 +212,11 @@ func (w *SimulationWorker) process(ctx context.Context, tx pgx.Tx, actor reqctx.
 	if err != nil {
 		return failOrRetry(err, fail)
 	}
-	if err := requireStatus(c, "simulate", AwaitingEvidence); err != nil {
+	if err := requireStatus(c, "simulate", Draft, AwaitingEvidence); err != nil {
 		return failOrRetry(err, fail)
+	}
+	if c.Status == Draft {
+		return w.preview(ctx, tx, c, j.OperationID, fail)
 	}
 	passed, detail, err := w.evidence(ctx, tx, actor, c, fail)
 	if err != nil || detail == nil { // no detail: a problem failed the operation, the job is done
@@ -230,6 +233,43 @@ func (w *SimulationWorker) process(ctx context.Context, tx pgx.Tx, actor reqctx.
 	}
 	delete(detail, "operation_id")
 	_, err = operations.Succeed(ctx, j.OperationID, "/v1/change-requests/"+id.String(), detail)
+	return err
+}
+
+// previewed is the audit action of a draft's simulation (T107b).
+const previewed = "config.change_request.preview"
+
+// preview simulates a draft (T107b): it validates the proposal as
+// submission would, a finding failing the operation with the 422 that
+// submission would answer, and replays it as a simulation replays a
+// submitted request, but it records no evidence and moves nothing: the
+// operation's result is the preview, with the draft's version it read.
+// A draft changes until it is submitted and its tier is computed then, so
+// submission still asks for evidence of the request it fixes.
+func (w *SimulationWorker) preview(ctx context.Context, tx pgx.Tx, c ChangeRequest, operation uuid.UUID, fail func(*problem.Problem) error) error {
+	base, proposed, err := assessed(ctx, tx, c)
+	if err == nil {
+		err = w.Dependencies.check(ctx, tx, base, proposed, "proposed")
+	}
+	var suite *RegressionSuite
+	if err == nil {
+		suite, err = latestSuite(ctx, tx, c.BaseVersion)
+	}
+	var sim Simulation
+	if err == nil {
+		sim, err = w.simulateOver(ctx, c, base, proposed, suite)
+	}
+	if err != nil {
+		return failOrRetry(err, fail)
+	}
+	// The replay's own detail stays out: it is evidence's, for those who
+	// read the request; the preview tells its requester the outcome.
+	detail := map[string]any{"kind": "simulation", "passed": sim.Passed, "summary": sim.Summary, "status": Draft, "version": c.Version,
+		"proposal_sha256": sim.Detail["proposal_sha256"]}
+	err = record(ctx, previewed, c.ID, map[string]any{"operation_id": operation, "passed": sim.Passed, "version": c.Version})
+	if err == nil {
+		_, err = operations.Succeed(ctx, operation, "/v1/change-requests/"+c.ID.String(), detail)
+	}
 	return err
 }
 

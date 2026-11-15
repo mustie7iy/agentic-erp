@@ -1001,7 +1001,29 @@ each active `principal` of an access review: `keep_roles`, `remove_roles`
 naming the roles it never used, or `review`.
 It holds `identity.access.read` and `audit.event.read` only where a
 tenant's administrator granted them to its role, and identity writes stay
-people's.
+people's. The bid comparison agent (`erp agent bid-compare -rfq ID`,
+agent type `bid_comparison`, T105c) recommends on an `rfq`: `award`, its
+content's first line naming a quotation the comparison ranks, or
+`no_award`; the award stays the buyer's (`x-agent: false`, ADR-0069 §7).
+The regulatory agent (`erp agent regulatory-notice -file F`, agent type
+`regulatory`, T107a) reads a notice a tax accountant gives it as text
+against the configuration and recommends on the active
+`config_version`: `change_needed`, naming the paths affected and when it
+takes effect and quoting the notice character for character, or
+`no_change`, each saying that a person must check the notice against its
+source; it fetches nothing and proposes no change. From a recommendation
+of its a person accepted, it drafts the change request
+(`erp agent regulatory-draft -recommendation ID`, T107b) of the paths
+named and no other, has the draft simulated (a preview of a `draft`,
+recording no evidence) and recommends on the `change_request`:
+`ready_to_submit` or `simulation_failed`; it never submits, withdraws
+or activates it. The support agent (`erp agent support-ask QUESTION`,
+agent type `support`, T108a) answers how to do something with a reply
+only: it reads the contract through a local search of its operations
+(`findOperations`: method, path, summary, description, permission,
+problem codes) and the active configuration, and its reply names only
+operations of the contract and cites settings as the active version
+holds them; it has no tool that writes.
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation

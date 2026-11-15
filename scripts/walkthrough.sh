@@ -6679,10 +6679,11 @@ step_credit_limit() {
 # down payment (step 3's DP_SUPPLIER), and publishes it; he then records
 # the quotation each of them sent, the second cheaper in total, and reads
 # their comparison (T82c), which ranks the cheaper first and marks the
-# lowest amount of each item. The due date is the request's, two weeks
+# lowest amount of each item. The bid comparison agent then recommends the
+# award (T105c, rfq_agent). The due date is the request's, two weeks
 # after the company's date today. It keeps the RFQ (RFQ).
 step_rfq() {
-  heading "Step 60 — Sourcing: a request for quotation for two items is created with two suppliers invited and published; a quotation is recorded for each supplier, one cheaper in total, and the comparison ranks it first"
+  heading "Step 60 — Sourcing: a request for quotation for two items is created with two suppliers invited and published; a quotation is recorded for each supplier, one cheaper in total, and the comparison ranks it first; the bid comparison agent recommends awarding it, and the buyer accepts"
   as ben
   local due expense body valid quote line
   due=$(date_add "$(company_day)" 14)
@@ -6751,7 +6752,82 @@ step_rfq() {
     "1 17000.00 CAD, 2 11400.00 CAD"
   expect "the prices marked as the lowest" "$(field '[.suppliers[] | .supplier_id as $s | .prices[] | select(.lowest) | "\($s) \(.rfq_item_no) \(.amount.amount)"] | join(", ")')" \
     "$DP_SUPPLIER 1 17000.00, $DP_SUPPLIER 2 11400.00"
+  rfq_agent
   passed
+}
+
+# rfq_agent is T105c's part of step_rfq (ADR-0072): the bid comparison
+# agent, erp agent bid-compare through the model stand-in answering from a
+# script of turns (its suite's replay, evals/bid_comparison), reads the
+# comparison of step_rfq's RFQ and recommends awarding it to the quotation
+# ranked first, $DP_NAME's, naming on its first line that quotation and
+# giving both totals. A content stating the difference between them, an
+# amount it computed, is refused by the run first. Its own award is
+# refused (x-agent: false). Ben, the buyer, accepts the recommendation,
+# which changes nothing: the RFQ is published as before, and he awards it
+# himself in step_rfq_award. It keeps the quotation recommended (WINNER).
+rfq_agent() {
+  local role got session rec first second
+  as ada
+  say "Ada sets up the bid comparison agent (ADR-0072): an agent principal of type bid_comparison at autonomy level 1"
+  say "on erp-default. Its role reads RFQs, contracts, purchase orders and partners, and records its sessions and"
+  say "recommendations; it holds no permission that awards, publishes or records a quotation."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "bid_agent", "name": "Bid comparison agent"}'
+  role=$(field .id)
+  grant "$role" procurement.rfq.read procurement.contract.read procurement.order.read partner.supplier.read \
+    agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model), budget \(.agent_profile.monthly_budget.amount) \(.agent_profile.monthly_budget.currency) a month"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "bid-agent", "display_name": "Bid comparison agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "bid_comparison", "model": "erp-default", "description": "Recommends RFQ awards for a buyer to decide (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token bid-agent "Bid comparison agent"
+  as ben
+  QUIET=1 api 200 '' getRfqComparison -p "id=$RFQ"
+  WINNER=$(field '.suppliers[] | select(.rank == 1) | .supplier_quotation_id')
+  first=$(field '.suppliers[] | select(.rank == 1) | .total.amount') second=$(field '.suppliers[] | select(.rank == 2) | .total.amount')
+  say "The agent runs: erp agent bid-compare starts a session on erp-default, reads the comparison through its tool and"
+  say "recommends. The model is the stand-in, answering from a script of turns as the agent's evaluation suite replays"
+  say "them (evals/bid_comparison): it first states the difference between the totals, 1360.00 CAD, an amount no read"
+  say "returned (refused by the run: the agent computes no amount), then recommends the quotation ranked first."
+  jq -n --arg rfq "$RFQ" --arg winner "$WINNER" --arg dp "$DP_NAME" --arg first "$first" --arg second "$second" '
+    {session_id: "{{session}}", object_type: "rfq", object_id: $rfq, kind: "award"} as $on |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "getRfqComparison", input: {id: $rfq}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Award: \($winner)\n\($dp) is 1360.00 CAD cheaper than Tyrell Office Products."})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Award: \($winner)\n\($dp)\u0027s quotation is ranked first at \($first) CAD; Tyrell Office Products\u0027 is second at \($second) CAD. \($dp) quoted the lower amount for both items, 17000.00 CAD for the chairs and 11400.00 CAD for the desks. No quotation was left out as incomplete or expired."})}},
+      {final: "Recommended awarding the RFQ to \($dp)\u0027s quotation; the buyer decides, and awards it himself."}]}' >"$WORK/model-script.json"
+  show ERP_AGENT_TOKEN=… erp agent bid-compare -rfq "$RFQ"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/bid-agent") "$ERP" agent bid-compare -rfq "$RFQ" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent bid-compare failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): award on rfq $RFQ\$/\1/p")
+  [ -n "$rec" ] || fail "erp agent bid-compare printed no award on the RFQ $RFQ"
+  say "Ben reads the recommendation on the RFQ:"
+  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)"))' listRecommendations -p "object_id=$RFQ"
+  expect "the recommendations on the RFQ, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "made in its session" "$(field '.items[0].session_id')" "$session"
+  expect "naming the quotation ranked first, $DP_NAME's" "$(field '.items[0].content | split("\n")[0]')" "Award: $WINNER"
+  expect "with both totals" "$(jq -r --arg f "$first" --arg s "$second" '.items[0].content | contains("\($f) CAD") and contains("\($s) CAD")' "$WORK/last.json")" true
+  as bid-agent
+  say "Recommending is all it may do: the award is a person's (x-agent: false), erp agent builds it no tool for it,"
+  say "and the API refuses its own call:"
+  QUIET=1 api 200 '' getRfq -p "id=$RFQ"
+  refused 403 identity.agent_not_allowed awardRfq -p "id=$RFQ" -if-match "$ETAG" \
+    -body "{\"quotation_id\": \"$WINNER\", \"valid_from\": \"$(company_day)\", \"valid_to\": \"$(date_add "$(company_day)" 364)\"}"
+  api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "getRfqComparison createRecommendation createRecommendation"
+  as ben
+  say "Ben accepts the recommendation. Accepting changes nothing: the RFQ is published as before, and Ben awards it"
+  say "himself, through the normal operation (step 66)."
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "The cheaper complete quotation; I award it."}'
+  expect "the recommendation's outcome" "$(field .outcome)" accepted
+  QUIET=1 api 200 '' getRfq -p "id=$RFQ"
+  expect "the RFQ after the acceptance, not awarded" "$(field '"\(.status) \(.version)"')" "published 2"
 }
 
 # step_rfq_award is T82d (ADR-0069 §7): Ben awards the RFQ of step_rfq
@@ -6771,6 +6847,7 @@ step_rfq_award() {
   QUIET=1 api 200 '' getRfqComparison -p "id=$RFQ"
   winner=$(field '.suppliers[] | select(.rank == 1) | .supplier_quotation_id')
   expect "the quotation ranked first is $DP_NAME's" "$(field '.suppliers[] | select(.rank == 1) | .supplier_id')" "$DP_SUPPLIER"
+  expect "the quotation the bid comparison agent recommended and Ben accepted (step 60)" "$winner" "$WINNER"
   QUIET=1 api 200 '' getRfq -p "id=$RFQ"
   tag=$ETAG
   body="{\"quotation_id\": \"$winner\", \"valid_from\": \"$today\", \"valid_to\": \"$until\"}"
@@ -9054,6 +9131,250 @@ step_credit_memo_posting() {
   passed
 }
 
+# step_regulatory_agent is T107a (ADR-0072): Fiona, who manages tax,
+# gives the regulatory agent a notice of a regulatory change as a file.
+# The notice is invented for the walkthrough and says so: no authority
+# issued it, and the product ships no regulatory content. It raises the
+# rate of tax code V0 of company 1000, the walkthrough's own invented
+# code. erp agent regulatory-notice, through the model stand-in answering
+# from a script of turns (its suite's replay, evals/regulatory), reads the
+# active configuration version; a passage it misquotes is refused by the
+# run first; it then recommends change_needed on the version, naming the
+# code's path and when the change takes effect, quoting the notice
+# character for character, and saying that a person must check the notice
+# against its source. Its role proposes no change: its own change request
+# is refused, and the configuration is as it was. The recommendation is
+# left open for the tax accountant (T107b drafts the change from it).
+step_regulatory_agent() {
+  heading "Step 87 — The regulatory agent: an invented notice read against the configuration; a misquoted passage refused; the tax code's path, the date it takes effect and the notice's own words recommended, for a person to check against the source; once accepted, the change drafted and simulated, a person submitting it; the configuration unchanged until it is approved"
+  local role version number got session rec notice
+  as ada
+  say "Ada sets up the regulatory agent (ADR-0072): an agent principal of type regulatory at autonomy level 1 on"
+  say "erp-default. Its role reads the configuration, the country packs and the tax registrations, and records its"
+  say "sessions and recommendations; it holds no permission that proposes or activates a change."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "regulatory_agent", "name": "Regulatory agent"}'
+  role=$(field .id)
+  grant "$role" config.change.read config.version.read tax.registration.read agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model), budget \(.agent_profile.monthly_budget.amount) \(.agent_profile.monthly_budget.currency) a month"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "regulatory-agent", "display_name": "Regulatory agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "regulatory", "model": "erp-default", "description": "Reads regulatory notices against the configuration for a tax accountant to decide (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token regulatory-agent "Regulatory agent"
+  as fiona
+  say "What the agent will read, as Fiona reads it: the active configuration version and tax code V0 of company 1000:"
+  api 200 '.items[0] | "  version \(.number), active: \(.is_active)", (.document.companies[] | select(.code == "1000") | .tax_codes[] | select(.code == "V0") | "  company 1000, tax code \(.code) \(.description): \(.rate_percent)%")' \
+    listConfigVersions -p is_active=true
+  version=$(field '.items[0].id') number=$(field '.items[0].number')
+  expect "tax code V0 of company 1000" "$(field '.items[0].document.companies[] | select(.code == "1000") | .tax_codes[] | select(.code == "V0") | .rate_percent')" 0
+  notice="$WORK/notice.txt"
+  printf '%s\n' "INVENTED FOR THE WALKTHROUGH: no authority issued this notice and nothing in it is true." \
+    "Notice EX-2099-01 of the Example Revenue Office." \
+    "From 1 July 2099 purchases now exempt from input tax, tax code V0, are taxed at 2.5 percent." >"$notice"
+  say "Fiona has a notice of a change, as text. This one is invented, and says so: the product ships no regulatory"
+  say "content, and the agent fetches nothing. The notice:"
+  sed 's/^/     | /' "$notice"
+  say "The agent runs: erp agent regulatory-notice reads the notice from the file and the active version, starts a"
+  say "session on erp-default and recommends. The model is the stand-in, answering from a script of turns as the agent's"
+  say "evaluation suite replays them (evals/regulatory): it reads the version, quotes the notice wrongly (refused by the"
+  say "run: every quotation is the notice's, character for character), then recommends the change."
+  jq -n --arg v "$version" '
+    {session_id: "{{session}}", object_type: "config_version", object_id: $v, kind: "change_needed"} as $on |
+    "Paths: companies[1000].tax_codes[V0]\nTakes effect: \"From 1 July 2099\"\n" as $head |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "getConfigVersion", input: {id: $v}},
+      {tool: "createRecommendation", input: {body: ($on + {content: ($head + "The notice says \"V0 is taxed at 2.5 percent\". A person must check the notice against its source.")})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: ($head + "The notice says \"purchases now exempt from input tax, tax code V0, are taxed at 2.5 percent\". Tax code V0 of company 1000 is at rate 0 in the active version. A person must check the notice against its source.")})}},
+      {final: "Recommended a change of tax code V0 of company 1000 from the notice'"'"'s date; a person checks the notice against its source and decides."}]}' >"$WORK/model-script.json"
+  show ERP_AGENT_TOKEN=… erp agent regulatory-notice -file notice.txt
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/regulatory-agent") "$ERP" agent regulatory-notice -file "$notice" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent regulatory-notice failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): change_needed on config_version $version\$/\1/p")
+  [ -n "$rec" ] || fail "erp agent regulatory-notice printed no change_needed on the version $version"
+  say "Fiona reads the recommendation on the configuration version:"
+  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)"))' listRecommendations -p "object_id=$version"
+  expect "the recommendations on the version, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "made in its session" "$(field '.items[0].session_id')" "$session"
+  expect "naming the tax code's path" "$(field '.items[0].content | split("\n")[0]')" "Paths: companies[1000].tax_codes[V0]"
+  expect "when it takes effect, in the notice's words" "$(field '.items[0].content | split("\n")[1]')" 'Takes effect: "From 1 July 2099"'
+  expect "quoting the notice's passage, character for character" \
+    "$(jq -r --rawfile n "$notice" '.items[0].content | capture("says \"(?<q>[^\"]+)\"").q as $q | $n | contains($q)' "$WORK/last.json")" true
+  expect "saying a person must check the notice" "$(field '.items[0].content | endswith("A person must check the notice against its source.")')" true
+  as regulatory-agent
+  say "Recommending is all it may do: its role proposes no change, so the API refuses its own change request:"
+  refused 403 identity.permission_missing createChangeRequest -body "{\"title\": \"V0 at 2.5 percent\", \"base_version\": $number, \"proposed\": {}}"
+  api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "getConfigVersion createRecommendation createRecommendation"
+  as fiona
+  say "The configuration is as it was: the same version active, V0 at rate 0. The recommendation waits for Fiona, who"
+  say "checks the notice against its source before any change is drafted."
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  expect "the active version and V0" "$(field '.items[0] | "\(.id) \(.document.companies[] | select(.code == "1000") | .tax_codes[] | select(.code == "V0") | .rate_percent)"')" "$version 0"
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  expect "the recommendation, open" "$(field '.outcome // "open"')" open
+  regulatory_draft "$role" "$rec" "$version" "$number"
+  passed
+}
+
+# regulatory_draft ROLE RECOMMENDATION VERSION NUMBER is T107b,
+# step_regulatory_agent's second part: Fiona accepts the recommendation;
+# the agent, allowed to propose a change, drafts the change request of the
+# path it named, the new rate from the notice's date, and has the draft
+# simulated (a preview: no evidence, nothing moved); a draft that changes
+# another setting is refused by the run; it recommends ready_to_submit on
+# the draft. It submits nothing: Fiona submits it, its simulation as a
+# submitted request records the evidence, and the configuration's own
+# approval decides it; the active version is as it was.
+regulatory_draft() {
+  local role=$1 rec=$2 version=$3 number=$4 us first got session made cr
+  say "Fiona checks the notice against its source (here, the walkthrough's own invention) and accepts the recommendation."
+  say "Accepting changes nothing by itself: the configuration changes only through a change request a person submits."
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "Checked against its source (invented for the walkthrough)"}'
+  as ada
+  say "Ada lets the agent draft (T107b): its role may now propose a change (create, change and simulate a draft) and read"
+  say "the simulation's operation and the fiscal periods. The same permission submits a draft: the agent has no tool that does."
+  grant "$role" config.change.propose platform.operation.read ledger.period.read
+  as fiona
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  us=$(field '.items[] | select(.code == "1000") | .id')
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$us" -p page_size=500
+  first=$(field '[.items[].start_date] | min')
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  # The draft: V0's rate kept from the company's first period to the day
+  # before the notice's date, the notice's rate from it; and one that
+  # also changes the company's price tolerance, a path the
+  # recommendation did not name.
+  jq --arg first "$first" '.items[0].document | (.companies[] | select(.code == "1000") | .tax_codes[] | select(.code == "V0")) |=
+    (del(.rate_percent, .account) + {components: [{key: "tax", account_key: "input", account: "140000",
+      rates: [{rate_percent: "0", valid_from: $first, valid_to: "2099-06-30"}, {rate_percent: "2.5", valid_from: "2099-07-01"}]}]})' \
+    "$WORK/last.json" >"$WORK/proposed.json"
+  jq '.companies |= map(if .code == "1000" then .invoice_tolerance.price_percent = 3 else . end)' "$WORK/proposed.json" >"$WORK/outside.json"
+  # The ids the model reads in the API's answers: the draft's (version 1)
+  # and its simulation's operation.
+  # shellcheck disable=SC2016 # regular expressions, not expansions
+  jq -n --arg r "$rec" --arg v "$version" --argjson n "$number" --arg us "$us" --slurpfile p "$WORK/proposed.json" --slurpfile o "$WORK/outside.json" \
+    --arg cr '\\"body\\":\{\\"id\\":\\"([0-9a-f-]{36})\\",\\"version\\":1,\\"created_at' \
+    --arg op '\\"id\\":\\"([0-9a-f-]{36})\\",\\"kind\\":\\"config.simulate' '
+    {title: "V0 at 2.5 percent from 1 July 2099", base_version: $n,
+     rationale: "The notice says \"From 1 July 2099 purchases now exempt from input tax, tax code V0, are taxed at 2.5 percent\"."} as $req |
+    {vars: {session: "session id is ([0-9a-f-]{36})", cr: $cr, op: $op},
+     turns: [
+      {tool: "getRecommendation", input: {id: $r}},
+      {tool: "getConfigVersion", input: {id: $v}},
+      {tool: "listFiscalPeriods", input: {legal_entity_id: $us}},
+      {tool: "createChangeRequest", input: {body: ($req + {proposed: $o[0]})}},
+      {tool: "createChangeRequest", input: {body: ($req + {proposed: $p[0]})}},
+      {tool: "simulateChangeRequest", input: {id: "{{cr}}", if_match: "\"1\""}},
+      {tool: "getOperation", input: {id: "{{op}}"}},
+      {tool: "createRecommendation", input: {body: {session_id: "{{session}}", object_type: "change_request", object_id: "{{cr}}", kind: "ready_to_submit",
+        content: "Drafted tax code V0 of company 1000 as the notice says: \"purchases now exempt from input tax, tax code V0, are taxed at 2.5 percent\", \"From 1 July 2099\"; the rate in force until then is kept. The simulation of the draft passed. A person must check the notice against its source."}}},
+      {final: "Drafted the change of tax code V0 and had it simulated; it is ready for a person to submit."}]}' >"$WORK/model-script.json"
+  say "The agent drafts: erp agent regulatory-draft reads the accepted recommendation and the active version, starts a"
+  say "session and, through the stand-in's script, first drafts a change that also raises the price tolerance (refused by the"
+  say "run: the draft changes only the paths the recommendation named), then V0 alone; it has the draft simulated and recommends."
+  show ERP_AGENT_TOKEN=… erp agent regulatory-draft -recommendation "$rec"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/regulatory-agent") "$ERP" agent regulatory-draft -recommendation "$rec" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent regulatory-draft failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 0."
+  made=$(printf '%s\n' "$got" | sed -nE 's/^  recommendation [0-9a-f-]{36}: ready_to_submit on change_request ([0-9a-f-]{36})$/\1/p')
+  [ -n "$made" ] || fail "erp agent regulatory-draft printed no ready_to_submit on a change request"
+  cr=$made
+  api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" \
+    "getRecommendation getConfigVersion listFiscalPeriods createChangeRequest createChangeRequest simulateChangeRequest getOperation createRecommendation"
+  expect "the first draft refused" "$(field '[.items[] | select(.tool == "createChangeRequest") | .is_error] | join(" ")')" "true false"
+  say "Fiona reads the draft: the agent's, still a draft, tax code V0 of company 1000 at 0 until 30 June 2099 and 2.5 from 1 July:"
+  api 200 '"  change request \(.number), \(.status), by the agent: \(.title)", (.proposed.companies[] | select(.code == "1000") | .tax_codes[] | select(.code == "V0") | .components[0].rates[] | "    rate \(.rate_percent)% from \(.valid_from)\(if .valid_to then " to \(.valid_to)" else "" end)")' \
+    getChangeRequest -p "id=$cr"
+  expect "the draft" "$(field '"\(.status) \(.evidence | length)"')" "draft 0"
+  expect "the rates drafted" "$(field '[.proposed.companies[] | select(.code == "1000") | .tax_codes[] | select(.code == "V0") | .components[0].rates[] | "\(.rate_percent) \(.valid_from)"] | join(", ")')" "0 $first, 2.5 2099-07-01"
+  expect "the tolerance unchanged" "$(field '.proposed.companies[] | select(.code == "1000") | .invoice_tolerance.price_percent')" 2
+  QUIET=1 api 200 '' listRecommendations -p "object_id=$cr"
+  expect "the agent's recommendation on the draft" "$(field '[.items[] | "\(.kind) \(.outcome // "open")"] | join(", ")')" "ready_to_submit open"
+  say "Fiona submits it herself: a tax code is tier 3, so it waits for evidence of the submitted request; she simulates it, and"
+  say "the configuration's own approval decides it. Until it is approved and activated, the active version is as it was."
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"  \(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "submitted" "$(field '"\(.status) \(.tier)"')" "awaiting_evidence 3"
+  say "Tier 3 evidence replays a regression suite of the base version too: Fiona captures one on the active version."
+  QUIET=1 api 201 '' createRegressionSuite -body '{"name": "Before V0 from July 2099", "window_days": 366}'
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  wait_op
+  api 200 '"  \(.status), evidence: \([.evidence[] | "\(.kind) \(if .passed then "passed" else "FAILED" end)"] | join(", "))"' getChangeRequest -p "id=$cr"
+  expect "waiting for approval" "$(field .status)" pending_approval
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  expect "the active version and V0" "$(field '.items[0] | "\(.id) \(.document.companies[] | select(.code == "1000") | .tax_codes[] | select(.code == "V0") | .rate_percent)"')" "$version 0"
+}
+
+# step_support_agent is T108a (ADR-0072 As built): Alex, who handles
+# supplier invoices, asks the support agent how an invoice above the
+# price tolerance is released. erp agent support-ask, through the model
+# stand-in answering from a script of turns (its suite's replay,
+# evals/support), reads the contract (findOperations) and the active
+# configuration version; a reply naming an operation the contract does
+# not have is refused by the run first; it then replies naming
+# releaseSupplierInvoice and citing the tolerance of the walkthrough's
+# company as the active version holds it. Its role changes nothing, and
+# the configuration is as it was.
+step_support_agent() {
+  heading "Step 88 — The support agent: asked how an invoice above the tolerance is released, it names the operation from the contract and the tenant's tolerance from the active configuration; an operation it made up refused; nothing changed"
+  local role version pct abs question got session
+  as ada
+  say "Ada sets up the support agent (ADR-0072): an agent principal of type support at autonomy level 1 on erp-default."
+  say "Its role reads the configuration and who it is, and records its sessions; it holds no permission that changes anything."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "support_agent", "name": "Support agent"}'
+  role=$(field .id)
+  grant "$role" config.version.read identity.self.read agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "support-agent", "display_name": "Support agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "support", "model": "erp-default", "description": "Answers how-to questions from the contract and the configuration (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token support-agent "Support agent"
+  as alex
+  say "What the agent will read, as Alex reads it: the active version's price tolerance of company $CC:"
+  api 200 '.items[0] | "  version \(.number): company '"$CC"' tolerates \(.document.companies[] | select(.code == "'"$CC"'") | .invoice_tolerance | "\(.price_percent) percent or \(.price_absolute)")"' \
+    listConfigVersions -p is_active=true
+  version=$(field '.items[0].id')
+  pct=$(field ".items[0].document.companies[] | select(.code == \"$CC\") | .invoice_tolerance.price_percent")
+  abs=$(field ".items[0].document.companies[] | select(.code == \"$CC\") | .invoice_tolerance.price_absolute")
+  question="How is a supplier invoice above the price tolerance released?"
+  jq -n --arg v "$version" --arg cc "$CC" --arg pct "$pct" --arg abs "$abs" '
+    ("An invoice whose price is above `companies[\($cc)].invoice_tolerance.price_percent` = `\($pct)` percent, or `companies[\($cc)].invoice_tolerance.price_absolute` = `\($abs)`, is put on hold. ") as $why |
+    {turns: [
+      {tool: "findOperations", input: {query: "release supplier invoice"}},
+      {tool: "getConfigVersion", input: {id: $v}},
+      {tool: "reply", input: {text: ($why + "Approve it with approveHeldInvoice.")}},
+      {tool: "reply", input: {text: ($why + "A person holding `payables.invoice.review` releases it with releaseSupplierInvoice, which returns it to parked; it answers `payables.invalid_status` unless the invoice is on hold.")}},
+      {final: "Answered: releaseSupplierInvoice, with the tolerance of the active configuration."}]}' >"$WORK/model-script.json"
+  say "Alex asks: \"$question\" The agent runs: erp agent support-ask starts a session on erp-default and, through the"
+  say "stand-in's script (its suite's replay, evals/support), reads the contract and the active version, names an operation"
+  say "the contract does not have (refused by the run: every operation named is the contract's), then replies."
+  show ERP_AGENT_TOKEN=… erp agent support-ask "\"$question\""
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/support-agent") "$ERP" agent support-ask "$question" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent support-ask failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent did" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "replies refused 1."
+  expect "naming the operation" "$(printf '%s\n' "$got" | grep -c 'releaseSupplierInvoice')" 1
+  expect "citing the tenant's tolerance" "$(printf '%s\n' "$got" | grep -cF "\`companies[$CC].invoice_tolerance.price_percent\` = \`$pct\`")" 1
+  as support-agent
+  api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "findOperations getConfigVersion reply reply"
+  as alex
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  expect "the active version" "$(field '.items[0].id')" "$version"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -11078,7 +11399,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_close'
 
 main() {
   stop_unseen

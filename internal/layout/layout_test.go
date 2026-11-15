@@ -84,6 +84,7 @@ var webForbidden = []string{"platform/uow", "platform/outbox", "platform/audit",
 var allowed = map[string][]string{
 	"accessagent":             {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration, what it reads before its session and its check
 	"agent":                   {"apitools", "llm"},
+	"bidagent":                {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration and its check
 	"analytics":               {"apitools", "config", "configuration"},
 	"apitools":                {"llm"},
 	"app":                     {"countrypack"}, // apitest releases a test's own country packs
@@ -124,9 +125,11 @@ var allowed = map[string][]string{
 	"sales":                   {"config", "ledger", "partner", "receivables", "tenancy"}, // as receivables reads them; receivables itself for billing, which posts through it (ADR-0067 §1, §9)
 	"revenue":                 {"config", "ledger", "partner", "sales", "tenancy"},       // a leaf (ADR-0068 §1): the sales context's orders (sales.Orders), partners' names, tenancy, the ledger's calendar and the configuration through its ports
 	"reconagent":              {"apitools", "llm"},
-	"recommend":               {"apitools", "llm"}, // the recommending agents' one pattern (ADR-0072): every such agent imports it, and it no agent
+	"recommend":               {"apitools", "llm"},                        // the recommending agents' one pattern (ADR-0072): every such agent imports it, and it no agent
+	"regulatoryagent":         {"apitools", "config", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration and its check; config: the paths it names, as config.Diff names them
 	"cashagent":               {"apitools", "llm"},
 	"router":                  {"directory"},
+	"supportagent":            {"apitools", "config", "llm", "recommend"}, // the support agent (ADR-0072 As built, T108a): a reply only, not the pattern's run; config: the settings it cites; recommend: its numbers (Numbers)
 	"taxagent":                {"apitools", "llm"},
 	// Registrations from the configuration, companies from the directory
 	// (ADR-0049 §10); returns from the ledger's tax items through

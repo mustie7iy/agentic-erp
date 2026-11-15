@@ -333,6 +333,24 @@ func wholeItem(path string, a, b map[string]string) string {
 	return ""
 }
 
+// Holds reports whether the configuration has a setting at the path, as
+// Diff names settings (companies[3000].tax_codes[GO5]): the path itself,
+// or a list item or field with settings inside it. A list item is named
+// by its list's key only, never by another of its values. Extensions,
+// which Diff compares apart, are named by no path here.
+func Holds(c *Config, path string) bool {
+	return path != "" && hasPrefixKey(flatten(c), path)
+}
+
+// Setting is the value of the configuration's setting at the path, as
+// Diff writes values (a number as its digits, a text as it is), and
+// whether it has one: a path of a list item or a group of settings has
+// none.
+func Setting(c *Config, path string) (string, bool) {
+	v, ok := flatten(c)[path]
+	return v, ok
+}
+
 func hasPrefixKey(m map[string]string, item string) bool {
 	for k := range m {
 		if k == item || strings.HasPrefix(k, item+".") || strings.HasPrefix(k, item+"[") {

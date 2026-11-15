@@ -46,6 +46,8 @@ type Tool struct {
 	guard             func(map[string]any) error
 	observe           func(Response)
 	exclusive         *sync.Mutex
+	// local answers the call instead of the API (Local).
+	local func(context.Context, map[string]any) (any, error)
 }
 
 func (t *Tool) Name() string                                    { return t.name }
@@ -120,6 +122,9 @@ func (t *Tool) call(ctx context.Context, input map[string]any) (Response, error)
 		if err := t.guard(input); err != nil {
 			return Response{}, err
 		}
+	}
+	if t.local != nil {
+		return t.answerLocally(ctx, input)
 	}
 	path := t.op.path
 	query := url.Values{}

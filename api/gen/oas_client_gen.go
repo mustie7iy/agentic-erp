@@ -6401,7 +6401,11 @@ type Invoker interface {
 	// amount, the shares before and after; no document or supplier), at most 100 per company by day, with
 	// their count and, per currency and item, what the moved flows give it before and after; the requester
 	// must hold `cash.forecast.read`, else the operation fails with 403. Requires status
-	// `awaiting_evidence`.
+	// `awaiting_evidence`, or `draft` for a preview (T107b): a draft's simulation validates the proposal
+	// as submission would (a finding fails the operation with `config.validation_failed`) and replays it,
+	// but records no evidence and moves nothing; the operation's `result` is the preview (`kind`,
+	// `passed`, `summary`, `status` `draft`, the draft's `version` and `proposal_sha256`). Submission
+	// still asks for evidence of its own.
 	//
 	// POST /v1/change-requests/{id}:simulate
 	SimulateChangeRequest(ctx context.Context, params SimulateChangeRequestParams) (SimulateChangeRequestRes, error)
@@ -91324,7 +91328,11 @@ func (c *Client) sendSignOffYearClose(ctx context.Context, request OptPeriodClos
 // amount, the shares before and after; no document or supplier), at most 100 per company by day, with
 // their count and, per currency and item, what the moved flows give it before and after; the requester
 // must hold `cash.forecast.read`, else the operation fails with 403. Requires status
-// `awaiting_evidence`.
+// `awaiting_evidence`, or `draft` for a preview (T107b): a draft's simulation validates the proposal
+// as submission would (a finding fails the operation with `config.validation_failed`) and replays it,
+// but records no evidence and moves nothing; the operation's `result` is the preview (`kind`,
+// `passed`, `summary`, `status` `draft`, the draft's `version` and `proposal_sha256`). Submission
+// still asks for evidence of its own.
 //
 // POST /v1/change-requests/{id}:simulate
 func (c *Client) SimulateChangeRequest(ctx context.Context, params SimulateChangeRequestParams) (SimulateChangeRequestRes, error) {

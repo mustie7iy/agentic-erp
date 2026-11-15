@@ -2371,7 +2371,7 @@ paths:
       tags:
         - configuration
       summary: Simulate a change request
-      description: "Replays recent business transactions against the proposed configuration and records the result as `simulation` evidence. A change of validation rules (ADR-0046) also replays the recent rows of each entity whose rules change (the last 30 days, at most 200, newest first) under the active and the proposed rules: the evidence's `detail.rules` lists, per rule, the rows it would newly refuse and newly pass, with personal custom fields masked, and the rows it cannot evaluate, which fail the simulation. A change of the liquidity item derivation (`cash.derivation`, ADR-0051 §4, T53e3) needs a simulation whatever its tier: it classifies each company's open flows of the liquidity forecast (as `getLiquidityForecast` reads them, after its last bucket too) under the active and the proposed rules, and the evidence's `detail.liquidity_items_by_company` lists, per company the requester may act in, the flows whose shares by liquidity item would change (currency, day, source, certainty, amount, the shares before and after; no document or supplier), at most 100 per company by day, with their count and, per currency and item, what the moved flows give it before and after; the requester must hold `cash.forecast.read`, else the operation fails with 403. Requires status `awaiting_evidence`."
+      description: "Replays recent business transactions against the proposed configuration and records the result as `simulation` evidence. A change of validation rules (ADR-0046) also replays the recent rows of each entity whose rules change (the last 30 days, at most 200, newest first) under the active and the proposed rules: the evidence's `detail.rules` lists, per rule, the rows it would newly refuse and newly pass, with personal custom fields masked, and the rows it cannot evaluate, which fail the simulation. A change of the liquidity item derivation (`cash.derivation`, ADR-0051 §4, T53e3) needs a simulation whatever its tier: it classifies each company's open flows of the liquidity forecast (as `getLiquidityForecast` reads them, after its last bucket too) under the active and the proposed rules, and the evidence's `detail.liquidity_items_by_company` lists, per company the requester may act in, the flows whose shares by liquidity item would change (currency, day, source, certainty, amount, the shares before and after; no document or supplier), at most 100 per company by day, with their count and, per currency and item, what the moved flows give it before and after; the requester must hold `cash.forecast.read`, else the operation fails with 403. Requires status `awaiting_evidence`, or `draft` for a preview (T107b): a draft's simulation validates the proposal as submission would (a finding fails the operation with `config.validation_failed`) and replays it, but records no evidence and moves nothing; the operation's `result` is the preview (`kind`, `passed`, `summary`, `status` `draft`, the draft's `version` and `proposal_sha256`). Submission still asks for evidence of its own."
       x-permission: config.change.propose
       x-autonomy: propose
       x-problem-codes:
@@ -31678,6 +31678,9 @@ components:
             - tax
             - credit_scoring
             - access
+            - bid_comparison
+            - regulatory
+            - support
           maxLength: 50
         model:
           type: string

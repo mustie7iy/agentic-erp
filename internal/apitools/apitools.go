@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -141,6 +142,32 @@ func LegalEntity(ctx context.Context, c *Client, code string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("apitools: no company %s that the caller may read", code)
+}
+
+// ConfigVersion is a configuration version as an agent reads it.
+type ConfigVersion struct {
+	ID       string          `json:"id"`
+	Number   int             `json:"number"`
+	Document json.RawMessage `json:"document"`
+}
+
+// ActiveConfig is the tenant's active configuration version, as the
+// caller may read it: an agent that reads against the configuration
+// (the regulatory agent, the support agent) reads it before its session,
+// and one that may not read it does not start one.
+func ActiveConfig(ctx context.Context, c *Client) (ConfigVersion, error) {
+	resp, err := c.Do(ctx, http.MethodGet, "/v1/config-versions", url.Values{"is_active": {"true"}}, nil, "")
+	var page struct{ Items []ConfigVersion }
+	if err == nil {
+		err = resp.Decode(&page)
+	}
+	if err == nil && (len(page.Items) == 0 || page.Items[0].ID == "") {
+		err = errors.New("no active version")
+	}
+	if err != nil {
+		return ConfigVersion{}, fmt.Errorf("apitools: the active configuration version: %w", err)
+	}
+	return page.Items[0], nil
 }
 
 // Multipart is a request body sent as a multipart form, one part per
