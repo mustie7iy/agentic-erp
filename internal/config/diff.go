@@ -191,6 +191,10 @@ var tierRules = []struct {
 	// erasure cannot be undone: tier 3, with two approvers (ADR-0079 §2,
 	// product owner 2026-11-13).
 	{rx(`^companies\[\*\]\.retention(\[|$)`), TierPostingRelated},
+	// An expense type's name is a text; its code and account decide what
+	// an expense report's lines post to (ADR-0074 §2): posting-related.
+	{rx(`^companies\[\*\]\.expense_types\[\*\]\.name$`), TierCosmetic},
+	{rx(`^companies\[\*\]\.expense_types(\[|$)`), TierPostingRelated},
 	// Condition types and the pricing procedure post nothing: they decide
 	// the net value new sales items take (ADR-0067 §11), as payment terms
 	// decide what is due. A type's name is a text.
@@ -256,6 +260,8 @@ var listKeys = map[string]string{
 	"levels": "level",
 	// A company's retention rules by their document kind (ADR-0079 §2).
 	"retention": "kind",
+	// A company's expense types by code (ADR-0074 §2).
+	"expense_types": "code",
 	// Condition types by code (ADR-0067 §11); the procedure's steps are
 	// listed by position, since their order is the setting.
 	"condition_types": "code",

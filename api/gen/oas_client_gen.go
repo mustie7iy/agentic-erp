@@ -1024,7 +1024,13 @@ type Invoker interface {
 	//
 	// Creates the partner in status `pending` together with a partner change of kind `create` (see
 	// `GET /v1/partner-changes?partner_id=`); it becomes `active` when the change's approval request is
-	// approved.
+	// approved. The change lists the existing partners the new one may duplicate (`possible_duplicates`,
+	// T89a): those with one of its tax registration numbers (the same scheme and value) or with its name
+	// and country, white space and case aside, whatever their roles, a blocked one included; a partner
+	// whose create change was rejected or cancelled is not one. A partner with a tax registration number
+	// another partner has is refused (409 `partner.duplicate_tax_number`, naming that partner) unless the
+	// request sets `confirm_duplicate`; a match on name and country is listed and never refused. Two
+	// requests with the same number wait for one another, so the second finds the first.
 	//
 	// POST /v1/business-partners
 	CreateBusinessPartner(ctx context.Context, request *BusinessPartnerCreate, params CreateBusinessPartnerParams) (CreateBusinessPartnerRes, error)
@@ -1390,6 +1396,31 @@ type Invoker interface {
 	//
 	// POST /v1/exchange-rates
 	CreateExchangeRate(ctx context.Context, request *ExchangeRateCreate, params CreateExchangeRateParams) (CreateExchangeRateRes, error)
+	// CreateExpenseReport invokes createExpenseReport operation.
+	//
+	// Enters an employee's expense report (ADR-0074). The employee is a business partner with the supplier
+	// role, set up in the company and usable there (422 `payables.supplier_not_usable` naming
+	// `employee_id`), as a supplier invoice's supplier is; the company is one the caller may act in. Each
+	// line has the date of the expense, which is not after the company's date today (422
+	// `payables.expense_date_in_future` naming `lines[i].expense_date`); an expense type of the company's
+	// configuration (`companies[].expense_types[]`; 422 `payables.unknown_expense_type` naming
+	// `lines[i].expense_type`), whose expense account it posts to and which must be postable in the
+	// company (422 `payables.account_not_postable` naming `lines[i].expense_type`); a gross amount, more
+	// than zero, in the company's currency (422 `payables.currency_mismatch` naming
+	// `lines[i].amount.currency`, `payables.invalid_amount` naming `lines[i].amount.amount`); optionally
+	// an input tax code of the company on the line's date (422 `payables.unknown_tax_code` naming
+	// `lines[i].tax_code`), whose tax is taken out of the gross as the code's rates on that date give it:
+	// a line's tax is dated by its expense, not by the report; and optionally a cost center, checked as
+	// the posting will check it, a line without one taking its account's default (the ledger's 422 naming
+	// `lines[i].cost_center_id`). The report is created `entered`, dated the company's date today in its
+	// time zone (`report_date`: its document date and its payment term's baseline), with a document number
+	// from the company's `expense_report` number range of that date's fiscal year (422
+	// `config.no_number_range` for a company without the range). Nothing is posted. Audited, and published
+	// as ExpenseReportChanged. A retry with the same `Idempotency-Key` answers the report created.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/expense-reports
+	CreateExpenseReport(ctx context.Context, request *ExpenseReportCreate, params CreateExpenseReportParams) (CreateExpenseReportRes, error)
 	// CreateForecastVarianceComment invokes createForecastVarianceComment operation.
 	//
 	// A person explains one row of a legal entity's forecast variance (ADR-0051 §11, §13, T53f4): a
@@ -3130,6 +3161,17 @@ type Invoker interface {
 	//
 	// GET /v1/exchange-rates/{id}
 	GetExchangeRate(ctx context.Context, params GetExchangeRateParams) (GetExchangeRateRes, error)
+	// GetExpenseReport invokes getExpenseReport operation.
+	//
+	// One expense report (ADR-0074) with its company's code and name, its employee's number and name, its
+	// date, status and totals (gross, the tax its lines hold, net) and its lines, each with its date,
+	// expense type by code and name, account by id, number and name, gross, tax and net amounts, tax code
+	// and cost center by id, code and name. A posted report names its journal entry, posting date, payment
+	// term and net due date. One of a company the caller may not act in is not found (404), as one that
+	// does not exist.
+	//
+	// GET /v1/expense-reports/{id}
+	GetExpenseReport(ctx context.Context, params GetExpenseReportParams) (GetExpenseReportRes, error)
 	// GetFiscalPeriod invokes getFiscalPeriod operation.
 	//
 	// Returns one posting period.
@@ -4643,6 +4685,15 @@ type Invoker interface {
 	//
 	// GET /v1/exchange-rates
 	ListExchangeRates(ctx context.Context, params ListExchangeRatesParams) (ListExchangeRatesRes, error)
+	// ListExpenseReports invokes listExpenseReports operation.
+	//
+	// The expense reports of the companies the caller may act in (ADR-0074), each as `getExpenseReport`
+	// gives it: with its company's code and name, its employee's number and name, its totals and its
+	// lines. Filtered by company, employee, status and document number. Sortable by: `report_date`,
+	// `document_number`.
+	//
+	// GET /v1/expense-reports
+	ListExpenseReports(ctx context.Context, params ListExpenseReportsParams) (ListExpenseReportsRes, error)
 	// ListFiscalPeriods invokes listFiscalPeriods operation.
 	//
 	// Posting periods per legal entity and ledger. Sortable by: `fiscal_year`, `period`.
@@ -5844,6 +5895,30 @@ type Invoker interface {
 	//
 	// POST /v1/customer-invoices/{id}:post
 	PostCustomerInvoice(ctx context.Context, request OptCustomerInvoicePost, params PostCustomerInvoiceParams) (PostCustomerInvoiceRes, error)
+	// PostExpenseReport invokes postExpenseReport operation.
+	//
+	// Posts an `entered` expense report to the ledger, once (ADR-0074), at the version the caller read
+	// (`If-Match`): the report is read under a row lock and moves to `posted` once (409
+	// `payables.invalid_status` otherwise). Each line debits its expense account with its net amount, and
+	// with the tax its code does not let the company recover, on its cost center; the input tax goes to
+	// its codes' accounts, one line per code, component and expense date, as a supplier invoice's does;
+	// the employee's reconciliation account is credited with the report's gross amount, naming the
+	// employee. The entry has the document type `KR`, the report's number as its reference, the report
+	// date as its document and tax date and `source_context` `payables`; each line's tax items carry the
+	// line's date as their tax date, the period they are reported in. Its credit line is the employee's
+	// open item (`GET /v1/open-items`), which a payment run pays as a supplier's, kept with the employee's
+	// payment term in the company counted from the report date (`payment_term_code`, `net_due_date`). The
+	// posting date is the request's, else today, the company's date in its time zone; it must be in an
+	// open period (409 `ledger.period_not_open`). An employee no longer usable in the company is refused
+	// (422 `payables.supplier_not_usable`); the tax is calculated again, each line at its own date, and a
+	// line whose code no longer gives the tax it was entered with is refused (409 `payables.tax_changed`),
+	// the report then entered again. The entry is not reversed through the ledger (409
+	// `ledger.entry_owned_elsewhere`), nor through the report in the first version. Audited, and published
+	// as ExpenseReportChanged. A retry with the same `Idempotency-Key` answers the posted report.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/expense-reports/{id}:post
+	PostExpenseReport(ctx context.Context, request OptExpenseReportPost, params PostExpenseReportParams) (PostExpenseReportRes, error)
 	// PostGoodsReceipt invokes postGoodsReceipt operation.
 	//
 	// Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122,
@@ -17641,7 +17716,13 @@ func (c *Client) sendCreateBillingDocument(ctx context.Context, request *Billing
 //
 // Creates the partner in status `pending` together with a partner change of kind `create` (see
 // `GET /v1/partner-changes?partner_id=`); it becomes `active` when the change's approval request is
-// approved.
+// approved. The change lists the existing partners the new one may duplicate (`possible_duplicates`,
+// T89a): those with one of its tax registration numbers (the same scheme and value) or with its name
+// and country, white space and case aside, whatever their roles, a blocked one included; a partner
+// whose create change was rejected or cancelled is not one. A partner with a tax registration number
+// another partner has is refused (409 `partner.duplicate_tax_number`, naming that partner) unless the
+// request sets `confirm_duplicate`; a match on name and country is listed and never refused. Two
+// requests with the same number wait for one another, so the second finds the first.
 //
 // POST /v1/business-partners
 func (c *Client) CreateBusinessPartner(ctx context.Context, request *BusinessPartnerCreate, params CreateBusinessPartnerParams) (CreateBusinessPartnerRes, error) {
@@ -20661,6 +20742,155 @@ func (c *Client) sendCreateExchangeRate(ctx context.Context, request *ExchangeRa
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateExchangeRateResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateExpenseReport invokes createExpenseReport operation.
+//
+// Enters an employee's expense report (ADR-0074). The employee is a business partner with the supplier
+// role, set up in the company and usable there (422 `payables.supplier_not_usable` naming
+// `employee_id`), as a supplier invoice's supplier is; the company is one the caller may act in. Each
+// line has the date of the expense, which is not after the company's date today (422
+// `payables.expense_date_in_future` naming `lines[i].expense_date`); an expense type of the company's
+// configuration (`companies[].expense_types[]`; 422 `payables.unknown_expense_type` naming
+// `lines[i].expense_type`), whose expense account it posts to and which must be postable in the
+// company (422 `payables.account_not_postable` naming `lines[i].expense_type`); a gross amount, more
+// than zero, in the company's currency (422 `payables.currency_mismatch` naming
+// `lines[i].amount.currency`, `payables.invalid_amount` naming `lines[i].amount.amount`); optionally
+// an input tax code of the company on the line's date (422 `payables.unknown_tax_code` naming
+// `lines[i].tax_code`), whose tax is taken out of the gross as the code's rates on that date give it:
+// a line's tax is dated by its expense, not by the report; and optionally a cost center, checked as
+// the posting will check it, a line without one taking its account's default (the ledger's 422 naming
+// `lines[i].cost_center_id`). The report is created `entered`, dated the company's date today in its
+// time zone (`report_date`: its document date and its payment term's baseline), with a document number
+// from the company's `expense_report` number range of that date's fiscal year (422
+// `config.no_number_range` for a company without the range). Nothing is posted. Audited, and published
+// as ExpenseReportChanged. A retry with the same `Idempotency-Key` answers the report created.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/expense-reports
+func (c *Client) CreateExpenseReport(ctx context.Context, request *ExpenseReportCreate, params CreateExpenseReportParams) (CreateExpenseReportRes, error) {
+	res, err := c.sendCreateExpenseReport(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateExpenseReport(ctx context.Context, request *ExpenseReportCreate, params CreateExpenseReportParams) (res CreateExpenseReportRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createExpenseReport"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/expense-reports"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateExpenseReportOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/expense-reports"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateExpenseReportRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateExpenseReportOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateExpenseReportResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -39151,6 +39381,142 @@ func (c *Client) sendGetExchangeRate(ctx context.Context, params GetExchangeRate
 
 	stage = "DecodeResponse"
 	result, err := decodeGetExchangeRateResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetExpenseReport invokes getExpenseReport operation.
+//
+// One expense report (ADR-0074) with its company's code and name, its employee's number and name, its
+// date, status and totals (gross, the tax its lines hold, net) and its lines, each with its date,
+// expense type by code and name, account by id, number and name, gross, tax and net amounts, tax code
+// and cost center by id, code and name. A posted report names its journal entry, posting date, payment
+// term and net due date. One of a company the caller may not act in is not found (404), as one that
+// does not exist.
+//
+// GET /v1/expense-reports/{id}
+func (c *Client) GetExpenseReport(ctx context.Context, params GetExpenseReportParams) (GetExpenseReportRes, error) {
+	res, err := c.sendGetExpenseReport(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetExpenseReport(ctx context.Context, params GetExpenseReportParams) (res GetExpenseReportRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getExpenseReport"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/expense-reports/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetExpenseReportOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/expense-reports/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetExpenseReportOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetExpenseReportResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -64705,6 +65071,245 @@ func (c *Client) sendListExchangeRates(ctx context.Context, params ListExchangeR
 	return result, nil
 }
 
+// ListExpenseReports invokes listExpenseReports operation.
+//
+// The expense reports of the companies the caller may act in (ADR-0074), each as `getExpenseReport`
+// gives it: with its company's code and name, its employee's number and name, its totals and its
+// lines. Filtered by company, employee, status and document number. Sortable by: `report_date`,
+// `document_number`.
+//
+// GET /v1/expense-reports
+func (c *Client) ListExpenseReports(ctx context.Context, params ListExpenseReportsParams) (ListExpenseReportsRes, error) {
+	res, err := c.sendListExpenseReports(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListExpenseReports(ctx context.Context, params ListExpenseReportsParams) (res ListExpenseReportsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listExpenseReports"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/expense-reports"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListExpenseReportsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/expense-reports"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "employee_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "employee_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.EmployeeID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "document_number" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "document_number",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.DocumentNumber.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListExpenseReportsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListExpenseReportsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListFiscalPeriods invokes listFiscalPeriods operation.
 //
 // Posting periods per legal entity and ledger. Sortable by: `fiscal_year`, `period`.
@@ -87756,6 +88361,184 @@ func (c *Client) sendPostCustomerInvoice(ctx context.Context, request OptCustome
 
 	stage = "DecodeResponse"
 	result, err := decodePostCustomerInvoiceResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// PostExpenseReport invokes postExpenseReport operation.
+//
+// Posts an `entered` expense report to the ledger, once (ADR-0074), at the version the caller read
+// (`If-Match`): the report is read under a row lock and moves to `posted` once (409
+// `payables.invalid_status` otherwise). Each line debits its expense account with its net amount, and
+// with the tax its code does not let the company recover, on its cost center; the input tax goes to
+// its codes' accounts, one line per code, component and expense date, as a supplier invoice's does;
+// the employee's reconciliation account is credited with the report's gross amount, naming the
+// employee. The entry has the document type `KR`, the report's number as its reference, the report
+// date as its document and tax date and `source_context` `payables`; each line's tax items carry the
+// line's date as their tax date, the period they are reported in. Its credit line is the employee's
+// open item (`GET /v1/open-items`), which a payment run pays as a supplier's, kept with the employee's
+// payment term in the company counted from the report date (`payment_term_code`, `net_due_date`). The
+// posting date is the request's, else today, the company's date in its time zone; it must be in an
+// open period (409 `ledger.period_not_open`). An employee no longer usable in the company is refused
+// (422 `payables.supplier_not_usable`); the tax is calculated again, each line at its own date, and a
+// line whose code no longer gives the tax it was entered with is refused (409 `payables.tax_changed`),
+// the report then entered again. The entry is not reversed through the ledger (409
+// `ledger.entry_owned_elsewhere`), nor through the report in the first version. Audited, and published
+// as ExpenseReportChanged. A retry with the same `Idempotency-Key` answers the posted report.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/expense-reports/{id}:post
+func (c *Client) PostExpenseReport(ctx context.Context, request OptExpenseReportPost, params PostExpenseReportParams) (PostExpenseReportRes, error) {
+	res, err := c.sendPostExpenseReport(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendPostExpenseReport(ctx context.Context, request OptExpenseReportPost, params PostExpenseReportParams) (res PostExpenseReportRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("postExpenseReport"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/expense-reports/{id}:post"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, PostExpenseReportOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/expense-reports/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":post"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodePostExpenseReportRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, PostExpenseReportOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodePostExpenseReportResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

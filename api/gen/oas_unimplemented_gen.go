@@ -1188,7 +1188,13 @@ func (UnimplementedHandler) CreateBillingDocument(ctx context.Context, req *Bill
 //
 // Creates the partner in status `pending` together with a partner change of kind `create` (see
 // `GET /v1/partner-changes?partner_id=`); it becomes `active` when the change's approval request is
-// approved.
+// approved. The change lists the existing partners the new one may duplicate (`possible_duplicates`,
+// T89a): those with one of its tax registration numbers (the same scheme and value) or with its name
+// and country, white space and case aside, whatever their roles, a blocked one included; a partner
+// whose create change was rejected or cancelled is not one. A partner with a tax registration number
+// another partner has is refused (409 `partner.duplicate_tax_number`, naming that partner) unless the
+// request sets `confirm_duplicate`; a match on name and country is listed and never refused. Two
+// requests with the same number wait for one another, so the second finds the first.
 //
 // POST /v1/business-partners
 func (UnimplementedHandler) CreateBusinessPartner(ctx context.Context, req *BusinessPartnerCreate, params CreateBusinessPartnerParams) (r CreateBusinessPartnerRes, _ error) {
@@ -1614,6 +1620,34 @@ func (UnimplementedHandler) CreateEntryTemplate(ctx context.Context, req *EntryT
 //
 // POST /v1/exchange-rates
 func (UnimplementedHandler) CreateExchangeRate(ctx context.Context, req *ExchangeRateCreate, params CreateExchangeRateParams) (r CreateExchangeRateRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateExpenseReport implements createExpenseReport operation.
+//
+// Enters an employee's expense report (ADR-0074). The employee is a business partner with the supplier
+// role, set up in the company and usable there (422 `payables.supplier_not_usable` naming
+// `employee_id`), as a supplier invoice's supplier is; the company is one the caller may act in. Each
+// line has the date of the expense, which is not after the company's date today (422
+// `payables.expense_date_in_future` naming `lines[i].expense_date`); an expense type of the company's
+// configuration (`companies[].expense_types[]`; 422 `payables.unknown_expense_type` naming
+// `lines[i].expense_type`), whose expense account it posts to and which must be postable in the
+// company (422 `payables.account_not_postable` naming `lines[i].expense_type`); a gross amount, more
+// than zero, in the company's currency (422 `payables.currency_mismatch` naming
+// `lines[i].amount.currency`, `payables.invalid_amount` naming `lines[i].amount.amount`); optionally
+// an input tax code of the company on the line's date (422 `payables.unknown_tax_code` naming
+// `lines[i].tax_code`), whose tax is taken out of the gross as the code's rates on that date give it:
+// a line's tax is dated by its expense, not by the report; and optionally a cost center, checked as
+// the posting will check it, a line without one taking its account's default (the ledger's 422 naming
+// `lines[i].cost_center_id`). The report is created `entered`, dated the company's date today in its
+// time zone (`report_date`: its document date and its payment term's baseline), with a document number
+// from the company's `expense_report` number range of that date's fiscal year (422
+// `config.no_number_range` for a company without the range). Nothing is posted. Audited, and published
+// as ExpenseReportChanged. A retry with the same `Idempotency-Key` answers the report created.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/expense-reports
+func (UnimplementedHandler) CreateExpenseReport(ctx context.Context, req *ExpenseReportCreate, params CreateExpenseReportParams) (r CreateExpenseReportRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3729,6 +3763,20 @@ func (UnimplementedHandler) GetExchangeRate(ctx context.Context, params GetExcha
 	return r, ht.ErrNotImplemented
 }
 
+// GetExpenseReport implements getExpenseReport operation.
+//
+// One expense report (ADR-0074) with its company's code and name, its employee's number and name, its
+// date, status and totals (gross, the tax its lines hold, net) and its lines, each with its date,
+// expense type by code and name, account by id, number and name, gross, tax and net amounts, tax code
+// and cost center by id, code and name. A posted report names its journal entry, posting date, payment
+// term and net due date. One of a company the caller may not act in is not found (404), as one that
+// does not exist.
+//
+// GET /v1/expense-reports/{id}
+func (UnimplementedHandler) GetExpenseReport(ctx context.Context, params GetExpenseReportParams) (r GetExpenseReportRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetFiscalPeriod implements getFiscalPeriod operation.
 //
 // Returns one posting period.
@@ -5650,6 +5698,18 @@ func (UnimplementedHandler) ListExchangeRates(ctx context.Context, params ListEx
 	return r, ht.ErrNotImplemented
 }
 
+// ListExpenseReports implements listExpenseReports operation.
+//
+// The expense reports of the companies the caller may act in (ADR-0074), each as `getExpenseReport`
+// gives it: with its company's code and name, its employee's number and name, its totals and its
+// lines. Filtered by company, employee, status and document number. Sortable by: `report_date`,
+// `document_number`.
+//
+// GET /v1/expense-reports
+func (UnimplementedHandler) ListExpenseReports(ctx context.Context, params ListExpenseReportsParams) (r ListExpenseReportsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListFiscalPeriods implements listFiscalPeriods operation.
 //
 // Posting periods per legal entity and ledger. Sortable by: `fiscal_year`, `period`.
@@ -7157,6 +7217,33 @@ func (UnimplementedHandler) PostCreditMemoRequest(ctx context.Context, req OptCr
 //
 // POST /v1/customer-invoices/{id}:post
 func (UnimplementedHandler) PostCustomerInvoice(ctx context.Context, req OptCustomerInvoicePost, params PostCustomerInvoiceParams) (r PostCustomerInvoiceRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// PostExpenseReport implements postExpenseReport operation.
+//
+// Posts an `entered` expense report to the ledger, once (ADR-0074), at the version the caller read
+// (`If-Match`): the report is read under a row lock and moves to `posted` once (409
+// `payables.invalid_status` otherwise). Each line debits its expense account with its net amount, and
+// with the tax its code does not let the company recover, on its cost center; the input tax goes to
+// its codes' accounts, one line per code, component and expense date, as a supplier invoice's does;
+// the employee's reconciliation account is credited with the report's gross amount, naming the
+// employee. The entry has the document type `KR`, the report's number as its reference, the report
+// date as its document and tax date and `source_context` `payables`; each line's tax items carry the
+// line's date as their tax date, the period they are reported in. Its credit line is the employee's
+// open item (`GET /v1/open-items`), which a payment run pays as a supplier's, kept with the employee's
+// payment term in the company counted from the report date (`payment_term_code`, `net_due_date`). The
+// posting date is the request's, else today, the company's date in its time zone; it must be in an
+// open period (409 `ledger.period_not_open`). An employee no longer usable in the company is refused
+// (422 `payables.supplier_not_usable`); the tax is calculated again, each line at its own date, and a
+// line whose code no longer gives the tax it was entered with is refused (409 `payables.tax_changed`),
+// the report then entered again. The entry is not reversed through the ledger (409
+// `ledger.entry_owned_elsewhere`), nor through the report in the first version. Audited, and published
+// as ExpenseReportChanged. A retry with the same `Idempotency-Key` answers the posted report.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/expense-reports/{id}:post
+func (UnimplementedHandler) PostExpenseReport(ctx context.Context, req OptExpenseReportPost, params PostExpenseReportParams) (r PostExpenseReportRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

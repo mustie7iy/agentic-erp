@@ -325,6 +325,10 @@ type CreateExchangeRateRes interface {
 	createExchangeRateRes()
 }
 
+type CreateExpenseReportRes interface {
+	createExpenseReportRes()
+}
+
 type CreateForecastVarianceCommentRes interface {
 	createForecastVarianceCommentRes()
 }
@@ -819,6 +823,10 @@ type GetEntryTemplateRes interface {
 
 type GetExchangeRateRes interface {
 	getExchangeRateRes()
+}
+
+type GetExpenseReportRes interface {
+	getExpenseReportRes()
 }
 
 type GetFiscalPeriodRes interface {
@@ -1365,6 +1373,10 @@ type ListExchangeRatesRes interface {
 	listExchangeRatesRes()
 }
 
+type ListExpenseReportsRes interface {
+	listExpenseReportsRes()
+}
+
 type ListFiscalPeriodsRes interface {
 	listFiscalPeriodsRes()
 }
@@ -1775,6 +1787,10 @@ type PostCreditMemoRequestRes interface {
 
 type PostCustomerInvoiceRes interface {
 	postCustomerInvoiceRes()
+}
+
+type PostExpenseReportRes interface {
+	postExpenseReportRes()
 }
 
 type PostGoodsReceiptRes interface {

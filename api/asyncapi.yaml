@@ -291,6 +291,7 @@ channels:
       DownPaymentRequestCancelled: {$ref: '#/components/messages/DownPaymentRequestCancelled'}
       DownPaymentsCleared: {$ref: '#/components/messages/DownPaymentsCleared'}
       DownPaymentRequestPaid: {$ref: '#/components/messages/DownPaymentRequestPaid'}
+      ExpenseReportChanged: {$ref: '#/components/messages/ExpenseReportChanged'}
   payments:
     address: 'erp.{cell}.payments.{tenant}.{event}'
     title: Payment events
@@ -665,6 +666,7 @@ operations:
       - $ref: '#/channels/payables/messages/DownPaymentRequestCancelled'
       - $ref: '#/channels/payables/messages/DownPaymentsCleared'
       - $ref: '#/channels/payables/messages/DownPaymentRequestPaid'
+      - $ref: '#/channels/payables/messages/ExpenseReportChanged'
   publishPaymentsEvents:
     action: send
     title: Payments publishes
@@ -1678,6 +1680,31 @@ components:
         - name: cancelled
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000306, source: /erp/eu-1/payables, type: com.example.erp.payables.down_payment_request_cancelled.v1, subject: 0192a000-0000-7000-8000-000000000711, time: '2026-10-06T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {down_payment_request_id: 0192a000-0000-7000-8000-000000000711, legal_entity_id: 0192a000-0000-7000-8000-000000000201, supplier_id: 0192a000-0000-7000-8000-000000000301, previous_status: open, status: cancelled}
+    ExpenseReportChanged:
+      name: ExpenseReportChanged
+      title: Expense report changed
+      summary: An employee's expense report was entered or posted.
+      description: |
+        Emitted at each change of an expense report's status (ADR-0074):
+        when it is entered (`entered`, status_before null) and when it is
+        posted (`posted`), which names its journal entry, posting date and
+        the open item's net due date. It carries the report's totals, not
+        its lines, and names the employee by id and business partner
+        number, never by name. It is not offered as a webhook event
+        (product owner 2026-11-12: none until a consumer asks).
+        `GET /v1/expense-reports/{id}` returns the report at `version` or
+        later. Subject is the expense report id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payables.expense_report_changed.v1}
+      payload: {$ref: '#/components/schemas/ExpenseReportChangedV1'}
+      examples:
+        - name: posted
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001201, source: /erp/eu-1/payables, type: com.example.erp.payables.expense_report_changed.v1, subject: 0192a000-0000-7000-8000-000000001611, time: '2026-11-27T11:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {expense_report_id: 0192a000-0000-7000-8000-000000001611, document_number: ER100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', employee_id: 0192a000-0000-7000-8000-000000000f61, employee_number: BP100061, report_date: '2026-11-27', gross_amount: {amount: '282.50', currency: CAD}, tax_amount: {amount: '32.50', currency: CAD}, posting_date: '2026-11-27', journal_entry_id: 0192a000-0000-7000-8000-000000001711, journal_entry_year: 2026, net_due_date: '2026-12-27', status: posted, status_before: entered, version: 2}
     DownPaymentRequestPaid:
       name: DownPaymentRequestPaid
       x-webhook: true
@@ -6643,6 +6670,26 @@ components:
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
         previous_status: {type: string, description: 'Open enum: parked, on_hold.'}
         status: {type: string, description: 'Open enum; cancelled in v1.'}
+    ExpenseReportChangedV1:
+      type: object
+      required: [expense_report_id, document_number, legal_entity_id, legal_entity_code, employee_id, employee_number, report_date, gross_amount, tax_amount, posting_date, journal_entry_id, journal_entry_year, net_due_date, status, status_before, version]
+      properties:
+        expense_report_id: {$ref: '#/components/schemas/Uuid', description: '`payables.expense_report.id`.'}
+        document_number: {type: string, description: "The document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company the expenses are claimed from.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        employee_id: {$ref: '#/components/schemas/Uuid', description: 'The employee: `partner.business_partner.id`, a business partner with the supplier role.'}
+        employee_number: {type: string, description: "The employee's business partner number."}
+        report_date: {$ref: '#/components/schemas/Date', description: 'The day the report was entered: its document and tax date.'}
+        gross_amount: {$ref: '#/components/schemas/Money', description: 'What the employee is owed: the lines added up.'}
+        tax_amount: {$ref: '#/components/schemas/Money', description: 'The input tax the lines hold.'}
+        posting_date: {$ref: '#/components/schemas/NullableDate', description: 'The posting date; null until posted.'}
+        journal_entry_id: {$ref: '#/components/schemas/NullableUuid', description: 'The journal entry posted; null until posted.'}
+        journal_entry_year: {type: [integer, 'null'], description: 'The fiscal year of `journal_entry_id`; null until posted.'}
+        net_due_date: {$ref: '#/components/schemas/NullableDate', description: "When the employee's open item is due; null until posted."}
+        status: {type: string, description: "The report's status after the change. Open enum: entered, posted."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was entered.'}
+        version: {type: integer, description: "The report's version after the change."}
     DownPaymentRequestedV1:
       type: object
       required: [down_payment_request_id, document_number, legal_entity_id, supplier_id, amount, tax_amount, due_date, status]

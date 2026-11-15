@@ -287,11 +287,13 @@ func (v *validator) company(p string, co *Company) {
 
 // operations checks the company's settings that post nothing and decide
 // what its people are shown to act on: its cash position and forecast
-// (ADR-0051) and its dunning levels (ADR-0065 §2).
+// (ADR-0051) and its dunning levels (ADR-0065 §2); and its expense
+// types (ADR-0074 §2).
 func (v *validator) operations(p string, co *Company) {
 	v.companyCash(p, co)
 	v.dunning(p, co)
 	v.retention(p, co)
+	v.expenseTypes(p, co)
 }
 
 // closes checks how the company's periods and years are closed: the

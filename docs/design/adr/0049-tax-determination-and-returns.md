@@ -464,7 +464,10 @@ commit-time check, like the balance trigger).
   `tax_date`): a manual entry's as given, else its posting date; a supplier
   invoice's the one a person set, else its invoice date, or for a credit
   memo naming an invoice that invoice's (P6, T61d §6); a reversal's the original's; other postings' their
-  posting date. Codes are validated on the tax date. The in-use check of
+  posting date. Codes are validated on the tax date. An item a posting
+  context gives may carry a date of its own (`PostingTaxItem.TaxDate`, an
+  expense report line's expense date, ADR-0074 §3): it is written at that
+  date's rate, dated by it, and its code is validated on it. The in-use check of
   rates (`ledger.tax_code_posted`) reads items by tax date, and `ledger.tax_code`
   and the index of lines by tax code are dropped (000145). `ledger.TaxItems`
   is the port: `Of` an entry, `Dated` by legal entity and tax date range.

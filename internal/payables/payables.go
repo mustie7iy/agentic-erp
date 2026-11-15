@@ -209,6 +209,8 @@ type Endpoints struct {
 	Extractor     capture.Extractor // reads captured documents; nil: capture is not available
 	Objects       blobstore.Store   // keeps captured documents; nil: only their hash is recorded, and downloads answer 503
 	Uploads       *Uploads          // direct uploads of large documents; nil or without a store: uploads answer 503
+	ExpenseLedger ExpenseLedger     // the accounts and cost centers expense reports name (ADR-0074)
+	Partners      PartnerNames      // the numbers and names of expense reports' employees
 	// Now is the clock a posting date the caller leaves out is read from,
 	// as the company's date in its time zone (companyDay); nil is the
 	// system clock.
@@ -544,23 +546,31 @@ func (v *invoiceCheck) assignments() error {
 // invoiceParties resolves the legal entity, which the caller must be allowed
 // to act in, and the supplier, which must be usable in it.
 func (e *Endpoints) invoiceParties(ctx context.Context, in Input) (tenancy.Entity, partner.Supplier, error) {
+	return e.parties(ctx, in.LegalEntityID, in.SupplierID, "supplier_id", "The supplier cannot be invoiced: ")
+}
+
+// parties resolves a document's legal entity, which the caller must be
+// allowed to act in, and its supplier, which must be usable in it; field
+// names the supplier in a refusal (an expense report's employee is one,
+// ADR-0074), whose detail starts with refused.
+func (e *Endpoints) parties(ctx context.Context, legalEntity, supplier uuid.UUID, field, refused string) (tenancy.Entity, partner.Supplier, error) {
 	access, err := authz.Companies(ctx)
 	if err != nil {
 		return tenancy.Entity{}, partner.Supplier{}, err
 	}
-	le, err := tenancy.Accessible(ctx, e.LegalEntities, access, in.LegalEntityID, "legal_entity_id")
+	le, err := tenancy.Accessible(ctx, e.LegalEntities, access, legalEntity, "legal_entity_id")
 	if err != nil {
 		return tenancy.Entity{}, partner.Supplier{}, err
 	}
-	sup, ok, err := e.Suppliers.Supplier(ctx, in.SupplierID, le.ID)
+	sup, ok, err := e.Suppliers.Supplier(ctx, supplier, le.ID)
 	if err != nil {
 		return tenancy.Entity{}, partner.Supplier{}, err
 	}
 	if !ok {
-		return tenancy.Entity{}, partner.Supplier{}, problem.ReferenceNotFound("supplier_id", "business partner", "no business partner with this id")
+		return tenancy.Entity{}, partner.Supplier{}, problem.ReferenceNotFound(field, "business partner", "no business partner with this id")
 	}
 	if why := sup.Usable(); why != "" {
-		return tenancy.Entity{}, partner.Supplier{}, invalid("payables.supplier_not_usable", "supplier_id", "The supplier cannot be invoiced: "+why+".")
+		return tenancy.Entity{}, partner.Supplier{}, invalid("payables.supplier_not_usable", field, refused+why+".")
 	}
 	return le, sup, nil
 }

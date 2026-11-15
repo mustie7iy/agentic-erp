@@ -627,6 +627,7 @@ erDiagram
   partner_change { uuid id PK
     text kind "create | update | bank_change | block | unblock"
     jsonb payload
+    jsonb possible_duplicates "T89a: create changes"
     text status
     uuid workflow_request_id }
   payment_term { text code PK
@@ -770,6 +771,33 @@ Not built in the first version (plan-breadth-week1, "Later"): sales-area
 data and partner functions, contact persons, customer payment methods and
 direct debit mandates, a planning group, custom fields on the company
 data, and taking customers over from SAP.
+
+**Duplicate check when a partner is created (T89a, migration 000330; as
+built).** Creating a business partner, of any role, checks the existing
+ones: those with one of its tax registration numbers (the same scheme and
+value, by the identifier's fingerprint) and those with its normalized
+name in its country. The normalized name is `partner.NormalizedName`
+(white space trimmed and each run of it one space, in capitals), which
+the migration's quality gate also flags duplicate vendors by; the
+database computes the same in `partner.normalized_name`, on which the one
+index `business_partner_normalized_name` (tenant, country, name) is
+built. A blocked partner counts; a partner whose create change was
+rejected or cancelled (pending for ever) does not. The matches are kept on
+the create change as `possible_duplicates` (partner id, number, name and
+what matched: `tax_registration_number`, `name_and_country`), by number,
+at most 20, for the approver to read. A match on the tax registration
+number is refused (409 `partner.duplicate_tax_number`, naming the
+partners) unless the request sets `confirm_duplicate`; a match on name and
+country is listed and never refused. The check takes a transaction-scoped
+advisory lock per scheme and value first, in their order, so two partners
+with the same number created at once wait for one another and the second
+finds the first. A migration run's partners confirm their duplicates
+(`partner.Migration.Create`): the run is the governed act. The existing
+warning `partner.duplicate_tax_identifier` is kept. Decided by default
+(07 §7.7): the tax registration number is matched by scheme and value, as
+the identifier's index is keyed; the check runs only when a partner is
+created ("Later": the check on a change of an existing partner, fuzzy
+matching, bank details, a run over existing partners, merging).
 
 ## 3.7 General ledger (`ledger`)
 
@@ -1245,7 +1273,8 @@ like the balance; not for an entry without a tax date, which an instance of
 the release before writes during the rollout, nor for a code that posts to
 no account). `journal_entry.tax_date` and `parked_entry.tax_date` are
 the entry's tax date, none on entries posted before, whose items carry their
-posting date. Indexed by legal entity, code and tax date, what a return and
+posting date. An item carries the entry's tax date unless the posting gave
+it one of its own (an expense report line's expense date, ADR-0074 §3). Indexed by legal entity, code and tax date, what a return and
 the rate check read.
 
 An open item on a supplier reconciliation account keeps the payment terms
@@ -2470,6 +2499,35 @@ transfer (`down_payment_request_cleared`); the invoice is not reversed
 while they stand (409 `payables.down_payments_cleared`). The clearing is
 audited and publishes `DownPaymentsCleared`. Special G/L items keep no
 payment terms (`open_item_terms` is kept for the other supplier lines).
+
+`expense_report` (T87a, ADR-0074; migration 000329) is an employee's
+expense report: a document number from the company's `expense_report`
+number range of the fiscal year of its `report_date`, the company's date
+when it was entered (its document date and its payment term's baseline),
+the legal entity, the
+employee (`employee_id`, a business partner with the supplier role: human
+capital is outside the required scope), the company's currency and an
+optional description. It is `entered`, then `posted` once (trigger
+`expense_report_posted_once`; the application may update only the columns
+posting sets), naming then its `posting_date`, journal entry and the
+payment term and net due date of the employee's open item, and none of
+them before (`expense_report_posted`); it is never deleted.
+`expense_report_line` holds its lines, numbered 1-999, written with the
+report and never changed: the expense's date, its expense type's code
+(`companies[].expense_types[]`) and the type's account as it was when the
+report was entered, the gross amount (above zero), the input tax code and
+the tax the gross holds by the code's rates at the expense's date, the
+line's own tax date (product owner 2026-11-13; below the gross, none
+without a code, `expense_report_line_tax`), an optional cost center and
+text. Posting debits each line's net and the tax its code
+does not let the company recover on its account and cost center, the
+recovered tax on the codes' accounts, each tax item dated by its line's
+date (`ledger.tax_item.tax_date`), and credits the employee's
+reconciliation account with the gross (document type KR); the credit is
+the employee's open item, which a payment run pays. Entering and posting
+need `payables.expense.write` and `payables.expense.post`, reading
+`payables.expense.read`; each is audited and publishes
+`ExpenseReportChanged`.
 
 ## 3.10 Payments (`payments`)
 

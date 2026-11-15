@@ -2,9 +2,11 @@ package ledger_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -211,6 +214,70 @@ func TestGivenTaxItemUnknown(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "1 of 2 tax items") {
 		t.Errorf("got %v, want the items refused", err)
 	}
+}
+
+// TestGivenTaxItemsOwnDates: an item a posting gives with a date of its
+// own (an expense report line's, ADR-0074 §3) is written at that date's
+// rate and dated by it, its code checked on that date rather than the
+// entry's: VD is 10% until March and 12% from April, VE ends in March.
+func TestGivenTaxItemsOwnDates(t *testing.T) {
+	e := setup(t)
+	dated := func(pct, from, to string) config.TaxRate {
+		return config.TaxRate{RatePercent: pct, ValidFrom: from, ValidTo: to}
+	}
+	fixture.TaxCodes(t, e.ten, document(t),
+		config.TaxCode{Code: "VD", Description: "Changing", Components: []config.TaxComponent{{Key: "tax", AccountKey: config.KeyInput, Account: "140000",
+			Rates: []config.TaxRate{dated("10", "2026-01-01", "2026-03-31"), dated("12", "2026-04-01", "")}}}},
+		config.TaxCode{Code: "VE", Description: "Ended", Components: []config.TaxComponent{{Key: "tax", AccountKey: config.KeyInput, Account: "140000",
+			Rates: []config.TaxRate{dated("19", "2026-01-01", "2026-03-31")}}}})
+	expense, input, bank := settleAccount(t, e, "2000", "520000"), settleAccount(t, e, "2000", "140000"), settleAccount(t, e, "2000", "100000")
+	day := func(s string) *time.Time { d := date(s); return &d }
+	item := func(code string, base, tax money.Minor, on string) ledger.PostingTaxItem {
+		return ledger.PostingTaxItem{Code: code, Component: "tax", Base: base, Tax: tax, Recoverable: tax, BaseLC: base, TaxLC: tax, RecoverableLC: tax, TaxDate: day(on)}
+	}
+	post := func(code string, items ...ledger.PostingTaxItem) (ledger.Entry, error) {
+		var lines []ledger.PostingLine
+		var total money.Minor
+		for _, it := range items {
+			lines = append(lines, ledger.PostingLine{AccountID: expense, Amount: it.Base, TaxCode: &code},
+				ledger.PostingLine{AccountID: input, Amount: it.Tax, TaxCode: &code})
+			total += it.Base + it.Tax
+		}
+		lines = append(lines, ledger.PostingLine{AccountID: bank, Amount: -total})
+		var entry ledger.Entry
+		err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
+			entry, err = postings().Post(ctx, ledger.Posting{LegalEntityID: e.de, DocumentType: "SA", DocumentDate: date("2026-04-15"),
+				PostingDate: date("2026-04-15"), Currency: "EUR", SourceContext: "payables", SourceDocumentID: uuid.New(), Lines: lines, TaxItems: items})
+			return err
+		})
+		return entry, err
+	}
+	for _, c := range []struct {
+		name, code string
+		items      []ledger.PostingTaxItem
+		want       string
+	}{
+		{"one code on two dates, each at its rate", "VD", []ledger.PostingTaxItem{item("VD", 100, 10, "2026-03-20"), item("VD", 100, 12, "2026-04-10")},
+			"VD/tax 2026-03-20 100 10 10 (100 10 10) at 10; VD/tax 2026-04-10 100 12 12 (100 12 12) at 12"},
+		{"a code ended before the entry's date, valid on its item's", "VE", []ledger.PostingTaxItem{item("VE", 100, 19, "2026-03-20")},
+			"VE/tax 2026-03-20 100 19 19 (100 19 19) at 19"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			entry, err := post(c.code, c.items...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := taxItemsOf(t, e, entry.ID); got != c.want {
+				t.Errorf("items: got %s, want %s", got, c.want)
+			}
+		})
+	}
+	t.Run("an item dated where its code has no rate", func(t *testing.T) {
+		_, err := post("VE", item("VE", 100, 19, "2026-04-10"))
+		if p := (*problem.Problem)(nil); !errors.As(err, &p) || p.Code != "ledger.unknown_tax_code" || !strings.Contains(p.Detail, "2026-04-10") {
+			t.Errorf("got %v, want 422 ledger.unknown_tax_code on 2026-04-10", err)
+		}
+	})
 }
 
 // TestTaxItemsOfDiscountedBases: a discount on an entry whose expense

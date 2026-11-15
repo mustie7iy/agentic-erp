@@ -51,8 +51,12 @@ func (b backdating) allowed() string {
 
 // Create creates the partner and applies its create change, the one this
 // call made: the migration's backdating reaches only a partner it creates
-// here, never one that exists.
+// here, never one that exists. A tax registration number another partner
+// has does not stop the load (T89a): the run is the governed act, started
+// by a person on the extract its quality gate checked, and the applied
+// change lists the duplicates.
 func (m Migration) Create(ctx context.Context, in NewPartner) (uuid.UUID, error) {
+	in.ConfirmDuplicate = true
 	bp, c, err := createPartner(ctx, m.Ports, in, migrationBackdating)
 	if err != nil {
 		return uuid.Nil, err

@@ -16720,6 +16720,11 @@ type BusinessPartnerCreate struct {
 	// `partner.group_company_unknown` otherwise). The ledger derives the trading partner of the lines
 	// naming the partner from it.
 	GroupCompanyID OptUUID `json:"group_company_id"`
+	// Create the partner although another partner has one of its tax registration numbers (the same scheme
+	// and value): the creator judged it another partner. Without it such a partner is refused (409
+	// `partner.duplicate_tax_number`). The change lists the possible duplicates either way
+	// (`PartnerChange.possible_duplicates`).
+	ConfirmDuplicate OptBool `json:"confirm_duplicate"`
 	// Why the partner is needed; recorded on the partner change.
 	Reason string `json:"reason"`
 }
@@ -16787,6 +16792,11 @@ func (s *BusinessPartnerCreate) GetExtensions() OptExtensions {
 // GetGroupCompanyID returns the value of GroupCompanyID.
 func (s *BusinessPartnerCreate) GetGroupCompanyID() OptUUID {
 	return s.GroupCompanyID
+}
+
+// GetConfirmDuplicate returns the value of ConfirmDuplicate.
+func (s *BusinessPartnerCreate) GetConfirmDuplicate() OptBool {
+	return s.ConfirmDuplicate
 }
 
 // GetReason returns the value of Reason.
@@ -16857,6 +16867,11 @@ func (s *BusinessPartnerCreate) SetExtensions(val OptExtensions) {
 // SetGroupCompanyID sets the value of GroupCompanyID.
 func (s *BusinessPartnerCreate) SetGroupCompanyID(val OptUUID) {
 	s.GroupCompanyID = val
+}
+
+// SetConfirmDuplicate sets the value of ConfirmDuplicate.
+func (s *BusinessPartnerCreate) SetConfirmDuplicate(val OptBool) {
+	s.ConfirmDuplicate = val
 }
 
 // SetReason sets the value of Reason.
@@ -25738,6 +25753,7 @@ func (*ConflictHeaders) createDownPaymentRequestRes()              {}
 func (*ConflictHeaders) createDunningRunRes()                      {}
 func (*ConflictHeaders) createEntryTemplateRes()                   {}
 func (*ConflictHeaders) createExchangeRateRes()                    {}
+func (*ConflictHeaders) createExpenseReportRes()                   {}
 func (*ConflictHeaders) createForecastVarianceCommentRes()         {}
 func (*ConflictHeaders) createGrIrClearingRes()                    {}
 func (*ConflictHeaders) createHierarchyRes()                       {}
@@ -25855,6 +25871,7 @@ func (*ConflictHeaders) postBankStatementLineRes()                 {}
 func (*ConflictHeaders) postBillingDocumentRes()                   {}
 func (*ConflictHeaders) postCreditMemoRequestRes()                 {}
 func (*ConflictHeaders) postCustomerInvoiceRes()                   {}
+func (*ConflictHeaders) postExpenseReportRes()                     {}
 func (*ConflictHeaders) postGoodsReceiptRes()                      {}
 func (*ConflictHeaders) postJournalEntryRes()                      {}
 func (*ConflictHeaders) postParkedJournalEntryRes()                {}
@@ -32716,6 +32733,22 @@ func (*CreateExchangeRatePreconditionRequired) createExchangeRateRes() {}
 type CreateExchangeRateUnprocessableEntity Problem
 
 func (*CreateExchangeRateUnprocessableEntity) createExchangeRateRes() {}
+
+type CreateExpenseReportBadRequest Problem
+
+func (*CreateExpenseReportBadRequest) createExpenseReportRes() {}
+
+type CreateExpenseReportForbidden Problem
+
+func (*CreateExpenseReportForbidden) createExpenseReportRes() {}
+
+type CreateExpenseReportPreconditionRequired Problem
+
+func (*CreateExpenseReportPreconditionRequired) createExpenseReportRes() {}
+
+type CreateExpenseReportUnprocessableEntity Problem
+
+func (*CreateExpenseReportUnprocessableEntity) createExpenseReportRes() {}
 
 type CreateForecastVarianceCommentBadRequest Problem
 
@@ -41611,6 +41644,734 @@ func (s *Expanded) SetSupplier(val OptPartnerSummary) {
 	s.Supplier = val
 }
 
+// Merged schema.
+// Ref: #/components/schemas/ExpenseReport
+type ExpenseReport struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The document number, from the company's `expense_report` number range.
+	DocumentNumber string `json:"document_number"`
+	// The company the expenses are claimed from.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The employee: a business partner with the supplier role (`GET /v1/business-partners/{id}`).
+	EmployeeID uuid.UUID `json:"employee_id"`
+	// The employee's business partner number.
+	EmployeeNumber string `json:"employee_number"`
+	// The employee's name, as it is now.
+	EmployeeName string `json:"employee_name"`
+	// The day the report was entered, the company's date in its time zone: the entry's document date and
+	// its payment term's baseline. Each line's tax is calculated on its own `expense_date`.
+	ReportDate time.Time `json:"report_date"`
+	// What the expenses were for; absent when none was given.
+	Description OptString `json:"description"`
+	// The lines' gross amounts added up: what the employee is owed.
+	GrossAmount Money `json:"gross_amount"`
+	// The tax the lines hold, added up.
+	TaxAmount Money `json:"tax_amount"`
+	// `gross_amount` less `tax_amount`.
+	NetAmount Money `json:"net_amount"`
+	// `entered`: entered, nothing posted; `posted`: posted, once (`:post`). Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The date the report posted on; absent until it is posted.
+	PostingDate OptDate `json:"posting_date"`
+	// The journal entry the report posted (`GET /v1/journal-entries/{id}`); absent until it is posted.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The fiscal year of `journal_entry_id`; absent until it is posted.
+	JournalEntryYear OptInt32 `json:"journal_entry_year"`
+	// The payment term the employee's open item posted with: the employee's in the company; absent until
+	// it is posted.
+	PaymentTermCode OptString `json:"payment_term_code"`
+	// When the open item is due without discount: the report date plus the term's net days; absent until
+	// it is posted.
+	NetDueDate OptDate `json:"net_due_date"`
+	// The lines, by line number.
+	Lines []ExpenseReportLine `json:"lines"`
+}
+
+// GetID returns the value of ID.
+func (s *ExpenseReport) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *ExpenseReport) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ExpenseReport) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *ExpenseReport) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *ExpenseReport) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *ExpenseReport) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *ExpenseReport) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ExpenseReport) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ExpenseReport) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *ExpenseReport) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetEmployeeID returns the value of EmployeeID.
+func (s *ExpenseReport) GetEmployeeID() uuid.UUID {
+	return s.EmployeeID
+}
+
+// GetEmployeeNumber returns the value of EmployeeNumber.
+func (s *ExpenseReport) GetEmployeeNumber() string {
+	return s.EmployeeNumber
+}
+
+// GetEmployeeName returns the value of EmployeeName.
+func (s *ExpenseReport) GetEmployeeName() string {
+	return s.EmployeeName
+}
+
+// GetReportDate returns the value of ReportDate.
+func (s *ExpenseReport) GetReportDate() time.Time {
+	return s.ReportDate
+}
+
+// GetDescription returns the value of Description.
+func (s *ExpenseReport) GetDescription() OptString {
+	return s.Description
+}
+
+// GetGrossAmount returns the value of GrossAmount.
+func (s *ExpenseReport) GetGrossAmount() Money {
+	return s.GrossAmount
+}
+
+// GetTaxAmount returns the value of TaxAmount.
+func (s *ExpenseReport) GetTaxAmount() Money {
+	return s.TaxAmount
+}
+
+// GetNetAmount returns the value of NetAmount.
+func (s *ExpenseReport) GetNetAmount() Money {
+	return s.NetAmount
+}
+
+// GetStatus returns the value of Status.
+func (s *ExpenseReport) GetStatus() string {
+	return s.Status
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *ExpenseReport) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *ExpenseReport) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *ExpenseReport) GetJournalEntryYear() OptInt32 {
+	return s.JournalEntryYear
+}
+
+// GetPaymentTermCode returns the value of PaymentTermCode.
+func (s *ExpenseReport) GetPaymentTermCode() OptString {
+	return s.PaymentTermCode
+}
+
+// GetNetDueDate returns the value of NetDueDate.
+func (s *ExpenseReport) GetNetDueDate() OptDate {
+	return s.NetDueDate
+}
+
+// GetLines returns the value of Lines.
+func (s *ExpenseReport) GetLines() []ExpenseReportLine {
+	return s.Lines
+}
+
+// SetID sets the value of ID.
+func (s *ExpenseReport) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *ExpenseReport) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ExpenseReport) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *ExpenseReport) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *ExpenseReport) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *ExpenseReport) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *ExpenseReport) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ExpenseReport) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ExpenseReport) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *ExpenseReport) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetEmployeeID sets the value of EmployeeID.
+func (s *ExpenseReport) SetEmployeeID(val uuid.UUID) {
+	s.EmployeeID = val
+}
+
+// SetEmployeeNumber sets the value of EmployeeNumber.
+func (s *ExpenseReport) SetEmployeeNumber(val string) {
+	s.EmployeeNumber = val
+}
+
+// SetEmployeeName sets the value of EmployeeName.
+func (s *ExpenseReport) SetEmployeeName(val string) {
+	s.EmployeeName = val
+}
+
+// SetReportDate sets the value of ReportDate.
+func (s *ExpenseReport) SetReportDate(val time.Time) {
+	s.ReportDate = val
+}
+
+// SetDescription sets the value of Description.
+func (s *ExpenseReport) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetGrossAmount sets the value of GrossAmount.
+func (s *ExpenseReport) SetGrossAmount(val Money) {
+	s.GrossAmount = val
+}
+
+// SetTaxAmount sets the value of TaxAmount.
+func (s *ExpenseReport) SetTaxAmount(val Money) {
+	s.TaxAmount = val
+}
+
+// SetNetAmount sets the value of NetAmount.
+func (s *ExpenseReport) SetNetAmount(val Money) {
+	s.NetAmount = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ExpenseReport) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *ExpenseReport) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *ExpenseReport) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *ExpenseReport) SetJournalEntryYear(val OptInt32) {
+	s.JournalEntryYear = val
+}
+
+// SetPaymentTermCode sets the value of PaymentTermCode.
+func (s *ExpenseReport) SetPaymentTermCode(val OptString) {
+	s.PaymentTermCode = val
+}
+
+// SetNetDueDate sets the value of NetDueDate.
+func (s *ExpenseReport) SetNetDueDate(val OptDate) {
+	s.NetDueDate = val
+}
+
+// SetLines sets the value of Lines.
+func (s *ExpenseReport) SetLines(val []ExpenseReportLine) {
+	s.Lines = val
+}
+
+// An employee's expense report to enter. It is created `entered`, dated the company's date today.
+// Ref: #/components/schemas/ExpenseReportCreate
+type ExpenseReportCreate struct {
+	// The company the expenses are claimed from: one the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The employee: a business partner with the supplier role, set up in the company
+	// (`GET /v1/business-partners/{id}`).
+	EmployeeID uuid.UUID `json:"employee_id"`
+	// What the expenses were for; optional. It is the entry's header text.
+	Description OptString `json:"description"`
+	// The expenses, numbered in this order from 1.
+	Lines []ExpenseReportLineCreate `json:"lines"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ExpenseReportCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetEmployeeID returns the value of EmployeeID.
+func (s *ExpenseReportCreate) GetEmployeeID() uuid.UUID {
+	return s.EmployeeID
+}
+
+// GetDescription returns the value of Description.
+func (s *ExpenseReportCreate) GetDescription() OptString {
+	return s.Description
+}
+
+// GetLines returns the value of Lines.
+func (s *ExpenseReportCreate) GetLines() []ExpenseReportLineCreate {
+	return s.Lines
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ExpenseReportCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetEmployeeID sets the value of EmployeeID.
+func (s *ExpenseReportCreate) SetEmployeeID(val uuid.UUID) {
+	s.EmployeeID = val
+}
+
+// SetDescription sets the value of Description.
+func (s *ExpenseReportCreate) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetLines sets the value of Lines.
+func (s *ExpenseReportCreate) SetLines(val []ExpenseReportLineCreate) {
+	s.Lines = val
+}
+
+// ExpenseReportHeaders wraps ExpenseReport with response headers.
+type ExpenseReportHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           ExpenseReport
+}
+
+// GetETag returns the value of ETag.
+func (s *ExpenseReportHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ExpenseReportHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *ExpenseReportHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *ExpenseReportHeaders) GetResponse() ExpenseReport {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ExpenseReportHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ExpenseReportHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *ExpenseReportHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ExpenseReportHeaders) SetResponse(val ExpenseReport) {
+	s.Response = val
+}
+
+func (*ExpenseReportHeaders) createExpenseReportRes() {}
+
+// A line of an expense report (ADR-0074): one expense, with the tax its gross holds.
+// Ref: #/components/schemas/ExpenseReportLine
+type ExpenseReportLine struct {
+	// The line's number within the report, from 1.
+	LineNo int32 `json:"line_no"`
+	// The day of the expense.
+	ExpenseDate time.Time `json:"expense_date"`
+	// The expense type's code.
+	ExpenseType string `json:"expense_type"`
+	// The expense type's name, as the configuration now gives it; absent once the type is no longer
+	// configured.
+	ExpenseTypeName OptString `json:"expense_type_name"`
+	// The expense account the line posts to: its expense type's when the report was entered
+	// (`GET /v1/accounts/{id}`).
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name, as it is now.
+	AccountName string `json:"account_name"`
+	// The gross amount, tax included.
+	Amount Money `json:"amount"`
+	// The input tax code; absent when the line holds no tax.
+	TaxCode OptString `json:"tax_code"`
+	// The tax the gross holds by the code's rates on the line's `expense_date`, as calculated when the
+	// report was entered; 0 without a code.
+	TaxAmount Money `json:"tax_amount"`
+	// `amount` less `tax_amount`.
+	NetAmount Money `json:"net_amount"`
+	// The cost center entered; absent: the account's default, which the posting takes.
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// The cost center's code; absent without one.
+	CostCenterCode OptString `json:"cost_center_code"`
+	// The cost center's name, as it is now; absent without one.
+	CostCenterName OptString `json:"cost_center_name"`
+	// The line's text; absent when none was given.
+	Description OptString `json:"description"`
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *ExpenseReportLine) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetExpenseDate returns the value of ExpenseDate.
+func (s *ExpenseReportLine) GetExpenseDate() time.Time {
+	return s.ExpenseDate
+}
+
+// GetExpenseType returns the value of ExpenseType.
+func (s *ExpenseReportLine) GetExpenseType() string {
+	return s.ExpenseType
+}
+
+// GetExpenseTypeName returns the value of ExpenseTypeName.
+func (s *ExpenseReportLine) GetExpenseTypeName() OptString {
+	return s.ExpenseTypeName
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *ExpenseReportLine) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *ExpenseReportLine) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *ExpenseReportLine) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetAmount returns the value of Amount.
+func (s *ExpenseReportLine) GetAmount() Money {
+	return s.Amount
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *ExpenseReportLine) GetTaxCode() OptString {
+	return s.TaxCode
+}
+
+// GetTaxAmount returns the value of TaxAmount.
+func (s *ExpenseReportLine) GetTaxAmount() Money {
+	return s.TaxAmount
+}
+
+// GetNetAmount returns the value of NetAmount.
+func (s *ExpenseReportLine) GetNetAmount() Money {
+	return s.NetAmount
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *ExpenseReportLine) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *ExpenseReportLine) GetCostCenterCode() OptString {
+	return s.CostCenterCode
+}
+
+// GetCostCenterName returns the value of CostCenterName.
+func (s *ExpenseReportLine) GetCostCenterName() OptString {
+	return s.CostCenterName
+}
+
+// GetDescription returns the value of Description.
+func (s *ExpenseReportLine) GetDescription() OptString {
+	return s.Description
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *ExpenseReportLine) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetExpenseDate sets the value of ExpenseDate.
+func (s *ExpenseReportLine) SetExpenseDate(val time.Time) {
+	s.ExpenseDate = val
+}
+
+// SetExpenseType sets the value of ExpenseType.
+func (s *ExpenseReportLine) SetExpenseType(val string) {
+	s.ExpenseType = val
+}
+
+// SetExpenseTypeName sets the value of ExpenseTypeName.
+func (s *ExpenseReportLine) SetExpenseTypeName(val OptString) {
+	s.ExpenseTypeName = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *ExpenseReportLine) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *ExpenseReportLine) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *ExpenseReportLine) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *ExpenseReportLine) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *ExpenseReportLine) SetTaxCode(val OptString) {
+	s.TaxCode = val
+}
+
+// SetTaxAmount sets the value of TaxAmount.
+func (s *ExpenseReportLine) SetTaxAmount(val Money) {
+	s.TaxAmount = val
+}
+
+// SetNetAmount sets the value of NetAmount.
+func (s *ExpenseReportLine) SetNetAmount(val Money) {
+	s.NetAmount = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *ExpenseReportLine) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *ExpenseReportLine) SetCostCenterCode(val OptString) {
+	s.CostCenterCode = val
+}
+
+// SetCostCenterName sets the value of CostCenterName.
+func (s *ExpenseReportLine) SetCostCenterName(val OptString) {
+	s.CostCenterName = val
+}
+
+// SetDescription sets the value of Description.
+func (s *ExpenseReportLine) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// One expense: its date, type, gross amount, tax code and cost center.
+// Ref: #/components/schemas/ExpenseReportLineCreate
+type ExpenseReportLineCreate struct {
+	// The day of the expense: not after the company's date today.
+	ExpenseDate time.Time `json:"expense_date"`
+	// An expense type of the company (`companies[].expense_types[].code`), whose expense account the line
+	// posts to.
+	ExpenseType string `json:"expense_type"`
+	// The gross amount spent, tax included, more than zero, in the company's currency.
+	Amount Money `json:"amount"`
+	// An input tax code of the company on the line's `expense_date`; its tax is taken out of the gross.
+	// Absent: the line holds no tax.
+	TaxCode OptString `json:"tax_code"`
+	// The cost center the expense is charged to; absent: the account's default.
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// What was spent, in words; optional. It is the line's text.
+	Description OptString `json:"description"`
+}
+
+// GetExpenseDate returns the value of ExpenseDate.
+func (s *ExpenseReportLineCreate) GetExpenseDate() time.Time {
+	return s.ExpenseDate
+}
+
+// GetExpenseType returns the value of ExpenseType.
+func (s *ExpenseReportLineCreate) GetExpenseType() string {
+	return s.ExpenseType
+}
+
+// GetAmount returns the value of Amount.
+func (s *ExpenseReportLineCreate) GetAmount() Money {
+	return s.Amount
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *ExpenseReportLineCreate) GetTaxCode() OptString {
+	return s.TaxCode
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *ExpenseReportLineCreate) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetDescription returns the value of Description.
+func (s *ExpenseReportLineCreate) GetDescription() OptString {
+	return s.Description
+}
+
+// SetExpenseDate sets the value of ExpenseDate.
+func (s *ExpenseReportLineCreate) SetExpenseDate(val time.Time) {
+	s.ExpenseDate = val
+}
+
+// SetExpenseType sets the value of ExpenseType.
+func (s *ExpenseReportLineCreate) SetExpenseType(val string) {
+	s.ExpenseType = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *ExpenseReportLineCreate) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *ExpenseReportLineCreate) SetTaxCode(val OptString) {
+	s.TaxCode = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *ExpenseReportLineCreate) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetDescription sets the value of Description.
+func (s *ExpenseReportLineCreate) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// One page of expense reports.
+// Ref: #/components/schemas/ExpenseReportPage
+type ExpenseReportPage struct {
+	// The expense reports on this page.
+	Items []ExpenseReport `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ExpenseReportPage) GetItems() []ExpenseReport {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ExpenseReportPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ExpenseReportPage) SetItems(val []ExpenseReport) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ExpenseReportPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ExpenseReportPage) listExpenseReportsRes() {}
+
+// Options for posting an expense report.
+// Ref: #/components/schemas/ExpenseReportPost
+type ExpenseReportPost struct {
+	// The posting date; absent: today, the company's date in its time zone (`companies[].time_zone`).
+	PostingDate OptDate `json:"posting_date"`
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *ExpenseReportPost) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *ExpenseReportPost) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
 // Tenant custom fields (ADR-0009), validated against the tenant's published schema for this resource
 // type. Keys are snake_case.
 // Ref: #/components/schemas/Extensions
@@ -44578,6 +45339,46 @@ func (s *GetExchangeRateOKHeaders) SetResponse(val ExchangeRate) {
 }
 
 func (*GetExchangeRateOKHeaders) getExchangeRateRes() {}
+
+type GetExpenseReportBadRequest Problem
+
+func (*GetExpenseReportBadRequest) getExpenseReportRes() {}
+
+type GetExpenseReportForbidden Problem
+
+func (*GetExpenseReportForbidden) getExpenseReportRes() {}
+
+type GetExpenseReportNotFound Problem
+
+func (*GetExpenseReportNotFound) getExpenseReportRes() {}
+
+// GetExpenseReportOKHeaders wraps ExpenseReport with response headers.
+type GetExpenseReportOKHeaders struct {
+	ETag     OptString
+	Response ExpenseReport
+}
+
+// GetETag returns the value of ETag.
+func (s *GetExpenseReportOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetExpenseReportOKHeaders) GetResponse() ExpenseReport {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetExpenseReportOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetExpenseReportOKHeaders) SetResponse(val ExpenseReport) {
+	s.Response = val
+}
+
+func (*GetExpenseReportOKHeaders) getExpenseReportRes() {}
 
 type GetFiscalPeriodBadRequest Problem
 
@@ -51833,8 +52634,10 @@ type JournalEntry struct {
 	DocumentDate time.Time `json:"document_date"`
 	// Posting date.
 	PostingDate time.Time `json:"posting_date"`
-	// Tax date: the lines' tax codes' rates applied on it and its return reports their tax (ADR-0049 §4).
-	// Absent on entries posted before tax items (T61c), whose tax date is the posting date.
+	// Tax date: the lines' tax codes' rates applied on it and its return reports their tax (ADR-0049 §4),
+	// but for tax items that carry a date of their own, an expense report's, each dated by its line's
+	// expense date (ADR-0074 §3). Absent on entries posted before tax items (T61c), whose tax date is the
+	// posting date.
 	TaxDate OptDate `json:"tax_date"`
 	// The tax invoice or tax credit note the entry's VAT rests on, whose date is its tax date: a year-end
 	// adjustment posted into a special period with a tax code (`JournalEntryCreate` `tax_document`,
@@ -57435,6 +58238,14 @@ func (*ListExchangeRatesBadRequest) listExchangeRatesRes() {}
 type ListExchangeRatesForbidden Problem
 
 func (*ListExchangeRatesForbidden) listExchangeRatesRes() {}
+
+type ListExpenseReportsBadRequest Problem
+
+func (*ListExpenseReportsBadRequest) listExpenseReportsRes() {}
+
+type ListExpenseReportsForbidden Problem
+
+func (*ListExpenseReportsForbidden) listExpenseReportsRes() {}
 
 type ListFiscalPeriodsBadRequest Problem
 
@@ -66042,6 +66853,52 @@ func (o OptExpanded) Or(d Expanded) Expanded {
 	return d
 }
 
+// NewOptExpenseReportPost returns new OptExpenseReportPost with value set to v.
+func NewOptExpenseReportPost(v ExpenseReportPost) OptExpenseReportPost {
+	return OptExpenseReportPost{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptExpenseReportPost is optional ExpenseReportPost.
+type OptExpenseReportPost struct {
+	Value ExpenseReportPost
+	Set   bool
+}
+
+// IsSet returns true if OptExpenseReportPost was set.
+func (o OptExpenseReportPost) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptExpenseReportPost) Reset() {
+	var v ExpenseReportPost
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptExpenseReportPost) SetTo(v ExpenseReportPost) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptExpenseReportPost) Get() (v ExpenseReportPost, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptExpenseReportPost) Or(d ExpenseReportPost) ExpenseReportPost {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptExtensions returns new OptExtensions with value set to v.
 func NewOptExtensions(v Extensions) OptExtensions {
 	return OptExtensions{
@@ -70287,6 +71144,11 @@ type PartnerChange struct {
 	Reason string `json:"reason"`
 	// Warnings raised at request time.
 	Warnings []PartnerChangeWarning `json:"warnings"`
+	// For a `create` change, the existing business partners the new one may duplicate when it was
+	// requested (T89a): those with one of its tax registration numbers, or its name and country (white
+	// space and case aside), whatever their roles, blocked ones included, by number, at most 20; empty
+	// when none matched and for every other kind of change. The approver reads them before deciding.
+	PossibleDuplicates []PossibleDuplicate `json:"possible_duplicates"`
 	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1.
 	Status string `json:"status"`
@@ -70356,6 +71218,11 @@ func (s *PartnerChange) GetReason() string {
 // GetWarnings returns the value of Warnings.
 func (s *PartnerChange) GetWarnings() []PartnerChangeWarning {
 	return s.Warnings
+}
+
+// GetPossibleDuplicates returns the value of PossibleDuplicates.
+func (s *PartnerChange) GetPossibleDuplicates() []PossibleDuplicate {
+	return s.PossibleDuplicates
 }
 
 // GetStatus returns the value of Status.
@@ -70436,6 +71303,11 @@ func (s *PartnerChange) SetReason(val string) {
 // SetWarnings sets the value of Warnings.
 func (s *PartnerChange) SetWarnings(val []PartnerChangeWarning) {
 	s.Warnings = val
+}
+
+// SetPossibleDuplicates sets the value of PossibleDuplicates.
+func (s *PartnerChange) SetPossibleDuplicates(val []PossibleDuplicate) {
+	s.PossibleDuplicates = val
 }
 
 // SetStatus sets the value of Status.
@@ -74853,6 +75725,62 @@ func (s *PlanLinePage) SetTotalEstimate(val OptInt64) {
 
 func (*PlanLinePage) listPlanLinesRes() {}
 
+// An existing business partner a new one may duplicate (T89a).
+// Ref: #/components/schemas/PossibleDuplicate
+type PossibleDuplicate struct {
+	// The existing partner (`GET /v1/business-partners/{id}`).
+	PartnerID uuid.UUID `json:"partner_id"`
+	// Its business partner number.
+	Number string `json:"number"`
+	// Its name, as it is now.
+	Name string `json:"name"`
+	// What matched: `tax_registration_number`, one of the new partner's tax registration numbers (the same
+	// scheme and value); `name_and_country`, the same name, white space and case aside, in the same
+	// country. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	Matched []string `json:"matched"`
+}
+
+// GetPartnerID returns the value of PartnerID.
+func (s *PossibleDuplicate) GetPartnerID() uuid.UUID {
+	return s.PartnerID
+}
+
+// GetNumber returns the value of Number.
+func (s *PossibleDuplicate) GetNumber() string {
+	return s.Number
+}
+
+// GetName returns the value of Name.
+func (s *PossibleDuplicate) GetName() string {
+	return s.Name
+}
+
+// GetMatched returns the value of Matched.
+func (s *PossibleDuplicate) GetMatched() []string {
+	return s.Matched
+}
+
+// SetPartnerID sets the value of PartnerID.
+func (s *PossibleDuplicate) SetPartnerID(val uuid.UUID) {
+	s.PartnerID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *PossibleDuplicate) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetName sets the value of Name.
+func (s *PossibleDuplicate) SetName(val string) {
+	s.Name = val
+}
+
+// SetMatched sets the value of Matched.
+func (s *PossibleDuplicate) SetMatched(val []string) {
+	s.Matched = val
+}
+
 type PostBankStatementLineBadRequest Problem
 
 func (*PostBankStatementLineBadRequest) postBankStatementLineRes() {}
@@ -75026,6 +75954,69 @@ func (*PostCustomerInvoicePreconditionRequired) postCustomerInvoiceRes() {}
 type PostCustomerInvoiceUnprocessableEntity Problem
 
 func (*PostCustomerInvoiceUnprocessableEntity) postCustomerInvoiceRes() {}
+
+type PostExpenseReportBadRequest Problem
+
+func (*PostExpenseReportBadRequest) postExpenseReportRes() {}
+
+type PostExpenseReportForbidden Problem
+
+func (*PostExpenseReportForbidden) postExpenseReportRes() {}
+
+type PostExpenseReportNotFound Problem
+
+func (*PostExpenseReportNotFound) postExpenseReportRes() {}
+
+// PostExpenseReportOKHeaders wraps ExpenseReport with response headers.
+type PostExpenseReportOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           ExpenseReport
+}
+
+// GetETag returns the value of ETag.
+func (s *PostExpenseReportOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *PostExpenseReportOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *PostExpenseReportOKHeaders) GetResponse() ExpenseReport {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *PostExpenseReportOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *PostExpenseReportOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *PostExpenseReportOKHeaders) SetResponse(val ExpenseReport) {
+	s.Response = val
+}
+
+func (*PostExpenseReportOKHeaders) postExpenseReportRes() {}
+
+type PostExpenseReportPreconditionFailed Problem
+
+func (*PostExpenseReportPreconditionFailed) postExpenseReportRes() {}
+
+type PostExpenseReportPreconditionRequired Problem
+
+func (*PostExpenseReportPreconditionRequired) postExpenseReportRes() {}
+
+type PostExpenseReportUnprocessableEntity Problem
+
+func (*PostExpenseReportUnprocessableEntity) postExpenseReportRes() {}
 
 type PostGoodsReceiptBadRequest Problem
 
@@ -97496,6 +98487,7 @@ func (*TooManyRequestsHeaders) createDownPaymentRequestRes()              {}
 func (*TooManyRequestsHeaders) createDunningRunRes()                      {}
 func (*TooManyRequestsHeaders) createEntryTemplateRes()                   {}
 func (*TooManyRequestsHeaders) createExchangeRateRes()                    {}
+func (*TooManyRequestsHeaders) createExpenseReportRes()                   {}
 func (*TooManyRequestsHeaders) createForecastVarianceCommentRes()         {}
 func (*TooManyRequestsHeaders) createGrIrClearingRes()                    {}
 func (*TooManyRequestsHeaders) createHierarchyRes()                       {}
@@ -97620,6 +98612,7 @@ func (*TooManyRequestsHeaders) getEInvoiceContentRes()                    {}
 func (*TooManyRequestsHeaders) getEInvoiceRes()                           {}
 func (*TooManyRequestsHeaders) getEntryTemplateRes()                      {}
 func (*TooManyRequestsHeaders) getExchangeRateRes()                       {}
+func (*TooManyRequestsHeaders) getExpenseReportRes()                      {}
 func (*TooManyRequestsHeaders) getFiscalPeriodRes()                       {}
 func (*TooManyRequestsHeaders) getForecastVarianceCommentRes()            {}
 func (*TooManyRequestsHeaders) getGoodsReceiptRes()                       {}
@@ -97756,6 +98749,7 @@ func (*TooManyRequestsHeaders) listDunningRunsRes()                       {}
 func (*TooManyRequestsHeaders) listEInvoicesRes()                         {}
 func (*TooManyRequestsHeaders) listEntryTemplatesRes()                    {}
 func (*TooManyRequestsHeaders) listExchangeRatesRes()                     {}
+func (*TooManyRequestsHeaders) listExpenseReportsRes()                    {}
 func (*TooManyRequestsHeaders) listFiscalPeriodsRes()                     {}
 func (*TooManyRequestsHeaders) listForecastVarianceCommentsRes()          {}
 func (*TooManyRequestsHeaders) listForecastVarianceDocumentsRes()         {}
@@ -97859,6 +98853,7 @@ func (*TooManyRequestsHeaders) postBankStatementLineRes()                 {}
 func (*TooManyRequestsHeaders) postBillingDocumentRes()                   {}
 func (*TooManyRequestsHeaders) postCreditMemoRequestRes()                 {}
 func (*TooManyRequestsHeaders) postCustomerInvoiceRes()                   {}
+func (*TooManyRequestsHeaders) postExpenseReportRes()                     {}
 func (*TooManyRequestsHeaders) postGoodsReceiptRes()                      {}
 func (*TooManyRequestsHeaders) postJournalEntryRes()                      {}
 func (*TooManyRequestsHeaders) postParkedJournalEntryRes()                {}
@@ -98361,6 +99356,7 @@ func (*UnauthorizedHeaders) createDownPaymentRequestRes()              {}
 func (*UnauthorizedHeaders) createDunningRunRes()                      {}
 func (*UnauthorizedHeaders) createEntryTemplateRes()                   {}
 func (*UnauthorizedHeaders) createExchangeRateRes()                    {}
+func (*UnauthorizedHeaders) createExpenseReportRes()                   {}
 func (*UnauthorizedHeaders) createForecastVarianceCommentRes()         {}
 func (*UnauthorizedHeaders) createGrIrClearingRes()                    {}
 func (*UnauthorizedHeaders) createHierarchyRes()                       {}
@@ -98485,6 +99481,7 @@ func (*UnauthorizedHeaders) getEInvoiceContentRes()                    {}
 func (*UnauthorizedHeaders) getEInvoiceRes()                           {}
 func (*UnauthorizedHeaders) getEntryTemplateRes()                      {}
 func (*UnauthorizedHeaders) getExchangeRateRes()                       {}
+func (*UnauthorizedHeaders) getExpenseReportRes()                      {}
 func (*UnauthorizedHeaders) getFiscalPeriodRes()                       {}
 func (*UnauthorizedHeaders) getForecastVarianceCommentRes()            {}
 func (*UnauthorizedHeaders) getGoodsReceiptRes()                       {}
@@ -98621,6 +99618,7 @@ func (*UnauthorizedHeaders) listDunningRunsRes()                       {}
 func (*UnauthorizedHeaders) listEInvoicesRes()                         {}
 func (*UnauthorizedHeaders) listEntryTemplatesRes()                    {}
 func (*UnauthorizedHeaders) listExchangeRatesRes()                     {}
+func (*UnauthorizedHeaders) listExpenseReportsRes()                    {}
 func (*UnauthorizedHeaders) listFiscalPeriodsRes()                     {}
 func (*UnauthorizedHeaders) listForecastVarianceCommentsRes()          {}
 func (*UnauthorizedHeaders) listForecastVarianceDocumentsRes()         {}
@@ -98724,6 +99722,7 @@ func (*UnauthorizedHeaders) postBankStatementLineRes()                 {}
 func (*UnauthorizedHeaders) postBillingDocumentRes()                   {}
 func (*UnauthorizedHeaders) postCreditMemoRequestRes()                 {}
 func (*UnauthorizedHeaders) postCustomerInvoiceRes()                   {}
+func (*UnauthorizedHeaders) postExpenseReportRes()                     {}
 func (*UnauthorizedHeaders) postGoodsReceiptRes()                      {}
 func (*UnauthorizedHeaders) postJournalEntryRes()                      {}
 func (*UnauthorizedHeaders) postParkedJournalEntryRes()                {}

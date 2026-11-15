@@ -214,37 +214,37 @@ func (d draft) taxDay() time.Time {
 }
 
 // writeGivenItems writes the items a context calculated (T61d), each on
-// its component's account with the rate in force on the tax date, numbered
-// in order; the commit-time check holds them to the tax lines.
+// its component's account with the rate in force on its tax date (its own,
+// PostingTaxItem.TaxDate, else the entry's), numbered in order; the
+// commit-time check holds them to the tax lines.
 func writeGivenItems(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, year int16, id uuid.UUID, d draft) error {
 	n := len(d.givenItems)
-	codes, components := make([]string, n), make([]string, n)
+	codes, components, days := make([]string, n), make([]string, n), make([]time.Time, n)
 	base, tax, rec, baseLC, taxLC, recLC := make([]money.Minor, n), make([]money.Minor, n), make([]money.Minor, n), make([]money.Minor, n),
 		make([]money.Minor, n), make([]money.Minor, n)
 	for i, t := range d.givenItems {
-		codes[i], components[i] = t.Code, t.Component
+		codes[i], components[i], days[i] = t.Code, t.Component, deref(t.TaxDate, d.taxDay())
 		base[i], tax[i], rec[i], baseLC[i], taxLC[i], recLC[i] = t.Base, t.Tax, t.Recoverable, t.BaseLC, t.TaxLC, t.RecoverableLC
 	}
 	tag, err := tx.Exec(ctx, `INSERT INTO ledger.tax_item (tenant_id, fiscal_year, journal_entry_id, item_no, legal_entity_id, code, component,
 			jurisdiction, direction, kind, account_key, account_id, tax_date, tax_rate_id, rate_pct, recoverable_pct, base_tc, tax_tc, recoverable_tc,
 			base_lc, tax_lc, recoverable_lc)
-		SELECT $1, $2, $3, x.n, c.legal_entity_id, c.code, c.component, c.jurisdiction, d.direction, d.kind, c.account_key, c.account_id, $5, r.id,
+		SELECT $1, $2, $3, x.n, c.legal_entity_id, c.code, c.component, c.jurisdiction, d.direction, d.kind, c.account_key, c.account_id, x.day, r.id,
 			r.rate_pct, c.recoverable_pct, x.b, x.t, x.r, x.bl, x.tl, x.rl
-		FROM unnest($6::text[], $7::text[], $8::bigint[], $9::bigint[], $10::bigint[], $11::bigint[], $12::bigint[], $13::bigint[])
-			WITH ORDINALITY AS x(code, component, b, t, r, bl, tl, rl, n)
+		FROM unnest($5::text[], $6::text[], $7::date[], $8::bigint[], $9::bigint[], $10::bigint[], $11::bigint[], $12::bigint[], $13::bigint[])
+			WITH ORDINALITY AS x(code, component, day, b, t, r, bl, tl, rl, n)
 		JOIN ledger.tax_component c ON c.legal_entity_id = $4 AND c.code = x.code AND c.component = x.component
 		JOIN ledger.tax_code_definition d ON d.tenant_id = c.tenant_id AND d.legal_entity_id = c.legal_entity_id AND d.code = c.code
 		JOIN ledger.tax_rate r ON r.tenant_id = c.tenant_id AND r.legal_entity_id = c.legal_entity_id AND r.code = c.code AND r.component = c.component
-			AND r.withdrawn_at IS NULL AND r.valid_from <= $5 AND (r.valid_to IS NULL OR r.valid_to > $5)`,
-		tenant, year, id, d.entity.ID, d.taxDay(), codes, components, base, tax, rec, baseLC, taxLC, recLC)
+			AND r.withdrawn_at IS NULL AND r.valid_from <= x.day AND (r.valid_to IS NULL OR r.valid_to > x.day)`,
+		tenant, year, id, d.entity.ID, codes, components, days, base, tax, rec, baseLC, taxLC, recLC)
 	if err != nil {
 		return fmt.Errorf("ledger: post entry %s: tax items: %w", id, err)
 	}
-	// An item the joins drop (a component without a rate on the tax date)
+	// An item the joins drop (a component without a rate on its tax date)
 	// the commit-time check would not see when it has no account.
 	if tag.RowsAffected() != int64(n) {
-		return fmt.Errorf("ledger: post entry %s: %d of %d tax items name a component with a rate on %s", id, tag.RowsAffected(), n,
-			d.taxDay().Format(time.DateOnly))
+		return fmt.Errorf("ledger: post entry %s: %d of %d tax items name a component with a rate on their tax date", id, tag.RowsAffected(), n)
 	}
 	return nil
 }

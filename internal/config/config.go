@@ -300,6 +300,10 @@ type Company struct {
 	// (ADR-0079 §2): the tenant's own rules, none shipped. None: nothing
 	// of the company is past retention.
 	Retention []RetentionRule `yaml:"retention,omitempty" json:"retention,omitempty"`
+	// ExpenseTypes are the kinds of expense the company's employees claim
+	// on expense reports, each posting to its expense account (ADR-0074
+	// §2). None: the company takes no expense reports.
+	ExpenseTypes []ExpenseType `yaml:"expense_types,omitempty" json:"expense_types,omitempty"`
 }
 
 // YearEnd is a company's year-end settings (ADR-0060 §4). Without a
