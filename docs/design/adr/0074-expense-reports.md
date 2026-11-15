@@ -52,23 +52,28 @@ mean, or what happens when the tax changes between entry and posting.
    most 100; none shipped in a pack. A type's name is cosmetic, the rest
    posting-related (tier 3). A line keeps the account its type named
    when the report was entered.
-3. **One date for the document.** `report_date` is the company's date
-   in its time zone when the report is entered: the entry's document
-   date, the date the lines' tax codes are read and their tax calculated
-   on, and the baseline of the open item's payment term. A line's
-   `expense_date` is when the money was spent, on or before the report
-   date.
+3. **The report's date and each line's tax date.** `report_date` is
+   the company's date in its time zone when the report is entered: the
+   entry's document date and the baseline of the open item's payment
+   term. A line's `expense_date` is when the money was spent, on or
+   before the report date, and it is the line's tax date: its tax code is
+   read, its rate chosen and its tax calculated on it, and its tax items
+   are dated by it, so its tax is reported in that date's period
+   (decided by the product owner 2026-11-13, src po:2026-11-13; the
+   first build used the report date for every line).
 4. **Gross amounts in the company's currency.** A line's amount is what
    was spent, tax included, above zero. Its tax code, optional, is an
-   input code of the company on the report date; the tax it holds is
+   input code of the company on the line's date; the tax it holds is
    calculated when the report is entered and kept on the line. At posting
-   it is calculated again; a line whose code now gives another tax is
+   it is calculated again, each line at its date; a line whose code now
+   gives another tax is
    refused (409 `payables.tax_changed`) and the report is entered again,
    as a customer invoice is (ADR-0063 §5).
 5. **The posting.** Each line debits its account with its net amount and
    the tax its code does not let the company recover, on its cost center
    (the account's default when it names none); the recovered tax goes to
-   the codes' accounts, one line per code and component, as a supplier
+   the codes' accounts, one line per code, component and expense date
+   (decision 3), as a supplier
    invoice's does; the employee's reconciliation account is credited with
    the gross, naming the employee, kept with the employee's payment term
    in the company. No withholding tax is deducted.
@@ -82,8 +87,12 @@ mean, or what happens when the tax changes between entry and posting.
 
 - An employee is paid by the ordinary payment run, from the open item
   the report posts; nothing new in payments.
-- A report whose rates change on the report date after entry must be
-  entered again; there is no edit in the first version.
+- A report a line of which has its rate on its date changed after entry
+  must be entered again; there is no edit in the first version.
+- A report's tax may fall in several tax periods: an expense dated in a
+  period whose return is already prepared is that period's late item,
+  for its amendment or the next return (ADR-0049 P7), as a supplier
+  invoice dated there is.
 
 ## As built
 
@@ -99,11 +108,22 @@ mean, or what happens when the tax changes between entry and posting.
   its name in the configuration while it is configured. The Canada and
   UAE packs bring no `expense_report` range: the walkthrough's pilot
   settings add one, as they add the returns orders'.
+- **Each line's tax date (product owner 2026-11-13).** The lines' tax is
+  calculated per expense date, one calculation per date with that date's
+  rates and the company's rounding (`calculateExpenses`), on entry and
+  again at posting (`payables.tax_changed` per line). The ledger takes a
+  tax item's own date (`ledger.PostingTaxItem.TaxDate`, nil for the
+  entry's): it writes the item with the rate in force on it and checks
+  the code on each date its items carry (`checkTaxCodes`); the entry's
+  own tax date stays the report date. A report spanning a rate change
+  posts each side at its own rate, tested with two dated rates
+  (`TestExpenseReportLinesTaxedAtTheirOwnDates`).
 
 ## Defaults for the product owner's digest
 
-- The report date (the date of entry) is the document and tax date, not
-  each expense's own date (decision 3).
+- Each expense's own date is its tax date; the report date is the
+  document date and the payment term's baseline (decision 3, decided by
+  the product owner 2026-11-13, no longer a default).
 - No withholding tax is deducted from an employee (decision 5).
 - An expense type posts to an expense account only (decision 2).
 - A pack version that brings the `expense_report` range is left to the

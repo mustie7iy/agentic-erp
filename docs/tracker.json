@@ -3109,7 +3109,7 @@
         "s": "D",
         "t": "An accountant enters an employee's expense report (the employee as a business partner with the role supplier; lines with a date, an expense type, an amount, an input tax code and a cost center) and posts it: the employee's open item, which the payment run pays (POST /v1/expense-reports, :post)",
         "r": "T87a · docs/design/plan-breadth-week3.md §T87a · db/migrations/000308 · payables.expense_report, expense_report_line · companies[].expense_types[] · POST /v1/expense-reports · GET /v1/expense-reports · GET /v1/expense-reports/{id} · POST /v1/expense-reports/{id}:post · ExpenseReportChanged · payables.expense.read, .write, .post · number range expense_report · walkthrough step_expense_report · ADR-0074",
-        "src": "po:2026-11-10 · design:01 §1.2",
+        "src": "po:2026-11-10 · design:01 §1.2 · po:2026-11-13",
         "c": []
        },
        {

@@ -106,11 +106,15 @@ type PostingLine struct {
 // PostingTaxItem is a tax item a context calculated (ADR-0049 §5, T61d):
 // a code's component with its base, tax and recoverable part in the
 // entry's currency and in local currency. The ledger writes it with the
-// component's account, jurisdiction and the rate of the tax date.
+// component's account, jurisdiction and the rate of its tax date.
 type PostingTaxItem struct {
 	Code, Component              string
 	Base, Tax, Recoverable       money.Minor
 	BaseLC, TaxLC, RecoverableLC money.Minor
+	// TaxDate is the date the item's rate applies on and it is reported
+	// in, where it is not the entry's: an expense report line's own date
+	// (ADR-0074 §3, product owner 2026-11-13). nil: the entry's tax date.
+	TaxDate *time.Time
 }
 
 // Posting is an entry another context posts for one of its documents.
@@ -121,7 +125,8 @@ type Posting struct {
 	PostingDate   time.Time
 	// TaxDate is the date the entry's tax codes' rates apply on and its
 	// tax is reported in (ADR-0049 §4): a supplier invoice's invoice date;
-	// nil: the posting date.
+	// nil: the posting date. A tax item carrying its own date
+	// (PostingTaxItem.TaxDate) is rated and reported by that instead.
 	TaxDate *time.Time
 	// TaxDateChosen says a person chose TaxDate (a supplier invoice's
 	// tax date set by hand, P6): an entry with tax is then refused when

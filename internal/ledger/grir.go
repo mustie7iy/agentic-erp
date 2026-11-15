@@ -526,7 +526,7 @@ func (p Postings) postGRIR(ctx context.Context, in Posting) (Entry, error) {
 	if in.TaxDate != nil {
 		taxDate = *in.TaxDate
 	}
-	if err := checkTaxCodes(ctx, tx, g.le.ID, taxDate, lines, in.TaxItems != nil); err != nil {
+	if err := checkTaxCodes(ctx, tx, g.le.ID, taxDate, lines, in.TaxItems); err != nil {
 		return Entry{}, err
 	}
 	posted, err := e.post(ctx, tx, actor, draft{entity: g.le, documentType: in.DocumentType, documentDate: in.DocumentDate,

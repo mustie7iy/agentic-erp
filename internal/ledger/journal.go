@@ -62,9 +62,10 @@ type Entry struct {
 	DocumentNumber string
 	DocumentDate   time.Time
 	PostingDate    time.Time
-	// TaxDate decides the tax rate and the return period (ADR-0049 §4);
-	// nil on entries posted before T61c, whose tax date is the posting
-	// date.
+	// TaxDate decides the tax rate and the return period (ADR-0049 §4),
+	// but for tax items given a date of their own (PostingTaxItem.TaxDate,
+	// ADR-0074 §3); nil on entries posted before T61c, whose tax date is
+	// the posting date.
 	TaxDate *time.Time
 	// TaxDocument is the tax invoice or tax credit note a year-end
 	// adjustment's VAT rests on (ADR-0060 §3), whose date TaxDate is; nil
@@ -633,7 +634,8 @@ type NewEntry struct {
 	DocumentDate time.Time
 	PostingDate  time.Time
 	// TaxDate is the date its tax codes' rates apply on and its tax is
-	// reported in; nil: the posting date (ADR-0049 §4).
+	// reported in, but for given items dated otherwise
+	// (PostingTaxItem.TaxDate); nil: the posting date (ADR-0049 §4).
 	TaxDate *time.Time
 	// TaxDocument is the tax invoice or tax credit note a year-end
 	// adjustment carrying VAT rests on (ADR-0060 §3; checkTaxDocument):
@@ -860,51 +862,86 @@ func requirePostable(i int, field string, a account, ok bool) error {
 }
 
 // checkTaxCodes requires every tax code to be valid in the legal entity on
-// the tax date: to have a rate in force then; and its components with a
-// rate then to post to accounts of their own, since a tax line names its
-// account and code, not its component (422 ledger.tax_code_components),
-// unless the posting gives its tax items (given: a document that
-// calculated each component's tax, T61d). It takes the codes' lock
-// first (lockTaxCodes), so it reads the rates as a setup that held them
-// left them, and none changes until the posting commits.
-func checkTaxCodes(ctx context.Context, tx pgx.Tx, le uuid.UUID, date time.Time, lines []Line, given bool) error {
-	var codes []string
+// the tax date (each date its given items carry, taxCodeDays): to have a
+// rate in force then; and its components with a rate then to post to
+// accounts of their own, since a tax line names its account and code, not
+// its component (422 ledger.tax_code_components), unless the posting gives
+// its tax items (items not nil: a document that calculated each
+// component's tax, T61d). It takes the codes' lock first (lockTaxCodes),
+// so it reads the rates as a setup that held them left them, and none
+// changes until the posting commits.
+func checkTaxCodes(ctx context.Context, tx pgx.Tx, le uuid.UUID, date time.Time, lines []Line, items []PostingTaxItem) error {
 	var taxes []*string
 	for _, l := range lines {
 		if l.TaxCode != nil {
-			codes, taxes = append(codes, *l.TaxCode), append(taxes, l.TaxCode)
+			taxes = append(taxes, l.TaxCode)
 		}
 	}
-	if len(codes) == 0 {
+	if len(taxes) == 0 {
 		return nil
 	}
 	if err := lockTaxCodes(ctx, tx, le, taxes); err != nil {
 		return err
 	}
-	rows, _ := tx.Query(ctx, `SELECT r.code, count(c.account_id) > count(DISTINCT c.account_id) FROM ledger.tax_rate r
+	codes, days := taxCodeDays(date, taxes, items)
+	rows, _ := tx.Query(ctx, `SELECT x.code, x.day, count(c.account_id) > count(DISTINCT c.account_id) FROM unnest($1::text[], $3::date[]) x(code, day)
+		JOIN ledger.tax_rate r ON r.legal_entity_id = $2 AND r.code = x.code AND r.withdrawn_at IS NULL AND r.valid_from <= x.day
+			AND (r.valid_to IS NULL OR r.valid_to > x.day)
 		JOIN ledger.tax_component c ON c.tenant_id = r.tenant_id AND c.legal_entity_id = r.legal_entity_id AND c.code = r.code AND c.component = r.component
-		WHERE r.legal_entity_id = $2 AND r.code = ANY($1) AND r.withdrawn_at IS NULL AND r.valid_from <= $3 AND (r.valid_to IS NULL OR r.valid_to > $3)
-		GROUP BY 1`, codes, le, date)
-	valid := map[string]bool{} // code: whether two of its components post to one account
+		GROUP BY 1, 2`, codes, le, days)
+	valid := map[[2]string]bool{} // by code and ISO day: whether two of its components with a rate that day post to one account
 	var code string
+	var day time.Time
 	var shared bool
-	if _, err := pgx.ForEachRow(rows, []any{&code, &shared}, func() error { valid[code] = shared; return nil }); err != nil {
+	if _, err := pgx.ForEachRow(rows, []any{&code, &day, &shared}, func() error {
+		valid[[2]string{code, day.Format(time.DateOnly)}] = shared
+		return nil
+	}); err != nil {
 		return fmt.Errorf("ledger: check tax codes in %s: %w", le, err)
 	}
-	slices.Sort(codes)
-	for _, c := range codes {
-		shared, ok := valid[c]
+	for i, c := range codes {
+		shared, ok := valid[[2]string{c, days[i].Format(time.DateOnly)}]
 		switch {
 		case !ok:
-			return problem.Unprocessable("ledger.unknown_tax_code", "Tax code "+c+" is not valid in this legal entity on the tax date.",
-				problem.FieldError{Field: "lines.tax_code", Code: "unknown", Message: "a tax code of the legal entity"})
-		case shared && !given:
+			return problem.Unprocessable("ledger.unknown_tax_code", "Tax code "+c+" is not valid in this legal entity on the tax date "+
+				days[i].Format(time.DateOnly)+".", problem.FieldError{Field: "lines.tax_code", Code: "unknown", Message: "a tax code of the legal entity"})
+		case shared && items == nil:
 			return problem.Unprocessable("ledger.tax_code_components", "Tax code "+c+" has two components on one account, whose tax the ledger "+
 				"cannot tell apart from the lines; a document posting it calculates the tax.", problem.FieldError{Field: "lines.tax_code", Code: "components",
 				Message: "a code whose components post to accounts of their own"})
 		}
 	}
 	return nil
+}
+
+// taxCodeDays are the lines' codes, each with the days it is checked on,
+// sorted and without repeats: the tax dates of the given items of the
+// code (PostingTaxItem.TaxDate, else the entry's, date), or date for a
+// code no given item names.
+func taxCodeDays(date time.Time, taxes []*string, items []PostingTaxItem) ([]string, []time.Time) {
+	type codeDay struct {
+		code string
+		day  time.Time
+	}
+	var pairs []codeDay
+	for _, c := range taxes {
+		named := false
+		for _, t := range items {
+			if t.Code == *c {
+				named, pairs = true, append(pairs, codeDay{*c, deref(t.TaxDate, date)})
+			}
+		}
+		if !named {
+			pairs = append(pairs, codeDay{*c, date})
+		}
+	}
+	slices.SortFunc(pairs, func(a, b codeDay) int { return cmp.Or(cmp.Compare(a.code, b.code), a.day.Compare(b.day)) })
+	pairs = slices.CompactFunc(pairs, func(a, b codeDay) bool { return a.code == b.code && a.day.Equal(b.day) })
+	codes, days := make([]string, len(pairs)), make([]time.Time, len(pairs))
+	for i, p := range pairs {
+		codes[i], days[i] = p.code, p.day
+	}
+	return codes, days
 }
 
 // lockTaxCodes holds the definitions of the lines' tax codes FOR KEY SHARE
@@ -1152,7 +1189,7 @@ func (e *Endpoints) prepareFor(ctx context.Context, tx pgx.Tx, le tenancy.Entity
 	if err := taxOnLeading(choice, lines); err != nil {
 		return prepared{}, err
 	}
-	if err := checkTaxCodes(ctx, tx, le.ID, in.taxDay(), lines, in.taxItems != nil); err != nil {
+	if err := checkTaxCodes(ctx, tx, le.ID, in.taxDay(), lines, in.taxItems); err != nil {
 		return prepared{}, err
 	}
 	if err := checkTaxBases(ctx, le.ID, in.taxDay(), lines, expTC); err != nil {

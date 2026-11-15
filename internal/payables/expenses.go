@@ -51,8 +51,8 @@ type PartnerNames interface {
 
 // ExpenseLine is a line of an expense report: an expense of one day and
 // type, its gross amount with the tax its code takes out of it at the
-// report date, on the type's expense account as it was when the report
-// was entered.
+// line's own date (product owner 2026-11-13), on the type's expense
+// account as it was when the report was entered.
 type ExpenseLine struct {
 	LineNo       int32        `json:"line_no"`
 	ExpenseDate  partner.Date `json:"expense_date"`
@@ -181,7 +181,8 @@ type expenseEntry struct {
 // each line dated not after the company's date today, of an expense type
 // of the company whose account is postable there, a gross amount above
 // zero in the company's currency, an input tax code of the company on
-// the report date, whose tax is taken out of the gross (expenseTax), and
+// the line's date, whose tax is taken out of the gross at that date's
+// rates (expenseTax), and
 // a cost center the ledger accepts on the report date. The report is
 // entered, dated the company's date today and numbered from the
 // company's expense_report range of that date's fiscal year; its audit
@@ -239,7 +240,7 @@ func (e *Endpoints) checkExpenses(ctx context.Context, tx pgx.Tx, in ExpenseInpu
 		return expenseEntry{}, err
 	}
 	x := expenseEntry{le: le, co: co, day: day, exp: exp}
-	v := &invoiceCheck{e: e, ctx: ctx, tx: tx, le: le, exp: exp, c: &checked{currency: le.LocalCurrency}, taxDate: day}
+	v := &invoiceCheck{e: e, ctx: ctx, tx: tx, le: le, exp: exp, c: &checked{currency: le.LocalCurrency}}
 	numbers := make([]string, len(in.Lines))
 	for i, l := range in.Lines {
 		line, number, err := x.line(v, i, l)
@@ -295,6 +296,7 @@ func (x expenseEntry) line(v *invoiceCheck, i int, in ExpenseLineInput) (Expense
 		return ExpenseLine{}, "", problem.Unprocessable("payables.invalid_amount", "An expense is more than zero.",
 			problem.FieldError{Field: field + ".amount.amount", Code: "not_positive", Message: "an amount above 0"})
 	}
+	v.taxDate = in.ExpenseDate // a line's tax is its expense's date's (product owner 2026-11-13)
 	if err := v.taxCode(field, in.TaxCode); err != nil {
 		return ExpenseLine{}, "", err
 	}

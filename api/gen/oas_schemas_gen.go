@@ -38482,7 +38482,7 @@ type ExpenseReport struct {
 	// The employee's name, as it is now.
 	EmployeeName string `json:"employee_name"`
 	// The day the report was entered, the company's date in its time zone: the entry's document date and
-	// the date its tax is calculated on.
+	// its payment term's baseline. Each line's tax is calculated on its own `expense_date`.
 	ReportDate time.Time `json:"report_date"`
 	// What the expenses were for; absent when none was given.
 	Description OptString `json:"description"`
@@ -38888,8 +38888,8 @@ type ExpenseReportLine struct {
 	Amount Money `json:"amount"`
 	// The input tax code; absent when the line holds no tax.
 	TaxCode OptString `json:"tax_code"`
-	// The tax the gross holds by the code's rates on the report date, as calculated when the report was
-	// entered; 0 without a code.
+	// The tax the gross holds by the code's rates on the line's `expense_date`, as calculated when the
+	// report was entered; 0 without a code.
 	TaxAmount Money `json:"tax_amount"`
 	// `amount` less `tax_amount`.
 	NetAmount Money `json:"net_amount"`
@@ -39063,8 +39063,8 @@ type ExpenseReportLineCreate struct {
 	ExpenseType string `json:"expense_type"`
 	// The gross amount spent, tax included, more than zero, in the company's currency.
 	Amount Money `json:"amount"`
-	// An input tax code of the company on the report date; its tax is taken out of the gross. Absent: the
-	// line holds no tax.
+	// An input tax code of the company on the line's `expense_date`; its tax is taken out of the gross.
+	// Absent: the line holds no tax.
 	TaxCode OptString `json:"tax_code"`
 	// The cost center the expense is charged to; absent: the account's default.
 	CostCenterID OptUUID `json:"cost_center_id"`
@@ -49032,8 +49032,10 @@ type JournalEntry struct {
 	DocumentDate time.Time `json:"document_date"`
 	// Posting date.
 	PostingDate time.Time `json:"posting_date"`
-	// Tax date: the lines' tax codes' rates applied on it and its return reports their tax (ADR-0049 §4).
-	// Absent on entries posted before tax items (T61c), whose tax date is the posting date.
+	// Tax date: the lines' tax codes' rates applied on it and its return reports their tax (ADR-0049 §4),
+	// but for tax items that carry a date of their own, an expense report's, each dated by its line's
+	// expense date (ADR-0074 §3). Absent on entries posted before tax items (T61c), whose tax date is the
+	// posting date.
 	TaxDate OptDate `json:"tax_date"`
 	// The tax invoice or tax credit note the entry's VAT rests on, whose date is its tax date: a year-end
 	// adjustment posted into a special period with a tax code (`JournalEntryCreate` `tax_document`,

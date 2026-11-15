@@ -401,3 +401,49 @@ func TestExpenseReportTaxNotRecovered(t *testing.T) {
 		t.Errorf("entry lines: got %v, want %v", got, want)
 	}
 }
+
+// TestExpenseReportLinesTaxedAtTheirOwnDates: each line's tax is chosen
+// and dated by its expense's date, not the report's (product owner
+// 2026-11-13): R9 is 10% until March and 12% from April, so the March
+// train ticket holds 10% and the April one 12%, entered and posted; each
+// tax item carries its line's date and rate. VQ, a code ended in March,
+// is taken on a March line, though the report date is past its end, and
+// refused on an April line, naming the line's field.
+func TestExpenseReportLinesTaxedAtTheirOwnDates(t *testing.T) {
+	e := setupExpenses(t)
+	doc := inputCodes(t, e.env)
+	fixture.TaxCodes(t, e.Tenant, doc, config.TaxCode{Code: "VQ", Description: "Ended", Components: []config.TaxComponent{{Key: "tax",
+		AccountKey: config.KeyInput, Account: "140000", Rates: []config.TaxRate{rate("19", "2026-01-01", "2026-03-31")}}}})
+	r, tag := e.Must(201, "POST", "/v1/expense-reports", e.report(e.Supplier, expenseLine("2026-03-20", "TRAVEL", "110.00", `, "tax_code": "R9"`),
+		expenseLine("2026-04-10", "TRAVEL", "112.00", `, "tax_code": "R9"`), expenseLine("2026-03-21", "MEALS", "119.00", `, "tax_code": "VQ"`)), "")
+	var lines []string
+	for _, l := range r["lines"].([]any) {
+		m := l.(map[string]any)
+		lines = append(lines, fmt.Sprintf("%v %v", m["expense_date"], m["tax_amount"].(map[string]any)["amount"]))
+	}
+	if got, want := strings.Join(lines, ", "), "2026-03-20 10.00, 2026-04-10 12.00, 2026-03-21 19.00"; got != want {
+		t.Errorf("lines' dates and tax: got %s, want %s", got, want)
+	}
+	if got := fmt.Sprint(r["report_date"]); got != e.today {
+		t.Errorf("report date: got %s, want %s", got, e.today)
+	}
+	posted, _ := e.Must(200, "POST", "/v1/expense-reports/"+id(r)+":post", "", tag)
+	want := []string{fmt.Sprintf("%s 100.00 R9 - -", e.expense), fmt.Sprintf("%s 100.00 R9 - -", e.expense), fmt.Sprintf("%s 100.00 VQ - -", e.meals),
+		fmt.Sprintf("%s 10.00 R9 - -", e.tax), fmt.Sprintf("%s 12.00 R9 - -", e.tax), fmt.Sprintf("%s 19.00 VQ - -", e.tax),
+		fmt.Sprintf("%s -341.00 - - %s", e.ap, e.Supplier)}
+	slices.Sort(want)
+	if got := e.entryLines(t, posted["journal_entry_id"]); !slices.Equal(got, want) {
+		t.Errorf("entry lines: got %v, want %v", got, want)
+	}
+	var items string
+	pgtest.Scan(t, `SELECT string_agg(code || ' ' || tax_date || ' ' || trim_scale(rate_pct) || ' ' || tax_tc, ', ' ORDER BY tax_date, code)
+		FROM ledger.tax_item WHERE journal_entry_id = $1`, []any{posted["journal_entry_id"]}, &items)
+	if want := "R9 2026-03-20 10 1000, VQ 2026-03-21 19 1900, R9 2026-04-10 12 1200"; items != want {
+		t.Errorf("tax items: got %s, want %s", items, want)
+	}
+	p := e.Problem(422, "payables.unknown_tax_code", "POST", "/v1/expense-reports", e.report(e.Supplier,
+		expenseLine("2026-03-31", "TRAVEL", "119.00", `, "tax_code": "VQ"`), expenseLine("2026-04-01", "TRAVEL", "119.00", `, "tax_code": "VQ"`)), "")
+	if got := p["errors"].([]any)[0].(map[string]any)["field"]; got != "lines[1].tax_code" {
+		t.Errorf("refused field: got %v, want lines[1].tax_code", got)
+	}
+}

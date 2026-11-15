@@ -1438,15 +1438,16 @@ func (UnimplementedHandler) CreateExchangeRate(ctx context.Context, req *Exchang
 // company (422 `payables.account_not_postable` naming `lines[i].expense_type`); a gross amount, more
 // than zero, in the company's currency (422 `payables.currency_mismatch` naming
 // `lines[i].amount.currency`, `payables.invalid_amount` naming `lines[i].amount.amount`); optionally
-// an input tax code of the company on the report date (422 `payables.unknown_tax_code` naming
-// `lines[i].tax_code`), whose tax is taken out of the gross as the code's rates give it; and
-// optionally a cost center, checked as the posting will check it, a line without one taking its
-// account's default (the ledger's 422 naming `lines[i].cost_center_id`). The report is created
-// `entered`, dated the company's date today in its time zone (`report_date`: its document date and the
-// date its tax is calculated on), with a document number from the company's `expense_report` number
-// range of that date's fiscal year (422 `config.no_number_range` for a company without the range).
-// Nothing is posted. Audited, and published as ExpenseReportChanged. A retry with the same
-// `Idempotency-Key` answers the report created. Human-only (`x-agent: false`).
+// an input tax code of the company on the line's date (422 `payables.unknown_tax_code` naming
+// `lines[i].tax_code`), whose tax is taken out of the gross as the code's rates on that date give it:
+// a line's tax is dated by its expense, not by the report; and optionally a cost center, checked as
+// the posting will check it, a line without one taking its account's default (the ledger's 422 naming
+// `lines[i].cost_center_id`). The report is created `entered`, dated the company's date today in its
+// time zone (`report_date`: its document date and its payment term's baseline), with a document number
+// from the company's `expense_report` number range of that date's fiscal year (422
+// `config.no_number_range` for a company without the range). Nothing is posted. Audited, and published
+// as ExpenseReportChanged. A retry with the same `Idempotency-Key` answers the report created.
+// Human-only (`x-agent: false`).
 //
 // POST /v1/expense-reports
 func (UnimplementedHandler) CreateExpenseReport(ctx context.Context, req *ExpenseReportCreate, params CreateExpenseReportParams) (r CreateExpenseReportRes, _ error) {
@@ -6257,17 +6258,18 @@ func (UnimplementedHandler) PostCustomerInvoice(ctx context.Context, req OptCust
 // (`If-Match`): the report is read under a row lock and moves to `posted` once (409
 // `payables.invalid_status` otherwise). Each line debits its expense account with its net amount, and
 // with the tax its code does not let the company recover, on its cost center; the input tax goes to
-// its codes' accounts, one line per code and component, as a supplier invoice's does; the employee's
-// reconciliation account is credited with the report's gross amount, naming the employee. The entry
-// has the document type `KR`, the report's number as its reference, the report date as its document
-// and tax date and `source_context` `payables`. Its credit line is the employee's open item
-// (`GET /v1/open-items`), which a payment run pays as a supplier's, kept with the employee's payment
-// term in the company counted from the report date (`payment_term_code`, `net_due_date`). The posting
-// date is the request's, else today, the company's date in its time zone; it must be in an open period
-// (409 `ledger.period_not_open`). An employee no longer usable in the company is refused (422
-// `payables.supplier_not_usable`); the tax is calculated again on the report date, and a line whose
-// code no longer gives the tax it was entered with is refused (409 `payables.tax_changed`), the report
-// then entered again. The entry is not reversed through the ledger (409
+// its codes' accounts, one line per code, component and expense date, as a supplier invoice's does;
+// the employee's reconciliation account is credited with the report's gross amount, naming the
+// employee. The entry has the document type `KR`, the report's number as its reference, the report
+// date as its document and tax date and `source_context` `payables`; each line's tax items carry the
+// line's date as their tax date, the period they are reported in. Its credit line is the employee's
+// open item (`GET /v1/open-items`), which a payment run pays as a supplier's, kept with the employee's
+// payment term in the company counted from the report date (`payment_term_code`, `net_due_date`). The
+// posting date is the request's, else today, the company's date in its time zone; it must be in an
+// open period (409 `ledger.period_not_open`). An employee no longer usable in the company is refused
+// (422 `payables.supplier_not_usable`); the tax is calculated again, each line at its own date, and a
+// line whose code no longer gives the tax it was entered with is refused (409 `payables.tax_changed`),
+// the report then entered again. The entry is not reversed through the ledger (409
 // `ledger.entry_owned_elsewhere`), nor through the report in the first version. Audited, and published
 // as ExpenseReportChanged. A retry with the same `Idempotency-Key` answers the posted report.
 // Human-only (`x-agent: false`).

@@ -3,6 +3,8 @@ package payables
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,24 +20,36 @@ import (
 )
 
 // expenseCalculation is a report's tax as the calculator gives it: the
-// coded lines' indexes in the report's lines, in the calculator's order,
-// and its result.
+// coded lines' indexes in the report's lines, each line's tax in that
+// order, and the items of each of the lines' dates.
 type expenseCalculation struct {
 	coded []int
-	res   tax.Result
+	lines []tax.LineTax
+	days  []expenseDay
+}
+
+// expenseDay is the tax items of the coded lines of one expense date,
+// the date their rates apply on and they are reported in.
+type expenseDay struct {
+	day   time.Time
+	items []tax.ComponentTax
 }
 
 // calculateExpenses calculates the tax the gross amounts of a report's
-// coded lines hold (tax.Document.Inclusive) at the report date, its
-// codes' rates and the company's rounding, with its local amounts at a
-// rate of 1: a report is in the company's currency. A code that is no
-// input tax code of the company on the report date is refused naming
-// the line, as entering it is.
+// coded lines hold (tax.Document.Inclusive), each line at its own date,
+// its expense's (product owner 2026-11-13): one calculation per date, at
+// its codes' rates then and the company's rounding, with its local
+// amounts at a rate of 1, a report being in the company's currency. A
+// code that is no input tax code of the company on its line's date is
+// refused naming the line, as entering it is.
 func (e *Endpoints) calculateExpenses(ctx context.Context, r ExpenseReport) (expenseCalculation, error) {
 	var out expenseCalculation
+	byDay := map[string][]int{} // a date's coded lines, by index
 	for i, l := range r.Lines {
 		if l.TaxCode != nil {
 			out.coded = append(out.coded, i)
+			d := l.ExpenseDate.Format(time.DateOnly)
+			byDay[d] = append(byDay[d], i)
 		}
 	}
 	if len(out.coded) == 0 {
@@ -49,28 +63,50 @@ func (e *Endpoints) calculateExpenses(ctx context.Context, r ExpenseReport) (exp
 	if err != nil {
 		return out, err
 	}
-	doc := tax.Document{TaxDate: r.ReportDate, Currency: r.Currency, Inclusive: true, Codes: map[string]tax.Code{},
-		Rounding: tax.Rounding(settingsOf(co).Rounding), Local: &tax.Conversion{Rate: "1", FromExp: r.Exponent, ToExp: r.Exponent}}
+	lines := map[int]tax.LineTax{}
+	for _, d := range slices.Sorted(maps.Keys(byDay)) { // ISO dates sort as the days
+		day := r.Lines[byDay[d][0]].ExpenseDate.Time
+		res, err := e.calculateExpenseDay(ctx, r, day, byDay[d], settingsOf(co))
+		if err != nil {
+			return out, err
+		}
+		for k, i := range byDay[d] {
+			lines[i] = res.Lines[k]
+		}
+		out.days = append(out.days, expenseDay{day: day, items: res.Items})
+	}
 	for _, i := range out.coded {
+		out.lines = append(out.lines, lines[i])
+	}
+	return out, nil
+}
+
+// calculateExpenseDay calculates the tax of a report's coded lines dated
+// day, given by their indexes, at their codes' rates on that day.
+func (e *Endpoints) calculateExpenseDay(ctx context.Context, r ExpenseReport, day time.Time, coded []int, settings config.TaxSettings) (tax.Result, error) {
+	doc := tax.Document{TaxDate: day, Currency: r.Currency, Inclusive: true, Codes: map[string]tax.Code{},
+		Rounding: tax.Rounding(settings.Rounding), Local: &tax.Conversion{Rate: "1", FromExp: r.Exponent, ToExp: r.Exponent}}
+	for _, i := range coded {
 		code := *r.Lines[i].TaxCode
 		doc.Lines = append(doc.Lines, tax.Line{Amount: r.Lines[i].Amount, Code: code})
 		if _, ok := doc.Codes[code]; ok {
 			continue
 		}
-		t, ok, err := e.Accounts.TaxCode(ctx, r.LegalEntityID, code, r.ReportDate)
+		t, ok, err := e.Accounts.TaxCode(ctx, r.LegalEntityID, code, day)
 		if err != nil {
-			return out, err
+			return tax.Result{}, err
 		}
 		if !ok || t.Direction != config.TaxInput {
-			return out, invalid("payables.unknown_tax_code", fmt.Sprintf("lines[%d].tax_code", i), "Tax code "+code+
-				" is not an input tax code of the legal entity on the report date "+r.ReportDate.Format(time.DateOnly)+".")
+			return tax.Result{}, invalid("payables.unknown_tax_code", fmt.Sprintf("lines[%d].tax_code", i), "Tax code "+code+
+				" is not an input tax code of the legal entity on the line's date "+day.Format(time.DateOnly)+".")
 		}
 		doc.Codes[code] = t.Calculable()
 	}
-	if out.res, err = tax.Calculate(doc); err != nil {
-		return out, calculationFailed(r.ID, err)
+	res, err := tax.Calculate(doc)
+	if err != nil {
+		return tax.Result{}, calculationFailed(r.ID, err)
 	}
-	return out, nil
+	return res, nil
 }
 
 // expenseTax sets each line's tax: what its code charges in its gross
@@ -83,7 +119,7 @@ func (e *Endpoints) expenseTax(ctx context.Context, r ExpenseReport, lines []Exp
 	for j, i := range c.coded {
 		// Within the line's gross, which is in range: the calculator
 		// checked its sums.
-		lines[i].TaxAmount, _ = c.res.Lines[j].Charged()
+		lines[i].TaxAmount, _ = c.lines[j].Charged()
 	}
 	return nil
 }
@@ -95,8 +131,8 @@ func (e *Endpoints) expenseTax(ctx context.Context, r ExpenseReport, lines []Exp
 // Cr the employee's reconciliation account with the gross, the
 // employee's open item with the employee's payment term counted from the
 // report date. The report is read FOR UPDATE (ADR-0008), so it posts
-// once. The tax is calculated again on the report date; a line whose
-// code no longer gives the tax it was entered with is refused (409
+// once. The tax is calculated again, each line at its own date; a line
+// whose code no longer gives the tax it was entered with is refused (409
 // payables.tax_changed). Its audit record and ExpenseReportChanged are
 // written in the posting's transaction.
 func (e *Endpoints) PostExpense(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, postingDate *time.Time) (ExpenseReport, error) {
@@ -157,9 +193,8 @@ func (e *Endpoints) expensePosting(ctx context.Context, r ExpenseReport, sup par
 	if err := requireSameTax(r, c); err != nil {
 		return ledger.Posting{}, err
 	}
-	v := Invoice{ID: r.ID, LegalEntityID: r.LegalEntityID, Currency: r.Currency, Exponent: r.Exponent, Kind: KindInvoice}
-	var t invoiceTax
-	if err := e.taxPostings(ctx, v, r.ReportDate, c.res.Items, &t); err != nil {
+	t, err := e.expenseTaxPostings(ctx, r, c)
+	if err != nil {
 		return ledger.Posting{}, err
 	}
 	terms, err := e.termsOf(ctx, sup.PaymentTermCode, r.ReportDate, "The employee's")
@@ -178,17 +213,36 @@ func (e *Endpoints) expensePosting(ctx context.Context, r ExpenseReport, sup par
 		Lines: lines, Terms: terms, TaxDate: &r.ReportDate, TaxItems: t.items}, nil
 }
 
+// expenseTaxPostings are a report's tax lines and items, as a supplier
+// invoice's (taxPostings), each date's items dated on it
+// (ledger.PostingTaxItem.TaxDate): their tax is reported in the period of
+// the expense's date, not the report's.
+func (e *Endpoints) expenseTaxPostings(ctx context.Context, r ExpenseReport, c expenseCalculation) (invoiceTax, error) {
+	v := Invoice{ID: r.ID, LegalEntityID: r.LegalEntityID, Currency: r.Currency, Exponent: r.Exponent, Kind: KindInvoice}
+	var t invoiceTax
+	for _, d := range c.days {
+		from := len(t.items)
+		if err := e.taxPostings(ctx, v, d.day, d.items, &t); err != nil {
+			return invoiceTax{}, err
+		}
+		for k := from; k < len(t.items); k++ {
+			t.items[k].TaxDate = &d.day
+		}
+	}
+	return t, nil
+}
+
 // requireSameTax refuses a report a line of which its code now gives
 // another tax than it was entered with (409 payables.tax_changed): the
-// rates on the report date changed since, and the report, which is not
+// rates on the line's date changed since, and the report, which is not
 // changed, is entered again.
 func requireSameTax(r ExpenseReport, c expenseCalculation) error {
 	for j, i := range c.coded {
 		l := r.Lines[i]
-		now, _ := c.res.Lines[j].Charged() // within the line's gross, as expenseTax took it
+		now, _ := c.lines[j].Charged() // within the line's gross, as expenseTax took it
 		if now != l.TaxAmount {
-			return problem.Conflict("payables.tax_changed", fmt.Sprintf("Line %d's tax code %s now gives %s %s of tax on the report date %s; it was "+
-				"entered with %s. Enter the report again.", l.LineNo, *l.TaxCode, now.Plain(r.Exponent), r.Currency, r.ReportDate.Format(time.DateOnly),
+			return problem.Conflict("payables.tax_changed", fmt.Sprintf("Line %d's tax code %s now gives %s %s of tax on its date %s; it was "+
+				"entered with %s. Enter the report again.", l.LineNo, *l.TaxCode, now.Plain(r.Exponent), r.Currency, l.ExpenseDate.Format(time.DateOnly),
 				l.TaxAmount.Plain(r.Exponent)))
 		}
 	}
@@ -205,8 +259,8 @@ func expenseLines(r ExpenseReport, c expenseCalculation) []ledger.PostingLine {
 		debit[i] = l.Amount
 	}
 	for j, i := range c.coded {
-		debit[i] = c.res.Lines[j].Base
-		for _, comp := range c.res.Lines[j].Components {
+		debit[i] = c.lines[j].Base
+		for _, comp := range c.lines[j].Components {
 			if comp.AccountKey == tax.KeyNonDeductible || comp.AccountKey == tax.KeyInput || comp.AccountKey == tax.KeySelfInput {
 				debit[i] += comp.NonRecoverable // within the line's gross
 			}

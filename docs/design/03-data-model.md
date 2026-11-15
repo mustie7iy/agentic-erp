@@ -1271,7 +1271,8 @@ like the balance; not for an entry without a tax date, which an instance of
 the release before writes during the rollout, nor for a code that posts to
 no account). `journal_entry.tax_date` and `parked_entry.tax_date` are
 the entry's tax date, none on entries posted before, whose items carry their
-posting date. Indexed by legal entity, code and tax date, what a return and
+posting date. An item carries the entry's tax date unless the posting gave
+it one of its own (an expense report line's expense date, ADR-0074 §3). Indexed by legal entity, code and tax date, what a return and
 the rate check read.
 
 An open item on a supplier reconciliation account keeps the payment terms
@@ -2500,7 +2501,8 @@ payment terms (`open_item_terms` is kept for the other supplier lines).
 `expense_report` (T87a, ADR-0074; migration 000308) is an employee's
 expense report: a document number from the company's `expense_report`
 number range of the fiscal year of its `report_date`, the company's date
-when it was entered (its document and tax date), the legal entity, the
+when it was entered (its document date and its payment term's baseline),
+the legal entity, the
 employee (`employee_id`, a business partner with the supplier role: human
 capital is outside the required scope), the company's currency and an
 optional description. It is `entered`, then `posted` once (trigger
@@ -2512,11 +2514,13 @@ them before (`expense_report_posted`); it is never deleted.
 report and never changed: the expense's date, its expense type's code
 (`companies[].expense_types[]`) and the type's account as it was when the
 report was entered, the gross amount (above zero), the input tax code and
-the tax the gross holds by the code's rates at the report date (below the
-gross, none without a code, `expense_report_line_tax`), an optional cost
-center and text. Posting debits each line's net and the tax its code
+the tax the gross holds by the code's rates at the expense's date, the
+line's own tax date (product owner 2026-11-13; below the gross, none
+without a code, `expense_report_line_tax`), an optional cost center and
+text. Posting debits each line's net and the tax its code
 does not let the company recover on its account and cost center, the
-recovered tax on the codes' accounts, and credits the employee's
+recovered tax on the codes' accounts, each tax item dated by its line's
+date (`ledger.tax_item.tax_date`), and credits the employee's
 reconciliation account with the gross (document type KR); the credit is
 the employee's open item, which a payment run pays. Entering and posting
 need `payables.expense.write` and `payables.expense.post`, reading
