@@ -285,10 +285,8 @@ func New(cfg Config) (http.Handler, error) {
 		closingAPI:     Closing(cfg),
 		consolAPI:      Consolidation(cfg),
 		einvoicingAPI:  EInvoicing(cfg),
-		controllingAPI: &controlling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{},
-			Settings: configuration.Settings{}, Now: cfg.Now, Postings: controllingPostings(), Calendar: calendar()},
-		taxfilingAPI: &taxfiling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now,
-			Items: ledger.TaxItems{}, Packs: library, Approvals: opener(), Periods: ledger.ReturnPeriods{}},
+		controllingAPI: controllingEndpoints(cfg),
+		taxfilingAPI: taxFiling(cfg, library),
 	}
 	return httpapi.New(h, httpapi.Pipeline{
 		Pool: cfg.Pool, Begin: cfg.Begin, AppRole: cfg.AppRole, Verifier: cfg.Verifier, Limits: cfg.Limits, RequestTimeout: cfg.RequestTimeout,
@@ -304,6 +302,18 @@ func New(cfg Config) (http.Handler, error) {
 		Model:              cfg.Model,
 		Loopback:           loopback,
 	})
+}
+
+// controllingEndpoints is the controlling context as the API wires it.
+func controllingEndpoints(cfg Config) *controlling.Endpoints {
+	return &controlling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{},
+		Settings: configuration.Settings{}, Now: cfg.Now, Postings: controllingPostings(), Calendar: calendar()}
+}
+
+// taxFiling is the tax filing context as the API wires it.
+func taxFiling(cfg Config, library *countrypack.Library) *taxfiling.Endpoints {
+	return &taxfiling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now,
+		Items: ledger.TaxItems{}, Packs: library, Approvals: opener(), Periods: ledger.ReturnPeriods{}}
 }
 
 // loopbackOf is cfg's loopback, or a new one.
