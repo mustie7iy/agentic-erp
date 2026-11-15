@@ -1010,6 +1010,7 @@ decimals.
   the standard's text, which the coordinator supplies (question 8).
 - **Depends on:** T95b for the run's download, and the format's text as
   a file (question 8), for which it is the lane's last slice.
+- **Question 8 answered:** `docs/design/specs/xlsx-minimal.md`.
 
 **Later for Excel export (after 1 December):** several sheets with
 formatting and charts; a workbook that refreshes from the API; export of
@@ -1548,6 +1549,7 @@ and autonomy level.
   specification's schema, which the coordinator supplies as a file since
   a lane does not fetch (question 8).
 - **Depends on:** the specification file.
+- **Question 8 answered:** `docs/design/specs/mcp/README.md` (2026-07-28 drops `initialize`).
 
 **Later for MCP servers (after 1 December):** a server reached over HTTP
 with its own sign-in; resources and prompts beside tools; one server per
