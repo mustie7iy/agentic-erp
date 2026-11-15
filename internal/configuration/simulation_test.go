@@ -544,8 +544,10 @@ func TestSimulationPreviewsADraft(t *testing.T) {
 			if got := opStatus(t, op); got != "queued " {
 				t.Fatalf("statement %d: got operation %q, want queued", failAt, got)
 			}
-			// A run takes a hundred-odd statements (105 at batch 73): the
-			// bound only stops a run that never succeeds.
+			// A run takes a hundred-odd statements, one company lookup per
+			// number range among them (rangeCompanies), so the count grows
+			// with the document types the packs number: the bound only
+			// stops a run that never succeeds.
 			if failAt > 150 {
 				t.Fatalf("statement %d: still failing, want a run to succeed within 150 statements", failAt)
 			}
