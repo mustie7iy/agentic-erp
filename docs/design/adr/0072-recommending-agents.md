@@ -207,6 +207,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `bid_comparison` | `internal/bidagent`, `erp agent bid-compare -rfq ID` | `getRfq`, `listSupplierQuotations`, `getRfqComparison`, `getBusinessPartner`, `listContracts`, `listPurchaseOrders` | on `rfq`: `award`, `no_award` | `awardRfq`, `publishRfq`, `createSupplierQuotation`, `createRfq` |
 | `collections` | `internal/collectionsagent`, `erp agent collections -company CODE [-key-date YYYY-MM-DD]` | `getCollectionWorklist`, `getReceivablesAging`, `listDunningRuns`, `listDunningNotices`, `listIncomingPayments`, `listCustomerInvoices`, `listDisputeCases`, `getDisputeCase`, `listOpenItems`, `listAccounts`, `getBusinessPartner` | on `business_partner` (a customer of the worklist): `call`, `send_reminder`, `escalate`, `wait_for_dispute`, `no_action` | `createDunningRun`, `confirmDunningRun`, `createDisputeCase`, `updateDisputeCase`, `closeDisputeCase`; nothing in the contract sends to a customer |
 | `support` (diagnosis, T108b) | `internal/supportagent`, `erp agent support-diagnose -type KIND -id ID [WHAT HAPPENED]` | T108a's (`listConfigVersions`, `getConfigVersion`, `getSchema`, `getCurrentPrincipal`), `listAuditEvents`, `listOperations`, `listApprovalRequests`, each document's read (`getSupplierInvoice`, `getCustomerInvoice`, `getJournalEntry`, `getPurchaseOrder`, `getSalesOrder`, `getPaymentRun`, `getChangeRequest`, `getOperation`), the contract's search (`findOperations`) | on the document (its kind): `root_cause` | every write: its tools hold none |
+| `support` (fix, T108c) | `erp agent support-fix -recommendation ID` | `getRecommendation`, `listConfigVersions`, `getConfigVersion`, `getChangeRequest`, `getOperation`; writes `createChangeRequest`, `updateChangeRequest`, `simulateChangeRequest` (`internal/changedraft`) | on `change_request`: `ready_to_submit`, `simulation_failed` | submitting, withdrawing or activating a change request, a decision on an approval or a recommendation, any write of master data or a document |
 
 A later slice adds its row here and its section under "As built".
 
@@ -842,6 +843,65 @@ A later slice adds its row here and its section under "As built".
   citing an event that is not the invoice's is refused; it recommends
   `closed_period`, citing the refusal's event and quoting its detail;
   Alex accepts and posts the invoice on today's date.
+- No migration, no new operation, permission, event or problem code.
+
+### T108c, the support agent: a fix drafted as a change request
+
+- A third entry function of the `support` agent, `Agent.Fix`, through the
+  pattern as T108b's: `erp agent support-fix -recommendation ID`. Before
+  its session the run reads the recommendation (`getRecommendation`) and
+  the active version, and refuses (`ErrNotConfiguration`) one that is not
+  an accepted `root_cause` on a document of `Documents` whose first line
+  is `Root cause: configuration` and that cites at least one setting as
+  `` `path` = `value` ``, and (`ErrFixStale`) one citing a setting the
+  active version no longer holds with that value: the cause is diagnosed
+  again. The kind, class and citations are the support agent's alone;
+  the recommendation's agent is not read, as in T107b.
+- **The drafting is T107b's, moved, not copied** (the plan's acceptance):
+  `internal/changedraft` holds the drafting's object type and kinds
+  (`change_request`: `ready_to_submit`, `simulation_failed`), its writes
+  (`createChangeRequest`, `updateChangeRequest`,
+  `simulateChangeRequest`), its never list, its guards and observers
+  (one draft per run, based on the active version and kept on it, a
+  proposal that is a configuration and changes something, a change or
+  simulation only of the run's draft), the wait for the simulation it
+  started (`Poll`, `Patience`) and the rule that holds the kind to the
+  simulation of the draft's last version (`Draft.Outcome`). What differs
+  is each agent's **scope** (`Draft.Scope`, the changes a proposal may
+  make, refused with `changedraft.ErrOutside`): the regulatory agent's,
+  every setting at or under the paths its recommendation named; the
+  support agent's, **exactly one setting, one the accepted diagnosis
+  cites**. The regulatory agent's drafting is unchanged in behaviour; its
+  errors `ErrBase`, `ErrOutside`, `ErrNotTheDraft` and `ErrNotSimulated`
+  and its `DraftWrites`/`DraftNever` are now `changedraft`'s.
+- Its reads are `getRecommendation`, `listConfigVersions`,
+  `getConfigVersion`, `getChangeRequest`, `getOperation`; its never list
+  is the drafting's (`TestFixTools`): it never submits, withdraws or
+  activates a change request or decides an approval or a recommendation,
+  and no write of master data or a document is a tool.
+- Its check (`supportagent.fixing.check`): the kind is the outcome of the
+  simulation of the draft's last version (`Draft.Outcome`); the first
+  line is `` Change: `path` from `old` to `new` ``, the draft's one change
+  as `config.Diff` writes it (`changedraft.Draft.Changes`, the last
+  proposal the API accepted), whatever the model wrote; any other setting
+  cited is the active configuration's with that value; every other number
+  is one the run read (§4), the diagnosis's event among them, read again
+  by the model's `getRecommendation`.
+- No evaluation case drafts, as for T107b: a suite's setup cannot make a
+  recommendation an agent made and a person accepted; the run's guards
+  and check are tested in `internal/supportagent` and the walkthrough.
+- Walkthrough `step_support_agent` (step 88) extended (`support_fix`):
+  Ben orders a desk lamp at CAD 100.00 and receives it; Alex's invoice of
+  CAD 110.00 is matched and held (`price_variance`); the agent diagnoses
+  `configuration`, citing the match's event and the company's price
+  tolerance; Alex accepts; Ada grants the agent's role
+  `config.change.propose`; the agent's first draft, changing both the
+  percentage and the absolute tolerance, is refused by the run; it drafts
+  the percentage alone (2 to 10), has the draft simulated and recommends
+  `ready_to_submit` with the change on its first line; nobody submits it
+  and Ada withdraws it; the active version is as it was. Alex cancels the
+  invoice and Ben reverses the receipt and closes the order, so nothing
+  of the lamp is left open for the steps after.
 - No migration, no new operation, permission, event or problem code.
 
 ## Defaults taken (for the product owner's digest)

@@ -331,6 +331,34 @@ func TestAgentSupportDiagnose(t *testing.T) {
 	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "support-diagnose", "-type", "supplier_invoice", "-id", invoice)
 }
 
+// TestAgentSupportFix: erp agent support-fix needs -recommendation,
+// refuses a diagnosis that is not an accepted cause in the configuration
+// before a session, runs the fix's session on one and prints what it
+// recommended and the model's reply (ADR-0072 As built, T108c).
+func TestAgentSupportFix(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	fails(t, "flag provided", "agent", "support-fix", "-x")
+	fails(t, "want -recommendation ID", "agent", "support-fix")
+	fails(t, "404", "agent", "support-fix", "-recommendation", "r0")
+	rec := func(outcome string) reply {
+		return ok(`{"id": "r0", "object_type": "supplier_invoice", "object_id": "i1", "kind": "root_cause", "outcome": "` + outcome +
+			"\", \"content\": \"Root cause: configuration\\nevent 41 under `companies[1000].invoice_tolerance.price_percent` = `2`\"}")
+	}
+	versions := ok(`{"items": [{"id": "v1", "number": 3, "document": {"companies": [{"code": "1000", "invoice_tolerance": {"price_percent": 2}}]}}]}`)
+	fakeAPI(t, routes{"GET /v1/recommendations/r0": {rec("")}})
+	fails(t, `outcome ""`, "agent", "support-fix", "-recommendation", "r0")
+	fakeAPI(t, sessionRoutes(routes{"GET /v1/recommendations/r0": {rec("accepted")}, "GET /v1/config-versions": {versions}}))
+	model(t, llmtest.Final("Nothing drafted."))
+	got := must(t, "agent", "support-fix", "-recommendation", "r0")
+	if want := "Session " + agentSession + ": recommendations made 0, refused 0.\nNothing drafted.\n"; got != want {
+		t.Errorf("agent support-fix: got %q, want %q", got, want)
+	}
+	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
+	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "support-fix", "-recommendation", "r0")
+}
+
 // TestAgentCollections: erp agent collections needs -company, reads the
 // worklist on the key date, runs the collections agent's session and
 // prints what it recommended, each customer named with the first line of

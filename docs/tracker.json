@@ -10570,13 +10570,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Fixes as configuration change requests",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "When the root cause is a setting, the support agent drafts the configuration change request that fixes it and has it simulated, for a person to submit and approve; it never submits or activates (erp agent support-fix)",
-        "r": "T108c · docs/design/plan-breadth-week3.md §T108c",
+        "r": "T108c · docs/design/plan-breadth-week3.md §T108c · internal/supportagent Fix · internal/changedraft (T107b's drafting, moved and shared) · erp agent support-fix -recommendation ID · no evaluation case (as T107b) · walkthrough step_support_agent · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

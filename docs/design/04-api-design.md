@@ -1030,7 +1030,12 @@ on the document its `root_cause`, the class on the first line
 `permission`, `unknown`), citing the document's audit events by seq as
 the API returned them; a refused posting of a supplier invoice is
 audited on the invoice (outcome `refused`, the problem's code and
-detail). The collections agent
+detail). From such a cause of the class `configuration` that a user
+accepted (`erp agent support-fix -recommendation ID`, T108c) it drafts
+the change request of one setting the cause cites, has the draft
+simulated and recommends `ready_to_submit` or `simulation_failed` on the
+`change_request`, as the regulatory agent drafts (`internal/changedraft`);
+a person submits it. The collections agent
 (`erp agent collections -company CODE [-key-date D]`, agent type
 `collections`, T105b) recommends on each `business_partner` of a
 company's collection worklist (the first 20, the largest overdue amount

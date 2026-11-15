@@ -9751,8 +9751,12 @@ regulatory_draft() {
 # events and recommends its root cause: a cause citing an event that is
 # not the invoice's is refused first, then closed_period, citing the
 # refusal's event and quoting it. Alex posts the invoice on today's date.
+# T108c (support_fix): an invoice held by the price tolerance diagnosed
+# configuration; once Alex accepts it, erp agent support-fix drafts the
+# change request raising the tolerance and has it simulated; nobody
+# submits it and Ada withdraws it.
 step_support_agent() {
-  heading "Step 88 — The support agent: asked how an invoice above the tolerance is released, it names the operation from the contract and the tenant's tolerance from the active configuration; an operation it made up refused; nothing changed; an invoice whose posting a closed period refused diagnosed closed_period from its audit events"
+  heading "Step 88 — The support agent: asked how an invoice above the tolerance is released, it names the operation from the contract and the tenant's tolerance from the active configuration; an operation it made up refused; nothing changed; an invoice whose posting a closed period refused diagnosed closed_period from its audit events; an invoice held by the price tolerance diagnosed configuration, and the fix drafted as a change request of one setting and simulated, for a person to submit"
   local role version pct abs question got session
   as ada
   say "Ada sets up the support agent (ADR-0072): an agent principal of type support at autonomy level 1 on erp-default."
@@ -9799,6 +9803,7 @@ step_support_agent() {
   QUIET=1 api 200 '' listConfigVersions -p is_active=true
   expect "the active version" "$(field '.items[0].id')" "$version"
   support_diagnosis "$role"
+  support_fix "$role"
   passed
 }
 
@@ -9854,6 +9859,143 @@ support_diagnosis() {
   api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" -body '{"outcome": "accepted"}'
   api 200 '"\(.kind) \(.document_number): \(.status) on \(.posting_date)"' postSupplierInvoice -p "id=$invoice" -if-match "$tag" -body "{\"posting_date\": \"$TODAY\"}"
   expect "posted" "$(field .status)" posted
+}
+
+# support_fix ROLE is step 88's T108c: an invoice held because its price
+# is above the company's tolerance; the support agent of ROLE diagnoses
+# the cause as configuration, citing the match's audit event and the
+# tolerance; Alex accepts it; Ada lets the agent propose a change; erp
+# agent support-fix drafts the change request raising the percentage
+# tolerance, one setting (a draft that also changes the absolute one is
+# refused by the run), has it simulated as a preview and recommends
+# ready_to_submit on it. Nobody submits it: Ada withdraws it, the active
+# version is as it was; Alex cancels the invoice and Ben reverses the
+# receipt and closes the order, so nothing of it is left open for the
+# steps after.
+support_fix() {
+  local role=$1 lamp po receipt invoice tag version number pct abs seq got session rec cr path
+  as ben
+  lamp="{\"description\": \"Desk lamp\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"100.00\", \"currency\": \"CAD\"}, \"account_id\": \"$(account 6000)\"}"
+  say "Ben orders a desk lamp from Tyrell at CAD 100.00 and receives it; Tyrell invoices CAD 110.00."
+  api 201 '"purchase order \(.document_number // .id): \(.status), \(.total_amount.amount) \(.total_amount.currency)"' \
+    createPurchaseOrder -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"payment_term_code\": \"NT30\", \"items\": [$lamp]}"
+  po=$(field .id)
+  api 200 '"\(.status)\(if .release_request_id then ": release request \(.release_request_id)" else "" end)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Budgeted lamp"
+    as ben
+    QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
+  fi
+  expect "order status" "$(field .status)" released
+  api 201 '"goods receipt \(.id), journal entry \(.journal_entry_id)"' postGoodsReceipt \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  receipt=$(field .id)
+  as alex
+  say "Alex enters and matches the invoice: CAD 10.00 above the order is above the company's tolerance, so the match holds it."
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"LAMP-${TODAY}\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"110.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"0.00\", \"currency\": \"CAD\"}, \"purchase_order_id\": \"$po\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"110.00\", \"currency\": \"CAD\"}}]}"
+  invoice=$(field .id)
+  api 200 "$MATCHED" matchSupplierInvoice -p "id=$invoice" -if-match '"1"'
+  expect "the match's issue" "$(field '[.issues[].code] | join(" ")')" price_variance
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$invoice"
+  expect "the invoice is held" "$(field .status)" on_hold
+  QUIET=1 api 200 '' listAuditEvents -p "object_id=$invoice"
+  seq=$(field '[.items[] | select(.action == "payables.supplier_invoice.match")][0].seq')
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  version=$(field '.items[0].id') number=$(field '.items[0].number')
+  pct=$(field ".items[0].document.companies[] | select(.code == \"$CC\") | .invoice_tolerance.price_percent")
+  abs=$(field ".items[0].document.companies[] | select(.code == \"$CC\") | .invoice_tolerance.price_absolute")
+  path="companies[$CC].invoice_tolerance.price_percent"
+  jq -n --arg inv "$invoice" --arg seq "$seq" --arg v "$version" --arg cc "$CC" --arg pct "$pct" --arg abs "$abs" '
+    {session_id: "{{session}}", object_type: "supplier_invoice", object_id: $inv, kind: "root_cause"} as $on |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "getSupplierInvoice", input: {id: $inv}},
+      {tool: "listAuditEvents", input: {object_id: $inv}},
+      {tool: "getConfigVersion", input: {id: $v}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Root cause: configuration\nIts match held it, event \($seq): the price is above `companies[\($cc)].invoice_tolerance.price_percent` = `\($pct)` and `companies[\($cc)].invoice_tolerance.price_absolute` = `\($abs)`."})}},
+      {final: "The invoice is held by the company'"'"'s price tolerance: event \($seq)."}]}' >"$WORK/model-script.json"
+  say "Alex asks the support agent why the invoice is held; through the stand-in's script it reads the invoice, its audit"
+  say "events and the configuration, and recommends the cause: the configuration, the match's event and the tolerance."
+  show ERP_AGENT_TOKEN=… erp agent support-diagnose -type supplier_invoice -id "$invoice"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/support-agent") "$ERP" agent support-diagnose -type supplier_invoice -id "$invoice" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent support-diagnose failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): root_cause on supplier_invoice $invoice\$/\1/p")
+  [ -n "$rec" ] || fail "erp agent support-diagnose printed no root cause on the held invoice"
+  api 200 '"  \(.kind) on the \(.object_type), \(.outcome // "open"): \(.content | split("\n") | join(" / "))"' getRecommendation -p "id=$rec"
+  expect "the cause, the configuration, with the match's event" "$(field ".content | startswith(\"Root cause: configuration\") and contains(\"event $seq\")")" true
+  say "Alex accepts it, which changes nothing by itself:"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" -body '{"outcome": "accepted"}'
+  as ada
+  say "Ada lets the support agent draft a fix (T108c): its role may now propose a change; the same permission submits a"
+  say "draft, which the agent has no tool for."
+  grant "$role" config.change.propose
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  jq --arg cc "$CC" '.items[0].document | .companies |= map(if .code == $cc then .invoice_tolerance.price_percent = 10 else . end)' "$WORK/last.json" >"$WORK/proposed.json"
+  jq --arg cc "$CC" '.companies |= map(if .code == $cc then .invoice_tolerance.price_absolute = "20.00" else . end)' "$WORK/proposed.json" >"$WORK/outside.json"
+  # shellcheck disable=SC2016 # regular expressions, not expansions
+  jq -n --arg r "$rec" --arg v "$version" --argjson n "$number" --arg path "$path" --arg pct "$pct" --arg seq "$seq" \
+    --slurpfile p "$WORK/proposed.json" --slurpfile o "$WORK/outside.json" \
+    --arg cr '\\"body\\":\{\\"id\\":\\"([0-9a-f-]{36})\\",\\"version\\":1,\\"created_at' \
+    --arg op '\\"id\\":\\"([0-9a-f-]{36})\\",\\"kind\\":\\"config.simulate' '
+    {title: "Price tolerance of 10 percent", base_version: $n, rationale: "The match held an invoice, event \($seq), under the price tolerance."} as $req |
+    {vars: {session: "session id is ([0-9a-f-]{36})", cr: $cr, op: $op},
+     turns: [
+      {tool: "getRecommendation", input: {id: $r}},
+      {tool: "getConfigVersion", input: {id: $v}},
+      {tool: "createChangeRequest", input: {body: ($req + {proposed: $o[0]})}},
+      {tool: "createChangeRequest", input: {body: ($req + {proposed: $p[0]})}},
+      {tool: "simulateChangeRequest", input: {id: "{{cr}}", if_match: "\"1\""}},
+      {tool: "getOperation", input: {id: "{{op}}"}},
+      {tool: "createRecommendation", input: {body: {session_id: "{{session}}", object_type: "change_request", object_id: "{{cr}}", kind: "ready_to_submit",
+        content: ("Change: `\($path)` from `\($pct)` to `10`\nThe match held the invoice, event \($seq), under the price tolerance; the draft raises it and its simulation passed. A person submits it.")}}},
+      {final: "Drafted the fix of the price tolerance and had it simulated; it is ready for a person to submit."}]}' >"$WORK/model-script.json"
+  as alex
+  say "Alex has the agent draft the fix: erp agent support-fix reads the accepted cause and the active version, starts a"
+  say "session and, through the stand-in's script, first drafts a change of both tolerances (refused by the run: the fix"
+  say "changes one setting the cause cites), then the percentage alone; it has the draft simulated and recommends."
+  show ERP_AGENT_TOKEN=… erp agent support-fix -recommendation "$rec"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/support-agent") "$ERP" agent support-fix -recommendation "$rec" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent support-fix failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 0."
+  cr=$(printf '%s\n' "$got" | sed -nE 's/^  recommendation [0-9a-f-]{36}: ready_to_submit on change_request ([0-9a-f-]{36})$/\1/p')
+  [ -n "$cr" ] || fail "erp agent support-fix printed no ready_to_submit on a change request"
+  as support-agent
+  api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" \
+    "getRecommendation getConfigVersion createChangeRequest createChangeRequest simulateChangeRequest getOperation createRecommendation"
+  expect "the first draft refused" "$(field '[.items[] | select(.tool == "createChangeRequest") | .is_error] | join(" ")')" "true false"
+  as alex
+  say "Alex reads the draft: the agent's, still a draft, changing one setting, the percentage tolerance:"
+  api 200 '"  change request \(.number), \(.status): \(.title)", (.items[]? | "    \(.path)")' getChangeRequest -p "id=$cr"
+  expect "the draft" "$(field '"\(.status) \(.evidence | length)"')" "draft 0"
+  expect "the tolerance drafted" "$(field ".proposed.companies[] | select(.code == \"$CC\") | .invoice_tolerance | \"\(.price_percent) \(.price_absolute)\"")" "10 $abs"
+  QUIET=1 api 200 '' listRecommendations -p "object_id=$cr"
+  expect "the agent's recommendation on the draft" "$(field '[.items[] | "\(.kind) \(.outcome // "open")"] | join(", ")')" "ready_to_submit open"
+  expect "its first line, the draft's one change" "$(field '.items[0].content | split("\n")[0]')" "Change: \`$path\` from \`$pct\` to \`10\`"
+  as ada
+  say "Nobody submits it: Ada keeps the tolerance and withdraws the draft. The active version is as it was."
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"  change request \(.number): \(.status)"' withdrawChangeRequest -p "id=$cr" -if-match "$ETAG" -body '{"reason": "The tolerance stays; the lamp invoice is handled on its own"}'
+  expect "the draft withdrawn" "$(field .status)" withdrawn
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  expect "the active version and the tolerance" "$(field ".items[0] | \"\(.id) \(.document.companies[] | select(.code == \"$CC\") | .invoice_tolerance.price_percent)\"")" "$version $pct"
+  as alex
+  say "Alex cancels the lamp invoice; Ben reverses the receipt and closes the order, leaving nothing of it open."
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$invoice"
+  tag=$ETAG
+  api 200 '"\(.document_number): \(.status)"' cancelSupplierInvoice -p "id=$invoice" -if-match "$tag" -body '{"reason": "Tyrell credits the difference; a new invoice follows"}'
+  as ben
+  QUIET=1 api 200 '' getGoodsReceipt -p "id=$receipt"
+  api 200 '"goods receipt reversal \(.id)"' reverseGoodsReceipt -p "id=$receipt" -if-match "$ETAG" -body '{}'
+  QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
+  api 200 '"purchase order \(.document_number): \(.status)"' closePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  expect "order status" "$(field .status)" closed
 }
 
 # step_metric_forecast is T97a (ADR-0077 §7): Carla forecasts Maple's
