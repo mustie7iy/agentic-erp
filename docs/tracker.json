@@ -3566,13 +3566,13 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Profitability segments",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A controller reads net revenue by profitability segment (customer and item key) per period from posted billing documents: gross value, discounts, credit memos and net revenue (GET /v1/profitability-report)",
-        "r": "T92a · docs/design/plan-breadth-week3.md §T92a",
+        "r": "T92a · docs/design/plan-breadth-week3.md §T92a · ADR-0075 §6 · migration 000331 (controlling.profitability.read) · sales.Orders.Segments · controlling.Endpoints.GetProfitabilityReport (ports Sales, Partners) · TestProfitabilityReport, TestProfitabilityReportSelections, TestProfitabilityReportPages, TestProfitabilityReportRefusals, TestProfitabilityReportFails, TestProfitabilityDatabaseFailures, TestMarginReadPermission, TestProfitabilityReportBudget · walkthrough step_profitability · 01-requirements §1.3 · 03-data-model §3.19 · 04-api-design",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -6821,13 +6821,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Scenario modeling",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The analyst applies a scenario to a forecast (percentage changes per dimension value, such as a company or an account) and reads baseline and scenario side by side (scenario on POST /v1/analytics-forecasts)",
-        "r": "T97b · docs/design/plan-breadth-week3.md §T97b",
+        "r": "T97b · docs/design/plan-breadth-week3.md §T97b · ADR-0077 §8 and As built · scenario on POST /v1/analytics-forecasts (AnalyticsScenario, AnalyticsScenarioResult; 422 analytics.scenario_overlap; nothing stored) · internal/analytics scenario.go (Adjustment, Scenario) · TestScenario, TestScenarioRefusals, TestScenarioBounds, TestForecastScenario · walkthrough step_metric_forecast",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

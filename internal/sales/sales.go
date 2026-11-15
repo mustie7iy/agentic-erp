@@ -24,7 +24,10 @@
 // amount or for an amount per item, and is approved or rejected once
 // (credit_memo.go; As built T85c); an approved request posts as a
 // customer credit memo through receivables, naming the billing
-// document's invoice (credit_post.go; As built T85d).
+// document's invoice (credit_post.go; As built T85d). Orders.Segments
+// adds the posted billing and credit memo items up by customer and item
+// key for net revenue by profitability segment (segments.go; ADR-0075
+// §6).
 //
 // A sales document carries net amounts and posts nothing itself: tax is
 // calculated when the order is billed, and a billing document posts

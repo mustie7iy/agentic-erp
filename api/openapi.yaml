@@ -9139,6 +9139,85 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/profitability-report:
+    get:
+      operationId: getProfitabilityReport
+      x-slo-class: report
+      tags:
+        - controlling
+      summary: Read a company's net revenue by profitability segment
+      description: "Net revenue by profitability segment of one legal entity over a range of regular periods of a fiscal year (ADR-0075 §1, §6), from the sales context's posted documents, exact at the moment of the read: per segment, a customer and an item key, the gross value billed (each billed item's value before discounts, its price condition), the discounts taken off it, the credit memos posted against its billing and the net revenue, gross value less discounts less credit memos. A billing document counts in the period its posting date falls in, a credit memo in the period of its own posting date. An item billed in parts carries its discount in proportion to the net value each part billed, rounded half away from zero, so the parts add up to the item's discount to the minor unit. An item without an item key is grouped under its customer alone (no `item_key`). Amounts are in the legal entity's local currency: documents in another currency are not converted and are left out, and `foreign_currency_documents` counts them. No cost is shown (`includes_cost` is false): no cost of goods sold is posted per item, and the margin report (`getMarginReport`) has the ledger's cost of sales. Rows are by the customer's number, then the item key, the row without one first; `totals` are the whole selection's, on every page, and the rows of every page add up to them over the pages. A legal entity that does not exist or that the caller cannot act in is answered as missing (422 `request.reference_not_found` on `legal_entity_id`). The figures are billing documents' amounts, so besides `controlling.profitability.read` the caller needs `sales.billing.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: controlling.profitability.read
+      x-also-permissions:
+        - sales.billing.read
+      x-problem-codes:
+        - controlling.period_not_regular
+        - ledger.no_fiscal_period
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: Fiscal year (required).
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: fiscal_period_from
+          in: query
+          required: false
+          description: "Only regular periods from this one (default 1); a number that is no regular period of the year: 422 `controlling.period_not_regular`."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: fiscal_period_to
+          in: query
+          required: false
+          description: "Only regular periods up to this one (default the year's last); before `fiscal_period_from`: 400 `request.invalid_parameter`; a number that is no regular period of the year: 422 `controlling.period_not_regular`."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: customer_id
+          in: query
+          required: false
+          description: Only this customer's segments.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the report's segments, with the selection's totals.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfitabilityReport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/plan-categories:
     get:
       operationId: listPlanCategories
@@ -29102,7 +29181,7 @@ paths:
       tags:
         - analytics
       summary: Forecast a governed metric
-      description: "Forecasts a governed metric (ADR-0077 §7, T97a) for the periods after its history by a named method, and answers history and forecast together; nothing is stored. The history is the metric by fiscal period of `grain` (`month`, `quarter` or `year` of the semantic model's fiscal calendar), filtered by `where` and `companies`, as `runAnalyticsQuery` answers it for the caller (their company access and dataset permissions, the active metric definitions; a query it refuses, amounts of two currencies summed among them, is refused here with its problem): every period from the first with data through the last with data, which may be the current one not yet complete, a period without data counting as zero. `moving_average` forecasts each of the `periods_ahead` periods after the history as the average of its last `window` periods; `same_period_last_year` forecasts each as the same period a fiscal year before (`periods_ahead` at most a year's periods). A forecast is computed exactly from the minor units and rounded half away from zero to the metric's digits: an amount to its currency's, a count to a whole number. A ratio is refused (422 `analytics.forecast_ratio`): its average is not the ratio of averages. Too little history for the method is refused naming the periods it needs and those the history has (422 `analytics.forecast_history_short`); a history of more periods than a query answers (500 rows) is refused (422 `analytics.invalid_query`). The answer names the method, the periods it used (`used`) and says it is an arithmetic projection, not a statistical forecast. Changes nothing: agents of any autonomy level may run it."
+      description: "Forecasts a governed metric (ADR-0077 §7, T97a) for the periods after its history by a named method, and answers history and forecast together; nothing is stored. The history is the metric by fiscal period of `grain` (`month`, `quarter` or `year` of the semantic model's fiscal calendar), filtered by `where` and `companies`, as `runAnalyticsQuery` answers it for the caller (their company access and dataset permissions, the active metric definitions; a query it refuses, amounts of two currencies summed among them, is refused here with its problem): every period from the first with data through the last with data, which may be the current one not yet complete, a period without data counting as zero. `moving_average` forecasts each of the `periods_ahead` periods after the history as the average of its last `window` periods; `same_period_last_year` forecasts each as the same period a fiscal year before (`periods_ahead` at most a year's periods). A forecast is computed exactly from the minor units and rounded half away from zero to the metric's digits: an amount to its currency's, a count to a whole number. A ratio is refused (422 `analytics.forecast_ratio`): its average is not the ratio of averages. Too little history for the method is refused naming the periods it needs and those the history has (422 `analytics.forecast_history_short`); a history of more periods than a query answers (500 rows) is refused (422 `analytics.invalid_query`). The answer names the method, the periods it used (`used`) and says it is an arithmetic projection, not a statistical forecast. With a `scenario` (ADR-0077 §8, T97b), the history is read by period and by each dimension an adjustment names; the rows of each adjustment's value are forecast on their own by the method, and so are the rows of none; `forecast` is then the baseline, those forecasts summed, and `scenario` gives per period ahead the baseline, the scenario (each adjusted part changed by its percentage, rounded half away from zero to the metric's digits) and their difference, with their totals and each adjustment's part. A dimension the metric lacks or one of the forecast's periods is 422 `request.validation_failed` on the adjustment's `dimension`; two adjustments that would change one row are 422 `analytics.scenario_overlap`; a history by those dimensions of more than 500 rows is refused (422 `analytics.invalid_query`). Changes nothing: agents of any autonomy level may run it."
       x-permission: analytics.query.run
       x-autonomy: read
       x-problem-codes:
@@ -29110,6 +29189,7 @@ paths:
         - analytics.forecast_history_short
         - analytics.forecast_ratio
         - analytics.invalid_query
+        - analytics.scenario_overlap
         - cash.amount_too_large
         - config.not_bootstrapped
         - config.unknown_version
@@ -43555,6 +43635,226 @@ components:
               currency: CAD
             margin:
               amount: "5000.00"
+              currency: CAD
+    ProfitabilityRow:
+      type: object
+      description: "A profitability segment's figures in the selection (ADR-0075 §6): a customer and an item key, or the customer alone for its items without one; in the legal entity's local currency."
+      required:
+        - customer_id
+        - customer_number
+        - customer_name
+        - gross_value
+        - discounts
+        - credit_memos
+        - net_revenue
+      properties:
+        customer_id:
+          type: string
+          format: uuid
+          description: The customer.
+          readOnly: true
+        customer_number:
+          type: string
+          description: "The customer's business partner number."
+          readOnly: true
+        customer_name:
+          type: string
+          description: "The customer's name."
+          readOnly: true
+        item_key:
+          type: string
+          description: "The billed items' item key; absent on the row of the customer's items without one."
+          readOnly: true
+        gross_value:
+          $ref: "#/components/schemas/Money"
+          description: "The billed items' value before discounts."
+          readOnly: true
+        discounts:
+          $ref: "#/components/schemas/Money"
+          description: "The discounts taken off the billed items."
+          readOnly: true
+        credit_memos:
+          $ref: "#/components/schemas/Money"
+          description: "The net value of the credit memos posted against the segment's billed items."
+          readOnly: true
+        net_revenue:
+          $ref: "#/components/schemas/Money"
+          description: Gross value less discounts less credit memos.
+          readOnly: true
+      examples:
+        - customer_id: "0192a000-0000-7000-8000-000000000701"
+          customer_number: BP70000001
+          customer_name: Northwind Traders
+          item_key: BRACKET-M8
+          gross_value:
+            amount: "2937.48"
+            currency: CAD
+          discounts:
+            amount: "146.87"
+            currency: CAD
+          credit_memos:
+            amount: "250.00"
+            currency: CAD
+          net_revenue:
+            amount: "2540.61"
+            currency: CAD
+    ProfitabilityTotals:
+      type: object
+      description: "The whole selection's gross value, discounts, credit memos and net revenue, which the rows of every page add up to over the pages; in the legal entity's local currency."
+      required:
+        - gross_value
+        - discounts
+        - credit_memos
+        - net_revenue
+      properties:
+        gross_value:
+          $ref: "#/components/schemas/Money"
+          description: Gross value billed.
+          readOnly: true
+        discounts:
+          $ref: "#/components/schemas/Money"
+          description: Discounts.
+          readOnly: true
+        credit_memos:
+          $ref: "#/components/schemas/Money"
+          description: Credit memos.
+          readOnly: true
+        net_revenue:
+          $ref: "#/components/schemas/Money"
+          description: "Net revenue: the net value of the posted billing documents less the posted credit memos."
+          readOnly: true
+    ProfitabilityReport:
+      type: object
+      description: "One page of a legal entity's net revenue by profitability segment (ADR-0075 §6), with the selection and the totals on every page. It has no cost side, and says so."
+      required:
+        - items
+        - legal_entity_id
+        - fiscal_year
+        - fiscal_period_from
+        - fiscal_period_to
+        - date_from
+        - date_to
+        - currency
+        - includes_cost
+        - foreign_currency_documents
+        - totals
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProfitabilityRow"
+          description: "The segments on this page, by the customer's number, then the item key."
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The legal entity.
+          readOnly: true
+        customer_id:
+          type: string
+          format: uuid
+          description: "The customer the selection is restricted to; absent for every customer."
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year of the selection.
+          readOnly: true
+        fiscal_period_from:
+          type: integer
+          format: int32
+          description: First period of the selection.
+          readOnly: true
+        fiscal_period_to:
+          type: integer
+          format: int32
+          description: Last period of the selection.
+          readOnly: true
+        date_from:
+          type: string
+          format: date
+          description: "The first day of the first period: the earliest posting date counted."
+          readOnly: true
+        date_to:
+          type: string
+          format: date
+          description: "The last day of the last period: the latest posting date counted."
+          readOnly: true
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+          description: "The legal entity's local currency, which every amount is in."
+          readOnly: true
+        includes_cost:
+          type: boolean
+          description: "Always false: the report shows no cost, since no cost of goods sold is posted per item; the margin report (`getMarginReport`) has the ledger's cost of sales."
+          readOnly: true
+        foreign_currency_documents:
+          type: integer
+          format: int32
+          description: "The posted billing documents and credit memos of the selection in a currency other than `currency`, which are not converted and are left out of every figure."
+          readOnly: true
+        totals:
+          $ref: "#/components/schemas/ProfitabilityTotals"
+          description: "The whole selection's totals, the same on every page."
+          readOnly: true
+      examples:
+        - items:
+            - customer_id: "0192a000-0000-7000-8000-000000000701"
+              customer_number: BP70000001
+              customer_name: Northwind Traders
+              gross_value:
+                amount: "237.53"
+                currency: CAD
+              discounts:
+                amount: "0.00"
+                currency: CAD
+              credit_memos:
+                amount: "0.00"
+                currency: CAD
+              net_revenue:
+                amount: "237.53"
+                currency: CAD
+            - customer_id: "0192a000-0000-7000-8000-000000000701"
+              customer_number: BP70000001
+              customer_name: Northwind Traders
+              item_key: BRACKET-M8
+              gross_value:
+                amount: "2937.48"
+                currency: CAD
+              discounts:
+                amount: "146.87"
+                currency: CAD
+              credit_memos:
+                amount: "250.00"
+                currency: CAD
+              net_revenue:
+                amount: "2540.61"
+                currency: CAD
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          fiscal_year: 2026
+          fiscal_period_from: 1
+          fiscal_period_to: 12
+          date_from: "2026-01-01"
+          date_to: "2026-12-31"
+          currency: CAD
+          includes_cost: false
+          foreign_currency_documents: 0
+          totals:
+            gross_value:
+              amount: "3175.01"
+              currency: CAD
+            discounts:
+              amount: "146.87"
+              currency: CAD
+            credit_memos:
+              amount: "250.00"
+              currency: CAD
+            net_revenue:
+              amount: "2778.14"
               currency: CAD
     PlanCategory:
       description: "A plan category (ADR-0050 §8, SAP's category for planning): plan values of one kind, such as the budget (`PLAN`) or a forecast, open or locked."
@@ -61507,9 +61807,33 @@ components:
           description: "`moving_average` (the average of the last `window` periods) or `same_period_last_year` (the same period a fiscal year before). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum: [moving_average, same_period_last_year]
         window: {type: integer, format: int32, minimum: 1, maximum: 36, description: "For `moving_average`, and for it alone: how many of the last periods it averages."}
+        scenario: {$ref: "#/components/schemas/AnalyticsScenario"}
       additionalProperties: false
       examples:
         - {metric: revenue, companies: ["3000"], grain: month, periods_ahead: 3, method: moving_average, window: 3}
+        - {metric: revenue, companies: ["3000"], grain: month, periods_ahead: 3, method: moving_average, window: 3, scenario: {adjustments: [{dimension: account, value: "4000", percent: "10"}]}}
+    AnalyticsScenario:
+      type: object
+      description: "A scenario on the forecast (ADR-0077 §8, T97b): percentage changes of the rows of named dimension values. Each adjustment's rows are forecast on their own, and so are the rows of none; the baseline is those forecasts summed, the scenario the same with each adjusted part changed by its percentage. Nothing is stored."
+      required: [adjustments]
+      properties:
+        adjustments:
+          type: array
+          description: "The changes, at most one per row: two adjustments that would change one row, the same value named twice or values of two dimensions meeting in a row, are refused (422 `analytics.scenario_overlap`)."
+          minItems: 1
+          maxItems: 20
+          items: {$ref: "#/components/schemas/AnalyticsScenarioAdjustment"}
+      additionalProperties: false
+    AnalyticsScenarioAdjustment:
+      type: object
+      description: "A percentage change of the forecast of the rows whose dimension has the value."
+      required: [dimension, value, percent]
+      properties:
+        dimension: {type: string, maxLength: 100, description: "A dimension of the metric (`getAnalyticsModel`), not one of the forecast's periods (`fiscal_year`, `fiscal_quarter`, `fiscal_month`, `posting_date`); another is 422 `request.validation_failed` on it."}
+        value: {type: string, maxLength: 200, description: "The dimension's value whose rows are changed, as a query's rows write it (an account's number, a company's code)."}
+        percent: {type: string, pattern: "^-?[0-9]{1,6}(\\.[0-9]{1,4})?$", description: "The change in percent of the rows' forecast: `10` ten percent more, `-5` five percent less; -100 at the least."}
+      additionalProperties: false
+
     AnalyticsForecastPoint:
       type: object
       description: "A fiscal period's figure: of the history, or forecast."
@@ -61557,6 +61881,7 @@ components:
         as_of: {type: string, format: date-time, description: "The data's time, as a query's.", readOnly: true}
         data_through: {type: string, description: "The latest posting or document date in the history's data (YYYY-MM-DD).", readOnly: true}
         config_version: {type: integer, format: int32, description: "The configuration version whose metric definitions answered.", readOnly: true}
+        scenario: {$ref: "#/components/schemas/AnalyticsScenarioResult"}
       examples:
         - metric: revenue
           metric_label: Revenue
@@ -61579,6 +61904,45 @@ components:
           as_of: "2026-10-01T09:00:00Z"
           data_through: "2026-09-30"
           config_version: 1
+    AnalyticsScenarioResult:
+      type: object
+      description: "A scenario's answer (ADR-0077 §8): per period ahead the baseline, the scenario and their difference, each figure an exact decimal at the metric's digits in `currency` for an amount, with their totals and each adjustment's part. The baseline is the forecast (`forecast`): the parts' forecasts summed, so the baseline and the scenario each add up."
+      required: [adjustments, periods, baseline_total, scenario_total, difference_total]
+      properties:
+        adjustments:
+          type: array
+          description: "Each adjustment as asked, with its rows' forecast over the periods ahead before and after its change."
+          items: {$ref: "#/components/schemas/AnalyticsScenarioPart"}
+        periods:
+          type: array
+          description: "The periods ahead, in order."
+          items: {$ref: "#/components/schemas/AnalyticsScenarioPoint"}
+        baseline_total: {type: string, description: "The baseline over the periods ahead.", readOnly: true}
+        scenario_total: {type: string, description: "The scenario over the periods ahead.", readOnly: true}
+        difference_total: {type: string, description: "The scenario less the baseline over the periods ahead.", readOnly: true}
+        currency: {type: string, description: "For an amount: the currency of every figure.", readOnly: true}
+    AnalyticsScenarioPart:
+      type: object
+      description: "An adjustment's part of the scenario."
+      required: [dimension, value, percent, baseline_total, scenario_total]
+      properties:
+        dimension: {type: string, description: The dimension., readOnly: true}
+        value: {type: string, description: "The dimension's value.", readOnly: true}
+        percent: {type: string, description: The change in percent., readOnly: true}
+        baseline_total: {type: string, description: "The forecast of the value's rows over the periods ahead.", readOnly: true}
+        scenario_total: {type: string, description: "The same, changed by the percentage period by period, each rounded half away from zero to the metric's digits.", readOnly: true}
+    AnalyticsScenarioPoint:
+      type: object
+      description: "A period ahead's baseline, scenario and their difference."
+      required: [fiscal_year, label, baseline, scenario, difference]
+      properties:
+        fiscal_year: {type: integer, format: int32, description: The fiscal year., readOnly: true}
+        period: {type: integer, format: int32, description: "The fiscal month (1-12) or quarter (1-4) within it; absent for a year.", readOnly: true}
+        label: {type: string, description: "The period as `2026-09`, `2026-Q3` or `2026`.", readOnly: true}
+        baseline: {type: string, description: "The baseline: every part's forecast summed.", readOnly: true}
+        scenario: {type: string, description: "The scenario: every part's forecast, each adjusted part changed by its percentage, summed.", readOnly: true}
+        difference: {type: string, description: The scenario less the baseline., readOnly: true}
+        currency: {type: string, description: "For an amount: its currency.", readOnly: true}
     AnalyticsQuery:
       type: object
       description: "A semantic query: governed metrics, the dimensions to break them down by, filters on dimensions, ordering and a row limit. Unknown metrics or dimensions, dimensions the metrics do not share and malformed filters are 422 `analytics.invalid_query`."

@@ -98,9 +98,9 @@ var allowed = map[string][]string{
 	"collections":             {"config", "ledger", "partner", "tenancy"}, // a leaf (ADR-0065 §1): the ledger's customer open items, partners' names, tenancy and configuration through its ports, by the types their published APIs give
 	"config":                  {"bankfile"},
 	"configuration":           {"approvals", "config", "countrypack", "operations"},
-	"consolidation":           {"config"},                       // a leaf (ADR-0059 §2): configuration and tenancy (the ledger and identity in later slices) through ports the composition root wires
-	"credit":                  {"ledger", "partner", "tenancy"}, // a leaf (ADR-0066 §1): the ledger's customer open items, partners' customers and names and tenancy through its ports, by the types their published APIs give
-	"controlling":             {"config", "ledger", "tenancy"},  // plan values over the ledger's centers and actuals, through ledger.AssignmentBalances (ADR-0050 §2); config: a company's date in its time zone (config.DocumentDay over controlling.Settings, ADR-0064 §3)
+	"consolidation":           {"config"},                                          // a leaf (ADR-0059 §2): configuration and tenancy (the ledger and identity in later slices) through ports the composition root wires
+	"credit":                  {"ledger", "partner", "tenancy"},                    // a leaf (ADR-0066 §1): the ledger's customer open items, partners' customers and names and tenancy through its ports, by the types their published APIs give
+	"controlling":             {"config", "ledger", "partner", "sales", "tenancy"}, // plan values over the ledger's centers and actuals, through ledger.AssignmentBalances (ADR-0050 §2); config: a company's date in its time zone (config.DocumentDay over controlling.Settings, ADR-0064 §3); sales and partner: net revenue by segment from sales.Orders.Segments and the customers' names (ADR-0075 §6)
 	"countrypack":             {"config"},
 	"creditagent":             {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration and its check
 	"controlplane":            {"agents", "audit", "config", "directory", "identity", "offboarding", "provisioning", "tenancy"},

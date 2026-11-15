@@ -307,7 +307,8 @@ func New(cfg Config) (http.Handler, error) {
 // controllingEndpoints is the controlling context as the API wires it.
 func controllingEndpoints(cfg Config) *controlling.Endpoints {
 	return &controlling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{},
-		Settings: configuration.Settings{}, Now: cfg.Now, Postings: controllingPostings(), Calendar: calendar()}
+		Settings: configuration.Settings{}, Now: cfg.Now, Postings: controllingPostings(), Calendar: calendar(), Sales: sales.Orders{},
+		Partners: partner.Payees{}}
 }
 
 // taxFiling is the tax filing context as the API wires it.

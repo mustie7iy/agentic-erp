@@ -3631,6 +3631,29 @@ type Invoker interface {
 	//
 	// GET /v1/profit-centers/{id}
 	GetProfitCenter(ctx context.Context, params GetProfitCenterParams) (GetProfitCenterRes, error)
+	// GetProfitabilityReport invokes getProfitabilityReport operation.
+	//
+	// Net revenue by profitability segment of one legal entity over a range of regular periods of a fiscal
+	// year (ADR-0075 §1, §6), from the sales context's posted documents, exact at the moment of the
+	// read: per segment, a customer and an item key, the gross value billed (each billed item's value
+	// before discounts, its price condition), the discounts taken off it, the credit memos posted against
+	// its billing and the net revenue, gross value less discounts less credit memos. A billing document
+	// counts in the period its posting date falls in, a credit memo in the period of its own posting date.
+	// An item billed in parts carries its discount in proportion to the net value each part billed,
+	// rounded half away from zero, so the parts add up to the item's discount to the minor unit. An item
+	// without an item key is grouped under its customer alone (no `item_key`). Amounts are in the legal
+	// entity's local currency: documents in another currency are not converted and are left out, and
+	// `foreign_currency_documents` counts them. No cost is shown (`includes_cost` is false): no cost of
+	// goods sold is posted per item, and the margin report (`getMarginReport`) has the ledger's cost of
+	// sales. Rows are by the customer's number, then the item key, the row without one first; `totals` are
+	// the whole selection's, on every page, and the rows of every page add up to them over the pages. A
+	// legal entity that does not exist or that the caller cannot act in is answered as missing (422
+	// `request.reference_not_found` on `legal_entity_id`). The figures are billing documents' amounts, so
+	// besides `controlling.profitability.read` the caller needs `sales.billing.read`
+	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/profitability-report
+	GetProfitabilityReport(ctx context.Context, params GetProfitabilityReportParams) (GetProfitabilityReportRes, error)
 	// GetPurchaseOrder invokes getPurchaseOrder operation.
 	//
 	// Returns one purchase order. Expandable: `supplier`, for a caller who may read business partners
@@ -6854,7 +6877,15 @@ type Invoker interface {
 	// periods it needs and those the history has (422 `analytics.forecast_history_short`); a history of
 	// more periods than a query answers (500 rows) is refused (422 `analytics.invalid_query`). The answer
 	// names the method, the periods it used (`used`) and says it is an arithmetic projection, not a
-	// statistical forecast. Changes nothing: agents of any autonomy level may run it.
+	// statistical forecast. With a `scenario` (ADR-0077 §8, T97b), the history is read by period and by
+	// each dimension an adjustment names; the rows of each adjustment's value are forecast on their own by
+	// the method, and so are the rows of none; `forecast` is then the baseline, those forecasts summed,
+	// and `scenario` gives per period ahead the baseline, the scenario (each adjusted part changed by its
+	// percentage, rounded half away from zero to the metric's digits) and their difference, with their
+	// totals and each adjustment's part. A dimension the metric lacks or one of the forecast's periods is
+	// 422 `request.validation_failed` on the adjustment's `dimension`; two adjustments that would change
+	// one row are 422 `analytics.scenario_overlap`; a history by those dimensions of more than 500 rows is
+	// refused (422 `analytics.invalid_query`). Changes nothing: agents of any autonomy level may run it.
 	//
 	// POST /v1/analytics-forecasts
 	RunAnalyticsForecast(ctx context.Context, request *AnalyticsForecastRequest, params RunAnalyticsForecastParams) (RunAnalyticsForecastRes, error)
@@ -44843,6 +44874,253 @@ func (c *Client) sendGetProfitCenter(ctx context.Context, params GetProfitCenter
 
 	stage = "DecodeResponse"
 	result, err := decodeGetProfitCenterResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetProfitabilityReport invokes getProfitabilityReport operation.
+//
+// Net revenue by profitability segment of one legal entity over a range of regular periods of a fiscal
+// year (ADR-0075 §1, §6), from the sales context's posted documents, exact at the moment of the
+// read: per segment, a customer and an item key, the gross value billed (each billed item's value
+// before discounts, its price condition), the discounts taken off it, the credit memos posted against
+// its billing and the net revenue, gross value less discounts less credit memos. A billing document
+// counts in the period its posting date falls in, a credit memo in the period of its own posting date.
+// An item billed in parts carries its discount in proportion to the net value each part billed,
+// rounded half away from zero, so the parts add up to the item's discount to the minor unit. An item
+// without an item key is grouped under its customer alone (no `item_key`). Amounts are in the legal
+// entity's local currency: documents in another currency are not converted and are left out, and
+// `foreign_currency_documents` counts them. No cost is shown (`includes_cost` is false): no cost of
+// goods sold is posted per item, and the margin report (`getMarginReport`) has the ledger's cost of
+// sales. Rows are by the customer's number, then the item key, the row without one first; `totals` are
+// the whole selection's, on every page, and the rows of every page add up to them over the pages. A
+// legal entity that does not exist or that the caller cannot act in is answered as missing (422
+// `request.reference_not_found` on `legal_entity_id`). The figures are billing documents' amounts, so
+// besides `controlling.profitability.read` the caller needs `sales.billing.read`
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/profitability-report
+func (c *Client) GetProfitabilityReport(ctx context.Context, params GetProfitabilityReportParams) (GetProfitabilityReportRes, error) {
+	res, err := c.sendGetProfitabilityReport(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetProfitabilityReport(ctx context.Context, params GetProfitabilityReportParams) (res GetProfitabilityReportRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getProfitabilityReport"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/profitability-report"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetProfitabilityReportOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/profitability-report"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.Int32ToString(params.FiscalYear))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period_from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period_from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriodFrom.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period_to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period_to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriodTo.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetProfitabilityReportOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetProfitabilityReportResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -98392,7 +98670,15 @@ func (c *Client) sendRunAllocationCycle(ctx context.Context, request *Allocation
 // periods it needs and those the history has (422 `analytics.forecast_history_short`); a history of
 // more periods than a query answers (500 rows) is refused (422 `analytics.invalid_query`). The answer
 // names the method, the periods it used (`used`) and says it is an arithmetic projection, not a
-// statistical forecast. Changes nothing: agents of any autonomy level may run it.
+// statistical forecast. With a `scenario` (ADR-0077 §8, T97b), the history is read by period and by
+// each dimension an adjustment names; the rows of each adjustment's value are forecast on their own by
+// the method, and so are the rows of none; `forecast` is then the baseline, those forecasts summed,
+// and `scenario` gives per period ahead the baseline, the scenario (each adjusted part changed by its
+// percentage, rounded half away from zero to the metric's digits) and their difference, with their
+// totals and each adjustment's part. A dimension the metric lacks or one of the forecast's periods is
+// 422 `request.validation_failed` on the adjustment's `dimension`; two adjustments that would change
+// one row are 422 `analytics.scenario_overlap`; a history by those dimensions of more than 500 rows is
+// refused (422 `analytics.invalid_query`). Changes nothing: agents of any autonomy level may run it.
 //
 // POST /v1/analytics-forecasts
 func (c *Client) RunAnalyticsForecast(ctx context.Context, request *AnalyticsForecastRequest, params RunAnalyticsForecastParams) (RunAnalyticsForecastRes, error) {

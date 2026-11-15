@@ -3610,6 +3610,29 @@ type Handler interface {
 	//
 	// GET /v1/profit-centers/{id}
 	GetProfitCenter(ctx context.Context, params GetProfitCenterParams) (GetProfitCenterRes, error)
+	// GetProfitabilityReport implements getProfitabilityReport operation.
+	//
+	// Net revenue by profitability segment of one legal entity over a range of regular periods of a fiscal
+	// year (ADR-0075 §1, §6), from the sales context's posted documents, exact at the moment of the
+	// read: per segment, a customer and an item key, the gross value billed (each billed item's value
+	// before discounts, its price condition), the discounts taken off it, the credit memos posted against
+	// its billing and the net revenue, gross value less discounts less credit memos. A billing document
+	// counts in the period its posting date falls in, a credit memo in the period of its own posting date.
+	// An item billed in parts carries its discount in proportion to the net value each part billed,
+	// rounded half away from zero, so the parts add up to the item's discount to the minor unit. An item
+	// without an item key is grouped under its customer alone (no `item_key`). Amounts are in the legal
+	// entity's local currency: documents in another currency are not converted and are left out, and
+	// `foreign_currency_documents` counts them. No cost is shown (`includes_cost` is false): no cost of
+	// goods sold is posted per item, and the margin report (`getMarginReport`) has the ledger's cost of
+	// sales. Rows are by the customer's number, then the item key, the row without one first; `totals` are
+	// the whole selection's, on every page, and the rows of every page add up to them over the pages. A
+	// legal entity that does not exist or that the caller cannot act in is answered as missing (422
+	// `request.reference_not_found` on `legal_entity_id`). The figures are billing documents' amounts, so
+	// besides `controlling.profitability.read` the caller needs `sales.billing.read`
+	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/profitability-report
+	GetProfitabilityReport(ctx context.Context, params GetProfitabilityReportParams) (GetProfitabilityReportRes, error)
 	// GetPurchaseOrder implements getPurchaseOrder operation.
 	//
 	// Returns one purchase order. Expandable: `supplier`, for a caller who may read business partners
@@ -6833,7 +6856,15 @@ type Handler interface {
 	// periods it needs and those the history has (422 `analytics.forecast_history_short`); a history of
 	// more periods than a query answers (500 rows) is refused (422 `analytics.invalid_query`). The answer
 	// names the method, the periods it used (`used`) and says it is an arithmetic projection, not a
-	// statistical forecast. Changes nothing: agents of any autonomy level may run it.
+	// statistical forecast. With a `scenario` (ADR-0077 §8, T97b), the history is read by period and by
+	// each dimension an adjustment names; the rows of each adjustment's value are forecast on their own by
+	// the method, and so are the rows of none; `forecast` is then the baseline, those forecasts summed,
+	// and `scenario` gives per period ahead the baseline, the scenario (each adjusted part changed by its
+	// percentage, rounded half away from zero to the metric's digits) and their difference, with their
+	// totals and each adjustment's part. A dimension the metric lacks or one of the forecast's periods is
+	// 422 `request.validation_failed` on the adjustment's `dimension`; two adjustments that would change
+	// one row are 422 `analytics.scenario_overlap`; a history by those dimensions of more than 500 rows is
+	// refused (422 `analytics.invalid_query`). Changes nothing: agents of any autonomy level may run it.
 	//
 	// POST /v1/analytics-forecasts
 	RunAnalyticsForecast(ctx context.Context, req *AnalyticsForecastRequest, params RunAnalyticsForecastParams) (RunAnalyticsForecastRes, error)

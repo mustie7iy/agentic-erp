@@ -3620,6 +3620,9 @@ ledger the secondary cost element and its two rules (§3.7). Migration
 000308 adds the permission `controlling.margin.read` of the margin report
 (ADR-0075, T92b), which has no table. Migration 000309 adds the origin of
 a plan batch written by a copy of another category's plan (T93a).
+Migration 000331 adds the permission `controlling.profitability.read` of
+net revenue by profitability segment (ADR-0075 §6, T92a), which has no
+table either.
 
 ```mermaid
 erDiagram
@@ -3738,6 +3741,14 @@ balance reads them (`ledger.period_balance`) and the profit centers' as
 the profit center report does (`ledger.assignment_balance`), each with
 the lines of entries not yet projected, so the figures are of one
 database state and exact at the read.
+
+Net revenue by profitability segment (`GET /v1/profitability-report`,
+ADR-0075 §6, T92a) stores nothing: the sales context adds up its posted
+billing documents' items and credit memo requests' items by customer and
+the order item's `item_key` (`sales.Orders.Segments`), a billing item's
+gross value being its net value and its share of the order item's
+discount (the order item's price condition, `conditions[0]`, less its net
+value), and controlling names the customers and pages the segments.
 
 ## 3.20 Tax filing (`tax`)
 
