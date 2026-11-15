@@ -223,6 +223,12 @@ func TestValidationRules(t *testing.T) {
 			"companies[1000].account_determination.lease_liability"},
 		{"lease liability reconciles suppliers", func(c *Config) { c.Companies[0].AccountDetermination.LeaseLiability = "211000" },
 			"companies[1000].account_determination.lease_liability"},
+		{"lease interest an asset", func(c *Config) { c.Companies[0].AccountDetermination.LeaseInterest = "100000" },
+			"companies[1000].account_determination.lease_interest"},
+		{"right-of-use depreciation unknown", func(c *Config) { c.Companies[0].AccountDetermination.RightOfUseDepreciation = "690000" },
+			"companies[1000].account_determination.right_of_use_depreciation"},
+		{"accumulated depreciation an expense", func(c *Config) { c.Companies[0].AccountDetermination.RightOfUseAccumulatedDepreciation = "520000" },
+			"companies[1000].account_determination.right_of_use_accumulated_depreciation"},
 		{"asset reconciliation account not for down payments", func(c *Config) {
 			c.Companies[0].ChartOfAccounts = append(c.Companies[0].ChartOfAccounts, Account{Number: "159000", Name: "Advances", Type: Asset, VendorReconciliation: true})
 		}, "companies[1000].chart_of_accounts[159000]"},
@@ -527,23 +533,29 @@ func TestDownPaymentAccountValid(t *testing.T) {
 
 // TestLeaseAccountsValid (T88b; ADR-0073 §7): a company's right-of-use
 // asset and lease liability accounts are an asset and a liability that
-// reconcile nothing, and are among the accounts the system posts to.
+// reconcile nothing, and so are a lease run's (T88c; ADR-0073 §9): two
+// expenses and an asset; all are among the accounts the system posts to.
 func TestLeaseAccountsValid(t *testing.T) {
 	c := fixture(t)
 	co := &c.Companies[0]
 	co.ChartOfAccounts = append(co.ChartOfAccounts, Account{Number: "160000", Name: "Right-of-use assets", Type: Asset},
-		Account{Number: "260000", Name: "Lease liabilities", Type: Liability})
-	co.AccountDetermination.RightOfUseAsset, co.AccountDetermination.LeaseLiability = "160000", "260000"
+		Account{Number: "260000", Name: "Lease liabilities", Type: Liability}, Account{Number: "161000", Name: "Accumulated depreciation, right-of-use", Type: Asset},
+		Account{Number: "672000", Name: "Lease interest", Type: Expense}, Account{Number: "673000", Name: "Depreciation of right-of-use assets", Type: Expense})
+	ad := &co.AccountDetermination
+	ad.RightOfUseAsset, ad.LeaseLiability = "160000", "260000"
+	ad.LeaseInterest, ad.RightOfUseDepreciation, ad.RightOfUseAccumulatedDepreciation = "672000", "673000", "161000"
 	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
 		t.Fatalf("lease accounts: got %v, want no errors", fs)
 	}
 	var automatic []string
 	for _, a := range co.AutomaticAccounts() {
-		if a.Account == "160000" || a.Account == "260000" {
+		if strings.HasPrefix(a.Account, "16") || strings.HasPrefix(a.Account, "26") || strings.HasPrefix(a.Account, "67") {
 			automatic = append(automatic, a.Path+" "+a.Account)
 		}
 	}
-	if got, want := strings.Join(automatic, ", "), "account_determination.right_of_use_asset 160000, account_determination.lease_liability 260000"; got != want {
+	if got, want := strings.Join(automatic, ", "), "account_determination.right_of_use_asset 160000, account_determination.lease_liability 260000, "+
+		"account_determination.lease_interest 672000, account_determination.right_of_use_depreciation 673000, "+
+		"account_determination.right_of_use_accumulated_depreciation 161000"; got != want {
 		t.Errorf("automatic accounts: got %s, want %s", got, want)
 	}
 }

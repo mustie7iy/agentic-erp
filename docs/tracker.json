@@ -3071,9 +3071,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The lease accountant runs lease accounting for a company and a period: per active contract the period's interest and depreciation are posted (POST /v1/lease-runs)",
-        "r": "T88c · docs/design/plan-breadth-week3.md §T88c",
+        "r": "T88c · docs/design/plan-breadth-week3.md §T88c · db/migrations/000331, 000332 · leases.run · leases.run_posting · account determination lease_interest, right_of_use_depreciation, right_of_use_accumulated_depreciation · POST/GET /v1/lease-runs · GET /v1/lease-runs/{id} · LeaseRunPosted · leases.run.post · ledger.Calendar.RegularPeriod · walkthrough step_lease (lease_run) · ADR-0073 §9, As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

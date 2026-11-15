@@ -353,6 +353,10 @@ type CreateLeaseContractRes interface {
 	createLeaseContractRes()
 }
 
+type CreateLeaseRunRes interface {
+	createLeaseRunRes()
+}
+
 type CreateLegalEntityRes interface {
 	createLegalEntityRes()
 }
@@ -879,6 +883,10 @@ type GetJournalEntryRes interface {
 
 type GetLeaseContractRes interface {
 	getLeaseContractRes()
+}
+
+type GetLeaseRunRes interface {
+	getLeaseRunRes()
 }
 
 type GetLeaseScheduleRes interface {
@@ -1439,6 +1447,10 @@ type ListJournalEntriesRes interface {
 
 type ListLeaseContractsRes interface {
 	listLeaseContractsRes()
+}
+
+type ListLeaseRunsRes interface {
+	listLeaseRunsRes()
 }
 
 type ListLedgerGroupsRes interface {

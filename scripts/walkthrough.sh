@@ -1584,9 +1584,15 @@ PILOT_SETTINGS='
       {"number": "1030", "name": "Bank - RBC USD", "type": "asset", "revalue_foreign_currency": true},
       {"number": "1040", "name": "Bank incoming - RBC USD", "type": "asset", "open_items": true, "revalue_foreign_currency": true},
       {"number": "1660", "name": "Right-of-use assets", "type": "asset"},
-      {"number": "2650", "name": "Lease liabilities", "type": "liability"}]
+      {"number": "2650", "name": "Lease liabilities", "type": "liability"},
+      {"number": "1669", "name": "Right-of-use assets, accumulated depreciation", "type": "asset"},
+      {"number": "6720", "name": "Interest on lease liabilities", "type": "expense"},
+      {"number": "6730", "name": "Depreciation of right-of-use assets", "type": "expense"}]
     | .account_determination.right_of_use_asset = "1660"
     | .account_determination.lease_liability = "2650"
+    | .account_determination.lease_interest = "6720"
+    | .account_determination.right_of_use_depreciation = "6730"
+    | .account_determination.right_of_use_accumulated_depreciation = "1669"
     | .tax_codes = ((.tax_codes // []) + [{"code": "GO5", "description": "GST 5% on sales (walkthrough; the Canada pack codes purchases)",
         "direction": "output", "kind": "standard", "category": "S", "components": [{"key": "gst", "jurisdiction": "CA",
         "account_key": "output", "account": "2300", "rates": [{"rate_percent": "5", "valid_from": "@PREV@-01-01"}]}]},
@@ -9997,7 +10003,7 @@ month_first() {
   printf '%04d-%02d-01' $((y + m / 12)) $((m % 12 + 1))
 }
 
-# step_lease is T88a and T88b (ADR-0073): Lena, the lease accountant, enters the
+# step_lease is T88a, T88b and T88c (ADR-0073): Lena, the lease accountant, enters the
 # lease of a floor of office space from Tyrell as lessee: three years
 # from the first of this month, 5,000.00 CAD a month in advance, at an
 # annual discount rate of 6 percent, on the finance office's cost center.
@@ -10011,10 +10017,11 @@ month_first() {
 # closing liability of zero; activating it posts one entry on the
 # commencement date, the right-of-use asset (1660) against the lease
 # liability (2650), and stores the schedule; a second activation is
-# refused (T88b).
+# refused (T88b). The lease run of the commencement period posts the
+# first line's interest and depreciation (T88c, lease_run).
 step_lease() {
-  heading "Step 96 — Lease contracts: a three-year lease of office space entered as lessee, paid monthly in advance, read back with its 36 payments; a payment in a foreign currency and a frequency that does not divide the term refused; its schedule read; activated, posting the right-of-use asset against the lease liability"
-  local supplier=$SUPPLIER start center contract number body open entry
+  heading "Step 96 — Lease contracts: a three-year lease of office space entered as lessee, paid monthly in advance, read back with its 36 payments; a payment in a foreign currency and a frequency that does not divide the term refused; its schedule read; activated, posting the right-of-use asset against the lease liability; the lease run of the commencement period posting the first line's interest and depreciation"
+  local supplier=$SUPPLIER start center contract number body open entry year period
   [ -n "$supplier" ] || fail "step 4's supplier is not there"
   as ada
   say "Ada adds Lena, the lease accountant, to the team:"
@@ -10088,6 +10095,8 @@ step_lease() {
   expect "the right-of-use asset's line" "$(field "[.lines[] | select(.account_id == \"$(account 1660)\") | .amount.amount] | join(\" \")")" "$rou"
   expect "the lease liability's line" "$(field "[.lines[] | select(.account_id == \"$(account 2650)\") | .amount.amount] | join(\" \")")" "-$rou"
   expect "the entry's date and source" "$(field '"\(.posting_date) \(.source_context)"')" "$start leases"
+  year=$(field .fiscal_year)
+  period=$(field .fiscal_period)
   say "The schedule is now the stored one, which later runs post from; an active contract is activated once:"
   QUIET=1 api 200 '' getLeaseSchedule -p "id=$contract"
   expect "the stored schedule" "$(field '"\(.status) \(.lease_liability.amount) \(.right_of_use_asset.amount) \(.lines | length) \(.lines[35].closing_liability.amount)"')" \
@@ -10096,8 +10105,53 @@ step_lease() {
   refused 409 leases.invalid_status activateLeaseContract -p "id=$contract" -if-match "$ETAG"
   QUIET=1 api 200 '' listAuditEvents -p object_type=leases.contract -p "object_id=$contract"
   expect "the contract's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "leases.contract.activate leases.contract.create"
+  lease_run "$contract" "$number" "$year" "$period"
   LEASE_CONTRACT=$contract
   passed
+}
+
+# lease_run CONTRACT NUMBER YEAR PERIOD is T88c's part of step_lease
+# (ADR-0073 §9): Lena runs lease accounting for Maple and the commencement
+# period. The run posts each active contract's stored schedule lines whose
+# interval ends by the period's last day, here the contract's first line:
+# one entry dated that day, its interest debited to 6720 and credited to
+# the lease liability (2650), its depreciation debited to 6730 and
+# credited to accumulated depreciation (1669), the expenses on the
+# contract's cost center. The lease payment is not posted by the run. A
+# second run of the period is refused.
+lease_run() {
+  local contract=$1 number=$2 year=$3 period=$4 run interest depreciation entry body
+  say "At the end of the period Lena runs lease accounting for Maple and period $period of $year (ADR-0073 §9). For each active"
+  say "contract the run posts the stored schedule lines whose interval ends by the period's last day, here the first:"
+  say "its interest against the lease liability (2650) and its depreciation against accumulated depreciation (1669), the"
+  say "expenses (6720, 6730) on the contract's cost center. Tyrell's invoice for the payment is posted by a person:"
+  QUIET=1 api 200 '' getLeaseSchedule -p "id=$contract"
+  interest=$(field .lines[0].interest.amount)
+  depreciation=$(field .lines[0].depreciation.amount)
+  body="{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $year, \"fiscal_period\": $period}"
+  api 201 '"lease run of \(.company_code) \(.company_name) for \(.fiscal_year)/\(.fiscal_period), posted \(.posting_date): \(.contract_count) contracts read, \(.posting_count) posted; interest \(.interest_amount.amount), depreciation \(.depreciation_amount.amount) \(.currency)", (.postings[] | "  lease contract \(.document_number) \(.lessor_number) \(.lessor_name) on \(.cost_center_code): lines \(.first_line_no) to \(.last_line_no), interest \(.interest_amount.amount), depreciation \(.depreciation_amount.amount), journal entry \(.journal_entry_number)")' \
+    createLeaseRun -body "$body"
+  run=$(field .id)
+  expect "the run's period, contracts read and posted" "$(field '"\(.fiscal_year)/\(.fiscal_period) \(.contract_count) \(.posting_count) \(.currency)"')" "$year/$period 1 1 CAD"
+  expect "the run's interest and depreciation: the first line's" "$(field '"\(.interest_amount.amount) \(.depreciation_amount.amount)"')" "$interest $depreciation"
+  expect "the contract's posting" "$(field '.postings[0] | "\(.document_number) \(.first_line_no) \(.last_line_no) \(.cost_center_code)"')" "$number 1 1 CC-1100"
+  entry=$(field '.postings[0].journal_entry_id')
+  api 200 '"journal entry \(.document_number), \(.document_type), source \(.source_context), posted \(.posting_date), reference \(.reference)", (.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' \
+    getJournalEntry -p "id=$entry"
+  expect "the entry's source, type and reference" "$(field '"\(.source_context) \(.document_type) \(.reference)"')" "leases SA $number"
+  expect "interest expense and the liability moved by the first line's interest" \
+    "$(field "[.lines[] | select(.account_id == \"$(account 6720)\" or .account_id == \"$(account 2650)\") | .amount.amount] | sort | join(\" \")")" \
+    "$(printf '%s\n' "$interest" "-$interest" | sort | paste -sd' ' -)"
+  expect "depreciation expense and accumulated depreciation moved by its depreciation" \
+    "$(field "[.lines[] | select(.account_id == \"$(account 6730)\" or .account_id == \"$(account 1669)\") | .amount.amount] | sort | join(\" \")")" \
+    "$(printf '%s\n' "$depreciation" "-$depreciation" | sort | paste -sd' ' -)"
+  expect "the entry's four lines" "$(field '.lines | length')" 4
+  say "The run is read back and listed; one run per company and period, so a second is refused:"
+  QUIET=1 api 200 '' getLeaseRun -p "id=$run"
+  expect "the run read back" "$(field '"\(.id) \(.posting_count) \(.postings | length)"')" "$run 1 1"
+  api 200 '.items[] | "  \(.company_code) \(.fiscal_year)/\(.fiscal_period), posted \(.posting_date): \(.posting_count) of \(.contract_count) contracts posted"' \
+    listLeaseRuns -p "legal_entity_id=$LE"
+  refused 409 leases.run_exists createLeaseRun -body "$body"
 }
 
 # step_expense_report is T87a (ADR-0074): Ada gives Maple two expense

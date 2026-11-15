@@ -1553,6 +1553,40 @@ type Invoker interface {
 	//
 	// POST /v1/lease-contracts
 	CreateLeaseContract(ctx context.Context, request *LeaseContractCreate, params CreateLeaseContractParams) (CreateLeaseContractRes, error)
+	// CreateLeaseRun invokes createLeaseRun operation.
+	//
+	// Runs lease accounting for a company and one of its regular fiscal periods and posts it (ADR-0073
+	// §9, T88c), in the request's transaction: either the whole run is posted or nothing. The system does
+	// the arithmetic only; every judgement is the person's, on the contract. For each `active` lease
+	// contract of the company the run takes the lines of the schedule stored at its activation
+	// (`getLeaseSchedule`) whose payment interval ends on or before the period's last day and that no
+	// earlier run posted: in the usual course the one line whose interval ends in the period, none in a
+	// period that a quarterly or yearly interval does not end in, and a line whose period was run before
+	// the contract was activated is caught up by the next run. A contract with such lines posts one
+	// balanced journal entry (document type `SA`, `source_context` `leases`, dated the period's last day,
+	// the contract's number as its reference) to every ledger the company keeps: the lines' interest
+	// debited to the company's `lease_interest` account and credited to its `lease_liability` account, and
+	// their depreciation debited to its `right_of_use_depreciation` account and credited to its
+	// `right_of_use_accumulated_depreciation` account, both expenses on the contract's cost center; a
+	// contract without such lines posts nothing. The lease payment itself is not posted by the run: a
+	// person posts the lessor's invoice against the lease liability account. One run per company and
+	// period: a second is refused (409 `leases.run_exists`), and a retry with the same `Idempotency-Key`
+	// answers the run as the first answered it. A company's first run is for any open period; each later
+	// run is for a later period than its last (409 `leases.run_period_not_later`): a run is not reversed
+	// or repeated in the first version. `legal_entity_id` is a company the caller may act in (422
+	// `request.reference_not_found`); `fiscal_period` is a regular posting period of `fiscal_year` in the
+	// company's calendar (422 `ledger.no_fiscal_period` for a year that is not set up, 422
+	// `ledger.period_not_regular`); the company has the four accounts (422 `leases.no_lease_accounts`,
+	// naming the keys missing); the period is open in every ledger the company keeps (409
+	// `ledger.period_not_open`), also when nothing is to post; the company has at most 2,000 active
+	// contracts (422 `leases.run_too_large`: larger runs are not supported yet). What the ledger refuses
+	// of an entry refuses the run (for example a cost center no longer valid on the period's last day).
+	// The answer is the run with its counts, the interest and depreciation it posted and its postings, one
+	// per contract that posted, each naming its lines and its journal entry. Audited, and published as
+	// LeaseRunPosted. Human-only (`x-agent: false`).
+	//
+	// POST /v1/lease-runs
+	CreateLeaseRun(ctx context.Context, request *LeaseRunCreate, params CreateLeaseRunParams) (CreateLeaseRunRes, error)
 	// CreateLegalEntity invokes createLegalEntity operation.
 	//
 	// Creates a legal entity in status `inactive`.
@@ -3305,6 +3339,17 @@ type Invoker interface {
 	//
 	// GET /v1/lease-contracts/{id}
 	GetLeaseContract(ctx context.Context, params GetLeaseContractParams) (GetLeaseContractRes, error)
+	// GetLeaseRun invokes getLeaseRun operation.
+	//
+	// One lease run (ADR-0073 §9, T88c) with its company's code and name, its fiscal period and posting
+	// date, the number of active contracts it read and of contracts it posted, the interest and
+	// depreciation it posted and its `postings`, one per contract that posted, by contract number: the
+	// contract with its lessor and cost center, the schedule lines it posted, their interest and
+	// depreciation and the journal entry. One of a company the caller may not act in is not found (404),
+	// as one that does not exist.
+	//
+	// GET /v1/lease-runs/{id}
+	GetLeaseRun(ctx context.Context, params GetLeaseRunParams) (GetLeaseRunRes, error)
 	// GetLeaseSchedule invokes getLeaseSchedule operation.
 	//
 	// The schedule of one lease contract (ADR-0073 §8, T88b): the lease liability at commencement, the
@@ -4893,6 +4938,15 @@ type Invoker interface {
 	//
 	// GET /v1/lease-contracts
 	ListLeaseContracts(ctx context.Context, params ListLeaseContractsParams) (ListLeaseContractsRes, error)
+	// ListLeaseRuns invokes listLeaseRuns operation.
+	//
+	// The lease runs of the companies the caller may act in (ADR-0073 §9, T88c), latest posting date
+	// first, each with its company's code and name, its fiscal period, its counts and the interest and
+	// depreciation it posted, without its postings, which `getLeaseRun` gives. Filtered by company, fiscal
+	// year and fiscal period. Sortable by: `posting_date`.
+	//
+	// GET /v1/lease-runs
+	ListLeaseRuns(ctx context.Context, params ListLeaseRunsParams) (ListLeaseRunsRes, error)
 	// ListLedgerGroups invokes listLedgerGroups operation.
 	//
 	// Ledger groups name the ledgers a posting goes to together; the representative ledger decides the
@@ -21786,6 +21840,164 @@ func (c *Client) sendCreateLeaseContract(ctx context.Context, request *LeaseCont
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateLeaseContractResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateLeaseRun invokes createLeaseRun operation.
+//
+// Runs lease accounting for a company and one of its regular fiscal periods and posts it (ADR-0073
+// §9, T88c), in the request's transaction: either the whole run is posted or nothing. The system does
+// the arithmetic only; every judgement is the person's, on the contract. For each `active` lease
+// contract of the company the run takes the lines of the schedule stored at its activation
+// (`getLeaseSchedule`) whose payment interval ends on or before the period's last day and that no
+// earlier run posted: in the usual course the one line whose interval ends in the period, none in a
+// period that a quarterly or yearly interval does not end in, and a line whose period was run before
+// the contract was activated is caught up by the next run. A contract with such lines posts one
+// balanced journal entry (document type `SA`, `source_context` `leases`, dated the period's last day,
+// the contract's number as its reference) to every ledger the company keeps: the lines' interest
+// debited to the company's `lease_interest` account and credited to its `lease_liability` account, and
+// their depreciation debited to its `right_of_use_depreciation` account and credited to its
+// `right_of_use_accumulated_depreciation` account, both expenses on the contract's cost center; a
+// contract without such lines posts nothing. The lease payment itself is not posted by the run: a
+// person posts the lessor's invoice against the lease liability account. One run per company and
+// period: a second is refused (409 `leases.run_exists`), and a retry with the same `Idempotency-Key`
+// answers the run as the first answered it. A company's first run is for any open period; each later
+// run is for a later period than its last (409 `leases.run_period_not_later`): a run is not reversed
+// or repeated in the first version. `legal_entity_id` is a company the caller may act in (422
+// `request.reference_not_found`); `fiscal_period` is a regular posting period of `fiscal_year` in the
+// company's calendar (422 `ledger.no_fiscal_period` for a year that is not set up, 422
+// `ledger.period_not_regular`); the company has the four accounts (422 `leases.no_lease_accounts`,
+// naming the keys missing); the period is open in every ledger the company keeps (409
+// `ledger.period_not_open`), also when nothing is to post; the company has at most 2,000 active
+// contracts (422 `leases.run_too_large`: larger runs are not supported yet). What the ledger refuses
+// of an entry refuses the run (for example a cost center no longer valid on the period's last day).
+// The answer is the run with its counts, the interest and depreciation it posted and its postings, one
+// per contract that posted, each naming its lines and its journal entry. Audited, and published as
+// LeaseRunPosted. Human-only (`x-agent: false`).
+//
+// POST /v1/lease-runs
+func (c *Client) CreateLeaseRun(ctx context.Context, request *LeaseRunCreate, params CreateLeaseRunParams) (CreateLeaseRunRes, error) {
+	res, err := c.sendCreateLeaseRun(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateLeaseRun(ctx context.Context, request *LeaseRunCreate, params CreateLeaseRunParams) (res CreateLeaseRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createLeaseRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/lease-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateLeaseRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/lease-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateLeaseRunRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateLeaseRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateLeaseRunResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -41380,6 +41592,142 @@ func (c *Client) sendGetLeaseContract(ctx context.Context, params GetLeaseContra
 
 	stage = "DecodeResponse"
 	result, err := decodeGetLeaseContractResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetLeaseRun invokes getLeaseRun operation.
+//
+// One lease run (ADR-0073 §9, T88c) with its company's code and name, its fiscal period and posting
+// date, the number of active contracts it read and of contracts it posted, the interest and
+// depreciation it posted and its `postings`, one per contract that posted, by contract number: the
+// contract with its lessor and cost center, the schedule lines it posted, their interest and
+// depreciation and the journal entry. One of a company the caller may not act in is not found (404),
+// as one that does not exist.
+//
+// GET /v1/lease-runs/{id}
+func (c *Client) GetLeaseRun(ctx context.Context, params GetLeaseRunParams) (GetLeaseRunRes, error) {
+	res, err := c.sendGetLeaseRun(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetLeaseRun(ctx context.Context, params GetLeaseRunParams) (res GetLeaseRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getLeaseRun"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/lease-runs/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetLeaseRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/lease-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetLeaseRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetLeaseRunResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -69357,6 +69705,228 @@ func (c *Client) sendListLeaseContracts(ctx context.Context, params ListLeaseCon
 
 	stage = "DecodeResponse"
 	result, err := decodeListLeaseContractsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListLeaseRuns invokes listLeaseRuns operation.
+//
+// The lease runs of the companies the caller may act in (ADR-0073 §9, T88c), latest posting date
+// first, each with its company's code and name, its fiscal period, its counts and the interest and
+// depreciation it posted, without its postings, which `getLeaseRun` gives. Filtered by company, fiscal
+// year and fiscal period. Sortable by: `posting_date`.
+//
+// GET /v1/lease-runs
+func (c *Client) ListLeaseRuns(ctx context.Context, params ListLeaseRunsParams) (ListLeaseRunsRes, error) {
+	res, err := c.sendListLeaseRuns(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListLeaseRuns(ctx context.Context, params ListLeaseRunsParams) (res ListLeaseRunsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listLeaseRuns"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/lease-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListLeaseRunsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/lease-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalYear.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriod.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListLeaseRunsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListLeaseRunsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

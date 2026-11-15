@@ -509,11 +509,12 @@ channels:
   leases:
     address: 'erp.{cell}.leases.{tenant}.{event}'
     title: Lease accounting events
-    description: Lease contracts entered as lessee (ADR-0073 §5).
+    description: Lease contracts entered as lessee (ADR-0073 §5) and the lease runs that post them (ADR-0073 §9).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       LeaseContractChanged: {$ref: '#/components/messages/LeaseContractChanged'}
+      LeaseRunPosted: {$ref: '#/components/messages/LeaseRunPosted'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -851,6 +852,7 @@ operations:
     channel: {$ref: '#/channels/leases'}
     messages:
       - $ref: '#/channels/leases/messages/LeaseContractChanged'
+      - $ref: '#/channels/leases/messages/LeaseRunPosted'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -4616,6 +4618,33 @@ components:
         - name: activated
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001102, source: /erp/eu-1/revenue, type: com.example.erp.revenue.revenue_contract_changed.v1, subject: 0192a000-0000-7000-8000-000000001111, time: '2026-11-20T11:30:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {revenue_contract_id: 0192a000-0000-7000-8000-000000001111, sales_order_id: 0192a000-0000-7000-8000-000000001021, sales_order_number: SO100002, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, transaction_price: {amount: '2700.00', currency: CAD}, obligation_count: 2, status: active, status_before: draft, version: 3}
+    LeaseRunPosted:
+      name: LeaseRunPosted
+      title: Lease run posted
+      summary: Lease accounting was run for a company and a fiscal period.
+      description: |
+        Emitted by `POST /v1/lease-runs` (ADR-0073 §9, T88c), once per run:
+        the company and the fiscal period run, the period's last day, on
+        which the entries are dated, the number of active contracts read
+        and of contracts posted, and the interest and the right-of-use
+        depreciation the run posted. Each contract posted has a journal
+        entry of its own, published by the ledger as JournalEntryPosted
+        with `source_context` `leases`; `GET /v1/lease-runs/{id}` returns
+        the run with its postings. A run that finds nothing to post is
+        emitted too, with `posting_count` 0. Not offered to webhooks until
+        a consumer asks (the plan's rule for week 3's events). Subject is
+        the run id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.leases.lease_run_posted.v1}
+      payload: {$ref: '#/components/schemas/LeaseRunPostedV1'}
+      examples:
+        - name: run
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001203, source: /erp/eu-1/leases, type: com.example.erp.leases.lease_run_posted.v1, subject: 0192a000-0000-7000-8000-000000001231, time: '2027-01-04T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {lease_run_id: 0192a000-0000-7000-8000-000000001231, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', fiscal_year: 2026, fiscal_period: 12, posting_date: '2026-12-31', contract_count: 1, posting_count: 1, interest_amount: {amount: '795.59', currency: CAD}, depreciation_amount: {amount: '4558.83', currency: CAD}}
     RevenueRecognized:
       name: RevenueRecognized
       title: Revenue recognized
@@ -5816,6 +5845,20 @@ components:
         status: {type: string, description: "The contract's status after the change. Open enum: draft, active."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created, and `draft` again when a draft''s obligations were changed.'}
         version: {type: integer, description: "The contract's version after the change."}
+    LeaseRunPostedV1:
+      type: object
+      required: [lease_run_id, legal_entity_id, legal_entity_code, fiscal_year, fiscal_period, posting_date, contract_count, posting_count, interest_amount, depreciation_amount]
+      properties:
+        lease_run_id: {$ref: '#/components/schemas/Uuid', description: '`leases.run.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company run.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        fiscal_year: {type: integer, description: The fiscal year run.}
+        fiscal_period: {type: integer, description: The fiscal period run.}
+        posting_date: {$ref: '#/components/schemas/Date', description: "The period's last day: the schedule lines whose interval ends on or before it were posted, and the entries are dated it."}
+        contract_count: {type: integer, description: The active lease contracts of the company the run read.}
+        posting_count: {type: integer, description: 'The contracts with lines to post: the journal entries the run posted, one each.'}
+        interest_amount: {$ref: '#/components/schemas/Money', description: "The interest the run posted, in the company's local currency: debited to interest expense, credited to the lease liability."}
+        depreciation_amount: {$ref: '#/components/schemas/Money', description: 'The right-of-use depreciation the run posted: debited to depreciation expense, credited to accumulated depreciation.'}
     RevenueRecognizedV1:
       type: object
       required: [revenue_recognition_run_id, legal_entity_id, legal_entity_code, fiscal_year, fiscal_period, posting_date, contract_count, posting_count, recognized_amount, billed_amount, contract_asset_amount, contract_liability_amount, revenue_amount]

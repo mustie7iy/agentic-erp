@@ -25760,6 +25760,7 @@ func (*ConflictHeaders) createHierarchyRes()                       {}
 func (*ConflictHeaders) createIncomingPaymentRes()                 {}
 func (*ConflictHeaders) createInternalOrderRes()                   {}
 func (*ConflictHeaders) createLeaseContractRes()                   {}
+func (*ConflictHeaders) createLeaseRunRes()                        {}
 func (*ConflictHeaders) createLegalEntityRes()                     {}
 func (*ConflictHeaders) createMemoRecordRes()                      {}
 func (*ConflictHeaders) createMetricWatcherRes()                   {}
@@ -32942,6 +32943,22 @@ func (*CreateLeaseContractPreconditionRequired) createLeaseContractRes() {}
 type CreateLeaseContractUnprocessableEntity Problem
 
 func (*CreateLeaseContractUnprocessableEntity) createLeaseContractRes() {}
+
+type CreateLeaseRunBadRequest Problem
+
+func (*CreateLeaseRunBadRequest) createLeaseRunRes() {}
+
+type CreateLeaseRunForbidden Problem
+
+func (*CreateLeaseRunForbidden) createLeaseRunRes() {}
+
+type CreateLeaseRunPreconditionRequired Problem
+
+func (*CreateLeaseRunPreconditionRequired) createLeaseRunRes() {}
+
+type CreateLeaseRunUnprocessableEntity Problem
+
+func (*CreateLeaseRunUnprocessableEntity) createLeaseRunRes() {}
 
 type CreateLegalEntityBadRequest Problem
 
@@ -45704,6 +45721,18 @@ func (s *GetLeaseContractOKHeaders) SetResponse(val LeaseContract) {
 
 func (*GetLeaseContractOKHeaders) getLeaseContractRes() {}
 
+type GetLeaseRunBadRequest Problem
+
+func (*GetLeaseRunBadRequest) getLeaseRunRes() {}
+
+type GetLeaseRunForbidden Problem
+
+func (*GetLeaseRunForbidden) getLeaseRunRes() {}
+
+type GetLeaseRunNotFound Problem
+
+func (*GetLeaseRunNotFound) getLeaseRunRes() {}
+
 type GetLeaseScheduleBadRequest Problem
 
 func (*GetLeaseScheduleBadRequest) getLeaseScheduleRes() {}
@@ -54463,6 +54492,486 @@ func (s *LeasePayment) SetAmount(val Money) {
 	s.Amount = val
 }
 
+// A lease run of a company and a fiscal period (ADR-0073 §9). Amounts are in `currency`, the
+// company's local currency.
+// Ref: #/components/schemas/LeaseRun
+type LeaseRun struct {
+	// The run.
+	ID uuid.UUID `json:"id"`
+	// The company run.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The fiscal year run.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The fiscal period run.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The period's last day: the lines whose interval ends on or before it are posted, and the entries are
+	// dated it.
+	PostingDate time.Time `json:"posting_date"`
+	// The company's local currency (ISO 4217), which every amount of the run is in.
+	Currency string `json:"currency"`
+	// The active contracts of the company the run read.
+	ContractCount int32 `json:"contract_count"`
+	// The contracts with lines to post: the journal entries the run posted, one each.
+	PostingCount int32 `json:"posting_count"`
+	// The interest the run posted, the postings' added up: debited to interest expense and credited to the
+	// lease liability; zero for a run that posted nothing.
+	InterestAmount Money `json:"interest_amount"`
+	// The right-of-use depreciation the run posted, the postings' added up: debited to depreciation
+	// expense and credited to accumulated depreciation; zero for a run that posted nothing.
+	DepreciationAmount Money `json:"depreciation_amount"`
+	// When the run was made.
+	CreatedAt time.Time `json:"created_at"`
+	// Who ran it.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// The run's postings, one per contract that posted, by contract number; at most 2,000. Given by
+	// `getLeaseRun` and by the run's creation; absent in `listLeaseRuns`.
+	Postings []LeaseRunPosting `json:"postings"`
+}
+
+// GetID returns the value of ID.
+func (s *LeaseRun) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *LeaseRun) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *LeaseRun) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *LeaseRun) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *LeaseRun) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *LeaseRun) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *LeaseRun) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *LeaseRun) GetCurrency() string {
+	return s.Currency
+}
+
+// GetContractCount returns the value of ContractCount.
+func (s *LeaseRun) GetContractCount() int32 {
+	return s.ContractCount
+}
+
+// GetPostingCount returns the value of PostingCount.
+func (s *LeaseRun) GetPostingCount() int32 {
+	return s.PostingCount
+}
+
+// GetInterestAmount returns the value of InterestAmount.
+func (s *LeaseRun) GetInterestAmount() Money {
+	return s.InterestAmount
+}
+
+// GetDepreciationAmount returns the value of DepreciationAmount.
+func (s *LeaseRun) GetDepreciationAmount() Money {
+	return s.DepreciationAmount
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *LeaseRun) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *LeaseRun) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetPostings returns the value of Postings.
+func (s *LeaseRun) GetPostings() []LeaseRunPosting {
+	return s.Postings
+}
+
+// SetID sets the value of ID.
+func (s *LeaseRun) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *LeaseRun) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *LeaseRun) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *LeaseRun) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *LeaseRun) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *LeaseRun) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *LeaseRun) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *LeaseRun) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetContractCount sets the value of ContractCount.
+func (s *LeaseRun) SetContractCount(val int32) {
+	s.ContractCount = val
+}
+
+// SetPostingCount sets the value of PostingCount.
+func (s *LeaseRun) SetPostingCount(val int32) {
+	s.PostingCount = val
+}
+
+// SetInterestAmount sets the value of InterestAmount.
+func (s *LeaseRun) SetInterestAmount(val Money) {
+	s.InterestAmount = val
+}
+
+// SetDepreciationAmount sets the value of DepreciationAmount.
+func (s *LeaseRun) SetDepreciationAmount(val Money) {
+	s.DepreciationAmount = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *LeaseRun) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *LeaseRun) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetPostings sets the value of Postings.
+func (s *LeaseRun) SetPostings(val []LeaseRunPosting) {
+	s.Postings = val
+}
+
+func (*LeaseRun) getLeaseRunRes() {}
+
+// Run lease accounting for a company and one of its regular fiscal periods.
+// Ref: #/components/schemas/LeaseRunCreate
+type LeaseRunCreate struct {
+	// The company to run: one the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year of the company's calendar.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The regular posting period of the fiscal year to run: the schedule lines whose interval ends on or
+	// before its last day are posted, and the entries are dated that day.
+	FiscalPeriod int32 `json:"fiscal_period"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *LeaseRunCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *LeaseRunCreate) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *LeaseRunCreate) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *LeaseRunCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *LeaseRunCreate) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *LeaseRunCreate) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// LeaseRunHeaders wraps LeaseRun with response headers.
+type LeaseRunHeaders struct {
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           LeaseRun
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *LeaseRunHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *LeaseRunHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *LeaseRunHeaders) GetResponse() LeaseRun {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *LeaseRunHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *LeaseRunHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *LeaseRunHeaders) SetResponse(val LeaseRun) {
+	s.Response = val
+}
+
+func (*LeaseRunHeaders) createLeaseRunRes() {}
+
+// One page of lease runs.
+// Ref: #/components/schemas/LeaseRunPage
+type LeaseRunPage struct {
+	// The runs on this page, without their postings.
+	Items []LeaseRun `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *LeaseRunPage) GetItems() []LeaseRun {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *LeaseRunPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *LeaseRunPage) SetItems(val []LeaseRun) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *LeaseRunPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*LeaseRunPage) listLeaseRunsRes() {}
+
+// What a lease run posted for one lease contract: the schedule lines it posted, their interest and
+// depreciation, and the journal entry.
+// Ref: #/components/schemas/LeaseRunPosting
+type LeaseRunPosting struct {
+	// The lease contract (`getLeaseContract`).
+	LeaseContractID uuid.UUID `json:"lease_contract_id"`
+	// The contract's number: the entry's reference.
+	DocumentNumber string `json:"document_number"`
+	// The lessor (`GET /v1/business-partners/{id}`).
+	LessorID uuid.UUID `json:"lessor_id"`
+	// The lessor's business partner number.
+	LessorNumber string `json:"lessor_number"`
+	// The lessor's name, as it is now.
+	LessorName string `json:"lessor_name"`
+	// The contract's cost center, which the expenses are posted on.
+	CostCenterID uuid.UUID `json:"cost_center_id"`
+	// The cost center's code.
+	CostCenterCode string `json:"cost_center_code"`
+	// The first schedule line posted (`getLeaseSchedule`).
+	FirstLineNo int32 `json:"first_line_no"`
+	// The last schedule line posted: the lines from the first to it are posted, each once.
+	LastLineNo int32 `json:"last_line_no"`
+	// The lines' interest added up: debited to interest expense, credited to the lease liability; zero: no
+	// lines for it.
+	InterestAmount Money `json:"interest_amount"`
+	// The lines' depreciation added up: debited to depreciation expense, credited to accumulated
+	// depreciation; zero: no lines for it.
+	DepreciationAmount Money `json:"depreciation_amount"`
+	// The journal entry the run posted for the contract (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The entry's fiscal year.
+	JournalEntryYear int32 `json:"journal_entry_year"`
+	// The entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+}
+
+// GetLeaseContractID returns the value of LeaseContractID.
+func (s *LeaseRunPosting) GetLeaseContractID() uuid.UUID {
+	return s.LeaseContractID
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *LeaseRunPosting) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetLessorID returns the value of LessorID.
+func (s *LeaseRunPosting) GetLessorID() uuid.UUID {
+	return s.LessorID
+}
+
+// GetLessorNumber returns the value of LessorNumber.
+func (s *LeaseRunPosting) GetLessorNumber() string {
+	return s.LessorNumber
+}
+
+// GetLessorName returns the value of LessorName.
+func (s *LeaseRunPosting) GetLessorName() string {
+	return s.LessorName
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *LeaseRunPosting) GetCostCenterID() uuid.UUID {
+	return s.CostCenterID
+}
+
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *LeaseRunPosting) GetCostCenterCode() string {
+	return s.CostCenterCode
+}
+
+// GetFirstLineNo returns the value of FirstLineNo.
+func (s *LeaseRunPosting) GetFirstLineNo() int32 {
+	return s.FirstLineNo
+}
+
+// GetLastLineNo returns the value of LastLineNo.
+func (s *LeaseRunPosting) GetLastLineNo() int32 {
+	return s.LastLineNo
+}
+
+// GetInterestAmount returns the value of InterestAmount.
+func (s *LeaseRunPosting) GetInterestAmount() Money {
+	return s.InterestAmount
+}
+
+// GetDepreciationAmount returns the value of DepreciationAmount.
+func (s *LeaseRunPosting) GetDepreciationAmount() Money {
+	return s.DepreciationAmount
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *LeaseRunPosting) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *LeaseRunPosting) GetJournalEntryYear() int32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *LeaseRunPosting) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// SetLeaseContractID sets the value of LeaseContractID.
+func (s *LeaseRunPosting) SetLeaseContractID(val uuid.UUID) {
+	s.LeaseContractID = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *LeaseRunPosting) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetLessorID sets the value of LessorID.
+func (s *LeaseRunPosting) SetLessorID(val uuid.UUID) {
+	s.LessorID = val
+}
+
+// SetLessorNumber sets the value of LessorNumber.
+func (s *LeaseRunPosting) SetLessorNumber(val string) {
+	s.LessorNumber = val
+}
+
+// SetLessorName sets the value of LessorName.
+func (s *LeaseRunPosting) SetLessorName(val string) {
+	s.LessorName = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *LeaseRunPosting) SetCostCenterID(val uuid.UUID) {
+	s.CostCenterID = val
+}
+
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *LeaseRunPosting) SetCostCenterCode(val string) {
+	s.CostCenterCode = val
+}
+
+// SetFirstLineNo sets the value of FirstLineNo.
+func (s *LeaseRunPosting) SetFirstLineNo(val int32) {
+	s.FirstLineNo = val
+}
+
+// SetLastLineNo sets the value of LastLineNo.
+func (s *LeaseRunPosting) SetLastLineNo(val int32) {
+	s.LastLineNo = val
+}
+
+// SetInterestAmount sets the value of InterestAmount.
+func (s *LeaseRunPosting) SetInterestAmount(val Money) {
+	s.InterestAmount = val
+}
+
+// SetDepreciationAmount sets the value of DepreciationAmount.
+func (s *LeaseRunPosting) SetDepreciationAmount(val Money) {
+	s.DepreciationAmount = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *LeaseRunPosting) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *LeaseRunPosting) SetJournalEntryYear(val int32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *LeaseRunPosting) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
 // A lease contract's schedule (leases, ADR-0073 §8): computed on read for a draft, the stored one of
 // an active contract.
 // Ref: #/components/schemas/LeaseSchedule
@@ -58402,6 +58911,14 @@ func (*ListLeaseContractsBadRequest) listLeaseContractsRes() {}
 type ListLeaseContractsForbidden Problem
 
 func (*ListLeaseContractsForbidden) listLeaseContractsRes() {}
+
+type ListLeaseRunsBadRequest Problem
+
+func (*ListLeaseRunsBadRequest) listLeaseRunsRes() {}
+
+type ListLeaseRunsForbidden Problem
+
+func (*ListLeaseRunsForbidden) listLeaseRunsRes() {}
 
 type ListLedgerGroupsBadRequest Problem
 
@@ -98494,6 +99011,7 @@ func (*TooManyRequestsHeaders) createHierarchyRes()                       {}
 func (*TooManyRequestsHeaders) createIncomingPaymentRes()                 {}
 func (*TooManyRequestsHeaders) createInternalOrderRes()                   {}
 func (*TooManyRequestsHeaders) createLeaseContractRes()                   {}
+func (*TooManyRequestsHeaders) createLeaseRunRes()                        {}
 func (*TooManyRequestsHeaders) createLegalEntityRes()                     {}
 func (*TooManyRequestsHeaders) createMemoRecordRes()                      {}
 func (*TooManyRequestsHeaders) createMetricWatcherRes()                   {}
@@ -98626,6 +99144,7 @@ func (*TooManyRequestsHeaders) getInternalOrderRes()                      {}
 func (*TooManyRequestsHeaders) getInternalOrderSettlementRuleRes()        {}
 func (*TooManyRequestsHeaders) getJournalEntryRes()                       {}
 func (*TooManyRequestsHeaders) getLeaseContractRes()                      {}
+func (*TooManyRequestsHeaders) getLeaseRunRes()                           {}
 func (*TooManyRequestsHeaders) getLeaseScheduleRes()                      {}
 func (*TooManyRequestsHeaders) getLegalEntityRes()                        {}
 func (*TooManyRequestsHeaders) getLegalEntityTodayRes()                   {}
@@ -98766,6 +99285,7 @@ func (*TooManyRequestsHeaders) listInternalOrderSettlementsRes()          {}
 func (*TooManyRequestsHeaders) listInternalOrdersRes()                    {}
 func (*TooManyRequestsHeaders) listJournalEntriesRes()                    {}
 func (*TooManyRequestsHeaders) listLeaseContractsRes()                    {}
+func (*TooManyRequestsHeaders) listLeaseRunsRes()                         {}
 func (*TooManyRequestsHeaders) listLedgerGroupsRes()                      {}
 func (*TooManyRequestsHeaders) listLedgerReconciliationEntriesRes()       {}
 func (*TooManyRequestsHeaders) listLedgerReconciliationRes()              {}
@@ -99363,6 +99883,7 @@ func (*UnauthorizedHeaders) createHierarchyRes()                       {}
 func (*UnauthorizedHeaders) createIncomingPaymentRes()                 {}
 func (*UnauthorizedHeaders) createInternalOrderRes()                   {}
 func (*UnauthorizedHeaders) createLeaseContractRes()                   {}
+func (*UnauthorizedHeaders) createLeaseRunRes()                        {}
 func (*UnauthorizedHeaders) createLegalEntityRes()                     {}
 func (*UnauthorizedHeaders) createMemoRecordRes()                      {}
 func (*UnauthorizedHeaders) createMetricWatcherRes()                   {}
@@ -99495,6 +100016,7 @@ func (*UnauthorizedHeaders) getInternalOrderRes()                      {}
 func (*UnauthorizedHeaders) getInternalOrderSettlementRuleRes()        {}
 func (*UnauthorizedHeaders) getJournalEntryRes()                       {}
 func (*UnauthorizedHeaders) getLeaseContractRes()                      {}
+func (*UnauthorizedHeaders) getLeaseRunRes()                           {}
 func (*UnauthorizedHeaders) getLeaseScheduleRes()                      {}
 func (*UnauthorizedHeaders) getLegalEntityRes()                        {}
 func (*UnauthorizedHeaders) getLegalEntityTodayRes()                   {}
@@ -99635,6 +100157,7 @@ func (*UnauthorizedHeaders) listInternalOrderSettlementsRes()          {}
 func (*UnauthorizedHeaders) listInternalOrdersRes()                    {}
 func (*UnauthorizedHeaders) listJournalEntriesRes()                    {}
 func (*UnauthorizedHeaders) listLeaseContractsRes()                    {}
+func (*UnauthorizedHeaders) listLeaseRunsRes()                         {}
 func (*UnauthorizedHeaders) listLedgerGroupsRes()                      {}
 func (*UnauthorizedHeaders) listLedgerReconciliationEntriesRes()       {}
 func (*UnauthorizedHeaders) listLedgerReconciliationRes()              {}

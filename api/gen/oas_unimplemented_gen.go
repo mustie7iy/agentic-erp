@@ -1801,6 +1801,43 @@ func (UnimplementedHandler) CreateLeaseContract(ctx context.Context, req *LeaseC
 	return r, ht.ErrNotImplemented
 }
 
+// CreateLeaseRun implements createLeaseRun operation.
+//
+// Runs lease accounting for a company and one of its regular fiscal periods and posts it (ADR-0073
+// §9, T88c), in the request's transaction: either the whole run is posted or nothing. The system does
+// the arithmetic only; every judgement is the person's, on the contract. For each `active` lease
+// contract of the company the run takes the lines of the schedule stored at its activation
+// (`getLeaseSchedule`) whose payment interval ends on or before the period's last day and that no
+// earlier run posted: in the usual course the one line whose interval ends in the period, none in a
+// period that a quarterly or yearly interval does not end in, and a line whose period was run before
+// the contract was activated is caught up by the next run. A contract with such lines posts one
+// balanced journal entry (document type `SA`, `source_context` `leases`, dated the period's last day,
+// the contract's number as its reference) to every ledger the company keeps: the lines' interest
+// debited to the company's `lease_interest` account and credited to its `lease_liability` account, and
+// their depreciation debited to its `right_of_use_depreciation` account and credited to its
+// `right_of_use_accumulated_depreciation` account, both expenses on the contract's cost center; a
+// contract without such lines posts nothing. The lease payment itself is not posted by the run: a
+// person posts the lessor's invoice against the lease liability account. One run per company and
+// period: a second is refused (409 `leases.run_exists`), and a retry with the same `Idempotency-Key`
+// answers the run as the first answered it. A company's first run is for any open period; each later
+// run is for a later period than its last (409 `leases.run_period_not_later`): a run is not reversed
+// or repeated in the first version. `legal_entity_id` is a company the caller may act in (422
+// `request.reference_not_found`); `fiscal_period` is a regular posting period of `fiscal_year` in the
+// company's calendar (422 `ledger.no_fiscal_period` for a year that is not set up, 422
+// `ledger.period_not_regular`); the company has the four accounts (422 `leases.no_lease_accounts`,
+// naming the keys missing); the period is open in every ledger the company keeps (409
+// `ledger.period_not_open`), also when nothing is to post; the company has at most 2,000 active
+// contracts (422 `leases.run_too_large`: larger runs are not supported yet). What the ledger refuses
+// of an entry refuses the run (for example a cost center no longer valid on the period's last day).
+// The answer is the run with its counts, the interest and depreciation it posted and its postings, one
+// per contract that posted, each naming its lines and its journal entry. Audited, and published as
+// LeaseRunPosted. Human-only (`x-agent: false`).
+//
+// POST /v1/lease-runs
+func (UnimplementedHandler) CreateLeaseRun(ctx context.Context, req *LeaseRunCreate, params CreateLeaseRunParams) (r CreateLeaseRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateLegalEntity implements createLegalEntity operation.
 //
 // Creates a legal entity in status `inactive`.
@@ -3949,6 +3986,20 @@ func (UnimplementedHandler) GetLeaseContract(ctx context.Context, params GetLeas
 	return r, ht.ErrNotImplemented
 }
 
+// GetLeaseRun implements getLeaseRun operation.
+//
+// One lease run (ADR-0073 §9, T88c) with its company's code and name, its fiscal period and posting
+// date, the number of active contracts it read and of contracts it posted, the interest and
+// depreciation it posted and its `postings`, one per contract that posted, by contract number: the
+// contract with its lessor and cost center, the schedule lines it posted, their interest and
+// depreciation and the journal entry. One of a company the caller may not act in is not found (404),
+// as one that does not exist.
+//
+// GET /v1/lease-runs/{id}
+func (UnimplementedHandler) GetLeaseRun(ctx context.Context, params GetLeaseRunParams) (r GetLeaseRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetLeaseSchedule implements getLeaseSchedule operation.
 //
 // The schedule of one lease contract (ADR-0073 §8, T88b): the lease liability at commencement, the
@@ -5954,6 +6005,18 @@ func (UnimplementedHandler) ListJournalEntries(ctx context.Context, params ListJ
 //
 // GET /v1/lease-contracts
 func (UnimplementedHandler) ListLeaseContracts(ctx context.Context, params ListLeaseContractsParams) (r ListLeaseContractsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListLeaseRuns implements listLeaseRuns operation.
+//
+// The lease runs of the companies the caller may act in (ADR-0073 §9, T88c), latest posting date
+// first, each with its company's code and name, its fiscal period, its counts and the interest and
+// depreciation it posted, without its postings, which `getLeaseRun` gives. Filtered by company, fiscal
+// year and fiscal period. Sortable by: `posting_date`.
+//
+// GET /v1/lease-runs
+func (UnimplementedHandler) ListLeaseRuns(ctx context.Context, params ListLeaseRunsParams) (r ListLeaseRunsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

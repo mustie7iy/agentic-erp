@@ -26,9 +26,11 @@ const (
 	LiabilityKey  = "lease_liability"
 )
 
-// Postings posts journal entries (ledger context).
+// Postings posts journal entries and says whether a company can post on
+// a day (ledger context).
 type Postings interface {
 	Post(ctx context.Context, in ledger.Posting) (ledger.Entry, error)
+	Postable(ctx context.Context, legalEntity uuid.UUID, date time.Time) error
 }
 
 // Accounts reads the account determination (ledger context).
@@ -89,26 +91,27 @@ func lockDraft(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch func(int32)
 	return c, nil
 }
 
-// leaseAccounts are the company's right-of-use asset and lease liability
-// accounts, or 422 leases.no_lease_accounts naming the keys it lacks.
-func (e *Endpoints) leaseAccounts(ctx context.Context, le uuid.UUID, company string) (rightOfUse, liability uuid.UUID, err error) {
+// leaseAccounts are the company's accounts of the account determination
+// keys, in their order, or 422 leases.no_lease_accounts naming the keys it
+// lacks: the activation's two and the run's four (ADR-0073 §7, §9).
+func (e *Endpoints) leaseAccounts(ctx context.Context, le uuid.UUID, company string, keys ...string) ([]uuid.UUID, error) {
 	var missing []string
-	ids := map[string]*uuid.UUID{RightOfUseKey: &rightOfUse, LiabilityKey: &liability}
-	for _, key := range []string{RightOfUseKey, LiabilityKey} {
+	ids := make([]uuid.UUID, len(keys))
+	for i, key := range keys {
 		id, ok, err := e.Accounts.Determination(ctx, le, key)
 		if err != nil {
-			return uuid.Nil, uuid.Nil, fmt.Errorf("leases: account %s of company %s: %w", key, company, err)
+			return nil, fmt.Errorf("leases: account %s of company %s: %w", key, company, err)
 		}
 		if !ok {
 			missing = append(missing, key)
 		}
-		*ids[key] = id
+		ids[i] = id
 	}
 	if len(missing) > 0 {
-		return uuid.Nil, uuid.Nil, problem.Unprocessable("leases.no_lease_accounts", "Company "+company+"'s account determination has no "+
-			strings.Join(missing, " and ")+" account; a lease is activated once the configuration names both (companies[].account_determination).")
+		return nil, problem.Unprocessable("leases.no_lease_accounts", "Company "+company+"'s account determination has no "+
+			strings.Join(missing, " and ")+" account; leases post once the configuration names the accounts (companies[].account_determination).")
 	}
-	return rightOfUse, liability, nil
+	return ids, nil
 }
 
 // Activate activates a draft lease contract once (ADR-0073 §7): under its
@@ -133,10 +136,11 @@ func (e *Endpoints) Activate(ctx context.Context, id uuid.UUID, ifMatch func(int
 	if err != nil {
 		return Contract{}, fmt.Errorf("leases: company of contract %s: %w", id, err)
 	}
-	rightOfUse, liability, err := e.leaseAccounts(ctx, le.ID, le.Code)
+	accounts, err := e.leaseAccounts(ctx, le.ID, le.Code, RightOfUseKey, LiabilityKey)
 	if err != nil {
 		return Contract{}, err
 	}
+	rightOfUse, liability := accounts[0], accounts[1]
 	s := c.Terms().Schedule(c.Payments, c.annualRate())
 	text := "Lease contract " + c.DocumentNumber + ": right-of-use asset at commencement"
 	entry, err := e.Postings.Post(ctx, ledger.Posting{LegalEntityID: le.ID, DocumentType: "SA", DocumentDate: c.CommencementDate,

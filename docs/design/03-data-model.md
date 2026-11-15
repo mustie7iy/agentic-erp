@@ -5528,12 +5528,17 @@ configuration through its ports and keeps no foreign key out of its schema
 inbox, the lease contract a company enters as lessee and its payments,
 written at creation. A draft posts nothing. T88b (migrations 000327,
 000328) activates a contract, which posts the right-of-use asset against
-the lease liability and stores its schedule.
+the lease liability and stores its schedule. T88c (migrations 000331,
+000332) keeps the lease runs, which post the stored lines' interest and
+depreciation per company and period.
 
 ```mermaid
 erDiagram
   contract ||--|{ payment : "paid by"
   contract ||--o{ schedule_line : "stored at activation"
+  run ||--o{ run_posting : "posts"
+  contract ||--o{ run_posting : "posted by"
+  schedule_line ||--o{ run_posting : "first and last line"
   contract { uuid id PK
     text document_number "lease_contract range, once per company"
     uuid legal_entity_id "tenancy"
@@ -5565,6 +5570,24 @@ erDiagram
     bigint closing_liability
     bigint depreciation
     bigint right_of_use_closing }
+  run { uuid id PK
+    uuid legal_entity_id "tenancy"
+    smallint fiscal_year "once per company and period"
+    smallint fiscal_period
+    date posting_date "the period's last day"
+    char currency
+    int contract_count
+    int posting_count
+    bigint interest_amount
+    bigint depreciation_amount }
+  run_posting { uuid run_id PK
+    uuid contract_id PK
+    uuid id "the entry's source document"
+    int first_line_no FK
+    int last_line_no FK
+    bigint interest_amount
+    bigint depreciation_amount "not negative"
+    uuid journal_entry_id "ledger" }
 ```
 
 - `leases.contract`: a lease contract of a company as lessee. Its number
@@ -5588,7 +5611,8 @@ erDiagram
   (`contract_activation_check`); it is fixed
   (`lease_contract_fixed_once_active`, a trigger). The list reads the
   tenant's contracts by number (`contract_by_number`) and a lessor's
-  (`contract_by_lessor`). The application creates contracts, may set
+  (`contract_by_lessor`), and a run a company's active contracts
+  (`contract_by_company`, T88c). The application creates contracts, may set
   their status, version, `updated_by` and what activation writes, and
   deletes none.
 - `leases.payment`: the contract's payments (`payment_contract_fkey`),
@@ -5604,9 +5628,39 @@ erDiagram
   `_payment_check`, `_depreciation_check`, `_right_of_use_check`), and
   the liability moves by the interest and the payment alone
   (`schedule_line_balance_check`); insert-only.
+- `leases.run` (T88c): a lease run of a company and a regular fiscal
+  period (above zero, `run_period_check`), once per company and period
+  (`lease_run_once`), each for a later posting date than the company's
+  last (`lease_run_in_order`, a trigger taking the company's advisory
+  lock, the one the application holds while it reads what earlier runs
+  posted). `posting_date` is the period's last day; the contracts read
+  are not negative (`run_contract_count_check`) and the contracts posted
+  at most them (`run_posting_count_check`); `interest_amount` and
+  `depreciation_amount`, minor units of `currency`, are what the run's
+  entries posted, the depreciation not negative
+  (`run_depreciation_check`), both zero when nothing was posted
+  (`run_nothing_posted_check`). The list reads runs latest first
+  (`run_by_date`) and a company's last (`run_by_company`). Insert-only.
+- `leases.run_posting` (T88c): what a run (`run_posting_run_fkey`) posted
+  for one contract (`run_posting_contract_fkey`), once per run and
+  contract: its stored schedule lines `first_line_no` to `last_line_no`
+  (`run_posting_first_line_fkey`, `run_posting_last_line_fkey`, in order,
+  `run_posting_lines_check`), each posted once: a posting starts after the
+  last line the contract's earlier postings posted
+  (`lease_line_posted_once`, a trigger under the company's runs' lock);
+  their interest and depreciation added up, the depreciation not negative
+  (`run_posting_depreciation_check`), one of them not zero
+  (`run_posting_moves_check`); the entry by id, year and number (1 to 40
+  characters, `run_posting_journal_entry_number_check`); `id`, once
+  (`run_posting_id_once`), is the entry's source document. A contract's
+  postings are read by their last line (`run_posting_by_contract`).
+  Insert-only.
 - `ledger.account_determination` takes the keys `right_of_use_asset` and
   `lease_liability`, and `ledger.journal_entry` the source context
-  `leases` (T88b, both checks validated by 000328).
+  `leases` (T88b, both checks validated by 000328); and the lease run's
+  keys `lease_interest`, `right_of_use_depreciation` and
+  `right_of_use_accumulated_depreciation` (T88c, validated by 000332).
 - `leases.outbox`, `leases.inbox`: the context's events
-  (`LeaseContractChanged`).
-- Permissions `leases.contract.read`, `.write` and `.activate`.
+  (`LeaseContractChanged`, `LeaseRunPosted`).
+- Permissions `leases.contract.read`, `.write` and `.activate`, and
+  `leases.run.post`.

@@ -830,6 +830,26 @@ func (c Calendar) Periods(ctx context.Context, legalEntity uuid.UUID, year int16
 	return periods, nil
 }
 
+// RegularPeriod is the regular posting period of the legal entity's
+// fiscal year with the number a run names (ADR-0073 §9): a year that is
+// not set up is Periods' refusal, and a number that is no regular period
+// of the year, a special period among them, is 422
+// ledger.period_not_regular naming fiscal_period.
+func (c Calendar) RegularPeriod(ctx context.Context, legalEntity uuid.UUID, year, number int32) (FiscalPeriod, error) {
+	periods, err := c.Periods(ctx, legalEntity, int16(year))
+	if err != nil {
+		return FiscalPeriod{}, err
+	}
+	for _, p := range periods {
+		if int32(p.Number) == number {
+			return p, nil
+		}
+	}
+	return FiscalPeriod{}, problem.Unprocessable("ledger.period_not_regular",
+		fmt.Sprintf("Fiscal period %d is not a regular posting period of the company's fiscal year %d.", number, year),
+		problem.FieldError{Field: "fiscal_period", Code: "not_regular", Message: fmt.Sprintf("a regular posting period of %d, 1 to %d", year, len(periods))})
+}
+
 // FiscalYearSpan is a set-up fiscal year with the first day of its first
 // regular period and the last day of its last.
 type FiscalYearSpan struct {

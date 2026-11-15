@@ -4,8 +4,8 @@
 with the product owner's decisions of 2026-11-12; `go-reviewer` had no
 blocking finding in round 1 on T88a and T88b, 2026-11-13). It decides the leases context and
 the slices T88a-T88c (`docs/design/plan-breadth-week3.md`, Lane A). Each
-slice records what it built under "As built"; T88a's and T88b's are
-there now. **The six statements about
+slice records what it built under "As built"; T88a's, T88b's and T88c's
+are there now. **The six statements about
 IFRS 16 this ADR rests on (§2) are not yet confirmed by the accounting
 specialist.**
 
@@ -235,10 +235,27 @@ depreciation (the right-of-use asset).
 
 ### 9. The lease run (T88c)
 
-Per company and period, each active contract's stored lines whose
-interval ends in the period are posted: interest expense against the
-liability and depreciation expense against accumulated depreciation, on
-the contract's cost center. T88c records the detail when it builds it.
+Per company and regular fiscal period (`POST /v1/lease-runs`), each
+active contract posts its stored lines whose interval ends on or before
+the period's last day and that no earlier run posted: in the usual course
+the one line whose interval ends in the period, none in a period that a
+quarterly or yearly interval does not end in. One entry per contract,
+dated the period's last day (document type `SA`, `source_context`
+`leases`, the contract's number as its reference): the lines' interest
+debited to `lease_interest` and credited to `lease_liability`, their
+depreciation debited to `right_of_use_depreciation` and credited to
+`right_of_use_accumulated_depreciation`, the expenses on the contract's
+cost center. The run never posts the lease payment: a person posts the
+lessor's invoice against the lease liability (the plan's default 7).
+
+One run per company and period, each for a later period than the
+company's last, under the company's advisory lock, as a revenue
+recognition run (ADR-0068 §9); a line is posted once; a run is not
+reversed. A run reads at most 2,000 active contracts, as a recognition
+run does. The three accounts are new keys of the account determination:
+two expenses and an asset (contra) that reconcile nothing; a company
+without them, or without the lease liability, runs no lease accounting
+(422 `leases.no_lease_accounts`).
 
 ## Consequences
 
@@ -339,3 +356,66 @@ the contract's cost center. T88c records the detail when it builds it.
   activated and its entry's two lines read back, a second activation
   refused. The pilot's settings add the accounts 1660 and 2650 and name
   them in the account determination.
+
+### T88c (2026-11-15)
+
+- Migrations 000331 and 000332: `leases.run`, once per company and period
+  (`lease_run_once`), each for a later posting date than the company's
+  last (`lease_run_in_order`, a trigger under the company's advisory
+  lock), insert-only; `leases.run_posting`, per run and contract the
+  stored lines it posted (`first_line_no` to `last_line_no`, both
+  foreign keys to the contract's schedule lines), each line posted once
+  (`lease_line_posted_once`, a trigger), the interest and depreciation and
+  the entry, insert-only; the account determination keys
+  `lease_interest`, `right_of_use_depreciation` and
+  `right_of_use_accumulated_depreciation`, widened NOT VALID and
+  validated by 000332; the index `contract_by_company`; the permission
+  `leases.run.post`. The down refuses while a run exists. Schema tests for
+  each rule, the two triggers at owner level and the guard.
+- `POST /v1/lease-runs` (human-only, idempotent by its key: a replay
+  answers the run), `GET /v1/lease-runs` (company, fiscal year and period;
+  cursor paging, latest first; without the postings) and
+  `GET /v1/lease-runs/{id}`. The run names its company by code and name and
+  gives its counts, the interest and depreciation it posted (its totals)
+  and per posting the contract, its lessor by number and name, its cost
+  center by code, the lines and the entry. Refusals: 409
+  `leases.run_exists`, 409 `leases.run_period_not_later`, 422
+  `leases.no_lease_accounts`, 422 `leases.run_too_large`, 422
+  `leases.amount_too_large`, 422 `request.reference_not_found`, the
+  ledger's 422 `ledger.no_fiscal_period` and the new 422
+  `ledger.period_not_regular` (`ledger.Calendar.RegularPeriod`, which the
+  run reads its period through), 409 `ledger.period_not_open` and what
+  the ledger refuses of an entry. Audited, and published as
+  `LeaseRunPosted` (not offered to webhooks).
+- Config: the three keys (two expenses and an asset that reconcile
+  nothing), among the automatic accounts; `ledger.Setup` applies them.
+  `leaseAccounts` reads any of the context's keys, the activation's two
+  and the run's four, and names the missing ones.
+- Decided by default: a run posts the lines whose interval ends **on or
+  before** the period's last day and that no run posted yet, not only
+  those ending in the period: a contract activated after the period of
+  its first lines was run, or a period a company skipped, is caught up by
+  the next run instead of never being posted (established ERP practice,
+  as SAP RE-FX's periodic posting posts every due item not yet posted, and
+  as this repository's revenue recognition run catches up; the entry is
+  dated the run's period). In the usual course this is the plan's "a
+  contract whose schedule has no line in the period posts nothing". The
+  entry is dated the period's last day, not the interval's end. Both
+  expense lines carry the contract's cost center; the ledger refuses a
+  cost center that is no longer valid on that day.
+- The active contracts are counted and their lines due read in one
+  statement, so the count and the postings are of one state at read
+  committed (review round 1).
+- Locks: the run holds the company's advisory lock (`leases.run:` tenant
+  and company), reads active contracts and their stored lines unlocked
+  (both fixed once active), and its postings take FOR KEY SHARE on the
+  contract, its two lines and the run through their foreign keys. An
+  activation locks only a draft (FOR NO KEY UPDATE), which no run reads
+  or references, and takes no advisory lock, so a run and an activation
+  cannot wait on each other in opposite order; two runs of one company
+  meet at the advisory lock (`TestRunTwiceAtOnce`).
+- Walkthrough step 96 extended (`lease_run`): the run of the commencement
+  period posts the contract's first line, interest to 6720 against 2650
+  and depreciation to 6730 against 1669 on CC-1100, read back and listed;
+  a second run of the period refused. The pilot's settings add the three
+  accounts.

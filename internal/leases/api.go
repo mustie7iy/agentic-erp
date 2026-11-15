@@ -31,25 +31,34 @@ type references struct {
 // references reads the contracts' companies, once each, their lessors'
 // numbers and names and their cost centers' codes.
 func (e *Endpoints) references(ctx context.Context, contracts []Contract) (references, error) {
-	refs := references{companies: map[uuid.UUID]tenancy.Entity{}}
+	companies := make([]uuid.UUID, len(contracts))
 	lessors, centers := make([]uuid.UUID, len(contracts)), make([]uuid.UUID, len(contracts))
 	for i, c := range contracts {
-		lessors[i], centers[i] = c.LessorID, c.CostCenterID
-		if _, ok := refs.companies[c.LegalEntityID]; ok {
+		companies[i], lessors[i], centers[i] = c.LegalEntityID, c.LessorID, c.CostCenterID
+	}
+	return e.referencesOf(ctx, companies, lessors, centers)
+}
+
+// referencesOf reads the companies, once each, the lessors' numbers and
+// names and the cost centers' codes.
+func (e *Endpoints) referencesOf(ctx context.Context, companies, lessors, centers []uuid.UUID) (references, error) {
+	refs := references{companies: map[uuid.UUID]tenancy.Entity{}}
+	for _, id := range companies {
+		if _, ok := refs.companies[id]; ok {
 			continue
 		}
-		le, _, err := e.LegalEntities.Entity(ctx, c.LegalEntityID) // a stored contract's legal entity exists
+		le, _, err := e.LegalEntities.Entity(ctx, id) // a stored contract's or run's legal entity exists
 		if err != nil {
-			return references{}, fmt.Errorf("leases: company of contract %s: %w", c.ID, err)
+			return references{}, fmt.Errorf("leases: company %s: %w", id, err)
 		}
-		refs.companies[c.LegalEntityID] = le
+		refs.companies[id] = le
 	}
 	var err error
 	if refs.lessors, err = e.Partners.Names(ctx, lessors); err != nil {
-		return references{}, fmt.Errorf("leases: lessors of %d contracts: %w", len(contracts), err)
+		return references{}, fmt.Errorf("leases: %d lessors: %w", len(lessors), err)
 	}
 	if refs.costCenters, err = e.CostCenters.CostCenterRefs(ctx, centers); err != nil {
-		return references{}, fmt.Errorf("leases: cost centers of %d contracts: %w", len(contracts), err)
+		return references{}, fmt.Errorf("leases: %d cost centers: %w", len(centers), err)
 	}
 	return refs, nil
 }

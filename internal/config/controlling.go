@@ -110,7 +110,8 @@ func determinationKeys(ad AccountDetermination) [][2]string {
 		{"fx_gain", ad.FXGain}, {"fx_loss", ad.FXLoss}, {"gr_ir", ad.GRIR}, {"price_difference", ad.PriceDifference},
 		{"cash_discount", ad.CashDiscount}, {"down_payment", ad.DownPayment}, {"contract_asset", ad.ContractAsset},
 		{"contract_liability", ad.ContractLiability},
-		{"right_of_use_asset", ad.RightOfUseAsset}, {"lease_liability", ad.LeaseLiability}}
+		{"right_of_use_asset", ad.RightOfUseAsset}, {"lease_liability", ad.LeaseLiability}, {"lease_interest", ad.LeaseInterest},
+		{"right_of_use_depreciation", ad.RightOfUseDepreciation}, {"right_of_use_accumulated_depreciation", ad.RightOfUseAccumulatedDepreciation}}
 }
 
 // AutomaticAccounts are the accounts the company's automatic postings use
