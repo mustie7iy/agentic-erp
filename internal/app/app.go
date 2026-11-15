@@ -286,7 +286,7 @@ func New(cfg Config) (http.Handler, error) {
 		consolAPI:      Consolidation(cfg),
 		einvoicingAPI:  EInvoicing(cfg),
 		controllingAPI: controllingEndpoints(cfg),
-		taxfilingAPI: taxFiling(cfg, library),
+		taxfilingAPI:   taxFiling(cfg, library),
 	}
 	return httpapi.New(h, httpapi.Pipeline{
 		Pool: cfg.Pool, Begin: cfg.Begin, AppRole: cfg.AppRole, Verifier: cfg.Verifier, Limits: cfg.Limits, RequestTimeout: cfg.RequestTimeout,
