@@ -3,7 +3,8 @@
 **Status:** accepted (T76a, 2026-11-12; decided by default under ADR-0053 d;
 `go-reviewer` had no blocking finding on T76a's last commit). It decides
 the collections context and the slices T76a-T76c
-(`docs/design/plan-breadth-week1.md`, Lane B). Each slice records what it
+(`docs/design/plan-breadth-week1.md`, Lane B); the dispute cases of
+T86a-T86b (`plan-breadth-week3.md`) record what they build under it. Each slice records what it
 built under "As built"; all three are there now. The defaults taken and the
 questions left are listed at the end for the product owner's digest.
 
@@ -468,3 +469,148 @@ is a report read and gets a budget test.
   `TestNextLevel`, `TestConfirmationsSerialize`, `TestKeyDates`,
   `TestWorklist` and `TestWorklistPages` now carry the story's debit
   without terms, dated the key date, through the later runs.
+
+### T86a Dispute case opened and closed (migration 000324)
+
+Decided by default under this ADR (`plan-breadth-week3.md` §T86a and
+default 4; no new ADR), each listed for the product owner's digest.
+
+- **Schema.** `collections.dispute_case`: the company, the customer (id
+  and number when opened), the open item by its journal line (fiscal
+  year, journal entry, line) with its document number and reference,
+  the disputed amount in the item's currency and its share in the
+  company's, the reason, an assignee and a note, the status (`open`,
+  `accepted`, `rejected`) and, once closed, the close's reason, time and
+  person. The checks are in 03 §3.27 and `db/collections_test.go`
+  (`TestDisputeCaseRules`, `TestDisputeCaseClosedForTheOwner`). The
+  application may set the assignee, the note, the status with the
+  close's columns, the version and `updated_by` alone; the trigger
+  `dispute_case_closed_once` keeps a closed case as it is for every
+  role. Permissions `collections.dispute.read` and `.write`; `.write`
+  opens, assigns and closes (decided by default: the plan names two).
+- **What a case is opened on.** An open item of the company in the
+  leading ledger on a customer reconciliation account that the customer
+  owes (a debit), read from `ledger.OpenItems.Receivable` when the case
+  is opened, due or not (decided by default: a customer disputes an
+  invoice before it is due too). Any other line is 422
+  `collections.item_not_open` naming `journal_entry_id`. A case names
+  the item by its journal line, as a dunning notice's item and the
+  clearing do, not by a receivables invoice: collections reads the
+  ledger's items whoever posted them (§1), so a migrated item can be
+  disputed too. The read takes every open customer item of the company,
+  as a run and the worklist do; a narrower ledger read is not added for
+  one item (decided by default, rule 9: no new port method).
+- **Amount.** In the item's currency (422 `collections.currency_mismatch`
+  naming `disputed_amount.currency`), above zero and at most what the
+  customer owes on the item (422 `collections.invalid_disputed_amount`
+  naming `disputed_amount.amount`, the open amount in the message). The
+  case also stores `disputed_amount_lc`, its share of the item's amount
+  in the company's currency as booked: local amount × disputed ÷ amount,
+  rounded half away from zero once (`collections.share`), so all of the
+  item disputed is all of its local amount and nothing is revalued (as
+  §4's amounts are as booked). T86b's worklist adds it up.
+- **One open case per item.** The partial unique index
+  `dispute_case_one_open` refuses a second, whether it comes after the
+  first or races it (the second insert waits for the first's and fails),
+  mapped to 409 `collections.dispute_exists`. A closed case leaves the
+  item free for a new one. `TestProblemCodes` lists the code for the
+  update and the close too, since they write the table; neither can
+  reach it, and the contract says so beside the code.
+- **Assignee.** An active person of the tenant who may act in the case's
+  company, on opening and on a change (422 `collections.assignee_invalid`
+  naming `assignee_id`), as a close task's assignee is (ADR-0058 §6).
+  The rule moved from `internal/closing` to `authz.AssignableTo`, which
+  both contexts call, rather than being copied; closing's refusals are
+  unchanged. Names come through the port `collections.People`, wired to
+  `app.LedgerPeople`; collections imports no further context.
+- **Change and close.** `PATCH /v1/dispute-cases/{id}` (merge patch of
+  `assignee_id` and `note`) and `POST /v1/dispute-cases/{id}:close`
+  (`outcome` `accepted` or `rejected`, an open enumeration whose other
+  values are 422 `collections.unknown_outcome`, and the reason) read the
+  case `FOR UPDATE` and compare `If-Match`; a case that is not open is
+  409 `collections.dispute_closed`; the close's update is also guarded
+  by `status = 'open'` (ADR-0008). A patch that changes nothing is 422
+  `collections.nothing_to_change`. Texts of white space alone are 422
+  `request.validation_failed`. A case whose item was cleared meanwhile
+  stays open and is closed as any other (plan acceptance). Closing posts
+  nothing: an accepted case is credited by a person (T85c, T75d).
+- **Lock order.** Opening takes no row lock: it reads the open items and
+  inserts, and the unique index orders two openings of one item. A
+  change or a close locks the one case row and writes nothing else, so
+  no two writers take locks in opposite orders.
+- **Event and audit.** `DisputeCaseChanged` (`opened`, `updated`,
+  `closed`; not a webhook event, as the plan asks of week 3's events)
+  names the customer by id and number and carries no free text, since a
+  reason or a note may name people; audit actions
+  `collections.dispute_case.open`, `.update`, `.close`, whose detail
+  holds the texts.
+- **List.** `GET /v1/dispute-cases`, the latest first (`created_at`,
+  keyset), filtered by company, customer, status and assignee. No
+  budget test: a keyset-paged list of stored rows over an index (07
+  §7.7 item 7), as the dunning runs' list.
+- **Walkthrough.** `step_dispute` (step 95): Ruth opens a case on the
+  invoice `step_dunning` dunned for CAD 150.00 of it; a second case and
+  more than the item's amount are refused; she assigns it to herself
+  with a note and reads it back; Northwind's open items are unchanged.
+
+### T86b Disputed invoices in dunning and the worklist (migration 000325)
+
+Decided by default under this ADR (`plan-breadth-week3.md` §T86b and
+default 4, confirmed by the product owner on 2026-11-12 as question 9),
+each listed for the product owner's digest.
+
+- **Left out of the proposal.** A run reads the open dispute cases of
+  company (`collections.openCases`, by the index
+  `dispute_case_open_by_company`; review round 1: one read of the
+  company's open cases rather than one per item set, which the worklist
+  shares) and leaves an item that would reach a
+  level but has an open case out of every notice and every total,
+  whatever part of it is disputed (plan default 4: dunning the
+  undisputed part is among the plan's "Later"). An item disputed but not
+  overdue enough for a level is neither proposed nor listed.
+- **Listed on the run as disputed.** `dunning_run.disputed_items`, a JSON
+  list written once with the run (the application's update grant leaves
+  it out, so a confirmation does not change it), by customer and item:
+  the open case, the customer's id and number, the item by journal line
+  with its document number, reference, net due date and days overdue,
+  and its amounts in its currency and the company's (the currency's
+  digits read with the run from `ref.currency`, not stored). The plan
+  asks for no new table, and a list read whole with its run is what a
+  column holds; the API gives it as `disputed_items` on every run,
+  empty for runs started before (decided by default).
+- **Totals.** The run gives `disputed_item_count` and `disputed_amount`
+  (company currency, the sum of the items' local amounts, checked for
+  range when the run is proposed) beside its own totals (review round 1:
+  a report without its totals).
+- **Size.** The disputed items count with the proposed ones towards the
+  5,000 a run takes (§5): they were read and are written with the run.
+  The limit is checked once every item is counted, so a run whose items
+  are all disputed is held to it too (review round 1).
+  The refusal's detail now says "take more than N overdue items, the
+  most one run proposes or names as disputed".
+- **A run proposed before the case.** Confirming it does not compare
+  cases (plan acceptance): the proposal is confirmed as it was and the
+  item recorded as dunned at the level proposed. Only clearing and
+  another run's dunning make a proposal stale (§8).
+- **Worklist.** Each customer gets `disputed_amount`, the sum of
+  `disputed_amount_lc` of the open cases of its open items, overdue or
+  not (a dispute of an invoice not yet due is still the customer's), and
+  `open_dispute_cases`, their number, with the worklist's totals of both
+  over every customer listed (review round 1). The company's open cases
+  are read once per request, beside its open items, and matched to the
+  items; a case on a customer not listed counts in no total. A disputed item stays
+  open and overdue, so `open_amount`, `overdue_amount`, the order and
+  T76c's totals are unchanged; a case whose item was cleared counts no more,
+  as a cleared item's dunning does not. Amounts that add up past an
+  amount's range are refused as the worklist's others are (422
+  `collections.amount_too_large`).
+- **Budget.** `TestCollectionWorklistBudget` now seeds an open case on
+  one item in ten (about 10,000): after review round 1 (the company's
+  open cases read once), p95 2.2 s at scale 1 and 2.3 s at scale 2
+  (budget 3 s and 6 s), median 1.4-1.5 s, at a load average of 32-47,
+  2026-11-13; T76c measured 1.2-1.5 s at 35-47.
+- **Walkthrough.** `step_dispute` extended: a run at `step_dunning`'s key
+  date names the invoice as disputed with its case and has it in no
+  notice; the worklist shows Northwind's CAD 150.00 disputed in one open
+  case; Ruth closes the case as rejected and a new run at the key date
+  proposes the invoice again.

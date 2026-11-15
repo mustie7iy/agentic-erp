@@ -97,6 +97,7 @@ info:
     - name: revenue
     - name: credit
     - name: grc
+    - name: analytics
     - name: payments
     - name: workflow
     - name: integration
@@ -290,6 +291,7 @@ channels:
       DownPaymentRequestCancelled: {$ref: '#/components/messages/DownPaymentRequestCancelled'}
       DownPaymentsCleared: {$ref: '#/components/messages/DownPaymentsCleared'}
       DownPaymentRequestPaid: {$ref: '#/components/messages/DownPaymentRequestPaid'}
+      ExpenseReportChanged: {$ref: '#/components/messages/ExpenseReportChanged'}
   payments:
     address: 'erp.{cell}.payments.{tenant}.{event}'
     title: Payment events
@@ -435,12 +437,13 @@ channels:
   collections:
     address: 'erp.{cell}.collections.{tenant}.{event}'
     title: Dunning and collections events
-    description: Dunning runs and the notices of confirmed runs (ADR-0065 §6).
+    description: Dunning runs, the notices of confirmed runs and dispute cases (ADR-0065 §6, As built T86a).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       DunningRunChanged: {$ref: '#/components/messages/DunningRunChanged'}
       DunningNoticeIssued: {$ref: '#/components/messages/DunningNoticeIssued'}
+      DisputeCaseChanged: {$ref: '#/components/messages/DisputeCaseChanged'}
   sales:
     address: 'erp.{cell}.sales.{tenant}.{event}'
     title: Sales events
@@ -480,11 +483,37 @@ channels:
   grc:
     address: 'erp.{cell}.grc.{tenant}.{event}'
     title: Governance, risk and compliance events
-    description: The control library and the results of testing its controls (ADR-0078 §5).
+    description: The control library and the results of testing its controls (ADR-0078 §5), and the risk register (§12).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       ControlChanged: {$ref: '#/components/messages/ControlChanged'}
+      RiskChanged: {$ref: '#/components/messages/RiskChanged'}
+  analytics:
+    address: 'erp.{cell}.analytics.{tenant}.{event}'
+    title: Analytics events
+    description: Saved reports' scheduled runs (ADR-0076 §5) and metric watchers' alerts (ADR-0077 §3).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      ReportRunCompleted: {$ref: '#/components/messages/ReportRunCompleted'}
+      MetricAlertRaised: {$ref: '#/components/messages/MetricAlertRaised'}
+  records:
+    address: 'erp.{cell}.records.{tenant}.{event}'
+    title: Records management events
+    description: Archiving runs of fiscal years past retention (ADR-0079 §6).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      ArchivingRunCompleted: {$ref: '#/components/messages/ArchivingRunCompleted'}
+  leases:
+    address: 'erp.{cell}.leases.{tenant}.{event}'
+    title: Lease accounting events
+    description: Lease contracts entered as lessee (ADR-0073 §5).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      LeaseContractChanged: {$ref: '#/components/messages/LeaseContractChanged'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -637,6 +666,7 @@ operations:
       - $ref: '#/channels/payables/messages/DownPaymentRequestCancelled'
       - $ref: '#/channels/payables/messages/DownPaymentsCleared'
       - $ref: '#/channels/payables/messages/DownPaymentRequestPaid'
+      - $ref: '#/channels/payables/messages/ExpenseReportChanged'
   publishPaymentsEvents:
     action: send
     title: Payments publishes
@@ -764,6 +794,7 @@ operations:
     messages:
       - $ref: '#/channels/collections/messages/DunningRunChanged'
       - $ref: '#/channels/collections/messages/DunningNoticeIssued'
+      - $ref: '#/channels/collections/messages/DisputeCaseChanged'
   publishSalesEvents:
     action: send
     title: Sales publishes
@@ -800,6 +831,26 @@ operations:
     channel: {$ref: '#/channels/grc'}
     messages:
       - $ref: '#/channels/grc/messages/ControlChanged'
+      - $ref: '#/channels/grc/messages/RiskChanged'
+  publishAnalyticsEvents:
+    action: send
+    title: Analytics publishes
+    channel: {$ref: '#/channels/analytics'}
+    messages:
+      - $ref: '#/channels/analytics/messages/ReportRunCompleted'
+      - $ref: '#/channels/analytics/messages/MetricAlertRaised'
+  publishRecordsEvents:
+    action: send
+    title: Records management publishes
+    channel: {$ref: '#/channels/records'}
+    messages:
+      - $ref: '#/channels/records/messages/ArchivingRunCompleted'
+  publishLeasesEvents:
+    action: send
+    title: Lease accounting publishes
+    channel: {$ref: '#/channels/leases'}
+    messages:
+      - $ref: '#/channels/leases/messages/LeaseContractChanged'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -1629,6 +1680,31 @@ components:
         - name: cancelled
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000306, source: /erp/eu-1/payables, type: com.example.erp.payables.down_payment_request_cancelled.v1, subject: 0192a000-0000-7000-8000-000000000711, time: '2026-10-06T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {down_payment_request_id: 0192a000-0000-7000-8000-000000000711, legal_entity_id: 0192a000-0000-7000-8000-000000000201, supplier_id: 0192a000-0000-7000-8000-000000000301, previous_status: open, status: cancelled}
+    ExpenseReportChanged:
+      name: ExpenseReportChanged
+      title: Expense report changed
+      summary: An employee's expense report was entered or posted.
+      description: |
+        Emitted at each change of an expense report's status (ADR-0074):
+        when it is entered (`entered`, status_before null) and when it is
+        posted (`posted`), which names its journal entry, posting date and
+        the open item's net due date. It carries the report's totals, not
+        its lines, and names the employee by id and business partner
+        number, never by name. It is not offered as a webhook event
+        (product owner 2026-11-12: none until a consumer asks).
+        `GET /v1/expense-reports/{id}` returns the report at `version` or
+        later. Subject is the expense report id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payables.expense_report_changed.v1}
+      payload: {$ref: '#/components/schemas/ExpenseReportChangedV1'}
+      examples:
+        - name: posted
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001201, source: /erp/eu-1/payables, type: com.example.erp.payables.expense_report_changed.v1, subject: 0192a000-0000-7000-8000-000000001611, time: '2026-11-27T11:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {expense_report_id: 0192a000-0000-7000-8000-000000001611, document_number: ER100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', employee_id: 0192a000-0000-7000-8000-000000000f61, employee_number: BP100061, report_date: '2026-11-27', gross_amount: {amount: '282.50', currency: CAD}, tax_amount: {amount: '32.50', currency: CAD}, posting_date: '2026-11-27', journal_entry_id: 0192a000-0000-7000-8000-000000001711, journal_entry_year: 2026, net_due_date: '2026-12-27', status: posted, status_before: entered, version: 2}
     DownPaymentRequestPaid:
       name: DownPaymentRequestPaid
       x-webhook: true
@@ -4076,6 +4152,31 @@ components:
         - name: issued
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f04, source: /erp/eu-1/collections, type: com.example.erp.collections.dunning_notice_issued.v1, subject: 0192a000-0000-7000-8000-000000000f32, time: '2026-12-31T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {dunning_notice_id: 0192a000-0000-7000-8000-000000000f32, dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, dunning_date: '2026-12-31', level: 1, item_count: 1, overdue_amount: {amount: '1050.00', currency: CAD}}
+    DisputeCaseChanged:
+      name: DisputeCaseChanged
+      title: Dispute case changed
+      summary: A dispute case was opened, assigned or noted on, or closed.
+      description: |
+        Emitted at each change of a dispute case (ADR-0065 As built,
+        T86a): when it is opened (`opened`, status `open`, status_before
+        null), when its assignee or note changes (`updated`) and when it
+        is closed (`closed`, status `accepted` or `rejected`,
+        status_before `open`). It names the customer by id and number,
+        never by name, and carries no free text (the reason and the note
+        are read with `GET /v1/dispute-cases/{id}`, at `version` or
+        later). Not offered as a webhook event. Subject is the dispute
+        case id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.collections.dispute_case_changed.v1}
+      payload: {$ref: '#/components/schemas/DisputeCaseChangedV1'}
+      examples:
+        - name: opened
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f05, source: /erp/eu-1/collections, type: com.example.erp.collections.dispute_case_changed.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-12-31T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {dispute_case_id: 0192a000-0000-7000-8000-000000000f41, change: opened, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, fiscal_year: 2026, journal_entry_id: 0192a000-0000-7000-8000-000000000f51, line_no: 1, document_number: '1800000007', disputed_amount: {amount: '150.00', currency: CAD}, assignee_id: 0192a000-0000-7000-8000-000000000101, status: open, status_before: null, version: 1}
     CreditLimitChanged:
       name: CreditLimitChanged
       x-webhook: true
@@ -4355,6 +4456,133 @@ components:
         - name: tested
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000fa2, source: /erp/eu-1/grc, type: com.example.erp.grc.control_changed.v1, subject: 0192a000-0000-7000-8000-000000000fa0, time: '2026-11-25T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {control_id: 0192a000-0000-7000-8000-000000000fa0, code: PAY-01, process: Payments, owner_id: 0192a000-0000-7000-8000-000000000101, frequency: continuous, nature: automated, status: active, change: tested, test: {test_id: 0192a000-0000-7000-8000-000000000fa3, tested_on: '2026-11-25', result: passed, tested_by: 0192a000-0000-7000-8000-000000000101}, link: null, version: 1}
+    ReportRunCompleted:
+      name: ReportRunCompleted
+      title: Report run completed
+      summary: A saved report's scheduled run was kept, succeeded or failed.
+      description: |
+        Emitted when the worker keeps a scheduled run of a saved report
+        (ADR-0076 §5, T95b): `succeeded` with the SHA-256 of the results
+        kept, or `failed` with the code of the problem that failed it (the
+        owner no longer active, a query refused). The event names the
+        owner the run acted as by id, never by name, and carries no figure
+        of the results. It is not offered as a webhook event.
+        `GET /v1/report-runs/{id}` returns the run with its results. Subject
+        is the run id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.analytics.report_run_completed.v1}
+      payload: {$ref: '#/components/schemas/ReportRunCompletedV1'}
+      examples:
+        - name: succeeded
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000fb1, source: /erp/eu-1/analytics, type: com.example.erp.analytics.report_run_completed.v1, subject: 0192a000-0000-7000-8000-000000000fb0, time: '2026-11-26T05:00:12Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {report_run_id: 0192a000-0000-7000-8000-000000000fb0, report_id: 0192a000-0000-7000-8000-000000000fa9, report_title: Revenue by company, run_as: 0192a000-0000-7000-8000-000000000101, run_date: '2026-11-26', status: succeeded, failure_code: null, sha256: 3f2a0c1d6e5b4a3928171615141312111009080706050403020100ffeeddccbb}
+    RiskChanged:
+      name: RiskChanged
+      title: Risk changed
+      summary: A risk of the risk register was recorded, changed, rated or closed.
+      description: |
+        Emitted when a risk is recorded with its first rating (`created`),
+        when its title, category, owner or controls change (`changed`),
+        when it is rated again (`rated`) and when it is closed (`closed`;
+        ADR-0078 §12, T98c). `rating` is the rating recorded, with
+        `created` and `rated`, null for every other change. It carries
+        the risk's likelihood, impact and score after the change and the
+        ids of the controls that mitigate it now; never a closing's
+        reason. The event names the owner and the rater by id, never by
+        name. It is not offered as a webhook event. `GET /v1/risks/{id}`
+        returns the risk at `version` or later. Subject is the risk id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.grc.risk_changed.v1}
+      payload: {$ref: '#/components/schemas/RiskChangedV1'}
+      examples:
+        - name: rated
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000fb1, source: /erp/eu-1/grc, type: com.example.erp.grc.risk_changed.v1, subject: 0192a000-0000-7000-8000-000000000fb0, time: '2026-11-26T09:12:40Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {risk_id: 0192a000-0000-7000-8000-000000000fb0, title: Duplicate payments to suppliers, category: Payments, owner_id: 0192a000-0000-7000-8000-000000000101, likelihood: 1, impact: 4, score: 4, control_ids: [0192a000-0000-7000-8000-000000000fa0], status: open, change: rated, rating: {rating_id: 0192a000-0000-7000-8000-000000000fb2, likelihood: 1, impact: 4, score: 4, rated_by: 0192a000-0000-7000-8000-000000000101}, version: 2}
+    ArchivingRunCompleted:
+      name: ArchivingRunCompleted
+      title: Archiving run completed
+      summary: A fiscal year's documents were written to an archive file in object storage.
+      description: |
+        Emitted when the archiver completes an archiving run (ADR-0079
+        §6-§7, T99b): the company's documents of the kind (journal
+        entries in the first version) of the fiscal year are in the
+        archive file named, with its SHA-256 and size, and its manifest
+        beside it with its own SHA-256. It carries the manifest's counts
+        and debit total; never an entry or a line. Nothing was deleted.
+        It names the requester by id. It is not offered as a webhook
+        event. Subject is the archiving run id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.records.archiving_run_completed.v1}
+      payload: {$ref: '#/components/schemas/ArchivingRunCompletedV1'}
+      examples:
+        - name: completed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f72, source: /erp/eu-1/records, type: com.example.erp.records.archiving_run_completed.v1, subject: 0192a000-0000-7000-8000-000000000f71, time: '2026-11-25T10:00:04Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000f00}
+          payload: {archiving_run_id: 0192a000-0000-7000-8000-000000000f71, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', document_kind: journal_entry, fiscal_year: 2025, file_name: 0192a000-0000-7000-8000-000000000f71.jsonl, sha256: 4f2c1e0b9a7d6c5b4a3928170615f4e3d2c1b0a99887766554433221100ffeed, size_bytes: 48213, manifest_sha256: 9b1d0e2f3a4c5b6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f, entry_count: 41, line_count: 118, debit_total: {amount: '1840522.17', currency: CAD}, requested_by: 0192a000-0000-7000-8000-000000000101}
+    MetricAlertRaised:
+      name: MetricAlertRaised
+      title: Metric alert raised
+      summary: A metric watcher's condition held in a period and raised an alert.
+      description: |
+        Emitted when an evaluation of a metric watcher, through the API or
+        after a refresh of the analytical store, finds its condition holding
+        in a period for the first time (ADR-0077 §3, T96a): one alert per
+        watcher and period. It names the watcher, its metric and condition,
+        the period, the companies whose figures held it and, for each, the
+        figure, what it was compared with and the percentage. The creator
+        the evaluation ran as is named by id, never by name. It is not
+        offered as a webhook event. `GET /v1/metric-alerts/{id}` returns the
+        alert to those who may see it (ADR-0077 §5). Subject is the alert id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.analytics.metric_alert_raised.v1}
+      payload: {$ref: '#/components/schemas/MetricAlertRaisedV1'}
+      examples:
+        - name: above
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000fc1, source: /erp/eu-1/analytics, type: com.example.erp.analytics.metric_alert_raised.v1, subject: 0192a000-0000-7000-8000-000000000fc0, time: '2026-11-26T05:00:12Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {metric_alert_id: 0192a000-0000-7000-8000-000000000fc0, watcher_id: 0192a000-0000-7000-8000-000000000fb9, watcher_name: Spend above 50000, metric: spend, condition: above, fiscal_year: 2026, fiscal_period: 11, companies: ['3000'], findings: [{company: '3000', currency: CAD, figure: '61250.00', compared_with: '50000.00', percent: null}], raised_as: 0192a000-0000-7000-8000-000000000101}
+    LeaseContractChanged:
+      name: LeaseContractChanged
+      title: Lease contract changed
+      summary: A lease contract was created or activated.
+      description: |
+        Emitted at each change of a lease contract (ADR-0073 §5, T88a,
+        T88b): when a person creates it (`draft`, status_before null) and
+        when it is activated (`active`, status_before `draft`), which posts
+        the right-of-use asset against the lease liability and names the
+        amounts and the journal entry. It carries the contract's terms and
+        each payment's amount, not the payments or the schedule, and names
+        the lessor by id and number, never by name.
+        `GET /v1/lease-contracts/{id}` returns the contract at `version` or
+        later. Subject is the contract id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.leases.lease_contract_changed.v1}
+      payload: {$ref: '#/components/schemas/LeaseContractChangedV1'}
+      examples:
+        - name: created
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001201, source: /erp/eu-1/leases, type: com.example.erp.leases.lease_contract_changed.v1, subject: 0192a000-0000-7000-8000-000000001211, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {lease_contract_id: 0192a000-0000-7000-8000-000000001211, document_number: LC000001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', lessor_id: 0192a000-0000-7000-8000-000000000f55, lessor_number: BP100055, commencement_date: '2026-12-01', term_months: 36, payment_amount: {amount: '5000.00', currency: CAD}, payment_frequency: monthly, payment_timing: advance, payment_count: 36, status: draft, status_before: null, lease_liability: null, right_of_use_amount: null, journal_entry_id: null, journal_entry_year: null, journal_entry_number: null, version: 1}
+        - name: activated
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001202, source: /erp/eu-1/leases, type: com.example.erp.leases.lease_contract_changed.v1, subject: 0192a000-0000-7000-8000-000000001211, time: '2026-12-01T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {lease_contract_id: 0192a000-0000-7000-8000-000000001211, document_number: LC000001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', lessor_id: 0192a000-0000-7000-8000-000000000f55, lessor_number: BP100055, commencement_date: '2026-12-01', term_months: 36, payment_amount: {amount: '5000.00', currency: CAD}, payment_frequency: monthly, payment_timing: advance, payment_count: 36, status: active, status_before: draft, lease_liability: {amount: '159117.80', currency: CAD}, right_of_use_amount: {amount: '164117.80', currency: CAD}, journal_entry_id: 0192a000-0000-7000-8000-000000001221, journal_entry_year: 2026, journal_entry_number: '100000123', version: 2}
     RevenueContractChanged:
       name: RevenueContractChanged
       x-webhook: true
@@ -5249,6 +5477,25 @@ components:
         level: {type: integer, description: "The notice's dunning level, 1 to 9: the highest among its items."}
         item_count: {type: integer, description: "The customer's overdue items in the notice."}
         overdue_amount: {$ref: '#/components/schemas/Money', description: "The items' amounts in the company's currency, as they were booked."}
+    DisputeCaseChangedV1:
+      type: object
+      required: [dispute_case_id, change, legal_entity_id, legal_entity_code, customer_id, customer_number, fiscal_year, journal_entry_id, line_no, document_number, disputed_amount, assignee_id, status, status_before, version]
+      properties:
+        dispute_case_id: {$ref: '#/components/schemas/Uuid', description: '`collections.dispute_case.id`.'}
+        change: {type: string, description: 'What changed. Open enum: opened, updated (the assignee or the note), closed.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company whose customer item is disputed.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        fiscal_year: {type: integer, description: "The fiscal year of the item's journal entry."}
+        journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'The journal entry whose line is the disputed item.'}
+        line_no: {type: integer, description: 'The line of the journal entry that is the disputed item.'}
+        document_number: {type: string, description: "The journal entry's document number."}
+        disputed_amount: {$ref: '#/components/schemas/Money', description: "The amount disputed, in the item's currency."}
+        assignee_id: {type: [string, 'null'], format: uuid, description: 'The person who works the case after the change; null when nobody is assigned.'}
+        status: {type: string, description: "The case's status after the change. Open enum: open, accepted, rejected."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was opened.'}
+        version: {type: integer, description: "The case's version after the change."}
     CreditLimitChangedV1:
       type: object
       required: [credit_limit_id, legal_entity_id, legal_entity_code, customer_id, customer_number, limit, limit_before, version]
@@ -5433,6 +5680,126 @@ components:
                 target: {type: string, description: "What the link names: the permission's code, the segregation-of-duties rule's id or the configuration path."}
             - type: 'null'
         version: {type: integer, description: "The control's version after the change; a test or a link does not move it."}
+    ReportRunCompletedV1:
+      type: object
+      required: [report_run_id, report_id, report_title, run_as, run_date, status, failure_code, sha256]
+      properties:
+        report_run_id: {$ref: '#/components/schemas/Uuid', description: '`analytics.report_run.id`.'}
+        report_id: {$ref: '#/components/schemas/Uuid', description: '`analytics.report.id`.'}
+        report_title: {type: string, description: "The report's title."}
+        run_as: {$ref: '#/components/schemas/Uuid', description: "The report's owner the run acted as: `identity.principal.id`."}
+        run_date: {type: string, format: date, description: "The day the run is for, in the schedule's company's time zone."}
+        status: {type: string, description: 'succeeded or failed. Open enumeration.'}
+        failure_code: {type: [string, 'null'], description: "A failed run's problem code; null for a success."}
+        sha256: {type: [string, 'null'], description: "A succeeded run's SHA-256 of its results, in hexadecimal; null for a failure."}
+    RiskChangedV1:
+      type: object
+      required: [risk_id, title, category, owner_id, likelihood, impact, score, control_ids, status, change, rating, version]
+      properties:
+        risk_id: {$ref: '#/components/schemas/Uuid', description: '`grc.risk.id`.'}
+        title: {type: string, description: What the risk is.}
+        category: {type: string, description: "The risk's category, in the tenant's own words."}
+        owner_id: {$ref: '#/components/schemas/Uuid', description: 'The person who owns the risk: `identity.principal.id`.'}
+        likelihood: {type: integer, description: The likelihood of the latest rating, from 1 to 5.}
+        impact: {type: integer, description: The impact of the latest rating, from 1 to 5.}
+        score: {type: integer, description: The likelihood times the impact.}
+        control_ids:
+          type: array
+          items: {$ref: '#/components/schemas/Uuid'}
+          description: "The controls that mitigate the risk now (`grc.control.id`), by the controls' codes."
+        status: {type: string, description: 'open or closed. Open enumeration.'}
+        change: {type: string, description: 'What happened: created, changed, rated or closed. Open enumeration.'}
+        rating:
+          description: 'The rating recorded, when `change` is created or rated; null otherwise.'
+          oneOf:
+            - type: object
+              required: [rating_id, likelihood, impact, score, rated_by]
+              properties:
+                rating_id: {$ref: '#/components/schemas/Uuid', description: '`grc.risk_rating.id`.'}
+                likelihood: {type: integer, description: The likelihood rated.}
+                impact: {type: integer, description: The impact rated.}
+                score: {type: integer, description: The likelihood times the impact.}
+                rated_by: {$ref: '#/components/schemas/Uuid', description: 'The person who rated: `identity.principal.id`.'}
+            - type: 'null'
+        version: {type: integer, description: "The risk's version after the change."}
+    ArchivingRunCompletedV1:
+      type: object
+      required: [archiving_run_id, legal_entity_id, legal_entity_code, document_kind, fiscal_year, file_name, sha256, size_bytes, manifest_sha256, entry_count, line_count, debit_total, requested_by]
+      properties:
+        archiving_run_id: {$ref: '#/components/schemas/Uuid', description: '`records.archiving_run.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company whose documents were archived.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        document_kind: {type: string, description: 'The kind of document archived. Open enum: journal_entry.'}
+        fiscal_year: {type: integer, description: The fiscal year archived.}
+        file_name: {type: string, description: 'The archive file, `<run id>.jsonl`, in JSON Lines (ADR-0079 §7).'}
+        sha256: {type: string, pattern: '^[0-9a-f]{64}$', description: "The file's SHA-256 in hexadecimal."}
+        size_bytes: {type: integer, description: "The file's size in bytes."}
+        manifest_sha256: {type: string, pattern: '^[0-9a-f]{64}$', description: "The manifest's SHA-256 in hexadecimal."}
+        entry_count: {type: integer, description: The journal entries in the file.}
+        line_count: {type: integer, description: Their lines.}
+        debit_total: {$ref: '#/components/schemas/Money', description: "The sum of the lines' debits in the company's currency."}
+        requested_by: {$ref: '#/components/schemas/Uuid', description: 'Who asked for the run: `identity.principal.id`.'}
+    MetricAlertRaisedV1:
+      type: object
+      required: [metric_alert_id, watcher_id, watcher_name, metric, condition, fiscal_year, fiscal_period, companies, findings, raised_as]
+      properties:
+        metric_alert_id: {$ref: '#/components/schemas/Uuid', description: '`analytics.metric_alert.id`.'}
+        watcher_id: {$ref: '#/components/schemas/Uuid', description: '`analytics.metric_watcher.id`.'}
+        watcher_name: {type: string, description: "The watcher's name."}
+        metric: {type: string, description: The governed metric watched.}
+        condition: {type: string, description: 'above, below, change or deviation. Open enumeration.'}
+        fiscal_year: {type: integer, description: The fiscal year of the period judged.}
+        fiscal_period: {type: [integer, 'null'], description: 'The fiscal month of the period judged; null for a watcher by year.'}
+        companies: {type: array, items: {type: string}, description: 'The company codes whose figures held the condition, in order.'}
+        findings:
+          type: array
+          description: 'A finding per company and currency that held the condition.'
+          items:
+            type: object
+            required: [company, currency, figure, compared_with, percent]
+            properties:
+              company: {type: string, description: The company code.}
+              currency: {type: [string, 'null'], description: "The figure's currency; null for a count or a ratio."}
+              figure: {type: string, description: 'The figure of the period, an exact decimal.'}
+              compared_with: {type: string, description: "The value, the previous period's figure, or the average of the previous periods, it was compared with."}
+              percent: {type: [string, 'null'], description: 'The change in percent from the base, two decimals; null for above and below.'}
+        raised_as: {$ref: '#/components/schemas/Uuid', description: "The watcher's creator the evaluation ran as: `identity.principal.id`."}
+    LeaseContractChangedV1:
+      type: object
+      required: [lease_contract_id, document_number, legal_entity_id, legal_entity_code, lessor_id, lessor_number, commencement_date, term_months, payment_amount, payment_frequency, payment_timing, payment_count, status, status_before, lease_liability, right_of_use_amount, journal_entry_id, journal_entry_year, journal_entry_number, version]
+      properties:
+        lease_contract_id: {$ref: '#/components/schemas/Uuid', description: '`leases.contract.id`.'}
+        document_number: {type: string, description: "The contract's number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that leases.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        lessor_id: {$ref: '#/components/schemas/Uuid', description: 'The lessor: `partner.business_partner.id`.'}
+        lessor_number: {type: string, description: "The lessor's business partner number."}
+        commencement_date: {$ref: '#/components/schemas/Date', description: The commencement date.}
+        term_months: {type: integer, description: The lease term in months.}
+        payment_amount: {$ref: '#/components/schemas/Money', description: "Each payment, in the company's local currency."}
+        payment_frequency: {type: string, description: 'How often a payment is due. Open enum: monthly, quarterly, yearly.'}
+        payment_timing: {type: string, description: 'At the start or the end of each interval. Open enum: advance, arrears.'}
+        payment_count: {type: integer, description: The number of payments.}
+        status: {type: string, description: "The contract's status after the change. Open enum: draft, active."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
+        lease_liability:
+          description: "The lease liability at commencement the activation measured; null while the contract is a draft."
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        right_of_use_amount:
+          description: "The right-of-use asset the activation posted; null while the contract is a draft."
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        journal_entry_id:
+          description: "`ledger.journal_entry.id` of the activation's entry; null while the contract is a draft."
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        journal_entry_year: {type: [integer, 'null'], description: "The entry's fiscal year; null while the contract is a draft."}
+        journal_entry_number: {type: [string, 'null'], description: "The entry's document number; null while the contract is a draft."}
+        version: {type: integer, description: "The contract's version after the change."}
     RevenueContractChangedV1:
       type: object
       required: [revenue_contract_id, sales_order_id, sales_order_number, legal_entity_id, legal_entity_code, customer_id, customer_number, transaction_price, obligation_count, status, status_before, version]
@@ -6303,6 +6670,26 @@ components:
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
         previous_status: {type: string, description: 'Open enum: parked, on_hold.'}
         status: {type: string, description: 'Open enum; cancelled in v1.'}
+    ExpenseReportChangedV1:
+      type: object
+      required: [expense_report_id, document_number, legal_entity_id, legal_entity_code, employee_id, employee_number, report_date, gross_amount, tax_amount, posting_date, journal_entry_id, journal_entry_year, net_due_date, status, status_before, version]
+      properties:
+        expense_report_id: {$ref: '#/components/schemas/Uuid', description: '`payables.expense_report.id`.'}
+        document_number: {type: string, description: "The document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company the expenses are claimed from.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        employee_id: {$ref: '#/components/schemas/Uuid', description: 'The employee: `partner.business_partner.id`, a business partner with the supplier role.'}
+        employee_number: {type: string, description: "The employee's business partner number."}
+        report_date: {$ref: '#/components/schemas/Date', description: 'The day the report was entered: its document and tax date.'}
+        gross_amount: {$ref: '#/components/schemas/Money', description: 'What the employee is owed: the lines added up.'}
+        tax_amount: {$ref: '#/components/schemas/Money', description: 'The input tax the lines hold.'}
+        posting_date: {$ref: '#/components/schemas/NullableDate', description: 'The posting date; null until posted.'}
+        journal_entry_id: {$ref: '#/components/schemas/NullableUuid', description: 'The journal entry posted; null until posted.'}
+        journal_entry_year: {type: [integer, 'null'], description: 'The fiscal year of `journal_entry_id`; null until posted.'}
+        net_due_date: {$ref: '#/components/schemas/NullableDate', description: "When the employee's open item is due; null until posted."}
+        status: {type: string, description: "The report's status after the change. Open enum: entered, posted."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was entered.'}
+        version: {type: integer, description: "The report's version after the change."}
     DownPaymentRequestedV1:
       type: object
       required: [down_payment_request_id, document_number, legal_entity_id, supplier_id, amount, tax_amount, due_date, status]
@@ -6956,7 +7343,7 @@ components:
         change: {"type": "string", "description": "Open enum: created, updated."}
         changed_fields: {"type": "array", "items": {"type": "string"}, "description": "Profile fields that changed (all fields on created)."}
         autonomy_level: {"type": "integer", "minimum": 0, "maximum": 3}
-        agent_type: {"type": ["string", "null"], "description": "The agent's type, whose certification bounds its level (ADR-0039); null: none named. Open enum: ap_exceptions, configuration, migration, test, analytics, reconciliation, close, cash_forecast, tax, credit_scoring, access."}
+        agent_type: {"type": ["string", "null"], "description": "The agent's type, whose certification bounds its level (ADR-0039); null: none named. Open enum: ap_exceptions, configuration, migration, test, analytics, reconciliation, close, cash_forecast, tax, credit_scoring, access, bid_comparison, regulatory, support."}
         model: {"type": "string"}
         monthly_budget: {"oneOf": [{"$ref": "#/components/schemas/Money"}, {"type": "null"}], "description": "Null when unlimited."}
         description: {"type": "string"}

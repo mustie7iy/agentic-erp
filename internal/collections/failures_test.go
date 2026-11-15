@@ -3,6 +3,7 @@ package collections_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -39,10 +40,14 @@ func (e env) inRequest(t *testing.T, fn func(ctx context.Context) error) error {
 // with each of its database statements failing in turn.
 func TestDatabaseFailures(t *testing.T) {
 	e := setup(t)
-	e.story(t)
+	entries := e.story(t)
 	h := endpoints(t)
 	started, _ := e.Must(201, "POST", "/v1/dunning-runs", run(e.DE, keyDate), "")
 	id := uuid.MustParse(apitest.String(t, started, "id"))
+	// A case open on CI-B, assigned, so that reading it names a person.
+	opened, _ := e.Must(201, "POST", "/v1/dispute-cases", dispute(e.DE, entries[1], "1.00", "EUR", fmt.Sprintf(`, "assignee_id": %q`, e.Tenant.Human.ID)), "")
+	caseID := uuid.MustParse(apitest.String(t, opened, "id"))
+	colleague := e.Reader(t, "A colleague in company 2000", e.DE)
 	calls := map[string]func(ctx context.Context) error{
 		"create": func(ctx context.Context) error {
 			_, err := h.CreateDunningRun(ctx, &gen.DunningRunCreate{LegalEntityID: e.DE, KeyDate: date(t, keyDate)}, gen.CreateDunningRunParams{})
@@ -68,6 +73,34 @@ func TestDatabaseFailures(t *testing.T) {
 			_, err := h.GetCollectionWorklist(ctx, gen.GetCollectionWorklistParams{LegalEntityID: e.DE, KeyDate: date(t, keyDate)})
 			return err
 		},
+		"open dispute": func(ctx context.Context) error {
+			_, err := h.CreateDisputeCase(ctx, &gen.DisputeCaseCreate{LegalEntityID: e.DE, FiscalYear: 2026, JournalEntryID: entries[0].ID, LineNo: 1,
+				DisputedAmount: gen.Money{Amount: "1.00", Currency: "EUR"}, Reason: "x", AssigneeID: gen.NewOptUUID(e.Tenant.Human.ID)},
+				gen.CreateDisputeCaseParams{})
+			return err
+		},
+		"get dispute": func(ctx context.Context) error {
+			_, err := h.GetDisputeCase(ctx, gen.GetDisputeCaseParams{ID: caseID})
+			return err
+		},
+		"list disputes": func(ctx context.Context) error {
+			_, err := h.ListDisputeCases(ctx, gen.ListDisputeCasesParams{})
+			return err
+		},
+		"update dispute": func(ctx context.Context) error {
+			_, err := h.UpdateDisputeCase(ctx, &gen.DisputeCaseUpdate{Note: gen.NewOptNilString("x")}, gen.UpdateDisputeCaseParams{ID: caseID, IfMatch: `"1"`})
+			return err
+		},
+		"reassign dispute": func(ctx context.Context) error {
+			_, err := h.UpdateDisputeCase(ctx, &gen.DisputeCaseUpdate{AssigneeID: gen.NewOptNilUUID(colleague.ID)},
+				gen.UpdateDisputeCaseParams{ID: caseID, IfMatch: `"1"`})
+			return err
+		},
+		"close dispute": func(ctx context.Context) error {
+			_, err := h.CloseDisputeCase(ctx, &gen.DisputeCaseClose{Outcome: "rejected", Reason: "x"},
+				gen.CloseDisputeCaseParams{ID: caseID, IfMatch: `"1"`})
+			return err
+		},
 	}
 	for name, call := range calls {
 		t.Run(name, func(t *testing.T) {
@@ -84,6 +117,10 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"notices page size": func(ctx context.Context) error {
 			_, err := h.ListDunningNotices(ctx, gen.ListDunningNoticesParams{ID: id, PageSize: gen.NewOptInt32(0)})
+			return err
+		},
+		"disputes page size": func(ctx context.Context) error {
+			_, err := h.ListDisputeCases(ctx, gen.ListDisputeCasesParams{PageSize: gen.NewOptInt32(0)})
 			return err
 		},
 		"worklist page size": func(ctx context.Context) error {
@@ -201,4 +238,49 @@ func TestRunsThroughThePort(t *testing.T) {
 			t.Errorf("got %v, want an error that is no refusal, naming the customer", err)
 		}
 	})
+}
+
+// nobody names no principal.
+type nobody struct{}
+
+func (nobody) PersonNames(context.Context, []uuid.UUID) (map[uuid.UUID]string, error) {
+	return map[uuid.UUID]string{}, nil
+}
+
+// TestDisputesThroughThePort: what only a port could answer: an open item
+// whose customer is no business partner fails the case; an assignee the
+// identity context does not name fails the read.
+func TestDisputesThroughThePort(t *testing.T) {
+	e := setup(t)
+	entries := e.story(t)
+	opened, _ := e.Must(201, "POST", "/v1/dispute-cases", dispute(e.DE, entries[0], "1.00", "EUR", fmt.Sprintf(`, "assignee_id": %q`, e.Tenant.Human.ID)), "")
+	id := uuid.MustParse(apitest.String(t, opened, "id"))
+	for _, c := range []struct {
+		name   string
+		change func(*collections.Endpoints)
+		call   func(ctx context.Context, h *collections.Endpoints) error
+		want   string
+	}{
+		{"a customer that is no business partner", func(h *collections.Endpoints) { h.Partners = strangers{} },
+			func(ctx context.Context, h *collections.Endpoints) error {
+				_, err := h.OpenCase(ctx, collections.CaseInput{LegalEntityID: e.DE, Item: ledger.ItemRef{FiscalYear: 2026, EntryID: entries[1].ID, LineNo: 1},
+					Amount: "1.00", Currency: "EUR", Reason: "x"})
+				return err
+			}, "is no business partner"},
+		{"an assignee nobody names", func(h *collections.Endpoints) { h.People = nobody{} },
+			func(ctx context.Context, h *collections.Endpoints) error {
+				_, err := h.GetDisputeCase(ctx, gen.GetDisputeCaseParams{ID: id})
+				return err
+			}, "is not held by the identity context"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := endpoints(t)
+			c.change(h)
+			err := e.inRequest(t, func(ctx context.Context) error { return c.call(ctx, h) })
+			var p *problem.Problem
+			if err == nil || errors.As(err, &p) || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("got %v, want an error that is no refusal, saying %q", err, c.want)
+			}
+		})
+	}
 }

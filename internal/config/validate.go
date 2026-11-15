@@ -287,10 +287,13 @@ func (v *validator) company(p string, co *Company) {
 
 // operations checks the company's settings that post nothing and decide
 // what its people are shown to act on: its cash position and forecast
-// (ADR-0051) and its dunning levels (ADR-0065 §2).
+// (ADR-0051) and its dunning levels (ADR-0065 §2); and its expense
+// types (ADR-0074 §2).
 func (v *validator) operations(p string, co *Company) {
 	v.companyCash(p, co)
 	v.dunning(p, co)
+	v.retention(p, co)
+	v.expenseTypes(p, co)
 }
 
 // closes checks how the company's periods and years are closed: the
@@ -711,9 +714,10 @@ func (v *validator) customerReconciliation(ap string, a *Account) {
 // GR/IR account comes with a price difference account, the cash discount
 // account is a revenue (SAP SKE, cash discount received; its presence is
 // required by the payment terms, paymentTerms), the down payment
-// account is an asset vendor reconciliation account (ADR-0037), and the
+// account is an asset vendor reconciliation account (ADR-0037), the
 // contract asset and contract liability accounts are an asset and a
-// liability that reconcile nothing (ADR-0068 §9).
+// liability that reconcile nothing (ADR-0068 §9), and so are a lease's
+// right-of-use asset and lease liability accounts (ADR-0073 §7).
 func (v *validator) accountDetermination(p string, co *Company) {
 	ad := co.AccountDetermination
 	check := func(field, number string, want AccountType, recon bool) {
@@ -745,6 +749,12 @@ func (v *validator) accountDetermination(p string, co *Company) {
 	}
 	if ad.ContractLiability != "" {
 		check("contract_liability", ad.ContractLiability, Liability, false)
+	}
+	if ad.RightOfUseAsset != "" {
+		check("right_of_use_asset", ad.RightOfUseAsset, Asset, false)
+	}
+	if ad.LeaseLiability != "" {
+		check("lease_liability", ad.LeaseLiability, Liability, false)
 	}
 }
 

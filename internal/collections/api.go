@@ -39,10 +39,18 @@ func (e *Endpoints) companies(ctx context.Context, runs []Run) (map[uuid.UUID]te
 // runToAPI is a run as the API gives it, with its company's code and name.
 func runToAPI(r Run, companies map[uuid.UUID]tenancy.Entity) gen.DunningRun {
 	le := companies[r.LegalEntityID]
-	return gen.DunningRun{ID: r.ID, Version: r.Version, CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy, UpdatedAt: r.UpdatedAt,
+	out := gen.DunningRun{ID: r.ID, Version: r.Version, CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy, UpdatedAt: r.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(r.UpdatedBy), LegalEntityID: r.LegalEntityID, CompanyCode: le.Code, CompanyName: le.Name, KeyDate: r.KeyDate,
 		Status: r.Status, Currency: r.Currency, NoticeCount: r.NoticeCount, ItemCount: r.ItemCount,
-		OverdueAmount: apitypes.Money(r.OverdueAmount, r.Currency, r.Exponent)}
+		OverdueAmount: apitypes.Money(r.OverdueAmount, r.Currency, r.Exponent), DisputedItemCount: int32(len(r.Disputed)),
+		DisputedAmount: apitypes.Money(r.DisputedLC(), r.Currency, r.Exponent), DisputedItems: make([]gen.DunningRunDisputedItem, len(r.Disputed))}
+	for i, d := range r.Disputed {
+		out.DisputedItems[i] = gen.DunningRunDisputedItem{DisputeCaseID: d.CaseID, CustomerID: d.CustomerID, CustomerNumber: d.CustomerNumber,
+			FiscalYear: int32(d.FiscalYear), JournalEntryID: d.EntryID, LineNo: d.LineNo, DocumentNumber: d.DocumentNumber,
+			Reference: apitypes.OptString(d.Reference), NetDueDate: d.NetDueDate, DaysOverdue: d.DaysOverdue,
+			Amount: apitypes.Money(d.Amount, d.Currency, d.Exponent), LocalAmount: apitypes.Money(d.AmountLC, r.Currency, r.Exponent)}
+	}
+	return out
 }
 
 // CreateDunningRun implements POST /v1/dunning-runs.
@@ -227,11 +235,12 @@ func (e *Endpoints) GetCollectionWorklist(ctx context.Context, params gen.GetCol
 	amount := func(m money.Minor) gen.Money { return apitypes.Money(m, w.Company.LocalCurrency, w.Exponent) }
 	out := &gen.CollectionWorklist{LegalEntityID: w.Company.ID, CompanyCode: w.Company.Code, CompanyName: w.Company.Name, KeyDate: w.KeyDate,
 		Currency: w.Company.LocalCurrency, CustomerCount: int32(len(w.Customers)), OpenAmount: amount(w.Open), OverdueAmount: amount(w.Overdue),
+		DisputedAmount: amount(w.Disputed), OpenDisputeCases: w.DisputedCases,
 		Items: make([]gen.CollectionWorklistCustomer, len(page))}
 	for i, c := range page {
 		out.Items[i] = gen.CollectionWorklistCustomer{CustomerID: c.CustomerID, CustomerNumber: c.Number, CustomerName: c.Name,
 			OpenAmount: amount(c.Open), OverdueAmount: amount(c.Overdue), OldestDueDate: c.OldestDue, DunningLevel: c.Level,
-			LastDunningDate: apitypes.OptDate(c.LastDunned)}
+			LastDunningDate: apitypes.OptDate(c.LastDunned), DisputedAmount: amount(c.Disputed), OpenDisputeCases: c.DisputedCases}
 	}
 	if next != "" {
 		out.NextPageToken.SetTo(next)

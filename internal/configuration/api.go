@@ -210,7 +210,8 @@ func (e *Endpoints) ActivateChangeRequest(ctx context.Context, params gen.Activa
 
 // SimulateChangeRequest implements POST /v1/change-requests/{id}:simulate:
 // it starts a config.simulate operation that replays recent transactions
-// against the proposal and records simulation evidence.
+// against the proposal and records simulation evidence, or, for a draft,
+// previews it (T107b).
 func (e *Endpoints) SimulateChangeRequest(ctx context.Context, params gen.SimulateChangeRequestParams) (gen.SimulateChangeRequestRes, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -223,7 +224,7 @@ func (e *Endpoints) SimulateChangeRequest(ctx context.Context, params gen.Simula
 	if err := etag.Check(params.IfMatch, c.Version); err != nil {
 		return nil, err
 	}
-	if err := requireStatus(c, "simulate", AwaitingEvidence); err != nil {
+	if err := requireStatus(c, "simulate", Draft, AwaitingEvidence); err != nil {
 		return nil, err
 	}
 	op, err := operations.Start(ctx, "config.simulate", map[string]any{"change_request_id": c.ID})

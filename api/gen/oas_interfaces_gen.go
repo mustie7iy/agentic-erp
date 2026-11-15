@@ -29,8 +29,16 @@ type AcceptVarianceCommentRes interface {
 	acceptVarianceCommentRes()
 }
 
+type AcknowledgeMetricAlertRes interface {
+	acknowledgeMetricAlertRes()
+}
+
 type ActivateChangeRequestRes interface {
 	activateChangeRequestRes()
+}
+
+type ActivateLeaseContractRes interface {
+	activateLeaseContractRes()
 }
 
 type ActivateLegalEntityRes interface {
@@ -153,6 +161,10 @@ type ClearSupplierInvoiceDownPaymentsRes interface {
 	clearSupplierInvoiceDownPaymentsRes()
 }
 
+type CloseDisputeCaseRes interface {
+	closeDisputeCaseRes()
+}
+
 type CloseFiscalPeriodRes interface {
 	closeFiscalPeriodRes()
 }
@@ -163,6 +175,10 @@ type CloseInternalOrderRes interface {
 
 type ClosePurchaseOrderRes interface {
 	closePurchaseOrderRes()
+}
+
+type CloseRiskRes interface {
+	closeRiskRes()
 }
 
 type CompleteCloseTaskRes interface {
@@ -199,6 +215,10 @@ type CopyPlanCategoryRes interface {
 
 type CreateAllocationCycleRes interface {
 	createAllocationCycleRes()
+}
+
+type CreateArchivingRunRes interface {
+	createArchivingRunRes()
 }
 
 type CreateAssetAcquisitionRes interface {
@@ -285,6 +305,10 @@ type CreateCustomerInvoiceRes interface {
 	createCustomerInvoiceRes()
 }
 
+type CreateDisputeCaseRes interface {
+	createDisputeCaseRes()
+}
+
 type CreateDownPaymentRequestRes interface {
 	createDownPaymentRequestRes()
 }
@@ -299,6 +323,10 @@ type CreateEntryTemplateRes interface {
 
 type CreateExchangeRateRes interface {
 	createExchangeRateRes()
+}
+
+type CreateExpenseReportRes interface {
+	createExpenseReportRes()
 }
 
 type CreateForecastVarianceCommentRes interface {
@@ -321,12 +349,20 @@ type CreateInternalOrderRes interface {
 	createInternalOrderRes()
 }
 
+type CreateLeaseContractRes interface {
+	createLeaseContractRes()
+}
+
 type CreateLegalEntityRes interface {
 	createLegalEntityRes()
 }
 
 type CreateMemoRecordRes interface {
 	createMemoRecordRes()
+}
+
+type CreateMetricWatcherRes interface {
+	createMetricWatcherRes()
 }
 
 type CreateMigrationRunRes interface {
@@ -377,6 +413,14 @@ type CreateRegressionSuiteRes interface {
 	createRegressionSuiteRes()
 }
 
+type CreateReportRes interface {
+	createReportRes()
+}
+
+type CreateReportShareRes interface {
+	createReportShareRes()
+}
+
 type CreateRequisitionRes interface {
 	createRequisitionRes()
 }
@@ -395,6 +439,14 @@ type CreateRevenueRecognitionRunRes interface {
 
 type CreateRfqRes interface {
 	createRfqRes()
+}
+
+type CreateRiskRatingRes interface {
+	createRiskRatingRes()
+}
+
+type CreateRiskRes interface {
+	createRiskRes()
 }
 
 type CreateRoleAssignmentRes interface {
@@ -493,6 +545,10 @@ type EndCurrentSessionRes interface {
 	endCurrentSessionRes()
 }
 
+type EndReportShareRes interface {
+	endReportShareRes()
+}
+
 type EndRoleAssignmentRes interface {
 	endRoleAssignmentRes()
 }
@@ -503,6 +559,10 @@ type EndRolePermissionRes interface {
 
 type EndSodRuleRes interface {
 	endSodRuleRes()
+}
+
+type EvaluateMetricWatcherRes interface {
+	evaluateMetricWatcherRes()
 }
 
 type ExcludeBankStatementLineRes interface {
@@ -555,6 +615,14 @@ type GetAnalyticsModelRes interface {
 
 type GetApprovalRequestRes interface {
 	getApprovalRequestRes()
+}
+
+type GetArchivingRunFileRes interface {
+	getArchivingRunFileRes()
+}
+
+type GetArchivingRunRes interface {
+	getArchivingRunRes()
 }
 
 type GetAssetAcquisitionRes interface {
@@ -729,6 +797,10 @@ type GetDepreciationRunRes interface {
 	getDepreciationRunRes()
 }
 
+type GetDisputeCaseRes interface {
+	getDisputeCaseRes()
+}
+
 type GetDownPaymentRequestRes interface {
 	getDownPaymentRequestRes()
 }
@@ -751,6 +823,10 @@ type GetEntryTemplateRes interface {
 
 type GetExchangeRateRes interface {
 	getExchangeRateRes()
+}
+
+type GetExpenseReportRes interface {
+	getExpenseReportRes()
 }
 
 type GetFiscalPeriodRes interface {
@@ -801,6 +877,14 @@ type GetJournalEntryRes interface {
 	getJournalEntryRes()
 }
 
+type GetLeaseContractRes interface {
+	getLeaseContractRes()
+}
+
+type GetLeaseScheduleRes interface {
+	getLeaseScheduleRes()
+}
+
 type GetLegalEntityRes interface {
 	getLegalEntityRes()
 }
@@ -827,6 +911,14 @@ type GetMatchResultRes interface {
 
 type GetMemoRecordRes interface {
 	getMemoRecordRes()
+}
+
+type GetMetricAlertRes interface {
+	getMetricAlertRes()
+}
+
+type GetMetricWatcherRes interface {
+	getMetricWatcherRes()
 }
 
 type GetMigrationRunRes interface {
@@ -859,6 +951,14 @@ type GetPaymentRunRes interface {
 
 type GetPeriodCloseRes interface {
 	getPeriodCloseRes()
+}
+
+type GetPersonalDataInventoryRes interface {
+	getPersonalDataInventoryRes()
+}
+
+type GetPersonalDataSubjectRes interface {
+	getPersonalDataSubjectRes()
 }
 
 type GetPlanCategoryRes interface {
@@ -901,8 +1001,20 @@ type GetRegressionSuiteRes interface {
 	getRegressionSuiteRes()
 }
 
+type GetReportRes interface {
+	getReportRes()
+}
+
+type GetReportRunRes interface {
+	getReportRunRes()
+}
+
 type GetRequisitionRes interface {
 	getRequisitionRes()
+}
+
+type GetRetentionStatusRes interface {
+	getRetentionStatusRes()
 }
 
 type GetReturnsOrderRes interface {
@@ -931,6 +1043,10 @@ type GetRfqComparisonRes interface {
 
 type GetRfqRes interface {
 	getRfqRes()
+}
+
+type GetRiskRes interface {
+	getRiskRes()
 }
 
 type GetRoleAssignmentRes interface {
@@ -1039,6 +1155,10 @@ type ListAllocationRunsRes interface {
 
 type ListApprovalRequestsRes interface {
 	listApprovalRequestsRes()
+}
+
+type ListArchivingRunsRes interface {
+	listArchivingRunsRes()
 }
 
 type ListAssetAcquisitionsRes interface {
@@ -1225,6 +1345,10 @@ type ListDepreciationRunsRes interface {
 	listDepreciationRunsRes()
 }
 
+type ListDisputeCasesRes interface {
+	listDisputeCasesRes()
+}
+
 type ListDownPaymentRequestsRes interface {
 	listDownPaymentRequestsRes()
 }
@@ -1247,6 +1371,10 @@ type ListEntryTemplatesRes interface {
 
 type ListExchangeRatesRes interface {
 	listExchangeRatesRes()
+}
+
+type ListExpenseReportsRes interface {
+	listExpenseReportsRes()
 }
 
 type ListFiscalPeriodsRes interface {
@@ -1309,6 +1437,10 @@ type ListJournalEntriesRes interface {
 	listJournalEntriesRes()
 }
 
+type ListLeaseContractsRes interface {
+	listLeaseContractsRes()
+}
+
 type ListLedgerGroupsRes interface {
 	listLedgerGroupsRes()
 }
@@ -1339,6 +1471,14 @@ type ListMatchResultsRes interface {
 
 type ListMemoRecordsRes interface {
 	listMemoRecordsRes()
+}
+
+type ListMetricAlertsRes interface {
+	listMetricAlertsRes()
+}
+
+type ListMetricWatchersRes interface {
+	listMetricWatchersRes()
 }
 
 type ListMigrationRunsRes interface {
@@ -1441,6 +1581,18 @@ type ListRegressionSuitesRes interface {
 	listRegressionSuitesRes()
 }
 
+type ListReportRunsRes interface {
+	listReportRunsRes()
+}
+
+type ListReportSharesRes interface {
+	listReportSharesRes()
+}
+
+type ListReportsRes interface {
+	listReportsRes()
+}
+
 type ListRequisitionsRes interface {
 	listRequisitionsRes()
 }
@@ -1467,6 +1619,14 @@ type ListRevenueRecognitionRunsRes interface {
 
 type ListRfqsRes interface {
 	listRfqsRes()
+}
+
+type ListRiskRatingsRes interface {
+	listRiskRatingsRes()
+}
+
+type ListRisksRes interface {
+	listRisksRes()
 }
 
 type ListRoleAssignmentsRes interface {
@@ -1629,6 +1789,10 @@ type PostCustomerInvoiceRes interface {
 	postCustomerInvoiceRes()
 }
 
+type PostExpenseReportRes interface {
+	postExpenseReportRes()
+}
+
 type PostGoodsReceiptRes interface {
 	postGoodsReceiptRes()
 }
@@ -1777,6 +1941,14 @@ type RemoveHierarchyNodeRes interface {
 	removeHierarchyNodeRes()
 }
 
+type RemoveMetricWatcherRes interface {
+	removeMetricWatcherRes()
+}
+
+type RemoveReportRes interface {
+	removeReportRes()
+}
+
 type RenameHierarchyNodeRes interface {
 	renameHierarchyNodeRes()
 }
@@ -1857,12 +2029,24 @@ type RunAllocationCycleRes interface {
 	runAllocationCycleRes()
 }
 
+type RunAnalyticsForecastRes interface {
+	runAnalyticsForecastRes()
+}
+
 type RunAnalyticsQueryRes interface {
 	runAnalyticsQueryRes()
 }
 
 type RunBalanceCarryForwardRes interface {
 	runBalanceCarryForwardRes()
+}
+
+type RunReportRes interface {
+	runReportRes()
+}
+
+type ScheduleReportRes interface {
+	scheduleReportRes()
 }
 
 type SettleInternalOrderRes interface {
@@ -1941,6 +2125,10 @@ type UnlockPlanCategoryRes interface {
 	unlockPlanCategoryRes()
 }
 
+type UnscheduleReportRes interface {
+	unscheduleReportRes()
+}
+
 type UpdateAiPolicyRes interface {
 	updateAiPolicyRes()
 }
@@ -1975,6 +2163,10 @@ type UpdateCostCenterRes interface {
 
 type UpdateCreditLimitRes interface {
 	updateCreditLimitRes()
+}
+
+type UpdateDisputeCaseRes interface {
+	updateDisputeCaseRes()
 }
 
 type UpdateEntryTemplateRes interface {
@@ -2027,6 +2219,10 @@ type UpdateRequisitionRes interface {
 
 type UpdateRevenueContractRes interface {
 	updateRevenueContractRes()
+}
+
+type UpdateRiskRes interface {
+	updateRiskRes()
 }
 
 type UpdateRoleRes interface {

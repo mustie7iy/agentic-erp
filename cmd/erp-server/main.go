@@ -65,6 +65,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
+	"github.com/mustie7iy/agentic-erp/internal/records"
 	"github.com/mustie7iy/agentic-erp/internal/revenue"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 	"github.com/mustie7iy/agentic-erp/internal/workflows"
@@ -676,6 +677,7 @@ func (s *server) newAPI() error {
 		RefuseEBICS: cfg.Environment == config.Production, RefuseUnsignedPacks: cfg.Environment == config.Production,
 		UnreleasedPacks: cfg.PacksDir,             // config.Load refuses it in production
 		WebhookReceiver: cfg.Walkthrough.Receiver, // config.Load refuses it outside development
+		Loopback:        &httpapi.Loopback{},      // shared with the report scheduler (startAnalytics)
 	}
 	if s.gateway != nil {
 		s.apiCfg.Model = s.gateway
@@ -796,7 +798,8 @@ func (s *server) startWebhooks(runCtx context.Context) {
 // extract scheduler (ADR-0044): the extract reads on the read replica once
 // it has replayed past the change, on the primary until then and without
 // a replica; it collects superseded files, rebuilds a store the database
-// is behind, and sweeps stale tenants hourly.
+// is behind, and sweeps stale tenants hourly; and saved reports' scheduled
+// runs, which keep their results there too.
 func (s *server) startAnalytics(runCtx context.Context) {
 	if s.store == nil {
 		return
@@ -808,7 +811,17 @@ func (s *server) startAnalytics(runCtx context.Context) {
 	scheduler := &extract.Scheduler{Extractor: extract.Extractor{Replica: replica, Primary: s.pool.Begin, Role: s.cfg.AppRole, WorkerRole: s.cfg.WorkerRole, Store: s.store,
 		Cash: app.NewAnalyticsCash(s.apiCfg)},
 		Begin: s.pool.Begin, WorkerRole: s.cfg.WorkerRole, Log: s.log}
+	// Metric watchers are evaluated after each refresh from the store,
+	// which erp-analytics reads (ADR-0077 §4); without it, through the API
+	// alone.
+	if s.apiCfg.Analytics != nil {
+		scheduler.Refreshed = app.WatchEvaluator(s.apiCfg).Refreshed
+	}
 	s.spawn("analytics extract", func() { scheduler.Run(runCtx) })
+	// Saved reports' scheduled runs, kept in the same object storage
+	// (ADR-0076 §5): as their owners, reading the API in-process.
+	reportRuns := app.ReportScheduler(s.apiCfg, s.cfg.WorkerRole)
+	s.spawn("analytics report runs", func() { reportRuns.Run(runCtx) })
 }
 
 // startProjections starts the balance projector and, without a workflow
@@ -835,6 +848,14 @@ func (s *server) startOperations(runCtx context.Context) {
 	// same SFTP transport (T53h, ADR-0051 §14).
 	exporter := &cash.Exporter{Endpoints: app.Cash(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
 	s.spawn("cash exporter", func() { exporter.Run(runCtx) })
+	// Archiving runs are written to object storage by a worker of every
+	// replica, with or without the workflow engine (T99b, ADR-0079 §6); a
+	// server without a store takes no run.
+	if apiCfg.Objects != nil {
+		archiver := &records.Archiver{Endpoints: app.Records(apiCfg), Requesters: identity.Actors{}, Pool: pool, AppRole: cfg.AppRole,
+			WorkerRole: cfg.WorkerRole, Log: log}
+		s.spawn("records archiver", func() { archiver.Run(runCtx) })
+	}
 	recurrences := &workflows.Recurrences{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Endpoints: app.Ledger(apiCfg)}
 	// The cash context is a leaf (ADR-0051 §2): its endpoints are the
 	// snapshot workflow's port, wired here.

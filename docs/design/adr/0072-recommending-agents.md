@@ -68,7 +68,9 @@ rest, the same way for every agent:
   recommending.
 
 An agent's package imports `apitools`, `llm` and `recommend`
-(`internal/layout`), and nothing imports it but `cmd/erp`.
+(`internal/layout`), and a library package where its check needs one
+(the regulatory agent `config`, for the configuration's paths, T107a);
+nothing imports it but `cmd/erp`.
 
 ### 2. Reads through the API, with the agent's own token
 
@@ -77,7 +79,10 @@ refuses, before a session starts, a declaration whose `Reads` name
 anything but a `GET` of the contract (`recommend.ErrNotARead`), and
 `apitools` builds no tool of an operation closed to agents. So the
 permissions, company access and masking are the API's, and an agent of
-this pattern cannot be handed a write by mistake. What a run reads before
+this pattern cannot be handed a write by mistake. An agent whose slice
+gives it writes (T107b: a change request drafted) names them apart, in
+`Writes`, and `Agent.Run` refuses, before a session starts, a write its
+run does not hold to a guard of its own (`recommend.ErrUnguarded`). What a run reads before
 its session, to find what it is about (a company by its code, the object),
 goes through the same client and token.
 
@@ -197,6 +202,9 @@ agent anyway (403 `identity.agent_not_allowed`).
 |---|---|---|---|---|
 | `credit_scoring` | `internal/creditagent`, `erp agent credit-score -company CODE -customer ID` | `getCreditExposure`, `listCreditLimits`, `getReceivablesAging`, `listDunningRuns`, `listDunningNotices`, `listIncomingPayments`, `listCustomerInvoices`, `getBusinessPartner` | on `credit_limit`: `raise_limit`, `lower_limit`, `keep_limit`; on `business_partner` (a customer without a limit): `set_limit` | `createCreditLimit`, `updateCreditLimit`, the release of an order's credit block |
 | `access` | `internal/accessagent`, `erp agent access-roles -role CODE -period FROM..TO`, `erp agent access-sod -role CODE [-add P,...]`, `erp agent access-review -period FROM..TO` | `listRoles`, `getRole`, `listRolePermissions`, `listRoleAssignments`, `listPrincipals`, `listAuditEvents`, `listSodRules` | on `role`: `remove_permissions`, `keep` (T106a); `sod_conflict`, `no_conflict` (T106b); on `principal`: `keep_roles`, `remove_roles`, `review` (T106c) | every identity write (granting a permission, changing a rule, ending a role assignment, blocking a principal among them) |
+| `regulatory` | `internal/regulatoryagent`, `erp agent regulatory-notice -file F` | `listCountryPacks`, `listConfigVersions`, `getConfigVersion`, `listTaxRegistrations`, `listTaxPeriods` | on `config_version`: `change_needed`, `no_change` | every write of the configuration (change requests, a pack applied, a regression suite) |
+| `regulatory` (drafting, T107b) | `erp agent regulatory-draft -recommendation ID` | `getRecommendation`, `listConfigVersions`, `getConfigVersion`, `listFiscalPeriods`, `getChangeRequest`, `getOperation`; writes `createChangeRequest`, `updateChangeRequest`, `simulateChangeRequest` | on `change_request`: `ready_to_submit`, `simulation_failed` | submitting, withdrawing or activating a change request, a pack applied, a regression suite, a decision on an approval or a recommendation |
+| `bid_comparison` | `internal/bidagent`, `erp agent bid-compare -rfq ID` | `getRfq`, `listSupplierQuotations`, `getRfqComparison`, `getBusinessPartner`, `listContracts`, `listPurchaseOrders` | on `rfq`: `award`, `no_award` | `awardRfq`, `publishRfq`, `createSupplierQuotation`, `createRfq` |
 
 A later slice adds its row here and its section under "As built".
 
@@ -486,6 +494,231 @@ A later slice adds its row here and its section under "As built".
   the assignment herself.
 - No migration, no new operation, permission, event or problem code.
 
+### T105c, the bid comparison agent
+
+- `internal/bidagent`; agent type `bid_comparison`.
+- `erp agent bid-compare -rfq ID`. The run reads the RFQ's comparison
+  first (`getRfqComparison`, ADR-0069 §7: an RFQ the agent may not read
+  stops it before a session) and recommends on the RFQ (object type
+  `rfq`): `award` or `no_award`.
+- Its check (`bidagent.comparison.check`): every number in the content
+  is one the run read (§4), so the totals and items' amounts it states
+  are the comparison's and a difference it computed is refused; an
+  `award`'s first line is `Award: ` and the `supplier_quotation_id` of a
+  quotation the comparison read before the session ranks (complete and
+  valid on the company's date today), and only an RFQ that comparison
+  shows `published` is recommended for an award. So an RFQ without a
+  complete, valid quotation gets `no_award` or nothing. `no_award` has no
+  form: a person reads why. The prompt asks for the totals, the items for
+  which another supplier quoted less and the quotations left out as
+  incomplete or expired, and why; the check does not hold the content to
+  naming them.
+- Its never list is every write of sourcing: `awardRfq`, `publishRfq`,
+  `createSupplierQuotation`, `createRfq` (`TestNever` keeps it whole
+  against the contract); `awardRfq` is `x-agent: false`.
+- `evals/bid_comparison`, version 1, replayed to level 2 on a clock
+  standing at 2026-11-16 (`cmd/erp` `cellClock`), since its RFQs take
+  numbers of fiscal year 2026 and are due on dates of its own: the cheaper
+  complete quotation recommended for the award, naming the item another
+  supplier quoted lower; an RFQ whose quotations are incomplete or
+  expired recommended for no award; an instruction in a supplier's name
+  not followed. Not run against a live model.
+- Walkthrough `step_rfq` (step 60, `rfq_agent`): the agent's content
+  stating the difference between the totals, an amount no read returned,
+  is refused; it then recommends the quotation ranked first, naming both
+  totals; its own `awardRfq` is refused (403); Ben accepts, which changes
+  nothing (the RFQ stays published at its version), and `step_rfq_award`
+  awards the quotation the agent recommended, as before.
+- No migration, no new operation, permission, event or problem code.
+
+### T107a, the regulatory agent: a notice read against the configuration
+
+- `internal/regulatoryagent`; agent type `regulatory`.
+- `erp agent regulatory-notice -file F`: the notice is the file's text,
+  UTF-8 of 1 to 64 KiB (`MaxNotice`; the command reads no more than one
+  byte beyond it), passed in the run's prompt between `<notice>` lines.
+  The run reads the active configuration version first
+  (`listConfigVersions` with `is_active`: a version the agent may not read
+  stops it before a session) and recommends on that version (object type
+  `config_version`): `change_needed` or `no_change`. It fetches nothing:
+  its tools are the API's reads, and no tool reaches outside it.
+- Its check (`regulatoryagent.reading.check`):
+  - every passage between double quotes, straight or typographic, is
+    not empty and is in the notice character for character, as whole
+    words and numbers: it neither starts nor ends inside a word or a
+    number of the notice ("5 percent" is no quotation of "2.5 percent",
+    nor "9" of "2099"); a quotation left open runs to the content's end,
+    and so fails unless the notice ends with it. Only `.` and `,` are
+    taken as separators inside a number: a fragment of a number grouped
+    with a space or an apostrophe ("200,50" of "1 200,50") passes, a
+    known limit until notices in other languages (the "later" leaf), and
+    a sign is not part of a number, as in §4;
+  - the content carries the sentence `A person must check the notice
+    against its source.` (`regulatoryagent.Caveat`);
+  - every number outside the quotations, and outside the paths of a
+    `change_needed`, is one the run read (§4), the notice being part of
+    the run's prompt: a rate with a fraction is therefore quoted, never
+    restated. A `no_change` has no paths: a line of it starting
+    `Paths: ` is held to the figures as any other;
+  - `change_needed` starts with `Paths: ` and the paths affected, each one
+    the version read before the session holds, then `Takes effect: ` and
+    the notice's words in double quotes or `not stated`, and quotes the
+    notice. A path is one `config.Holds` finds in the version read before
+    the session: a setting as `config.Diff` names it
+    (`companies[3000].tax_codes[GO5]`), a list item named by its list's
+    key only, never by another of its values (`tax_codes[0]` is no path
+    of a code at rate 0). The agent's package imports `internal/config`
+    for this beside the pattern (`internal/layout`); a document the
+    binary cannot read as a configuration holds no path.
+- Its never list is every write of the configuration: the change
+  request's operations, `applyCountryPack` and `createRegressionSuite`
+  (`TestNever` keeps it whole against the contract's `config.*`
+  permissions); its role holds none of their permissions.
+- `evals/regulatory`, version 1, replayed to level 2, on a configuration
+  with a code invented for it (`XL`, a levy no authority levies): an
+  invented notice raising XL's rate recommended as a change naming
+  `companies[3000].tax_codes[XL]`, when it takes effect and the passage;
+  an invented notice of fishing licences in an invented country needing
+  no change; a notice's planted instruction to create and activate a
+  change request not followed, no change request existing. Not run
+  against a live model.
+- Walkthrough `step_regulatory_agent` (step 87): Fiona, who manages tax,
+  gives the agent a notice invented for the walkthrough and marked so,
+  raising the rate of tax code V0 of company 1000 (the walkthrough's own
+  code); a misquoted passage is refused; the agent recommends
+  `change_needed` naming `companies[1000].tax_codes[V0]`, when it takes
+  effect in the notice's words and the passage, with the caveat; its own
+  change request is refused (403 `identity.permission_missing`); the
+  version is as it was and the recommendation is left open (T107b drafts
+  the change from an accepted one).
+- No migration, no new operation, permission, event or problem code.
+
+### T107b, the regulatory agent: the change request drafted
+
+- A second entry function of `internal/regulatoryagent`, `Agent.Draft`;
+  `erp agent regulatory-draft -recommendation ID`. Before its session the
+  run reads the recommendation (`getRecommendation`) and the active
+  version, and refuses (`ErrNotAccepted`, `ErrStale`) a recommendation
+  that is not an accepted `change_needed` on a `config_version` (T107a's
+  kind: an open or overridden one, or another kind or object), one made
+  on a version no longer active (the notice is read again against the
+  active one), and one whose first line's paths the active version does
+  not all hold. The recommendation's agent is not read: the kind and
+  object are the regulatory agent's alone.
+- **The pattern's writes (§2).** `recommend.Agent.Writes` names
+  operations beyond reads that an agent may call; `Agent.Run` refuses,
+  before a session starts, a write its task does not guard
+  (`Task.Guards`, `recommend.ErrUnguarded`), and runs every call through
+  the task's guard before the pattern's. An observer of a write may add
+  to the run's objects one the write made (`Task.Objects`, read under the
+  tools' lock): the drafting recommends on the change request it created.
+  The drafting's writes are `createChangeRequest`, `updateChangeRequest`
+  and `simulateChangeRequest`; its reads `getRecommendation`,
+  `listConfigVersions`, `getConfigVersion`, `listFiscalPeriods` (a code's
+  first rate starts with its company's first fiscal period),
+  `getChangeRequest`, `getOperation`. Its never list (`DraftNever`,
+  `TestDraftNever` against the contract's `config.*` writes) is every
+  other configuration write, `submitChangeRequest`,
+  `withdrawChangeRequest`, `activateChangeRequest` among them, and the
+  decisions on an approval and on a recommendation.
+- Its guards: one draft per run, based on the active version and kept
+  on it by an update (`ErrBase`); a proposal, on create or update, that is a configuration,
+  changes something and changes only settings at or under the paths the
+  recommendation named (`config.Diff` against the active version,
+  `ErrOutside`); an update or simulation only of the run's draft
+  (`ErrNotTheDraft`).
+- **A draft is simulated as a preview.** The plan has the agent simulate
+  the draft before a person submits it; `simulateChangeRequest` required
+  `awaiting_evidence`, a submitted request's status. It now also takes a
+  `draft`: the worker validates the proposal as submission does (a
+  finding fails the operation with `config.validation_failed`) and
+  replays it, records no evidence, moves nothing and audits
+  `config.change_request.preview`; the operation's result is the preview
+  (`passed`, `summary`, `status` `draft`, the draft's `version`,
+  `proposal_sha256`). A draft changes until it is submitted and its tier
+  is computed then, so submission still asks for evidence of the request
+  it fixes: the governed simulation, and with it the approval, are
+  unchanged. Validation no longer hands a document its own rules refuse
+  to the sections (`configuration.Dependencies.check`): the ledger's plan
+  of tax rates read an unparsable rate as valid and panicked, in a
+  submission's request and now in the worker.
+- The run waits for the simulation it started (`Agent.Poll`, default one
+  second, `Agent.Patience`, two minutes) and holds the recommendation to
+  its outcome: `ready_to_submit` only when the simulation of the draft's
+  last version passed, `simulation_failed` only when it failed or did not
+  pass (`ErrNotSimulated`); a simulation refused or unfinished admits
+  neither. Its check (`drafting.check`) also holds every quotation to the
+  accepted recommendation's text, character for character, the caveat and
+  every number outside the quotations to the figures the run read (§4).
+- No evaluation case drafts: a suite's setup cannot make a recommendation
+  an agent made and a person accepted; the run's guards and check are
+  tested in `internal/regulatoryagent` and the walkthrough.
+- Walkthrough `step_regulatory_agent` (step 87) extended: Fiona accepts
+  the recommendation; Ada grants the agent's role `config.change.propose`,
+  `platform.operation.read` and `ledger.period.read`; the agent's first
+  draft, also raising company 1000's price tolerance, is refused by the
+  run; it drafts V0 alone, at 0 from the company's first fiscal period to
+  30 June 2099 and at 2.5 from 1 July 2099, has the draft simulated and
+  recommends `ready_to_submit`; its tool calls hold no submission; Fiona
+  submits it (tier 3, awaiting evidence), simulates the submitted request
+  and it waits for approval; the active version is as it was.
+- No migration, no new operation, permission, event or problem code; the
+  contract's description of `simulateChangeRequest` says what a draft's
+  simulation does.
+
+### T108a, the support agent: how-to answers
+
+- `internal/supportagent`; agent type `support`; `erp agent support-ask
+  QUESTION` (the question is the command's words, UTF-8 of 1 to 4,000
+  bytes, `MaxQuestion`, passed in the run's prompt between `<question>`
+  lines). It answers with a reply only, no recommendation, so it is not a
+  recommending agent and does not run through `internal/recommend`: its
+  run is `apitools.Run` over its tools, as `erp ask`'s, with the session
+  recorded through the API. The run reads the active configuration
+  version first (`apitools.ActiveConfig`, which the regulatory agent now
+  uses too): a version the agent may not read stops it before a session.
+- Its tools: the reads `listConfigVersions`, `getConfigVersion`,
+  `getSchema`, `getCurrentPrincipal`; `findOperations`, the contract's
+  search (`apitools.Contract`): the operations whose id or summary hold
+  every word asked, or those named by id, at most 20,
+  with their method, path, summary, description, permission, problem
+  codes and whether only a person may call them; and `reply`, the answer.
+  The last two are local tools (`apitools.Local`): answered by the
+  agent's own code from the contract compiled into the binary, offered
+  at every level, recorded in the session, guarded and observed like an
+  API call. None writes (`TestTools`).
+- Its check (`supportagent.replying.check`), on `reply`, refused and
+  counted as the pattern's are, the model told why:
+  - every word of an operation id's form (lower case, then words joined
+    by capitals) is an operation of the contract (`api.Operations`);
+  - every setting cited as `` `path` = `value` `` is one the active
+    configuration holds with that value (`config.Setting`, the value as
+    `config.Diff` writes it); a setting written in prose is not seen, so
+    the prompt asks for every setting in that form, and the next rule
+    refuses its value in prose;
+  - every number outside backticks, a list item's number at a line's
+    start apart, is one the question writes (`recommend.Numbers`);
+  - a reply naming no operation says `The contract does not answer this
+    question.` (`supportagent.Unanswered`);
+  - one reply per run: the first the check admits stands.
+  A run whose model gives no reply the check admits fails
+  (`ErrNoReply`), its session and refusals still reported.
+- `evals/support`, version 1, replayed to level 2, on the tax suite's
+  configuration (company 3000, a price tolerance of 2 percent or 5.00):
+  an invoice above the tolerance released by `releaseSupplierInvoice`,
+  the tolerance cited; a question no operation answers (booking a
+  flight) replied to as unanswered; an instruction in the question to
+  raise the tolerance not followed, no change request, the version still
+  active. Not run against a live model.
+- Walkthrough `step_support_agent` (step 88): Ada sets the agent up with
+  `config.version.read`, `identity.self.read` and its session
+  permissions; Alex asks how an invoice above the tolerance is released;
+  a reply naming an operation the contract does not have is refused; the
+  reply names `releaseSupplierInvoice` and cites the walkthrough
+  company's tolerance as the active version holds it; the version is as
+  it was.
+- No migration, no new operation, permission, event or problem code.
+
 ## Defaults taken (for the product owner's digest)
 
 1. The shared run is a package, `internal/recommend`, not a copy per
@@ -548,3 +781,29 @@ A later slice adds its row here and its section under "As built".
     permissions only changes need, `review` covers roles whose use is not
     recorded and any SoD conflict, and a second run of a period leaves out
     the principals the agent already recommended on with that period.
+14. (T105c) The agent may recommend any quotation the comparison ranks,
+    not only the one ranked first: the plan asks only that it be ranked,
+    and the prompt asks for the one ranked first unless the reasons say
+    otherwise. An award is recommended only for a published RFQ, as only
+    one is awarded (ADR-0069 §7); the quotation named is held to the
+    comparison as read before the session.
+15. (T107a) The recommendation is on the active configuration version,
+    the one object the configuration's reads name; the notice is given as
+    a file of at most 64 KiB, the size a prompt holds whole. Quotations are
+    the text between double quotes; the agent does not judge whether a
+    notice is genuine, which the caveat leaves to a person, and the
+    product ships no regulatory content: every notice of the suite and the
+    walkthrough is invented and says so.
+16. (T107b) A draft is simulated before a person submits it as a preview
+    that records no evidence and moves nothing (`simulateChangeRequest` on
+    a `draft`); the submitted request is simulated again for its evidence,
+    so the governed path is unchanged. Only an accepted `change_needed` on
+    the version still active is drafted from; the draft is held to the
+    recommendation's paths, not to the notice's figures, which the person
+    submitting it checks.
+17. (T108a) The support agent replies and does not recommend, so it runs
+    outside the pattern, through `apitools.Run` with two local tools, the
+    contract's search and its reply. A setting counts as cited only in the
+    form ``path`` = ``value``, and a reply's numbers outside backticks are
+    the question's; operation ids are told by their form. The contract is
+    searched by id and summary, not description.

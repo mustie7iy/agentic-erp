@@ -19,6 +19,11 @@ import (
 // through the API's own reads (the analytics endpoint's database path,
 // ADR-0044) uses it as its HTTP client's transport. New sets its handler.
 //
+// Work in the process without a request (a worker's round) reads as the
+// principal it acts as (reqctx.WithActing, ADR-0076 §5), which the unit
+// of work resolves by id: no token, session or second factor is asked of
+// it, as uow.Act asks none of deferred work.
+//
 // Each call runs in a transaction of its own, beside the caller's: a
 // caller limits how many it makes at once, so they never wait on the pool
 // for each other.
@@ -33,17 +38,22 @@ var ErrLoopback = errors.New("httpapi: loopback")
 // RoundTrip implements http.RoundTripper.
 func (l *Loopback) RoundTrip(req *http.Request) (*http.Response, error) {
 	claims, ok := reqctx.ClaimsFrom(req.Context())
+	acting, inProcess := reqctx.ActingFrom(req.Context())
 	switch {
 	case l.handler == nil:
 		return nil, fmt.Errorf("%w: the API is not built", ErrLoopback)
-	case !ok:
+	case !ok && !inProcess:
 		return nil, fmt.Errorf("%w: no request's principal", ErrLoopback)
 	case req.Method != http.MethodGet:
 		return nil, fmt.Errorf("%w: %s is not a read", ErrLoopback, req.Method)
 	}
 	ctx, cancel := detached(req.Context())
 	defer cancel()
-	ctx = reqctx.WithClaims(ctx, claims)
+	if ok {
+		ctx = reqctx.WithClaims(ctx, claims)
+	} else {
+		ctx = reqctx.WithActing(ctx, acting)
+	}
 	if cert := reqctx.ClientCertFrom(req.Context()); cert != "" {
 		ctx = reqctx.WithClientCert(ctx, cert)
 	}

@@ -68,11 +68,21 @@ func (e *Endpoints) RunAnalyticsQuery(ctx context.Context, req *gen.AnalyticsQue
 	if err != nil {
 		return nil, err
 	}
-	q := fromAPI(req)
+	res, err := e.answer(ctx, m, fromAPI(req), req.Companies, req.AsOf.Or(time.Time{}))
+	if err != nil {
+		return nil, err
+	}
+	res.ConfigVersion = version
+	return &gen.AnalyticsResultHeaders{Response: toAPI(res)}, nil
+}
+
+// answer runs q under m as the caller, over the companies asked for
+// within the caller's (nil: all of those), with data as of asOf or later.
+func (e *Endpoints) answer(ctx context.Context, m *analytics.Model, q analytics.Query, companies []string, asOf time.Time) (*analytics.Result, error) {
 	if err := analytics.Validate(m, q); err != nil {
 		return nil, invalid(err)
 	}
-	p, err := e.principal(ctx, req.Companies)
+	p, err := e.principal(ctx, companies)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +97,7 @@ func (e *Endpoints) RunAnalyticsQuery(ctx context.Context, req *gen.AnalyticsQue
 	defer release()
 	db := e.database(datasets)
 	src := store.Source{Reader: e.Reader, Database: db, Datasets: datasets, Requires: db.Permissions(), Now: e.Now, Log: e.Log}
-	facts, err := src.Facts(ctx, m, p, q, req.AsOf.Or(time.Time{}))
+	facts, err := src.Facts(ctx, m, p, q, asOf)
 	if err != nil {
 		return nil, apiError(err)
 	}
@@ -95,8 +105,7 @@ func (e *Endpoints) RunAnalyticsQuery(ctx context.Context, req *gen.AnalyticsQue
 	if err != nil {
 		return nil, invalid(err)
 	}
-	res.ConfigVersion = version
-	return &gen.AnalyticsResultHeaders{Response: toAPI(res)}, nil
+	return res, nil
 }
 
 // GetAnalyticsModel implements gen.Handler: the model queries are
@@ -196,6 +205,38 @@ func (e *Endpoints) principalOf(ctx context.Context, access authz.Access, asked 
 	return p, nil
 }
 
+// neededDatasets are the fact datasets the query's metrics read, each
+// with the permission that reads it, in FactDatasets' order.
+func neededDatasets(m *analytics.Model, q analytics.Query) []analytics.FactDataset {
+	needed := map[string]bool{}
+	for _, name := range q.Measures {
+		for _, base := range m.BaseMetrics(name) {
+			needed[m.Metric(base).Source] = true
+		}
+	}
+	var out []analytics.FactDataset
+	for _, f := range analytics.FactDatasets {
+		if needed[f.Dataset] {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// Permissions are the permissions a run of q under m reads its data with,
+// as the store asks of a reader (analytics.Source.Permissions): those of
+// its datasets, the organization's and the names' it shows. A kept result
+// is read only by whoever holds them (ADR-0076 §7).
+func (e *Endpoints) Permissions(m *analytics.Model, q analytics.Query) []string {
+	datasets := []string{} // none is none: a nil list would build them all
+	for _, f := range neededDatasets(m, q) {
+		if !slices.Contains(datasets, f.Dataset) {
+			datasets = append(datasets, f.Dataset)
+		}
+	}
+	return e.database(datasets).Permissions()
+}
+
 // datasets are the fact datasets the query's metrics read. A dataset the
 // caller's permissions do not read, or may not use for a
 // segregation-of-duties rule, refuses the query as the API would refuse
@@ -206,17 +247,8 @@ func (e *Endpoints) datasets(ctx context.Context, m *analytics.Model, q analytic
 	if err != nil {
 		return nil, err
 	}
-	needed := map[string]bool{}
-	for _, name := range q.Measures {
-		for _, base := range m.BaseMetrics(name) {
-			needed[m.Metric(base).Source] = true
-		}
-	}
 	out, read := []string{}, []string{}
-	for _, f := range analytics.FactDatasets {
-		if !needed[f.Dataset] {
-			continue
-		}
+	for _, f := range neededDatasets(m, q) {
 		if !perms[f.Permission] {
 			return nil, problem.Forbidden("identity.permission_missing", "This query reads "+f.Dataset+", which requires the permission "+f.Permission+".")
 		}

@@ -60,7 +60,8 @@ func endpoints(x capture.Extractor) *payables.Endpoints {
 			Settings: configuration.Settings{}},
 		Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{}, Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}},
 		Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{}, Rates: rates, Approvals: fixture.Approvals(), Payments: payments.Reservations{},
-		Methods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, OrderNumbers: orderNumbers{}, Extractor: x}
+		Methods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, OrderNumbers: orderNumbers{}, Extractor: x,
+		ExpenseLedger: ledger.AssetReads{}, Partners: partner.Payees{}}
 }
 
 func extraction() *capture.Extraction {

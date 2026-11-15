@@ -3,6 +3,7 @@ package ledger_test
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -139,6 +140,7 @@ func TestAccountsAndCalendarPorts(t *testing.T) {
 			t.Errorf("unknown legal entity: %v", err)
 		}
 		calendarPeriods(t, ctx, c, e.de)
+		calendarYears(t, ctx, c, e.de)
 		return nil
 	})
 	if err != nil {
@@ -153,6 +155,7 @@ func TestAccountsAndCalendarPorts(t *testing.T) {
 		},
 		"fiscal year": func(ctx context.Context) error { _, err := c.FiscalYear(ctx, e.de, date("2026-07-01")); return err },
 		"periods":     func(ctx context.Context) error { _, err := c.Periods(ctx, e.de, 2026); return err },
+		"years":       func(ctx context.Context) error { _, err := c.Years(ctx, e.de); return err },
 	} {
 		t.Run(name, func(t *testing.T) {
 			if call(context.Background()) == nil {
@@ -184,6 +187,27 @@ func calendarPeriods(t *testing.T, ctx context.Context, c ledger.Calendar, le uu
 				t.Errorf("got %v, want ledger.no_fiscal_period", err)
 			}
 		})
+	}
+}
+
+// calendarYears checks Calendar.Years: the set-up years in order, each
+// from its first regular period's first day to its last one's last day,
+// and none for an unknown legal entity.
+func calendarYears(t *testing.T, ctx context.Context, c ledger.Calendar, le uuid.UUID) {
+	t.Helper()
+	ys, err := c.Years(ctx, le)
+	if err != nil || len(ys) == 0 {
+		t.Fatalf("years: got %v %v, want some", ys, err)
+	}
+	var got []string
+	for _, y := range ys {
+		got = append(got, fmt.Sprint(y.FiscalYear, " ", y.Start.Format(time.DateOnly), " ", y.End.Format(time.DateOnly)))
+	}
+	if !slices.Contains(got, "2026 2026-01-01 2026-12-31") || !slices.IsSortedFunc(ys, func(a, b ledger.FiscalYearSpan) int { return int(a.FiscalYear - b.FiscalYear) }) {
+		t.Errorf("years: got %v, want 2026 among them, in order", got)
+	}
+	if ys, err := c.Years(ctx, uuid.New()); err != nil || len(ys) != 0 {
+		t.Errorf("an unknown legal entity: got %v %v, want none", ys, err)
 	}
 }
 

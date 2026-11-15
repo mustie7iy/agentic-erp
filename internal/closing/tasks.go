@@ -108,7 +108,7 @@ func (e *Endpoints) assign(req *gen.CloseTaskUpdate) act {
 		var assignee *uuid.UUID
 		if !req.AssigneeID.Null {
 			assignee = &req.AssigneeID.Value
-			if err := e.person(ctx, *assignee, t.LegalEntityID); err != nil {
+			if err := person(ctx, *assignee, t.LegalEntityID); err != nil {
 				return change{}, false, err
 			}
 		}
@@ -125,19 +125,13 @@ func (e *Endpoints) assign(req *gen.CloseTaskUpdate) act {
 // who may act in the close's company: tasks are people's work, and a
 // person without the company's access would be assigned a task they
 // cannot see (ADR-0058 §6; product owner 2026-11-04).
-func (e *Endpoints) person(ctx context.Context, id, legalEntity uuid.UUID) error {
-	named, err := e.People.Named(ctx, []uuid.UUID{id})
-	if err != nil {
+func person(ctx context.Context, id, legalEntity uuid.UUID) error {
+	switch a, err := authz.AssignableTo(ctx, id, legalEntity); {
+	case err != nil:
 		return fmt.Errorf("closing: assignee %s: %w", id, err)
-	}
-	if n, ok := named[id]; !ok || n.Kind != "human" || n.Status != "active" {
+	case a == authz.NotActivePerson:
 		return assigneeInvalid("an active person of the tenant")
-	}
-	access, err := authz.CompaniesOf(ctx, id)
-	if err != nil {
-		return fmt.Errorf("closing: assignee %s: %w", id, err)
-	}
-	if !access.Allows(legalEntity) {
+	case a == authz.NoCompanyAccess:
 		return assigneeInvalid("a person with access to the close's company")
 	}
 	return nil

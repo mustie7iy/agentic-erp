@@ -186,6 +186,15 @@ var tierRules = []struct {
 	// dunning run proposes and at which level (ADR-0065 §2), as payment
 	// terms' days decide what is due.
 	{rx(`^companies\[\*\]\.dunning(\.|$)`), TierOperational},
+	// Retention rules post nothing, but they decide which fiscal years of
+	// a kind are past retention, which archiving and erasure read, and an
+	// erasure cannot be undone: tier 3, with two approvers (ADR-0079 §2,
+	// product owner 2026-11-13).
+	{rx(`^companies\[\*\]\.retention(\[|$)`), TierPostingRelated},
+	// An expense type's name is a text; its code and account decide what
+	// an expense report's lines post to (ADR-0074 §2): posting-related.
+	{rx(`^companies\[\*\]\.expense_types\[\*\]\.name$`), TierCosmetic},
+	{rx(`^companies\[\*\]\.expense_types(\[|$)`), TierPostingRelated},
 	// Condition types and the pricing procedure post nothing: they decide
 	// the net value new sales items take (ADR-0067 §11), as payment terms
 	// decide what is due. A type's name is a text.
@@ -249,6 +258,10 @@ var listKeys = map[string]string{
 	"net_investments": "company,account,partner",
 	// A company's dunning levels by their number (ADR-0065 §2).
 	"levels": "level",
+	// A company's retention rules by their document kind (ADR-0079 §2).
+	"retention": "kind",
+	// A company's expense types by code (ADR-0074 §2).
+	"expense_types": "code",
 	// Condition types by code (ADR-0067 §11); the procedure's steps are
 	// listed by position, since their order is the setting.
 	"condition_types": "code",
@@ -331,6 +344,24 @@ func wholeItem(path string, a, b map[string]string) string {
 		}
 	}
 	return ""
+}
+
+// Holds reports whether the configuration has a setting at the path, as
+// Diff names settings (companies[3000].tax_codes[GO5]): the path itself,
+// or a list item or field with settings inside it. A list item is named
+// by its list's key only, never by another of its values. Extensions,
+// which Diff compares apart, are named by no path here.
+func Holds(c *Config, path string) bool {
+	return path != "" && hasPrefixKey(flatten(c), path)
+}
+
+// Setting is the value of the configuration's setting at the path, as
+// Diff writes values (a number as its digits, a text as it is), and
+// whether it has one: a path of a list item or a group of settings has
+// none.
+func Setting(c *Config, path string) (string, bool) {
+	v, ok := flatten(c)[path]
+	return v, ok
 }
 
 func hasPrefixKey(m map[string]string, item string) bool {

@@ -296,6 +296,14 @@ type Company struct {
 	// Dunning is how the company duns its customers' overdue items
 	// (ADR-0065 §2): its dunning levels. None: the company has no dunning.
 	Dunning Dunning `yaml:"dunning,omitempty" json:"dunning,omitzero"`
+	// Retention is how long the company keeps its documents, per kind
+	// (ADR-0079 §2): the tenant's own rules, none shipped. None: nothing
+	// of the company is past retention.
+	Retention []RetentionRule `yaml:"retention,omitempty" json:"retention,omitempty"`
+	// ExpenseTypes are the kinds of expense the company's employees claim
+	// on expense reports, each posting to its expense account (ADR-0074
+	// §2). None: the company takes no expense reports.
+	ExpenseTypes []ExpenseType `yaml:"expense_types,omitempty" json:"expense_types,omitempty"`
 }
 
 // YearEnd is a company's year-end settings (ADR-0060 §4). Without a
@@ -483,6 +491,12 @@ type AccountDetermination struct {
 	// reconciliation account.
 	ContractAsset     string `yaml:"contract_asset,omitempty" json:"contract_asset,omitempty"`
 	ContractLiability string `yaml:"contract_liability,omitempty" json:"contract_liability,omitempty"`
+	// RightOfUseAsset and LeaseLiability are the accounts a lease
+	// contract's activation posts the right-of-use asset and the lease
+	// liability to (ADR-0073 §7): an asset and a liability, neither a
+	// reconciliation account. A company without both activates no lease.
+	RightOfUseAsset string `yaml:"right_of_use_asset,omitempty" json:"right_of_use_asset,omitempty"`
+	LeaseLiability  string `yaml:"lease_liability,omitempty" json:"lease_liability,omitempty"`
 }
 
 // WithholdingTaxCode is a withholding tax deducted from what a supplier is
@@ -719,6 +733,18 @@ func Parse(b []byte) (*Config, error) {
 		return nil, err
 	}
 	return &c, nil
+}
+
+// Readable is an activated document as an agent reads it from the API
+// (JSON is YAML), keys a newer binary added ignored: the configuration,
+// or none when this binary cannot read it, which then holds no setting
+// (Holds, Setting).
+func Readable(b []byte) *Config {
+	c, _, err := ParseActive(b)
+	if err != nil {
+		return nil
+	}
+	return c
 }
 
 // ParseActive reads an activated document, tolerating keys this binary

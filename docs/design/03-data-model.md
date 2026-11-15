@@ -520,7 +520,7 @@ entry, by its debits, a service principal posts; above it the entry is
 parked for a person; without it the manual entry approval limit; posting-relevant) and its dunning levels
 (`dunning.levels`, optional, ADR-0065 §2: each a `level` numbered from 1 and
 the `days_overdue` an item must have reached for it, ascending, at most
-nine; operational, tier 2; a company without any has no dunning, §3.27). The amounts are read with the digits of the
+nine; operational, tier 2; a company without any has no dunning, §3.27). Its retention rules (`retention`, optional, ADR-0079 §2: per document kind, `journal_entry` or `personal_data`, once each, the whole `years` from 0 to 99 a document is kept after its fiscal year's last day; tier 3, two approvers, product owner 2026-11-13; none shipped, and a kind without a rule has nothing past retention, §3.32). The amounts are read with the digits of the
 document's `companies[].currency`, and documents are converted into the
 legal entity's `local_currency`; the two are one currency because a
 configuration whose company currency differs from its legal entity's local
@@ -627,6 +627,7 @@ erDiagram
   partner_change { uuid id PK
     text kind "create | update | bank_change | block | unblock"
     jsonb payload
+    jsonb possible_duplicates "T89a: create changes"
     text status
     uuid workflow_request_id }
   payment_term { text code PK
@@ -770,6 +771,33 @@ Not built in the first version (plan-breadth-week1, "Later"): sales-area
 data and partner functions, contact persons, customer payment methods and
 direct debit mandates, a planning group, custom fields on the company
 data, and taking customers over from SAP.
+
+**Duplicate check when a partner is created (T89a, migration 000330; as
+built).** Creating a business partner, of any role, checks the existing
+ones: those with one of its tax registration numbers (the same scheme and
+value, by the identifier's fingerprint) and those with its normalized
+name in its country. The normalized name is `partner.NormalizedName`
+(white space trimmed and each run of it one space, in capitals), which
+the migration's quality gate also flags duplicate vendors by; the
+database computes the same in `partner.normalized_name`, on which the one
+index `business_partner_normalized_name` (tenant, country, name) is
+built. A blocked partner counts; a partner whose create change was
+rejected or cancelled (pending for ever) does not. The matches are kept on
+the create change as `possible_duplicates` (partner id, number, name and
+what matched: `tax_registration_number`, `name_and_country`), by number,
+at most 20, for the approver to read. A match on the tax registration
+number is refused (409 `partner.duplicate_tax_number`, naming the
+partners) unless the request sets `confirm_duplicate`; a match on name and
+country is listed and never refused. The check takes a transaction-scoped
+advisory lock per scheme and value first, in their order, so two partners
+with the same number created at once wait for one another and the second
+finds the first. A migration run's partners confirm their duplicates
+(`partner.Migration.Create`): the run is the governed act. The existing
+warning `partner.duplicate_tax_identifier` is kept. Decided by default
+(07 §7.7): the tax registration number is matched by scheme and value, as
+the identifier's index is keyed; the check runs only when a partner is
+created ("Later": the check on a change of an existing partner, fuzzy
+matching, bank details, a run over existing partners, merging).
 
 ## 3.7 General ledger (`ledger`)
 
@@ -1245,7 +1273,8 @@ like the balance; not for an entry without a tax date, which an instance of
 the release before writes during the rollout, nor for a code that posts to
 no account). `journal_entry.tax_date` and `parked_entry.tax_date` are
 the entry's tax date, none on entries posted before, whose items carry their
-posting date. Indexed by legal entity, code and tax date, what a return and
+posting date. An item carries the entry's tax date unless the posting gave
+it one of its own (an expense report line's expense date, ADR-0074 §3). Indexed by legal entity, code and tax date, what a return and
 the rate check read.
 
 An open item on a supplier reconciliation account keeps the payment terms
@@ -2470,6 +2499,35 @@ transfer (`down_payment_request_cleared`); the invoice is not reversed
 while they stand (409 `payables.down_payments_cleared`). The clearing is
 audited and publishes `DownPaymentsCleared`. Special G/L items keep no
 payment terms (`open_item_terms` is kept for the other supplier lines).
+
+`expense_report` (T87a, ADR-0074; migration 000329) is an employee's
+expense report: a document number from the company's `expense_report`
+number range of the fiscal year of its `report_date`, the company's date
+when it was entered (its document date and its payment term's baseline),
+the legal entity, the
+employee (`employee_id`, a business partner with the supplier role: human
+capital is outside the required scope), the company's currency and an
+optional description. It is `entered`, then `posted` once (trigger
+`expense_report_posted_once`; the application may update only the columns
+posting sets), naming then its `posting_date`, journal entry and the
+payment term and net due date of the employee's open item, and none of
+them before (`expense_report_posted`); it is never deleted.
+`expense_report_line` holds its lines, numbered 1-999, written with the
+report and never changed: the expense's date, its expense type's code
+(`companies[].expense_types[]`) and the type's account as it was when the
+report was entered, the gross amount (above zero), the input tax code and
+the tax the gross holds by the code's rates at the expense's date, the
+line's own tax date (product owner 2026-11-13; below the gross, none
+without a code, `expense_report_line_tax`), an optional cost center and
+text. Posting debits each line's net and the tax its code
+does not let the company recover on its account and cost center, the
+recovered tax on the codes' accounts, each tax item dated by its line's
+date (`ledger.tax_item.tax_date`), and credits the employee's
+reconciliation account with the gross (document type KR); the credit is
+the employee's open item, which a payment run pays. Entering and posting
+need `payables.expense.write` and `payables.expense.post`, reading
+`payables.expense.read`; each is audited and publishes
+`ExpenseReportChanged`.
 
 ## 3.10 Payments (`payments`)
 
@@ -4195,7 +4253,11 @@ Saved reports, and the analytical store's bookkeeping in PostgreSQL
 
 | Table | Purpose |
 |---|---|
-| `analytics.report` | A saved report (000010): its title, the question it answers, its `spec` and `queries`, and its owner |
+| `analytics.report` | A saved report (000010; written since T95a, 000319, ADR-0076 §1-§2): its title and the question it answers (`report_title_check`: 1 to 200 characters, not white space alone; `report_question_check`: at most 2,000), its `spec` and `queries` (JSON objects, `report_spec_check`, `report_queries_check`), its owner (`owner_id`, the identity context's principal, who alone changes and shares it, and reads and runs it with the people it is shared with, `analytics.report_share`), `status` (`active`, or `removed` for good: trigger `report_removed_fixed` refuses any change of a removed row) and `version`. Its schedule (T95b, 000320, ADR-0076 §4): `schedule_frequency` (`daily`, `weekly`, `monthly`), `schedule_company` (the company code whose time zone dates the runs), `schedule_weekday` (1-7, weekly alone) and `schedule_day` (1-28, monthly alone), `scheduled_from` (the company's date it was set on), all or none (`report_schedule_whole`), none on a removed report (`report_removed_unscheduled`). The application changes the status, the schedule and the version alone and deletes none; `report_by_owner` reads an owner's reports by title, `report_scheduled` the worker's scheduled ones |
+| `analytics.report_run` | A scheduled run the worker kept (T95b, 000320, ADR-0076 §5): its report, `run_date` (the schedule's company's date), `status` (`succeeded` or `failed`), `run_as` (the owner it acted as, the identity context's principal); a success's `object_key`, `sha256` and `data_through`, a failure's `failure_code` and `failure_detail`, the one or the other (`report_run_outcome`); one per report and day (`report_run_once`); insert-only; `companies` and `permissions` (T95c, 000321, ADR-0076 §7): the codes of the companies a run covered, the owner's company access when it ran, and the permissions its queries read their data with, none for a failure, both null for a run kept before (`report_run_companies_check`: no null code, at most 10,000; `report_run_permissions_check`: no null, at most 100; `report_run_access_whole`) |
+| `analytics.report_share` | A saved report shared with a person or a role (T95c, 000321, ADR-0076 §7): its report, `principal_id` or `role_id` (the identity context's, one of the two: `report_share_grantee`), `status` (`active`, or `ended` for good: trigger `report_share_ended_fixed`), `version` and who made and ended it; one active share per report and person or role (`report_share_once`). The application ends a share (status, version, `updated_by`) and deletes none |
+| `analytics.metric_watcher` | A metric watcher (T96a, 000322, ADR-0077 §1): its creator's (`created_by`, the identity context's principal, who alone reads, evaluates and removes it), its `name` (1 to 200 characters, not white space alone, `metric_watcher_name_check`), the governed `metric` (`metric_watcher_metric_check`), `filters` in the query's form (a JSON array, `metric_watcher_filters_check`), one `company` code or none for every company the creator may read, the `grain` (`month` or `year`) and the `condition` (`above`, `below`, `change`, or `deviation` since 000323) with exactly its settings (`metric_watcher_condition_whole`): a `threshold` decimal (`metric_watcher_threshold_check`) with the `currency` of a money metric for above and below, a `percent` decimal for a change and a deviation (`metric_watcher_percent_check`), and for a deviation (T96b, 000323) the `periods` it averages, 1 to 12 (`metric_watcher_periods_check`); `status` (`active`, `removed`, or `failed` with `failure_code` and `failure_detail`, `metric_watcher_failure`), final once it leaves active (trigger `metric_watcher_fixed`), and `version`. The application changes the status, the failure and the version alone and deletes none; `metric_watcher_by_creator` reads a creator's watchers by name |
+| `analytics.metric_alert` | An alert a watcher raised (T96a, 000322, ADR-0077 §3): its watcher (`metric_alert_watcher_fkey`), the period (`fiscal_year`, and `fiscal_period` 1-12 for the month grain), one per watcher and period (`metric_alert_once`); the `companies` whose series held the condition (at least one), the `permissions` the metric's data is read with, which a reader must hold (§5), the `findings` (a JSON array of at least one: company, currency, figure, what it was compared with, the percentage), `status` (`open`, or `acknowledged` once with `acknowledged_at` and `acknowledged_by`, T96b, 000323: all or none, `metric_alert_acknowledged`; fixed then, and each change at the next version, trigger `metric_alert_fixed`) and `created_by`, the creator the evaluation ran as. The application changes the status, its acknowledgement and the version alone and deletes none; `metric_alert_latest` reads a tenant's alerts, the latest first |
 | `analytics.snapshot` | The pointer to a tenant's current manifest (T55b, 000114), one row per tenant, so all of its datasets are swapped together and a reader never sees two runs mixed: the manifest's key, named by its watermark and a digest of what it lists (`snapshot_manifest_key_check`, T55c, 000115), the watermark (the cutoff of the run that wrote the manifest), `as_of`, `published_at`, and `checked_at` (T55c, 000115): the snapshot time of the last run that read every dataset and left no journal entry above its watermark, on which freshness is judged. A run publishes by moving the pointer, guarded by the manifest it read. Derived data: rebuilt after a restore or a move |
 | `analytics.extract_due` | The tenants due an extract (T55c, 000115), one row per tenant: the outbox relay marks a tenant changed (`changed_at`) in the transaction that publishes its events, once per batch; the scheduler claims a due tenant at most once per interval (`started_at`) and records the start of the last run that finished (`done_at`, never after the claim: `extract_due_done_at_claim`), so a change after it is still due; `claimed_lsn` (T55f, 000116) is the primary's WAL position at the claim, and the run reads on the replica only once it has replayed past it |
 | `analytics.superseded` | The manifests a publication replaced (T55f, 000116), kept seven days so a running query never loses a file, each with the keys it listed that its successor does not (`dropped`), which the lifecycle then deletes, but for what the current manifest or a later supersession lists, without reading other manifests. Bookkeeping of derived data: no audit record |
@@ -4454,16 +4516,22 @@ erDiagram
 
 ## 3.27 Dunning and collections (`collections`)
 
-ADR-0065, T76a-T76c. A leaf: it reads the ledger's customer open items
-(§3.7, `ledger.OpenItems.Receivable`), the partner context's names,
-tenancy and the configuration through its ports, posts nothing and keeps
+ADR-0065, T76a-T76c, T86a-T86b. A leaf: it reads the ledger's customer open items
+(§3.7, `ledger.OpenItems.Receivable`), the partner context's names, the
+identity context's people (T86a), tenancy and the configuration through
+its ports, posts nothing and keeps
 no foreign key out of its schema (02 §2.1). T76a (migration 000273)
 builds the schema with its outbox and inbox and the dunning run: a
 proposal of the customer items of a company overdue on a key date, one
 notice per customer. Nothing changes on the items, which stay the
 ledger's. T76b (migration 000277) confirms a run: the run's status
 changes, and each item's level and dunning date are recorded in
-`dunned_item`, which the next run reads.
+`dunned_item`, which the next run reads. T86a (migration 000324) adds
+the dispute case: a customer's dispute of an amount of one of its open
+items, named by its journal line as a notice's item is, worked by a
+person and closed as accepted or rejected; closing posts nothing.
+T86b (migration 000325) leaves an item with an open case out of a run's
+notices and lists it on the run.
 
 ```mermaid
 erDiagram
@@ -4478,6 +4546,7 @@ erDiagram
     int notice_count
     int item_count
     bigint overdue_amount "in currency"
+    jsonb disputed_items "items left out for an open case"
     int version }
   dunning_notice { uuid id PK
     uuid dunning_run_id FK
@@ -4508,6 +4577,27 @@ erDiagram
     uuid dunning_run_id PK "the confirmed run"
     smallint level "1-9"
     date dunning_date "the run's key date" }
+  dispute_case { uuid id PK
+    uuid legal_entity_id "tenancy"
+    uuid customer_id "partner"
+    text customer_number "when opened"
+    smallint fiscal_year "ledger: the journal line"
+    uuid journal_entry_id
+    int line_no
+    text document_number
+    text reference
+    char currency "the item's"
+    bigint disputed_amount "above 0"
+    char currency_lc "the company's"
+    bigint disputed_amount_lc "its share, as booked"
+    text reason
+    uuid assignee_id "identity: a person"
+    text note
+    text status "open, accepted, rejected"
+    text close_reason
+    timestamptz closed_at
+    uuid closed_by
+    int version }
 ```
 
 - `collections.dunning_run`: the status is `proposed` or `confirmed`
@@ -4520,7 +4610,10 @@ erDiagram
   proposed run moves to confirmed, once (the trigger
   `dunning_run_confirmed_once`), and the application may set its status,
   version and `updated_by` alone, so its company, key date and totals
-  stay; it may not delete a run.
+  stay; it may not delete a run. `disputed_items` (T86b, migration
+  000325) lists the items the run left out for their open dispute
+  cases, a JSON list (`dunning_run_disputed_items_check`), empty by
+  default; it is written with the run and not changed.
 - `collections.dunning_notice`: one per customer in a run
   (`dunning_notice_customer_once`), at a level from 1 to 9
   (`dunning_notice_level_check`), with at least one item
@@ -4552,10 +4645,35 @@ erDiagram
   (`dunned_item_level_check`); insert-only. An item's level is the
   highest among its rows and its last dunning date the latest; an item at
   the highest level gets a row per confirmed run that took it.
+- `collections.dispute_case` (T86a, migration 000324): an open item of
+  the ledger, named by its journal line (`dispute_case_line_no_check`),
+  with its customer's number and its document number
+  (`dispute_case_customer_number_check`,
+  `dispute_case_document_number_check`); `disputed_amount` above zero in
+  the item's currency (`dispute_case_amount_check`) and
+  `disputed_amount_lc`, its share of the item's amount in the company's
+  currency as booked, not negative (`dispute_case_amount_lc_check`), both
+  currencies known (`dispute_case_currency_fkey`,
+  `dispute_case_currency_lc_fkey`); a reason, a note and a close reason
+  of more than white space and at most 500, 2,000 and 500 characters
+  (`dispute_case_reason_check`, `dispute_case_note_check`,
+  `dispute_case_close_reason_check`); `open`, `accepted` or `rejected`
+  (`dispute_case_status_check`), a closed case with its close reason,
+  time and person and an open one with none of them
+  (`dispute_case_closed_check`); version from 1
+  (`dispute_case_version_check`). An item has one open case at a time
+  (the partial unique index `dispute_case_one_open`); a dunning run and
+  the worklist read a company's open cases (`dispute_case_open_by_company`); the list reads
+  the tenant's cases by `created_at` (`dispute_case_by_created_at`). The
+  application sets the assignee, the note, the status with the close's
+  columns, the version and `updated_by` alone, and deletes none; a closed
+  case is not changed by any role (the trigger
+  `dispute_case_closed_once`).
 - `collections.outbox`, `collections.inbox`: the context's events
-  (`DunningRunChanged`, `DunningNoticeIssued`).
-- Permissions `collections.dunning.read` and `.run`, and
-  `collections.worklist.read` (T76c, migration 000278). The collection
+  (`DunningRunChanged`, `DunningNoticeIssued`, `DisputeCaseChanged`).
+- Permissions `collections.dunning.read` and `.run`,
+  `collections.worklist.read` (T76c, migration 000278), and
+  `collections.dispute.read` and `.write` (T86a, migration 000324). The collection
   worklist has no table: it is computed on read from the ledger's open
   customer items and `dunned_item` (ADR-0065 §9).
 
@@ -5193,20 +5311,44 @@ erDiagram
 
 ## 3.31 Governance, risk and compliance (`grc`)
 
-ADR-0078, T98a (migration 000304) and T98b (migration 000305). A leaf: it
+ADR-0078, T98a (migration 000304), T98b (migration 000305) and T98c
+(migration 000315). A leaf: it
 reads the identity context (principals, the permission catalog,
 segregation-of-duties rules) and the active configuration version through
 its ports, in types of its own, imports no other context, posts nothing
 and keeps no foreign key out of its schema (02 §2.1). It stores the
-tenant's control library, the results of testing its controls and each
-control's links to what enforces it. The library is the tenant's own: no
-control is shipped. The control matrix has no table: whether a link holds
+tenant's control library, the results of testing its controls, each
+control's links to what enforces it, and the risk register with the
+ratings of its risks and the controls that mitigate them. The library and
+the register are the tenant's own: no control or risk is shipped. The control matrix has no table: whether a link holds
 is computed on read (ADR-0078 §8).
 
 ```mermaid
 erDiagram
   control ||--o{ control_test : "tested"
   control ||--o{ control_link : "enforced by"
+  risk ||--o{ risk_rating : "rated"
+  risk ||--o{ risk_control : "mitigated by"
+  control ||--o{ risk_control : "mitigates"
+  risk { uuid id PK
+    text title
+    text category "free text"
+    uuid owner_id "identity: a person"
+    smallint likelihood "1-5, the latest rating's"
+    smallint impact "1-5, the latest rating's"
+    smallint score "generated: likelihood x impact"
+    text status "open | closed"
+    text close_reason
+    int version }
+  risk_rating { uuid id PK
+    uuid risk_id FK
+    smallint likelihood
+    smallint impact
+    uuid rated_by "identity: the person" }
+  risk_control { uuid id PK
+    uuid risk_id FK
+    uuid control_id FK
+    text status "active | removed" }
   control { uuid id PK
     text code "the tenant's, unique in any case, fixed"
     text objective
@@ -5286,6 +5428,185 @@ erDiagram
   order they were made (`control_link_by_control`). That the target is
   there when the link is made, and that the control is active, are the
   application's checks, under the control's row lock.
-- `grc.outbox`, `grc.inbox`: the context's events (`ControlChanged`).
-- Permissions `grc.control.read`, `grc.control.write` and
-  `grc.control.test`.
+- `grc.risk` (T98c): a risk of the register, with a title of up to 200
+  characters and a category of up to 100, each without white space
+  around it (`risk_title_check`, `risk_category_check`), the person who
+  owns it, and the likelihood and impact of its latest rating, each 1 to
+  5 (`risk_likelihood_check`, `risk_impact_check`); `score` is generated
+  as their product. The status is `open` or `closed`
+  (`risk_status_check`); a closed risk has a reason of up to 1,000
+  characters (`risk_close_reason_check`), when and by whom, and an open
+  one none (`risk_closed_check`), and a closed row is fixed
+  (`risk_closed_fixed`). A change, a rating and the closing move the
+  version by one (`platform.touch`); the application is granted the
+  update of what a risk says, its rating, its closing, `version` and
+  `updated_by`, and no delete. The register is read by score, the
+  highest first, then by title (`risk_by_score`). That the owner is an
+  active person, and that the risk's likelihood and impact are its
+  latest rating's, are the application's, in one transaction under the
+  risk's row lock.
+- `grc.risk_rating` (T98c): a rating of a risk (`risk_rating_risk_fkey`),
+  its likelihood and impact 1 to 5 (`risk_rating_likelihood_check`,
+  `risk_rating_impact_check`), who rated and when; insert-only
+  (`risk_rating_immutable`). The latest, by `id` (a UUIDv7), is the
+  risk's (`risk_rating_latest`).
+- `grc.risk_control` (T98c): a control of the library
+  (`risk_control_control_fkey`) that mitigates a risk
+  (`risk_control_risk_fkey`). A risk names a control once at a time
+  (`risk_control_once`); a control left out by a change is kept as
+  `removed`, with when and by whom (`risk_control_status_check`,
+  `risk_control_removed_check`), removing being its only change (the
+  application is granted the update of `status`, `removed_at` and
+  `removed_by`, and no delete) and a removed row fixed
+  (`risk_control_removed_fixed`). The register is filtered by a control
+  (`risk_control_by_control`). That a control named is active is the
+  application's check, under a share lock of the control.
+- `grc.outbox`, `grc.inbox`: the context's events (`ControlChanged`,
+  `RiskChanged`).
+- Permissions `grc.control.read`, `grc.control.write`,
+  `grc.control.test`, `grc.risk.read` and `grc.risk.write`.
+
+## 3.32 Records management (`records`)
+
+ADR-0079, T99a (migration 000316), T99b (migration 000317). A leaf: it
+reads tenancy's legal entities, the configuration's retention rules
+(`companies[].retention[]`, described with the configuration document above)
+and the ledger's fiscal years and journal through its ports. The retention
+status is computed on read from the fiscal periods' dates
+(`ledger.fiscal_period`, through `ledger.Calendar.Years`), the rule's years
+and the completed archiving runs (`archived`). The schema `records` holds
+the archiving runs and the context's outbox and inbox.
+
+```
+records.archiving_run  (tenant_id, id, legal_entity_id, document_kind, fiscal_year, retention_years, config_version,
+                        status, object_key, manifest_key, sha256, manifest_sha256, size_bytes, entry_count, line_count,
+                        debit_total, currency, failure_code, completed_at, requested_by, created_at, updated_at, version)
+```
+
+- An archiving run (ADR-0079 §6, T99b) archives one company's documents of
+  one kind (`journal_entry` only, `archiving_run_kind_check`) and one fiscal
+  year (1900 to 9999), with the rule's `retention_years` (0 to 99) and the
+  configuration version that put the year past retention. It is `queued`,
+  then `completed` or `failed` (`archiving_run_status_check`); either is its
+  last change (trigger `archiving_run_settled_fixed`, which holds for the
+  owner too), and the application may set only the settling columns
+  (column grants: what a run is for and who asked never change) and
+  deletes none. One run of a company, kind and year that is not failed
+  (`archiving_run_once`, a partial unique index): a second request answers
+  it, and a failed run leaves room for another.
+- A completed run names its file (`object_key`,
+  `tenants/<tenant>/archives/<run id>.jsonl`) and manifest (`manifest_key`,
+  `<run id>.manifest.json`) in object storage, their SHA-256 (32 bytes
+  each), the file's size, the counts of entries and lines and the sum of the
+  lines' debits in the company's currency, minor units, never negative, and
+  when it completed; a run that is not completed has none of them
+  (`archiving_run_completed_check`, `archiving_run_file_check`). A failed
+  run has its problem code (`archiving_run_failed_check`).
+- The archiver claims a tenant's queued runs by `archiving_run_queued`
+  (`FOR UPDATE SKIP LOCKED`); the worker role reads `tenant_id` and `status`
+  across tenants to find them. The list reads `archiving_run_by_created`.
+- The personal data inventory (ADR-0079 §9, T100a) is not a table: it is
+  declared in `internal/records` (`records.Inventory`), each entry a column
+  of another context's table that holds personal data (schema, table,
+  column, category, purpose and, per kind of data subject, the column naming
+  the subject). `TestInventoryCoversTheDatabase` checks every entry against
+  the database and refuses a column of a known personal kind (names,
+  addresses and contacts, bank details, subjects, client addresses) that the
+  inventory does not name or set aside, and a schema with no entry that does
+  not say why (`records.SchemasWithout`). The subject read counts rows of
+  those tables by the subject's column, through RLS in the request's
+  transaction; it reads no value.
+- Permissions `records.retention.read`, `records.archive.run`,
+  `records.privacy.read` (migration 000318).
+
+## 3.33 Lease accounting (`leases`)
+
+ADR-0073, T88a-T88c. A leaf: it reads tenancy, the partner context's
+suppliers and names, the ledger's cost centers and calendar and the
+configuration through its ports and keeps no foreign key out of its schema
+(02 §2.1). T88a (migration 000326) builds the schema with its outbox and
+inbox, the lease contract a company enters as lessee and its payments,
+written at creation. A draft posts nothing. T88b (migrations 000327,
+000328) activates a contract, which posts the right-of-use asset against
+the lease liability and stores its schedule.
+
+```mermaid
+erDiagram
+  contract ||--|{ payment : "paid by"
+  contract ||--o{ schedule_line : "stored at activation"
+  contract { uuid id PK
+    text document_number "lease_contract range, once per company"
+    uuid legal_entity_id "tenancy"
+    uuid lessor_id "partner: a supplier"
+    date commencement_date
+    int term_months "1 to 600, divided by the frequency"
+    bigint payment_amount "above 0, minor units"
+    char currency "the company's local currency"
+    text payment_frequency "monthly, quarterly, yearly"
+    text payment_timing "advance, arrears"
+    numeric annual_rate "percent, above 0, at most 100"
+    uuid cost_center_id "ledger"
+    text status "draft, active"
+    bigint lease_liability "at commencement, once active"
+    bigint right_of_use_amount "once active, not below the liability"
+    uuid journal_entry_id "ledger: the activation's entry"
+    int version }
+  payment { int payment_no PK
+    uuid contract_id FK
+    date due_date "one a day"
+    bigint amount "above 0" }
+  schedule_line { int line_no PK
+    uuid contract_id FK
+    date period_start
+    date period_end
+    bigint opening_liability
+    bigint payment
+    bigint interest "closing - opening + payment"
+    bigint closing_liability
+    bigint depreciation
+    bigint right_of_use_closing }
+```
+
+- `leases.contract`: a lease contract of a company as lessee. Its number
+  is 1 to 40 characters (`contract_document_number_check`), once per
+  company (`contract_number_once`); the term is 1 to 600 months
+  (`contract_term_months_check`), which the payment frequency, `monthly`,
+  `quarterly` or `yearly` (`contract_payment_frequency_check`), divides
+  into whole intervals (`contract_frequency_divides_term`); the timing is
+  `advance` or `arrears` (`contract_payment_timing_check`); the payment
+  is above zero (`contract_payment_amount_positive`), minor units of
+  `currency`; the annual discount rate is a percentage above zero and at
+  most 100 with six decimals (`contract_annual_rate_check`,
+  `numeric(9, 6)`), never a float; the status is `draft` or `active`
+  (`contract_status_check`) and the version at least 1
+  (`contract_version_check`). An active contract, and only one, names
+  the lease liability at commencement (not negative,
+  `contract_lease_liability_check`), the right-of-use amount (above zero
+  and not below the liability, `contract_right_of_use_amount_check`,
+  `contract_right_of_use_covers_liability`) and the journal entry its
+  activation posted, by id, year and number
+  (`contract_activation_check`); it is fixed
+  (`lease_contract_fixed_once_active`, a trigger). The list reads the
+  tenant's contracts by number (`contract_by_number`) and a lessor's
+  (`contract_by_lessor`). The application creates contracts, may set
+  their status, version, `updated_by` and what activation writes, and
+  deletes none.
+- `leases.payment`: the contract's payments (`payment_contract_fkey`),
+  numbered 1 to 600 (`payment_no_check`) in date order, one a day
+  (`payment_date_once`), each above zero (`payment_amount_positive`);
+  insert-only (no version, so no update grant, and no delete).
+- `leases.schedule_line` (T88b): an active contract's schedule as its
+  activation stored it (`schedule_line_contract_fkey`), one line per
+  payment, numbered 1 to 600 (`schedule_line_no_check`), its period
+  running forward (`schedule_line_period_check`); the opening and closing
+  liability, the payment, the depreciation and the carrying amount are
+  not negative (`schedule_line_opening_check`, `_closing_check`,
+  `_payment_check`, `_depreciation_check`, `_right_of_use_check`), and
+  the liability moves by the interest and the payment alone
+  (`schedule_line_balance_check`); insert-only.
+- `ledger.account_determination` takes the keys `right_of_use_asset` and
+  `lease_liability`, and `ledger.journal_entry` the source context
+  `leases` (T88b, both checks validated by 000328).
+- `leases.outbox`, `leases.inbox`: the context's events
+  (`LeaseContractChanged`).
+- Permissions `leases.contract.read`, `.write` and `.activate`.

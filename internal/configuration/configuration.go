@@ -28,6 +28,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -115,7 +116,10 @@ type Actors interface {
 // never repeats another year's numbers too) and every
 // section, all findings reported together as one 422 whose field errors
 // are under field, the request's field that carries the document. Amounts
-// are checked with the exponents of ref.currency (ADR-0005).
+// are checked with the exponents of ref.currency (ADR-0005). A document
+// its own rules refuse is not given to the sections, which read it as
+// valid (a tax rate that is no number stops the ledger's plan of rates):
+// its findings are answered first.
 func (d Dependencies) check(ctx context.Context, tx pgx.Tx, base, proposed *config.Config, field string) error {
 	exponents, err := currency.Load(ctx, tx)
 	if err != nil {
@@ -133,6 +137,9 @@ func (d Dependencies) check(ctx context.Context, tx pgx.Tx, base, proposed *conf
 		return err
 	}
 	findings = append(findings, companies...)
+	if slices.ContainsFunc(findings, func(f config.Finding) bool { return f.Severity == config.SevError }) {
+		return failed(findings, field)
+	}
 	for _, s := range d.Sections {
 		more, err := s.Check(ctx, base, proposed)
 		if err != nil {

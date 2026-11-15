@@ -26,7 +26,9 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/agents"
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/analytics/endpoint"
+	"github.com/mustie7iy/agentic-erp/internal/analytics/reports"
 	"github.com/mustie7iy/agentic-erp/internal/analytics/store"
+	"github.com/mustie7iy/agentic-erp/internal/analytics/watchers"
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/assets"
 	"github.com/mustie7iy/agentic-erp/internal/audit"
@@ -43,6 +45,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/grc"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/integration"
+	"github.com/mustie7iy/agentic-erp/internal/leases"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
@@ -63,6 +66,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/receivables"
+	"github.com/mustie7iy/agentic-erp/internal/records"
 	"github.com/mustie7iy/agentic-erp/internal/revenue"
 	"github.com/mustie7iy/agentic-erp/internal/sales"
 	"github.com/mustie7iy/agentic-erp/internal/taxfiling"
@@ -92,11 +96,15 @@ type (
 	collectionsAPI = collections.Endpoints
 	creditAPI      = credit.Endpoints
 	grcAPI         = grc.Endpoints
+	recordsAPI     = records.Endpoints
+	leasesAPI      = leases.Endpoints
 	paymentsAPI    = payments.Endpoints
 	auditAPI       = audit.Endpoints
 	integrationAPI = integration.Endpoints
 	agentsAPI      = agents.Endpoints
 	analyticsAPI   = endpoint.Endpoints
+	reportsAPI     = reports.Endpoints
+	watchersAPI    = watchers.Endpoints
 	cashAPI        = cash.Endpoints
 	assetsAPI      = assets.Endpoints
 	closingAPI     = closing.Endpoints
@@ -124,11 +132,15 @@ type handler struct {
 	*collectionsAPI
 	*creditAPI
 	*grcAPI
+	*recordsAPI
+	*leasesAPI
 	*paymentsAPI
 	*auditAPI
 	*integrationAPI
 	*agentsAPI
 	*analyticsAPI
+	*reportsAPI
+	*watchersAPI
 	*cashAPI
 	*assetsAPI
 	*closingAPI
@@ -159,10 +171,14 @@ type Config struct {
 	Workflows  workflow.Client     // the workflow engine behind operations (ADR-0012); nil: none
 	ExtractDir string              // sap_file connectors read extracts below it; empty: they answer 503
 	Objects    blobstore.Store     // documents, bank files, statement files and audit anchors; nil: documents and files are not kept, statements not imported
-	Retention  time.Duration       // how long statement files are locked (ERP_OBJECT_RETENTION); 0: not locked
-	UploadKey  []byte              // signs the API's own upload URLs (directory store); the same on every replica
-	PublicURL  string              // the API's public base URL, making the API's own upload URLs absolute; empty: paths
-	Secrets    secrets.Resolver    // resolves connectors' secret_ref; nil: env: and file: references on this replica
+	// Loopback serves the API's reads in-process (httpapi.Loopback): New
+	// gives it its handler; a worker reading as a principal (a report's
+	// scheduled run, ADR-0076 §5) shares it. Nil: New makes its own.
+	Loopback  *httpapi.Loopback
+	Retention time.Duration    // how long statement files are locked (ERP_OBJECT_RETENTION); 0: not locked
+	UploadKey []byte           // signs the API's own upload URLs (directory store); the same on every replica
+	PublicURL string           // the API's public base URL, making the API's own upload URLs absolute; empty: paths
+	Secrets   secrets.Resolver // resolves connectors' secret_ref; nil: env: and file: references on this replica
 	// Limits enforces the request quotas of 04 §4.11; nil applies none.
 	Limits *ratelimit.Limiter
 	// RequestTimeout is the deadline of one request, so that a saturated
@@ -226,7 +242,7 @@ func New(cfg Config) (http.Handler, error) {
 		return nil, err
 	}
 	upload := uploads(cfg)
-	loopback := &httpapi.Loopback{}
+	loopback := loopbackOf(cfg)
 	// The seed of every tenant's semantic model until a change request
 	// gives it its own: unreadable, the API does not start.
 	if _, err := governedModel(); err != nil {
@@ -236,6 +252,7 @@ func New(cfg Config) (http.Handler, error) {
 	// endCurrentSession through the same instance, which forgets them.
 	sessions := &identity.Sessions{Pool: cfg.Pool, AppRole: cfg.AppRole, Now: cfg.Now}
 	selling, crediting := salesAndCredit(cfg)
+	queries := analyticsEndpoints(cfg, loopback).Init()
 	h := handler{
 		operationsAPI: &operations.Endpoints{Pages: cfg.Pages, Workflows: cfg.Workflows, Log: cfg.Log},
 		tenancyAPI:    &tenancy.Endpoints{Pages: cfg.Pages, Days: configuration.Settings{}, Now: cfg.Now},
@@ -254,20 +271,22 @@ func New(cfg Config) (http.Handler, error) {
 		collectionsAPI: Collections(cfg),
 		creditAPI:      crediting,
 		grcAPI:         GRC(cfg),
+		recordsAPI:     Records(cfg),
+		leasesAPI:      Leases(cfg),
 		paymentsAPI:    Payments(cfg),
 		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
 		integrationAPI: Integration(cfg),
 		agentsAPI:      &agents.Endpoints{Pages: cfg.Pages, Countries: tenancy.Countries, Certifications: certifications(cfg)},
-		analyticsAPI:   analyticsEndpoints(cfg, loopback).Init(),
+		analyticsAPI:   queries,
+		reportsAPI:     Reports(cfg, queries),
+		watchersAPI:    Watchers(cfg, queries),
 		cashAPI:        Cash(cfg),
 		assetsAPI:      Assets(cfg),
 		closingAPI:     Closing(cfg),
 		consolAPI:      Consolidation(cfg),
 		einvoicingAPI:  EInvoicing(cfg),
-		controllingAPI: &controlling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{},
-			Settings: configuration.Settings{}, Now: cfg.Now, Postings: controllingPostings(), Calendar: calendar()},
-		taxfilingAPI: &taxfiling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now,
-			Items: ledger.TaxItems{}, Packs: library, Approvals: opener(), Periods: ledger.ReturnPeriods{}},
+		controllingAPI: controllingEndpoints(cfg),
+		taxfilingAPI:   taxFiling(cfg, library),
 	}
 	return httpapi.New(h, httpapi.Pipeline{
 		Pool: cfg.Pool, Begin: cfg.Begin, AppRole: cfg.AppRole, Verifier: cfg.Verifier, Limits: cfg.Limits, RequestTimeout: cfg.RequestTimeout,
@@ -283,6 +302,26 @@ func New(cfg Config) (http.Handler, error) {
 		Model:              cfg.Model,
 		Loopback:           loopback,
 	})
+}
+
+// controllingEndpoints is the controlling context as the API wires it.
+func controllingEndpoints(cfg Config) *controlling.Endpoints {
+	return &controlling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{},
+		Settings: configuration.Settings{}, Now: cfg.Now, Postings: controllingPostings(), Calendar: calendar()}
+}
+
+// taxFiling is the tax filing context as the API wires it.
+func taxFiling(cfg Config, library *countrypack.Library) *taxfiling.Endpoints {
+	return &taxfiling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now,
+		Items: ledger.TaxItems{}, Packs: library, Approvals: opener(), Periods: ledger.ReturnPeriods{}}
+}
+
+// loopbackOf is cfg's loopback, or a new one.
+func loopbackOf(cfg Config) *httpapi.Loopback {
+	if cfg.Loopback != nil {
+		return cfg.Loopback
+	}
+	return &httpapi.Loopback{}
 }
 
 // analyticsEndpoints is the analytics context as the API and the
@@ -421,7 +460,7 @@ func payablesEndpoints(cfg Config, uploads *payables.Uploads) *payables.Endpoint
 		Orders: procurement.Orders{}, Postings: postings(), Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{},
 		Calendar: calendar(), Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{}, Rates: rates(), Approvals: opener(),
 		Payments: payments.Reservations{}, Methods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, OrderNumbers: procurement.Orders{},
-		Extractor: cfg.Extractor, Objects: cfg.Objects, Uploads: uploads, Now: cfg.Now}
+		Extractor: cfg.Extractor, Objects: cfg.Objects, Uploads: uploads, ExpenseLedger: ledger.AssetReads{}, Partners: partner.Payees{}, Now: cfg.Now}
 }
 
 // Receivables is the receivables context as the API wires it (ADR-0063
@@ -506,10 +545,20 @@ func (receivablesStatements) Lines(ctx context.Context, entries []ledger.ItemRef
 
 // Collections is the collections context as the API wires it (ADR-0065
 // §1): a leaf that reads the ledger's customer open items, the partner
-// context's names, tenancy and the configuration through its ports.
+// context's names, people's names, tenancy and the configuration through
+// its ports.
 func Collections(cfg Config) *collections.Endpoints {
 	return &collections.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{}, Partners: partner.Payees{},
-		Settings: configuration.Settings{}}
+		Settings: configuration.Settings{}, People: LedgerPeople{}}
+}
+
+// Records is the records management context as the API wires it
+// (ADR-0079 §1): a leaf that reads tenancy's legal entities, the active
+// configuration and the ledger's fiscal calendar and journal through its
+// ports, and writes archive files to the object store (T99b).
+func Records(cfg Config) *records.Endpoints {
+	return &records.Endpoints{LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Calendar: calendar(), Journal: ledger.Archive{},
+		People: LedgerPeople{}, Pages: cfg.Pages, Objects: cfg.Objects, Now: cfg.Now}
 }
 
 // Credit is the credit management context as the API wires it (ADR-0066
@@ -549,10 +598,10 @@ func (LedgerPartners) PartnerNames(ctx context.Context, ids []uuid.UUID) (map[uu
 	return out, err
 }
 
-// LedgerPeople names the people who ran the ledger's carry-forwards from
-// the identity context's directory: the ledger does not import it.
-// Exported for the ledger's tests, which wire their endpoints as the API
-// does.
+// LedgerPeople names the people who ran the ledger's carry-forwards, and
+// a dispute case's assignee and closer, from the identity context's
+// directory: neither the ledger nor collections imports it. Exported for
+// the ledger's tests, which wire their endpoints as the API does.
 type LedgerPeople struct{}
 
 // PersonNames are the principals' names by id; an id of none is left out.

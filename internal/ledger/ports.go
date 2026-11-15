@@ -106,11 +106,15 @@ type PostingLine struct {
 // PostingTaxItem is a tax item a context calculated (ADR-0049 §5, T61d):
 // a code's component with its base, tax and recoverable part in the
 // entry's currency and in local currency. The ledger writes it with the
-// component's account, jurisdiction and the rate of the tax date.
+// component's account, jurisdiction and the rate of its tax date.
 type PostingTaxItem struct {
 	Code, Component              string
 	Base, Tax, Recoverable       money.Minor
 	BaseLC, TaxLC, RecoverableLC money.Minor
+	// TaxDate is the date the item's rate applies on and it is reported
+	// in, where it is not the entry's: an expense report line's own date
+	// (ADR-0074 §3, product owner 2026-11-13). nil: the entry's tax date.
+	TaxDate *time.Time
 }
 
 // Posting is an entry another context posts for one of its documents.
@@ -121,7 +125,8 @@ type Posting struct {
 	PostingDate   time.Time
 	// TaxDate is the date the entry's tax codes' rates apply on and its
 	// tax is reported in (ADR-0049 §4): a supplier invoice's invoice date;
-	// nil: the posting date.
+	// nil: the posting date. A tax item carrying its own date
+	// (PostingTaxItem.TaxDate) is rated and reported by that instead.
 	TaxDate *time.Time
 	// TaxDateChosen says a person chose TaxDate (a supplier invoice's
 	// tax date set by hand, P6): an entry with tax is then refused when
@@ -823,6 +828,34 @@ func (c Calendar) Periods(ctx context.Context, legalEntity uuid.UUID, year int16
 			"a fiscal year is set up by a number range for it in the configuration.", year))
 	}
 	return periods, nil
+}
+
+// FiscalYearSpan is a set-up fiscal year with the first day of its first
+// regular period and the last day of its last.
+type FiscalYearSpan struct {
+	FiscalYear int16
+	Start, End time.Time
+}
+
+// Years are the fiscal years set up for the legal entity, in order
+// (ADR-0079 §3: retention counts from a year's last day); none for a
+// legal entity without any, or one the tenant does not have.
+func (c Calendar) Years(ctx context.Context, legalEntity uuid.UUID) ([]FiscalYearSpan, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	le, ok, err := c.LegalEntities.Entity(ctx, legalEntity)
+	if err != nil || !ok {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT fiscal_year, min(start_date), max(end_date) FROM ledger.fiscal_period
+		WHERE calendar_id = $1 AND NOT is_special GROUP BY fiscal_year ORDER BY fiscal_year`, le.FiscalCalendarID)
+	years, err := pgx.CollectRows(rows, pgx.RowToStructByPos[FiscalYearSpan])
+	if err != nil {
+		return nil, fmt.Errorf("ledger: fiscal years of %s: %w", legalEntity, err)
+	}
+	return years, nil
 }
 
 // WithholdingTaxCode is a legal entity's active withholding tax code

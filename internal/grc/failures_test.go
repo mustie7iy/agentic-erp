@@ -40,6 +40,11 @@ func TestDatabaseFailures(t *testing.T) {
 	e.link(t, recorded, pathLink(settingPath))
 	doomed, _ := e.link(t, recorded, pathLink(sectionPath))
 	path, code := itemPath, "payments.file.transmit"
+	kept, _ := e.record(t, "PAY-03", "Payments")
+	riskID, _ := e.risk(t, "Duplicate payments", "Payments", 2, 4, kept)
+	risk := uuid.MustParse(riskID)
+	e.Must(201, "POST", "/v1/risks/"+riskID+"/ratings", `{"likelihood": 1, "impact": 4}`, "")
+	closing, _ := e.risk(t, "Fraud", "Payments", 1, 1)
 	calls := map[string]func(ctx context.Context) error{
 		"create": func(ctx context.Context) error {
 			_, err := h.CreateControl(ctx, &gen.ControlCreate{Code: "PAY-09", Objective: "x", Process: "Payments", OwnerID: e.carla.ID,
@@ -95,6 +100,36 @@ func TestDatabaseFailures(t *testing.T) {
 			_, err := h.ListControlTests(ctx, gen.ListControlTestsParams{ID: id})
 			return err
 		},
+		"record a risk": func(ctx context.Context) error {
+			_, err := h.CreateRisk(ctx, &gen.RiskCreate{Title: "Fraud", Category: "Payments", OwnerID: e.carla.ID, Likelihood: 1, Impact: 2,
+				ControlIds: []uuid.UUID{id}}, gen.CreateRiskParams{})
+			return err
+		},
+		"get a risk": func(ctx context.Context) error {
+			_, err := h.GetRisk(ctx, gen.GetRiskParams{ID: risk})
+			return err
+		},
+		"change a risk": func(ctx context.Context) error {
+			_, err := h.UpdateRisk(ctx, &gen.RiskUpdate{OwnerID: gen.NewOptUUID(e.Tenant.Human.ID), ControlIds: []uuid.UUID{id}},
+				gen.UpdateRiskParams{ID: risk, IfMatch: `"2"`})
+			return err
+		},
+		"rate a risk": func(ctx context.Context) error {
+			_, err := h.CreateRiskRating(ctx, &gen.RiskRatingCreate{Likelihood: 5, Impact: 5}, gen.CreateRiskRatingParams{ID: risk})
+			return err
+		},
+		"close a risk": func(ctx context.Context) error {
+			_, err := h.CloseRisk(ctx, &gen.RiskClose{Reason: "Mitigated."}, gen.CloseRiskParams{ID: uuid.MustParse(closing), IfMatch: `"1"`})
+			return err
+		},
+		"list risks": func(ctx context.Context) error {
+			_, err := h.ListRisks(ctx, gen.ListRisksParams{})
+			return err
+		},
+		"ratings": func(ctx context.Context) error {
+			_, err := h.ListRiskRatings(ctx, gen.ListRiskRatingsParams{ID: risk})
+			return err
+		},
 	}
 	for name, call := range calls {
 		t.Run(name, func(t *testing.T) {
@@ -115,6 +150,14 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"tests page size": func(ctx context.Context) error {
 			_, err := h.ListControlTests(ctx, gen.ListControlTestsParams{ID: id, PageSize: gen.NewOptInt32(0)})
+			return err
+		},
+		"risks page size": func(ctx context.Context) error {
+			_, err := h.ListRisks(ctx, gen.ListRisksParams{PageSize: gen.NewOptInt32(0)})
+			return err
+		},
+		"ratings page size": func(ctx context.Context) error {
+			_, err := h.ListRiskRatings(ctx, gen.ListRiskRatingsParams{ID: risk, PageSize: gen.NewOptInt32(0)})
 			return err
 		},
 	} {

@@ -65,12 +65,21 @@ func (r Remote) Query(ctx context.Context, q Query) (*Result, error) {
 	if err := resp.Err(); err != nil {
 		return nil, fmt.Errorf("analytics: %w", err)
 	}
+	res, err := decodeResult(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	res.Query = q // what a saved report reruns; the server's answer does not repeat it
+	return res, nil
+}
+
+// decodeResult is a result as the endpoint writes it (AnalyticsResult).
+func decodeResult(body []byte) (*Result, error) {
 	var out remoteResult
-	if err := json.Unmarshal(resp.Body, &out); err != nil {
+	if err := json.Unmarshal(body, &out); err != nil {
 		return nil, fmt.Errorf("analytics: decode the result: %w", err)
 	}
 	res := out.Result
-	res.Query = q // what a saved report reruns; the server's answer does not repeat it
 	res.Rows = make([]Row, 0, len(out.Rows))
 	for _, cells := range out.Rows {
 		if len(cells) != len(res.Columns) {
@@ -78,6 +87,7 @@ func (r Remote) Query(ctx context.Context, q Query) (*Result, error) {
 		}
 		row := make(Row, len(cells))
 		for i, c := range cells {
+			var err error
 			if row[i], err = cell(res.Columns[i], c.Value, c.Currency); err != nil {
 				return nil, err
 			}

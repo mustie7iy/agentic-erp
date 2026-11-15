@@ -18,9 +18,10 @@ import (
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
 // perms are what the tests' person holds: reading the library, recording
-// controls and recording tests, and what the matrix and the links also
-// need: reading access data and the configuration.
-var perms = []string{"grc.control.read", "grc.control.write", "grc.control.test", "identity.access.read", "config.version.read"}
+// controls and recording tests, what the matrix and the links also need
+// (reading access data and the configuration), and the risk register's.
+var perms = []string{"grc.control.read", "grc.control.write", "grc.control.test", "identity.access.read", "config.version.read",
+	"grc.risk.read", "grc.risk.write"}
 
 // env is a configured tenant whose person (named "human") is the
 // compliance officer; carla is another active person.

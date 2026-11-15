@@ -67,14 +67,21 @@ func (e *Endpoints) invoiceTerms(ctx context.Context, tx pgx.Tx, v Invoice, sup 
 	if order != nil {
 		code = order.PaymentTermCode
 	}
+	return e.termsOf(ctx, code, v.InvoiceDate, "The invoice's")
+}
+
+// termsOf are payment term code's terms counted from baseline; a term
+// that is not configured is refused (422 payables.unknown_payment_term),
+// whose is the document's (The invoice's, The expense report's).
+func (e *Endpoints) termsOf(ctx context.Context, code string, baseline time.Time, whose string) (*ledger.ItemTerms, error) {
 	term, ok, err := e.Suppliers.PaymentTerm(ctx, code)
 	if err != nil {
 		return nil, err
 	}
 	if !ok {
-		return nil, problem.Unprocessable("payables.unknown_payment_term", "The invoice's payment term "+code+" is not configured; add it through a change request.")
+		return nil, problem.Unprocessable("payables.unknown_payment_term", whose+" payment term "+code+" is not configured; add it through a change request.")
 	}
-	t := &ledger.ItemTerms{PaymentTermCode: code, BaselineDate: v.InvoiceDate, NetDays: term.NetDays}
+	t := &ledger.ItemTerms{PaymentTermCode: code, BaselineDate: baseline, NetDays: term.NetDays}
 	for _, d := range term.Discounts {
 		t.Discounts = append(t.Discounts, ledger.Discount{Days: d.Days, Percent: d.Percent})
 	}

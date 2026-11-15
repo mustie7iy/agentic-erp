@@ -11,6 +11,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -221,7 +222,7 @@ func (q *qualityCheck) vendors() {
 		if _, _, why := vendorAddress(v, q.addresses, q.t.cutoverDays(companies[v.LIFNR]), q.t.today); why != "" {
 			q.add(SevWarning, "LFA1", v.LIFNR, "vendor %q has %s: it loads without an address", v.NAME1, why)
 		}
-		key := strings.ToUpper(strings.Join(strings.Fields(v.NAME1), " "))
+		key := partner.NormalizedName(v.NAME1)
 		byName[key] = append(byName[key], v.LIFNR)
 	}
 	for _, name := range sortedKeys(byName) {

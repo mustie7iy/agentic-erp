@@ -725,7 +725,7 @@ func buckets(read time.Time, bs []config.Bucket) []Bucket {
 			case config.GrainWeek:
 				next = from.AddDate(0, 0, 7*k)
 			case config.GrainMonth:
-				next = addMonths(from, k)
+				next = clock.AddMonths(from, k)
 			default:
 				next = from.AddDate(0, 0, k)
 			}

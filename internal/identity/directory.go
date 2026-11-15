@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -66,6 +67,36 @@ func (Directory) RolesHeld(ctx context.Context, principal uuid.UUID) ([]uuid.UUI
 		return nil, fmt.Errorf("identity: roles of principal %s: %w", principal, err)
 	}
 	return roles, nil
+}
+
+// NamedRole is a role as another context shows it beside its id: its
+// code, name and status (active, inactive).
+type NamedRole struct {
+	Code, Name, Status string
+}
+
+// Roles returns the roles of the tenant with the ids, keyed by id; an id
+// the tenant has no role of is absent. A saved report shared with a role
+// names it (ADR-0076 §7).
+func (Directory) Roles(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]NamedRole, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// CollectRows below returns the query's error.
+	rows, _ := tx.Query(ctx, `SELECT id, code, name, status FROM identity.role WHERE id = ANY($1)`, ids)
+	out := map[uuid.UUID]NamedRole{}
+	_, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (uuid.UUID, error) {
+		var id uuid.UUID
+		var r NamedRole
+		err := row.Scan(&id, &r.Code, &r.Name, &r.Status)
+		out[id] = r
+		return id, errs.Wrapf(err, "scan role")
+	})
+	if err != nil {
+		return nil, fmt.Errorf("identity: %d roles: %w", len(ids), err)
+	}
+	return out, nil
 }
 
 // Actors answers who deferred work acts as: the principal that queued it,

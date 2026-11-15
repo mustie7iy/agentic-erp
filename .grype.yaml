@@ -66,3 +66,28 @@ ignore:
       name: zlib1g
       type: deb
       version: 1:1.3.dfsg+really1.3.1-1+b1
+  # libcares2 1.34.5-1+deb13u1 in the pinned PgBouncer image above; Debian
+  # 13 fixes CVE-2026-33630 and CVE-2026-69184 (High) in 1.34.9-1~deb13u1,
+  # but no PgBouncer image carries it yet: the tag's current build
+  # (arm64 sha256:d63d8b3a...) and the newest, 1.26.1-202611121015-trixie
+  # (arm64 sha256:2df7fa82...), both still have 1.34.5 (scanned
+  # 2026-11-15). PgBouncer links libcares and uses it for its DNS lookups,
+  # so this is not a "nothing loads it" exception. Accepted by the product
+  # owner (2026-11-15): nothing is deployed (AWS deferred), the release runs
+  # this scan again before it copies or signs any image, and PgBouncer
+  # resolves only the database host in its own configuration (the cell's
+  # database endpoint, from the erp-pgbouncer secret,
+  # deploy/helm/erp-cell/templates/pgbouncer.yaml) through the cluster's
+  # resolver. Until 2026-11-29, or sooner once a PgBouncer image with
+  # libcares2 >= 1.34.9 is pinned. CVE-2025-62408 and CVE-2026-69186
+  # (Medium) are below the scan's threshold and need no entry.
+  - vulnerability: CVE-2026-33630
+    package:
+      name: libcares2
+      type: deb
+      version: 1.34.5-1+deb13u1
+  - vulnerability: CVE-2026-69184
+    package:
+      name: libcares2
+      type: deb
+      version: 1.34.5-1+deb13u1

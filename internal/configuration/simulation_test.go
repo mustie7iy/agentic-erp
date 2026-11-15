@@ -459,3 +459,101 @@ func TestSimulationRequesterBlocked(t *testing.T) {
 		t.Errorf("run again: got %t %v, want nothing to do", did, err)
 	}
 }
+
+// TestSimulationPreviewsADraft: a draft's simulation (T107b) validates and
+// replays the proposal as a submitted request's would, records no evidence
+// and moves nothing; its operation's result is the preview, with the
+// draft's version and the proposal it judged. A draft that does not
+// validate fails the operation with the findings submission would answer.
+// Every statement can fail, leaving the job queued.
+func TestSimulationPreviewsADraft(t *testing.T) {
+	s := sim{fixture.New(t, append(perms, "platform.operation.read")...)}
+	ctx := context.Background()
+	draft := func(t *testing.T, rate string) (string, uuid.UUID) {
+		t.Helper()
+		doc := fixture.Document(t)
+		doc.Companies[1].TaxCodes[0].RatePercent = rate
+		cr, tag := s.in(t).Must(201, "POST", "/v1/change-requests", fmt.Sprintf(`{"title": "Tax %s", "base_version": 1, "proposed": %s}`, rate, jsonOf(t, doc)), "")
+		path := "/v1/change-requests/" + apitest.String(t, cr, "id")
+		op, _ := s.in(t).Must(202, "POST", path+":simulate", "", tag)
+		return path, uuid.MustParse(apitest.String(t, op, "id"))
+	}
+	for _, c := range []struct {
+		name, rate string
+		passed     bool
+	}{{"passing", "7", true}, {"failing", "6", false}} {
+		t.Run(c.name, func(t *testing.T) {
+			path, op := draft(t, c.rate)
+			w := worker(t, &fakeSimulator{sim: configuration.Simulation{Passed: c.passed, Summary: "2 invoices replayed", Detail: map[string]any{"invoices": 2}}})
+			if did, err := w.Simulate(ctx, s.Tenant.ID, op); !did || err != nil {
+				t.Fatalf("simulate: got %t %v, want the job done", did, err)
+			}
+			done := s.in(t).status(t, "/v1/operations/"+op.String())
+			if done["status"] != "succeeded" {
+				t.Fatalf("operation: got %v, want succeeded", done["status"])
+			}
+			result := apitest.Object(t, done, "result")
+			for field, want := range map[string]any{"kind": "simulation", "passed": c.passed, "summary": "2 invoices replayed", "status": "draft", "version": float64(1)} {
+				if result[field] != want {
+					t.Errorf("preview %s: got %v, want %v", field, result[field], want)
+				}
+			}
+			if result["proposal_sha256"] == nil || result["invoices"] != nil {
+				t.Errorf("preview: got %v, want the proposal's hash and not the replay's detail", result)
+			}
+			got := s.in(t).status(t, path)
+			if got["status"] != "draft" || len(apitest.List(t, got, "evidence")) != 0 {
+				t.Errorf("draft after its preview: got status %v and evidence %v, want draft and none", got["status"], got["evidence"])
+			}
+			var audited int
+			pgtest.Scan(t, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'config.change_request.preview' AND detail->>'operation_id' = $2`,
+				[]any{s.Tenant.ID, op.String()}, &audited)
+			if audited != 1 {
+				t.Errorf("preview audit entries: got %d, want 1", audited)
+			}
+		})
+	}
+	t.Run("invalid", func(t *testing.T) {
+		path, op := draft(t, "abc") // no rate: the ledger's section is not asked
+		if did, err := worker(t, &fakeSimulator{}).Simulate(ctx, s.Tenant.ID, op); !did || err != nil {
+			t.Fatalf("simulate: got %t %v, want the job done", did, err)
+		}
+		if status := opStatus(t, op); status != "failed config.validation_failed" {
+			t.Errorf("operation: got %q, want failed config.validation_failed", status)
+		}
+		if got := s.in(t).status(t, path)["status"]; got != "draft" {
+			t.Errorf("draft after a failed preview: got %v, want draft", got)
+		}
+	})
+	t.Run("database failures", func(t *testing.T) {
+		_, op := draft(t, "5")
+		pool := pgtest.Pool(t)
+		for failAt := 1; ; failAt++ {
+			w := worker(t, &fakeSimulator{sim: configuration.Simulation{Passed: true, Detail: map[string]any{}}})
+			w.Begin = func(ctx context.Context, sc database.Scope) (pgx.Tx, error) {
+				tx, err := pool.Begin(ctx, sc)
+				return &pgtest.FailingTx{Tx: tx, FailAt: failAt}, err
+			}
+			_, err := w.Simulate(ctx, s.Tenant.ID, op)
+			if err == nil {
+				break
+			}
+			if !errors.Is(err, pgtest.ErrInjected) {
+				t.Fatalf("statement %d: got %v, want %v", failAt, err, pgtest.ErrInjected)
+			}
+			if got := opStatus(t, op); got != "queued " {
+				t.Fatalf("statement %d: got operation %q, want queued", failAt, got)
+			}
+			// A run takes a hundred-odd statements, one company lookup per
+			// number range among them (rangeCompanies), so the count grows
+			// with the document types the packs number: the bound only
+			// stops a run that never succeeds.
+			if failAt > 150 {
+				t.Fatalf("statement %d: still failing, want a run to succeed within 150 statements", failAt)
+			}
+		}
+		if got := opStatus(t, op); got != "succeeded " {
+			t.Errorf("after the failures: got operation %q, want succeeded", got)
+		}
+	})
+}

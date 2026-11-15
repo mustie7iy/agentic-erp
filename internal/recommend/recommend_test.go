@@ -274,6 +274,54 @@ func TestRunWithoutACheck(t *testing.T) {
 	}
 }
 
+// TestRunWrites: a write the agent declares is offered only to a run that
+// guards it, refused before a session starts otherwise; the run's guard
+// refuses a call before it reaches the API, and an observer of the write
+// may add to the run's objects one the write made, which the run may then
+// recommend on.
+func TestRunWrites(t *testing.T) {
+	writer := agent
+	writer.Writes = []string{"createChangeRequest"}
+	a := &fakeAPI{}
+	if _, err := writer.Run(context.Background(), llmtest.New(t).Runner(), client(t, a), recommend.Task{}); !errors.Is(err, recommend.ErrUnguarded) {
+		t.Fatalf("an unguarded write: got %v, want ErrUnguarded", err)
+	}
+	if n := len(a.sent("agent-sessions")); n != 0 {
+		t.Fatalf("an unguarded write: got %d sessions started, want none", n)
+	}
+	errTitle := errors.New("the title is refused")
+	draft := func(title string) llmtest.Step {
+		return llmtest.Tool("createChangeRequest", map[string]any{"body": map[string]any{"title": title, "base_version": 1, "proposed": map[string]any{}}})
+	}
+	objects := map[string]string{}
+	model := llmtest.New(t, draft("refuse"), draft("Raise the limit"),
+		llmtest.ToolFn("createRecommendation", rec(map[string]any{"object_type": "business_partner", "object_id": partner, "kind": "set_limit"})),
+		llmtest.Final("Done."))
+	res, err := writer.Run(context.Background(), model.Runner(), client(t, a), recommend.Task{Objects: objects,
+		Guards: map[string]func(map[string]any) error{"createChangeRequest": func(in map[string]any) error {
+			if b, _ := in["body"].(map[string]any); b["title"] == "refuse" {
+				return errTitle
+			}
+			return nil
+		}},
+		Observe: map[string]func(apitools.Response){"createChangeRequest": func(apitools.Response) { objects[partner] = "business_partner" }}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(a.sent("POST /v1/change-requests")); n != 1 {
+		t.Errorf("change requests sent: got %d, want 1", n)
+	}
+	if want := []recommend.Made{{ID: "r1", ObjectType: "business_partner", ObjectID: partner, Kind: "set_limit"}}; !slices.Equal(res.Recommendations, want) {
+		t.Errorf("recommendations: got %v, want %v", res.Recommendations, want)
+	}
+	if !strings.Contains(strings.Join(model.Requests, "\n"), errTitle.Error()) {
+		t.Errorf("the model was not told %q", errTitle)
+	}
+	if got, want := writer.Tools(), []string{"getCreditExposure", "listCreditLimits", "getBusinessPartner", "createChangeRequest", recommend.Proposer}; !slices.Equal(got, want) {
+		t.Errorf("tools: got %v, want %v", got, want)
+	}
+}
+
 // TestRunRefusals: an agent declared with an operation that is not a read
 // of the contract (a write, the proposer itself, one the contract does
 // not have) is refused before a session starts, as is a session the

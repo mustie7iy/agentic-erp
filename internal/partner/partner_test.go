@@ -69,7 +69,8 @@ func setup(t *testing.T) env {
 func (e env) date(days int) string { return e.day.AddDate(0, 0, days).Format(time.DateOnly) }
 
 // supplier is the body of a supplier with company data in 1000, an address,
-// a VAT number and a bank account valid from today+bankFrom.
+// a VAT number and a bank account valid from today+bankFrom. Every such
+// supplier has the same VAT number, so each confirms the duplicate (T89a).
 func (e env) supplier(name string, bankFrom int) string {
 	return fmt.Sprintf(`{"kind": "organization", "name": %q, "country_code": "DE", "roles": ["supplier"],
 		"supplier_companies": [{"legal_entity_id": %q, "reconciliation_account_id": %q, "payment_term_code": "NT30"}],
@@ -77,7 +78,7 @@ func (e env) supplier(name string, bankFrom int) string {
 		"tax_identifiers": [{"scheme": "EU_VAT", "value": "DE123456789"}],
 		"bank_accounts": [{"account_number": "de89 3704 0044 0532 0130 00", "account_scheme": "iban", "bic": "COBADEFFXXX",
 			"bank_country_code": "DE", "holder_name": %q, "valid_from": %q}],
-		"extensions": {"cost_object_hint": "MKT"}, "reason": "New supplier"}`, name, e.le, e.recon, e.date(-30), name, e.date(bankFrom))
+		"extensions": {"cost_object_hint": "MKT"}, "confirm_duplicate": true, "reason": "New supplier"}`, name, e.le, e.recon, e.date(-30), name, e.date(bankFrom))
 }
 
 // in returns e reporting to t, so a subtest's failure stops that subtest
@@ -265,7 +266,7 @@ func (s *createAndRead) createCustomerWithTheSameIdentifiers(t *testing.T) {
 	_, c2 := e.create(t, `{"kind": "person", "name": "Erika Mustermann", "legal_name": "Erika Mustermann", "language": "de", "country_code": "DE",
 		"roles": ["customer"], "tax_identifiers": [{"scheme": "EU_VAT", "value": "de 123456789"}],
 		"bank_accounts": [{"purpose": "collections", "account_number": "`+iban+`", "account_scheme": "iban", "bank_country_code": "DE",
-			"holder_name": "E", "valid_from": "`+e.date(1)+`"}], "reason": "Customer"}`)
+			"holder_name": "E", "valid_from": "`+e.date(1)+`"}], "confirm_duplicate": true, "reason": "Customer"}`)
 	codes := []string{}
 	for _, w := range c2["warnings"].([]any) {
 		codes = append(codes, w.(map[string]any)["code"].(string))

@@ -101,6 +101,13 @@ const (
 	// KindStatements are bank statement files as imported, named by sha256
 	// and locked: accounting evidence (ADR-0047).
 	KindStatements = "bank-statements"
+	// KindArchives are the records context's archive files and their
+	// manifests, named by archiving run id (ADR-0079 §7): written once,
+	// never changed.
+	KindArchives = "archives"
+	// KindReportRuns are saved reports' scheduled runs' results, named by
+	// run id (ADR-0076 §5).
+	KindReportRuns = "report-runs"
 )
 
 // Prefix is the first segment of every key.

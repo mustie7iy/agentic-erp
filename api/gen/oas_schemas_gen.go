@@ -1561,6 +1561,65 @@ func (s *AccrualProposalTotal) SetModifiedCount(val int32) {
 	s.ModifiedCount = val
 }
 
+type AcknowledgeMetricAlertBadRequest Problem
+
+func (*AcknowledgeMetricAlertBadRequest) acknowledgeMetricAlertRes() {}
+
+type AcknowledgeMetricAlertForbidden Problem
+
+func (*AcknowledgeMetricAlertForbidden) acknowledgeMetricAlertRes() {}
+
+type AcknowledgeMetricAlertNotFound Problem
+
+func (*AcknowledgeMetricAlertNotFound) acknowledgeMetricAlertRes() {}
+
+// AcknowledgeMetricAlertOKHeaders wraps MetricAlert with response headers.
+type AcknowledgeMetricAlertOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           MetricAlert
+}
+
+// GetETag returns the value of ETag.
+func (s *AcknowledgeMetricAlertOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AcknowledgeMetricAlertOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *AcknowledgeMetricAlertOKHeaders) GetResponse() MetricAlert {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *AcknowledgeMetricAlertOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AcknowledgeMetricAlertOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AcknowledgeMetricAlertOKHeaders) SetResponse(val MetricAlert) {
+	s.Response = val
+}
+
+func (*AcknowledgeMetricAlertOKHeaders) acknowledgeMetricAlertRes() {}
+
+type AcknowledgeMetricAlertPreconditionFailed Problem
+
+func (*AcknowledgeMetricAlertPreconditionFailed) acknowledgeMetricAlertRes() {}
+
+type AcknowledgeMetricAlertPreconditionRequired Problem
+
+func (*AcknowledgeMetricAlertPreconditionRequired) acknowledgeMetricAlertRes() {}
+
 type ActivateChangeRequestBadRequest Problem
 
 func (*ActivateChangeRequestBadRequest) activateChangeRequestRes() {}
@@ -1584,6 +1643,69 @@ func (*ActivateChangeRequestPreconditionRequired) activateChangeRequestRes() {}
 type ActivateChangeRequestUnprocessableEntity Problem
 
 func (*ActivateChangeRequestUnprocessableEntity) activateChangeRequestRes() {}
+
+type ActivateLeaseContractBadRequest Problem
+
+func (*ActivateLeaseContractBadRequest) activateLeaseContractRes() {}
+
+type ActivateLeaseContractForbidden Problem
+
+func (*ActivateLeaseContractForbidden) activateLeaseContractRes() {}
+
+type ActivateLeaseContractNotFound Problem
+
+func (*ActivateLeaseContractNotFound) activateLeaseContractRes() {}
+
+// ActivateLeaseContractOKHeaders wraps LeaseContract with response headers.
+type ActivateLeaseContractOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           LeaseContract
+}
+
+// GetETag returns the value of ETag.
+func (s *ActivateLeaseContractOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ActivateLeaseContractOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ActivateLeaseContractOKHeaders) GetResponse() LeaseContract {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ActivateLeaseContractOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ActivateLeaseContractOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ActivateLeaseContractOKHeaders) SetResponse(val LeaseContract) {
+	s.Response = val
+}
+
+func (*ActivateLeaseContractOKHeaders) activateLeaseContractRes() {}
+
+type ActivateLeaseContractPreconditionFailed Problem
+
+func (*ActivateLeaseContractPreconditionFailed) activateLeaseContractRes() {}
+
+type ActivateLeaseContractPreconditionRequired Problem
+
+func (*ActivateLeaseContractPreconditionRequired) activateLeaseContractRes() {}
+
+type ActivateLeaseContractUnprocessableEntity Problem
+
+func (*ActivateLeaseContractUnprocessableEntity) activateLeaseContractRes() {}
 
 type ActivateLegalEntityBadRequest Problem
 
@@ -4286,6 +4408,428 @@ func (s *AnalyticsFilter) SetValues(val []string) {
 	s.Values = val
 }
 
+// A governed metric's history and its forecast, an arithmetic projection computed on request and
+// stored nowhere (ADR-0077 §7).
+// Ref: #/components/schemas/AnalyticsForecast
+type AnalyticsForecast struct {
+	// The metric.
+	Metric string `json:"metric"`
+	// The metric's label in the semantic model.
+	MetricLabel string `json:"metric_label"`
+	// `money` or `count`. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Type string `json:"type"`
+	// For a money metric: the currency of every figure.
+	Currency OptString `json:"currency"`
+	// `month`, `quarter` or `year`.
+	Grain string `json:"grain"`
+	// `moving_average` or `same_period_last_year`.
+	Method string `json:"method"`
+	// For `moving_average`: the periods it averaged.
+	Window OptInt32 `json:"window"`
+	// The periods forecast.
+	PeriodsAhead int32 `json:"periods_ahead"`
+	// Every period from the first with data through the last, in order.
+	History []AnalyticsForecastPoint `json:"history"`
+	// The periods after the history, in order.
+	Forecast []AnalyticsForecastPoint `json:"forecast"`
+	// The history's periods the method read, by label, in order.
+	Used []string `json:"used"`
+	// The history's figures summed, in `currency` for an amount.
+	HistoryTotal string `json:"history_total"`
+	// The forecast's figures summed, in `currency` for an amount.
+	ForecastTotal string `json:"forecast_total"`
+	// What the forecast is: an arithmetic projection by the method named, not a statistical forecast.
+	Basis string `json:"basis"`
+	// Where the history was answered from: `store` or `database`, as a query's.
+	Source string `json:"source"`
+	// The data's time, as a query's.
+	AsOf time.Time `json:"as_of"`
+	// The latest posting or document date in the history's data (YYYY-MM-DD).
+	DataThrough string `json:"data_through"`
+	// The configuration version whose metric definitions answered.
+	ConfigVersion int32 `json:"config_version"`
+}
+
+// GetMetric returns the value of Metric.
+func (s *AnalyticsForecast) GetMetric() string {
+	return s.Metric
+}
+
+// GetMetricLabel returns the value of MetricLabel.
+func (s *AnalyticsForecast) GetMetricLabel() string {
+	return s.MetricLabel
+}
+
+// GetType returns the value of Type.
+func (s *AnalyticsForecast) GetType() string {
+	return s.Type
+}
+
+// GetCurrency returns the value of Currency.
+func (s *AnalyticsForecast) GetCurrency() OptString {
+	return s.Currency
+}
+
+// GetGrain returns the value of Grain.
+func (s *AnalyticsForecast) GetGrain() string {
+	return s.Grain
+}
+
+// GetMethod returns the value of Method.
+func (s *AnalyticsForecast) GetMethod() string {
+	return s.Method
+}
+
+// GetWindow returns the value of Window.
+func (s *AnalyticsForecast) GetWindow() OptInt32 {
+	return s.Window
+}
+
+// GetPeriodsAhead returns the value of PeriodsAhead.
+func (s *AnalyticsForecast) GetPeriodsAhead() int32 {
+	return s.PeriodsAhead
+}
+
+// GetHistory returns the value of History.
+func (s *AnalyticsForecast) GetHistory() []AnalyticsForecastPoint {
+	return s.History
+}
+
+// GetForecast returns the value of Forecast.
+func (s *AnalyticsForecast) GetForecast() []AnalyticsForecastPoint {
+	return s.Forecast
+}
+
+// GetUsed returns the value of Used.
+func (s *AnalyticsForecast) GetUsed() []string {
+	return s.Used
+}
+
+// GetHistoryTotal returns the value of HistoryTotal.
+func (s *AnalyticsForecast) GetHistoryTotal() string {
+	return s.HistoryTotal
+}
+
+// GetForecastTotal returns the value of ForecastTotal.
+func (s *AnalyticsForecast) GetForecastTotal() string {
+	return s.ForecastTotal
+}
+
+// GetBasis returns the value of Basis.
+func (s *AnalyticsForecast) GetBasis() string {
+	return s.Basis
+}
+
+// GetSource returns the value of Source.
+func (s *AnalyticsForecast) GetSource() string {
+	return s.Source
+}
+
+// GetAsOf returns the value of AsOf.
+func (s *AnalyticsForecast) GetAsOf() time.Time {
+	return s.AsOf
+}
+
+// GetDataThrough returns the value of DataThrough.
+func (s *AnalyticsForecast) GetDataThrough() string {
+	return s.DataThrough
+}
+
+// GetConfigVersion returns the value of ConfigVersion.
+func (s *AnalyticsForecast) GetConfigVersion() int32 {
+	return s.ConfigVersion
+}
+
+// SetMetric sets the value of Metric.
+func (s *AnalyticsForecast) SetMetric(val string) {
+	s.Metric = val
+}
+
+// SetMetricLabel sets the value of MetricLabel.
+func (s *AnalyticsForecast) SetMetricLabel(val string) {
+	s.MetricLabel = val
+}
+
+// SetType sets the value of Type.
+func (s *AnalyticsForecast) SetType(val string) {
+	s.Type = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *AnalyticsForecast) SetCurrency(val OptString) {
+	s.Currency = val
+}
+
+// SetGrain sets the value of Grain.
+func (s *AnalyticsForecast) SetGrain(val string) {
+	s.Grain = val
+}
+
+// SetMethod sets the value of Method.
+func (s *AnalyticsForecast) SetMethod(val string) {
+	s.Method = val
+}
+
+// SetWindow sets the value of Window.
+func (s *AnalyticsForecast) SetWindow(val OptInt32) {
+	s.Window = val
+}
+
+// SetPeriodsAhead sets the value of PeriodsAhead.
+func (s *AnalyticsForecast) SetPeriodsAhead(val int32) {
+	s.PeriodsAhead = val
+}
+
+// SetHistory sets the value of History.
+func (s *AnalyticsForecast) SetHistory(val []AnalyticsForecastPoint) {
+	s.History = val
+}
+
+// SetForecast sets the value of Forecast.
+func (s *AnalyticsForecast) SetForecast(val []AnalyticsForecastPoint) {
+	s.Forecast = val
+}
+
+// SetUsed sets the value of Used.
+func (s *AnalyticsForecast) SetUsed(val []string) {
+	s.Used = val
+}
+
+// SetHistoryTotal sets the value of HistoryTotal.
+func (s *AnalyticsForecast) SetHistoryTotal(val string) {
+	s.HistoryTotal = val
+}
+
+// SetForecastTotal sets the value of ForecastTotal.
+func (s *AnalyticsForecast) SetForecastTotal(val string) {
+	s.ForecastTotal = val
+}
+
+// SetBasis sets the value of Basis.
+func (s *AnalyticsForecast) SetBasis(val string) {
+	s.Basis = val
+}
+
+// SetSource sets the value of Source.
+func (s *AnalyticsForecast) SetSource(val string) {
+	s.Source = val
+}
+
+// SetAsOf sets the value of AsOf.
+func (s *AnalyticsForecast) SetAsOf(val time.Time) {
+	s.AsOf = val
+}
+
+// SetDataThrough sets the value of DataThrough.
+func (s *AnalyticsForecast) SetDataThrough(val string) {
+	s.DataThrough = val
+}
+
+// SetConfigVersion sets the value of ConfigVersion.
+func (s *AnalyticsForecast) SetConfigVersion(val int32) {
+	s.ConfigVersion = val
+}
+
+// AnalyticsForecastHeaders wraps AnalyticsForecast with response headers.
+type AnalyticsForecastHeaders struct {
+	IdempotentReplayed OptBool
+	Response           AnalyticsForecast
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AnalyticsForecastHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *AnalyticsForecastHeaders) GetResponse() AnalyticsForecast {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AnalyticsForecastHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AnalyticsForecastHeaders) SetResponse(val AnalyticsForecast) {
+	s.Response = val
+}
+
+func (*AnalyticsForecastHeaders) runAnalyticsForecastRes() {}
+
+// A fiscal period's figure: of the history, or forecast.
+// Ref: #/components/schemas/AnalyticsForecastPoint
+type AnalyticsForecastPoint struct {
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The fiscal month (1-12) or quarter (1-4) within it; absent for a year.
+	Period OptInt32 `json:"period"`
+	// The period as `2026-09` (a month), `2026-Q3` (a quarter) or `2026` (a year).
+	Label string `json:"label"`
+	// The figure, an exact decimal at the metric's digits: an amount in `currency`, a count whole.
+	Value string `json:"value"`
+	// For an amount: its currency.
+	Currency OptString `json:"currency"`
+	// Of the history: whether the period had data; a period without is zero.
+	HasData OptBool `json:"has_data"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AnalyticsForecastPoint) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *AnalyticsForecastPoint) GetPeriod() OptInt32 {
+	return s.Period
+}
+
+// GetLabel returns the value of Label.
+func (s *AnalyticsForecastPoint) GetLabel() string {
+	return s.Label
+}
+
+// GetValue returns the value of Value.
+func (s *AnalyticsForecastPoint) GetValue() string {
+	return s.Value
+}
+
+// GetCurrency returns the value of Currency.
+func (s *AnalyticsForecastPoint) GetCurrency() OptString {
+	return s.Currency
+}
+
+// GetHasData returns the value of HasData.
+func (s *AnalyticsForecastPoint) GetHasData() OptBool {
+	return s.HasData
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AnalyticsForecastPoint) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *AnalyticsForecastPoint) SetPeriod(val OptInt32) {
+	s.Period = val
+}
+
+// SetLabel sets the value of Label.
+func (s *AnalyticsForecastPoint) SetLabel(val string) {
+	s.Label = val
+}
+
+// SetValue sets the value of Value.
+func (s *AnalyticsForecastPoint) SetValue(val string) {
+	s.Value = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *AnalyticsForecastPoint) SetCurrency(val OptString) {
+	s.Currency = val
+}
+
+// SetHasData sets the value of HasData.
+func (s *AnalyticsForecastPoint) SetHasData(val OptBool) {
+	s.HasData = val
+}
+
+// A governed metric to forecast: its history's filters, the fiscal period it is forecast by, how many
+// periods ahead and by which method.
+// Ref: #/components/schemas/AnalyticsForecastRequest
+type AnalyticsForecastRequest struct {
+	// A metric of the semantic model (`getAnalyticsModel`); not a ratio.
+	Metric string `json:"metric"`
+	// Filters on dimensions, all of which the history's rows must meet, as a query's.
+	Where []AnalyticsFilter `json:"where"`
+	// Company codes to restrict the history to, within those the caller may read; all of those when
+	// omitted.
+	Companies []string `json:"companies"`
+	// The fiscal period of history and forecast: `month`, `quarter` or `year`. Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	Grain string `json:"grain"`
+	// How many periods after the history to forecast.
+	PeriodsAhead int32 `json:"periods_ahead"`
+	// `moving_average` (the average of the last `window` periods) or `same_period_last_year` (the same
+	// period a fiscal year before). Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Method string `json:"method"`
+	// For `moving_average`, and for it alone: how many of the last periods it averages.
+	Window OptInt32 `json:"window"`
+}
+
+// GetMetric returns the value of Metric.
+func (s *AnalyticsForecastRequest) GetMetric() string {
+	return s.Metric
+}
+
+// GetWhere returns the value of Where.
+func (s *AnalyticsForecastRequest) GetWhere() []AnalyticsFilter {
+	return s.Where
+}
+
+// GetCompanies returns the value of Companies.
+func (s *AnalyticsForecastRequest) GetCompanies() []string {
+	return s.Companies
+}
+
+// GetGrain returns the value of Grain.
+func (s *AnalyticsForecastRequest) GetGrain() string {
+	return s.Grain
+}
+
+// GetPeriodsAhead returns the value of PeriodsAhead.
+func (s *AnalyticsForecastRequest) GetPeriodsAhead() int32 {
+	return s.PeriodsAhead
+}
+
+// GetMethod returns the value of Method.
+func (s *AnalyticsForecastRequest) GetMethod() string {
+	return s.Method
+}
+
+// GetWindow returns the value of Window.
+func (s *AnalyticsForecastRequest) GetWindow() OptInt32 {
+	return s.Window
+}
+
+// SetMetric sets the value of Metric.
+func (s *AnalyticsForecastRequest) SetMetric(val string) {
+	s.Metric = val
+}
+
+// SetWhere sets the value of Where.
+func (s *AnalyticsForecastRequest) SetWhere(val []AnalyticsFilter) {
+	s.Where = val
+}
+
+// SetCompanies sets the value of Companies.
+func (s *AnalyticsForecastRequest) SetCompanies(val []string) {
+	s.Companies = val
+}
+
+// SetGrain sets the value of Grain.
+func (s *AnalyticsForecastRequest) SetGrain(val string) {
+	s.Grain = val
+}
+
+// SetPeriodsAhead sets the value of PeriodsAhead.
+func (s *AnalyticsForecastRequest) SetPeriodsAhead(val int32) {
+	s.PeriodsAhead = val
+}
+
+// SetMethod sets the value of Method.
+func (s *AnalyticsForecastRequest) SetMethod(val string) {
+	s.Method = val
+}
+
+// SetWindow sets the value of Window.
+func (s *AnalyticsForecastRequest) SetWindow(val OptInt32) {
+	s.Window = val
+}
+
 // A configuration version's governed semantic model.
 // Ref: #/components/schemas/AnalyticsModel
 type AnalyticsModel struct {
@@ -5084,6 +5628,399 @@ func (*ApproveApprovalRequestPreconditionRequired) approveApprovalRequestRes() {
 type ApproveApprovalRequestUnprocessableEntity Problem
 
 func (*ApproveApprovalRequestUnprocessableEntity) approveApprovalRequestRes() {}
+
+// A completed run's archive file and its manifest (ADR-0079 §7).
+// Ref: #/components/schemas/ArchiveFile
+type ArchiveFile struct {
+	// The file's name, `<run id>.jsonl`; `GET /v1/archiving-runs/{id}/file` downloads it.
+	Name string `json:"name"`
+	// The SHA-256 of the file's content, in hexadecimal; the manifest names it too.
+	SHA256 string `json:"sha256"`
+	// The file's size in bytes.
+	SizeBytes int64 `json:"size_bytes"`
+	// The SHA-256 of the manifest, `<run id>.manifest.json`, kept beside the file in object storage; the
+	// API does not hand the manifest out, its figures are these fields.
+	ManifestSHA256 string `json:"manifest_sha256"`
+	// The journal entries in the file: every entry of the company's fiscal year, of every ledger.
+	EntryCount int32 `json:"entry_count"`
+	// Their lines.
+	LineCount int32 `json:"line_count"`
+	// The sum of the lines' debits in the company's currency.
+	DebitTotal Money `json:"debit_total"`
+}
+
+// GetName returns the value of Name.
+func (s *ArchiveFile) GetName() string {
+	return s.Name
+}
+
+// GetSHA256 returns the value of SHA256.
+func (s *ArchiveFile) GetSHA256() string {
+	return s.SHA256
+}
+
+// GetSizeBytes returns the value of SizeBytes.
+func (s *ArchiveFile) GetSizeBytes() int64 {
+	return s.SizeBytes
+}
+
+// GetManifestSHA256 returns the value of ManifestSHA256.
+func (s *ArchiveFile) GetManifestSHA256() string {
+	return s.ManifestSHA256
+}
+
+// GetEntryCount returns the value of EntryCount.
+func (s *ArchiveFile) GetEntryCount() int32 {
+	return s.EntryCount
+}
+
+// GetLineCount returns the value of LineCount.
+func (s *ArchiveFile) GetLineCount() int32 {
+	return s.LineCount
+}
+
+// GetDebitTotal returns the value of DebitTotal.
+func (s *ArchiveFile) GetDebitTotal() Money {
+	return s.DebitTotal
+}
+
+// SetName sets the value of Name.
+func (s *ArchiveFile) SetName(val string) {
+	s.Name = val
+}
+
+// SetSHA256 sets the value of SHA256.
+func (s *ArchiveFile) SetSHA256(val string) {
+	s.SHA256 = val
+}
+
+// SetSizeBytes sets the value of SizeBytes.
+func (s *ArchiveFile) SetSizeBytes(val int64) {
+	s.SizeBytes = val
+}
+
+// SetManifestSHA256 sets the value of ManifestSHA256.
+func (s *ArchiveFile) SetManifestSHA256(val string) {
+	s.ManifestSHA256 = val
+}
+
+// SetEntryCount sets the value of EntryCount.
+func (s *ArchiveFile) SetEntryCount(val int32) {
+	s.EntryCount = val
+}
+
+// SetLineCount sets the value of LineCount.
+func (s *ArchiveFile) SetLineCount(val int32) {
+	s.LineCount = val
+}
+
+// SetDebitTotal sets the value of DebitTotal.
+func (s *ArchiveFile) SetDebitTotal(val Money) {
+	s.DebitTotal = val
+}
+
+// An archiving run (records, ADR-0079 §6-§8, T99b): a company's documents of one kind and fiscal
+// year written to an archive file in object storage with a manifest. Nothing is deleted.
+// Ref: #/components/schemas/ArchivingRun
+type ArchivingRun struct {
+	// Archiving run id.
+	ID uuid.UUID `json:"id"`
+	// The company (`GET /v1/legal-entities/{id}`).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The kind of document archived. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	DocumentKind string `json:"document_kind"`
+	// The fiscal year archived.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The years of the retention rule that put the year past retention when the run was asked for.
+	RetentionYears int32 `json:"retention_years"`
+	// The active configuration version the rule was read from.
+	ConfigurationVersion int32 `json:"configuration_version"`
+	// `queued` (until the archiver writes its file), `completed` or `failed`. Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	Status string         `json:"status"`
+	File   OptArchiveFile `json:"file"`
+	// Failed: the problem code that stopped the run (`identity.principal_blocked`,
+	// `records.year_not_closed`, `records.archive_changed`, `records.amount_too_large` when the year's
+	// debits add up to more than an amount holds).
+	FailureCode OptString `json:"failure_code"`
+	// When the archiver completed it.
+	CompletedAt OptDateTime `json:"completed_at"`
+	// Who asked for the run.
+	RequestedBy uuid.UUID `json:"requested_by"`
+	// Their name, as the identity context gives it now.
+	RequestedByName string    `json:"requested_by_name"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *ArchivingRun) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ArchivingRun) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ArchivingRun) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetDocumentKind returns the value of DocumentKind.
+func (s *ArchivingRun) GetDocumentKind() string {
+	return s.DocumentKind
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *ArchivingRun) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetRetentionYears returns the value of RetentionYears.
+func (s *ArchivingRun) GetRetentionYears() int32 {
+	return s.RetentionYears
+}
+
+// GetConfigurationVersion returns the value of ConfigurationVersion.
+func (s *ArchivingRun) GetConfigurationVersion() int32 {
+	return s.ConfigurationVersion
+}
+
+// GetStatus returns the value of Status.
+func (s *ArchivingRun) GetStatus() string {
+	return s.Status
+}
+
+// GetFile returns the value of File.
+func (s *ArchivingRun) GetFile() OptArchiveFile {
+	return s.File
+}
+
+// GetFailureCode returns the value of FailureCode.
+func (s *ArchivingRun) GetFailureCode() OptString {
+	return s.FailureCode
+}
+
+// GetCompletedAt returns the value of CompletedAt.
+func (s *ArchivingRun) GetCompletedAt() OptDateTime {
+	return s.CompletedAt
+}
+
+// GetRequestedBy returns the value of RequestedBy.
+func (s *ArchivingRun) GetRequestedBy() uuid.UUID {
+	return s.RequestedBy
+}
+
+// GetRequestedByName returns the value of RequestedByName.
+func (s *ArchivingRun) GetRequestedByName() string {
+	return s.RequestedByName
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ArchivingRun) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *ArchivingRun) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *ArchivingRun) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ArchivingRun) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ArchivingRun) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetDocumentKind sets the value of DocumentKind.
+func (s *ArchivingRun) SetDocumentKind(val string) {
+	s.DocumentKind = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *ArchivingRun) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetRetentionYears sets the value of RetentionYears.
+func (s *ArchivingRun) SetRetentionYears(val int32) {
+	s.RetentionYears = val
+}
+
+// SetConfigurationVersion sets the value of ConfigurationVersion.
+func (s *ArchivingRun) SetConfigurationVersion(val int32) {
+	s.ConfigurationVersion = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ArchivingRun) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetFile sets the value of File.
+func (s *ArchivingRun) SetFile(val OptArchiveFile) {
+	s.File = val
+}
+
+// SetFailureCode sets the value of FailureCode.
+func (s *ArchivingRun) SetFailureCode(val OptString) {
+	s.FailureCode = val
+}
+
+// SetCompletedAt sets the value of CompletedAt.
+func (s *ArchivingRun) SetCompletedAt(val OptDateTime) {
+	s.CompletedAt = val
+}
+
+// SetRequestedBy sets the value of RequestedBy.
+func (s *ArchivingRun) SetRequestedBy(val uuid.UUID) {
+	s.RequestedBy = val
+}
+
+// SetRequestedByName sets the value of RequestedByName.
+func (s *ArchivingRun) SetRequestedByName(val string) {
+	s.RequestedByName = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ArchivingRun) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *ArchivingRun) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+func (*ArchivingRun) createArchivingRunRes() {}
+func (*ArchivingRun) getArchivingRunRes()    {}
+
+// An archiving run to start (ADR-0079 §6): a company, a document kind and a fiscal year past
+// retention.
+// Ref: #/components/schemas/ArchivingRunCreate
+type ArchivingRunCreate struct {
+	// The company whose documents are archived.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The kind of document; the first version archives `journal_entry`. Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	DocumentKind string `json:"document_kind"`
+	// The fiscal year, past retention and closed.
+	FiscalYear int32 `json:"fiscal_year"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ArchivingRunCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetDocumentKind returns the value of DocumentKind.
+func (s *ArchivingRunCreate) GetDocumentKind() string {
+	return s.DocumentKind
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *ArchivingRunCreate) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ArchivingRunCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetDocumentKind sets the value of DocumentKind.
+func (s *ArchivingRunCreate) SetDocumentKind(val string) {
+	s.DocumentKind = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *ArchivingRunCreate) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// ArchivingRunHeaders wraps ArchivingRun with response headers.
+type ArchivingRunHeaders struct {
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           ArchivingRun
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ArchivingRunHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *ArchivingRunHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *ArchivingRunHeaders) GetResponse() ArchivingRun {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ArchivingRunHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *ArchivingRunHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ArchivingRunHeaders) SetResponse(val ArchivingRun) {
+	s.Response = val
+}
+
+func (*ArchivingRunHeaders) createArchivingRunRes() {}
+
+// One page of archiving runs, newest first.
+// Ref: #/components/schemas/ArchivingRunPage
+type ArchivingRunPage struct {
+	// The runs on this page.
+	Items []ArchivingRun `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ArchivingRunPage) GetItems() []ArchivingRun {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ArchivingRunPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ArchivingRunPage) SetItems(val []ArchivingRun) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ArchivingRunPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ArchivingRunPage) listArchivingRunsRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/Asset
@@ -15783,6 +16720,11 @@ type BusinessPartnerCreate struct {
 	// `partner.group_company_unknown` otherwise). The ledger derives the trading partner of the lines
 	// naming the partner from it.
 	GroupCompanyID OptUUID `json:"group_company_id"`
+	// Create the partner although another partner has one of its tax registration numbers (the same scheme
+	// and value): the creator judged it another partner. Without it such a partner is refused (409
+	// `partner.duplicate_tax_number`). The change lists the possible duplicates either way
+	// (`PartnerChange.possible_duplicates`).
+	ConfirmDuplicate OptBool `json:"confirm_duplicate"`
 	// Why the partner is needed; recorded on the partner change.
 	Reason string `json:"reason"`
 }
@@ -15850,6 +16792,11 @@ func (s *BusinessPartnerCreate) GetExtensions() OptExtensions {
 // GetGroupCompanyID returns the value of GroupCompanyID.
 func (s *BusinessPartnerCreate) GetGroupCompanyID() OptUUID {
 	return s.GroupCompanyID
+}
+
+// GetConfirmDuplicate returns the value of ConfirmDuplicate.
+func (s *BusinessPartnerCreate) GetConfirmDuplicate() OptBool {
+	return s.ConfirmDuplicate
 }
 
 // GetReason returns the value of Reason.
@@ -15920,6 +16867,11 @@ func (s *BusinessPartnerCreate) SetExtensions(val OptExtensions) {
 // SetGroupCompanyID sets the value of GroupCompanyID.
 func (s *BusinessPartnerCreate) SetGroupCompanyID(val OptUUID) {
 	s.GroupCompanyID = val
+}
+
+// SetConfirmDuplicate sets the value of ConfirmDuplicate.
+func (s *BusinessPartnerCreate) SetConfirmDuplicate(val OptBool) {
+	s.ConfirmDuplicate = val
 }
 
 // SetReason sets the value of Reason.
@@ -22888,6 +23840,30 @@ func (s *CloseCheckWarning) SetCatchUp(val OptMoney) {
 	s.CatchUp = val
 }
 
+type CloseDisputeCaseBadRequest Problem
+
+func (*CloseDisputeCaseBadRequest) closeDisputeCaseRes() {}
+
+type CloseDisputeCaseForbidden Problem
+
+func (*CloseDisputeCaseForbidden) closeDisputeCaseRes() {}
+
+type CloseDisputeCaseNotFound Problem
+
+func (*CloseDisputeCaseNotFound) closeDisputeCaseRes() {}
+
+type CloseDisputeCasePreconditionFailed Problem
+
+func (*CloseDisputeCasePreconditionFailed) closeDisputeCaseRes() {}
+
+type CloseDisputeCasePreconditionRequired Problem
+
+func (*CloseDisputeCasePreconditionRequired) closeDisputeCaseRes() {}
+
+type CloseDisputeCaseUnprocessableEntity Problem
+
+func (*CloseDisputeCaseUnprocessableEntity) closeDisputeCaseRes() {}
+
 type CloseFiscalPeriodBadRequest Problem
 
 func (*CloseFiscalPeriodBadRequest) closeFiscalPeriodRes() {}
@@ -23115,6 +24091,30 @@ func (*ClosePurchaseOrderPreconditionRequired) closePurchaseOrderRes() {}
 type ClosePurchaseOrderUnprocessableEntity Problem
 
 func (*ClosePurchaseOrderUnprocessableEntity) closePurchaseOrderRes() {}
+
+type CloseRiskBadRequest Problem
+
+func (*CloseRiskBadRequest) closeRiskRes() {}
+
+type CloseRiskForbidden Problem
+
+func (*CloseRiskForbidden) closeRiskRes() {}
+
+type CloseRiskNotFound Problem
+
+func (*CloseRiskNotFound) closeRiskRes() {}
+
+type CloseRiskPreconditionFailed Problem
+
+func (*CloseRiskPreconditionFailed) closeRiskRes() {}
+
+type CloseRiskPreconditionRequired Problem
+
+func (*CloseRiskPreconditionRequired) closeRiskRes() {}
+
+type CloseRiskUnprocessableEntity Problem
+
+func (*CloseRiskUnprocessableEntity) closeRiskRes() {}
 
 // A task of a period close (ADR-0058 §6), with its close and company.
 // Ref: #/components/schemas/CloseTask
@@ -23579,6 +24579,10 @@ type CollectionWorklist struct {
 	OpenAmount Money `json:"open_amount"`
 	// The sum of `overdue_amount` of every customer on the worklist.
 	OverdueAmount Money `json:"overdue_amount"`
+	// The sum of `disputed_amount` of every customer on the worklist (T86b).
+	DisputedAmount Money `json:"disputed_amount"`
+	// The sum of `open_dispute_cases` of every customer on the worklist (T86b).
+	OpenDisputeCases int32 `json:"open_dispute_cases"`
 	// The customers on this page, the largest overdue amount first.
 	Items []CollectionWorklistCustomer `json:"items"`
 	// Opaque cursor for the next page; absent on the last page.
@@ -23623,6 +24627,16 @@ func (s *CollectionWorklist) GetOpenAmount() Money {
 // GetOverdueAmount returns the value of OverdueAmount.
 func (s *CollectionWorklist) GetOverdueAmount() Money {
 	return s.OverdueAmount
+}
+
+// GetDisputedAmount returns the value of DisputedAmount.
+func (s *CollectionWorklist) GetDisputedAmount() Money {
+	return s.DisputedAmount
+}
+
+// GetOpenDisputeCases returns the value of OpenDisputeCases.
+func (s *CollectionWorklist) GetOpenDisputeCases() int32 {
+	return s.OpenDisputeCases
 }
 
 // GetItems returns the value of Items.
@@ -23675,6 +24689,16 @@ func (s *CollectionWorklist) SetOverdueAmount(val Money) {
 	s.OverdueAmount = val
 }
 
+// SetDisputedAmount sets the value of DisputedAmount.
+func (s *CollectionWorklist) SetDisputedAmount(val Money) {
+	s.DisputedAmount = val
+}
+
+// SetOpenDisputeCases sets the value of OpenDisputeCases.
+func (s *CollectionWorklist) SetOpenDisputeCases(val int32) {
+	s.OpenDisputeCases = val
+}
+
 // SetItems sets the value of Items.
 func (s *CollectionWorklist) SetItems(val []CollectionWorklistCustomer) {
 	s.Items = val
@@ -23711,6 +24735,13 @@ type CollectionWorklistCustomer struct {
 	// The latest dunning date (a confirmed run's key date) recorded for one of the customer's open items;
 	// absent when none was dunned.
 	LastDunningDate OptDate `json:"last_dunning_date"`
+	// What the open dispute cases of the customer's open items dispute, overdue or not, each case's share
+	// of its item as booked (`local_disputed_amount`); 0 without any. It changes neither `open_amount` nor
+	// `overdue_amount`: a disputed item stays open and overdue.
+	DisputedAmount Money `json:"disputed_amount"`
+	// The open dispute cases of the customer's open items (`listDisputeCases?customer_id=&status=open`,
+	// which also lists a case whose item was cleared since).
+	OpenDisputeCases int32 `json:"open_dispute_cases"`
 }
 
 // GetCustomerID returns the value of CustomerID.
@@ -23753,6 +24784,16 @@ func (s *CollectionWorklistCustomer) GetLastDunningDate() OptDate {
 	return s.LastDunningDate
 }
 
+// GetDisputedAmount returns the value of DisputedAmount.
+func (s *CollectionWorklistCustomer) GetDisputedAmount() Money {
+	return s.DisputedAmount
+}
+
+// GetOpenDisputeCases returns the value of OpenDisputeCases.
+func (s *CollectionWorklistCustomer) GetOpenDisputeCases() int32 {
+	return s.OpenDisputeCases
+}
+
 // SetCustomerID sets the value of CustomerID.
 func (s *CollectionWorklistCustomer) SetCustomerID(val uuid.UUID) {
 	s.CustomerID = val
@@ -23791,6 +24832,16 @@ func (s *CollectionWorklistCustomer) SetDunningLevel(val int32) {
 // SetLastDunningDate sets the value of LastDunningDate.
 func (s *CollectionWorklistCustomer) SetLastDunningDate(val OptDate) {
 	s.LastDunningDate = val
+}
+
+// SetDisputedAmount sets the value of DisputedAmount.
+func (s *CollectionWorklistCustomer) SetDisputedAmount(val Money) {
+	s.DisputedAmount = val
+}
+
+// SetOpenDisputeCases sets the value of OpenDisputeCases.
+func (s *CollectionWorklistCustomer) SetOpenDisputeCases(val int32) {
+	s.OpenDisputeCases = val
 }
 
 // Body of a rejection or cancellation decision.
@@ -24628,7 +25679,9 @@ func (*ConflictHeaders) acceptIntercompanyDifferenceRes()          {}
 func (*ConflictHeaders) acceptMemoRecordProposalRes()              {}
 func (*ConflictHeaders) acceptQuotationRes()                       {}
 func (*ConflictHeaders) acceptVarianceCommentRes()                 {}
+func (*ConflictHeaders) acknowledgeMetricAlertRes()                {}
 func (*ConflictHeaders) activateChangeRequestRes()                 {}
+func (*ConflictHeaders) activateLeaseContractRes()                 {}
 func (*ConflictHeaders) activateLegalEntityRes()                   {}
 func (*ConflictHeaders) activateOrgUnitRes()                       {}
 func (*ConflictHeaders) activateRevenueContractRes()               {}
@@ -24659,9 +25712,11 @@ func (*ConflictHeaders) captureSupplierInvoiceRes()                {}
 func (*ConflictHeaders) checkCloseTaskRes()                        {}
 func (*ConflictHeaders) checkYearCloseTaskRes()                    {}
 func (*ConflictHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
+func (*ConflictHeaders) closeDisputeCaseRes()                      {}
 func (*ConflictHeaders) closeFiscalPeriodRes()                     {}
 func (*ConflictHeaders) closeInternalOrderRes()                    {}
 func (*ConflictHeaders) closePurchaseOrderRes()                    {}
+func (*ConflictHeaders) closeRiskRes()                             {}
 func (*ConflictHeaders) completeCloseTaskRes()                     {}
 func (*ConflictHeaders) completeYearCloseTaskRes()                 {}
 func (*ConflictHeaders) confirmDunningRunRes()                     {}
@@ -24671,6 +25726,7 @@ func (*ConflictHeaders) confirmSalesDeliveryRes()                  {}
 func (*ConflictHeaders) confirmSalesOrderRes()                     {}
 func (*ConflictHeaders) copyPlanCategoryRes()                      {}
 func (*ConflictHeaders) createAllocationCycleRes()                 {}
+func (*ConflictHeaders) createArchivingRunRes()                    {}
 func (*ConflictHeaders) createAssetAcquisitionRes()                {}
 func (*ConflictHeaders) createAssetRes()                           {}
 func (*ConflictHeaders) createAssetRetirementRes()                 {}
@@ -24692,17 +25748,21 @@ func (*ConflictHeaders) createCostCenterRes()                      {}
 func (*ConflictHeaders) createCreditLimitRes()                     {}
 func (*ConflictHeaders) createCreditMemoRequestRes()               {}
 func (*ConflictHeaders) createCustomerInvoiceRes()                 {}
+func (*ConflictHeaders) createDisputeCaseRes()                     {}
 func (*ConflictHeaders) createDownPaymentRequestRes()              {}
 func (*ConflictHeaders) createDunningRunRes()                      {}
 func (*ConflictHeaders) createEntryTemplateRes()                   {}
 func (*ConflictHeaders) createExchangeRateRes()                    {}
+func (*ConflictHeaders) createExpenseReportRes()                   {}
 func (*ConflictHeaders) createForecastVarianceCommentRes()         {}
 func (*ConflictHeaders) createGrIrClearingRes()                    {}
 func (*ConflictHeaders) createHierarchyRes()                       {}
 func (*ConflictHeaders) createIncomingPaymentRes()                 {}
 func (*ConflictHeaders) createInternalOrderRes()                   {}
+func (*ConflictHeaders) createLeaseContractRes()                   {}
 func (*ConflictHeaders) createLegalEntityRes()                     {}
 func (*ConflictHeaders) createMemoRecordRes()                      {}
+func (*ConflictHeaders) createMetricWatcherRes()                   {}
 func (*ConflictHeaders) createMigrationRunRes()                    {}
 func (*ConflictHeaders) createOrgUnitRes()                         {}
 func (*ConflictHeaders) createPartnerChangeRes()                   {}
@@ -24714,11 +25774,14 @@ func (*ConflictHeaders) createPurchaseOrderChangeRes()             {}
 func (*ConflictHeaders) createPurchaseOrderRes()                   {}
 func (*ConflictHeaders) createQuotationRes()                       {}
 func (*ConflictHeaders) createRecommendationRes()                  {}
+func (*ConflictHeaders) createReportRes()                          {}
+func (*ConflictHeaders) createReportShareRes()                     {}
 func (*ConflictHeaders) createRequisitionRes()                     {}
 func (*ConflictHeaders) createReturnsOrderRes()                    {}
 func (*ConflictHeaders) createRevenueContractRes()                 {}
 func (*ConflictHeaders) createRevenueRecognitionRunRes()           {}
 func (*ConflictHeaders) createRfqRes()                             {}
+func (*ConflictHeaders) createRiskRatingRes()                      {}
 func (*ConflictHeaders) createRoleAssignmentRes()                  {}
 func (*ConflictHeaders) createRoleRes()                            {}
 func (*ConflictHeaders) createSalesOrderRes()                      {}
@@ -24742,15 +25805,18 @@ func (*ConflictHeaders) drillAnalyticsQueryRes()                   {}
 func (*ConflictHeaders) enableConnectorRes()                       {}
 func (*ConflictHeaders) endAgentSessionRes()                       {}
 func (*ConflictHeaders) endCompanyAccessRes()                      {}
+func (*ConflictHeaders) endReportShareRes()                        {}
 func (*ConflictHeaders) endRoleAssignmentRes()                     {}
 func (*ConflictHeaders) endRolePermissionRes()                     {}
 func (*ConflictHeaders) endSodRuleRes()                            {}
+func (*ConflictHeaders) evaluateMetricWatcherRes()                 {}
 func (*ConflictHeaders) excludeBankStatementLineRes()              {}
 func (*ConflictHeaders) fetchEInvoicesRes()                        {}
 func (*ConflictHeaders) fileTaxReturnRes()                         {}
 func (*ConflictHeaders) finalizeConsolidationRunRes()              {}
 func (*ConflictHeaders) getAccrualProposalRes()                    {}
 func (*ConflictHeaders) getAnalyticsModelRes()                     {}
+func (*ConflictHeaders) getArchivingRunFileRes()                   {}
 func (*ConflictHeaders) getBankFileContentRes()                    {}
 func (*ConflictHeaders) getCloseCalendarRes()                      {}
 func (*ConflictHeaders) getConsolidatedStatementRes()              {}
@@ -24763,6 +25829,8 @@ func (*ConflictHeaders) getLiquidityForecastVarianceRes()          {}
 func (*ConflictHeaders) getMarginReportRes()                       {}
 func (*ConflictHeaders) getPeriodCloseRes()                        {}
 func (*ConflictHeaders) getPurchaseOrderDocumentRes()              {}
+func (*ConflictHeaders) getReportRunRes()                          {}
+func (*ConflictHeaders) getRetentionStatusRes()                    {}
 func (*ConflictHeaders) getRevenueScheduleRes()                    {}
 func (*ConflictHeaders) getTaxReturnDraftRes()                     {}
 func (*ConflictHeaders) getVarianceCommentRes()                    {}
@@ -24803,6 +25871,7 @@ func (*ConflictHeaders) postBankStatementLineRes()                 {}
 func (*ConflictHeaders) postBillingDocumentRes()                   {}
 func (*ConflictHeaders) postCreditMemoRequestRes()                 {}
 func (*ConflictHeaders) postCustomerInvoiceRes()                   {}
+func (*ConflictHeaders) postExpenseReportRes()                     {}
 func (*ConflictHeaders) postGoodsReceiptRes()                      {}
 func (*ConflictHeaders) postJournalEntryRes()                      {}
 func (*ConflictHeaders) postParkedJournalEntryRes()                {}
@@ -24840,6 +25909,8 @@ func (*ConflictHeaders) releaseSalesOrderCreditBlockRes()          {}
 func (*ConflictHeaders) releaseSupplierInvoiceRes()                {}
 func (*ConflictHeaders) removeControlLinkRes()                     {}
 func (*ConflictHeaders) removeHierarchyNodeRes()                   {}
+func (*ConflictHeaders) removeMetricWatcherRes()                   {}
+func (*ConflictHeaders) removeReportRes()                          {}
 func (*ConflictHeaders) renameHierarchyNodeRes()                   {}
 func (*ConflictHeaders) renewContractRes()                         {}
 func (*ConflictHeaders) reopenCloseTaskRes()                       {}
@@ -24860,8 +25931,11 @@ func (*ConflictHeaders) reverseJournalEntryRes()                   {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()                {}
 func (*ConflictHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*ConflictHeaders) runAllocationCycleRes()                    {}
+func (*ConflictHeaders) runAnalyticsForecastRes()                  {}
 func (*ConflictHeaders) runAnalyticsQueryRes()                     {}
 func (*ConflictHeaders) runBalanceCarryForwardRes()                {}
+func (*ConflictHeaders) runReportRes()                             {}
+func (*ConflictHeaders) scheduleReportRes()                        {}
 func (*ConflictHeaders) settleInternalOrderRes()                   {}
 func (*ConflictHeaders) signOffPeriodCloseRes()                    {}
 func (*ConflictHeaders) signOffYearCloseRes()                      {}
@@ -24881,6 +25955,7 @@ func (*ConflictHeaders) unblockLegalEntityRes()                    {}
 func (*ConflictHeaders) unblockOrgUnitRes()                        {}
 func (*ConflictHeaders) unlockFiscalPeriodRes()                    {}
 func (*ConflictHeaders) unlockPlanCategoryRes()                    {}
+func (*ConflictHeaders) unscheduleReportRes()                      {}
 func (*ConflictHeaders) updateAiPolicyRes()                        {}
 func (*ConflictHeaders) updateAssetRes()                           {}
 func (*ConflictHeaders) updateChangeRequestRes()                   {}
@@ -24890,6 +25965,7 @@ func (*ConflictHeaders) updateContractRes()                        {}
 func (*ConflictHeaders) updateControlRes()                         {}
 func (*ConflictHeaders) updateCostCenterRes()                      {}
 func (*ConflictHeaders) updateCreditLimitRes()                     {}
+func (*ConflictHeaders) updateDisputeCaseRes()                     {}
 func (*ConflictHeaders) updateEntryTemplateRes()                   {}
 func (*ConflictHeaders) updateLegalEntityRes()                     {}
 func (*ConflictHeaders) updateMemoRecordRes()                      {}
@@ -24901,6 +25977,7 @@ func (*ConflictHeaders) updatePurchaseOrderChangeRes()             {}
 func (*ConflictHeaders) updatePurchaseOrderRes()                   {}
 func (*ConflictHeaders) updateRequisitionRes()                     {}
 func (*ConflictHeaders) updateRevenueContractRes()                 {}
+func (*ConflictHeaders) updateRiskRes()                            {}
 func (*ConflictHeaders) updateRoleRes()                            {}
 func (*ConflictHeaders) updateSegmentRes()                         {}
 func (*ConflictHeaders) updateSupplierInvoiceRes()                 {}
@@ -31177,6 +32254,26 @@ type CreateAllocationCycleUnprocessableEntity Problem
 
 func (*CreateAllocationCycleUnprocessableEntity) createAllocationCycleRes() {}
 
+type CreateArchivingRunBadRequest Problem
+
+func (*CreateArchivingRunBadRequest) createArchivingRunRes() {}
+
+type CreateArchivingRunForbidden Problem
+
+func (*CreateArchivingRunForbidden) createArchivingRunRes() {}
+
+type CreateArchivingRunNotFound Problem
+
+func (*CreateArchivingRunNotFound) createArchivingRunRes() {}
+
+type CreateArchivingRunPreconditionRequired Problem
+
+func (*CreateArchivingRunPreconditionRequired) createArchivingRunRes() {}
+
+type CreateArchivingRunUnprocessableEntity Problem
+
+func (*CreateArchivingRunUnprocessableEntity) createArchivingRunRes() {}
+
 type CreateAssetAcquisitionBadRequest Problem
 
 func (*CreateAssetAcquisitionBadRequest) createAssetAcquisitionRes() {}
@@ -31561,6 +32658,22 @@ type CreateCustomerInvoiceUnprocessableEntity Problem
 
 func (*CreateCustomerInvoiceUnprocessableEntity) createCustomerInvoiceRes() {}
 
+type CreateDisputeCaseBadRequest Problem
+
+func (*CreateDisputeCaseBadRequest) createDisputeCaseRes() {}
+
+type CreateDisputeCaseForbidden Problem
+
+func (*CreateDisputeCaseForbidden) createDisputeCaseRes() {}
+
+type CreateDisputeCasePreconditionRequired Problem
+
+func (*CreateDisputeCasePreconditionRequired) createDisputeCaseRes() {}
+
+type CreateDisputeCaseUnprocessableEntity Problem
+
+func (*CreateDisputeCaseUnprocessableEntity) createDisputeCaseRes() {}
+
 type CreateDownPaymentRequestBadRequest Problem
 
 func (*CreateDownPaymentRequestBadRequest) createDownPaymentRequestRes() {}
@@ -31620,6 +32733,22 @@ func (*CreateExchangeRatePreconditionRequired) createExchangeRateRes() {}
 type CreateExchangeRateUnprocessableEntity Problem
 
 func (*CreateExchangeRateUnprocessableEntity) createExchangeRateRes() {}
+
+type CreateExpenseReportBadRequest Problem
+
+func (*CreateExpenseReportBadRequest) createExpenseReportRes() {}
+
+type CreateExpenseReportForbidden Problem
+
+func (*CreateExpenseReportForbidden) createExpenseReportRes() {}
+
+type CreateExpenseReportPreconditionRequired Problem
+
+func (*CreateExpenseReportPreconditionRequired) createExpenseReportRes() {}
+
+type CreateExpenseReportUnprocessableEntity Problem
+
+func (*CreateExpenseReportUnprocessableEntity) createExpenseReportRes() {}
 
 type CreateForecastVarianceCommentBadRequest Problem
 
@@ -31798,6 +32927,22 @@ type CreateInternalOrderUnprocessableEntity Problem
 
 func (*CreateInternalOrderUnprocessableEntity) createInternalOrderRes() {}
 
+type CreateLeaseContractBadRequest Problem
+
+func (*CreateLeaseContractBadRequest) createLeaseContractRes() {}
+
+type CreateLeaseContractForbidden Problem
+
+func (*CreateLeaseContractForbidden) createLeaseContractRes() {}
+
+type CreateLeaseContractPreconditionRequired Problem
+
+func (*CreateLeaseContractPreconditionRequired) createLeaseContractRes() {}
+
+type CreateLeaseContractUnprocessableEntity Problem
+
+func (*CreateLeaseContractUnprocessableEntity) createLeaseContractRes() {}
+
 type CreateLegalEntityBadRequest Problem
 
 func (*CreateLegalEntityBadRequest) createLegalEntityRes() {}
@@ -31837,6 +32982,22 @@ func (*CreateMemoRecordPreconditionRequired) createMemoRecordRes() {}
 type CreateMemoRecordUnprocessableEntity Problem
 
 func (*CreateMemoRecordUnprocessableEntity) createMemoRecordRes() {}
+
+type CreateMetricWatcherBadRequest Problem
+
+func (*CreateMetricWatcherBadRequest) createMetricWatcherRes() {}
+
+type CreateMetricWatcherForbidden Problem
+
+func (*CreateMetricWatcherForbidden) createMetricWatcherRes() {}
+
+type CreateMetricWatcherPreconditionRequired Problem
+
+func (*CreateMetricWatcherPreconditionRequired) createMetricWatcherRes() {}
+
+type CreateMetricWatcherUnprocessableEntity Problem
+
+func (*CreateMetricWatcherUnprocessableEntity) createMetricWatcherRes() {}
 
 type CreateMigrationRunBadRequest Problem
 
@@ -32034,6 +33195,42 @@ type CreateRegressionSuiteUnprocessableEntity Problem
 
 func (*CreateRegressionSuiteUnprocessableEntity) createRegressionSuiteRes() {}
 
+type CreateReportBadRequest Problem
+
+func (*CreateReportBadRequest) createReportRes() {}
+
+type CreateReportForbidden Problem
+
+func (*CreateReportForbidden) createReportRes() {}
+
+type CreateReportPreconditionRequired Problem
+
+func (*CreateReportPreconditionRequired) createReportRes() {}
+
+type CreateReportShareBadRequest Problem
+
+func (*CreateReportShareBadRequest) createReportShareRes() {}
+
+type CreateReportShareForbidden Problem
+
+func (*CreateReportShareForbidden) createReportShareRes() {}
+
+type CreateReportShareNotFound Problem
+
+func (*CreateReportShareNotFound) createReportShareRes() {}
+
+type CreateReportSharePreconditionRequired Problem
+
+func (*CreateReportSharePreconditionRequired) createReportShareRes() {}
+
+type CreateReportShareUnprocessableEntity Problem
+
+func (*CreateReportShareUnprocessableEntity) createReportShareRes() {}
+
+type CreateReportUnprocessableEntity Problem
+
+func (*CreateReportUnprocessableEntity) createReportRes() {}
+
 type CreateRequisitionBadRequest Problem
 
 func (*CreateRequisitionBadRequest) createRequisitionRes() {}
@@ -32113,6 +33310,38 @@ func (*CreateRfqPreconditionRequired) createRfqRes() {}
 type CreateRfqUnprocessableEntity Problem
 
 func (*CreateRfqUnprocessableEntity) createRfqRes() {}
+
+type CreateRiskBadRequest Problem
+
+func (*CreateRiskBadRequest) createRiskRes() {}
+
+type CreateRiskForbidden Problem
+
+func (*CreateRiskForbidden) createRiskRes() {}
+
+type CreateRiskPreconditionRequired Problem
+
+func (*CreateRiskPreconditionRequired) createRiskRes() {}
+
+type CreateRiskRatingBadRequest Problem
+
+func (*CreateRiskRatingBadRequest) createRiskRatingRes() {}
+
+type CreateRiskRatingForbidden Problem
+
+func (*CreateRiskRatingForbidden) createRiskRatingRes() {}
+
+type CreateRiskRatingNotFound Problem
+
+func (*CreateRiskRatingNotFound) createRiskRatingRes() {}
+
+type CreateRiskRatingPreconditionRequired Problem
+
+func (*CreateRiskRatingPreconditionRequired) createRiskRatingRes() {}
+
+type CreateRiskUnprocessableEntity Problem
+
+func (*CreateRiskUnprocessableEntity) createRiskRes() {}
 
 type CreateRoleAssignmentBadRequest Problem
 
@@ -36523,6 +37752,596 @@ type DiscardConsolidationRunPreconditionRequired Problem
 
 func (*DiscardConsolidationRunPreconditionRequired) discardConsolidationRunRes() {}
 
+// Merged schema.
+// Ref: #/components/schemas/DisputeCase
+type DisputeCase struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The company whose customer item is disputed.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The fiscal year of the item's journal entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry whose line is the disputed item (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The line of the journal entry that is the disputed item.
+	LineNo int32 `json:"line_no"`
+	// The journal entry's document number.
+	DocumentNumber string `json:"document_number"`
+	// The journal entry's reference, a customer invoice's document number for one; absent when it has
+	// none.
+	Reference OptString `json:"reference"`
+	// The amount disputed, in the item's currency.
+	DisputedAmount Money `json:"disputed_amount"`
+	// The same in the company's currency, its share of the item's amount as the item was booked.
+	LocalDisputedAmount Money `json:"local_disputed_amount"`
+	// Why the customer disputes the amount.
+	Reason string `json:"reason"`
+	// The person who works the case; absent when nobody is assigned.
+	AssigneeID OptUUID `json:"assignee_id"`
+	// The assignee's name; absent when `assignee_id` is.
+	AssigneeName OptString `json:"assignee_name"`
+	// The note on the case; absent when it has none.
+	Note OptString `json:"note"`
+	// `open`: the case is being worked, and a dunning run leaves its item out (T86b). `accepted`: closed,
+	// the customer was right; a person credits it. `rejected`: closed, the customer owes the amount. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Status string `json:"status"`
+	// Why the case was closed with its outcome; absent while it is open.
+	CloseReason OptString `json:"close_reason"`
+	// When the case was closed; absent while it is open.
+	ClosedAt OptDateTime `json:"closed_at"`
+	// Who closed the case; absent while it is open.
+	ClosedBy OptUUID `json:"closed_by"`
+	// The name of who closed the case; absent while it is open.
+	ClosedByName OptString `json:"closed_by_name"`
+}
+
+// GetID returns the value of ID.
+func (s *DisputeCase) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *DisputeCase) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *DisputeCase) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *DisputeCase) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *DisputeCase) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *DisputeCase) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *DisputeCase) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *DisputeCase) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *DisputeCase) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *DisputeCase) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *DisputeCase) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *DisputeCase) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *DisputeCase) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DisputeCase) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *DisputeCase) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *DisputeCase) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetReference returns the value of Reference.
+func (s *DisputeCase) GetReference() OptString {
+	return s.Reference
+}
+
+// GetDisputedAmount returns the value of DisputedAmount.
+func (s *DisputeCase) GetDisputedAmount() Money {
+	return s.DisputedAmount
+}
+
+// GetLocalDisputedAmount returns the value of LocalDisputedAmount.
+func (s *DisputeCase) GetLocalDisputedAmount() Money {
+	return s.LocalDisputedAmount
+}
+
+// GetReason returns the value of Reason.
+func (s *DisputeCase) GetReason() string {
+	return s.Reason
+}
+
+// GetAssigneeID returns the value of AssigneeID.
+func (s *DisputeCase) GetAssigneeID() OptUUID {
+	return s.AssigneeID
+}
+
+// GetAssigneeName returns the value of AssigneeName.
+func (s *DisputeCase) GetAssigneeName() OptString {
+	return s.AssigneeName
+}
+
+// GetNote returns the value of Note.
+func (s *DisputeCase) GetNote() OptString {
+	return s.Note
+}
+
+// GetStatus returns the value of Status.
+func (s *DisputeCase) GetStatus() string {
+	return s.Status
+}
+
+// GetCloseReason returns the value of CloseReason.
+func (s *DisputeCase) GetCloseReason() OptString {
+	return s.CloseReason
+}
+
+// GetClosedAt returns the value of ClosedAt.
+func (s *DisputeCase) GetClosedAt() OptDateTime {
+	return s.ClosedAt
+}
+
+// GetClosedBy returns the value of ClosedBy.
+func (s *DisputeCase) GetClosedBy() OptUUID {
+	return s.ClosedBy
+}
+
+// GetClosedByName returns the value of ClosedByName.
+func (s *DisputeCase) GetClosedByName() OptString {
+	return s.ClosedByName
+}
+
+// SetID sets the value of ID.
+func (s *DisputeCase) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *DisputeCase) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *DisputeCase) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *DisputeCase) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *DisputeCase) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *DisputeCase) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *DisputeCase) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *DisputeCase) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *DisputeCase) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *DisputeCase) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *DisputeCase) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *DisputeCase) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *DisputeCase) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DisputeCase) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *DisputeCase) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *DisputeCase) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetReference sets the value of Reference.
+func (s *DisputeCase) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetDisputedAmount sets the value of DisputedAmount.
+func (s *DisputeCase) SetDisputedAmount(val Money) {
+	s.DisputedAmount = val
+}
+
+// SetLocalDisputedAmount sets the value of LocalDisputedAmount.
+func (s *DisputeCase) SetLocalDisputedAmount(val Money) {
+	s.LocalDisputedAmount = val
+}
+
+// SetReason sets the value of Reason.
+func (s *DisputeCase) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetAssigneeID sets the value of AssigneeID.
+func (s *DisputeCase) SetAssigneeID(val OptUUID) {
+	s.AssigneeID = val
+}
+
+// SetAssigneeName sets the value of AssigneeName.
+func (s *DisputeCase) SetAssigneeName(val OptString) {
+	s.AssigneeName = val
+}
+
+// SetNote sets the value of Note.
+func (s *DisputeCase) SetNote(val OptString) {
+	s.Note = val
+}
+
+// SetStatus sets the value of Status.
+func (s *DisputeCase) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetCloseReason sets the value of CloseReason.
+func (s *DisputeCase) SetCloseReason(val OptString) {
+	s.CloseReason = val
+}
+
+// SetClosedAt sets the value of ClosedAt.
+func (s *DisputeCase) SetClosedAt(val OptDateTime) {
+	s.ClosedAt = val
+}
+
+// SetClosedBy sets the value of ClosedBy.
+func (s *DisputeCase) SetClosedBy(val OptUUID) {
+	s.ClosedBy = val
+}
+
+// SetClosedByName sets the value of ClosedByName.
+func (s *DisputeCase) SetClosedByName(val OptString) {
+	s.ClosedByName = val
+}
+
+// The outcome of a dispute case and its reason.
+// Ref: #/components/schemas/DisputeCaseClose
+type DisputeCaseClose struct {
+	// `accepted`: the customer is right about the disputed amount; `rejected`: it owes it. Another value
+	// is refused (422 `collections.unknown_outcome`). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Outcome string `json:"outcome"`
+	// Why the case is closed with this outcome.
+	Reason string `json:"reason"`
+}
+
+// GetOutcome returns the value of Outcome.
+func (s *DisputeCaseClose) GetOutcome() string {
+	return s.Outcome
+}
+
+// GetReason returns the value of Reason.
+func (s *DisputeCaseClose) GetReason() string {
+	return s.Reason
+}
+
+// SetOutcome sets the value of Outcome.
+func (s *DisputeCaseClose) SetOutcome(val string) {
+	s.Outcome = val
+}
+
+// SetReason sets the value of Reason.
+func (s *DisputeCaseClose) SetReason(val string) {
+	s.Reason = val
+}
+
+// Open a dispute case on a customer's open item. It is created `open`.
+// Ref: #/components/schemas/DisputeCaseCreate
+type DisputeCaseCreate struct {
+	// The company whose customer item is disputed: a legal entity the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year of the item's journal entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry whose line is the open item (as `listOpenItems` and a dunning notice's item name
+	// it).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The line of the journal entry that is the open item.
+	LineNo int32 `json:"line_no"`
+	// The amount the customer disputes, in the item's currency: more than zero and at most what it owes on
+	// the item.
+	DisputedAmount Money `json:"disputed_amount"`
+	// Why the customer disputes the amount.
+	Reason string `json:"reason"`
+	// The person who works the case: an active person of the tenant who may act in the company. Absent:
+	// nobody yet.
+	AssigneeID OptUUID `json:"assignee_id"`
+	// A note on the case, for whoever works it.
+	Note OptString `json:"note"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *DisputeCaseCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *DisputeCaseCreate) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DisputeCaseCreate) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *DisputeCaseCreate) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetDisputedAmount returns the value of DisputedAmount.
+func (s *DisputeCaseCreate) GetDisputedAmount() Money {
+	return s.DisputedAmount
+}
+
+// GetReason returns the value of Reason.
+func (s *DisputeCaseCreate) GetReason() string {
+	return s.Reason
+}
+
+// GetAssigneeID returns the value of AssigneeID.
+func (s *DisputeCaseCreate) GetAssigneeID() OptUUID {
+	return s.AssigneeID
+}
+
+// GetNote returns the value of Note.
+func (s *DisputeCaseCreate) GetNote() OptString {
+	return s.Note
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *DisputeCaseCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *DisputeCaseCreate) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DisputeCaseCreate) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *DisputeCaseCreate) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetDisputedAmount sets the value of DisputedAmount.
+func (s *DisputeCaseCreate) SetDisputedAmount(val Money) {
+	s.DisputedAmount = val
+}
+
+// SetReason sets the value of Reason.
+func (s *DisputeCaseCreate) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetAssigneeID sets the value of AssigneeID.
+func (s *DisputeCaseCreate) SetAssigneeID(val OptUUID) {
+	s.AssigneeID = val
+}
+
+// SetNote sets the value of Note.
+func (s *DisputeCaseCreate) SetNote(val OptString) {
+	s.Note = val
+}
+
+// DisputeCaseHeaders wraps DisputeCase with response headers.
+type DisputeCaseHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           DisputeCase
+}
+
+// GetETag returns the value of ETag.
+func (s *DisputeCaseHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *DisputeCaseHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *DisputeCaseHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *DisputeCaseHeaders) GetResponse() DisputeCase {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *DisputeCaseHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *DisputeCaseHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *DisputeCaseHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *DisputeCaseHeaders) SetResponse(val DisputeCase) {
+	s.Response = val
+}
+
+func (*DisputeCaseHeaders) createDisputeCaseRes() {}
+
+// One page of dispute cases.
+// Ref: #/components/schemas/DisputeCasePage
+type DisputeCasePage struct {
+	// The dispute cases on this page.
+	Items []DisputeCase `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *DisputeCasePage) GetItems() []DisputeCase {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *DisputeCasePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *DisputeCasePage) SetItems(val []DisputeCase) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *DisputeCasePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*DisputeCasePage) listDisputeCasesRes() {}
+
+// Merge patch of an open dispute case: its assignee and its note.
+// Ref: #/components/schemas/DisputeCaseUpdate
+type DisputeCaseUpdate struct {
+	// An active person of the tenant who may act in the case's company. Send null to unassign.
+	AssigneeID OptNilUUID `json:"assignee_id"`
+	// The note on the case. Send null to remove it.
+	Note OptNilString `json:"note"`
+}
+
+// GetAssigneeID returns the value of AssigneeID.
+func (s *DisputeCaseUpdate) GetAssigneeID() OptNilUUID {
+	return s.AssigneeID
+}
+
+// GetNote returns the value of Note.
+func (s *DisputeCaseUpdate) GetNote() OptNilString {
+	return s.Note
+}
+
+// SetAssigneeID sets the value of AssigneeID.
+func (s *DisputeCaseUpdate) SetAssigneeID(val OptNilUUID) {
+	s.AssigneeID = val
+}
+
+// SetNote sets the value of Note.
+func (s *DisputeCaseUpdate) SetNote(val OptNilString) {
+	s.Note = val
+}
+
 // A documentary requirement of input tax recovery the invoice may not meet (ADR-0049 §6), from one
 // tier of the company's documentary requirements.
 // Ref: #/components/schemas/DocumentaryWarning
@@ -37453,6 +39272,16 @@ type DunningRun struct {
 	// The sum of the notices' `overdue_amount`: the items' amounts in the company's currency, as they were
 	// booked.
 	OverdueAmount Money `json:"overdue_amount"`
+	// The items the run left out for their open dispute cases (`disputed_items`); 0 when none was
+	// disputed.
+	DisputedItemCount int32 `json:"disputed_item_count"`
+	// What those items add up to in the company's currency, as they were booked (the sum of
+	// `disputed_items[].local_amount`): held back from dunning, not counted in `overdue_amount`.
+	DisputedAmount Money `json:"disputed_amount"`
+	// The items the run would have proposed but left out, each for its open dispute case (T86b), by
+	// customer and item; in no notice and in none of the run's totals. Empty when none was disputed, and
+	// for runs started before dispute cases existed.
+	DisputedItems []DunningRunDisputedItem `json:"disputed_items"`
 }
 
 // GetID returns the value of ID.
@@ -37530,6 +39359,21 @@ func (s *DunningRun) GetOverdueAmount() Money {
 	return s.OverdueAmount
 }
 
+// GetDisputedItemCount returns the value of DisputedItemCount.
+func (s *DunningRun) GetDisputedItemCount() int32 {
+	return s.DisputedItemCount
+}
+
+// GetDisputedAmount returns the value of DisputedAmount.
+func (s *DunningRun) GetDisputedAmount() Money {
+	return s.DisputedAmount
+}
+
+// GetDisputedItems returns the value of DisputedItems.
+func (s *DunningRun) GetDisputedItems() []DunningRunDisputedItem {
+	return s.DisputedItems
+}
+
 // SetID sets the value of ID.
 func (s *DunningRun) SetID(val uuid.UUID) {
 	s.ID = val
@@ -37605,6 +39449,21 @@ func (s *DunningRun) SetOverdueAmount(val Money) {
 	s.OverdueAmount = val
 }
 
+// SetDisputedItemCount sets the value of DisputedItemCount.
+func (s *DunningRun) SetDisputedItemCount(val int32) {
+	s.DisputedItemCount = val
+}
+
+// SetDisputedAmount sets the value of DisputedAmount.
+func (s *DunningRun) SetDisputedAmount(val Money) {
+	s.DisputedAmount = val
+}
+
+// SetDisputedItems sets the value of DisputedItems.
+func (s *DunningRun) SetDisputedItems(val []DunningRunDisputedItem) {
+	s.DisputedItems = val
+}
+
 // Start a dunning run. It is created `proposed`, with one notice per customer that has items overdue
 // on the key date.
 // Ref: #/components/schemas/DunningRunCreate
@@ -37635,6 +39494,158 @@ func (s *DunningRunCreate) SetLegalEntityID(val uuid.UUID) {
 // SetKeyDate sets the value of KeyDate.
 func (s *DunningRunCreate) SetKeyDate(val time.Time) {
 	s.KeyDate = val
+}
+
+// An item a dunning run left out for its open dispute case (T86b): a customer's open item overdue on
+// the run's key date that would have reached a dunning level, as the run read it.
+// Ref: #/components/schemas/DunningRunDisputedItem
+type DunningRunDisputedItem struct {
+	// The item's open dispute case when the run was started (`GET /v1/dispute-cases/{id}`).
+	DisputeCaseID uuid.UUID `json:"dispute_case_id"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The fiscal year of the item's journal entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry whose line is the open item (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The line of the journal entry that is the open item.
+	LineNo int32 `json:"line_no"`
+	// The journal entry's document number.
+	DocumentNumber string `json:"document_number"`
+	// The journal entry's reference, a customer invoice's document number for one; absent when it has
+	// none.
+	Reference OptString `json:"reference"`
+	// The item's net due date: by the payment terms it was posted with, or, posted without any, its
+	// document date.
+	NetDueDate time.Time `json:"net_due_date"`
+	// The days from the net due date to the run's key date.
+	DaysOverdue int32 `json:"days_overdue"`
+	// What the customer owes on the item, in the item's currency, the disputed part and the rest.
+	Amount Money `json:"amount"`
+	// The same in the company's currency, as it was booked.
+	LocalAmount Money `json:"local_amount"`
+}
+
+// GetDisputeCaseID returns the value of DisputeCaseID.
+func (s *DunningRunDisputedItem) GetDisputeCaseID() uuid.UUID {
+	return s.DisputeCaseID
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *DunningRunDisputedItem) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *DunningRunDisputedItem) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *DunningRunDisputedItem) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DunningRunDisputedItem) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *DunningRunDisputedItem) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *DunningRunDisputedItem) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetReference returns the value of Reference.
+func (s *DunningRunDisputedItem) GetReference() OptString {
+	return s.Reference
+}
+
+// GetNetDueDate returns the value of NetDueDate.
+func (s *DunningRunDisputedItem) GetNetDueDate() time.Time {
+	return s.NetDueDate
+}
+
+// GetDaysOverdue returns the value of DaysOverdue.
+func (s *DunningRunDisputedItem) GetDaysOverdue() int32 {
+	return s.DaysOverdue
+}
+
+// GetAmount returns the value of Amount.
+func (s *DunningRunDisputedItem) GetAmount() Money {
+	return s.Amount
+}
+
+// GetLocalAmount returns the value of LocalAmount.
+func (s *DunningRunDisputedItem) GetLocalAmount() Money {
+	return s.LocalAmount
+}
+
+// SetDisputeCaseID sets the value of DisputeCaseID.
+func (s *DunningRunDisputedItem) SetDisputeCaseID(val uuid.UUID) {
+	s.DisputeCaseID = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *DunningRunDisputedItem) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *DunningRunDisputedItem) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *DunningRunDisputedItem) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DunningRunDisputedItem) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *DunningRunDisputedItem) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *DunningRunDisputedItem) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetReference sets the value of Reference.
+func (s *DunningRunDisputedItem) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetNetDueDate sets the value of NetDueDate.
+func (s *DunningRunDisputedItem) SetNetDueDate(val time.Time) {
+	s.NetDueDate = val
+}
+
+// SetDaysOverdue sets the value of DaysOverdue.
+func (s *DunningRunDisputedItem) SetDaysOverdue(val int32) {
+	s.DaysOverdue = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *DunningRunDisputedItem) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetLocalAmount sets the value of LocalAmount.
+func (s *DunningRunDisputedItem) SetLocalAmount(val Money) {
+	s.LocalAmount = val
 }
 
 // DunningRunHeaders wraps DunningRun with response headers.
@@ -38225,6 +40236,26 @@ func (s *EndInput) GetValidTo() time.Time {
 func (s *EndInput) SetValidTo(val time.Time) {
 	s.ValidTo = val
 }
+
+type EndReportShareBadRequest Problem
+
+func (*EndReportShareBadRequest) endReportShareRes() {}
+
+type EndReportShareForbidden Problem
+
+func (*EndReportShareForbidden) endReportShareRes() {}
+
+type EndReportShareNotFound Problem
+
+func (*EndReportShareNotFound) endReportShareRes() {}
+
+type EndReportSharePreconditionFailed Problem
+
+func (*EndReportSharePreconditionFailed) endReportShareRes() {}
+
+type EndReportSharePreconditionRequired Problem
+
+func (*EndReportSharePreconditionRequired) endReportShareRes() {}
 
 type EndRoleAssignmentBadRequest Problem
 
@@ -39150,6 +41181,30 @@ func (s *EntryTemplateUse) SetReference(val OptString) {
 	s.Reference = val
 }
 
+type EvaluateMetricWatcherBadRequest Problem
+
+func (*EvaluateMetricWatcherBadRequest) evaluateMetricWatcherRes() {}
+
+type EvaluateMetricWatcherForbidden Problem
+
+func (*EvaluateMetricWatcherForbidden) evaluateMetricWatcherRes() {}
+
+type EvaluateMetricWatcherNotFound Problem
+
+func (*EvaluateMetricWatcherNotFound) evaluateMetricWatcherRes() {}
+
+type EvaluateMetricWatcherPreconditionFailed Problem
+
+func (*EvaluateMetricWatcherPreconditionFailed) evaluateMetricWatcherRes() {}
+
+type EvaluateMetricWatcherPreconditionRequired Problem
+
+func (*EvaluateMetricWatcherPreconditionRequired) evaluateMetricWatcherRes() {}
+
+type EvaluateMetricWatcherUnprocessableEntity Problem
+
+func (*EvaluateMetricWatcherUnprocessableEntity) evaluateMetricWatcherRes() {}
+
 // Evidence supporting a change request; the latest per kind applies.
 // Ref: #/components/schemas/Evidence
 type Evidence struct {
@@ -39587,6 +41642,734 @@ func (s *Expanded) GetSupplier() OptPartnerSummary {
 // SetSupplier sets the value of Supplier.
 func (s *Expanded) SetSupplier(val OptPartnerSummary) {
 	s.Supplier = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/ExpenseReport
+type ExpenseReport struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The document number, from the company's `expense_report` number range.
+	DocumentNumber string `json:"document_number"`
+	// The company the expenses are claimed from.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The employee: a business partner with the supplier role (`GET /v1/business-partners/{id}`).
+	EmployeeID uuid.UUID `json:"employee_id"`
+	// The employee's business partner number.
+	EmployeeNumber string `json:"employee_number"`
+	// The employee's name, as it is now.
+	EmployeeName string `json:"employee_name"`
+	// The day the report was entered, the company's date in its time zone: the entry's document date and
+	// its payment term's baseline. Each line's tax is calculated on its own `expense_date`.
+	ReportDate time.Time `json:"report_date"`
+	// What the expenses were for; absent when none was given.
+	Description OptString `json:"description"`
+	// The lines' gross amounts added up: what the employee is owed.
+	GrossAmount Money `json:"gross_amount"`
+	// The tax the lines hold, added up.
+	TaxAmount Money `json:"tax_amount"`
+	// `gross_amount` less `tax_amount`.
+	NetAmount Money `json:"net_amount"`
+	// `entered`: entered, nothing posted; `posted`: posted, once (`:post`). Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The date the report posted on; absent until it is posted.
+	PostingDate OptDate `json:"posting_date"`
+	// The journal entry the report posted (`GET /v1/journal-entries/{id}`); absent until it is posted.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The fiscal year of `journal_entry_id`; absent until it is posted.
+	JournalEntryYear OptInt32 `json:"journal_entry_year"`
+	// The payment term the employee's open item posted with: the employee's in the company; absent until
+	// it is posted.
+	PaymentTermCode OptString `json:"payment_term_code"`
+	// When the open item is due without discount: the report date plus the term's net days; absent until
+	// it is posted.
+	NetDueDate OptDate `json:"net_due_date"`
+	// The lines, by line number.
+	Lines []ExpenseReportLine `json:"lines"`
+}
+
+// GetID returns the value of ID.
+func (s *ExpenseReport) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *ExpenseReport) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ExpenseReport) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *ExpenseReport) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *ExpenseReport) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *ExpenseReport) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *ExpenseReport) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ExpenseReport) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ExpenseReport) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *ExpenseReport) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetEmployeeID returns the value of EmployeeID.
+func (s *ExpenseReport) GetEmployeeID() uuid.UUID {
+	return s.EmployeeID
+}
+
+// GetEmployeeNumber returns the value of EmployeeNumber.
+func (s *ExpenseReport) GetEmployeeNumber() string {
+	return s.EmployeeNumber
+}
+
+// GetEmployeeName returns the value of EmployeeName.
+func (s *ExpenseReport) GetEmployeeName() string {
+	return s.EmployeeName
+}
+
+// GetReportDate returns the value of ReportDate.
+func (s *ExpenseReport) GetReportDate() time.Time {
+	return s.ReportDate
+}
+
+// GetDescription returns the value of Description.
+func (s *ExpenseReport) GetDescription() OptString {
+	return s.Description
+}
+
+// GetGrossAmount returns the value of GrossAmount.
+func (s *ExpenseReport) GetGrossAmount() Money {
+	return s.GrossAmount
+}
+
+// GetTaxAmount returns the value of TaxAmount.
+func (s *ExpenseReport) GetTaxAmount() Money {
+	return s.TaxAmount
+}
+
+// GetNetAmount returns the value of NetAmount.
+func (s *ExpenseReport) GetNetAmount() Money {
+	return s.NetAmount
+}
+
+// GetStatus returns the value of Status.
+func (s *ExpenseReport) GetStatus() string {
+	return s.Status
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *ExpenseReport) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *ExpenseReport) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *ExpenseReport) GetJournalEntryYear() OptInt32 {
+	return s.JournalEntryYear
+}
+
+// GetPaymentTermCode returns the value of PaymentTermCode.
+func (s *ExpenseReport) GetPaymentTermCode() OptString {
+	return s.PaymentTermCode
+}
+
+// GetNetDueDate returns the value of NetDueDate.
+func (s *ExpenseReport) GetNetDueDate() OptDate {
+	return s.NetDueDate
+}
+
+// GetLines returns the value of Lines.
+func (s *ExpenseReport) GetLines() []ExpenseReportLine {
+	return s.Lines
+}
+
+// SetID sets the value of ID.
+func (s *ExpenseReport) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *ExpenseReport) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ExpenseReport) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *ExpenseReport) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *ExpenseReport) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *ExpenseReport) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *ExpenseReport) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ExpenseReport) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ExpenseReport) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *ExpenseReport) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetEmployeeID sets the value of EmployeeID.
+func (s *ExpenseReport) SetEmployeeID(val uuid.UUID) {
+	s.EmployeeID = val
+}
+
+// SetEmployeeNumber sets the value of EmployeeNumber.
+func (s *ExpenseReport) SetEmployeeNumber(val string) {
+	s.EmployeeNumber = val
+}
+
+// SetEmployeeName sets the value of EmployeeName.
+func (s *ExpenseReport) SetEmployeeName(val string) {
+	s.EmployeeName = val
+}
+
+// SetReportDate sets the value of ReportDate.
+func (s *ExpenseReport) SetReportDate(val time.Time) {
+	s.ReportDate = val
+}
+
+// SetDescription sets the value of Description.
+func (s *ExpenseReport) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetGrossAmount sets the value of GrossAmount.
+func (s *ExpenseReport) SetGrossAmount(val Money) {
+	s.GrossAmount = val
+}
+
+// SetTaxAmount sets the value of TaxAmount.
+func (s *ExpenseReport) SetTaxAmount(val Money) {
+	s.TaxAmount = val
+}
+
+// SetNetAmount sets the value of NetAmount.
+func (s *ExpenseReport) SetNetAmount(val Money) {
+	s.NetAmount = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ExpenseReport) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *ExpenseReport) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *ExpenseReport) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *ExpenseReport) SetJournalEntryYear(val OptInt32) {
+	s.JournalEntryYear = val
+}
+
+// SetPaymentTermCode sets the value of PaymentTermCode.
+func (s *ExpenseReport) SetPaymentTermCode(val OptString) {
+	s.PaymentTermCode = val
+}
+
+// SetNetDueDate sets the value of NetDueDate.
+func (s *ExpenseReport) SetNetDueDate(val OptDate) {
+	s.NetDueDate = val
+}
+
+// SetLines sets the value of Lines.
+func (s *ExpenseReport) SetLines(val []ExpenseReportLine) {
+	s.Lines = val
+}
+
+// An employee's expense report to enter. It is created `entered`, dated the company's date today.
+// Ref: #/components/schemas/ExpenseReportCreate
+type ExpenseReportCreate struct {
+	// The company the expenses are claimed from: one the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The employee: a business partner with the supplier role, set up in the company
+	// (`GET /v1/business-partners/{id}`).
+	EmployeeID uuid.UUID `json:"employee_id"`
+	// What the expenses were for; optional. It is the entry's header text.
+	Description OptString `json:"description"`
+	// The expenses, numbered in this order from 1.
+	Lines []ExpenseReportLineCreate `json:"lines"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ExpenseReportCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetEmployeeID returns the value of EmployeeID.
+func (s *ExpenseReportCreate) GetEmployeeID() uuid.UUID {
+	return s.EmployeeID
+}
+
+// GetDescription returns the value of Description.
+func (s *ExpenseReportCreate) GetDescription() OptString {
+	return s.Description
+}
+
+// GetLines returns the value of Lines.
+func (s *ExpenseReportCreate) GetLines() []ExpenseReportLineCreate {
+	return s.Lines
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ExpenseReportCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetEmployeeID sets the value of EmployeeID.
+func (s *ExpenseReportCreate) SetEmployeeID(val uuid.UUID) {
+	s.EmployeeID = val
+}
+
+// SetDescription sets the value of Description.
+func (s *ExpenseReportCreate) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetLines sets the value of Lines.
+func (s *ExpenseReportCreate) SetLines(val []ExpenseReportLineCreate) {
+	s.Lines = val
+}
+
+// ExpenseReportHeaders wraps ExpenseReport with response headers.
+type ExpenseReportHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           ExpenseReport
+}
+
+// GetETag returns the value of ETag.
+func (s *ExpenseReportHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ExpenseReportHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *ExpenseReportHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *ExpenseReportHeaders) GetResponse() ExpenseReport {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ExpenseReportHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ExpenseReportHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *ExpenseReportHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ExpenseReportHeaders) SetResponse(val ExpenseReport) {
+	s.Response = val
+}
+
+func (*ExpenseReportHeaders) createExpenseReportRes() {}
+
+// A line of an expense report (ADR-0074): one expense, with the tax its gross holds.
+// Ref: #/components/schemas/ExpenseReportLine
+type ExpenseReportLine struct {
+	// The line's number within the report, from 1.
+	LineNo int32 `json:"line_no"`
+	// The day of the expense.
+	ExpenseDate time.Time `json:"expense_date"`
+	// The expense type's code.
+	ExpenseType string `json:"expense_type"`
+	// The expense type's name, as the configuration now gives it; absent once the type is no longer
+	// configured.
+	ExpenseTypeName OptString `json:"expense_type_name"`
+	// The expense account the line posts to: its expense type's when the report was entered
+	// (`GET /v1/accounts/{id}`).
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name, as it is now.
+	AccountName string `json:"account_name"`
+	// The gross amount, tax included.
+	Amount Money `json:"amount"`
+	// The input tax code; absent when the line holds no tax.
+	TaxCode OptString `json:"tax_code"`
+	// The tax the gross holds by the code's rates on the line's `expense_date`, as calculated when the
+	// report was entered; 0 without a code.
+	TaxAmount Money `json:"tax_amount"`
+	// `amount` less `tax_amount`.
+	NetAmount Money `json:"net_amount"`
+	// The cost center entered; absent: the account's default, which the posting takes.
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// The cost center's code; absent without one.
+	CostCenterCode OptString `json:"cost_center_code"`
+	// The cost center's name, as it is now; absent without one.
+	CostCenterName OptString `json:"cost_center_name"`
+	// The line's text; absent when none was given.
+	Description OptString `json:"description"`
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *ExpenseReportLine) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetExpenseDate returns the value of ExpenseDate.
+func (s *ExpenseReportLine) GetExpenseDate() time.Time {
+	return s.ExpenseDate
+}
+
+// GetExpenseType returns the value of ExpenseType.
+func (s *ExpenseReportLine) GetExpenseType() string {
+	return s.ExpenseType
+}
+
+// GetExpenseTypeName returns the value of ExpenseTypeName.
+func (s *ExpenseReportLine) GetExpenseTypeName() OptString {
+	return s.ExpenseTypeName
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *ExpenseReportLine) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *ExpenseReportLine) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *ExpenseReportLine) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetAmount returns the value of Amount.
+func (s *ExpenseReportLine) GetAmount() Money {
+	return s.Amount
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *ExpenseReportLine) GetTaxCode() OptString {
+	return s.TaxCode
+}
+
+// GetTaxAmount returns the value of TaxAmount.
+func (s *ExpenseReportLine) GetTaxAmount() Money {
+	return s.TaxAmount
+}
+
+// GetNetAmount returns the value of NetAmount.
+func (s *ExpenseReportLine) GetNetAmount() Money {
+	return s.NetAmount
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *ExpenseReportLine) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *ExpenseReportLine) GetCostCenterCode() OptString {
+	return s.CostCenterCode
+}
+
+// GetCostCenterName returns the value of CostCenterName.
+func (s *ExpenseReportLine) GetCostCenterName() OptString {
+	return s.CostCenterName
+}
+
+// GetDescription returns the value of Description.
+func (s *ExpenseReportLine) GetDescription() OptString {
+	return s.Description
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *ExpenseReportLine) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetExpenseDate sets the value of ExpenseDate.
+func (s *ExpenseReportLine) SetExpenseDate(val time.Time) {
+	s.ExpenseDate = val
+}
+
+// SetExpenseType sets the value of ExpenseType.
+func (s *ExpenseReportLine) SetExpenseType(val string) {
+	s.ExpenseType = val
+}
+
+// SetExpenseTypeName sets the value of ExpenseTypeName.
+func (s *ExpenseReportLine) SetExpenseTypeName(val OptString) {
+	s.ExpenseTypeName = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *ExpenseReportLine) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *ExpenseReportLine) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *ExpenseReportLine) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *ExpenseReportLine) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *ExpenseReportLine) SetTaxCode(val OptString) {
+	s.TaxCode = val
+}
+
+// SetTaxAmount sets the value of TaxAmount.
+func (s *ExpenseReportLine) SetTaxAmount(val Money) {
+	s.TaxAmount = val
+}
+
+// SetNetAmount sets the value of NetAmount.
+func (s *ExpenseReportLine) SetNetAmount(val Money) {
+	s.NetAmount = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *ExpenseReportLine) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *ExpenseReportLine) SetCostCenterCode(val OptString) {
+	s.CostCenterCode = val
+}
+
+// SetCostCenterName sets the value of CostCenterName.
+func (s *ExpenseReportLine) SetCostCenterName(val OptString) {
+	s.CostCenterName = val
+}
+
+// SetDescription sets the value of Description.
+func (s *ExpenseReportLine) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// One expense: its date, type, gross amount, tax code and cost center.
+// Ref: #/components/schemas/ExpenseReportLineCreate
+type ExpenseReportLineCreate struct {
+	// The day of the expense: not after the company's date today.
+	ExpenseDate time.Time `json:"expense_date"`
+	// An expense type of the company (`companies[].expense_types[].code`), whose expense account the line
+	// posts to.
+	ExpenseType string `json:"expense_type"`
+	// The gross amount spent, tax included, more than zero, in the company's currency.
+	Amount Money `json:"amount"`
+	// An input tax code of the company on the line's `expense_date`; its tax is taken out of the gross.
+	// Absent: the line holds no tax.
+	TaxCode OptString `json:"tax_code"`
+	// The cost center the expense is charged to; absent: the account's default.
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// What was spent, in words; optional. It is the line's text.
+	Description OptString `json:"description"`
+}
+
+// GetExpenseDate returns the value of ExpenseDate.
+func (s *ExpenseReportLineCreate) GetExpenseDate() time.Time {
+	return s.ExpenseDate
+}
+
+// GetExpenseType returns the value of ExpenseType.
+func (s *ExpenseReportLineCreate) GetExpenseType() string {
+	return s.ExpenseType
+}
+
+// GetAmount returns the value of Amount.
+func (s *ExpenseReportLineCreate) GetAmount() Money {
+	return s.Amount
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *ExpenseReportLineCreate) GetTaxCode() OptString {
+	return s.TaxCode
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *ExpenseReportLineCreate) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetDescription returns the value of Description.
+func (s *ExpenseReportLineCreate) GetDescription() OptString {
+	return s.Description
+}
+
+// SetExpenseDate sets the value of ExpenseDate.
+func (s *ExpenseReportLineCreate) SetExpenseDate(val time.Time) {
+	s.ExpenseDate = val
+}
+
+// SetExpenseType sets the value of ExpenseType.
+func (s *ExpenseReportLineCreate) SetExpenseType(val string) {
+	s.ExpenseType = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *ExpenseReportLineCreate) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *ExpenseReportLineCreate) SetTaxCode(val OptString) {
+	s.TaxCode = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *ExpenseReportLineCreate) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetDescription sets the value of Description.
+func (s *ExpenseReportLineCreate) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// One page of expense reports.
+// Ref: #/components/schemas/ExpenseReportPage
+type ExpenseReportPage struct {
+	// The expense reports on this page.
+	Items []ExpenseReport `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ExpenseReportPage) GetItems() []ExpenseReport {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ExpenseReportPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ExpenseReportPage) SetItems(val []ExpenseReport) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ExpenseReportPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ExpenseReportPage) listExpenseReportsRes() {}
+
+// Options for posting an expense report.
+// Ref: #/components/schemas/ExpenseReportPost
+type ExpenseReportPost struct {
+	// The posting date; absent: today, the company's date in its time zone (`companies[].time_zone`).
+	PostingDate OptDate `json:"posting_date"`
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *ExpenseReportPost) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *ExpenseReportPost) SetPostingDate(val OptDate) {
+	s.PostingDate = val
 }
 
 // Tenant custom fields (ADR-0009), validated against the tenant's published schema for this resource
@@ -41225,6 +44008,47 @@ type GetApprovalRequestNotFound Problem
 
 func (*GetApprovalRequestNotFound) getApprovalRequestRes() {}
 
+type GetArchivingRunBadRequest Problem
+
+func (*GetArchivingRunBadRequest) getArchivingRunRes() {}
+
+type GetArchivingRunFileBadRequest Problem
+
+func (*GetArchivingRunFileBadRequest) getArchivingRunFileRes() {}
+
+type GetArchivingRunFileForbidden Problem
+
+func (*GetArchivingRunFileForbidden) getArchivingRunFileRes() {}
+
+type GetArchivingRunFileNotFound Problem
+
+func (*GetArchivingRunFileNotFound) getArchivingRunFileRes() {}
+
+// The file's bytes.
+type GetArchivingRunFileOK struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetArchivingRunFileOK) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+func (*GetArchivingRunFileOK) getArchivingRunFileRes() {}
+
+type GetArchivingRunForbidden Problem
+
+func (*GetArchivingRunForbidden) getArchivingRunRes() {}
+
+type GetArchivingRunNotFound Problem
+
+func (*GetArchivingRunNotFound) getArchivingRunRes() {}
+
 type GetAssetAcquisitionBadRequest Problem
 
 func (*GetAssetAcquisitionBadRequest) getAssetAcquisitionRes() {}
@@ -42275,6 +45099,46 @@ type GetDepreciationRunNotFound Problem
 
 func (*GetDepreciationRunNotFound) getDepreciationRunRes() {}
 
+type GetDisputeCaseBadRequest Problem
+
+func (*GetDisputeCaseBadRequest) getDisputeCaseRes() {}
+
+type GetDisputeCaseForbidden Problem
+
+func (*GetDisputeCaseForbidden) getDisputeCaseRes() {}
+
+type GetDisputeCaseNotFound Problem
+
+func (*GetDisputeCaseNotFound) getDisputeCaseRes() {}
+
+// GetDisputeCaseOKHeaders wraps DisputeCase with response headers.
+type GetDisputeCaseOKHeaders struct {
+	ETag     OptString
+	Response DisputeCase
+}
+
+// GetETag returns the value of ETag.
+func (s *GetDisputeCaseOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetDisputeCaseOKHeaders) GetResponse() DisputeCase {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetDisputeCaseOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetDisputeCaseOKHeaders) SetResponse(val DisputeCase) {
+	s.Response = val
+}
+
+func (*GetDisputeCaseOKHeaders) getDisputeCaseRes() {}
+
 type GetDownPaymentRequestBadRequest Problem
 
 func (*GetDownPaymentRequestBadRequest) getDownPaymentRequestRes() {}
@@ -42475,6 +45339,46 @@ func (s *GetExchangeRateOKHeaders) SetResponse(val ExchangeRate) {
 }
 
 func (*GetExchangeRateOKHeaders) getExchangeRateRes() {}
+
+type GetExpenseReportBadRequest Problem
+
+func (*GetExpenseReportBadRequest) getExpenseReportRes() {}
+
+type GetExpenseReportForbidden Problem
+
+func (*GetExpenseReportForbidden) getExpenseReportRes() {}
+
+type GetExpenseReportNotFound Problem
+
+func (*GetExpenseReportNotFound) getExpenseReportRes() {}
+
+// GetExpenseReportOKHeaders wraps ExpenseReport with response headers.
+type GetExpenseReportOKHeaders struct {
+	ETag     OptString
+	Response ExpenseReport
+}
+
+// GetETag returns the value of ETag.
+func (s *GetExpenseReportOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetExpenseReportOKHeaders) GetResponse() ExpenseReport {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetExpenseReportOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetExpenseReportOKHeaders) SetResponse(val ExpenseReport) {
+	s.Response = val
+}
+
+func (*GetExpenseReportOKHeaders) getExpenseReportRes() {}
 
 type GetFiscalPeriodBadRequest Problem
 
@@ -42760,6 +45664,58 @@ func (s *GetJournalEntryOKHeaders) SetResponse(val JournalEntry) {
 
 func (*GetJournalEntryOKHeaders) getJournalEntryRes() {}
 
+type GetLeaseContractBadRequest Problem
+
+func (*GetLeaseContractBadRequest) getLeaseContractRes() {}
+
+type GetLeaseContractForbidden Problem
+
+func (*GetLeaseContractForbidden) getLeaseContractRes() {}
+
+type GetLeaseContractNotFound Problem
+
+func (*GetLeaseContractNotFound) getLeaseContractRes() {}
+
+// GetLeaseContractOKHeaders wraps LeaseContract with response headers.
+type GetLeaseContractOKHeaders struct {
+	ETag     OptString
+	Response LeaseContract
+}
+
+// GetETag returns the value of ETag.
+func (s *GetLeaseContractOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetLeaseContractOKHeaders) GetResponse() LeaseContract {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetLeaseContractOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetLeaseContractOKHeaders) SetResponse(val LeaseContract) {
+	s.Response = val
+}
+
+func (*GetLeaseContractOKHeaders) getLeaseContractRes() {}
+
+type GetLeaseScheduleBadRequest Problem
+
+func (*GetLeaseScheduleBadRequest) getLeaseScheduleRes() {}
+
+type GetLeaseScheduleForbidden Problem
+
+func (*GetLeaseScheduleForbidden) getLeaseScheduleRes() {}
+
+type GetLeaseScheduleNotFound Problem
+
+func (*GetLeaseScheduleNotFound) getLeaseScheduleRes() {}
+
 type GetLegalEntityBadRequest Problem
 
 func (*GetLegalEntityBadRequest) getLegalEntityRes() {}
@@ -42911,6 +45867,58 @@ func (*GetMemoRecordOKHeaders) getMemoRecordRes() {}
 type GetMemoRecordUnprocessableEntity Problem
 
 func (*GetMemoRecordUnprocessableEntity) getMemoRecordRes() {}
+
+type GetMetricAlertBadRequest Problem
+
+func (*GetMetricAlertBadRequest) getMetricAlertRes() {}
+
+type GetMetricAlertForbidden Problem
+
+func (*GetMetricAlertForbidden) getMetricAlertRes() {}
+
+type GetMetricAlertNotFound Problem
+
+func (*GetMetricAlertNotFound) getMetricAlertRes() {}
+
+type GetMetricWatcherBadRequest Problem
+
+func (*GetMetricWatcherBadRequest) getMetricWatcherRes() {}
+
+type GetMetricWatcherForbidden Problem
+
+func (*GetMetricWatcherForbidden) getMetricWatcherRes() {}
+
+type GetMetricWatcherNotFound Problem
+
+func (*GetMetricWatcherNotFound) getMetricWatcherRes() {}
+
+// GetMetricWatcherOKHeaders wraps MetricWatcher with response headers.
+type GetMetricWatcherOKHeaders struct {
+	ETag     OptString
+	Response MetricWatcher
+}
+
+// GetETag returns the value of ETag.
+func (s *GetMetricWatcherOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetMetricWatcherOKHeaders) GetResponse() MetricWatcher {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetMetricWatcherOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetMetricWatcherOKHeaders) SetResponse(val MetricWatcher) {
+	s.Response = val
+}
+
+func (*GetMetricWatcherOKHeaders) getMetricWatcherRes() {}
 
 type GetMigrationRunBadRequest Problem
 
@@ -43175,6 +46183,22 @@ func (s *GetPeriodCloseOKHeaders) SetResponse(val PeriodClose) {
 }
 
 func (*GetPeriodCloseOKHeaders) getPeriodCloseRes() {}
+
+type GetPersonalDataSubjectBadRequest Problem
+
+func (*GetPersonalDataSubjectBadRequest) getPersonalDataSubjectRes() {}
+
+type GetPersonalDataSubjectForbidden Problem
+
+func (*GetPersonalDataSubjectForbidden) getPersonalDataSubjectRes() {}
+
+type GetPersonalDataSubjectNotFound Problem
+
+func (*GetPersonalDataSubjectNotFound) getPersonalDataSubjectRes() {}
+
+type GetPersonalDataSubjectUnprocessableEntity Problem
+
+func (*GetPersonalDataSubjectUnprocessableEntity) getPersonalDataSubjectRes() {}
 
 type GetPlanCategoryBadRequest Problem
 
@@ -43541,6 +46565,79 @@ func (s *GetRegressionSuiteOKHeaders) SetResponse(val RegressionSuite) {
 
 func (*GetRegressionSuiteOKHeaders) getRegressionSuiteRes() {}
 
+type GetReportBadRequest Problem
+
+func (*GetReportBadRequest) getReportRes() {}
+
+type GetReportForbidden Problem
+
+func (*GetReportForbidden) getReportRes() {}
+
+type GetReportNotFound Problem
+
+func (*GetReportNotFound) getReportRes() {}
+
+// GetReportOKHeaders wraps Report with response headers.
+type GetReportOKHeaders struct {
+	ETag     OptString
+	Response Report
+}
+
+// GetETag returns the value of ETag.
+func (s *GetReportOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetReportOKHeaders) GetResponse() Report {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetReportOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetReportOKHeaders) SetResponse(val Report) {
+	s.Response = val
+}
+
+func (*GetReportOKHeaders) getReportRes() {}
+
+type GetReportRunBadRequest Problem
+
+func (*GetReportRunBadRequest) getReportRunRes() {}
+
+type GetReportRunForbidden Problem
+
+func (*GetReportRunForbidden) getReportRunRes() {}
+
+type GetReportRunNotFound Problem
+
+func (*GetReportRunNotFound) getReportRunRes() {}
+
+// One result: a header row of column names, then its rows; UTF-8, lines ending in LF.
+type GetReportRunOKTextCsv struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetReportRunOKTextCsv) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+func (*GetReportRunOKTextCsv) getReportRunRes() {}
+
+type GetReportRunUnprocessableEntity Problem
+
+func (*GetReportRunUnprocessableEntity) getReportRunRes() {}
+
 type GetRequisitionBadRequest Problem
 
 func (*GetRequisitionBadRequest) getRequisitionRes() {}
@@ -43580,6 +46677,22 @@ func (s *GetRequisitionOKHeaders) SetResponse(val Requisition) {
 }
 
 func (*GetRequisitionOKHeaders) getRequisitionRes() {}
+
+type GetRetentionStatusBadRequest Problem
+
+func (*GetRetentionStatusBadRequest) getRetentionStatusRes() {}
+
+type GetRetentionStatusForbidden Problem
+
+func (*GetRetentionStatusForbidden) getRetentionStatusRes() {}
+
+type GetRetentionStatusNotFound Problem
+
+func (*GetRetentionStatusNotFound) getRetentionStatusRes() {}
+
+type GetRetentionStatusUnprocessableEntity Problem
+
+func (*GetRetentionStatusUnprocessableEntity) getRetentionStatusRes() {}
 
 type GetReturnsOrderBadRequest Problem
 
@@ -43780,6 +46893,46 @@ func (s *GetRfqOKHeaders) SetResponse(val Rfq) {
 }
 
 func (*GetRfqOKHeaders) getRfqRes() {}
+
+type GetRiskBadRequest Problem
+
+func (*GetRiskBadRequest) getRiskRes() {}
+
+type GetRiskForbidden Problem
+
+func (*GetRiskForbidden) getRiskRes() {}
+
+type GetRiskNotFound Problem
+
+func (*GetRiskNotFound) getRiskRes() {}
+
+// GetRiskOKHeaders wraps Risk with response headers.
+type GetRiskOKHeaders struct {
+	ETag     OptString
+	Response Risk
+}
+
+// GetETag returns the value of ETag.
+func (s *GetRiskOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetRiskOKHeaders) GetResponse() Risk {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetRiskOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetRiskOKHeaders) SetResponse(val Risk) {
+	s.Response = val
+}
+
+func (*GetRiskOKHeaders) getRiskRes() {}
 
 type GetRoleAssignmentBadRequest Problem
 
@@ -49481,8 +52634,10 @@ type JournalEntry struct {
 	DocumentDate time.Time `json:"document_date"`
 	// Posting date.
 	PostingDate time.Time `json:"posting_date"`
-	// Tax date: the lines' tax codes' rates applied on it and its return reports their tax (ADR-0049 §4).
-	// Absent on entries posted before tax items (T61c), whose tax date is the posting date.
+	// Tax date: the lines' tax codes' rates applied on it and its return reports their tax (ADR-0049 §4),
+	// but for tax items that carry a date of their own, an expense report's, each dated by its line's
+	// expense date (ADR-0074 §3). Absent on entries posted before tax items (T61c), whose tax date is the
+	// posting date.
 	TaxDate OptDate `json:"tax_date"`
 	// The tax invoice or tax credit note the entry's VAT rests on, whose date is its tax date: a year-end
 	// adjustment posted into a special period with a tax code (`JournalEntryCreate` `tax_document`,
@@ -50667,6 +53822,1020 @@ func (s *JournalLineInput) SetTradingPartnerID(val OptUUID) {
 // SetLineText sets the value of LineText.
 func (s *JournalLineInput) SetLineText(val OptString) {
 	s.LineText = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/LeaseContract
+type LeaseContract struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The contract's number, from the company's `lease_contract` number range.
+	DocumentNumber string `json:"document_number"`
+	// The company that leases.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The lessor (`GET /v1/business-partners/{id}`).
+	LessorID uuid.UUID `json:"lessor_id"`
+	// The lessor's business partner number.
+	LessorNumber string `json:"lessor_number"`
+	// The lessor's name, as it is now.
+	LessorName string `json:"lessor_name"`
+	// The commencement date.
+	CommencementDate time.Time `json:"commencement_date"`
+	// The term's last day: the day before the date `term_months` after the commencement date.
+	EndDate time.Time `json:"end_date"`
+	// The lease term in months.
+	TermMonths int32 `json:"term_months"`
+	// Each payment.
+	PaymentAmount Money `json:"payment_amount"`
+	// How often a payment is due. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	PaymentFrequency string `json:"payment_frequency"`
+	// Whether payments are due at the start (`advance`) or the end (`arrears`) of their intervals. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	PaymentTiming string `json:"payment_timing"`
+	// The annual discount rate in percent, as entered, without trailing zeros.
+	AnnualDiscountRatePercent string `json:"annual_discount_rate_percent"`
+	// The cost center of the lease's expenses.
+	CostCenterID uuid.UUID `json:"cost_center_id"`
+	// The cost center's code.
+	CostCenterCode string `json:"cost_center_code"`
+	// The contract's currency (ISO 4217): the company's local currency.
+	Currency string `json:"currency"`
+	// The number of payments: the term divided by the months of an interval.
+	PaymentCount int32 `json:"payment_count"`
+	// The sum of the payments, undiscounted.
+	TotalPayments Money `json:"total_payments"`
+	// `draft`: created, posting nothing. `active`: activated, once (`:activate`): the right-of-use asset
+	// and the lease liability are posted and the schedule is stored; the contract is fixed. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Status string `json:"status"`
+	// The lease liability at commencement its activation measured; absent while the contract is a `draft`
+	// (`getLeaseSchedule` computes it).
+	LeaseLiability OptMoney `json:"lease_liability"`
+	// The right-of-use asset its activation posted; absent while the contract is a `draft`.
+	RightOfUseAsset OptMoney `json:"right_of_use_asset"`
+	// The journal entry its activation posted (`GET /v1/journal-entries/{id}`); absent while the contract
+	// is a `draft`.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The entry's fiscal year; absent while the contract is a `draft`.
+	JournalEntryYear OptInt32 `json:"journal_entry_year"`
+	// The entry's document number; absent while the contract is a `draft`.
+	JournalEntryNumber OptString `json:"journal_entry_number"`
+	// The payments, by number; absent from `listLeaseContracts`, whose items `getLeaseContract` gives with
+	// them.
+	Payments []LeasePayment `json:"payments"`
+}
+
+// GetID returns the value of ID.
+func (s *LeaseContract) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *LeaseContract) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *LeaseContract) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *LeaseContract) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *LeaseContract) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *LeaseContract) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *LeaseContract) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *LeaseContract) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *LeaseContract) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *LeaseContract) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetLessorID returns the value of LessorID.
+func (s *LeaseContract) GetLessorID() uuid.UUID {
+	return s.LessorID
+}
+
+// GetLessorNumber returns the value of LessorNumber.
+func (s *LeaseContract) GetLessorNumber() string {
+	return s.LessorNumber
+}
+
+// GetLessorName returns the value of LessorName.
+func (s *LeaseContract) GetLessorName() string {
+	return s.LessorName
+}
+
+// GetCommencementDate returns the value of CommencementDate.
+func (s *LeaseContract) GetCommencementDate() time.Time {
+	return s.CommencementDate
+}
+
+// GetEndDate returns the value of EndDate.
+func (s *LeaseContract) GetEndDate() time.Time {
+	return s.EndDate
+}
+
+// GetTermMonths returns the value of TermMonths.
+func (s *LeaseContract) GetTermMonths() int32 {
+	return s.TermMonths
+}
+
+// GetPaymentAmount returns the value of PaymentAmount.
+func (s *LeaseContract) GetPaymentAmount() Money {
+	return s.PaymentAmount
+}
+
+// GetPaymentFrequency returns the value of PaymentFrequency.
+func (s *LeaseContract) GetPaymentFrequency() string {
+	return s.PaymentFrequency
+}
+
+// GetPaymentTiming returns the value of PaymentTiming.
+func (s *LeaseContract) GetPaymentTiming() string {
+	return s.PaymentTiming
+}
+
+// GetAnnualDiscountRatePercent returns the value of AnnualDiscountRatePercent.
+func (s *LeaseContract) GetAnnualDiscountRatePercent() string {
+	return s.AnnualDiscountRatePercent
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *LeaseContract) GetCostCenterID() uuid.UUID {
+	return s.CostCenterID
+}
+
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *LeaseContract) GetCostCenterCode() string {
+	return s.CostCenterCode
+}
+
+// GetCurrency returns the value of Currency.
+func (s *LeaseContract) GetCurrency() string {
+	return s.Currency
+}
+
+// GetPaymentCount returns the value of PaymentCount.
+func (s *LeaseContract) GetPaymentCount() int32 {
+	return s.PaymentCount
+}
+
+// GetTotalPayments returns the value of TotalPayments.
+func (s *LeaseContract) GetTotalPayments() Money {
+	return s.TotalPayments
+}
+
+// GetStatus returns the value of Status.
+func (s *LeaseContract) GetStatus() string {
+	return s.Status
+}
+
+// GetLeaseLiability returns the value of LeaseLiability.
+func (s *LeaseContract) GetLeaseLiability() OptMoney {
+	return s.LeaseLiability
+}
+
+// GetRightOfUseAsset returns the value of RightOfUseAsset.
+func (s *LeaseContract) GetRightOfUseAsset() OptMoney {
+	return s.RightOfUseAsset
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *LeaseContract) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *LeaseContract) GetJournalEntryYear() OptInt32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *LeaseContract) GetJournalEntryNumber() OptString {
+	return s.JournalEntryNumber
+}
+
+// GetPayments returns the value of Payments.
+func (s *LeaseContract) GetPayments() []LeasePayment {
+	return s.Payments
+}
+
+// SetID sets the value of ID.
+func (s *LeaseContract) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *LeaseContract) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *LeaseContract) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *LeaseContract) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *LeaseContract) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *LeaseContract) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *LeaseContract) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *LeaseContract) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *LeaseContract) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *LeaseContract) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetLessorID sets the value of LessorID.
+func (s *LeaseContract) SetLessorID(val uuid.UUID) {
+	s.LessorID = val
+}
+
+// SetLessorNumber sets the value of LessorNumber.
+func (s *LeaseContract) SetLessorNumber(val string) {
+	s.LessorNumber = val
+}
+
+// SetLessorName sets the value of LessorName.
+func (s *LeaseContract) SetLessorName(val string) {
+	s.LessorName = val
+}
+
+// SetCommencementDate sets the value of CommencementDate.
+func (s *LeaseContract) SetCommencementDate(val time.Time) {
+	s.CommencementDate = val
+}
+
+// SetEndDate sets the value of EndDate.
+func (s *LeaseContract) SetEndDate(val time.Time) {
+	s.EndDate = val
+}
+
+// SetTermMonths sets the value of TermMonths.
+func (s *LeaseContract) SetTermMonths(val int32) {
+	s.TermMonths = val
+}
+
+// SetPaymentAmount sets the value of PaymentAmount.
+func (s *LeaseContract) SetPaymentAmount(val Money) {
+	s.PaymentAmount = val
+}
+
+// SetPaymentFrequency sets the value of PaymentFrequency.
+func (s *LeaseContract) SetPaymentFrequency(val string) {
+	s.PaymentFrequency = val
+}
+
+// SetPaymentTiming sets the value of PaymentTiming.
+func (s *LeaseContract) SetPaymentTiming(val string) {
+	s.PaymentTiming = val
+}
+
+// SetAnnualDiscountRatePercent sets the value of AnnualDiscountRatePercent.
+func (s *LeaseContract) SetAnnualDiscountRatePercent(val string) {
+	s.AnnualDiscountRatePercent = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *LeaseContract) SetCostCenterID(val uuid.UUID) {
+	s.CostCenterID = val
+}
+
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *LeaseContract) SetCostCenterCode(val string) {
+	s.CostCenterCode = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *LeaseContract) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetPaymentCount sets the value of PaymentCount.
+func (s *LeaseContract) SetPaymentCount(val int32) {
+	s.PaymentCount = val
+}
+
+// SetTotalPayments sets the value of TotalPayments.
+func (s *LeaseContract) SetTotalPayments(val Money) {
+	s.TotalPayments = val
+}
+
+// SetStatus sets the value of Status.
+func (s *LeaseContract) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetLeaseLiability sets the value of LeaseLiability.
+func (s *LeaseContract) SetLeaseLiability(val OptMoney) {
+	s.LeaseLiability = val
+}
+
+// SetRightOfUseAsset sets the value of RightOfUseAsset.
+func (s *LeaseContract) SetRightOfUseAsset(val OptMoney) {
+	s.RightOfUseAsset = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *LeaseContract) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *LeaseContract) SetJournalEntryYear(val OptInt32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *LeaseContract) SetJournalEntryNumber(val OptString) {
+	s.JournalEntryNumber = val
+}
+
+// SetPayments sets the value of Payments.
+func (s *LeaseContract) SetPayments(val []LeasePayment) {
+	s.Payments = val
+}
+
+// A lease contract a company enters as lessee.
+// Ref: #/components/schemas/LeaseContractCreate
+type LeaseContractCreate struct {
+	// The company that leases, one the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The lessor: a business partner that is a supplier set up and not blocked for posting in the company
+	// (`GET /v1/business-partners/{id}`).
+	LessorID uuid.UUID `json:"lessor_id"`
+	// The date the lessor makes the asset available: the term and the payments count from it.
+	CommencementDate time.Time `json:"commencement_date"`
+	// The lease term in whole months, a person's judgement.
+	TermMonths int32 `json:"term_months"`
+	// Each payment, more than zero, in the company's local currency.
+	PaymentAmount Money `json:"payment_amount"`
+	// How often a payment is due: every month, quarter or year; it divides the term. Open enumeration:
+	// values may be added within /v1.
+	PaymentFrequency string `json:"payment_frequency"`
+	// When in its interval a payment is due: on the first day (`advance`) or the last (`arrears`). Open
+	// enumeration: values may be added within /v1.
+	PaymentTiming string `json:"payment_timing"`
+	// The annual discount rate in percent, a decimal string such as "6" or "4.25": above zero, at most
+	// 100, up to six decimals. The rate implicit in the lease or the lessee's incremental borrowing rate,
+	// a person's judgement.
+	AnnualDiscountRatePercent string `json:"annual_discount_rate_percent"`
+	// The cost center the lease's expenses are to be posted on: an active cost center of the company in
+	// force on the commencement date.
+	CostCenterID uuid.UUID `json:"cost_center_id"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *LeaseContractCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetLessorID returns the value of LessorID.
+func (s *LeaseContractCreate) GetLessorID() uuid.UUID {
+	return s.LessorID
+}
+
+// GetCommencementDate returns the value of CommencementDate.
+func (s *LeaseContractCreate) GetCommencementDate() time.Time {
+	return s.CommencementDate
+}
+
+// GetTermMonths returns the value of TermMonths.
+func (s *LeaseContractCreate) GetTermMonths() int32 {
+	return s.TermMonths
+}
+
+// GetPaymentAmount returns the value of PaymentAmount.
+func (s *LeaseContractCreate) GetPaymentAmount() Money {
+	return s.PaymentAmount
+}
+
+// GetPaymentFrequency returns the value of PaymentFrequency.
+func (s *LeaseContractCreate) GetPaymentFrequency() string {
+	return s.PaymentFrequency
+}
+
+// GetPaymentTiming returns the value of PaymentTiming.
+func (s *LeaseContractCreate) GetPaymentTiming() string {
+	return s.PaymentTiming
+}
+
+// GetAnnualDiscountRatePercent returns the value of AnnualDiscountRatePercent.
+func (s *LeaseContractCreate) GetAnnualDiscountRatePercent() string {
+	return s.AnnualDiscountRatePercent
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *LeaseContractCreate) GetCostCenterID() uuid.UUID {
+	return s.CostCenterID
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *LeaseContractCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetLessorID sets the value of LessorID.
+func (s *LeaseContractCreate) SetLessorID(val uuid.UUID) {
+	s.LessorID = val
+}
+
+// SetCommencementDate sets the value of CommencementDate.
+func (s *LeaseContractCreate) SetCommencementDate(val time.Time) {
+	s.CommencementDate = val
+}
+
+// SetTermMonths sets the value of TermMonths.
+func (s *LeaseContractCreate) SetTermMonths(val int32) {
+	s.TermMonths = val
+}
+
+// SetPaymentAmount sets the value of PaymentAmount.
+func (s *LeaseContractCreate) SetPaymentAmount(val Money) {
+	s.PaymentAmount = val
+}
+
+// SetPaymentFrequency sets the value of PaymentFrequency.
+func (s *LeaseContractCreate) SetPaymentFrequency(val string) {
+	s.PaymentFrequency = val
+}
+
+// SetPaymentTiming sets the value of PaymentTiming.
+func (s *LeaseContractCreate) SetPaymentTiming(val string) {
+	s.PaymentTiming = val
+}
+
+// SetAnnualDiscountRatePercent sets the value of AnnualDiscountRatePercent.
+func (s *LeaseContractCreate) SetAnnualDiscountRatePercent(val string) {
+	s.AnnualDiscountRatePercent = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *LeaseContractCreate) SetCostCenterID(val uuid.UUID) {
+	s.CostCenterID = val
+}
+
+// LeaseContractHeaders wraps LeaseContract with response headers.
+type LeaseContractHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           LeaseContract
+}
+
+// GetETag returns the value of ETag.
+func (s *LeaseContractHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *LeaseContractHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *LeaseContractHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *LeaseContractHeaders) GetResponse() LeaseContract {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *LeaseContractHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *LeaseContractHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *LeaseContractHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *LeaseContractHeaders) SetResponse(val LeaseContract) {
+	s.Response = val
+}
+
+func (*LeaseContractHeaders) createLeaseContractRes() {}
+
+// One page of lease contracts.
+// Ref: #/components/schemas/LeaseContractPage
+type LeaseContractPage struct {
+	// The lease contracts on this page, without their payments.
+	Items []LeaseContract `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *LeaseContractPage) GetItems() []LeaseContract {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *LeaseContractPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *LeaseContractPage) SetItems(val []LeaseContract) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *LeaseContractPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*LeaseContractPage) listLeaseContractsRes() {}
+
+// A payment of a lease contract's schedule (ADR-0073 §4).
+// Ref: #/components/schemas/LeasePayment
+type LeasePayment struct {
+	// The payment's number within the contract, from 1 in date order.
+	PaymentNo int32 `json:"payment_no"`
+	// The day it is due: its interval's first day for a payment in advance, its last for one in arrears.
+	DueDate time.Time `json:"due_date"`
+	// The payment, in the contract's currency.
+	Amount Money `json:"amount"`
+}
+
+// GetPaymentNo returns the value of PaymentNo.
+func (s *LeasePayment) GetPaymentNo() int32 {
+	return s.PaymentNo
+}
+
+// GetDueDate returns the value of DueDate.
+func (s *LeasePayment) GetDueDate() time.Time {
+	return s.DueDate
+}
+
+// GetAmount returns the value of Amount.
+func (s *LeasePayment) GetAmount() Money {
+	return s.Amount
+}
+
+// SetPaymentNo sets the value of PaymentNo.
+func (s *LeasePayment) SetPaymentNo(val int32) {
+	s.PaymentNo = val
+}
+
+// SetDueDate sets the value of DueDate.
+func (s *LeasePayment) SetDueDate(val time.Time) {
+	s.DueDate = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *LeasePayment) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// A lease contract's schedule (leases, ADR-0073 §8): computed on read for a draft, the stored one of
+// an active contract.
+// Ref: #/components/schemas/LeaseSchedule
+type LeaseSchedule struct {
+	// The contract (`getLeaseContract`).
+	LeaseContractID uuid.UUID `json:"lease_contract_id"`
+	// The contract's number.
+	DocumentNumber string `json:"document_number"`
+	// The company that leases.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The contract's status: a `draft`'s schedule is computed on read, an `active` contract's is the one
+	// stored at its activation. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Status string `json:"status"`
+	// The contract's currency (ISO 4217).
+	Currency string `json:"currency"`
+	// The commencement date.
+	CommencementDate time.Time `json:"commencement_date"`
+	// Whether payments are due at the start (`advance`) or the end (`arrears`) of their intervals. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	PaymentTiming string `json:"payment_timing"`
+	// The payments a year: 12, 4 or 1. The period's rate is the annual discount rate divided by it.
+	PaymentsPerYear int32 `json:"payments_per_year"`
+	// The annual discount rate in percent.
+	AnnualDiscountRatePercent string `json:"annual_discount_rate_percent"`
+	// The lease liability at commencement: the present value of the payments not paid on the commencement
+	// date.
+	LeaseLiability Money `json:"lease_liability"`
+	// A payment due on the commencement date, zero when there is none (payments in arrears).
+	CommencementPayment Money `json:"commencement_payment"`
+	// The right-of-use asset at commencement: the lease liability and the commencement payment; what the
+	// activation posts.
+	RightOfUseAsset Money `json:"right_of_use_asset"`
+	// The lines, one per payment interval, in order.
+	Lines  []LeaseScheduleLine `json:"lines"`
+	Totals LeaseScheduleTotals `json:"totals"`
+}
+
+// GetLeaseContractID returns the value of LeaseContractID.
+func (s *LeaseSchedule) GetLeaseContractID() uuid.UUID {
+	return s.LeaseContractID
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *LeaseSchedule) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *LeaseSchedule) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *LeaseSchedule) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *LeaseSchedule) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetStatus returns the value of Status.
+func (s *LeaseSchedule) GetStatus() string {
+	return s.Status
+}
+
+// GetCurrency returns the value of Currency.
+func (s *LeaseSchedule) GetCurrency() string {
+	return s.Currency
+}
+
+// GetCommencementDate returns the value of CommencementDate.
+func (s *LeaseSchedule) GetCommencementDate() time.Time {
+	return s.CommencementDate
+}
+
+// GetPaymentTiming returns the value of PaymentTiming.
+func (s *LeaseSchedule) GetPaymentTiming() string {
+	return s.PaymentTiming
+}
+
+// GetPaymentsPerYear returns the value of PaymentsPerYear.
+func (s *LeaseSchedule) GetPaymentsPerYear() int32 {
+	return s.PaymentsPerYear
+}
+
+// GetAnnualDiscountRatePercent returns the value of AnnualDiscountRatePercent.
+func (s *LeaseSchedule) GetAnnualDiscountRatePercent() string {
+	return s.AnnualDiscountRatePercent
+}
+
+// GetLeaseLiability returns the value of LeaseLiability.
+func (s *LeaseSchedule) GetLeaseLiability() Money {
+	return s.LeaseLiability
+}
+
+// GetCommencementPayment returns the value of CommencementPayment.
+func (s *LeaseSchedule) GetCommencementPayment() Money {
+	return s.CommencementPayment
+}
+
+// GetRightOfUseAsset returns the value of RightOfUseAsset.
+func (s *LeaseSchedule) GetRightOfUseAsset() Money {
+	return s.RightOfUseAsset
+}
+
+// GetLines returns the value of Lines.
+func (s *LeaseSchedule) GetLines() []LeaseScheduleLine {
+	return s.Lines
+}
+
+// GetTotals returns the value of Totals.
+func (s *LeaseSchedule) GetTotals() LeaseScheduleTotals {
+	return s.Totals
+}
+
+// SetLeaseContractID sets the value of LeaseContractID.
+func (s *LeaseSchedule) SetLeaseContractID(val uuid.UUID) {
+	s.LeaseContractID = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *LeaseSchedule) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *LeaseSchedule) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *LeaseSchedule) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *LeaseSchedule) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetStatus sets the value of Status.
+func (s *LeaseSchedule) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *LeaseSchedule) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetCommencementDate sets the value of CommencementDate.
+func (s *LeaseSchedule) SetCommencementDate(val time.Time) {
+	s.CommencementDate = val
+}
+
+// SetPaymentTiming sets the value of PaymentTiming.
+func (s *LeaseSchedule) SetPaymentTiming(val string) {
+	s.PaymentTiming = val
+}
+
+// SetPaymentsPerYear sets the value of PaymentsPerYear.
+func (s *LeaseSchedule) SetPaymentsPerYear(val int32) {
+	s.PaymentsPerYear = val
+}
+
+// SetAnnualDiscountRatePercent sets the value of AnnualDiscountRatePercent.
+func (s *LeaseSchedule) SetAnnualDiscountRatePercent(val string) {
+	s.AnnualDiscountRatePercent = val
+}
+
+// SetLeaseLiability sets the value of LeaseLiability.
+func (s *LeaseSchedule) SetLeaseLiability(val Money) {
+	s.LeaseLiability = val
+}
+
+// SetCommencementPayment sets the value of CommencementPayment.
+func (s *LeaseSchedule) SetCommencementPayment(val Money) {
+	s.CommencementPayment = val
+}
+
+// SetRightOfUseAsset sets the value of RightOfUseAsset.
+func (s *LeaseSchedule) SetRightOfUseAsset(val Money) {
+	s.RightOfUseAsset = val
+}
+
+// SetLines sets the value of Lines.
+func (s *LeaseSchedule) SetLines(val []LeaseScheduleLine) {
+	s.Lines = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *LeaseSchedule) SetTotals(val LeaseScheduleTotals) {
+	s.Totals = val
+}
+
+func (*LeaseSchedule) getLeaseScheduleRes() {}
+
+// A line of a lease contract's schedule: one payment interval (ADR-0073 §8). Amounts are in the
+// contract's currency.
+// Ref: #/components/schemas/LeaseScheduleLine
+type LeaseScheduleLine struct {
+	// The line's number, its payment's (`payments[].payment_no`).
+	LineNo int32 `json:"line_no"`
+	// The interval's first day.
+	PeriodStart time.Time `json:"period_start"`
+	// The interval's last day.
+	PeriodEnd time.Time `json:"period_end"`
+	// The day the interval's payment is due.
+	PaymentDate time.Time `json:"payment_date"`
+	// The lease liability at the interval's start; the first line's holds a payment due on the
+	// commencement date.
+	OpeningLiability Money `json:"opening_liability"`
+	// The payment due in the interval.
+	Payment Money `json:"payment"`
+	// The interval's interest: the closing liability less the opening plus the payment.
+	Interest Money `json:"interest"`
+	// The lease liability at the interval's end: the present value of the payments still to come, rounded
+	// once; zero on the last line.
+	ClosingLiability Money `json:"closing_liability"`
+	// The right-of-use asset's depreciation in the interval, on a straight line.
+	Depreciation Money `json:"depreciation"`
+	// The right-of-use asset's carrying amount at the interval's end: its amount less the depreciation so
+	// far; zero on the last line.
+	RightOfUseClosing Money `json:"right_of_use_closing"`
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *LeaseScheduleLine) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetPeriodStart returns the value of PeriodStart.
+func (s *LeaseScheduleLine) GetPeriodStart() time.Time {
+	return s.PeriodStart
+}
+
+// GetPeriodEnd returns the value of PeriodEnd.
+func (s *LeaseScheduleLine) GetPeriodEnd() time.Time {
+	return s.PeriodEnd
+}
+
+// GetPaymentDate returns the value of PaymentDate.
+func (s *LeaseScheduleLine) GetPaymentDate() time.Time {
+	return s.PaymentDate
+}
+
+// GetOpeningLiability returns the value of OpeningLiability.
+func (s *LeaseScheduleLine) GetOpeningLiability() Money {
+	return s.OpeningLiability
+}
+
+// GetPayment returns the value of Payment.
+func (s *LeaseScheduleLine) GetPayment() Money {
+	return s.Payment
+}
+
+// GetInterest returns the value of Interest.
+func (s *LeaseScheduleLine) GetInterest() Money {
+	return s.Interest
+}
+
+// GetClosingLiability returns the value of ClosingLiability.
+func (s *LeaseScheduleLine) GetClosingLiability() Money {
+	return s.ClosingLiability
+}
+
+// GetDepreciation returns the value of Depreciation.
+func (s *LeaseScheduleLine) GetDepreciation() Money {
+	return s.Depreciation
+}
+
+// GetRightOfUseClosing returns the value of RightOfUseClosing.
+func (s *LeaseScheduleLine) GetRightOfUseClosing() Money {
+	return s.RightOfUseClosing
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *LeaseScheduleLine) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetPeriodStart sets the value of PeriodStart.
+func (s *LeaseScheduleLine) SetPeriodStart(val time.Time) {
+	s.PeriodStart = val
+}
+
+// SetPeriodEnd sets the value of PeriodEnd.
+func (s *LeaseScheduleLine) SetPeriodEnd(val time.Time) {
+	s.PeriodEnd = val
+}
+
+// SetPaymentDate sets the value of PaymentDate.
+func (s *LeaseScheduleLine) SetPaymentDate(val time.Time) {
+	s.PaymentDate = val
+}
+
+// SetOpeningLiability sets the value of OpeningLiability.
+func (s *LeaseScheduleLine) SetOpeningLiability(val Money) {
+	s.OpeningLiability = val
+}
+
+// SetPayment sets the value of Payment.
+func (s *LeaseScheduleLine) SetPayment(val Money) {
+	s.Payment = val
+}
+
+// SetInterest sets the value of Interest.
+func (s *LeaseScheduleLine) SetInterest(val Money) {
+	s.Interest = val
+}
+
+// SetClosingLiability sets the value of ClosingLiability.
+func (s *LeaseScheduleLine) SetClosingLiability(val Money) {
+	s.ClosingLiability = val
+}
+
+// SetDepreciation sets the value of Depreciation.
+func (s *LeaseScheduleLine) SetDepreciation(val Money) {
+	s.Depreciation = val
+}
+
+// SetRightOfUseClosing sets the value of RightOfUseClosing.
+func (s *LeaseScheduleLine) SetRightOfUseClosing(val Money) {
+	s.RightOfUseClosing = val
+}
+
+// The schedule's totals, in the contract's currency.
+// Ref: #/components/schemas/LeaseScheduleTotals
+type LeaseScheduleTotals struct {
+	// The sum of the lines' payments.
+	Payments Money `json:"payments"`
+	// The sum of the lines' interest: the payments less the right-of-use asset.
+	Interest Money `json:"interest"`
+	// The sum of the lines' depreciation: the right-of-use asset.
+	Depreciation Money `json:"depreciation"`
+}
+
+// GetPayments returns the value of Payments.
+func (s *LeaseScheduleTotals) GetPayments() Money {
+	return s.Payments
+}
+
+// GetInterest returns the value of Interest.
+func (s *LeaseScheduleTotals) GetInterest() Money {
+	return s.Interest
+}
+
+// GetDepreciation returns the value of Depreciation.
+func (s *LeaseScheduleTotals) GetDepreciation() Money {
+	return s.Depreciation
+}
+
+// SetPayments sets the value of Payments.
+func (s *LeaseScheduleTotals) SetPayments(val Money) {
+	s.Payments = val
+}
+
+// SetInterest sets the value of Interest.
+func (s *LeaseScheduleTotals) SetInterest(val Money) {
+	s.Interest = val
+}
+
+// SetDepreciation sets the value of Depreciation.
+func (s *LeaseScheduleTotals) SetDepreciation(val Money) {
+	s.Depreciation = val
 }
 
 // A ledger of the tenant (SAP FINSC_LEDGER): the leading ledger 0L or a parallel ledger.
@@ -53582,6 +57751,14 @@ type ListApprovalRequestsForbidden Problem
 
 func (*ListApprovalRequestsForbidden) listApprovalRequestsRes() {}
 
+type ListArchivingRunsBadRequest Problem
+
+func (*ListArchivingRunsBadRequest) listArchivingRunsRes() {}
+
+type ListArchivingRunsForbidden Problem
+
+func (*ListArchivingRunsForbidden) listArchivingRunsRes() {}
+
 type ListAssetAcquisitionsBadRequest Problem
 
 func (*ListAssetAcquisitionsBadRequest) listAssetAcquisitionsRes() {}
@@ -54002,6 +58179,14 @@ type ListDepreciationRunsForbidden Problem
 
 func (*ListDepreciationRunsForbidden) listDepreciationRunsRes() {}
 
+type ListDisputeCasesBadRequest Problem
+
+func (*ListDisputeCasesBadRequest) listDisputeCasesRes() {}
+
+type ListDisputeCasesForbidden Problem
+
+func (*ListDisputeCasesForbidden) listDisputeCasesRes() {}
+
 type ListDownPaymentRequestsBadRequest Problem
 
 func (*ListDownPaymentRequestsBadRequest) listDownPaymentRequestsRes() {}
@@ -54053,6 +58238,14 @@ func (*ListExchangeRatesBadRequest) listExchangeRatesRes() {}
 type ListExchangeRatesForbidden Problem
 
 func (*ListExchangeRatesForbidden) listExchangeRatesRes() {}
+
+type ListExpenseReportsBadRequest Problem
+
+func (*ListExpenseReportsBadRequest) listExpenseReportsRes() {}
+
+type ListExpenseReportsForbidden Problem
+
+func (*ListExpenseReportsForbidden) listExpenseReportsRes() {}
 
 type ListFiscalPeriodsBadRequest Problem
 
@@ -54202,6 +58395,14 @@ type ListJournalEntriesForbidden Problem
 
 func (*ListJournalEntriesForbidden) listJournalEntriesRes() {}
 
+type ListLeaseContractsBadRequest Problem
+
+func (*ListLeaseContractsBadRequest) listLeaseContractsRes() {}
+
+type ListLeaseContractsForbidden Problem
+
+func (*ListLeaseContractsForbidden) listLeaseContractsRes() {}
+
 type ListLedgerGroupsBadRequest Problem
 
 func (*ListLedgerGroupsBadRequest) listLedgerGroupsRes() {}
@@ -54277,6 +58478,22 @@ func (*ListMemoRecordsBadRequest) listMemoRecordsRes() {}
 type ListMemoRecordsForbidden Problem
 
 func (*ListMemoRecordsForbidden) listMemoRecordsRes() {}
+
+type ListMetricAlertsBadRequest Problem
+
+func (*ListMetricAlertsBadRequest) listMetricAlertsRes() {}
+
+type ListMetricAlertsForbidden Problem
+
+func (*ListMetricAlertsForbidden) listMetricAlertsRes() {}
+
+type ListMetricWatchersBadRequest Problem
+
+func (*ListMetricWatchersBadRequest) listMetricWatchersRes() {}
+
+type ListMetricWatchersForbidden Problem
+
+func (*ListMetricWatchersForbidden) listMetricWatchersRes() {}
 
 type ListMigrationRunsBadRequest Problem
 
@@ -54502,6 +58719,34 @@ type ListRegressionSuitesForbidden Problem
 
 func (*ListRegressionSuitesForbidden) listRegressionSuitesRes() {}
 
+type ListReportRunsBadRequest Problem
+
+func (*ListReportRunsBadRequest) listReportRunsRes() {}
+
+type ListReportRunsForbidden Problem
+
+func (*ListReportRunsForbidden) listReportRunsRes() {}
+
+type ListReportSharesBadRequest Problem
+
+func (*ListReportSharesBadRequest) listReportSharesRes() {}
+
+type ListReportSharesForbidden Problem
+
+func (*ListReportSharesForbidden) listReportSharesRes() {}
+
+type ListReportSharesNotFound Problem
+
+func (*ListReportSharesNotFound) listReportSharesRes() {}
+
+type ListReportsBadRequest Problem
+
+func (*ListReportsBadRequest) listReportsRes() {}
+
+type ListReportsForbidden Problem
+
+func (*ListReportsForbidden) listReportsRes() {}
+
 type ListRequisitionsBadRequest Problem
 
 func (*ListRequisitionsBadRequest) listRequisitionsRes() {}
@@ -54561,6 +58806,26 @@ func (*ListRfqsBadRequest) listRfqsRes() {}
 type ListRfqsForbidden Problem
 
 func (*ListRfqsForbidden) listRfqsRes() {}
+
+type ListRiskRatingsBadRequest Problem
+
+func (*ListRiskRatingsBadRequest) listRiskRatingsRes() {}
+
+type ListRiskRatingsForbidden Problem
+
+func (*ListRiskRatingsForbidden) listRiskRatingsRes() {}
+
+type ListRiskRatingsNotFound Problem
+
+func (*ListRiskRatingsNotFound) listRiskRatingsRes() {}
+
+type ListRisksBadRequest Problem
+
+func (*ListRisksBadRequest) listRisksRes() {}
+
+type ListRisksForbidden Problem
+
+func (*ListRisksForbidden) listRisksRes() {}
 
 type ListRoleAssignmentsBadRequest Problem
 
@@ -56811,6 +61076,969 @@ func (s *MemoRecurrence) SetUntil(val OptDate) {
 // SetCount sets the value of Count.
 func (s *MemoRecurrence) SetCount(val OptInt32) {
 	s.Count = val
+}
+
+// An alert a watcher raised for a period (ADR-0077 §3): one per watcher and period.
+// Ref: #/components/schemas/MetricAlert
+type MetricAlert struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag.
+	Version int32 `json:"version"`
+	// The watcher that raised it (`GET /v1/metric-watchers/{id}`, for its creator).
+	WatcherID uuid.UUID `json:"watcher_id"`
+	// The watcher's name.
+	WatcherName string `json:"watcher_name"`
+	// The governed metric watched.
+	Metric string `json:"metric"`
+	// `month` or `year`. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Grain     string                 `json:"grain"`
+	Condition MetricWatcherCondition `json:"condition"`
+	// The fiscal year of the period.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The fiscal month of the period; absent for a watcher by year.
+	FiscalPeriod OptInt32 `json:"fiscal_period"`
+	// The company codes whose figures held the condition, in order.
+	Companies []string `json:"companies"`
+	// A finding per company and currency that held the condition, by company and currency.
+	Findings []MetricAlertFinding `json:"findings"`
+	// `open`, or `acknowledged` once (`acknowledgeMetricAlert`). Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// When it was raised.
+	RaisedAt time.Time `json:"raised_at"`
+	// The watcher's creator the evaluation ran as (`GET /v1/principals/{id}`).
+	RaisedAs uuid.UUID `json:"raised_as"`
+	// The creator's name, as it is now.
+	RaisedAsName string `json:"raised_as_name"`
+	// When it was acknowledged; absent while it is open.
+	AcknowledgedAt OptDateTime `json:"acknowledged_at"`
+	// Who acknowledged it; absent while it is open.
+	AcknowledgedBy OptUUID `json:"acknowledged_by"`
+	// Their name, as it is now; absent while it is open.
+	AcknowledgedByName OptString `json:"acknowledged_by_name"`
+}
+
+// GetID returns the value of ID.
+func (s *MetricAlert) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *MetricAlert) GetVersion() int32 {
+	return s.Version
+}
+
+// GetWatcherID returns the value of WatcherID.
+func (s *MetricAlert) GetWatcherID() uuid.UUID {
+	return s.WatcherID
+}
+
+// GetWatcherName returns the value of WatcherName.
+func (s *MetricAlert) GetWatcherName() string {
+	return s.WatcherName
+}
+
+// GetMetric returns the value of Metric.
+func (s *MetricAlert) GetMetric() string {
+	return s.Metric
+}
+
+// GetGrain returns the value of Grain.
+func (s *MetricAlert) GetGrain() string {
+	return s.Grain
+}
+
+// GetCondition returns the value of Condition.
+func (s *MetricAlert) GetCondition() MetricWatcherCondition {
+	return s.Condition
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *MetricAlert) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *MetricAlert) GetFiscalPeriod() OptInt32 {
+	return s.FiscalPeriod
+}
+
+// GetCompanies returns the value of Companies.
+func (s *MetricAlert) GetCompanies() []string {
+	return s.Companies
+}
+
+// GetFindings returns the value of Findings.
+func (s *MetricAlert) GetFindings() []MetricAlertFinding {
+	return s.Findings
+}
+
+// GetStatus returns the value of Status.
+func (s *MetricAlert) GetStatus() string {
+	return s.Status
+}
+
+// GetRaisedAt returns the value of RaisedAt.
+func (s *MetricAlert) GetRaisedAt() time.Time {
+	return s.RaisedAt
+}
+
+// GetRaisedAs returns the value of RaisedAs.
+func (s *MetricAlert) GetRaisedAs() uuid.UUID {
+	return s.RaisedAs
+}
+
+// GetRaisedAsName returns the value of RaisedAsName.
+func (s *MetricAlert) GetRaisedAsName() string {
+	return s.RaisedAsName
+}
+
+// GetAcknowledgedAt returns the value of AcknowledgedAt.
+func (s *MetricAlert) GetAcknowledgedAt() OptDateTime {
+	return s.AcknowledgedAt
+}
+
+// GetAcknowledgedBy returns the value of AcknowledgedBy.
+func (s *MetricAlert) GetAcknowledgedBy() OptUUID {
+	return s.AcknowledgedBy
+}
+
+// GetAcknowledgedByName returns the value of AcknowledgedByName.
+func (s *MetricAlert) GetAcknowledgedByName() OptString {
+	return s.AcknowledgedByName
+}
+
+// SetID sets the value of ID.
+func (s *MetricAlert) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *MetricAlert) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetWatcherID sets the value of WatcherID.
+func (s *MetricAlert) SetWatcherID(val uuid.UUID) {
+	s.WatcherID = val
+}
+
+// SetWatcherName sets the value of WatcherName.
+func (s *MetricAlert) SetWatcherName(val string) {
+	s.WatcherName = val
+}
+
+// SetMetric sets the value of Metric.
+func (s *MetricAlert) SetMetric(val string) {
+	s.Metric = val
+}
+
+// SetGrain sets the value of Grain.
+func (s *MetricAlert) SetGrain(val string) {
+	s.Grain = val
+}
+
+// SetCondition sets the value of Condition.
+func (s *MetricAlert) SetCondition(val MetricWatcherCondition) {
+	s.Condition = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *MetricAlert) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *MetricAlert) SetFiscalPeriod(val OptInt32) {
+	s.FiscalPeriod = val
+}
+
+// SetCompanies sets the value of Companies.
+func (s *MetricAlert) SetCompanies(val []string) {
+	s.Companies = val
+}
+
+// SetFindings sets the value of Findings.
+func (s *MetricAlert) SetFindings(val []MetricAlertFinding) {
+	s.Findings = val
+}
+
+// SetStatus sets the value of Status.
+func (s *MetricAlert) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetRaisedAt sets the value of RaisedAt.
+func (s *MetricAlert) SetRaisedAt(val time.Time) {
+	s.RaisedAt = val
+}
+
+// SetRaisedAs sets the value of RaisedAs.
+func (s *MetricAlert) SetRaisedAs(val uuid.UUID) {
+	s.RaisedAs = val
+}
+
+// SetRaisedAsName sets the value of RaisedAsName.
+func (s *MetricAlert) SetRaisedAsName(val string) {
+	s.RaisedAsName = val
+}
+
+// SetAcknowledgedAt sets the value of AcknowledgedAt.
+func (s *MetricAlert) SetAcknowledgedAt(val OptDateTime) {
+	s.AcknowledgedAt = val
+}
+
+// SetAcknowledgedBy sets the value of AcknowledgedBy.
+func (s *MetricAlert) SetAcknowledgedBy(val OptUUID) {
+	s.AcknowledgedBy = val
+}
+
+// SetAcknowledgedByName sets the value of AcknowledgedByName.
+func (s *MetricAlert) SetAcknowledgedByName(val OptString) {
+	s.AcknowledgedByName = val
+}
+
+// A series that held the condition in the alert's period.
+// Ref: #/components/schemas/MetricAlertFinding
+type MetricAlertFinding struct {
+	// The company code.
+	Company string `json:"company"`
+	// The figure's currency; absent for a count or a ratio.
+	Currency OptString `json:"currency"`
+	// The figure of the period, an exact decimal.
+	Figure string `json:"figure"`
+	// The condition's value, the previous period's figure, or the average of the previous periods.
+	ComparedWith string `json:"compared_with"`
+	// For `change` and `deviation`: the change in percent from the base, rounded to two decimals; absent
+	// for `above` and `below`.
+	Percent OptString `json:"percent"`
+}
+
+// GetCompany returns the value of Company.
+func (s *MetricAlertFinding) GetCompany() string {
+	return s.Company
+}
+
+// GetCurrency returns the value of Currency.
+func (s *MetricAlertFinding) GetCurrency() OptString {
+	return s.Currency
+}
+
+// GetFigure returns the value of Figure.
+func (s *MetricAlertFinding) GetFigure() string {
+	return s.Figure
+}
+
+// GetComparedWith returns the value of ComparedWith.
+func (s *MetricAlertFinding) GetComparedWith() string {
+	return s.ComparedWith
+}
+
+// GetPercent returns the value of Percent.
+func (s *MetricAlertFinding) GetPercent() OptString {
+	return s.Percent
+}
+
+// SetCompany sets the value of Company.
+func (s *MetricAlertFinding) SetCompany(val string) {
+	s.Company = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *MetricAlertFinding) SetCurrency(val OptString) {
+	s.Currency = val
+}
+
+// SetFigure sets the value of Figure.
+func (s *MetricAlertFinding) SetFigure(val string) {
+	s.Figure = val
+}
+
+// SetComparedWith sets the value of ComparedWith.
+func (s *MetricAlertFinding) SetComparedWith(val string) {
+	s.ComparedWith = val
+}
+
+// SetPercent sets the value of Percent.
+func (s *MetricAlertFinding) SetPercent(val OptString) {
+	s.Percent = val
+}
+
+// MetricAlertHeaders wraps MetricAlert with response headers.
+type MetricAlertHeaders struct {
+	ETag     OptString
+	Response MetricAlert
+}
+
+// GetETag returns the value of ETag.
+func (s *MetricAlertHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *MetricAlertHeaders) GetResponse() MetricAlert {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *MetricAlertHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *MetricAlertHeaders) SetResponse(val MetricAlert) {
+	s.Response = val
+}
+
+func (*MetricAlertHeaders) getMetricAlertRes() {}
+
+// One page of metric alerts.
+// Ref: #/components/schemas/MetricAlertPage
+type MetricAlertPage struct {
+	// The alerts on this page.
+	Items []MetricAlert `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *MetricAlertPage) GetItems() []MetricAlert {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *MetricAlertPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *MetricAlertPage) SetItems(val []MetricAlert) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *MetricAlertPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*MetricAlertPage) listMetricAlertsRes() {}
+
+// Merged schema.
+// Ref: #/components/schemas/MetricWatcher
+type MetricWatcher struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The watcher's name.
+	Name string `json:"name"`
+	// The governed metric watched.
+	Metric string `json:"metric"`
+	// The filters on the metric's dimensions; empty for none.
+	Filters []AnalyticsFilter `json:"filters"`
+	// The company watched, by its code; absent: every company the creator may read when it is evaluated.
+	Company OptString `json:"company"`
+	// `month` or `year`. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Grain     string                 `json:"grain"`
+	Condition MetricWatcherCondition `json:"condition"`
+	// `active`; `removed` for good (`removeMetricWatcher`); `failed` when its metric left the model
+	// (`failure_code`). Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Status string `json:"status"`
+	// A failed watcher's reason, a problem code: `analytics.watcher_metric_removed`.
+	FailureCode OptString `json:"failure_code"`
+	// A failed watcher's reason in words.
+	FailureDetail OptString `json:"failure_detail"`
+}
+
+// GetID returns the value of ID.
+func (s *MetricWatcher) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *MetricWatcher) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *MetricWatcher) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *MetricWatcher) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *MetricWatcher) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *MetricWatcher) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetName returns the value of Name.
+func (s *MetricWatcher) GetName() string {
+	return s.Name
+}
+
+// GetMetric returns the value of Metric.
+func (s *MetricWatcher) GetMetric() string {
+	return s.Metric
+}
+
+// GetFilters returns the value of Filters.
+func (s *MetricWatcher) GetFilters() []AnalyticsFilter {
+	return s.Filters
+}
+
+// GetCompany returns the value of Company.
+func (s *MetricWatcher) GetCompany() OptString {
+	return s.Company
+}
+
+// GetGrain returns the value of Grain.
+func (s *MetricWatcher) GetGrain() string {
+	return s.Grain
+}
+
+// GetCondition returns the value of Condition.
+func (s *MetricWatcher) GetCondition() MetricWatcherCondition {
+	return s.Condition
+}
+
+// GetStatus returns the value of Status.
+func (s *MetricWatcher) GetStatus() string {
+	return s.Status
+}
+
+// GetFailureCode returns the value of FailureCode.
+func (s *MetricWatcher) GetFailureCode() OptString {
+	return s.FailureCode
+}
+
+// GetFailureDetail returns the value of FailureDetail.
+func (s *MetricWatcher) GetFailureDetail() OptString {
+	return s.FailureDetail
+}
+
+// SetID sets the value of ID.
+func (s *MetricWatcher) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *MetricWatcher) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *MetricWatcher) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *MetricWatcher) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *MetricWatcher) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *MetricWatcher) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetName sets the value of Name.
+func (s *MetricWatcher) SetName(val string) {
+	s.Name = val
+}
+
+// SetMetric sets the value of Metric.
+func (s *MetricWatcher) SetMetric(val string) {
+	s.Metric = val
+}
+
+// SetFilters sets the value of Filters.
+func (s *MetricWatcher) SetFilters(val []AnalyticsFilter) {
+	s.Filters = val
+}
+
+// SetCompany sets the value of Company.
+func (s *MetricWatcher) SetCompany(val OptString) {
+	s.Company = val
+}
+
+// SetGrain sets the value of Grain.
+func (s *MetricWatcher) SetGrain(val string) {
+	s.Grain = val
+}
+
+// SetCondition sets the value of Condition.
+func (s *MetricWatcher) SetCondition(val MetricWatcherCondition) {
+	s.Condition = val
+}
+
+// SetStatus sets the value of Status.
+func (s *MetricWatcher) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetFailureCode sets the value of FailureCode.
+func (s *MetricWatcher) SetFailureCode(val OptString) {
+	s.FailureCode = val
+}
+
+// SetFailureDetail sets the value of FailureDetail.
+func (s *MetricWatcher) SetFailureDetail(val OptString) {
+	s.FailureDetail = val
+}
+
+// A watcher's condition (ADR-0077 §1): `above` or `below` a `value` (with the `currency` of a money
+// metric), `change` by more than `percent` of the previous period's figure, or `deviation` by more
+// than `percent` of the average of the previous `periods` periods. Exactly the settings of the kind
+// are given.
+// Ref: #/components/schemas/MetricWatcherCondition
+type MetricWatcherCondition struct {
+	// The condition. Open enumeration: clients must accept and preserve values not listed here; values may
+	// be added within /v1.
+	Kind string `json:"kind"`
+	// For `above` and `below`: the value the figure is compared with, an exact decimal in the metric's
+	// unit.
+	Value OptString `json:"value"`
+	// For `above` and `below` on a money metric: the currency of `value`; only figures in it are compared.
+	// Not given for a count or a ratio.
+	Currency OptString `json:"currency"`
+	// For `change` and `deviation`: the percentage, `25` for 25 %, by which the figure must differ from
+	// the base, either way.
+	Percent OptString `json:"percent"`
+	// For `deviation`: how many previous periods the average is of; each must have a figure, or the series
+	// judges nothing.
+	Periods OptInt32 `json:"periods"`
+}
+
+// GetKind returns the value of Kind.
+func (s *MetricWatcherCondition) GetKind() string {
+	return s.Kind
+}
+
+// GetValue returns the value of Value.
+func (s *MetricWatcherCondition) GetValue() OptString {
+	return s.Value
+}
+
+// GetCurrency returns the value of Currency.
+func (s *MetricWatcherCondition) GetCurrency() OptString {
+	return s.Currency
+}
+
+// GetPercent returns the value of Percent.
+func (s *MetricWatcherCondition) GetPercent() OptString {
+	return s.Percent
+}
+
+// GetPeriods returns the value of Periods.
+func (s *MetricWatcherCondition) GetPeriods() OptInt32 {
+	return s.Periods
+}
+
+// SetKind sets the value of Kind.
+func (s *MetricWatcherCondition) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetValue sets the value of Value.
+func (s *MetricWatcherCondition) SetValue(val OptString) {
+	s.Value = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *MetricWatcherCondition) SetCurrency(val OptString) {
+	s.Currency = val
+}
+
+// SetPercent sets the value of Percent.
+func (s *MetricWatcherCondition) SetPercent(val OptString) {
+	s.Percent = val
+}
+
+// SetPeriods sets the value of Periods.
+func (s *MetricWatcherCondition) SetPeriods(val OptInt32) {
+	s.Periods = val
+}
+
+// Set a metric watcher. It is created `active`.
+// Ref: #/components/schemas/MetricWatcherCreate
+type MetricWatcherCreate struct {
+	// The watcher's name, not white space alone.
+	Name string `json:"name"`
+	// A governed metric of the active model (`getAnalyticsModel`).
+	Metric string `json:"metric"`
+	// Filters on the metric's dimensions, all of which a figure's data must meet, as a query's `where`.
+	// None when left out.
+	Filters []AnalyticsFilter `json:"filters"`
+	// One company by its code; left out, every company the creator may read when it is evaluated.
+	Company OptString `json:"company"`
+	// The period a figure is of: `month` (fiscal year and month) or `year` (fiscal year). Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Grain     string                 `json:"grain"`
+	Condition MetricWatcherCondition `json:"condition"`
+}
+
+// GetName returns the value of Name.
+func (s *MetricWatcherCreate) GetName() string {
+	return s.Name
+}
+
+// GetMetric returns the value of Metric.
+func (s *MetricWatcherCreate) GetMetric() string {
+	return s.Metric
+}
+
+// GetFilters returns the value of Filters.
+func (s *MetricWatcherCreate) GetFilters() []AnalyticsFilter {
+	return s.Filters
+}
+
+// GetCompany returns the value of Company.
+func (s *MetricWatcherCreate) GetCompany() OptString {
+	return s.Company
+}
+
+// GetGrain returns the value of Grain.
+func (s *MetricWatcherCreate) GetGrain() string {
+	return s.Grain
+}
+
+// GetCondition returns the value of Condition.
+func (s *MetricWatcherCreate) GetCondition() MetricWatcherCondition {
+	return s.Condition
+}
+
+// SetName sets the value of Name.
+func (s *MetricWatcherCreate) SetName(val string) {
+	s.Name = val
+}
+
+// SetMetric sets the value of Metric.
+func (s *MetricWatcherCreate) SetMetric(val string) {
+	s.Metric = val
+}
+
+// SetFilters sets the value of Filters.
+func (s *MetricWatcherCreate) SetFilters(val []AnalyticsFilter) {
+	s.Filters = val
+}
+
+// SetCompany sets the value of Company.
+func (s *MetricWatcherCreate) SetCompany(val OptString) {
+	s.Company = val
+}
+
+// SetGrain sets the value of Grain.
+func (s *MetricWatcherCreate) SetGrain(val string) {
+	s.Grain = val
+}
+
+// SetCondition sets the value of Condition.
+func (s *MetricWatcherCreate) SetCondition(val MetricWatcherCondition) {
+	s.Condition = val
+}
+
+// An evaluation of a watcher (ADR-0077 §2): the watcher after it, the period judged, each series'
+// figure and the alert of the period.
+// Ref: #/components/schemas/MetricWatcherEvaluation
+type MetricWatcherEvaluation struct {
+	Watcher MetricWatcher `json:"watcher"`
+	// The fiscal year of the period judged; absent when the answer had no figure or the watcher failed.
+	FiscalYear OptInt32 `json:"fiscal_year"`
+	// The fiscal month of the period judged; absent for a watcher by year or when nothing was judged.
+	FiscalPeriod OptInt32 `json:"fiscal_period"`
+	// Each company and currency with a figure in the period judged, by company and currency.
+	Series []MetricWatcherSeries `json:"series"`
+	Alert  OptMetricAlert        `json:"alert"`
+	// Whether this evaluation raised `alert`; false when it was raised before in the period, or none
+	// holds.
+	Raised bool `json:"raised"`
+}
+
+// GetWatcher returns the value of Watcher.
+func (s *MetricWatcherEvaluation) GetWatcher() MetricWatcher {
+	return s.Watcher
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *MetricWatcherEvaluation) GetFiscalYear() OptInt32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *MetricWatcherEvaluation) GetFiscalPeriod() OptInt32 {
+	return s.FiscalPeriod
+}
+
+// GetSeries returns the value of Series.
+func (s *MetricWatcherEvaluation) GetSeries() []MetricWatcherSeries {
+	return s.Series
+}
+
+// GetAlert returns the value of Alert.
+func (s *MetricWatcherEvaluation) GetAlert() OptMetricAlert {
+	return s.Alert
+}
+
+// GetRaised returns the value of Raised.
+func (s *MetricWatcherEvaluation) GetRaised() bool {
+	return s.Raised
+}
+
+// SetWatcher sets the value of Watcher.
+func (s *MetricWatcherEvaluation) SetWatcher(val MetricWatcher) {
+	s.Watcher = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *MetricWatcherEvaluation) SetFiscalYear(val OptInt32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *MetricWatcherEvaluation) SetFiscalPeriod(val OptInt32) {
+	s.FiscalPeriod = val
+}
+
+// SetSeries sets the value of Series.
+func (s *MetricWatcherEvaluation) SetSeries(val []MetricWatcherSeries) {
+	s.Series = val
+}
+
+// SetAlert sets the value of Alert.
+func (s *MetricWatcherEvaluation) SetAlert(val OptMetricAlert) {
+	s.Alert = val
+}
+
+// SetRaised sets the value of Raised.
+func (s *MetricWatcherEvaluation) SetRaised(val bool) {
+	s.Raised = val
+}
+
+// MetricWatcherEvaluationHeaders wraps MetricWatcherEvaluation with response headers.
+type MetricWatcherEvaluationHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           MetricWatcherEvaluation
+}
+
+// GetETag returns the value of ETag.
+func (s *MetricWatcherEvaluationHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *MetricWatcherEvaluationHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *MetricWatcherEvaluationHeaders) GetResponse() MetricWatcherEvaluation {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *MetricWatcherEvaluationHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *MetricWatcherEvaluationHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *MetricWatcherEvaluationHeaders) SetResponse(val MetricWatcherEvaluation) {
+	s.Response = val
+}
+
+func (*MetricWatcherEvaluationHeaders) evaluateMetricWatcherRes() {}
+
+// MetricWatcherHeaders wraps MetricWatcher with response headers.
+type MetricWatcherHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           MetricWatcher
+}
+
+// GetETag returns the value of ETag.
+func (s *MetricWatcherHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *MetricWatcherHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *MetricWatcherHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *MetricWatcherHeaders) GetResponse() MetricWatcher {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *MetricWatcherHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *MetricWatcherHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *MetricWatcherHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *MetricWatcherHeaders) SetResponse(val MetricWatcher) {
+	s.Response = val
+}
+
+func (*MetricWatcherHeaders) createMetricWatcherRes() {}
+
+// One page of the caller's metric watchers.
+// Ref: #/components/schemas/MetricWatcherPage
+type MetricWatcherPage struct {
+	// The watchers on this page.
+	Items []MetricWatcher `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *MetricWatcherPage) GetItems() []MetricWatcher {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *MetricWatcherPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *MetricWatcherPage) SetItems(val []MetricWatcher) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *MetricWatcherPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*MetricWatcherPage) listMetricWatchersRes() {}
+
+// One company's figure in one currency for the period judged, and whether it holds the condition.
+// Ref: #/components/schemas/MetricWatcherSeries
+type MetricWatcherSeries struct {
+	// The company code.
+	Company string `json:"company"`
+	// The figure's currency; absent for a count or a ratio.
+	Currency OptString `json:"currency"`
+	// The figure of the period, an exact decimal.
+	Figure string `json:"figure"`
+	// What the figure was compared with: the condition's value, the previous period's figure, or the
+	// average of the previous periods at the figure's digits; absent when the series judged nothing (a
+	// currency other than the value's, a previous figure missing, a base of zero).
+	ComparedWith OptString `json:"compared_with"`
+	// For `change` and `deviation`: the change in percent from the base, rounded to two decimals; absent
+	// otherwise or when nothing was judged.
+	Percent OptString `json:"percent"`
+	// Whether the figure holds the condition.
+	Holds bool `json:"holds"`
+}
+
+// GetCompany returns the value of Company.
+func (s *MetricWatcherSeries) GetCompany() string {
+	return s.Company
+}
+
+// GetCurrency returns the value of Currency.
+func (s *MetricWatcherSeries) GetCurrency() OptString {
+	return s.Currency
+}
+
+// GetFigure returns the value of Figure.
+func (s *MetricWatcherSeries) GetFigure() string {
+	return s.Figure
+}
+
+// GetComparedWith returns the value of ComparedWith.
+func (s *MetricWatcherSeries) GetComparedWith() OptString {
+	return s.ComparedWith
+}
+
+// GetPercent returns the value of Percent.
+func (s *MetricWatcherSeries) GetPercent() OptString {
+	return s.Percent
+}
+
+// GetHolds returns the value of Holds.
+func (s *MetricWatcherSeries) GetHolds() bool {
+	return s.Holds
+}
+
+// SetCompany sets the value of Company.
+func (s *MetricWatcherSeries) SetCompany(val string) {
+	s.Company = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *MetricWatcherSeries) SetCurrency(val OptString) {
+	s.Currency = val
+}
+
+// SetFigure sets the value of Figure.
+func (s *MetricWatcherSeries) SetFigure(val string) {
+	s.Figure = val
+}
+
+// SetComparedWith sets the value of ComparedWith.
+func (s *MetricWatcherSeries) SetComparedWith(val OptString) {
+	s.ComparedWith = val
+}
+
+// SetPercent sets the value of Percent.
+func (s *MetricWatcherSeries) SetPercent(val OptString) {
+	s.Percent = val
+}
+
+// SetHolds sets the value of Holds.
+func (s *MetricWatcherSeries) SetHolds(val bool) {
+	s.Holds = val
 }
 
 // One reconciliation control for a company code.
@@ -59647,6 +64875,52 @@ func (o OptAnalyticsDerived) Or(d AnalyticsDerived) AnalyticsDerived {
 	return d
 }
 
+// NewOptArchiveFile returns new OptArchiveFile with value set to v.
+func NewOptArchiveFile(v ArchiveFile) OptArchiveFile {
+	return OptArchiveFile{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptArchiveFile is optional ArchiveFile.
+type OptArchiveFile struct {
+	Value ArchiveFile
+	Set   bool
+}
+
+// IsSet returns true if OptArchiveFile was set.
+func (o OptArchiveFile) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptArchiveFile) Reset() {
+	var v ArchiveFile
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptArchiveFile) SetTo(v ArchiveFile) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptArchiveFile) Get() (v ArchiveFile, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptArchiveFile) Or(d ArchiveFile) ArchiveFile {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptAssetAccountRef returns new OptAssetAccountRef with value set to v.
 func NewOptAssetAccountRef(v AssetAccountRef) OptAssetAccountRef {
 	return OptAssetAccountRef{
@@ -61579,6 +66853,52 @@ func (o OptExpanded) Or(d Expanded) Expanded {
 	return d
 }
 
+// NewOptExpenseReportPost returns new OptExpenseReportPost with value set to v.
+func NewOptExpenseReportPost(v ExpenseReportPost) OptExpenseReportPost {
+	return OptExpenseReportPost{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptExpenseReportPost is optional ExpenseReportPost.
+type OptExpenseReportPost struct {
+	Value ExpenseReportPost
+	Set   bool
+}
+
+// IsSet returns true if OptExpenseReportPost was set.
+func (o OptExpenseReportPost) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptExpenseReportPost) Reset() {
+	var v ExpenseReportPost
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptExpenseReportPost) SetTo(v ExpenseReportPost) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptExpenseReportPost) Get() (v ExpenseReportPost, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptExpenseReportPost) Or(d ExpenseReportPost) ExpenseReportPost {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptExtensions returns new OptExtensions with value set to v.
 func NewOptExtensions(v Extensions) OptExtensions {
 	return OptExtensions{
@@ -62539,6 +67859,52 @@ func (o OptMemoRecurrence) Get() (v MemoRecurrence, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptMemoRecurrence) Or(d MemoRecurrence) MemoRecurrence {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptMetricAlert returns new OptMetricAlert with value set to v.
+func NewOptMetricAlert(v MetricAlert) OptMetricAlert {
+	return OptMetricAlert{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptMetricAlert is optional MetricAlert.
+type OptMetricAlert struct {
+	Value MetricAlert
+	Set   bool
+}
+
+// IsSet returns true if OptMetricAlert was set.
+func (o OptMetricAlert) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptMetricAlert) Reset() {
+	var v MetricAlert
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptMetricAlert) SetTo(v MetricAlert) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptMetricAlert) Get() (v MetricAlert, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptMetricAlert) Or(d MetricAlert) MetricAlert {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -63589,6 +68955,282 @@ func (o OptQuantity) Get() (v Quantity, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptQuantity) Or(d Quantity) Quantity {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptReportCompare returns new OptReportCompare with value set to v.
+func NewOptReportCompare(v ReportCompare) OptReportCompare {
+	return OptReportCompare{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptReportCompare is optional ReportCompare.
+type OptReportCompare struct {
+	Value ReportCompare
+	Set   bool
+}
+
+// IsSet returns true if OptReportCompare was set.
+func (o OptReportCompare) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptReportCompare) Reset() {
+	var v ReportCompare
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptReportCompare) SetTo(v ReportCompare) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptReportCompare) Get() (v ReportCompare, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptReportCompare) Or(d ReportCompare) ReportCompare {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptReportRunFailure returns new OptReportRunFailure with value set to v.
+func NewOptReportRunFailure(v ReportRunFailure) OptReportRunFailure {
+	return OptReportRunFailure{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptReportRunFailure is optional ReportRunFailure.
+type OptReportRunFailure struct {
+	Value ReportRunFailure
+	Set   bool
+}
+
+// IsSet returns true if OptReportRunFailure was set.
+func (o OptReportRunFailure) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptReportRunFailure) Reset() {
+	var v ReportRunFailure
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptReportRunFailure) SetTo(v ReportRunFailure) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptReportRunFailure) Get() (v ReportRunFailure, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptReportRunFailure) Or(d ReportRunFailure) ReportRunFailure {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptReportSchedule returns new OptReportSchedule with value set to v.
+func NewOptReportSchedule(v ReportSchedule) OptReportSchedule {
+	return OptReportSchedule{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptReportSchedule is optional ReportSchedule.
+type OptReportSchedule struct {
+	Value ReportSchedule
+	Set   bool
+}
+
+// IsSet returns true if OptReportSchedule was set.
+func (o OptReportSchedule) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptReportSchedule) Reset() {
+	var v ReportSchedule
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptReportSchedule) SetTo(v ReportSchedule) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptReportSchedule) Get() (v ReportSchedule, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptReportSchedule) Or(d ReportSchedule) ReportSchedule {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptReportSpec returns new OptReportSpec with value set to v.
+func NewOptReportSpec(v ReportSpec) OptReportSpec {
+	return OptReportSpec{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptReportSpec is optional ReportSpec.
+type OptReportSpec struct {
+	Value ReportSpec
+	Set   bool
+}
+
+// IsSet returns true if OptReportSpec was set.
+func (o OptReportSpec) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptReportSpec) Reset() {
+	var v ReportSpec
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptReportSpec) SetTo(v ReportSpec) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptReportSpec) Get() (v ReportSpec, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptReportSpec) Or(d ReportSpec) ReportSpec {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptReportTileCompareWhere returns new OptReportTileCompareWhere with value set to v.
+func NewOptReportTileCompareWhere(v ReportTileCompareWhere) OptReportTileCompareWhere {
+	return OptReportTileCompareWhere{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptReportTileCompareWhere is optional ReportTileCompareWhere.
+type OptReportTileCompareWhere struct {
+	Value ReportTileCompareWhere
+	Set   bool
+}
+
+// IsSet returns true if OptReportTileCompareWhere was set.
+func (o OptReportTileCompareWhere) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptReportTileCompareWhere) Reset() {
+	var v ReportTileCompareWhere
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptReportTileCompareWhere) SetTo(v ReportTileCompareWhere) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptReportTileCompareWhere) Get() (v ReportTileCompareWhere, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptReportTileCompareWhere) Or(d ReportTileCompareWhere) ReportTileCompareWhere {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptReportTileWhere returns new OptReportTileWhere with value set to v.
+func NewOptReportTileWhere(v ReportTileWhere) OptReportTileWhere {
+	return OptReportTileWhere{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptReportTileWhere is optional ReportTileWhere.
+type OptReportTileWhere struct {
+	Value ReportTileWhere
+	Set   bool
+}
+
+// IsSet returns true if OptReportTileWhere was set.
+func (o OptReportTileWhere) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptReportTileWhere) Reset() {
+	var v ReportTileWhere
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptReportTileWhere) SetTo(v ReportTileWhere) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptReportTileWhere) Get() (v ReportTileWhere, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptReportTileWhere) Or(d ReportTileWhere) ReportTileWhere {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -65502,6 +71144,11 @@ type PartnerChange struct {
 	Reason string `json:"reason"`
 	// Warnings raised at request time.
 	Warnings []PartnerChangeWarning `json:"warnings"`
+	// For a `create` change, the existing business partners the new one may duplicate when it was
+	// requested (T89a): those with one of its tax registration numbers, or its name and country (white
+	// space and case aside), whatever their roles, blocked ones included, by number, at most 20; empty
+	// when none matched and for every other kind of change. The approver reads them before deciding.
+	PossibleDuplicates []PossibleDuplicate `json:"possible_duplicates"`
 	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1.
 	Status string `json:"status"`
@@ -65571,6 +71218,11 @@ func (s *PartnerChange) GetReason() string {
 // GetWarnings returns the value of Warnings.
 func (s *PartnerChange) GetWarnings() []PartnerChangeWarning {
 	return s.Warnings
+}
+
+// GetPossibleDuplicates returns the value of PossibleDuplicates.
+func (s *PartnerChange) GetPossibleDuplicates() []PossibleDuplicate {
+	return s.PossibleDuplicates
 }
 
 // GetStatus returns the value of Status.
@@ -65651,6 +71303,11 @@ func (s *PartnerChange) SetReason(val string) {
 // SetWarnings sets the value of Warnings.
 func (s *PartnerChange) SetWarnings(val []PartnerChangeWarning) {
 	s.Warnings = val
+}
+
+// SetPossibleDuplicates sets the value of PossibleDuplicates.
+func (s *PartnerChange) SetPossibleDuplicates(val []PossibleDuplicate) {
+	s.PossibleDuplicates = val
 }
 
 // SetStatus sets the value of Status.
@@ -68939,6 +74596,240 @@ func (s *PeriodCloseVarianceTotals) SetRowsExplained(val int32) {
 	s.RowsExplained = val
 }
 
+// A column of the database that holds personal data.
+// Ref: #/components/schemas/PersonalDataEntry
+type PersonalDataEntry struct {
+	// The database schema: the context that keeps the data.
+	Schema string `json:"schema"`
+	// The table.
+	Table string `json:"table"`
+	// The column.
+	Column string `json:"column"`
+	// What kind of personal data it is: `name`, `address`, `contact`, `bank_details`, `identifier`,
+	// `network_address` or `free_text`. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Category string `json:"category"`
+	// Why it is kept.
+	Purpose string `json:"purpose"`
+	// The kinds of data subject whose rows can be counted in it (`getPersonalDataSubject`); empty when who
+	// a row concerns cannot be told from it.
+	SubjectKinds []string `json:"subject_kinds"`
+}
+
+// GetSchema returns the value of Schema.
+func (s *PersonalDataEntry) GetSchema() string {
+	return s.Schema
+}
+
+// GetTable returns the value of Table.
+func (s *PersonalDataEntry) GetTable() string {
+	return s.Table
+}
+
+// GetColumn returns the value of Column.
+func (s *PersonalDataEntry) GetColumn() string {
+	return s.Column
+}
+
+// GetCategory returns the value of Category.
+func (s *PersonalDataEntry) GetCategory() string {
+	return s.Category
+}
+
+// GetPurpose returns the value of Purpose.
+func (s *PersonalDataEntry) GetPurpose() string {
+	return s.Purpose
+}
+
+// GetSubjectKinds returns the value of SubjectKinds.
+func (s *PersonalDataEntry) GetSubjectKinds() []string {
+	return s.SubjectKinds
+}
+
+// SetSchema sets the value of Schema.
+func (s *PersonalDataEntry) SetSchema(val string) {
+	s.Schema = val
+}
+
+// SetTable sets the value of Table.
+func (s *PersonalDataEntry) SetTable(val string) {
+	s.Table = val
+}
+
+// SetColumn sets the value of Column.
+func (s *PersonalDataEntry) SetColumn(val string) {
+	s.Column = val
+}
+
+// SetCategory sets the value of Category.
+func (s *PersonalDataEntry) SetCategory(val string) {
+	s.Category = val
+}
+
+// SetPurpose sets the value of Purpose.
+func (s *PersonalDataEntry) SetPurpose(val string) {
+	s.Purpose = val
+}
+
+// SetSubjectKinds sets the value of SubjectKinds.
+func (s *PersonalDataEntry) SetSubjectKinds(val []string) {
+	s.SubjectKinds = val
+}
+
+// The personal data inventory (records, ADR-0079 §9, T100a).
+// Ref: #/components/schemas/PersonalDataInventory
+type PersonalDataInventory struct {
+	// How many entries are listed.
+	Count int32 `json:"count"`
+	// The entries, by schema, table and column.
+	Items []PersonalDataEntry `json:"items"`
+}
+
+// GetCount returns the value of Count.
+func (s *PersonalDataInventory) GetCount() int32 {
+	return s.Count
+}
+
+// GetItems returns the value of Items.
+func (s *PersonalDataInventory) GetItems() []PersonalDataEntry {
+	return s.Items
+}
+
+// SetCount sets the value of Count.
+func (s *PersonalDataInventory) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetItems sets the value of Items.
+func (s *PersonalDataInventory) SetItems(val []PersonalDataEntry) {
+	s.Items = val
+}
+
+func (*PersonalDataInventory) getPersonalDataInventoryRes() {}
+
+// Where one data subject's personal data is held: rows counted per inventory entry (ADR-0079 §10,
+// T100a). It holds no personal data.
+// Ref: #/components/schemas/PersonalDataSubject
+type PersonalDataSubject struct {
+	// The kind of data subject. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	SubjectKind string `json:"subject_kind"`
+	// The business partner or principal.
+	SubjectID uuid.UUID `json:"subject_id"`
+	// The sum of the entries' rows.
+	TotalRows int64 `json:"total_rows"`
+	// Each inventory entry linked to the kind, by schema, table and column, with its count, zero included.
+	Items []PersonalDataSubjectEntry `json:"items"`
+}
+
+// GetSubjectKind returns the value of SubjectKind.
+func (s *PersonalDataSubject) GetSubjectKind() string {
+	return s.SubjectKind
+}
+
+// GetSubjectID returns the value of SubjectID.
+func (s *PersonalDataSubject) GetSubjectID() uuid.UUID {
+	return s.SubjectID
+}
+
+// GetTotalRows returns the value of TotalRows.
+func (s *PersonalDataSubject) GetTotalRows() int64 {
+	return s.TotalRows
+}
+
+// GetItems returns the value of Items.
+func (s *PersonalDataSubject) GetItems() []PersonalDataSubjectEntry {
+	return s.Items
+}
+
+// SetSubjectKind sets the value of SubjectKind.
+func (s *PersonalDataSubject) SetSubjectKind(val string) {
+	s.SubjectKind = val
+}
+
+// SetSubjectID sets the value of SubjectID.
+func (s *PersonalDataSubject) SetSubjectID(val uuid.UUID) {
+	s.SubjectID = val
+}
+
+// SetTotalRows sets the value of TotalRows.
+func (s *PersonalDataSubject) SetTotalRows(val int64) {
+	s.TotalRows = val
+}
+
+// SetItems sets the value of Items.
+func (s *PersonalDataSubject) SetItems(val []PersonalDataSubjectEntry) {
+	s.Items = val
+}
+
+func (*PersonalDataSubject) getPersonalDataSubjectRes() {}
+
+// How many rows of an inventory entry name the subject and hold a value in its column.
+// Ref: #/components/schemas/PersonalDataSubjectEntry
+type PersonalDataSubjectEntry struct {
+	// The database schema.
+	Schema string `json:"schema"`
+	// The table.
+	Table string `json:"table"`
+	// The column.
+	Column string `json:"column"`
+	// The entry's category. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Category string `json:"category"`
+	// The rows that name the subject and hold a value in the column.
+	Rows int64 `json:"rows"`
+}
+
+// GetSchema returns the value of Schema.
+func (s *PersonalDataSubjectEntry) GetSchema() string {
+	return s.Schema
+}
+
+// GetTable returns the value of Table.
+func (s *PersonalDataSubjectEntry) GetTable() string {
+	return s.Table
+}
+
+// GetColumn returns the value of Column.
+func (s *PersonalDataSubjectEntry) GetColumn() string {
+	return s.Column
+}
+
+// GetCategory returns the value of Category.
+func (s *PersonalDataSubjectEntry) GetCategory() string {
+	return s.Category
+}
+
+// GetRows returns the value of Rows.
+func (s *PersonalDataSubjectEntry) GetRows() int64 {
+	return s.Rows
+}
+
+// SetSchema sets the value of Schema.
+func (s *PersonalDataSubjectEntry) SetSchema(val string) {
+	s.Schema = val
+}
+
+// SetTable sets the value of Table.
+func (s *PersonalDataSubjectEntry) SetTable(val string) {
+	s.Table = val
+}
+
+// SetColumn sets the value of Column.
+func (s *PersonalDataSubjectEntry) SetColumn(val string) {
+	s.Column = val
+}
+
+// SetCategory sets the value of Category.
+func (s *PersonalDataSubjectEntry) SetCategory(val string) {
+	s.Category = val
+}
+
+// SetRows sets the value of Rows.
+func (s *PersonalDataSubjectEntry) SetRows(val int64) {
+	s.Rows = val
+}
+
 type PingWebhookSubscriptionBadRequest Problem
 
 func (*PingWebhookSubscriptionBadRequest) pingWebhookSubscriptionRes() {}
@@ -69834,6 +75725,62 @@ func (s *PlanLinePage) SetTotalEstimate(val OptInt64) {
 
 func (*PlanLinePage) listPlanLinesRes() {}
 
+// An existing business partner a new one may duplicate (T89a).
+// Ref: #/components/schemas/PossibleDuplicate
+type PossibleDuplicate struct {
+	// The existing partner (`GET /v1/business-partners/{id}`).
+	PartnerID uuid.UUID `json:"partner_id"`
+	// Its business partner number.
+	Number string `json:"number"`
+	// Its name, as it is now.
+	Name string `json:"name"`
+	// What matched: `tax_registration_number`, one of the new partner's tax registration numbers (the same
+	// scheme and value); `name_and_country`, the same name, white space and case aside, in the same
+	// country. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	Matched []string `json:"matched"`
+}
+
+// GetPartnerID returns the value of PartnerID.
+func (s *PossibleDuplicate) GetPartnerID() uuid.UUID {
+	return s.PartnerID
+}
+
+// GetNumber returns the value of Number.
+func (s *PossibleDuplicate) GetNumber() string {
+	return s.Number
+}
+
+// GetName returns the value of Name.
+func (s *PossibleDuplicate) GetName() string {
+	return s.Name
+}
+
+// GetMatched returns the value of Matched.
+func (s *PossibleDuplicate) GetMatched() []string {
+	return s.Matched
+}
+
+// SetPartnerID sets the value of PartnerID.
+func (s *PossibleDuplicate) SetPartnerID(val uuid.UUID) {
+	s.PartnerID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *PossibleDuplicate) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetName sets the value of Name.
+func (s *PossibleDuplicate) SetName(val string) {
+	s.Name = val
+}
+
+// SetMatched sets the value of Matched.
+func (s *PossibleDuplicate) SetMatched(val []string) {
+	s.Matched = val
+}
+
 type PostBankStatementLineBadRequest Problem
 
 func (*PostBankStatementLineBadRequest) postBankStatementLineRes() {}
@@ -70007,6 +75954,69 @@ func (*PostCustomerInvoicePreconditionRequired) postCustomerInvoiceRes() {}
 type PostCustomerInvoiceUnprocessableEntity Problem
 
 func (*PostCustomerInvoiceUnprocessableEntity) postCustomerInvoiceRes() {}
+
+type PostExpenseReportBadRequest Problem
+
+func (*PostExpenseReportBadRequest) postExpenseReportRes() {}
+
+type PostExpenseReportForbidden Problem
+
+func (*PostExpenseReportForbidden) postExpenseReportRes() {}
+
+type PostExpenseReportNotFound Problem
+
+func (*PostExpenseReportNotFound) postExpenseReportRes() {}
+
+// PostExpenseReportOKHeaders wraps ExpenseReport with response headers.
+type PostExpenseReportOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           ExpenseReport
+}
+
+// GetETag returns the value of ETag.
+func (s *PostExpenseReportOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *PostExpenseReportOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *PostExpenseReportOKHeaders) GetResponse() ExpenseReport {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *PostExpenseReportOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *PostExpenseReportOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *PostExpenseReportOKHeaders) SetResponse(val ExpenseReport) {
+	s.Response = val
+}
+
+func (*PostExpenseReportOKHeaders) postExpenseReportRes() {}
+
+type PostExpenseReportPreconditionFailed Problem
+
+func (*PostExpenseReportPreconditionFailed) postExpenseReportRes() {}
+
+type PostExpenseReportPreconditionRequired Problem
+
+func (*PostExpenseReportPreconditionRequired) postExpenseReportRes() {}
+
+type PostExpenseReportUnprocessableEntity Problem
+
+func (*PostExpenseReportUnprocessableEntity) postExpenseReportRes() {}
 
 type PostGoodsReceiptBadRequest Problem
 
@@ -70779,6 +76789,8 @@ func (s *Problem) SetFailingChecks(val []FailingCheck) {
 func (s *Problem) SetCreditLimit(val OptCreditLimit) {
 	s.CreditLimit = val
 }
+
+func (*Problem) getPersonalDataInventoryRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/ProfitCenter
@@ -75398,6 +81410,126 @@ type RemoveHierarchyNodeUnprocessableEntity Problem
 
 func (*RemoveHierarchyNodeUnprocessableEntity) removeHierarchyNodeRes() {}
 
+type RemoveMetricWatcherBadRequest Problem
+
+func (*RemoveMetricWatcherBadRequest) removeMetricWatcherRes() {}
+
+type RemoveMetricWatcherForbidden Problem
+
+func (*RemoveMetricWatcherForbidden) removeMetricWatcherRes() {}
+
+type RemoveMetricWatcherNotFound Problem
+
+func (*RemoveMetricWatcherNotFound) removeMetricWatcherRes() {}
+
+// RemoveMetricWatcherOKHeaders wraps MetricWatcher with response headers.
+type RemoveMetricWatcherOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           MetricWatcher
+}
+
+// GetETag returns the value of ETag.
+func (s *RemoveMetricWatcherOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *RemoveMetricWatcherOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *RemoveMetricWatcherOKHeaders) GetResponse() MetricWatcher {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *RemoveMetricWatcherOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *RemoveMetricWatcherOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RemoveMetricWatcherOKHeaders) SetResponse(val MetricWatcher) {
+	s.Response = val
+}
+
+func (*RemoveMetricWatcherOKHeaders) removeMetricWatcherRes() {}
+
+type RemoveMetricWatcherPreconditionFailed Problem
+
+func (*RemoveMetricWatcherPreconditionFailed) removeMetricWatcherRes() {}
+
+type RemoveMetricWatcherPreconditionRequired Problem
+
+func (*RemoveMetricWatcherPreconditionRequired) removeMetricWatcherRes() {}
+
+type RemoveReportBadRequest Problem
+
+func (*RemoveReportBadRequest) removeReportRes() {}
+
+type RemoveReportForbidden Problem
+
+func (*RemoveReportForbidden) removeReportRes() {}
+
+type RemoveReportNotFound Problem
+
+func (*RemoveReportNotFound) removeReportRes() {}
+
+// RemoveReportOKHeaders wraps Report with response headers.
+type RemoveReportOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           Report
+}
+
+// GetETag returns the value of ETag.
+func (s *RemoveReportOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *RemoveReportOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *RemoveReportOKHeaders) GetResponse() Report {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *RemoveReportOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *RemoveReportOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RemoveReportOKHeaders) SetResponse(val Report) {
+	s.Response = val
+}
+
+func (*RemoveReportOKHeaders) removeReportRes()     {}
+func (*RemoveReportOKHeaders) scheduleReportRes()   {}
+func (*RemoveReportOKHeaders) unscheduleReportRes() {}
+
+type RemoveReportPreconditionFailed Problem
+
+func (*RemoveReportPreconditionFailed) removeReportRes() {}
+
+type RemoveReportPreconditionRequired Problem
+
+func (*RemoveReportPreconditionRequired) removeReportRes() {}
+
 type RenameHierarchyNodeBadRequest Problem
 
 func (*RenameHierarchyNodeBadRequest) renameHierarchyNodeRes() {}
@@ -75518,6 +81650,195 @@ type ReplayWebhookDeliveriesUnprocessableEntity Problem
 
 func (*ReplayWebhookDeliveriesUnprocessableEntity) replayWebhookDeliveriesRes() {}
 
+// Merged schema.
+// Ref: #/components/schemas/Report
+type Report struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The specification's title.
+	Title string `json:"title"`
+	// The specification's question; absent when it has none.
+	Question OptString `json:"question"`
+	// The dashboard specification as saved.
+	Spec ReportSpec `json:"spec"`
+	// The report's queries by the id the specification names them by.
+	Queries ReportQueries `json:"queries"`
+	// The person or agent who saved the report, who alone changes and shares it
+	// (`GET /v1/principals/{id}`).
+	OwnerID uuid.UUID `json:"owner_id"`
+	// The owner's name, as it is now.
+	OwnerName string `json:"owner_name"`
+	// `active`, or `removed` for good (`removeReport`). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The report's schedule (`scheduleReport`); absent while it has none.
+	Schedule OptReportSchedule `json:"schedule"`
+	// The caller's access to it: `owner`, or `viewer` of a report shared with them, which they read and
+	// run but do not change or share (ADR-0076 §7). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Access string `json:"access"`
+}
+
+// GetID returns the value of ID.
+func (s *Report) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *Report) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *Report) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *Report) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *Report) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *Report) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetTitle returns the value of Title.
+func (s *Report) GetTitle() string {
+	return s.Title
+}
+
+// GetQuestion returns the value of Question.
+func (s *Report) GetQuestion() OptString {
+	return s.Question
+}
+
+// GetSpec returns the value of Spec.
+func (s *Report) GetSpec() ReportSpec {
+	return s.Spec
+}
+
+// GetQueries returns the value of Queries.
+func (s *Report) GetQueries() ReportQueries {
+	return s.Queries
+}
+
+// GetOwnerID returns the value of OwnerID.
+func (s *Report) GetOwnerID() uuid.UUID {
+	return s.OwnerID
+}
+
+// GetOwnerName returns the value of OwnerName.
+func (s *Report) GetOwnerName() string {
+	return s.OwnerName
+}
+
+// GetStatus returns the value of Status.
+func (s *Report) GetStatus() string {
+	return s.Status
+}
+
+// GetSchedule returns the value of Schedule.
+func (s *Report) GetSchedule() OptReportSchedule {
+	return s.Schedule
+}
+
+// GetAccess returns the value of Access.
+func (s *Report) GetAccess() string {
+	return s.Access
+}
+
+// SetID sets the value of ID.
+func (s *Report) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *Report) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *Report) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *Report) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *Report) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *Report) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetTitle sets the value of Title.
+func (s *Report) SetTitle(val string) {
+	s.Title = val
+}
+
+// SetQuestion sets the value of Question.
+func (s *Report) SetQuestion(val OptString) {
+	s.Question = val
+}
+
+// SetSpec sets the value of Spec.
+func (s *Report) SetSpec(val ReportSpec) {
+	s.Spec = val
+}
+
+// SetQueries sets the value of Queries.
+func (s *Report) SetQueries(val ReportQueries) {
+	s.Queries = val
+}
+
+// SetOwnerID sets the value of OwnerID.
+func (s *Report) SetOwnerID(val uuid.UUID) {
+	s.OwnerID = val
+}
+
+// SetOwnerName sets the value of OwnerName.
+func (s *Report) SetOwnerName(val string) {
+	s.OwnerName = val
+}
+
+// SetStatus sets the value of Status.
+func (s *Report) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetSchedule sets the value of Schedule.
+func (s *Report) SetSchedule(val OptReportSchedule) {
+	s.Schedule = val
+}
+
+// SetAccess sets the value of Access.
+func (s *Report) SetAccess(val string) {
+	s.Access = val
+}
+
 type ReportBankFileStatusBadRequest Problem
 
 func (*ReportBankFileStatusBadRequest) reportBankFileStatusRes() {}
@@ -75580,6 +81901,1366 @@ func (*ReportBankFileStatusPreconditionRequired) reportBankFileStatusRes() {}
 type ReportBankFileStatusUnprocessableEntity Problem
 
 func (*ReportBankFileStatusUnprocessableEntity) reportBankFileStatusRes() {}
+
+// A chart of a measure along a dimension, one series per value of another.
+// Ref: #/components/schemas/ReportChart
+type ReportChart struct {
+	// The chart's title.
+	Title string `json:"title"`
+	// `bar` or `line`. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Type string `json:"type"`
+	// The query whose result the chart shows: a key of the report's `queries`.
+	QueryID string `json:"query_id"`
+	// The dimension along the axis.
+	X string `json:"x"`
+	// The dimension each series is a value of.
+	Series OptString `json:"series"`
+	// The measure plotted.
+	Measure string `json:"measure"`
+}
+
+// GetTitle returns the value of Title.
+func (s *ReportChart) GetTitle() string {
+	return s.Title
+}
+
+// GetType returns the value of Type.
+func (s *ReportChart) GetType() string {
+	return s.Type
+}
+
+// GetQueryID returns the value of QueryID.
+func (s *ReportChart) GetQueryID() string {
+	return s.QueryID
+}
+
+// GetX returns the value of X.
+func (s *ReportChart) GetX() string {
+	return s.X
+}
+
+// GetSeries returns the value of Series.
+func (s *ReportChart) GetSeries() OptString {
+	return s.Series
+}
+
+// GetMeasure returns the value of Measure.
+func (s *ReportChart) GetMeasure() string {
+	return s.Measure
+}
+
+// SetTitle sets the value of Title.
+func (s *ReportChart) SetTitle(val string) {
+	s.Title = val
+}
+
+// SetType sets the value of Type.
+func (s *ReportChart) SetType(val string) {
+	s.Type = val
+}
+
+// SetQueryID sets the value of QueryID.
+func (s *ReportChart) SetQueryID(val string) {
+	s.QueryID = val
+}
+
+// SetX sets the value of X.
+func (s *ReportChart) SetX(val string) {
+	s.X = val
+}
+
+// SetSeries sets the value of Series.
+func (s *ReportChart) SetSeries(val OptString) {
+	s.Series = val
+}
+
+// SetMeasure sets the value of Measure.
+func (s *ReportChart) SetMeasure(val string) {
+	s.Measure = val
+}
+
+// A comparison of one measure between two values of a dimension, pivoted into baseline, current,
+// change and change % columns.
+// Ref: #/components/schemas/ReportCompare
+type ReportCompare struct {
+	// The dimension compared along.
+	Dim string `json:"dim"`
+	// The dimension's value compared with.
+	Baseline string `json:"baseline"`
+	// The dimension's value compared.
+	Current string `json:"current"`
+	// The measure compared.
+	Measure string `json:"measure"`
+}
+
+// GetDim returns the value of Dim.
+func (s *ReportCompare) GetDim() string {
+	return s.Dim
+}
+
+// GetBaseline returns the value of Baseline.
+func (s *ReportCompare) GetBaseline() string {
+	return s.Baseline
+}
+
+// GetCurrent returns the value of Current.
+func (s *ReportCompare) GetCurrent() string {
+	return s.Current
+}
+
+// GetMeasure returns the value of Measure.
+func (s *ReportCompare) GetMeasure() string {
+	return s.Measure
+}
+
+// SetDim sets the value of Dim.
+func (s *ReportCompare) SetDim(val string) {
+	s.Dim = val
+}
+
+// SetBaseline sets the value of Baseline.
+func (s *ReportCompare) SetBaseline(val string) {
+	s.Baseline = val
+}
+
+// SetCurrent sets the value of Current.
+func (s *ReportCompare) SetCurrent(val string) {
+	s.Current = val
+}
+
+// SetMeasure sets the value of Measure.
+func (s *ReportCompare) SetMeasure(val string) {
+	s.Measure = val
+}
+
+// A report to save: its specification and its queries, each under the id the specification names it
+// by.
+// Ref: #/components/schemas/ReportCreate
+type ReportCreate struct {
+	// The dashboard specification.
+	Spec ReportSpec `json:"spec"`
+	// The report's queries by id (1 to 100 characters: letters, digits, `_`, `-` and `.`), which the
+	// specification's `query_id` names.
+	Queries ReportCreateQueries `json:"queries"`
+}
+
+// GetSpec returns the value of Spec.
+func (s *ReportCreate) GetSpec() ReportSpec {
+	return s.Spec
+}
+
+// GetQueries returns the value of Queries.
+func (s *ReportCreate) GetQueries() ReportCreateQueries {
+	return s.Queries
+}
+
+// SetSpec sets the value of Spec.
+func (s *ReportCreate) SetSpec(val ReportSpec) {
+	s.Spec = val
+}
+
+// SetQueries sets the value of Queries.
+func (s *ReportCreate) SetQueries(val ReportCreateQueries) {
+	s.Queries = val
+}
+
+// The report's queries by id (1 to 100 characters: letters, digits, `_`, `-` and `.`), which the
+// specification's `query_id` names.
+type ReportCreateQueries map[string]ReportQuery
+
+func (s *ReportCreateQueries) init() ReportCreateQueries {
+	m := *s
+	if m == nil {
+		m = map[string]ReportQuery{}
+		*s = m
+	}
+	return m
+}
+
+// ReportHeaders wraps Report with response headers.
+type ReportHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           Report
+}
+
+// GetETag returns the value of ETag.
+func (s *ReportHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ReportHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *ReportHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *ReportHeaders) GetResponse() Report {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ReportHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ReportHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *ReportHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ReportHeaders) SetResponse(val Report) {
+	s.Response = val
+}
+
+func (*ReportHeaders) createReportRes() {}
+
+// One page of saved reports.
+// Ref: #/components/schemas/ReportPage
+type ReportPage struct {
+	// The reports on this page.
+	Items []Report `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ReportPage) GetItems() []Report {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ReportPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ReportPage) SetItems(val []Report) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ReportPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ReportPage) listReportsRes() {}
+
+// The report's queries by the id the specification names them by.
+type ReportQueries map[string]ReportQuery
+
+func (s *ReportQueries) init() ReportQueries {
+	m := *s
+	if m == nil {
+		m = map[string]ReportQuery{}
+		*s = m
+	}
+	return m
+}
+
+// A semantic query of a saved report, as `runAnalyticsQuery` takes it without its scope: it is run
+// with the company access of whoever runs the report, on current data, under the active metric
+// definitions.
+// Ref: #/components/schemas/ReportQuery
+type ReportQuery struct {
+	// Metric names of the semantic model.
+	Measures []string `json:"measures"`
+	// Dimensions to break the metrics down by.
+	By []string `json:"by"`
+	// Filters on dimensions, all of which a row must meet.
+	Where []AnalyticsFilter `json:"where"`
+	// A measure or dimension of the query to order rows by.
+	OrderBy OptString `json:"order_by"`
+	// Order descending.
+	Desc OptBool `json:"desc"`
+	// At most this many rows; the result is cut at 500 in any case.
+	Limit OptInt `json:"limit"`
+	// The ledger journal metrics read; the tenant's leading ledger when omitted (ADR-0044).
+	Ledger OptUUID `json:"ledger"`
+}
+
+// GetMeasures returns the value of Measures.
+func (s *ReportQuery) GetMeasures() []string {
+	return s.Measures
+}
+
+// GetBy returns the value of By.
+func (s *ReportQuery) GetBy() []string {
+	return s.By
+}
+
+// GetWhere returns the value of Where.
+func (s *ReportQuery) GetWhere() []AnalyticsFilter {
+	return s.Where
+}
+
+// GetOrderBy returns the value of OrderBy.
+func (s *ReportQuery) GetOrderBy() OptString {
+	return s.OrderBy
+}
+
+// GetDesc returns the value of Desc.
+func (s *ReportQuery) GetDesc() OptBool {
+	return s.Desc
+}
+
+// GetLimit returns the value of Limit.
+func (s *ReportQuery) GetLimit() OptInt {
+	return s.Limit
+}
+
+// GetLedger returns the value of Ledger.
+func (s *ReportQuery) GetLedger() OptUUID {
+	return s.Ledger
+}
+
+// SetMeasures sets the value of Measures.
+func (s *ReportQuery) SetMeasures(val []string) {
+	s.Measures = val
+}
+
+// SetBy sets the value of By.
+func (s *ReportQuery) SetBy(val []string) {
+	s.By = val
+}
+
+// SetWhere sets the value of Where.
+func (s *ReportQuery) SetWhere(val []AnalyticsFilter) {
+	s.Where = val
+}
+
+// SetOrderBy sets the value of OrderBy.
+func (s *ReportQuery) SetOrderBy(val OptString) {
+	s.OrderBy = val
+}
+
+// SetDesc sets the value of Desc.
+func (s *ReportQuery) SetDesc(val OptBool) {
+	s.Desc = val
+}
+
+// SetLimit sets the value of Limit.
+func (s *ReportQuery) SetLimit(val OptInt) {
+	s.Limit = val
+}
+
+// SetLedger sets the value of Ledger.
+func (s *ReportQuery) SetLedger(val OptUUID) {
+	s.Ledger = val
+}
+
+// A saved report run on current data: its specification as answered and every query's result, each
+// under the `query_id` the specification names it by.
+// Ref: #/components/schemas/ReportResults
+type ReportResults struct {
+	// The report (`GET /v1/reports/{id}`).
+	ReportID uuid.UUID `json:"report_id"`
+	// The report's title.
+	Title string `json:"title"`
+	// The specification as answered: its tiles, charts and tables name the results below; commentary the
+	// results no longer support is left out, with an assumption saying so.
+	Spec ReportSpec `json:"spec"`
+	// Each query's result, by `query_id`.
+	Results []AnalyticsResult `json:"results"`
+	// The latest posting or document date in the data of all the results (YYYY-MM-DD); empty when they
+	// read none.
+	DataThrough string `json:"data_through"`
+}
+
+// GetReportID returns the value of ReportID.
+func (s *ReportResults) GetReportID() uuid.UUID {
+	return s.ReportID
+}
+
+// GetTitle returns the value of Title.
+func (s *ReportResults) GetTitle() string {
+	return s.Title
+}
+
+// GetSpec returns the value of Spec.
+func (s *ReportResults) GetSpec() ReportSpec {
+	return s.Spec
+}
+
+// GetResults returns the value of Results.
+func (s *ReportResults) GetResults() []AnalyticsResult {
+	return s.Results
+}
+
+// GetDataThrough returns the value of DataThrough.
+func (s *ReportResults) GetDataThrough() string {
+	return s.DataThrough
+}
+
+// SetReportID sets the value of ReportID.
+func (s *ReportResults) SetReportID(val uuid.UUID) {
+	s.ReportID = val
+}
+
+// SetTitle sets the value of Title.
+func (s *ReportResults) SetTitle(val string) {
+	s.Title = val
+}
+
+// SetSpec sets the value of Spec.
+func (s *ReportResults) SetSpec(val ReportSpec) {
+	s.Spec = val
+}
+
+// SetResults sets the value of Results.
+func (s *ReportResults) SetResults(val []AnalyticsResult) {
+	s.Results = val
+}
+
+// SetDataThrough sets the value of DataThrough.
+func (s *ReportResults) SetDataThrough(val string) {
+	s.DataThrough = val
+}
+
+// ReportResultsHeaders wraps ReportResults with response headers.
+type ReportResultsHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           ReportResults
+}
+
+// GetETag returns the value of ETag.
+func (s *ReportResultsHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ReportResultsHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ReportResultsHeaders) GetResponse() ReportResults {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ReportResultsHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ReportResultsHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ReportResultsHeaders) SetResponse(val ReportResults) {
+	s.Response = val
+}
+
+func (*ReportResultsHeaders) runReportRes() {}
+
+// A scheduled run of a report, as the worker kept it (ADR-0076 §5): its day, its outcome and, as
+// `getReportRun` gives it, its specification and results.
+// Ref: #/components/schemas/ReportRun
+type ReportRun struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The report (`GET /v1/reports/{id}`).
+	ReportID uuid.UUID `json:"report_id"`
+	// The report's title.
+	ReportTitle string `json:"report_title"`
+	// The day the run is for: the schedule's company's date when it ran.
+	RunDate time.Time `json:"run_date"`
+	// `succeeded`, or `failed` with `failure`. Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The principal the run acted as: the report's owner (`GET /v1/principals/{id}`).
+	RunAs uuid.UUID `json:"run_as"`
+	// Their name, as it is now.
+	RunAsName string `json:"run_as_name"`
+	// For a failed run: the problem that failed it.
+	Failure OptReportRunFailure `json:"failure"`
+	// For a succeeded run: the SHA-256 of the results kept, in hexadecimal.
+	SHA256 OptString `json:"sha256"`
+	// For a succeeded run: the latest posting or document date in its results' data (YYYY-MM-DD); empty
+	// when they read none.
+	DataThrough OptString `json:"data_through"`
+	// The codes of the companies the run covered, its owner's company access when it ran, by code: a
+	// reader's company access must cover each (ADR-0076 §7). Empty for a failed run, which kept no
+	// results; absent for a run kept before T95c, which its report's owner alone reads.
+	Companies []string `json:"companies"`
+	// The permissions the run's queries read their data with, in order: a reader must hold each (ADR-0076
+	// §7). Empty for a failed run; absent for a run kept before T95c.
+	Permissions []string `json:"permissions"`
+	// When the run was kept (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// From `getReportRun`, for a succeeded run: the specification as answered, naming the results below.
+	Spec OptReportSpec `json:"spec"`
+	// From `getReportRun`, for a succeeded run: each query's result, by `query_id`.
+	Results []AnalyticsResult `json:"results"`
+}
+
+// GetID returns the value of ID.
+func (s *ReportRun) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetReportID returns the value of ReportID.
+func (s *ReportRun) GetReportID() uuid.UUID {
+	return s.ReportID
+}
+
+// GetReportTitle returns the value of ReportTitle.
+func (s *ReportRun) GetReportTitle() string {
+	return s.ReportTitle
+}
+
+// GetRunDate returns the value of RunDate.
+func (s *ReportRun) GetRunDate() time.Time {
+	return s.RunDate
+}
+
+// GetStatus returns the value of Status.
+func (s *ReportRun) GetStatus() string {
+	return s.Status
+}
+
+// GetRunAs returns the value of RunAs.
+func (s *ReportRun) GetRunAs() uuid.UUID {
+	return s.RunAs
+}
+
+// GetRunAsName returns the value of RunAsName.
+func (s *ReportRun) GetRunAsName() string {
+	return s.RunAsName
+}
+
+// GetFailure returns the value of Failure.
+func (s *ReportRun) GetFailure() OptReportRunFailure {
+	return s.Failure
+}
+
+// GetSHA256 returns the value of SHA256.
+func (s *ReportRun) GetSHA256() OptString {
+	return s.SHA256
+}
+
+// GetDataThrough returns the value of DataThrough.
+func (s *ReportRun) GetDataThrough() OptString {
+	return s.DataThrough
+}
+
+// GetCompanies returns the value of Companies.
+func (s *ReportRun) GetCompanies() []string {
+	return s.Companies
+}
+
+// GetPermissions returns the value of Permissions.
+func (s *ReportRun) GetPermissions() []string {
+	return s.Permissions
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ReportRun) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetSpec returns the value of Spec.
+func (s *ReportRun) GetSpec() OptReportSpec {
+	return s.Spec
+}
+
+// GetResults returns the value of Results.
+func (s *ReportRun) GetResults() []AnalyticsResult {
+	return s.Results
+}
+
+// SetID sets the value of ID.
+func (s *ReportRun) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetReportID sets the value of ReportID.
+func (s *ReportRun) SetReportID(val uuid.UUID) {
+	s.ReportID = val
+}
+
+// SetReportTitle sets the value of ReportTitle.
+func (s *ReportRun) SetReportTitle(val string) {
+	s.ReportTitle = val
+}
+
+// SetRunDate sets the value of RunDate.
+func (s *ReportRun) SetRunDate(val time.Time) {
+	s.RunDate = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ReportRun) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetRunAs sets the value of RunAs.
+func (s *ReportRun) SetRunAs(val uuid.UUID) {
+	s.RunAs = val
+}
+
+// SetRunAsName sets the value of RunAsName.
+func (s *ReportRun) SetRunAsName(val string) {
+	s.RunAsName = val
+}
+
+// SetFailure sets the value of Failure.
+func (s *ReportRun) SetFailure(val OptReportRunFailure) {
+	s.Failure = val
+}
+
+// SetSHA256 sets the value of SHA256.
+func (s *ReportRun) SetSHA256(val OptString) {
+	s.SHA256 = val
+}
+
+// SetDataThrough sets the value of DataThrough.
+func (s *ReportRun) SetDataThrough(val OptString) {
+	s.DataThrough = val
+}
+
+// SetCompanies sets the value of Companies.
+func (s *ReportRun) SetCompanies(val []string) {
+	s.Companies = val
+}
+
+// SetPermissions sets the value of Permissions.
+func (s *ReportRun) SetPermissions(val []string) {
+	s.Permissions = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ReportRun) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetSpec sets the value of Spec.
+func (s *ReportRun) SetSpec(val OptReportSpec) {
+	s.Spec = val
+}
+
+// SetResults sets the value of Results.
+func (s *ReportRun) SetResults(val []AnalyticsResult) {
+	s.Results = val
+}
+
+func (*ReportRun) getReportRunRes() {}
+
+// The problem that failed a run.
+// Ref: #/components/schemas/ReportRunFailure
+type ReportRunFailure struct {
+	// The problem's code, as the API would have refused the owner's request with it.
+	Code string `json:"code"`
+	// The problem's detail.
+	Detail string `json:"detail"`
+}
+
+// GetCode returns the value of Code.
+func (s *ReportRunFailure) GetCode() string {
+	return s.Code
+}
+
+// GetDetail returns the value of Detail.
+func (s *ReportRunFailure) GetDetail() string {
+	return s.Detail
+}
+
+// SetCode sets the value of Code.
+func (s *ReportRunFailure) SetCode(val string) {
+	s.Code = val
+}
+
+// SetDetail sets the value of Detail.
+func (s *ReportRunFailure) SetDetail(val string) {
+	s.Detail = val
+}
+
+// One page of kept runs.
+// Ref: #/components/schemas/ReportRunPage
+type ReportRunPage struct {
+	// The runs on this page.
+	Items []ReportRun `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ReportRunPage) GetItems() []ReportRun {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ReportRunPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ReportRunPage) SetItems(val []ReportRun) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ReportRunPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ReportRunPage) listReportRunsRes() {}
+
+// A report's schedule (ADR-0076 §4).
+// Ref: #/components/schemas/ReportSchedule
+type ReportSchedule struct {
+	// `daily`, `weekly` or `monthly`. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Frequency string `json:"frequency"`
+	// The code of the company whose time zone dates the runs.
+	Company string `json:"company"`
+	// For `weekly`: the ISO weekday, 1 Monday to 7 Sunday.
+	Weekday OptInt32 `json:"weekday"`
+	// For `monthly`: the day of the month.
+	DayOfMonth OptInt32 `json:"day_of_month"`
+	// The company's date the schedule was set on, from which its runs are due.
+	From time.Time `json:"from"`
+}
+
+// GetFrequency returns the value of Frequency.
+func (s *ReportSchedule) GetFrequency() string {
+	return s.Frequency
+}
+
+// GetCompany returns the value of Company.
+func (s *ReportSchedule) GetCompany() string {
+	return s.Company
+}
+
+// GetWeekday returns the value of Weekday.
+func (s *ReportSchedule) GetWeekday() OptInt32 {
+	return s.Weekday
+}
+
+// GetDayOfMonth returns the value of DayOfMonth.
+func (s *ReportSchedule) GetDayOfMonth() OptInt32 {
+	return s.DayOfMonth
+}
+
+// GetFrom returns the value of From.
+func (s *ReportSchedule) GetFrom() time.Time {
+	return s.From
+}
+
+// SetFrequency sets the value of Frequency.
+func (s *ReportSchedule) SetFrequency(val string) {
+	s.Frequency = val
+}
+
+// SetCompany sets the value of Company.
+func (s *ReportSchedule) SetCompany(val string) {
+	s.Company = val
+}
+
+// SetWeekday sets the value of Weekday.
+func (s *ReportSchedule) SetWeekday(val OptInt32) {
+	s.Weekday = val
+}
+
+// SetDayOfMonth sets the value of DayOfMonth.
+func (s *ReportSchedule) SetDayOfMonth(val OptInt32) {
+	s.DayOfMonth = val
+}
+
+// SetFrom sets the value of From.
+func (s *ReportSchedule) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// A report's schedule: how often it runs and the company whose time zone dates its runs.
+// Ref: #/components/schemas/ReportScheduleSet
+type ReportScheduleSet struct {
+	// `daily`, `weekly` (on `weekday`) or `monthly` (on `day_of_month`). Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	Frequency string `json:"frequency"`
+	// The code of the company whose time zone dates the runs.
+	Company string `json:"company"`
+	// For `weekly`: the ISO weekday it runs on, 1 Monday to 7 Sunday.
+	Weekday OptInt32 `json:"weekday"`
+	// For `monthly`: the day of the month it runs on.
+	DayOfMonth OptInt32 `json:"day_of_month"`
+}
+
+// GetFrequency returns the value of Frequency.
+func (s *ReportScheduleSet) GetFrequency() string {
+	return s.Frequency
+}
+
+// GetCompany returns the value of Company.
+func (s *ReportScheduleSet) GetCompany() string {
+	return s.Company
+}
+
+// GetWeekday returns the value of Weekday.
+func (s *ReportScheduleSet) GetWeekday() OptInt32 {
+	return s.Weekday
+}
+
+// GetDayOfMonth returns the value of DayOfMonth.
+func (s *ReportScheduleSet) GetDayOfMonth() OptInt32 {
+	return s.DayOfMonth
+}
+
+// SetFrequency sets the value of Frequency.
+func (s *ReportScheduleSet) SetFrequency(val string) {
+	s.Frequency = val
+}
+
+// SetCompany sets the value of Company.
+func (s *ReportScheduleSet) SetCompany(val string) {
+	s.Company = val
+}
+
+// SetWeekday sets the value of Weekday.
+func (s *ReportScheduleSet) SetWeekday(val OptInt32) {
+	s.Weekday = val
+}
+
+// SetDayOfMonth sets the value of DayOfMonth.
+func (s *ReportScheduleSet) SetDayOfMonth(val OptInt32) {
+	s.DayOfMonth = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/ReportShare
+type ReportShare struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The report (`GET /v1/reports/{id}`).
+	ReportID uuid.UUID `json:"report_id"`
+	// The report's title.
+	ReportTitle string `json:"report_title"`
+	// For a share with a person: the person.
+	PrincipalID OptUUID `json:"principal_id"`
+	// For a share with a person: their name, as it is now.
+	PrincipalName OptString `json:"principal_name"`
+	// For a share with a role: the role.
+	RoleID OptUUID `json:"role_id"`
+	// For a share with a role: its code.
+	RoleCode OptString `json:"role_code"`
+	// For a share with a role: its name, as it is now.
+	RoleName OptString `json:"role_name"`
+	// `active`, or `ended` for good (`endReportShare`). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+}
+
+// GetID returns the value of ID.
+func (s *ReportShare) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *ReportShare) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ReportShare) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *ReportShare) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *ReportShare) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *ReportShare) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetReportID returns the value of ReportID.
+func (s *ReportShare) GetReportID() uuid.UUID {
+	return s.ReportID
+}
+
+// GetReportTitle returns the value of ReportTitle.
+func (s *ReportShare) GetReportTitle() string {
+	return s.ReportTitle
+}
+
+// GetPrincipalID returns the value of PrincipalID.
+func (s *ReportShare) GetPrincipalID() OptUUID {
+	return s.PrincipalID
+}
+
+// GetPrincipalName returns the value of PrincipalName.
+func (s *ReportShare) GetPrincipalName() OptString {
+	return s.PrincipalName
+}
+
+// GetRoleID returns the value of RoleID.
+func (s *ReportShare) GetRoleID() OptUUID {
+	return s.RoleID
+}
+
+// GetRoleCode returns the value of RoleCode.
+func (s *ReportShare) GetRoleCode() OptString {
+	return s.RoleCode
+}
+
+// GetRoleName returns the value of RoleName.
+func (s *ReportShare) GetRoleName() OptString {
+	return s.RoleName
+}
+
+// GetStatus returns the value of Status.
+func (s *ReportShare) GetStatus() string {
+	return s.Status
+}
+
+// SetID sets the value of ID.
+func (s *ReportShare) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *ReportShare) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ReportShare) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *ReportShare) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *ReportShare) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *ReportShare) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetReportID sets the value of ReportID.
+func (s *ReportShare) SetReportID(val uuid.UUID) {
+	s.ReportID = val
+}
+
+// SetReportTitle sets the value of ReportTitle.
+func (s *ReportShare) SetReportTitle(val string) {
+	s.ReportTitle = val
+}
+
+// SetPrincipalID sets the value of PrincipalID.
+func (s *ReportShare) SetPrincipalID(val OptUUID) {
+	s.PrincipalID = val
+}
+
+// SetPrincipalName sets the value of PrincipalName.
+func (s *ReportShare) SetPrincipalName(val OptString) {
+	s.PrincipalName = val
+}
+
+// SetRoleID sets the value of RoleID.
+func (s *ReportShare) SetRoleID(val OptUUID) {
+	s.RoleID = val
+}
+
+// SetRoleCode sets the value of RoleCode.
+func (s *ReportShare) SetRoleCode(val OptString) {
+	s.RoleCode = val
+}
+
+// SetRoleName sets the value of RoleName.
+func (s *ReportShare) SetRoleName(val OptString) {
+	s.RoleName = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ReportShare) SetStatus(val string) {
+	s.Status = val
+}
+
+// Whom a report is shared with: a person or a role, one of the two.
+// Ref: #/components/schemas/ReportShareCreate
+type ReportShareCreate struct {
+	// The person (`GET /v1/principals/{id}`).
+	PrincipalID OptUUID `json:"principal_id"`
+	// The role (`GET /v1/roles/{id}`): its holders on the day they read.
+	RoleID OptUUID `json:"role_id"`
+}
+
+// GetPrincipalID returns the value of PrincipalID.
+func (s *ReportShareCreate) GetPrincipalID() OptUUID {
+	return s.PrincipalID
+}
+
+// GetRoleID returns the value of RoleID.
+func (s *ReportShareCreate) GetRoleID() OptUUID {
+	return s.RoleID
+}
+
+// SetPrincipalID sets the value of PrincipalID.
+func (s *ReportShareCreate) SetPrincipalID(val OptUUID) {
+	s.PrincipalID = val
+}
+
+// SetRoleID sets the value of RoleID.
+func (s *ReportShareCreate) SetRoleID(val OptUUID) {
+	s.RoleID = val
+}
+
+// ReportShareHeaders wraps ReportShare with response headers.
+type ReportShareHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           ReportShare
+}
+
+// GetETag returns the value of ETag.
+func (s *ReportShareHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ReportShareHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ReportShareHeaders) GetResponse() ReportShare {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ReportShareHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ReportShareHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ReportShareHeaders) SetResponse(val ReportShare) {
+	s.Response = val
+}
+
+func (*ReportShareHeaders) createReportShareRes() {}
+func (*ReportShareHeaders) endReportShareRes()    {}
+
+// One page of a report's shares.
+// Ref: #/components/schemas/ReportSharePage
+type ReportSharePage struct {
+	// The shares on this page.
+	Items []ReportShare `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ReportSharePage) GetItems() []ReportShare {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ReportSharePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ReportSharePage) SetItems(val []ReportShare) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ReportSharePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ReportSharePage) listReportSharesRes() {}
+
+// A report's dashboard specification, as the analytics agent writes it: it holds no figure of its own;
+// its tiles, charts and tables name the queries whose results they show, and its commentary cites only
+// figures those results support.
+// Ref: #/components/schemas/ReportSpec
+type ReportSpec struct {
+	// The report's title, which it is saved and listed under.
+	Title string `json:"title"`
+	// The question the report answers.
+	Question OptString `json:"question"`
+	// What the report assumes, in words.
+	Assumptions []string `json:"assumptions"`
+	// The report's tiles.
+	Tiles []ReportTile `json:"tiles"`
+	// The report's charts.
+	Charts []ReportChart `json:"charts"`
+	// The report's tables.
+	Tables []ReportTable `json:"tables"`
+	// Commentary on the figures, citing only figures the results support.
+	Commentary OptString `json:"commentary"`
+	// Questions to ask next.
+	FollowUps []string `json:"follow_ups"`
+}
+
+// GetTitle returns the value of Title.
+func (s *ReportSpec) GetTitle() string {
+	return s.Title
+}
+
+// GetQuestion returns the value of Question.
+func (s *ReportSpec) GetQuestion() OptString {
+	return s.Question
+}
+
+// GetAssumptions returns the value of Assumptions.
+func (s *ReportSpec) GetAssumptions() []string {
+	return s.Assumptions
+}
+
+// GetTiles returns the value of Tiles.
+func (s *ReportSpec) GetTiles() []ReportTile {
+	return s.Tiles
+}
+
+// GetCharts returns the value of Charts.
+func (s *ReportSpec) GetCharts() []ReportChart {
+	return s.Charts
+}
+
+// GetTables returns the value of Tables.
+func (s *ReportSpec) GetTables() []ReportTable {
+	return s.Tables
+}
+
+// GetCommentary returns the value of Commentary.
+func (s *ReportSpec) GetCommentary() OptString {
+	return s.Commentary
+}
+
+// GetFollowUps returns the value of FollowUps.
+func (s *ReportSpec) GetFollowUps() []string {
+	return s.FollowUps
+}
+
+// SetTitle sets the value of Title.
+func (s *ReportSpec) SetTitle(val string) {
+	s.Title = val
+}
+
+// SetQuestion sets the value of Question.
+func (s *ReportSpec) SetQuestion(val OptString) {
+	s.Question = val
+}
+
+// SetAssumptions sets the value of Assumptions.
+func (s *ReportSpec) SetAssumptions(val []string) {
+	s.Assumptions = val
+}
+
+// SetTiles sets the value of Tiles.
+func (s *ReportSpec) SetTiles(val []ReportTile) {
+	s.Tiles = val
+}
+
+// SetCharts sets the value of Charts.
+func (s *ReportSpec) SetCharts(val []ReportChart) {
+	s.Charts = val
+}
+
+// SetTables sets the value of Tables.
+func (s *ReportSpec) SetTables(val []ReportTable) {
+	s.Tables = val
+}
+
+// SetCommentary sets the value of Commentary.
+func (s *ReportSpec) SetCommentary(val OptString) {
+	s.Commentary = val
+}
+
+// SetFollowUps sets the value of FollowUps.
+func (s *ReportSpec) SetFollowUps(val []string) {
+	s.FollowUps = val
+}
+
+// A table of a query's result, optionally pivoted into a comparison.
+// Ref: #/components/schemas/ReportTable
+type ReportTable struct {
+	// The table's title.
+	Title string `json:"title"`
+	// The query whose result the table shows: a key of the report's `queries`.
+	QueryID string `json:"query_id"`
+	// The comparison the result is pivoted into.
+	Compare OptReportCompare `json:"compare"`
+}
+
+// GetTitle returns the value of Title.
+func (s *ReportTable) GetTitle() string {
+	return s.Title
+}
+
+// GetQueryID returns the value of QueryID.
+func (s *ReportTable) GetQueryID() string {
+	return s.QueryID
+}
+
+// GetCompare returns the value of Compare.
+func (s *ReportTable) GetCompare() OptReportCompare {
+	return s.Compare
+}
+
+// SetTitle sets the value of Title.
+func (s *ReportTable) SetTitle(val string) {
+	s.Title = val
+}
+
+// SetQueryID sets the value of QueryID.
+func (s *ReportTable) SetQueryID(val string) {
+	s.QueryID = val
+}
+
+// SetCompare sets the value of Compare.
+func (s *ReportTable) SetCompare(val OptReportCompare) {
+	s.Compare = val
+}
+
+// A tile: one measure of a query summed over the rows whose dimensions have the values of `where`,
+// optionally compared with the rows of `compare_where`.
+// Ref: #/components/schemas/ReportTile
+type ReportTile struct {
+	// The tile's label.
+	Label string `json:"label"`
+	// The query whose result the tile shows: a key of the report's `queries`.
+	QueryID string `json:"query_id"`
+	// A measure of that query.
+	Measure string `json:"measure"`
+	// Dimension values the rows summed have.
+	Where OptReportTileWhere `json:"where"`
+	// Dimension values of the rows compared with.
+	CompareWhere OptReportTileCompareWhere `json:"compare_where"`
+	// The comparison's label.
+	CompareLabel OptString `json:"compare_label"`
+}
+
+// GetLabel returns the value of Label.
+func (s *ReportTile) GetLabel() string {
+	return s.Label
+}
+
+// GetQueryID returns the value of QueryID.
+func (s *ReportTile) GetQueryID() string {
+	return s.QueryID
+}
+
+// GetMeasure returns the value of Measure.
+func (s *ReportTile) GetMeasure() string {
+	return s.Measure
+}
+
+// GetWhere returns the value of Where.
+func (s *ReportTile) GetWhere() OptReportTileWhere {
+	return s.Where
+}
+
+// GetCompareWhere returns the value of CompareWhere.
+func (s *ReportTile) GetCompareWhere() OptReportTileCompareWhere {
+	return s.CompareWhere
+}
+
+// GetCompareLabel returns the value of CompareLabel.
+func (s *ReportTile) GetCompareLabel() OptString {
+	return s.CompareLabel
+}
+
+// SetLabel sets the value of Label.
+func (s *ReportTile) SetLabel(val string) {
+	s.Label = val
+}
+
+// SetQueryID sets the value of QueryID.
+func (s *ReportTile) SetQueryID(val string) {
+	s.QueryID = val
+}
+
+// SetMeasure sets the value of Measure.
+func (s *ReportTile) SetMeasure(val string) {
+	s.Measure = val
+}
+
+// SetWhere sets the value of Where.
+func (s *ReportTile) SetWhere(val OptReportTileWhere) {
+	s.Where = val
+}
+
+// SetCompareWhere sets the value of CompareWhere.
+func (s *ReportTile) SetCompareWhere(val OptReportTileCompareWhere) {
+	s.CompareWhere = val
+}
+
+// SetCompareLabel sets the value of CompareLabel.
+func (s *ReportTile) SetCompareLabel(val OptString) {
+	s.CompareLabel = val
+}
+
+// Dimension values of the rows compared with.
+type ReportTileCompareWhere map[string]string
+
+func (s *ReportTileCompareWhere) init() ReportTileCompareWhere {
+	m := *s
+	if m == nil {
+		m = map[string]string{}
+		*s = m
+	}
+	return m
+}
+
+// Dimension values the rows summed have.
+type ReportTileWhere map[string]string
+
+func (s *ReportTileWhere) init() ReportTileWhere {
+	m := *s
+	if m == nil {
+		m = map[string]string{}
+		*s = m
+	}
+	return m
+}
 
 type RequestBankAccountChangeBadRequest Problem
 
@@ -76490,6 +84171,227 @@ func (*ResumeWebhookSubscriptionPreconditionRequired) resumeWebhookSubscriptionR
 type ResumeWebhookSubscriptionUnprocessableEntity Problem
 
 func (*ResumeWebhookSubscriptionUnprocessableEntity) resumeWebhookSubscriptionRes() {}
+
+// Which fiscal years of a company's documents of one kind are past retention (records, ADR-0079
+// §2-§4).
+// Ref: #/components/schemas/RetentionStatus
+type RetentionStatus struct {
+	// The company (`GET /v1/legal-entities/{id}`).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// The kind of document. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	DocumentKind string `json:"document_kind"`
+	// Whether the company has a retention rule for the kind in the active configuration version; without
+	// one nothing is past retention.
+	HasRule bool `json:"has_rule"`
+	// The years the rule keeps a document after its fiscal year's last day, 0 to 99; absent without a
+	// rule.
+	RetentionYears OptInt32 `json:"retention_years"`
+	// The number of the active configuration version the rule was read from (`GET /v1/config-versions`).
+	ConfigurationVersion int32 `json:"configuration_version"`
+	// The company's date today in its time zone, by which a year is past retention.
+	AsOf time.Time `json:"as_of"`
+	// How many fiscal years are listed.
+	YearCount int32 `json:"year_count"`
+	// How many of them are past retention.
+	PastRetentionCount int32 `json:"past_retention_count"`
+	// The fiscal years set up for the company, the earliest first.
+	Years []RetentionYear `json:"years"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *RetentionStatus) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *RetentionStatus) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *RetentionStatus) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetDocumentKind returns the value of DocumentKind.
+func (s *RetentionStatus) GetDocumentKind() string {
+	return s.DocumentKind
+}
+
+// GetHasRule returns the value of HasRule.
+func (s *RetentionStatus) GetHasRule() bool {
+	return s.HasRule
+}
+
+// GetRetentionYears returns the value of RetentionYears.
+func (s *RetentionStatus) GetRetentionYears() OptInt32 {
+	return s.RetentionYears
+}
+
+// GetConfigurationVersion returns the value of ConfigurationVersion.
+func (s *RetentionStatus) GetConfigurationVersion() int32 {
+	return s.ConfigurationVersion
+}
+
+// GetAsOf returns the value of AsOf.
+func (s *RetentionStatus) GetAsOf() time.Time {
+	return s.AsOf
+}
+
+// GetYearCount returns the value of YearCount.
+func (s *RetentionStatus) GetYearCount() int32 {
+	return s.YearCount
+}
+
+// GetPastRetentionCount returns the value of PastRetentionCount.
+func (s *RetentionStatus) GetPastRetentionCount() int32 {
+	return s.PastRetentionCount
+}
+
+// GetYears returns the value of Years.
+func (s *RetentionStatus) GetYears() []RetentionYear {
+	return s.Years
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *RetentionStatus) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *RetentionStatus) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *RetentionStatus) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetDocumentKind sets the value of DocumentKind.
+func (s *RetentionStatus) SetDocumentKind(val string) {
+	s.DocumentKind = val
+}
+
+// SetHasRule sets the value of HasRule.
+func (s *RetentionStatus) SetHasRule(val bool) {
+	s.HasRule = val
+}
+
+// SetRetentionYears sets the value of RetentionYears.
+func (s *RetentionStatus) SetRetentionYears(val OptInt32) {
+	s.RetentionYears = val
+}
+
+// SetConfigurationVersion sets the value of ConfigurationVersion.
+func (s *RetentionStatus) SetConfigurationVersion(val int32) {
+	s.ConfigurationVersion = val
+}
+
+// SetAsOf sets the value of AsOf.
+func (s *RetentionStatus) SetAsOf(val time.Time) {
+	s.AsOf = val
+}
+
+// SetYearCount sets the value of YearCount.
+func (s *RetentionStatus) SetYearCount(val int32) {
+	s.YearCount = val
+}
+
+// SetPastRetentionCount sets the value of PastRetentionCount.
+func (s *RetentionStatus) SetPastRetentionCount(val int32) {
+	s.PastRetentionCount = val
+}
+
+// SetYears sets the value of Years.
+func (s *RetentionStatus) SetYears(val []RetentionYear) {
+	s.Years = val
+}
+
+func (*RetentionStatus) getRetentionStatusRes() {}
+
+// A fiscal year of a company and whether its documents of a kind are past retention.
+// Ref: #/components/schemas/RetentionYear
+type RetentionYear struct {
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The first day of its first regular period.
+	StartDate time.Time `json:"start_date"`
+	// The last day of its last regular period, from which retention is counted.
+	EndDate time.Time `json:"end_date"`
+	// The last day its documents are kept under the rule; absent without a rule.
+	RetentionEnds OptDate `json:"retention_ends"`
+	// Whether `as_of` is after `retention_ends`; false without a rule.
+	PastRetention bool `json:"past_retention"`
+	// Whether a completed archiving run holds the year's documents of the kind (`listArchivingRuns`,
+	// T99b); they are still in the database, since archiving deletes nothing.
+	Archived bool `json:"archived"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *RetentionYear) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetStartDate returns the value of StartDate.
+func (s *RetentionYear) GetStartDate() time.Time {
+	return s.StartDate
+}
+
+// GetEndDate returns the value of EndDate.
+func (s *RetentionYear) GetEndDate() time.Time {
+	return s.EndDate
+}
+
+// GetRetentionEnds returns the value of RetentionEnds.
+func (s *RetentionYear) GetRetentionEnds() OptDate {
+	return s.RetentionEnds
+}
+
+// GetPastRetention returns the value of PastRetention.
+func (s *RetentionYear) GetPastRetention() bool {
+	return s.PastRetention
+}
+
+// GetArchived returns the value of Archived.
+func (s *RetentionYear) GetArchived() bool {
+	return s.Archived
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *RetentionYear) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetStartDate sets the value of StartDate.
+func (s *RetentionYear) SetStartDate(val time.Time) {
+	s.StartDate = val
+}
+
+// SetEndDate sets the value of EndDate.
+func (s *RetentionYear) SetEndDate(val time.Time) {
+	s.EndDate = val
+}
+
+// SetRetentionEnds sets the value of RetentionEnds.
+func (s *RetentionYear) SetRetentionEnds(val OptDate) {
+	s.RetentionEnds = val
+}
+
+// SetPastRetention sets the value of PastRetention.
+func (s *RetentionYear) SetPastRetention(val bool) {
+	s.PastRetention = val
+}
+
+// SetArchived sets the value of Archived.
+func (s *RetentionYear) SetArchived(val bool) {
+	s.Archived = val
+}
 
 type RetireCatalogItemBadRequest Problem
 
@@ -81204,6 +89106,739 @@ func (s *RfqSupplier) SetSupplierName(val string) {
 }
 
 // Merged schema.
+// Ref: #/components/schemas/Risk
+type Risk struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// What the risk is.
+	Title string `json:"title"`
+	// The category of the risk, in the tenant's own words.
+	Category string `json:"category"`
+	// The person who owns the risk (`GET /v1/principals/{id}`).
+	OwnerID uuid.UUID `json:"owner_id"`
+	// The owner's name, as it is now.
+	OwnerName string `json:"owner_name"`
+	// The likelihood of the latest rating, from 1 to 5.
+	Likelihood int32 `json:"likelihood"`
+	// The impact of the latest rating, from 1 to 5.
+	Impact int32 `json:"impact"`
+	// The likelihood times the impact of the latest rating, from 1 to 25; the register is listed by it.
+	Score int32 `json:"score"`
+	// When the latest rating was recorded (UTC).
+	RatedAt time.Time `json:"rated_at"`
+	// The person who recorded the latest rating (`GET /v1/principals/{id}`).
+	RatedBy uuid.UUID `json:"rated_by"`
+	// The rater's name, as it is now.
+	RatedByName string `json:"rated_by_name"`
+	// The controls that mitigate the risk now, by code; empty when it names none.
+	Controls []RiskControl `json:"controls"`
+	// `open`, or `closed` for good (`closeRisk`). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// Why the risk was closed; absent while it is open.
+	CloseReason OptString `json:"close_reason"`
+	// When it was closed (UTC); absent while it is open.
+	ClosedAt OptDateTime `json:"closed_at"`
+	// The person who closed it; absent while it is open.
+	ClosedBy OptUUID `json:"closed_by"`
+	// That person's name, as it is now; absent while it is open.
+	ClosedByName OptString `json:"closed_by_name"`
+}
+
+// GetID returns the value of ID.
+func (s *Risk) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *Risk) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *Risk) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *Risk) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *Risk) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *Risk) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetTitle returns the value of Title.
+func (s *Risk) GetTitle() string {
+	return s.Title
+}
+
+// GetCategory returns the value of Category.
+func (s *Risk) GetCategory() string {
+	return s.Category
+}
+
+// GetOwnerID returns the value of OwnerID.
+func (s *Risk) GetOwnerID() uuid.UUID {
+	return s.OwnerID
+}
+
+// GetOwnerName returns the value of OwnerName.
+func (s *Risk) GetOwnerName() string {
+	return s.OwnerName
+}
+
+// GetLikelihood returns the value of Likelihood.
+func (s *Risk) GetLikelihood() int32 {
+	return s.Likelihood
+}
+
+// GetImpact returns the value of Impact.
+func (s *Risk) GetImpact() int32 {
+	return s.Impact
+}
+
+// GetScore returns the value of Score.
+func (s *Risk) GetScore() int32 {
+	return s.Score
+}
+
+// GetRatedAt returns the value of RatedAt.
+func (s *Risk) GetRatedAt() time.Time {
+	return s.RatedAt
+}
+
+// GetRatedBy returns the value of RatedBy.
+func (s *Risk) GetRatedBy() uuid.UUID {
+	return s.RatedBy
+}
+
+// GetRatedByName returns the value of RatedByName.
+func (s *Risk) GetRatedByName() string {
+	return s.RatedByName
+}
+
+// GetControls returns the value of Controls.
+func (s *Risk) GetControls() []RiskControl {
+	return s.Controls
+}
+
+// GetStatus returns the value of Status.
+func (s *Risk) GetStatus() string {
+	return s.Status
+}
+
+// GetCloseReason returns the value of CloseReason.
+func (s *Risk) GetCloseReason() OptString {
+	return s.CloseReason
+}
+
+// GetClosedAt returns the value of ClosedAt.
+func (s *Risk) GetClosedAt() OptDateTime {
+	return s.ClosedAt
+}
+
+// GetClosedBy returns the value of ClosedBy.
+func (s *Risk) GetClosedBy() OptUUID {
+	return s.ClosedBy
+}
+
+// GetClosedByName returns the value of ClosedByName.
+func (s *Risk) GetClosedByName() OptString {
+	return s.ClosedByName
+}
+
+// SetID sets the value of ID.
+func (s *Risk) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *Risk) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *Risk) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *Risk) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *Risk) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *Risk) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetTitle sets the value of Title.
+func (s *Risk) SetTitle(val string) {
+	s.Title = val
+}
+
+// SetCategory sets the value of Category.
+func (s *Risk) SetCategory(val string) {
+	s.Category = val
+}
+
+// SetOwnerID sets the value of OwnerID.
+func (s *Risk) SetOwnerID(val uuid.UUID) {
+	s.OwnerID = val
+}
+
+// SetOwnerName sets the value of OwnerName.
+func (s *Risk) SetOwnerName(val string) {
+	s.OwnerName = val
+}
+
+// SetLikelihood sets the value of Likelihood.
+func (s *Risk) SetLikelihood(val int32) {
+	s.Likelihood = val
+}
+
+// SetImpact sets the value of Impact.
+func (s *Risk) SetImpact(val int32) {
+	s.Impact = val
+}
+
+// SetScore sets the value of Score.
+func (s *Risk) SetScore(val int32) {
+	s.Score = val
+}
+
+// SetRatedAt sets the value of RatedAt.
+func (s *Risk) SetRatedAt(val time.Time) {
+	s.RatedAt = val
+}
+
+// SetRatedBy sets the value of RatedBy.
+func (s *Risk) SetRatedBy(val uuid.UUID) {
+	s.RatedBy = val
+}
+
+// SetRatedByName sets the value of RatedByName.
+func (s *Risk) SetRatedByName(val string) {
+	s.RatedByName = val
+}
+
+// SetControls sets the value of Controls.
+func (s *Risk) SetControls(val []RiskControl) {
+	s.Controls = val
+}
+
+// SetStatus sets the value of Status.
+func (s *Risk) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetCloseReason sets the value of CloseReason.
+func (s *Risk) SetCloseReason(val OptString) {
+	s.CloseReason = val
+}
+
+// SetClosedAt sets the value of ClosedAt.
+func (s *Risk) SetClosedAt(val OptDateTime) {
+	s.ClosedAt = val
+}
+
+// SetClosedBy sets the value of ClosedBy.
+func (s *Risk) SetClosedBy(val OptUUID) {
+	s.ClosedBy = val
+}
+
+// SetClosedByName sets the value of ClosedByName.
+func (s *Risk) SetClosedByName(val OptString) {
+	s.ClosedByName = val
+}
+
+// Close a risk for good.
+// Ref: #/components/schemas/RiskClose
+type RiskClose struct {
+	// Why the risk is closed, without white space around it.
+	Reason string `json:"reason"`
+}
+
+// GetReason returns the value of Reason.
+func (s *RiskClose) GetReason() string {
+	return s.Reason
+}
+
+// SetReason sets the value of Reason.
+func (s *RiskClose) SetReason(val string) {
+	s.Reason = val
+}
+
+// A control that mitigates a risk.
+// Ref: #/components/schemas/RiskControl
+type RiskControl struct {
+	// The control (`GET /v1/controls/{id}`).
+	ControlID uuid.UUID `json:"control_id"`
+	// The control's code.
+	Code string `json:"code"`
+	// The control's status now: a control retired after the risk named it stays, shown as `retired`. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Status string `json:"status"`
+}
+
+// GetControlID returns the value of ControlID.
+func (s *RiskControl) GetControlID() uuid.UUID {
+	return s.ControlID
+}
+
+// GetCode returns the value of Code.
+func (s *RiskControl) GetCode() string {
+	return s.Code
+}
+
+// GetStatus returns the value of Status.
+func (s *RiskControl) GetStatus() string {
+	return s.Status
+}
+
+// SetControlID sets the value of ControlID.
+func (s *RiskControl) SetControlID(val uuid.UUID) {
+	s.ControlID = val
+}
+
+// SetCode sets the value of Code.
+func (s *RiskControl) SetCode(val string) {
+	s.Code = val
+}
+
+// SetStatus sets the value of Status.
+func (s *RiskControl) SetStatus(val string) {
+	s.Status = val
+}
+
+// Record a risk in the risk register with its first rating. It is created `open`.
+// Ref: #/components/schemas/RiskCreate
+type RiskCreate struct {
+	// What the risk is, without white space around it.
+	Title string `json:"title"`
+	// The category of the risk, in the tenant's own words, without white space around it; the register is
+	// filtered by it.
+	Category string `json:"category"`
+	// The person who owns the risk: an active person of the tenant (`GET /v1/principals/{id}`).
+	OwnerID uuid.UUID `json:"owner_id"`
+	// How likely the risk is to occur, from 1 (least) to 5 (most).
+	Likelihood int32 `json:"likelihood"`
+	// How much it would weigh if it occurred, from 1 (least) to 5 (most).
+	Impact int32 `json:"impact"`
+	// The active controls of the library that mitigate the risk (`GET /v1/controls/{id}`), each once. None
+	// when left out.
+	ControlIds []uuid.UUID `json:"control_ids"`
+}
+
+// GetTitle returns the value of Title.
+func (s *RiskCreate) GetTitle() string {
+	return s.Title
+}
+
+// GetCategory returns the value of Category.
+func (s *RiskCreate) GetCategory() string {
+	return s.Category
+}
+
+// GetOwnerID returns the value of OwnerID.
+func (s *RiskCreate) GetOwnerID() uuid.UUID {
+	return s.OwnerID
+}
+
+// GetLikelihood returns the value of Likelihood.
+func (s *RiskCreate) GetLikelihood() int32 {
+	return s.Likelihood
+}
+
+// GetImpact returns the value of Impact.
+func (s *RiskCreate) GetImpact() int32 {
+	return s.Impact
+}
+
+// GetControlIds returns the value of ControlIds.
+func (s *RiskCreate) GetControlIds() []uuid.UUID {
+	return s.ControlIds
+}
+
+// SetTitle sets the value of Title.
+func (s *RiskCreate) SetTitle(val string) {
+	s.Title = val
+}
+
+// SetCategory sets the value of Category.
+func (s *RiskCreate) SetCategory(val string) {
+	s.Category = val
+}
+
+// SetOwnerID sets the value of OwnerID.
+func (s *RiskCreate) SetOwnerID(val uuid.UUID) {
+	s.OwnerID = val
+}
+
+// SetLikelihood sets the value of Likelihood.
+func (s *RiskCreate) SetLikelihood(val int32) {
+	s.Likelihood = val
+}
+
+// SetImpact sets the value of Impact.
+func (s *RiskCreate) SetImpact(val int32) {
+	s.Impact = val
+}
+
+// SetControlIds sets the value of ControlIds.
+func (s *RiskCreate) SetControlIds(val []uuid.UUID) {
+	s.ControlIds = val
+}
+
+// RiskHeaders wraps Risk with response headers.
+type RiskHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           Risk
+}
+
+// GetETag returns the value of ETag.
+func (s *RiskHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *RiskHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *RiskHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *RiskHeaders) GetResponse() Risk {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *RiskHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *RiskHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *RiskHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RiskHeaders) SetResponse(val Risk) {
+	s.Response = val
+}
+
+func (*RiskHeaders) createRiskRes() {}
+
+// One page of the risk register.
+// Ref: #/components/schemas/RiskPage
+type RiskPage struct {
+	// The risks on this page.
+	Items []Risk `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *RiskPage) GetItems() []Risk {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *RiskPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *RiskPage) SetItems(val []Risk) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *RiskPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*RiskPage) listRisksRes() {}
+
+// A rating of a risk (grc, ADR-0078 §11). It is never changed.
+// Ref: #/components/schemas/RiskRating
+type RiskRating struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The risk rated (`GET /v1/risks/{id}`).
+	RiskID uuid.UUID `json:"risk_id"`
+	// The likelihood, from 1 to 5.
+	Likelihood int32 `json:"likelihood"`
+	// The impact, from 1 to 5.
+	Impact int32 `json:"impact"`
+	// The likelihood times the impact.
+	Score int32 `json:"score"`
+	// The person who rated (`GET /v1/principals/{id}`).
+	RatedBy uuid.UUID `json:"rated_by"`
+	// The rater's name, as it is now.
+	RatedByName string `json:"rated_by_name"`
+	// When the rating was recorded (UTC).
+	RatedAt time.Time `json:"rated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *RiskRating) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetRiskID returns the value of RiskID.
+func (s *RiskRating) GetRiskID() uuid.UUID {
+	return s.RiskID
+}
+
+// GetLikelihood returns the value of Likelihood.
+func (s *RiskRating) GetLikelihood() int32 {
+	return s.Likelihood
+}
+
+// GetImpact returns the value of Impact.
+func (s *RiskRating) GetImpact() int32 {
+	return s.Impact
+}
+
+// GetScore returns the value of Score.
+func (s *RiskRating) GetScore() int32 {
+	return s.Score
+}
+
+// GetRatedBy returns the value of RatedBy.
+func (s *RiskRating) GetRatedBy() uuid.UUID {
+	return s.RatedBy
+}
+
+// GetRatedByName returns the value of RatedByName.
+func (s *RiskRating) GetRatedByName() string {
+	return s.RatedByName
+}
+
+// GetRatedAt returns the value of RatedAt.
+func (s *RiskRating) GetRatedAt() time.Time {
+	return s.RatedAt
+}
+
+// SetID sets the value of ID.
+func (s *RiskRating) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetRiskID sets the value of RiskID.
+func (s *RiskRating) SetRiskID(val uuid.UUID) {
+	s.RiskID = val
+}
+
+// SetLikelihood sets the value of Likelihood.
+func (s *RiskRating) SetLikelihood(val int32) {
+	s.Likelihood = val
+}
+
+// SetImpact sets the value of Impact.
+func (s *RiskRating) SetImpact(val int32) {
+	s.Impact = val
+}
+
+// SetScore sets the value of Score.
+func (s *RiskRating) SetScore(val int32) {
+	s.Score = val
+}
+
+// SetRatedBy sets the value of RatedBy.
+func (s *RiskRating) SetRatedBy(val uuid.UUID) {
+	s.RatedBy = val
+}
+
+// SetRatedByName sets the value of RatedByName.
+func (s *RiskRating) SetRatedByName(val string) {
+	s.RatedByName = val
+}
+
+// SetRatedAt sets the value of RatedAt.
+func (s *RiskRating) SetRatedAt(val time.Time) {
+	s.RatedAt = val
+}
+
+// Rate a risk again. The rater is the caller.
+// Ref: #/components/schemas/RiskRatingCreate
+type RiskRatingCreate struct {
+	// How likely the risk is to occur now, from 1 (least) to 5 (most).
+	Likelihood int32 `json:"likelihood"`
+	// How much it would weigh now if it occurred, from 1 (least) to 5 (most).
+	Impact int32 `json:"impact"`
+}
+
+// GetLikelihood returns the value of Likelihood.
+func (s *RiskRatingCreate) GetLikelihood() int32 {
+	return s.Likelihood
+}
+
+// GetImpact returns the value of Impact.
+func (s *RiskRatingCreate) GetImpact() int32 {
+	return s.Impact
+}
+
+// SetLikelihood sets the value of Likelihood.
+func (s *RiskRatingCreate) SetLikelihood(val int32) {
+	s.Likelihood = val
+}
+
+// SetImpact sets the value of Impact.
+func (s *RiskRatingCreate) SetImpact(val int32) {
+	s.Impact = val
+}
+
+// RiskRatingHeaders wraps RiskRating with response headers.
+type RiskRatingHeaders struct {
+	IdempotentReplayed OptBool
+	Response           RiskRating
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *RiskRatingHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *RiskRatingHeaders) GetResponse() RiskRating {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *RiskRatingHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RiskRatingHeaders) SetResponse(val RiskRating) {
+	s.Response = val
+}
+
+func (*RiskRatingHeaders) createRiskRatingRes() {}
+
+// One page of a risk's ratings.
+// Ref: #/components/schemas/RiskRatingPage
+type RiskRatingPage struct {
+	// The ratings on this page, the latest first.
+	Items []RiskRating `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *RiskRatingPage) GetItems() []RiskRating {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *RiskRatingPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *RiskRatingPage) SetItems(val []RiskRating) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *RiskRatingPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*RiskRatingPage) listRiskRatingsRes() {}
+
+// Merge patch of a risk: its title, category, owner or controls. A new rating is `createRiskRating`'s.
+// Ref: #/components/schemas/RiskUpdate
+type RiskUpdate struct {
+	// What the risk is, without white space around it.
+	Title OptString `json:"title"`
+	// The category of the risk, without white space around it.
+	Category OptString `json:"category"`
+	// The person who owns the risk: an active person of the tenant.
+	OwnerID OptUUID `json:"owner_id"`
+	// The controls that mitigate the risk, each once. The list given replaces the risk's; a control added
+	// is an active one of the library; an empty list leaves the risk without controls.
+	ControlIds []uuid.UUID `json:"control_ids"`
+}
+
+// GetTitle returns the value of Title.
+func (s *RiskUpdate) GetTitle() OptString {
+	return s.Title
+}
+
+// GetCategory returns the value of Category.
+func (s *RiskUpdate) GetCategory() OptString {
+	return s.Category
+}
+
+// GetOwnerID returns the value of OwnerID.
+func (s *RiskUpdate) GetOwnerID() OptUUID {
+	return s.OwnerID
+}
+
+// GetControlIds returns the value of ControlIds.
+func (s *RiskUpdate) GetControlIds() []uuid.UUID {
+	return s.ControlIds
+}
+
+// SetTitle sets the value of Title.
+func (s *RiskUpdate) SetTitle(val OptString) {
+	s.Title = val
+}
+
+// SetCategory sets the value of Category.
+func (s *RiskUpdate) SetCategory(val OptString) {
+	s.Category = val
+}
+
+// SetOwnerID sets the value of OwnerID.
+func (s *RiskUpdate) SetOwnerID(val OptUUID) {
+	s.OwnerID = val
+}
+
+// SetControlIds sets the value of ControlIds.
+func (s *RiskUpdate) SetControlIds(val []uuid.UUID) {
+	s.ControlIds = val
+}
+
+// Merged schema.
 // Ref: #/components/schemas/Role
 type Role struct {
 	// Identifier (UUIDv7).
@@ -82065,6 +90700,22 @@ type RunAllocationCycleUnprocessableEntity Problem
 
 func (*RunAllocationCycleUnprocessableEntity) runAllocationCycleRes() {}
 
+type RunAnalyticsForecastBadRequest Problem
+
+func (*RunAnalyticsForecastBadRequest) runAnalyticsForecastRes() {}
+
+type RunAnalyticsForecastForbidden Problem
+
+func (*RunAnalyticsForecastForbidden) runAnalyticsForecastRes() {}
+
+type RunAnalyticsForecastPreconditionRequired Problem
+
+func (*RunAnalyticsForecastPreconditionRequired) runAnalyticsForecastRes() {}
+
+type RunAnalyticsForecastUnprocessableEntity Problem
+
+func (*RunAnalyticsForecastUnprocessableEntity) runAnalyticsForecastRes() {}
+
 type RunAnalyticsQueryBadRequest Problem
 
 func (*RunAnalyticsQueryBadRequest) runAnalyticsQueryRes() {}
@@ -82096,6 +90747,30 @@ func (*RunBalanceCarryForwardPreconditionRequired) runBalanceCarryForwardRes() {
 type RunBalanceCarryForwardUnprocessableEntity Problem
 
 func (*RunBalanceCarryForwardUnprocessableEntity) runBalanceCarryForwardRes() {}
+
+type RunReportBadRequest Problem
+
+func (*RunReportBadRequest) runReportRes() {}
+
+type RunReportForbidden Problem
+
+func (*RunReportForbidden) runReportRes() {}
+
+type RunReportNotFound Problem
+
+func (*RunReportNotFound) runReportRes() {}
+
+type RunReportPreconditionFailed Problem
+
+func (*RunReportPreconditionFailed) runReportRes() {}
+
+type RunReportPreconditionRequired Problem
+
+func (*RunReportPreconditionRequired) runReportRes() {}
+
+type RunReportUnprocessableEntity Problem
+
+func (*RunReportUnprocessableEntity) runReportRes() {}
 
 // A condition applied to a sales item by the pricing procedure (ADR-0067 §11): the price, or a
 // discount taken off the value before it.
@@ -84281,6 +92956,30 @@ func (s *ScheduleLinePage) SetTotalEstimate(val OptInt64) {
 
 func (*ScheduleLinePage) listScheduleLinesRes() {}
 
+type ScheduleReportBadRequest Problem
+
+func (*ScheduleReportBadRequest) scheduleReportRes() {}
+
+type ScheduleReportForbidden Problem
+
+func (*ScheduleReportForbidden) scheduleReportRes() {}
+
+type ScheduleReportNotFound Problem
+
+func (*ScheduleReportNotFound) scheduleReportRes() {}
+
+type ScheduleReportPreconditionFailed Problem
+
+func (*ScheduleReportPreconditionFailed) scheduleReportRes() {}
+
+type ScheduleReportPreconditionRequired Problem
+
+func (*ScheduleReportPreconditionRequired) scheduleReportRes() {}
+
+type ScheduleReportUnprocessableEntity Problem
+
+func (*ScheduleReportUnprocessableEntity) scheduleReportRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/Segment
 type Segment struct {
@@ -84626,6 +93325,7 @@ func (*ServiceUnavailableHeaders) completeCloseTaskRes()                     {}
 func (*ServiceUnavailableHeaders) completeYearCloseTaskRes()                 {}
 func (*ServiceUnavailableHeaders) copyPlanCategoryRes()                      {}
 func (*ServiceUnavailableHeaders) createAllocationCycleRes()                 {}
+func (*ServiceUnavailableHeaders) createArchivingRunRes()                    {}
 func (*ServiceUnavailableHeaders) createAssetAcquisitionRes()                {}
 func (*ServiceUnavailableHeaders) createAssetRes()                           {}
 func (*ServiceUnavailableHeaders) createAssetRetirementRes()                 {}
@@ -84659,6 +93359,7 @@ func (*ServiceUnavailableHeaders) createPurchaseOrderChangeRes()             {}
 func (*ServiceUnavailableHeaders) createPurchaseOrderRes()                   {}
 func (*ServiceUnavailableHeaders) createRecommendationRes()                  {}
 func (*ServiceUnavailableHeaders) createRegressionSuiteRes()                 {}
+func (*ServiceUnavailableHeaders) createReportRes()                          {}
 func (*ServiceUnavailableHeaders) createRequisitionRes()                     {}
 func (*ServiceUnavailableHeaders) createRfqRes()                             {}
 func (*ServiceUnavailableHeaders) createRoleAssignmentRes()                  {}
@@ -84682,11 +93383,14 @@ func (*ServiceUnavailableHeaders) endCompanyAccessRes()                      {}
 func (*ServiceUnavailableHeaders) endRoleAssignmentRes()                     {}
 func (*ServiceUnavailableHeaders) endRolePermissionRes()                     {}
 func (*ServiceUnavailableHeaders) endSodRuleRes()                            {}
+func (*ServiceUnavailableHeaders) evaluateMetricWatcherRes()                 {}
 func (*ServiceUnavailableHeaders) excludeBankStatementLineRes()              {}
 func (*ServiceUnavailableHeaders) fetchEInvoicesRes()                        {}
 func (*ServiceUnavailableHeaders) fileTaxReturnRes()                         {}
+func (*ServiceUnavailableHeaders) getArchivingRunFileRes()                   {}
 func (*ServiceUnavailableHeaders) getBankStatementFileRes()                  {}
 func (*ServiceUnavailableHeaders) getEInvoiceContentRes()                    {}
+func (*ServiceUnavailableHeaders) getReportRunRes()                          {}
 func (*ServiceUnavailableHeaders) getSupplierInvoiceDocumentRes()            {}
 func (*ServiceUnavailableHeaders) grantRolePermissionRes()                   {}
 func (*ServiceUnavailableHeaders) holdSupplierInvoiceRes()                   {}
@@ -84759,8 +93463,11 @@ func (*ServiceUnavailableHeaders) reverseJournalEntryRes()                   {}
 func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()                {}
 func (*ServiceUnavailableHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*ServiceUnavailableHeaders) runAllocationCycleRes()                    {}
+func (*ServiceUnavailableHeaders) runAnalyticsForecastRes()                  {}
 func (*ServiceUnavailableHeaders) runAnalyticsQueryRes()                     {}
 func (*ServiceUnavailableHeaders) runBalanceCarryForwardRes()                {}
+func (*ServiceUnavailableHeaders) runReportRes()                             {}
+func (*ServiceUnavailableHeaders) scheduleReportRes()                        {}
 func (*ServiceUnavailableHeaders) settleInternalOrderRes()                   {}
 func (*ServiceUnavailableHeaders) signOffPeriodCloseRes()                    {}
 func (*ServiceUnavailableHeaders) signOffYearCloseRes()                      {}
@@ -89706,7 +98413,9 @@ func (*TooManyRequestsHeaders) acceptIntercompanyDifferenceRes()          {}
 func (*TooManyRequestsHeaders) acceptMemoRecordProposalRes()              {}
 func (*TooManyRequestsHeaders) acceptQuotationRes()                       {}
 func (*TooManyRequestsHeaders) acceptVarianceCommentRes()                 {}
+func (*TooManyRequestsHeaders) acknowledgeMetricAlertRes()                {}
 func (*TooManyRequestsHeaders) activateChangeRequestRes()                 {}
+func (*TooManyRequestsHeaders) activateLeaseContractRes()                 {}
 func (*TooManyRequestsHeaders) activateLegalEntityRes()                   {}
 func (*TooManyRequestsHeaders) activateOrgUnitRes()                       {}
 func (*TooManyRequestsHeaders) activateRevenueContractRes()               {}
@@ -89737,9 +98446,11 @@ func (*TooManyRequestsHeaders) captureSupplierInvoiceRes()                {}
 func (*TooManyRequestsHeaders) checkCloseTaskRes()                        {}
 func (*TooManyRequestsHeaders) checkYearCloseTaskRes()                    {}
 func (*TooManyRequestsHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
+func (*TooManyRequestsHeaders) closeDisputeCaseRes()                      {}
 func (*TooManyRequestsHeaders) closeFiscalPeriodRes()                     {}
 func (*TooManyRequestsHeaders) closeInternalOrderRes()                    {}
 func (*TooManyRequestsHeaders) closePurchaseOrderRes()                    {}
+func (*TooManyRequestsHeaders) closeRiskRes()                             {}
 func (*TooManyRequestsHeaders) completeCloseTaskRes()                     {}
 func (*TooManyRequestsHeaders) completeYearCloseTaskRes()                 {}
 func (*TooManyRequestsHeaders) confirmDunningRunRes()                     {}
@@ -89749,6 +98460,7 @@ func (*TooManyRequestsHeaders) confirmSalesDeliveryRes()                  {}
 func (*TooManyRequestsHeaders) confirmSalesOrderRes()                     {}
 func (*TooManyRequestsHeaders) copyPlanCategoryRes()                      {}
 func (*TooManyRequestsHeaders) createAllocationCycleRes()                 {}
+func (*TooManyRequestsHeaders) createArchivingRunRes()                    {}
 func (*TooManyRequestsHeaders) createAssetAcquisitionRes()                {}
 func (*TooManyRequestsHeaders) createAssetRes()                           {}
 func (*TooManyRequestsHeaders) createAssetRetirementRes()                 {}
@@ -89770,17 +98482,21 @@ func (*TooManyRequestsHeaders) createCostCenterRes()                      {}
 func (*TooManyRequestsHeaders) createCreditLimitRes()                     {}
 func (*TooManyRequestsHeaders) createCreditMemoRequestRes()               {}
 func (*TooManyRequestsHeaders) createCustomerInvoiceRes()                 {}
+func (*TooManyRequestsHeaders) createDisputeCaseRes()                     {}
 func (*TooManyRequestsHeaders) createDownPaymentRequestRes()              {}
 func (*TooManyRequestsHeaders) createDunningRunRes()                      {}
 func (*TooManyRequestsHeaders) createEntryTemplateRes()                   {}
 func (*TooManyRequestsHeaders) createExchangeRateRes()                    {}
+func (*TooManyRequestsHeaders) createExpenseReportRes()                   {}
 func (*TooManyRequestsHeaders) createForecastVarianceCommentRes()         {}
 func (*TooManyRequestsHeaders) createGrIrClearingRes()                    {}
 func (*TooManyRequestsHeaders) createHierarchyRes()                       {}
 func (*TooManyRequestsHeaders) createIncomingPaymentRes()                 {}
 func (*TooManyRequestsHeaders) createInternalOrderRes()                   {}
+func (*TooManyRequestsHeaders) createLeaseContractRes()                   {}
 func (*TooManyRequestsHeaders) createLegalEntityRes()                     {}
 func (*TooManyRequestsHeaders) createMemoRecordRes()                      {}
+func (*TooManyRequestsHeaders) createMetricWatcherRes()                   {}
 func (*TooManyRequestsHeaders) createMigrationRunRes()                    {}
 func (*TooManyRequestsHeaders) createOrgUnitRes()                         {}
 func (*TooManyRequestsHeaders) createPartnerChangeRes()                   {}
@@ -89793,11 +98509,15 @@ func (*TooManyRequestsHeaders) createPurchaseOrderRes()                   {}
 func (*TooManyRequestsHeaders) createQuotationRes()                       {}
 func (*TooManyRequestsHeaders) createRecommendationRes()                  {}
 func (*TooManyRequestsHeaders) createRegressionSuiteRes()                 {}
+func (*TooManyRequestsHeaders) createReportRes()                          {}
+func (*TooManyRequestsHeaders) createReportShareRes()                     {}
 func (*TooManyRequestsHeaders) createRequisitionRes()                     {}
 func (*TooManyRequestsHeaders) createReturnsOrderRes()                    {}
 func (*TooManyRequestsHeaders) createRevenueContractRes()                 {}
 func (*TooManyRequestsHeaders) createRevenueRecognitionRunRes()           {}
 func (*TooManyRequestsHeaders) createRfqRes()                             {}
+func (*TooManyRequestsHeaders) createRiskRatingRes()                      {}
+func (*TooManyRequestsHeaders) createRiskRes()                            {}
 func (*TooManyRequestsHeaders) createRoleAssignmentRes()                  {}
 func (*TooManyRequestsHeaders) createRoleRes()                            {}
 func (*TooManyRequestsHeaders) createSalesOrderRes()                      {}
@@ -89822,9 +98542,11 @@ func (*TooManyRequestsHeaders) enableConnectorRes()                       {}
 func (*TooManyRequestsHeaders) endAgentSessionRes()                       {}
 func (*TooManyRequestsHeaders) endCompanyAccessRes()                      {}
 func (*TooManyRequestsHeaders) endCurrentSessionRes()                     {}
+func (*TooManyRequestsHeaders) endReportShareRes()                        {}
 func (*TooManyRequestsHeaders) endRoleAssignmentRes()                     {}
 func (*TooManyRequestsHeaders) endRolePermissionRes()                     {}
 func (*TooManyRequestsHeaders) endSodRuleRes()                            {}
+func (*TooManyRequestsHeaders) evaluateMetricWatcherRes()                 {}
 func (*TooManyRequestsHeaders) excludeBankStatementLineRes()              {}
 func (*TooManyRequestsHeaders) fetchEInvoicesRes()                        {}
 func (*TooManyRequestsHeaders) fileTaxReturnRes()                         {}
@@ -89838,6 +98560,8 @@ func (*TooManyRequestsHeaders) getAllocationCycleRes()                    {}
 func (*TooManyRequestsHeaders) getAllocationRunRes()                      {}
 func (*TooManyRequestsHeaders) getAnalyticsModelRes()                     {}
 func (*TooManyRequestsHeaders) getApprovalRequestRes()                    {}
+func (*TooManyRequestsHeaders) getArchivingRunFileRes()                   {}
+func (*TooManyRequestsHeaders) getArchivingRunRes()                       {}
 func (*TooManyRequestsHeaders) getAssetAcquisitionRes()                   {}
 func (*TooManyRequestsHeaders) getAssetHistorySheetRes()                  {}
 func (*TooManyRequestsHeaders) getAssetOrderExpensesRes()                 {}
@@ -89881,12 +98605,14 @@ func (*TooManyRequestsHeaders) getCreditMemoRequestRes()                  {}
 func (*TooManyRequestsHeaders) getCurrentPrincipalRes()                   {}
 func (*TooManyRequestsHeaders) getCustomerInvoiceRes()                    {}
 func (*TooManyRequestsHeaders) getDepreciationRunRes()                    {}
+func (*TooManyRequestsHeaders) getDisputeCaseRes()                        {}
 func (*TooManyRequestsHeaders) getDownPaymentRequestRes()                 {}
 func (*TooManyRequestsHeaders) getDunningRunRes()                         {}
 func (*TooManyRequestsHeaders) getEInvoiceContentRes()                    {}
 func (*TooManyRequestsHeaders) getEInvoiceRes()                           {}
 func (*TooManyRequestsHeaders) getEntryTemplateRes()                      {}
 func (*TooManyRequestsHeaders) getExchangeRateRes()                       {}
+func (*TooManyRequestsHeaders) getExpenseReportRes()                      {}
 func (*TooManyRequestsHeaders) getFiscalPeriodRes()                       {}
 func (*TooManyRequestsHeaders) getForecastVarianceCommentRes()            {}
 func (*TooManyRequestsHeaders) getGoodsReceiptRes()                       {}
@@ -89899,6 +98625,8 @@ func (*TooManyRequestsHeaders) getInternalOrderBudgetRes()                {}
 func (*TooManyRequestsHeaders) getInternalOrderRes()                      {}
 func (*TooManyRequestsHeaders) getInternalOrderSettlementRuleRes()        {}
 func (*TooManyRequestsHeaders) getJournalEntryRes()                       {}
+func (*TooManyRequestsHeaders) getLeaseContractRes()                      {}
+func (*TooManyRequestsHeaders) getLeaseScheduleRes()                      {}
 func (*TooManyRequestsHeaders) getLegalEntityRes()                        {}
 func (*TooManyRequestsHeaders) getLegalEntityTodayRes()                   {}
 func (*TooManyRequestsHeaders) getLiquidityForecastRes()                  {}
@@ -89906,6 +98634,8 @@ func (*TooManyRequestsHeaders) getLiquidityForecastVarianceRes()          {}
 func (*TooManyRequestsHeaders) getMarginReportRes()                       {}
 func (*TooManyRequestsHeaders) getMatchResultRes()                        {}
 func (*TooManyRequestsHeaders) getMemoRecordRes()                         {}
+func (*TooManyRequestsHeaders) getMetricAlertRes()                        {}
+func (*TooManyRequestsHeaders) getMetricWatcherRes()                      {}
 func (*TooManyRequestsHeaders) getMigrationRunRes()                       {}
 func (*TooManyRequestsHeaders) getNumberRangeRes()                        {}
 func (*TooManyRequestsHeaders) getOperationRes()                          {}
@@ -89914,6 +98644,8 @@ func (*TooManyRequestsHeaders) getParkedJournalEntryRes()                 {}
 func (*TooManyRequestsHeaders) getPartnerChangeRes()                      {}
 func (*TooManyRequestsHeaders) getPaymentRunRes()                         {}
 func (*TooManyRequestsHeaders) getPeriodCloseRes()                        {}
+func (*TooManyRequestsHeaders) getPersonalDataInventoryRes()              {}
+func (*TooManyRequestsHeaders) getPersonalDataSubjectRes()                {}
 func (*TooManyRequestsHeaders) getPlanCategoryRes()                       {}
 func (*TooManyRequestsHeaders) getPrincipalRes()                          {}
 func (*TooManyRequestsHeaders) getProfitCenterRes()                       {}
@@ -89924,7 +98656,10 @@ func (*TooManyRequestsHeaders) getQuotationRes()                          {}
 func (*TooManyRequestsHeaders) getReceivablesAgingRes()                   {}
 func (*TooManyRequestsHeaders) getRecommendationRes()                     {}
 func (*TooManyRequestsHeaders) getRegressionSuiteRes()                    {}
+func (*TooManyRequestsHeaders) getReportRes()                             {}
+func (*TooManyRequestsHeaders) getReportRunRes()                          {}
 func (*TooManyRequestsHeaders) getRequisitionRes()                        {}
+func (*TooManyRequestsHeaders) getRetentionStatusRes()                    {}
 func (*TooManyRequestsHeaders) getReturnsOrderRes()                       {}
 func (*TooManyRequestsHeaders) getRevaluationRunRes()                     {}
 func (*TooManyRequestsHeaders) getRevenueContractRes()                    {}
@@ -89932,6 +98667,7 @@ func (*TooManyRequestsHeaders) getRevenueRecognitionRunRes()              {}
 func (*TooManyRequestsHeaders) getRevenueScheduleRes()                    {}
 func (*TooManyRequestsHeaders) getRfqComparisonRes()                      {}
 func (*TooManyRequestsHeaders) getRfqRes()                                {}
+func (*TooManyRequestsHeaders) getRiskRes()                               {}
 func (*TooManyRequestsHeaders) getRoleAssignmentRes()                     {}
 func (*TooManyRequestsHeaders) getRolePermissionRes()                     {}
 func (*TooManyRequestsHeaders) getRoleRes()                               {}
@@ -89959,6 +98695,7 @@ func (*TooManyRequestsHeaders) listAgentToolCallsRes()                    {}
 func (*TooManyRequestsHeaders) listAllocationCyclesRes()                  {}
 func (*TooManyRequestsHeaders) listAllocationRunsRes()                    {}
 func (*TooManyRequestsHeaders) listApprovalRequestsRes()                  {}
+func (*TooManyRequestsHeaders) listArchivingRunsRes()                     {}
 func (*TooManyRequestsHeaders) listAssetAcquisitionsRes()                 {}
 func (*TooManyRequestsHeaders) listAssetClassesRes()                      {}
 func (*TooManyRequestsHeaders) listAssetClearingItemsRes()                {}
@@ -90005,12 +98742,14 @@ func (*TooManyRequestsHeaders) listCreditLimitsRes()                      {}
 func (*TooManyRequestsHeaders) listCreditMemoRequestsRes()                {}
 func (*TooManyRequestsHeaders) listCustomerInvoicesRes()                  {}
 func (*TooManyRequestsHeaders) listDepreciationRunsRes()                  {}
+func (*TooManyRequestsHeaders) listDisputeCasesRes()                      {}
 func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()               {}
 func (*TooManyRequestsHeaders) listDunningNoticesRes()                    {}
 func (*TooManyRequestsHeaders) listDunningRunsRes()                       {}
 func (*TooManyRequestsHeaders) listEInvoicesRes()                         {}
 func (*TooManyRequestsHeaders) listEntryTemplatesRes()                    {}
 func (*TooManyRequestsHeaders) listExchangeRatesRes()                     {}
+func (*TooManyRequestsHeaders) listExpenseReportsRes()                    {}
 func (*TooManyRequestsHeaders) listFiscalPeriodsRes()                     {}
 func (*TooManyRequestsHeaders) listForecastVarianceCommentsRes()          {}
 func (*TooManyRequestsHeaders) listForecastVarianceDocumentsRes()         {}
@@ -90026,6 +98765,7 @@ func (*TooManyRequestsHeaders) listInternalOrderBalancesRes()             {}
 func (*TooManyRequestsHeaders) listInternalOrderSettlementsRes()          {}
 func (*TooManyRequestsHeaders) listInternalOrdersRes()                    {}
 func (*TooManyRequestsHeaders) listJournalEntriesRes()                    {}
+func (*TooManyRequestsHeaders) listLeaseContractsRes()                    {}
 func (*TooManyRequestsHeaders) listLedgerGroupsRes()                      {}
 func (*TooManyRequestsHeaders) listLedgerReconciliationEntriesRes()       {}
 func (*TooManyRequestsHeaders) listLedgerReconciliationRes()              {}
@@ -90034,6 +98774,8 @@ func (*TooManyRequestsHeaders) listLegalEntitiesRes()                     {}
 func (*TooManyRequestsHeaders) listLiquidityForecastFlowsRes()            {}
 func (*TooManyRequestsHeaders) listMatchResultsRes()                      {}
 func (*TooManyRequestsHeaders) listMemoRecordsRes()                       {}
+func (*TooManyRequestsHeaders) listMetricAlertsRes()                      {}
+func (*TooManyRequestsHeaders) listMetricWatchersRes()                    {}
 func (*TooManyRequestsHeaders) listMigrationRunsRes()                     {}
 func (*TooManyRequestsHeaders) listNumberRangesRes()                      {}
 func (*TooManyRequestsHeaders) listOpenItemsRes()                         {}
@@ -90059,6 +98801,9 @@ func (*TooManyRequestsHeaders) listPurchaseOrdersRes()                    {}
 func (*TooManyRequestsHeaders) listQuotationsRes()                        {}
 func (*TooManyRequestsHeaders) listRecommendationsRes()                   {}
 func (*TooManyRequestsHeaders) listRegressionSuitesRes()                  {}
+func (*TooManyRequestsHeaders) listReportRunsRes()                        {}
+func (*TooManyRequestsHeaders) listReportSharesRes()                      {}
+func (*TooManyRequestsHeaders) listReportsRes()                           {}
 func (*TooManyRequestsHeaders) listRequisitionsRes()                      {}
 func (*TooManyRequestsHeaders) listReturnReceiptsRes()                    {}
 func (*TooManyRequestsHeaders) listReturnsOrdersRes()                     {}
@@ -90066,6 +98811,8 @@ func (*TooManyRequestsHeaders) listRevaluationRunsRes()                   {}
 func (*TooManyRequestsHeaders) listRevenueContractsRes()                  {}
 func (*TooManyRequestsHeaders) listRevenueRecognitionRunsRes()            {}
 func (*TooManyRequestsHeaders) listRfqsRes()                              {}
+func (*TooManyRequestsHeaders) listRiskRatingsRes()                       {}
+func (*TooManyRequestsHeaders) listRisksRes()                             {}
 func (*TooManyRequestsHeaders) listRoleAssignmentsRes()                   {}
 func (*TooManyRequestsHeaders) listRolePermissionsRes()                   {}
 func (*TooManyRequestsHeaders) listRolesRes()                             {}
@@ -90106,6 +98853,7 @@ func (*TooManyRequestsHeaders) postBankStatementLineRes()                 {}
 func (*TooManyRequestsHeaders) postBillingDocumentRes()                   {}
 func (*TooManyRequestsHeaders) postCreditMemoRequestRes()                 {}
 func (*TooManyRequestsHeaders) postCustomerInvoiceRes()                   {}
+func (*TooManyRequestsHeaders) postExpenseReportRes()                     {}
 func (*TooManyRequestsHeaders) postGoodsReceiptRes()                      {}
 func (*TooManyRequestsHeaders) postJournalEntryRes()                      {}
 func (*TooManyRequestsHeaders) postParkedJournalEntryRes()                {}
@@ -90143,6 +98891,8 @@ func (*TooManyRequestsHeaders) releaseSalesOrderCreditBlockRes()          {}
 func (*TooManyRequestsHeaders) releaseSupplierInvoiceRes()                {}
 func (*TooManyRequestsHeaders) removeControlLinkRes()                     {}
 func (*TooManyRequestsHeaders) removeHierarchyNodeRes()                   {}
+func (*TooManyRequestsHeaders) removeMetricWatcherRes()                   {}
+func (*TooManyRequestsHeaders) removeReportRes()                          {}
 func (*TooManyRequestsHeaders) renameHierarchyNodeRes()                   {}
 func (*TooManyRequestsHeaders) renewContractRes()                         {}
 func (*TooManyRequestsHeaders) reopenCloseTaskRes()                       {}
@@ -90163,8 +98913,11 @@ func (*TooManyRequestsHeaders) reverseJournalEntryRes()                   {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()                {}
 func (*TooManyRequestsHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*TooManyRequestsHeaders) runAllocationCycleRes()                    {}
+func (*TooManyRequestsHeaders) runAnalyticsForecastRes()                  {}
 func (*TooManyRequestsHeaders) runAnalyticsQueryRes()                     {}
 func (*TooManyRequestsHeaders) runBalanceCarryForwardRes()                {}
+func (*TooManyRequestsHeaders) runReportRes()                             {}
+func (*TooManyRequestsHeaders) scheduleReportRes()                        {}
 func (*TooManyRequestsHeaders) settleInternalOrderRes()                   {}
 func (*TooManyRequestsHeaders) signOffPeriodCloseRes()                    {}
 func (*TooManyRequestsHeaders) signOffYearCloseRes()                      {}
@@ -90184,6 +98937,7 @@ func (*TooManyRequestsHeaders) unblockLegalEntityRes()                    {}
 func (*TooManyRequestsHeaders) unblockOrgUnitRes()                        {}
 func (*TooManyRequestsHeaders) unlockFiscalPeriodRes()                    {}
 func (*TooManyRequestsHeaders) unlockPlanCategoryRes()                    {}
+func (*TooManyRequestsHeaders) unscheduleReportRes()                      {}
 func (*TooManyRequestsHeaders) updateAiPolicyRes()                        {}
 func (*TooManyRequestsHeaders) updateAssetRes()                           {}
 func (*TooManyRequestsHeaders) updateChangeRequestRes()                   {}
@@ -90193,6 +98947,7 @@ func (*TooManyRequestsHeaders) updateContractRes()                        {}
 func (*TooManyRequestsHeaders) updateControlRes()                         {}
 func (*TooManyRequestsHeaders) updateCostCenterRes()                      {}
 func (*TooManyRequestsHeaders) updateCreditLimitRes()                     {}
+func (*TooManyRequestsHeaders) updateDisputeCaseRes()                     {}
 func (*TooManyRequestsHeaders) updateEntryTemplateRes()                   {}
 func (*TooManyRequestsHeaders) updateInternalOrderBudgetRes()             {}
 func (*TooManyRequestsHeaders) updateInternalOrderSettlementRuleRes()     {}
@@ -90206,6 +98961,7 @@ func (*TooManyRequestsHeaders) updatePurchaseOrderChangeRes()             {}
 func (*TooManyRequestsHeaders) updatePurchaseOrderRes()                   {}
 func (*TooManyRequestsHeaders) updateRequisitionRes()                     {}
 func (*TooManyRequestsHeaders) updateRevenueContractRes()                 {}
+func (*TooManyRequestsHeaders) updateRiskRes()                            {}
 func (*TooManyRequestsHeaders) updateRoleRes()                            {}
 func (*TooManyRequestsHeaders) updateSegmentRes()                         {}
 func (*TooManyRequestsHeaders) updateSupplierInvoiceRes()                 {}
@@ -90526,7 +99282,9 @@ func (*UnauthorizedHeaders) acceptIntercompanyDifferenceRes()          {}
 func (*UnauthorizedHeaders) acceptMemoRecordProposalRes()              {}
 func (*UnauthorizedHeaders) acceptQuotationRes()                       {}
 func (*UnauthorizedHeaders) acceptVarianceCommentRes()                 {}
+func (*UnauthorizedHeaders) acknowledgeMetricAlertRes()                {}
 func (*UnauthorizedHeaders) activateChangeRequestRes()                 {}
+func (*UnauthorizedHeaders) activateLeaseContractRes()                 {}
 func (*UnauthorizedHeaders) activateLegalEntityRes()                   {}
 func (*UnauthorizedHeaders) activateOrgUnitRes()                       {}
 func (*UnauthorizedHeaders) activateRevenueContractRes()               {}
@@ -90557,9 +99315,11 @@ func (*UnauthorizedHeaders) captureSupplierInvoiceRes()                {}
 func (*UnauthorizedHeaders) checkCloseTaskRes()                        {}
 func (*UnauthorizedHeaders) checkYearCloseTaskRes()                    {}
 func (*UnauthorizedHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
+func (*UnauthorizedHeaders) closeDisputeCaseRes()                      {}
 func (*UnauthorizedHeaders) closeFiscalPeriodRes()                     {}
 func (*UnauthorizedHeaders) closeInternalOrderRes()                    {}
 func (*UnauthorizedHeaders) closePurchaseOrderRes()                    {}
+func (*UnauthorizedHeaders) closeRiskRes()                             {}
 func (*UnauthorizedHeaders) completeCloseTaskRes()                     {}
 func (*UnauthorizedHeaders) completeYearCloseTaskRes()                 {}
 func (*UnauthorizedHeaders) confirmDunningRunRes()                     {}
@@ -90569,6 +99329,7 @@ func (*UnauthorizedHeaders) confirmSalesDeliveryRes()                  {}
 func (*UnauthorizedHeaders) confirmSalesOrderRes()                     {}
 func (*UnauthorizedHeaders) copyPlanCategoryRes()                      {}
 func (*UnauthorizedHeaders) createAllocationCycleRes()                 {}
+func (*UnauthorizedHeaders) createArchivingRunRes()                    {}
 func (*UnauthorizedHeaders) createAssetAcquisitionRes()                {}
 func (*UnauthorizedHeaders) createAssetRes()                           {}
 func (*UnauthorizedHeaders) createAssetRetirementRes()                 {}
@@ -90590,17 +99351,21 @@ func (*UnauthorizedHeaders) createCostCenterRes()                      {}
 func (*UnauthorizedHeaders) createCreditLimitRes()                     {}
 func (*UnauthorizedHeaders) createCreditMemoRequestRes()               {}
 func (*UnauthorizedHeaders) createCustomerInvoiceRes()                 {}
+func (*UnauthorizedHeaders) createDisputeCaseRes()                     {}
 func (*UnauthorizedHeaders) createDownPaymentRequestRes()              {}
 func (*UnauthorizedHeaders) createDunningRunRes()                      {}
 func (*UnauthorizedHeaders) createEntryTemplateRes()                   {}
 func (*UnauthorizedHeaders) createExchangeRateRes()                    {}
+func (*UnauthorizedHeaders) createExpenseReportRes()                   {}
 func (*UnauthorizedHeaders) createForecastVarianceCommentRes()         {}
 func (*UnauthorizedHeaders) createGrIrClearingRes()                    {}
 func (*UnauthorizedHeaders) createHierarchyRes()                       {}
 func (*UnauthorizedHeaders) createIncomingPaymentRes()                 {}
 func (*UnauthorizedHeaders) createInternalOrderRes()                   {}
+func (*UnauthorizedHeaders) createLeaseContractRes()                   {}
 func (*UnauthorizedHeaders) createLegalEntityRes()                     {}
 func (*UnauthorizedHeaders) createMemoRecordRes()                      {}
+func (*UnauthorizedHeaders) createMetricWatcherRes()                   {}
 func (*UnauthorizedHeaders) createMigrationRunRes()                    {}
 func (*UnauthorizedHeaders) createOrgUnitRes()                         {}
 func (*UnauthorizedHeaders) createPartnerChangeRes()                   {}
@@ -90613,11 +99378,15 @@ func (*UnauthorizedHeaders) createPurchaseOrderRes()                   {}
 func (*UnauthorizedHeaders) createQuotationRes()                       {}
 func (*UnauthorizedHeaders) createRecommendationRes()                  {}
 func (*UnauthorizedHeaders) createRegressionSuiteRes()                 {}
+func (*UnauthorizedHeaders) createReportRes()                          {}
+func (*UnauthorizedHeaders) createReportShareRes()                     {}
 func (*UnauthorizedHeaders) createRequisitionRes()                     {}
 func (*UnauthorizedHeaders) createReturnsOrderRes()                    {}
 func (*UnauthorizedHeaders) createRevenueContractRes()                 {}
 func (*UnauthorizedHeaders) createRevenueRecognitionRunRes()           {}
 func (*UnauthorizedHeaders) createRfqRes()                             {}
+func (*UnauthorizedHeaders) createRiskRatingRes()                      {}
+func (*UnauthorizedHeaders) createRiskRes()                            {}
 func (*UnauthorizedHeaders) createRoleAssignmentRes()                  {}
 func (*UnauthorizedHeaders) createRoleRes()                            {}
 func (*UnauthorizedHeaders) createSalesOrderRes()                      {}
@@ -90642,9 +99411,11 @@ func (*UnauthorizedHeaders) enableConnectorRes()                       {}
 func (*UnauthorizedHeaders) endAgentSessionRes()                       {}
 func (*UnauthorizedHeaders) endCompanyAccessRes()                      {}
 func (*UnauthorizedHeaders) endCurrentSessionRes()                     {}
+func (*UnauthorizedHeaders) endReportShareRes()                        {}
 func (*UnauthorizedHeaders) endRoleAssignmentRes()                     {}
 func (*UnauthorizedHeaders) endRolePermissionRes()                     {}
 func (*UnauthorizedHeaders) endSodRuleRes()                            {}
+func (*UnauthorizedHeaders) evaluateMetricWatcherRes()                 {}
 func (*UnauthorizedHeaders) excludeBankStatementLineRes()              {}
 func (*UnauthorizedHeaders) fetchEInvoicesRes()                        {}
 func (*UnauthorizedHeaders) fileTaxReturnRes()                         {}
@@ -90658,6 +99429,8 @@ func (*UnauthorizedHeaders) getAllocationCycleRes()                    {}
 func (*UnauthorizedHeaders) getAllocationRunRes()                      {}
 func (*UnauthorizedHeaders) getAnalyticsModelRes()                     {}
 func (*UnauthorizedHeaders) getApprovalRequestRes()                    {}
+func (*UnauthorizedHeaders) getArchivingRunFileRes()                   {}
+func (*UnauthorizedHeaders) getArchivingRunRes()                       {}
 func (*UnauthorizedHeaders) getAssetAcquisitionRes()                   {}
 func (*UnauthorizedHeaders) getAssetHistorySheetRes()                  {}
 func (*UnauthorizedHeaders) getAssetOrderExpensesRes()                 {}
@@ -90701,12 +99474,14 @@ func (*UnauthorizedHeaders) getCreditMemoRequestRes()                  {}
 func (*UnauthorizedHeaders) getCurrentPrincipalRes()                   {}
 func (*UnauthorizedHeaders) getCustomerInvoiceRes()                    {}
 func (*UnauthorizedHeaders) getDepreciationRunRes()                    {}
+func (*UnauthorizedHeaders) getDisputeCaseRes()                        {}
 func (*UnauthorizedHeaders) getDownPaymentRequestRes()                 {}
 func (*UnauthorizedHeaders) getDunningRunRes()                         {}
 func (*UnauthorizedHeaders) getEInvoiceContentRes()                    {}
 func (*UnauthorizedHeaders) getEInvoiceRes()                           {}
 func (*UnauthorizedHeaders) getEntryTemplateRes()                      {}
 func (*UnauthorizedHeaders) getExchangeRateRes()                       {}
+func (*UnauthorizedHeaders) getExpenseReportRes()                      {}
 func (*UnauthorizedHeaders) getFiscalPeriodRes()                       {}
 func (*UnauthorizedHeaders) getForecastVarianceCommentRes()            {}
 func (*UnauthorizedHeaders) getGoodsReceiptRes()                       {}
@@ -90719,6 +99494,8 @@ func (*UnauthorizedHeaders) getInternalOrderBudgetRes()                {}
 func (*UnauthorizedHeaders) getInternalOrderRes()                      {}
 func (*UnauthorizedHeaders) getInternalOrderSettlementRuleRes()        {}
 func (*UnauthorizedHeaders) getJournalEntryRes()                       {}
+func (*UnauthorizedHeaders) getLeaseContractRes()                      {}
+func (*UnauthorizedHeaders) getLeaseScheduleRes()                      {}
 func (*UnauthorizedHeaders) getLegalEntityRes()                        {}
 func (*UnauthorizedHeaders) getLegalEntityTodayRes()                   {}
 func (*UnauthorizedHeaders) getLiquidityForecastRes()                  {}
@@ -90726,6 +99503,8 @@ func (*UnauthorizedHeaders) getLiquidityForecastVarianceRes()          {}
 func (*UnauthorizedHeaders) getMarginReportRes()                       {}
 func (*UnauthorizedHeaders) getMatchResultRes()                        {}
 func (*UnauthorizedHeaders) getMemoRecordRes()                         {}
+func (*UnauthorizedHeaders) getMetricAlertRes()                        {}
+func (*UnauthorizedHeaders) getMetricWatcherRes()                      {}
 func (*UnauthorizedHeaders) getMigrationRunRes()                       {}
 func (*UnauthorizedHeaders) getNumberRangeRes()                        {}
 func (*UnauthorizedHeaders) getOperationRes()                          {}
@@ -90734,6 +99513,8 @@ func (*UnauthorizedHeaders) getParkedJournalEntryRes()                 {}
 func (*UnauthorizedHeaders) getPartnerChangeRes()                      {}
 func (*UnauthorizedHeaders) getPaymentRunRes()                         {}
 func (*UnauthorizedHeaders) getPeriodCloseRes()                        {}
+func (*UnauthorizedHeaders) getPersonalDataInventoryRes()              {}
+func (*UnauthorizedHeaders) getPersonalDataSubjectRes()                {}
 func (*UnauthorizedHeaders) getPlanCategoryRes()                       {}
 func (*UnauthorizedHeaders) getPrincipalRes()                          {}
 func (*UnauthorizedHeaders) getProfitCenterRes()                       {}
@@ -90744,7 +99525,10 @@ func (*UnauthorizedHeaders) getQuotationRes()                          {}
 func (*UnauthorizedHeaders) getReceivablesAgingRes()                   {}
 func (*UnauthorizedHeaders) getRecommendationRes()                     {}
 func (*UnauthorizedHeaders) getRegressionSuiteRes()                    {}
+func (*UnauthorizedHeaders) getReportRes()                             {}
+func (*UnauthorizedHeaders) getReportRunRes()                          {}
 func (*UnauthorizedHeaders) getRequisitionRes()                        {}
+func (*UnauthorizedHeaders) getRetentionStatusRes()                    {}
 func (*UnauthorizedHeaders) getReturnsOrderRes()                       {}
 func (*UnauthorizedHeaders) getRevaluationRunRes()                     {}
 func (*UnauthorizedHeaders) getRevenueContractRes()                    {}
@@ -90752,6 +99536,7 @@ func (*UnauthorizedHeaders) getRevenueRecognitionRunRes()              {}
 func (*UnauthorizedHeaders) getRevenueScheduleRes()                    {}
 func (*UnauthorizedHeaders) getRfqComparisonRes()                      {}
 func (*UnauthorizedHeaders) getRfqRes()                                {}
+func (*UnauthorizedHeaders) getRiskRes()                               {}
 func (*UnauthorizedHeaders) getRoleAssignmentRes()                     {}
 func (*UnauthorizedHeaders) getRolePermissionRes()                     {}
 func (*UnauthorizedHeaders) getRoleRes()                               {}
@@ -90779,6 +99564,7 @@ func (*UnauthorizedHeaders) listAgentToolCallsRes()                    {}
 func (*UnauthorizedHeaders) listAllocationCyclesRes()                  {}
 func (*UnauthorizedHeaders) listAllocationRunsRes()                    {}
 func (*UnauthorizedHeaders) listApprovalRequestsRes()                  {}
+func (*UnauthorizedHeaders) listArchivingRunsRes()                     {}
 func (*UnauthorizedHeaders) listAssetAcquisitionsRes()                 {}
 func (*UnauthorizedHeaders) listAssetClassesRes()                      {}
 func (*UnauthorizedHeaders) listAssetClearingItemsRes()                {}
@@ -90825,12 +99611,14 @@ func (*UnauthorizedHeaders) listCreditLimitsRes()                      {}
 func (*UnauthorizedHeaders) listCreditMemoRequestsRes()                {}
 func (*UnauthorizedHeaders) listCustomerInvoicesRes()                  {}
 func (*UnauthorizedHeaders) listDepreciationRunsRes()                  {}
+func (*UnauthorizedHeaders) listDisputeCasesRes()                      {}
 func (*UnauthorizedHeaders) listDownPaymentRequestsRes()               {}
 func (*UnauthorizedHeaders) listDunningNoticesRes()                    {}
 func (*UnauthorizedHeaders) listDunningRunsRes()                       {}
 func (*UnauthorizedHeaders) listEInvoicesRes()                         {}
 func (*UnauthorizedHeaders) listEntryTemplatesRes()                    {}
 func (*UnauthorizedHeaders) listExchangeRatesRes()                     {}
+func (*UnauthorizedHeaders) listExpenseReportsRes()                    {}
 func (*UnauthorizedHeaders) listFiscalPeriodsRes()                     {}
 func (*UnauthorizedHeaders) listForecastVarianceCommentsRes()          {}
 func (*UnauthorizedHeaders) listForecastVarianceDocumentsRes()         {}
@@ -90846,6 +99634,7 @@ func (*UnauthorizedHeaders) listInternalOrderBalancesRes()             {}
 func (*UnauthorizedHeaders) listInternalOrderSettlementsRes()          {}
 func (*UnauthorizedHeaders) listInternalOrdersRes()                    {}
 func (*UnauthorizedHeaders) listJournalEntriesRes()                    {}
+func (*UnauthorizedHeaders) listLeaseContractsRes()                    {}
 func (*UnauthorizedHeaders) listLedgerGroupsRes()                      {}
 func (*UnauthorizedHeaders) listLedgerReconciliationEntriesRes()       {}
 func (*UnauthorizedHeaders) listLedgerReconciliationRes()              {}
@@ -90854,6 +99643,8 @@ func (*UnauthorizedHeaders) listLegalEntitiesRes()                     {}
 func (*UnauthorizedHeaders) listLiquidityForecastFlowsRes()            {}
 func (*UnauthorizedHeaders) listMatchResultsRes()                      {}
 func (*UnauthorizedHeaders) listMemoRecordsRes()                       {}
+func (*UnauthorizedHeaders) listMetricAlertsRes()                      {}
+func (*UnauthorizedHeaders) listMetricWatchersRes()                    {}
 func (*UnauthorizedHeaders) listMigrationRunsRes()                     {}
 func (*UnauthorizedHeaders) listNumberRangesRes()                      {}
 func (*UnauthorizedHeaders) listOpenItemsRes()                         {}
@@ -90879,6 +99670,9 @@ func (*UnauthorizedHeaders) listPurchaseOrdersRes()                    {}
 func (*UnauthorizedHeaders) listQuotationsRes()                        {}
 func (*UnauthorizedHeaders) listRecommendationsRes()                   {}
 func (*UnauthorizedHeaders) listRegressionSuitesRes()                  {}
+func (*UnauthorizedHeaders) listReportRunsRes()                        {}
+func (*UnauthorizedHeaders) listReportSharesRes()                      {}
+func (*UnauthorizedHeaders) listReportsRes()                           {}
 func (*UnauthorizedHeaders) listRequisitionsRes()                      {}
 func (*UnauthorizedHeaders) listReturnReceiptsRes()                    {}
 func (*UnauthorizedHeaders) listReturnsOrdersRes()                     {}
@@ -90886,6 +99680,8 @@ func (*UnauthorizedHeaders) listRevaluationRunsRes()                   {}
 func (*UnauthorizedHeaders) listRevenueContractsRes()                  {}
 func (*UnauthorizedHeaders) listRevenueRecognitionRunsRes()            {}
 func (*UnauthorizedHeaders) listRfqsRes()                              {}
+func (*UnauthorizedHeaders) listRiskRatingsRes()                       {}
+func (*UnauthorizedHeaders) listRisksRes()                             {}
 func (*UnauthorizedHeaders) listRoleAssignmentsRes()                   {}
 func (*UnauthorizedHeaders) listRolePermissionsRes()                   {}
 func (*UnauthorizedHeaders) listRolesRes()                             {}
@@ -90926,6 +99722,7 @@ func (*UnauthorizedHeaders) postBankStatementLineRes()                 {}
 func (*UnauthorizedHeaders) postBillingDocumentRes()                   {}
 func (*UnauthorizedHeaders) postCreditMemoRequestRes()                 {}
 func (*UnauthorizedHeaders) postCustomerInvoiceRes()                   {}
+func (*UnauthorizedHeaders) postExpenseReportRes()                     {}
 func (*UnauthorizedHeaders) postGoodsReceiptRes()                      {}
 func (*UnauthorizedHeaders) postJournalEntryRes()                      {}
 func (*UnauthorizedHeaders) postParkedJournalEntryRes()                {}
@@ -90963,6 +99760,8 @@ func (*UnauthorizedHeaders) releaseSalesOrderCreditBlockRes()          {}
 func (*UnauthorizedHeaders) releaseSupplierInvoiceRes()                {}
 func (*UnauthorizedHeaders) removeControlLinkRes()                     {}
 func (*UnauthorizedHeaders) removeHierarchyNodeRes()                   {}
+func (*UnauthorizedHeaders) removeMetricWatcherRes()                   {}
+func (*UnauthorizedHeaders) removeReportRes()                          {}
 func (*UnauthorizedHeaders) renameHierarchyNodeRes()                   {}
 func (*UnauthorizedHeaders) renewContractRes()                         {}
 func (*UnauthorizedHeaders) reopenCloseTaskRes()                       {}
@@ -90983,8 +99782,11 @@ func (*UnauthorizedHeaders) reverseJournalEntryRes()                   {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()                {}
 func (*UnauthorizedHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*UnauthorizedHeaders) runAllocationCycleRes()                    {}
+func (*UnauthorizedHeaders) runAnalyticsForecastRes()                  {}
 func (*UnauthorizedHeaders) runAnalyticsQueryRes()                     {}
 func (*UnauthorizedHeaders) runBalanceCarryForwardRes()                {}
+func (*UnauthorizedHeaders) runReportRes()                             {}
+func (*UnauthorizedHeaders) scheduleReportRes()                        {}
 func (*UnauthorizedHeaders) settleInternalOrderRes()                   {}
 func (*UnauthorizedHeaders) signOffPeriodCloseRes()                    {}
 func (*UnauthorizedHeaders) signOffYearCloseRes()                      {}
@@ -91004,6 +99806,7 @@ func (*UnauthorizedHeaders) unblockLegalEntityRes()                    {}
 func (*UnauthorizedHeaders) unblockOrgUnitRes()                        {}
 func (*UnauthorizedHeaders) unlockFiscalPeriodRes()                    {}
 func (*UnauthorizedHeaders) unlockPlanCategoryRes()                    {}
+func (*UnauthorizedHeaders) unscheduleReportRes()                      {}
 func (*UnauthorizedHeaders) updateAiPolicyRes()                        {}
 func (*UnauthorizedHeaders) updateAssetRes()                           {}
 func (*UnauthorizedHeaders) updateChangeRequestRes()                   {}
@@ -91013,6 +99816,7 @@ func (*UnauthorizedHeaders) updateContractRes()                        {}
 func (*UnauthorizedHeaders) updateControlRes()                         {}
 func (*UnauthorizedHeaders) updateCostCenterRes()                      {}
 func (*UnauthorizedHeaders) updateCreditLimitRes()                     {}
+func (*UnauthorizedHeaders) updateDisputeCaseRes()                     {}
 func (*UnauthorizedHeaders) updateEntryTemplateRes()                   {}
 func (*UnauthorizedHeaders) updateInternalOrderBudgetRes()             {}
 func (*UnauthorizedHeaders) updateInternalOrderSettlementRuleRes()     {}
@@ -91026,6 +99830,7 @@ func (*UnauthorizedHeaders) updatePurchaseOrderChangeRes()             {}
 func (*UnauthorizedHeaders) updatePurchaseOrderRes()                   {}
 func (*UnauthorizedHeaders) updateRequisitionRes()                     {}
 func (*UnauthorizedHeaders) updateRevenueContractRes()                 {}
+func (*UnauthorizedHeaders) updateRiskRes()                            {}
 func (*UnauthorizedHeaders) updateRoleRes()                            {}
 func (*UnauthorizedHeaders) updateSegmentRes()                         {}
 func (*UnauthorizedHeaders) updateSupplierInvoiceRes()                 {}
@@ -91151,6 +99956,26 @@ func (*UnlockPlanCategoryPreconditionFailed) unlockPlanCategoryRes() {}
 type UnlockPlanCategoryPreconditionRequired Problem
 
 func (*UnlockPlanCategoryPreconditionRequired) unlockPlanCategoryRes() {}
+
+type UnscheduleReportBadRequest Problem
+
+func (*UnscheduleReportBadRequest) unscheduleReportRes() {}
+
+type UnscheduleReportForbidden Problem
+
+func (*UnscheduleReportForbidden) unscheduleReportRes() {}
+
+type UnscheduleReportNotFound Problem
+
+func (*UnscheduleReportNotFound) unscheduleReportRes() {}
+
+type UnscheduleReportPreconditionFailed Problem
+
+func (*UnscheduleReportPreconditionFailed) unscheduleReportRes() {}
+
+type UnscheduleReportPreconditionRequired Problem
+
+func (*UnscheduleReportPreconditionRequired) unscheduleReportRes() {}
 
 type UpdateAiPolicyBadRequest Problem
 
@@ -91685,6 +100510,70 @@ func (*UpdateCreditLimitPreconditionRequired) updateCreditLimitRes() {}
 type UpdateCreditLimitUnprocessableEntity Problem
 
 func (*UpdateCreditLimitUnprocessableEntity) updateCreditLimitRes() {}
+
+type UpdateDisputeCaseBadRequest Problem
+
+func (*UpdateDisputeCaseBadRequest) updateDisputeCaseRes() {}
+
+type UpdateDisputeCaseForbidden Problem
+
+func (*UpdateDisputeCaseForbidden) updateDisputeCaseRes() {}
+
+type UpdateDisputeCaseNotFound Problem
+
+func (*UpdateDisputeCaseNotFound) updateDisputeCaseRes() {}
+
+// UpdateDisputeCaseOKHeaders wraps DisputeCase with response headers.
+type UpdateDisputeCaseOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           DisputeCase
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateDisputeCaseOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateDisputeCaseOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateDisputeCaseOKHeaders) GetResponse() DisputeCase {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateDisputeCaseOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateDisputeCaseOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateDisputeCaseOKHeaders) SetResponse(val DisputeCase) {
+	s.Response = val
+}
+
+func (*UpdateDisputeCaseOKHeaders) closeDisputeCaseRes()  {}
+func (*UpdateDisputeCaseOKHeaders) updateDisputeCaseRes() {}
+
+type UpdateDisputeCasePreconditionFailed Problem
+
+func (*UpdateDisputeCasePreconditionFailed) updateDisputeCaseRes() {}
+
+type UpdateDisputeCasePreconditionRequired Problem
+
+func (*UpdateDisputeCasePreconditionRequired) updateDisputeCaseRes() {}
+
+type UpdateDisputeCaseUnprocessableEntity Problem
+
+func (*UpdateDisputeCaseUnprocessableEntity) updateDisputeCaseRes() {}
 
 type UpdateEntryTemplateBadRequest Problem
 
@@ -92527,6 +101416,70 @@ func (*UpdateRevenueContractPreconditionRequired) updateRevenueContractRes() {}
 type UpdateRevenueContractUnprocessableEntity Problem
 
 func (*UpdateRevenueContractUnprocessableEntity) updateRevenueContractRes() {}
+
+type UpdateRiskBadRequest Problem
+
+func (*UpdateRiskBadRequest) updateRiskRes() {}
+
+type UpdateRiskForbidden Problem
+
+func (*UpdateRiskForbidden) updateRiskRes() {}
+
+type UpdateRiskNotFound Problem
+
+func (*UpdateRiskNotFound) updateRiskRes() {}
+
+// UpdateRiskOKHeaders wraps Risk with response headers.
+type UpdateRiskOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           Risk
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateRiskOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateRiskOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateRiskOKHeaders) GetResponse() Risk {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateRiskOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateRiskOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateRiskOKHeaders) SetResponse(val Risk) {
+	s.Response = val
+}
+
+func (*UpdateRiskOKHeaders) closeRiskRes()  {}
+func (*UpdateRiskOKHeaders) updateRiskRes() {}
+
+type UpdateRiskPreconditionFailed Problem
+
+func (*UpdateRiskPreconditionFailed) updateRiskRes() {}
+
+type UpdateRiskPreconditionRequired Problem
+
+func (*UpdateRiskPreconditionRequired) updateRiskRes() {}
+
+type UpdateRiskUnprocessableEntity Problem
+
+func (*UpdateRiskUnprocessableEntity) updateRiskRes() {}
 
 type UpdateRoleBadRequest Problem
 

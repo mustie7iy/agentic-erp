@@ -340,31 +340,35 @@ type Warning struct {
 // Change is a row of partner.partner_change. Payload holds the requested
 // values with sensitive ones sealed; Masked hides them.
 type Change struct {
-	ID                uuid.UUID
-	Number            string
-	Kind              string
-	PartnerID         uuid.UUID
-	Payload           map[string]any
-	Reason            string
-	Warnings          []Warning
-	Status            string
-	WorkflowRequestID *uuid.UUID
-	RequestedBy       uuid.UUID
-	AppliedAt         *time.Time
-	Version           int32
-	CreatedAt         time.Time
-	CreatedBy         uuid.UUID
-	UpdatedAt         time.Time
-	UpdatedBy         uuid.UUID
+	ID        uuid.UUID
+	Number    string
+	Kind      string
+	PartnerID uuid.UUID
+	Payload   map[string]any
+	Reason    string
+	Warnings  []Warning
+	// PossibleDuplicates are the existing partners a create change's
+	// partner may duplicate, as they were when it was requested (T89a);
+	// none on another change.
+	PossibleDuplicates []Duplicate
+	Status             string
+	WorkflowRequestID  *uuid.UUID
+	RequestedBy        uuid.UUID
+	AppliedAt          *time.Time
+	Version            int32
+	CreatedAt          time.Time
+	CreatedBy          uuid.UUID
+	UpdatedAt          time.Time
+	UpdatedBy          uuid.UUID
 }
 
 const changeColumns = `id, number, kind, partner_id, payload, reason, warnings, status, workflow_request_id, requested_by, applied_at,
-	version, created_at, created_by, updated_at, updated_by`
+	version, created_at, created_by, updated_at, updated_by, possible_duplicates`
 
 func scanChange(row pgx.Row) (Change, error) {
 	var c Change
 	err := row.Scan(&c.ID, &c.Number, &c.Kind, &c.PartnerID, &c.Payload, &c.Reason, &c.Warnings, &c.Status, &c.WorkflowRequestID,
-		&c.RequestedBy, &c.AppliedAt, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy)
+		&c.RequestedBy, &c.AppliedAt, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy, &c.PossibleDuplicates)
 	return c, errs.Wrapf(err, "scan partner change")
 }
 

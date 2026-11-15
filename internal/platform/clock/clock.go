@@ -26,3 +26,13 @@ func DayIn(t time.Time, loc *time.Location) time.Time {
 	y, m, d := t.In(loc).Date()
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
+
+// AddMonths is the date n months after d on d's day of the month, or that
+// month's last day when it has fewer: 31 January, then 28 February, then
+// 31 March. Each date is counted from d, never from the one before, so a
+// series of them does not drift to the shorter months' days.
+func AddMonths(d time.Time, n int) time.Time {
+	first := time.Date(d.Year(), d.Month()+time.Month(n), 1, 0, 0, 0, 0, time.UTC)
+	last := first.AddDate(0, 1, -1).Day()
+	return first.AddDate(0, 0, min(d.Day(), last)-1)
+}
