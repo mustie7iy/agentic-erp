@@ -106,6 +106,7 @@ var SchemasWithout = map[string]string{
 	"credit":        "credit limits: partners by id",
 	"einvoicing":    "received e-invoices: their bytes are kept in object storage, the rows name the receiver's participant identifier, a company's",
 	"grc":           "controls and risks: owners by id",
+	"leases":        "lease contracts and their schedules: the lessor, a supplier, by id",
 	"ledger":        "the journal and the chart of accounts: partners by id",
 	"payables":      "supplier invoices: suppliers by id",
 	"platform":      "operations, idempotency keys and the outbox's machinery",

@@ -29,6 +29,7 @@ var knownPersonal = regexp.MustCompile(`((^|_)name$|^name_norm$|^line[12]$|^city
 // notPersonal are the columns of a known personal kind that hold no
 // person's data, each with why.
 var notPersonal = map[string]string{
+	"analytics.metric_watcher.name":                           "a watcher's name, a label its creator gives the metric it watches",
 	"cash.export.file_name":                                   "a file's name",
 	"payments.statement_fetch.file_name":                      "a file's name",
 	"cash.liquidity_item.name":                                "a liquidity item's name",
