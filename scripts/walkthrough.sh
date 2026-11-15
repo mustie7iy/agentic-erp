@@ -1548,9 +1548,12 @@ migrated_down_payment() {
 # the walkthrough's sales entry: GST at 5% (Excise Tax Act, Part IX, s. 165(1);
 # CRA, "Charge and collect the tax - Which rate to charge",
 # https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html),
-# a number range for the returns orders of step 74 (T85a; the ranges of
+# number ranges for the returns orders of step 74 (T85a) and the lease
+# contracts of step 78 (T88a), which no pack ships (the ranges of
 # customer invoices, incoming payments, quotations, sales orders, billing
-# documents and RFQs come from the pack since Canada 2026.9),
+# documents and RFQs come from the pack since Canada 2026.9), the
+# right-of-use asset (1660) and lease liability (2650) accounts a lease's
+# activation posts to (T88b, ADR-0073 §7; no pack ships them),
 # and two codes of tax alone for the return's adjustments (kind adjustment,
 # rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
@@ -1578,7 +1581,11 @@ PILOT_SETTINGS='
       {"number": "1015", "name": "Bank incoming - RBC CAD", "type": "asset", "open_items": true},
       {"number": "1020", "name": "Bank clearing - RBC USD", "type": "asset", "open_items": true, "revalue_foreign_currency": true},
       {"number": "1030", "name": "Bank - RBC USD", "type": "asset", "revalue_foreign_currency": true},
-      {"number": "1040", "name": "Bank incoming - RBC USD", "type": "asset", "open_items": true, "revalue_foreign_currency": true}]
+      {"number": "1040", "name": "Bank incoming - RBC USD", "type": "asset", "open_items": true, "revalue_foreign_currency": true},
+      {"number": "1660", "name": "Right-of-use assets", "type": "asset"},
+      {"number": "2650", "name": "Lease liabilities", "type": "liability"}]
+    | .account_determination.right_of_use_asset = "1660"
+    | .account_determination.lease_liability = "2650"
     | .tax_codes = ((.tax_codes // []) + [{"code": "GO5", "description": "GST 5% on sales (walkthrough; the Canada pack codes purchases)",
         "direction": "output", "kind": "standard", "category": "S", "components": [{"key": "gst", "jurisdiction": "CA",
         "account_key": "output", "account": "2300", "rates": [{"rate_percent": "5", "valid_from": "@PREV@-01-01"}]}]},
@@ -1602,7 +1609,8 @@ PILOT_SETTINGS='
     | .bank_statements = {"matching_rules": [{"kind": "end_to_end_id"}, {"kind": "amount", "date_window_days": 5, "counterparty": true}],
         "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})
 | .number_ranges += [{"company": "@CC@", "document_type": "returns_order", "fiscal_year": @YEAR@, "prefix": "RO", "first": 1, "last": 999999},
-    {"company": "@CC@", "document_type": "credit_memo_request", "fiscal_year": @YEAR@, "prefix": "CR", "first": 1, "last": 999999}]'
+    {"company": "@CC@", "document_type": "credit_memo_request", "fiscal_year": @YEAR@, "prefix": "CR", "first": 1, "last": 999999},
+    {"company": "@CC@", "document_type": "lease_contract", "fiscal_year": @YEAR@, "prefix": "LC", "first": 1, "last": 999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -1634,6 +1642,7 @@ step_pack() {
   say "above CAD 4,000 released only after a second person approves, a wire method W through RBC that payment"
   say "runs try first (order 1), before SAP's bank transfer T (step 7), a 2/10 net 30 cash discount term,"
   say "cost center categories, liquidity items, an output tax code for GST and two for the return's adjustments,"
+  say "the accounts a lease's activation posts the right-of-use asset and the lease liability to (1660, 2650),"
   say "the company's postal address in Toronto, where suppliers deliver (printed on its purchase orders),"
   say "the GST/HST registration and, for the"
   say "billing system's entries, a service posting limit of CAD 1,000 (step 11). The company keeps SAP's"
@@ -9946,6 +9955,116 @@ step_dispute() {
   passed
 }
 
+# month_first DAY N is the first day of the month N months after DAY's.
+month_first() {
+  local y=${1:0:4} m
+  m=$((10#${1:5:2} - 1 + $2))
+  printf '%04d-%02d-01' $((y + m / 12)) $((m % 12 + 1))
+}
+
+# step_lease is T88a and T88b (ADR-0073): Lena, the lease accountant, enters the
+# lease of a floor of office space from Tyrell as lessee: three years
+# from the first of this month, 5,000.00 CAD a month in advance, at an
+# annual discount rate of 6 percent, on the finance office's cost center.
+# The contract is a draft numbered from the company's lease_contract range
+# and reads back with its 36 payments, the first on the commencement date
+# and the last 35 months later, 180,000.00 CAD in all. A payment in
+# another currency and a frequency that does not divide the term are
+# refused naming their fields. The draft posts nothing (T88a). Its
+# schedule, computed on read, has a liability below the payments' sum, no
+# interest on the payment due on the commencement date and a last
+# closing liability of zero; activating it posts one entry on the
+# commencement date, the right-of-use asset (1660) against the lease
+# liability (2650), and stores the schedule; a second activation is
+# refused (T88b).
+step_lease() {
+  heading "Step 96 — Lease contracts: a three-year lease of office space entered as lessee, paid monthly in advance, read back with its 36 payments; a payment in a foreign currency and a frequency that does not divide the term refused; its schedule read; activated, posting the right-of-use asset against the lease liability"
+  local supplier=$SUPPLIER start center contract number body open entry
+  [ -n "$supplier" ] || fail "step 4's supplier is not there"
+  as ada
+  say "Ada adds Lena, the lease accountant, to the team:"
+  person lena "Lena Leases" finance_staff
+  as lena
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$supplier"
+  open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  center=$(field '.items[0].id')
+  start=$(month_first "$TODAY" 0)
+  say "Maple leases a floor of office space from Tyrell for three years from $start, at 5,000.00 CAD a month,"
+  say "paid at the start of each month. Lena decides that the contract is a lease, its term and its discount rate,"
+  say "6 percent a year, and enters the payments; the system judges none of it (ADR-0073 §2):"
+  body="{\"legal_entity_id\": \"$LE\", \"lessor_id\": \"$supplier\", \"commencement_date\": \"$start\", \"term_months\": 36,
+    \"payment_amount\": {\"amount\": \"5000.00\", \"currency\": \"CAD\"}, \"payment_frequency\": \"monthly\", \"payment_timing\": \"advance\",
+    \"annual_discount_rate_percent\": \"6\", \"cost_center_id\": \"$center\"}"
+  api 201 '"lease contract \(.document_number) of \(.company_code) \(.company_name) with \(.lessor_number) \(.lessor_name): \(.status), from \(.commencement_date) to \(.end_date), \(.term_months) months, \(.payment_amount.amount) \(.payment_amount.currency) \(.payment_frequency) in \(.payment_timing), \(.annual_discount_rate_percent) percent, cost center \(.cost_center_code); \(.payment_count) payments, \(.total_payments.amount) \(.total_payments.currency) in all"' \
+    createLeaseContract -body "$body"
+  contract=$(field .id)
+  number=$(field .document_number)
+  expect "the contract's status, version, lessor and cost center" "$(field '"\(.status) \(.version) \(.lessor_id) \(.cost_center_code)"')" "draft 1 $supplier CC-1100"
+  expect "the term's last day" "$(field .end_date)" "$(date_add "$(month_first "$TODAY" 36)" -1)"
+  expect "the payments and their total" "$(field '"\(.payment_count) \(.payments | length) \(.total_payments.amount) \(.total_payments.currency)"')" "36 36 180000.00 CAD"
+  say "Its payments are due on the first of each month, the first on the commencement date:"
+  api 200 '"lease contract \(.document_number): \(.payments | length) payments", (.payments[0, 1, 35] | "  payment \(.payment_no) due \(.due_date): \(.amount.amount) \(.amount.currency)")' \
+    getLeaseContract -p "id=$contract"
+  expect "the first, second and last payment" "$(field '[.payments[0, 1, 35] | "\(.payment_no) \(.due_date) \(.amount.amount)"] | join(", ")')" \
+    "1 $start 5000.00, 2 $(month_first "$TODAY" 1) 5000.00, 36 $(month_first "$TODAY" 35) 5000.00"
+  expect "the contract read back" "$(field '"\(.document_number) \(.status) \(.version)"')" "$number draft 1"
+  say "Leases in a foreign currency are not supported yet, and quarterly payments do not divide a term of 10"
+  say "months; both are refused naming their fields:"
+  refused 422 leases.foreign_currency createLeaseContract -body "${body/\"CAD\"/\"USD\"}"
+  expect "the field refused" "$(field '.errors[0].field')" payment_amount.currency
+  refused 422 leases.frequency_not_dividing_term createLeaseContract -body "$(jq -c '.term_months = 10 | .payment_frequency = "quarterly"' <<<"$body")"
+  expect "the field refused" "$(field '.errors[0].field')" term_months
+  api 200 '.items[] | "  \(.document_number) \(.lessor_name): \(.status), from \(.commencement_date), \(.payment_count) payments"' \
+    listLeaseContracts -p "legal_entity_id=$LE" -p "lessor_id=$supplier"
+  expect "Tyrell's lease contracts" "$(field '[.items[] | "\(.document_number) \(.status)"] | join(" ")')" "$number draft"
+  say "A draft posts nothing: Tyrell's open items are as they were."
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$supplier"
+  expect "the supplier's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  say "Lena reads the draft's schedule, computed on read (ADR-0073 §8). The lease liability is the present value of"
+  say "the 35 payments not paid on the commencement date, each discounted at 6 / 12 = 0.5 percent a month; the payment"
+  say "due that day is not in it and is added to the right-of-use asset. Each closing liability is the present value of"
+  say "what is still to come, rounded once; the interest is the difference, so the last line closes at zero:"
+  api 200 '"schedule of \(.document_number) (\(.status)): lease liability \(.lease_liability.amount), commencement payment \(.commencement_payment.amount), right-of-use asset \(.right_of_use_asset.amount) \(.currency)", (.lines[0, 1, 35] | "  line \(.line_no) \(.period_start) to \(.period_end): opening \(.opening_liability.amount), payment \(.payment.amount), interest \(.interest.amount), closing \(.closing_liability.amount); depreciation \(.depreciation.amount), right-of-use \(.right_of_use_closing.amount)"), "  totals: payments \(.totals.payments.amount), interest \(.totals.interest.amount), depreciation \(.totals.depreciation.amount)"' \
+    getLeaseSchedule -p "id=$contract"
+  local cents='(.amount | sub("\\."; "") | tonumber)' liability rou
+  liability=$(field .lease_liability.amount)
+  rou=$(field .right_of_use_asset.amount)
+  expect "the liability below the payments' sum, and the right-of-use asset the liability and the first payment" \
+    "$(field "[(.lease_liability | $cents) < (.totals.payments | $cents), (.right_of_use_asset | $cents) == (.lease_liability | $cents) + (.commencement_payment | $cents), .commencement_payment.amount, (.lines | length)] | map(tostring) | join(\" \")")" \
+    "true true 5000.00 36"
+  expect "the first interval's interest, half a percent of the liability alone: no interest on the payment of the day" \
+    "$(field "((.lines[0].interest | $cents) - ((.lease_liability | $cents) * 5 / 1000 | round)) | fabs <= 1")" true
+  expect "the last closing liability and right-of-use amount" "$(field '"\(.lines[35].closing_liability.amount) \(.lines[35].right_of_use_closing.amount)"')" "0.00 0.00"
+  expect "the depreciation adding up to the right-of-use asset, the interest to the payments less it" \
+    "$(field "[(.totals.depreciation | $cents) == (.right_of_use_asset | $cents), (.totals.interest | $cents) == (.totals.payments | $cents) - (.right_of_use_asset | $cents)] | map(tostring) | join(\" \")")" "true true"
+  say "Lena activates the contract at the version she read. One entry dated the commencement date debits the"
+  say "right-of-use asset (1660) and credits the lease liability (2650) with $rou CAD: the liability and the payment due"
+  say "that day, which the liability holds until Tyrell's invoice for it is posted (ADR-0073 §7)."
+  QUIET=1 api 200 '' getLeaseContract -p "id=$contract"
+  api 200 '"lease contract \(.document_number): \(.status), version \(.version), lease liability \(.lease_liability.amount), right-of-use asset \(.right_of_use_asset.amount) \(.right_of_use_asset.currency), journal entry \(.journal_entry_number)"' \
+    activateLeaseContract -p "id=$contract" -if-match "$ETAG"
+  expect "the active contract" "$(field '"\(.status) \(.version) \(.lease_liability.amount) \(.right_of_use_asset.amount)"')" "active 2 $liability $rou"
+  entry=$(field .journal_entry_id)
+  accounts
+  api 200 '"journal entry \(.document_number) of \(.posting_date), \(.source_context):", (.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' \
+    getJournalEntry -p "id=$entry"
+  expect "the entry's lines" "$(field '.lines | length')" 2
+  expect "the right-of-use asset's line" "$(field "[.lines[] | select(.account_id == \"$(account 1660)\") | .amount.amount] | join(\" \")")" "$rou"
+  expect "the lease liability's line" "$(field "[.lines[] | select(.account_id == \"$(account 2650)\") | .amount.amount] | join(\" \")")" "-$rou"
+  expect "the entry's date and source" "$(field '"\(.posting_date) \(.source_context)"')" "$start leases"
+  say "The schedule is now the stored one, which later runs post from; an active contract is activated once:"
+  QUIET=1 api 200 '' getLeaseSchedule -p "id=$contract"
+  expect "the stored schedule" "$(field '"\(.status) \(.lease_liability.amount) \(.right_of_use_asset.amount) \(.lines | length) \(.lines[35].closing_liability.amount)"')" \
+    "active $liability $rou 36 0.00"
+  QUIET=1 api 200 '' getLeaseContract -p "id=$contract"
+  refused 409 leases.invalid_status activateLeaseContract -p "id=$contract" -if-match "$ETAG"
+  QUIET=1 api 200 '' listAuditEvents -p object_type=leases.contract -p "object_id=$contract"
+  expect "the contract's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "leases.contract.activate leases.contract.create"
+  LEASE_CONTRACT=$contract
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -11970,7 +12089,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_close'
 
 main() {
   stop_unseen

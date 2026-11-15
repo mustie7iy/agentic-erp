@@ -37,6 +37,10 @@ type ActivateChangeRequestRes interface {
 	activateChangeRequestRes()
 }
 
+type ActivateLeaseContractRes interface {
+	activateLeaseContractRes()
+}
+
 type ActivateLegalEntityRes interface {
 	activateLegalEntityRes()
 }
@@ -339,6 +343,10 @@ type CreateIncomingPaymentRes interface {
 
 type CreateInternalOrderRes interface {
 	createInternalOrderRes()
+}
+
+type CreateLeaseContractRes interface {
+	createLeaseContractRes()
 }
 
 type CreateLegalEntityRes interface {
@@ -859,6 +867,14 @@ type GetInternalOrderSettlementRuleRes interface {
 
 type GetJournalEntryRes interface {
 	getJournalEntryRes()
+}
+
+type GetLeaseContractRes interface {
+	getLeaseContractRes()
+}
+
+type GetLeaseScheduleRes interface {
+	getLeaseScheduleRes()
 }
 
 type GetLegalEntityRes interface {
@@ -1407,6 +1423,10 @@ type ListInternalOrdersRes interface {
 
 type ListJournalEntriesRes interface {
 	listJournalEntriesRes()
+}
+
+type ListLeaseContractsRes interface {
+	listLeaseContractsRes()
 }
 
 type ListLedgerGroupsRes interface {

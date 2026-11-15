@@ -57,3 +57,30 @@ func TestDayIn(t *testing.T) {
 		})
 	}
 }
+
+// TestAddMonths: a date n months on, on its day of the month or the
+// month's last day when it has fewer, and back.
+func TestAddMonths(t *testing.T) {
+	day := func(y int, m time.Month, d int) time.Time { return time.Date(y, m, d, 0, 0, 0, 0, time.UTC) }
+	cases := []struct {
+		name string
+		from time.Time
+		n    int
+		want time.Time
+	}{
+		{"same day", day(2026, 1, 15), 1, day(2026, 2, 15)},
+		{"to a shorter month", day(2026, 1, 31), 1, day(2026, 2, 28)},
+		{"to a leap February", day(2028, 1, 31), 1, day(2028, 2, 29)},
+		{"from the start, not the month before", day(2026, 1, 31), 2, day(2026, 3, 31)},
+		{"over the year", day(2026, 11, 30), 3, day(2027, 2, 28)},
+		{"back", day(2026, 3, 31), -1, day(2026, 2, 28)},
+		{"none", day(2026, 3, 31), 0, day(2026, 3, 31)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := AddMonths(c.from, c.n); !got.Equal(c.want) {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
+	}
+}

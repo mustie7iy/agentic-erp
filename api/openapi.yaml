@@ -67,6 +67,8 @@ tags:
     description: "Credit management (ADR-0066): customers' credit limits, their credit exposure and the check of an amount against the limit."
   - name: grc
     description: "Governance, risk and compliance (ADR-0078): the tenant's control library, the results of testing its controls, the control matrix of what enforces each control, and the risk register with the ratings of its risks."
+  - name: leases
+    description: "Lease accounting as lessee (ADR-0073): lease contracts with their payment schedules."
   - name: records
     description: "Records management (ADR-0079): retention rules' status per fiscal year, archiving runs and the personal data inventory."
   - name: payments
@@ -20396,6 +20398,289 @@ paths:
           $ref: "#/components/responses/Conflict"
         "412":
           $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/lease-contracts:
+    get:
+      operationId: listLeaseContracts
+      tags:
+        - leases
+      summary: List lease contracts
+      description: "The lease contracts of the companies the caller may act in (ADR-0073 §3, T88a), each as `getLeaseContract` gives it but without its `payments`: with its company's code and name, its lessor's number and name, its cost center's code, its terms, the number and total of its payments and, once it is `active`, what its activation posted. Filtered by company, lessor and status. Sortable by: `document_number`."
+      x-permission: leases.contract.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: lessor_id
+          in: query
+          required: false
+          description: Only the contracts with this lessor (business partner id).
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only contracts in this status. A value that is no status matches none.
+          schema:
+            type: string
+            description: "Lease contract status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            maxLength: 20
+            x-extensible-enum:
+              - draft
+              - active
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of lease contracts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeaseContractPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createLeaseContract
+      tags:
+        - leases
+      summary: Create a lease contract as lessee
+      description: "Creates a lease contract a company enters as lessee (ADR-0073 §3-§4, T88a), with its payment schedule. The person decides that the contract is a lease, its term and its discount rate, and enters the payments; the system judges none of it and applies no exemption for short-term or low-value leases: every contract entered is capitalized when it is activated (ADR-0073 §2). The company is one the caller may act in (422 `request.reference_not_found` naming `legal_entity_id`). The lessor is a business partner that is active, a supplier and set up and not blocked for posting in the company (422 `leases.lessor_not_usable` naming `lessor_id`). The term is a number of whole months, 1 to 600; the payments are due every month, quarter or year (`payment_frequency`; another value is 422 `leases.unknown_frequency`), which must divide the term (422 `leases.frequency_not_dividing_term` naming `term_months`), at the start of each interval (`advance`) or at its end (`arrears`; another value is 422 `leases.unknown_timing`). The payment amount is more than zero (422 `leases.payment_not_positive`) and in the company's local currency (422 `leases.foreign_currency` naming `payment_amount.currency`: leases in a foreign currency are not supported yet). The annual discount rate is a percentage above zero and at most 100 with up to six decimals, given as a decimal string, never a number (422 `leases.invalid_discount_rate` naming `annual_discount_rate_percent`). The cost center is an active cost center of the company in force on the commencement date (422 `leases.cost_center_invalid` naming `cost_center_id`). The contract is numbered from the company's `lease_contract` number range of the fiscal year of its date today (422 `config.no_number_range` when there is none) and created `draft` with one payment per interval, numbered from 1: the n-th interval starts n-1 intervals after the commencement date, on its day of the month or the month's last day when it has fewer, and ends the day before the next one starts; a payment in advance is due on its interval's first day, one in arrears on its last. Nothing is posted. Audited, and published as LeaseContractChanged. A retry with the same `Idempotency-Key` answers the contract created. Human-only (`x-agent: false`)."
+      x-permission: leases.contract.write
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - leases.amount_too_large
+        - leases.cost_center_invalid
+        - leases.foreign_currency
+        - leases.frequency_not_dividing_term
+        - leases.invalid_discount_rate
+        - leases.lessor_not_usable
+        - leases.payment_not_positive
+        - leases.unknown_frequency
+        - leases.unknown_timing
+        - ledger.no_fiscal_period
+        - request.invalid_amount
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The lease contract to create.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeaseContractCreate"
+            examples:
+              office:
+                summary: Three years of office space, paid monthly in advance
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  lessor_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d55"
+                  commencement_date: "2026-12-01"
+                  term_months: 36
+                  payment_amount: {amount: "5000.00", currency: CAD}
+                  payment_frequency: monthly
+                  payment_timing: advance
+                  annual_discount_rate_percent: "6"
+                  cost_center_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d31"
+      responses:
+        "201":
+          description: "Created; the new lease contract with its payments."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeaseContract"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/lease-contracts/{id}":
+    get:
+      operationId: getLeaseContract
+      tags:
+        - leases
+      summary: Get a lease contract with its payments
+      description: "One lease contract (ADR-0073 §3-§4, T88a) with its company's code and name, its lessor's number and name, its cost center's code, its terms, the last day of its term and its payments, each with its number, its due date and its amount, with their number and total. One of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: leases.contract.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The lease contract.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeaseContract"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/lease-contracts/{id}/schedule":
+    get:
+      operationId: getLeaseSchedule
+      tags:
+        - leases
+      summary: Get a lease contract's schedule
+      description: "The schedule of one lease contract (ADR-0073 §8, T88b): the lease liability at commencement, the present value of the payments not paid on the commencement date, each discounted from its date at the period's rate, the annual discount rate divided by the payments a year (`payments_per_year`); a payment due on the commencement date (`commencement_payment`, in advance) is not in it and is added to the right-of-use asset, which is the liability and that payment. Then one line per payment interval, numbered as its payment: the liability at the interval's start (`opening_liability`; the first holds the commencement payment, which the activation credits to the liability too until the lessor's invoice for it is posted), the payment due in it, the interest, the liability at its end (`closing_liability`) and the right-of-use asset's depreciation on a straight line with its carrying amount at the interval's end. Each closing liability is the exact present value of the payments still to come, rounded half away from zero to the minor unit once, and the interest is the closing liability less the opening plus the payment: the period's rate × the balance outstanding during it (the opening balance for payments in arrears, the opening balance less the period's payment in advance, so the first payment in advance bears none), without a rounding difference carried from line to line; the last line's closing liability is zero. The depreciation's shares add up to the right-of-use asset exactly, a minor unit left by the rounding going to the earliest lines. `totals` sums the payments, the interest and the depreciation. A `draft` contract's schedule is computed on read from its payments; an `active` contract's is the one stored when it was activated, which later runs post from. Amounts are in the contract's currency. One of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: leases.contract.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The lease contract's schedule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeaseSchedule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/lease-contracts/{id}:activate":
+    post:
+      operationId: activateLeaseContract
+      tags:
+        - leases
+      summary: Activate a lease contract
+      description: "Activates a `draft` lease contract (ADR-0073 §7, T88b), at the version the caller read (`If-Match`): the contract is read under a row lock and moves to `active` once; a second activation is refused (409 `leases.invalid_status`). Its schedule (`getLeaseSchedule`) is computed and stored, so what later runs post is what was shown, and one journal entry is posted on the commencement date (document type `SA`, `source_context` `leases`): the right-of-use asset debited to the company's `right_of_use_asset` account and credited to its `lease_liability` account, both with the right-of-use amount, the lease liability at commencement and a payment due on the commencement date. The company's account determination must have both accounts (422 `leases.no_lease_accounts`, naming the keys missing). The commencement date must be in an open period of a fiscal year that is set up (409 `ledger.period_not_open`, 422 `ledger.no_fiscal_period`). The contract then names the liability, the right-of-use amount and the entry (`journal_entry_id`, `journal_entry_year`, `journal_entry_number`), and is fixed. Audited, and published as LeaseContractChanged. A retry with the same `Idempotency-Key` answers the active contract. Human-only (`x-agent: false`)."
+      x-permission: leases.contract.activate
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - leases.invalid_status
+        - leases.no_lease_accounts
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - request.invalid_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The lease contract, active, with the amounts its activation posted and the entry."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeaseContract"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
         "429":
@@ -54539,6 +54824,190 @@ components:
           type: array
           items: {$ref: "#/components/schemas/RevenueContract"}
           description: The revenue contracts on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    LeaseContractCreate:
+      type: object
+      description: "A lease contract a company enters as lessee."
+      required: [legal_entity_id, lessor_id, commencement_date, term_months, payment_amount, payment_frequency, payment_timing, annual_discount_rate_percent, cost_center_id]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company that leases, one the caller may act in."}
+        lessor_id: {type: string, format: uuid, description: "The lessor: a business partner that is a supplier set up and not blocked for posting in the company (`GET /v1/business-partners/{id}`)."}
+        commencement_date: {type: string, format: date, description: "The date the lessor makes the asset available: the term and the payments count from it."}
+        term_months: {type: integer, format: int32, minimum: 1, maximum: 600, description: "The lease term in whole months, a person's judgement."}
+        payment_amount: {$ref: "#/components/schemas/Money", description: "Each payment, more than zero, in the company's local currency."}
+        payment_frequency:
+          type: string
+          maxLength: 20
+          x-extensible-enum: [monthly, quarterly, yearly]
+          description: "How often a payment is due: every month, quarter or year; it divides the term. Open enumeration: values may be added within /v1."
+        payment_timing:
+          type: string
+          maxLength: 20
+          x-extensible-enum: [advance, arrears]
+          description: "When in its interval a payment is due: on the first day (`advance`) or the last (`arrears`). Open enumeration: values may be added within /v1."
+        annual_discount_rate_percent: {type: string, maxLength: 20, description: "The annual discount rate in percent, a decimal string such as \"6\" or \"4.25\": above zero, at most 100, up to six decimals. The rate implicit in the lease or the lessee's incremental borrowing rate, a person's judgement.", example: "6"}
+        cost_center_id: {type: string, format: uuid, description: "The cost center the lease's expenses are to be posted on: an active cost center of the company in force on the commencement date."}
+    LeasePayment:
+      type: object
+      description: "A payment of a lease contract's schedule (ADR-0073 §4)."
+      required: [payment_no, due_date, amount]
+      properties:
+        payment_no: {type: integer, format: int32, description: "The payment's number within the contract, from 1 in date order.", readOnly: true}
+        due_date: {type: string, format: date, description: "The day it is due: its interval's first day for a payment in advance, its last for one in arrears.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "The payment, in the contract's currency."}
+    LeaseContract:
+      description: "A lease contract a company entered as lessee (leases, ADR-0073 §3). Amounts are in the company's local currency. A `draft` posts nothing; activating it posts the right-of-use asset against the lease liability (ADR-0073 §7). Its `version` moves when it is activated."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [document_number, legal_entity_id, company_code, company_name, lessor_id, lessor_number, lessor_name, commencement_date, end_date, term_months,
+            payment_amount, payment_frequency, payment_timing, annual_discount_rate_percent, cost_center_id, cost_center_code, currency, payment_count,
+            total_payments, status]
+          properties:
+            document_number: {type: string, description: "The contract's number, from the company's `lease_contract` number range.", readOnly: true}
+            legal_entity_id: {type: string, format: uuid, description: "The company that leases.", readOnly: true}
+            company_code: {type: string, description: "The company's code.", readOnly: true}
+            company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+            lessor_id: {type: string, format: uuid, description: "The lessor (`GET /v1/business-partners/{id}`).", readOnly: true}
+            lessor_number: {type: string, description: "The lessor's business partner number.", readOnly: true}
+            lessor_name: {type: string, description: "The lessor's name, as it is now.", readOnly: true}
+            commencement_date: {type: string, format: date, description: "The commencement date.", readOnly: true}
+            end_date: {type: string, format: date, description: "The term's last day: the day before the date `term_months` after the commencement date.", readOnly: true}
+            term_months: {type: integer, format: int32, description: "The lease term in months.", readOnly: true}
+            payment_amount: {$ref: "#/components/schemas/Money", description: "Each payment."}
+            payment_frequency:
+              type: string
+              x-extensible-enum: [monthly, quarterly, yearly]
+              description: "How often a payment is due. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            payment_timing:
+              type: string
+              x-extensible-enum: [advance, arrears]
+              description: "Whether payments are due at the start (`advance`) or the end (`arrears`) of their intervals. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            annual_discount_rate_percent: {type: string, description: "The annual discount rate in percent, as entered, without trailing zeros.", readOnly: true}
+            cost_center_id: {type: string, format: uuid, description: "The cost center of the lease's expenses.", readOnly: true}
+            cost_center_code: {type: string, description: "The cost center's code.", readOnly: true}
+            currency: {type: string, pattern: "^[A-Z]{3}$", description: "The contract's currency (ISO 4217): the company's local currency.", readOnly: true}
+            payment_count: {type: integer, format: int32, description: "The number of payments: the term divided by the months of an interval.", readOnly: true}
+            total_payments: {$ref: "#/components/schemas/Money", description: "The sum of the payments, undiscounted."}
+            status:
+              type: string
+              x-extensible-enum: [draft, active]
+              description: "`draft`: created, posting nothing. `active`: activated, once (`:activate`): the right-of-use asset and the lease liability are posted and the schedule is stored; the contract is fixed. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            lease_liability: {$ref: "#/components/schemas/Money", description: "The lease liability at commencement its activation measured; absent while the contract is a `draft` (`getLeaseSchedule` computes it)."}
+            right_of_use_asset: {$ref: "#/components/schemas/Money", description: "The right-of-use asset its activation posted; absent while the contract is a `draft`."}
+            journal_entry_id: {type: string, format: uuid, description: "The journal entry its activation posted (`GET /v1/journal-entries/{id}`); absent while the contract is a `draft`.", readOnly: true}
+            journal_entry_year: {type: integer, format: int32, description: "The entry's fiscal year; absent while the contract is a `draft`.", readOnly: true}
+            journal_entry_number: {type: string, description: "The entry's document number; absent while the contract is a `draft`.", readOnly: true}
+            payments:
+              type: array
+              items: {$ref: "#/components/schemas/LeasePayment"}
+              description: "The payments, by number; absent from `listLeaseContracts`, whose items `getLeaseContract` gives with them."
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc1"
+          version: 1
+          created_at: "2026-11-20T10:00:01Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-20T10:00:01Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          document_number: LC000001
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          lessor_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d55"
+          lessor_number: BP100055
+          lessor_name: Bay Street Properties
+          commencement_date: "2026-12-01"
+          end_date: "2029-11-30"
+          term_months: 36
+          payment_amount: {amount: "5000.00", currency: CAD}
+          payment_frequency: monthly
+          payment_timing: advance
+          annual_discount_rate_percent: "6"
+          cost_center_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d31"
+          cost_center_code: CC-1100
+          currency: CAD
+          payment_count: 36
+          total_payments: {amount: "180000.00", currency: CAD}
+          status: draft
+          payments:
+            - payment_no: 1
+              due_date: "2026-12-01"
+              amount: {amount: "5000.00", currency: CAD}
+            - payment_no: 2
+              due_date: "2027-01-01"
+              amount: {amount: "5000.00", currency: CAD}
+    LeaseScheduleLine:
+      type: object
+      description: "A line of a lease contract's schedule: one payment interval (ADR-0073 §8). Amounts are in the contract's currency."
+      required: [line_no, period_start, period_end, payment_date, opening_liability, payment, interest, closing_liability, depreciation, right_of_use_closing]
+      properties:
+        line_no: {type: integer, format: int32, description: "The line's number, its payment's (`payments[].payment_no`).", readOnly: true}
+        period_start: {type: string, format: date, description: "The interval's first day.", readOnly: true}
+        period_end: {type: string, format: date, description: "The interval's last day.", readOnly: true}
+        payment_date: {type: string, format: date, description: "The day the interval's payment is due.", readOnly: true}
+        opening_liability: {$ref: "#/components/schemas/Money", description: "The lease liability at the interval's start; the first line's holds a payment due on the commencement date."}
+        payment: {$ref: "#/components/schemas/Money", description: "The payment due in the interval."}
+        interest: {$ref: "#/components/schemas/Money", description: "The interval's interest: the closing liability less the opening plus the payment."}
+        closing_liability: {$ref: "#/components/schemas/Money", description: "The lease liability at the interval's end: the present value of the payments still to come, rounded once; zero on the last line."}
+        depreciation: {$ref: "#/components/schemas/Money", description: "The right-of-use asset's depreciation in the interval, on a straight line."}
+        right_of_use_closing: {$ref: "#/components/schemas/Money", description: "The right-of-use asset's carrying amount at the interval's end: its amount less the depreciation so far; zero on the last line."}
+    LeaseScheduleTotals:
+      type: object
+      description: "The schedule's totals, in the contract's currency."
+      required: [payments, interest, depreciation]
+      properties:
+        payments: {$ref: "#/components/schemas/Money", description: "The sum of the lines' payments."}
+        interest: {$ref: "#/components/schemas/Money", description: "The sum of the lines' interest: the payments less the right-of-use asset."}
+        depreciation: {$ref: "#/components/schemas/Money", description: "The sum of the lines' depreciation: the right-of-use asset."}
+    LeaseSchedule:
+      type: object
+      description: "A lease contract's schedule (leases, ADR-0073 §8): computed on read for a draft, the stored one of an active contract."
+      required: [lease_contract_id, document_number, legal_entity_id, company_code, company_name, status, currency, commencement_date, payment_timing,
+        payments_per_year, annual_discount_rate_percent, lease_liability, commencement_payment, right_of_use_asset, lines, totals]
+      properties:
+        lease_contract_id: {type: string, format: uuid, description: "The contract (`getLeaseContract`).", readOnly: true}
+        document_number: {type: string, description: "The contract's number.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The company that leases.", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+        status:
+          type: string
+          x-extensible-enum: [draft, active]
+          description: "The contract's status: a `draft`'s schedule is computed on read, an `active` contract's is the one stored at its activation. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The contract's currency (ISO 4217).", readOnly: true}
+        commencement_date: {type: string, format: date, description: "The commencement date.", readOnly: true}
+        payment_timing:
+          type: string
+          x-extensible-enum: [advance, arrears]
+          description: "Whether payments are due at the start (`advance`) or the end (`arrears`) of their intervals. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        payments_per_year: {type: integer, format: int32, description: "The payments a year: 12, 4 or 1. The period's rate is the annual discount rate divided by it.", readOnly: true}
+        annual_discount_rate_percent: {type: string, description: "The annual discount rate in percent.", readOnly: true}
+        lease_liability: {$ref: "#/components/schemas/Money", description: "The lease liability at commencement: the present value of the payments not paid on the commencement date."}
+        commencement_payment: {$ref: "#/components/schemas/Money", description: "A payment due on the commencement date, zero when there is none (payments in arrears)."}
+        right_of_use_asset: {$ref: "#/components/schemas/Money", description: "The right-of-use asset at commencement: the lease liability and the commencement payment; what the activation posts."}
+        lines:
+          type: array
+          maxItems: 600
+          items: {$ref: "#/components/schemas/LeaseScheduleLine"}
+          description: "The lines, one per payment interval, in order."
+          readOnly: true
+        totals: {$ref: "#/components/schemas/LeaseScheduleTotals"}
+    LeaseContractPage:
+      type: object
+      description: One page of lease contracts.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/LeaseContract"}
+          description: The lease contracts on this page, without their payments.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     ReceivablesAgingBucket:
       type: object

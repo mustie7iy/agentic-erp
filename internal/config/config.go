@@ -487,6 +487,12 @@ type AccountDetermination struct {
 	// reconciliation account.
 	ContractAsset     string `yaml:"contract_asset,omitempty" json:"contract_asset,omitempty"`
 	ContractLiability string `yaml:"contract_liability,omitempty" json:"contract_liability,omitempty"`
+	// RightOfUseAsset and LeaseLiability are the accounts a lease
+	// contract's activation posts the right-of-use asset and the lease
+	// liability to (ADR-0073 §7): an asset and a liability, neither a
+	// reconciliation account. A company without both activates no lease.
+	RightOfUseAsset string `yaml:"right_of_use_asset,omitempty" json:"right_of_use_asset,omitempty"`
+	LeaseLiability  string `yaml:"lease_liability,omitempty" json:"lease_liability,omitempty"`
 }
 
 // WithholdingTaxCode is a withholding tax deducted from what a supplier is

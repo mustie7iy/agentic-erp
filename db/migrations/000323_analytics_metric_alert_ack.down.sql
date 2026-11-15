@@ -5,7 +5,7 @@ DELETE FROM ref.permission WHERE code IN ('analytics.alert.read', 'analytics.ale
 REVOKE UPDATE (status, acknowledged_at, acknowledged_by, version) ON analytics.metric_alert FROM erp_app;
 DROP TRIGGER metric_alert_fixed ON analytics.metric_alert;
 DROP FUNCTION analytics.check_metric_alert_change();
--- 000308's checks come back: an acknowledged alert, or a deviation
+-- 000322's checks come back: an acknowledged alert, or a deviation
 -- watcher, refuses the rollback rather than being changed by it.
 ALTER TABLE analytics.metric_alert
   DROP CONSTRAINT metric_alert_acknowledged,
