@@ -50154,6 +50154,234 @@ func (s *Server) handleGetProfitCenterRequest(args [1]string, argsEscaped bool, 
 	}
 }
 
+// handleGetProfitabilityReportRequest handles getProfitabilityReport operation.
+//
+// Net revenue by profitability segment of one legal entity over a range of regular periods of a fiscal
+// year (ADR-0075 §1, §6), from the sales context's posted documents, exact at the moment of the
+// read: per segment, a customer and an item key, the gross value billed (each billed item's value
+// before discounts, its price condition), the discounts taken off it, the credit memos posted against
+// its billing and the net revenue, gross value less discounts less credit memos. A billing document
+// counts in the period its posting date falls in, a credit memo in the period of its own posting date.
+// An item billed in parts carries its discount in proportion to the net value each part billed,
+// rounded half away from zero, so the parts add up to the item's discount to the minor unit. An item
+// without an item key is grouped under its customer alone (no `item_key`). Amounts are in the legal
+// entity's local currency: documents in another currency are not converted and are left out, and
+// `foreign_currency_documents` counts them. No cost is shown (`includes_cost` is false): no cost of
+// goods sold is posted per item, and the margin report (`getMarginReport`) has the ledger's cost of
+// sales. Rows are by the customer's number, then the item key, the row without one first; `totals` are
+// the whole selection's, on every page, and the rows of every page add up to them over the pages. A
+// legal entity that does not exist or that the caller cannot act in is answered as missing (422
+// `request.reference_not_found` on `legal_entity_id`). The figures are billing documents' amounts, so
+// besides `controlling.profitability.read` the caller needs `sales.billing.read`
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/profitability-report
+func (s *Server) handleGetProfitabilityReportRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getProfitabilityReport"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/profitability-report"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetProfitabilityReportOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetProfitabilityReportOperation,
+			ID:   "getProfitabilityReport",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetProfitabilityReportOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetProfitabilityReportParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetProfitabilityReportRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetProfitabilityReportOperation,
+			OperationSummary: "Read a company's net revenue by profitability segment",
+			OperationID:      "getProfitabilityReport",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "legal_entity_id",
+					In:   "query",
+				}: params.LegalEntityID,
+				{
+					Name: "fiscal_year",
+					In:   "query",
+				}: params.FiscalYear,
+				{
+					Name: "fiscal_period_from",
+					In:   "query",
+				}: params.FiscalPeriodFrom,
+				{
+					Name: "fiscal_period_to",
+					In:   "query",
+				}: params.FiscalPeriodTo,
+				{
+					Name: "customer_id",
+					In:   "query",
+				}: params.CustomerID,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetProfitabilityReportParams
+			Response = GetProfitabilityReportRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetProfitabilityReportParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetProfitabilityReport(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetProfitabilityReport(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetProfitabilityReportResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleGetPurchaseOrderRequest handles getPurchaseOrder operation.
 //
 // Returns one purchase order. Expandable: `supplier`, for a caller who may read business partners

@@ -973,6 +973,10 @@ type GetProfitCenterRes interface {
 	getProfitCenterRes()
 }
 
+type GetProfitabilityReportRes interface {
+	getProfitabilityReportRes()
+}
+
 type GetPurchaseOrderChangeRes interface {
 	getPurchaseOrderChangeRes()
 }

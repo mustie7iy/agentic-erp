@@ -10213,6 +10213,84 @@ step_expense_report() {
   passed
 }
 
+# step_profitability is T92a (ADR-0075 §6): Carla reads Maple's net
+# revenue by profitability segment, a customer and an item key, from the
+# posted billing documents and credit memos: Northwind's brackets show the
+# credit memo of step 85 among their credit memos. Sally sells Northwind
+# 250 brackets at its price of step 65, less its five percent discount;
+# Ruth bills and posts them. The segment grows by the billed gross value,
+# the discount and the net value, exactly; the rows add up to the totals;
+# Northwind's net revenue is the net of its posted billing documents less
+# its posted credit memos; the report shows no cost and says so.
+step_profitability() {
+  heading "Step 98 — Net revenue by profitability segment: per customer and item key the billed gross value, the discounts, the credit memos and the net revenue from the posted sales documents, the rows adding up to the totals; no cost shown"
+  local customer=$CUSTOMER request=$CREDIT_REQUEST sales order doc before after credited billed memos want tag
+  local row='"  \(.customer_number) \(.customer_name), \(.item_key // "no item key"): gross \(.gross_value.amount), discounts \(.discounts.amount), credit memos \(.credit_memos.amount), net revenue \(.net_revenue.amount) \(.net_revenue.currency)"'
+  local report="\"net revenue by segment of $YEAR, periods \(.fiscal_period_from) to \(.fiscal_period_to) (\(.date_from) to \(.date_to)), in \(.currency); cost shown: \(.includes_cost); documents in another currency left out: \(.foreign_currency_documents)\", (.items[] | $row), \"  totals: gross \(.totals.gross_value.amount), discounts \(.totals.discounts.amount), credit memos \(.totals.credit_memos.amount), net revenue \(.totals.net_revenue.amount) \(.totals.net_revenue.currency)\""
+  local sums='def cents: sub("\\."; "") | tonumber; [.items[] | [.gross_value, .discounts, .credit_memos, .net_revenue] | map(.amount | cents)] | transpose | map(add // 0) | map(tostring) | join(" ")'
+  local totals='def cents: sub("\\."; "") | tonumber; [.totals | .gross_value, .discounts, .credit_memos, .net_revenue | .amount | cents | tostring] | join(" ")'
+  local bracket='[.items[] | select(.item_key == "BRACKET-M8")] | if length == 0 then "0 0 0 0" else .[0] | [.gross_value, .discounts, .credit_memos, .net_revenue] | map(.amount | sub("\\."; "") | tonumber | tostring) | join(" ") end'
+  [ -n "$request" ] || fail "step 85's credit memo request is not there"
+  as carla
+  say "Carla reads Maple's net revenue of $YEAR by profitability segment (ADR-0075 §6): per customer and item key the"
+  say "gross value billed, the discounts taken off it, the credit memos and the net revenue, from the posted billing"
+  say "documents and credit memos. She looks at Northwind:"
+  api 200 "$report" getProfitabilityReport -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "customer_id=$customer" -p page_size=200
+  expect "no cost shown" "$(field .includes_cost)" false
+  expect "the report on one page" "$(field '.next_page_token // ""')" ""
+  expect "the rows add up to the totals" "$(field "$sums")" "$(field "$totals")"
+  before=$(field "$bracket")
+  QUIET=1 api 200 '' getCreditMemoRequest -p "id=$request"
+  credited=$(cents "$(field .net_amount.amount)")
+  expect "the brackets' credit memos, step 85's" "$(echo "$before" | cut -d' ' -f3)" "$credited"
+  as sally
+  sales=$(account 4000)
+  say "Sally sells Northwind 250 brackets without a price: they take Northwind's price of step 65, 1174.99 per 100,"
+  say "2937.48, less its five percent discount, 146.87, so 2790.61 net:"
+  api 201 '"sales order \(.document_number) of \(.customer_number) \(.customer_name): net \(.net_amount.amount) \(.net_amount.currency)", (.items[0].conditions[] | "  \(.condition_type) \(.name): \(.amount.amount) \(.amount.currency)")' \
+    createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"currency\": \"CAD\", \"items\": [{\"item_key\": \"BRACKET-M8\", \"description\": \"Machined bracket M8\", \"quantity\": {\"value\": \"250\", \"unit\": \"EA\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}]}"
+  order=$(field .id)
+  expect "the price, the discount and the net value" "$(field '[.items[0].conditions[].amount.amount] + [.net_amount.amount] | join(" ")')" "2937.48 -146.87 2790.61"
+  api 200 '"sales order \(.document_number): \(.status), credit block \(.credit_block)"' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  if [ "$(field .credit_block)" = blocked ]; then
+    tag=$ETAG
+    as ruth
+    say "Northwind is over its credit limit since step 68; Ruth releases the block, as she did then:"
+    api 200 '"sales order \(.document_number): credit block \(.credit_block)"' releaseSalesOrderCreditBlock -p "id=$order" -if-match "$tag"
+    as sally
+  fi
+  api 201 '"delivery \(.delivery_no) of sales order \(.sales_order_number) on \(.delivery_date)"' \
+    confirmSalesDelivery -p "id=$order" -body "{\"delivery_date\": \"$(company_day)\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"250\", \"unit\": \"EA\"}}]}"
+  as ruth
+  QUIET=1 api 201 '' createBillingDocument -body "{\"sales_order_id\": \"$order\"}"
+  doc=$(field .id)
+  api 200 '"billing document \(.document_number): \(.status) on \(.posting_date), net \(.net_amount.amount) \(.net_amount.currency)"' \
+    postBillingDocument -p "id=$doc" -if-match "$ETAG"
+  expect "the posted billing document" "$(field '"\(.status) \(.net_amount.amount)"')" "posted 2790.61"
+  as carla
+  say "Northwind's brackets grow by the gross value billed, the discount and the net value, exactly; the credit memos"
+  say "are as they were:"
+  api 200 "$report" getProfitabilityReport -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "customer_id=$customer" -p page_size=200
+  after=$(field "$bracket")
+  read -r -a b <<<"$before"
+  want="$((b[0] + 293748)) $((b[1] + 14687)) ${b[2]} $((b[3] + 279061))"
+  expect "the brackets' gross value, discounts, credit memos and net revenue" "$after" "$want"
+  expect "the rows add up to the totals" "$(field "$sums")" "$(field "$totals")"
+  say "Northwind's net revenue is the net of its posted billing documents in $YEAR less its posted credit memos:"
+  want=$(field "$totals" | cut -d' ' -f4)
+  QUIET=1 api 200 '' listBillingDocuments -p "customer_id=$customer" -p status=posted -p page_size=500
+  expect "the billing documents on one page" "$(field '.next_page_token // ""')" ""
+  billed=$(field "def cents: sub(\"\\\\.\"; \"\") | tonumber; [.items[] | select(.currency == \"CAD\" and (.posting_date | startswith(\"$YEAR\"))) | .net_amount.amount | cents] | add // 0")
+  QUIET=1 api 200 '' listCreditMemoRequests -p "customer_id=$customer" -p status=posted -p page_size=500
+  memos=$(field "def cents: sub(\"\\\\.\"; \"\") | tonumber; [.items[] | select(.posting_date | startswith(\"$YEAR\")) | .net_amount.amount | cents] | add // 0")
+  expect "the totals' net revenue, billed less credited" "$want" "$((billed - memos))"
+  as rita
+  say "Rita holds neither the report's permission nor the billing documents' read:"
+  refused 403 identity.permission_missing getProfitabilityReport -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  as carla
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -12237,7 +12315,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_close'
 
 main() {
   stop_unseen

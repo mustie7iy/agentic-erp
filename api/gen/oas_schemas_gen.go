@@ -25828,6 +25828,7 @@ func (*ConflictHeaders) getLegalEntityTodayRes()                   {}
 func (*ConflictHeaders) getLiquidityForecastVarianceRes()          {}
 func (*ConflictHeaders) getMarginReportRes()                       {}
 func (*ConflictHeaders) getPeriodCloseRes()                        {}
+func (*ConflictHeaders) getProfitabilityReportRes()                {}
 func (*ConflictHeaders) getPurchaseOrderDocumentRes()              {}
 func (*ConflictHeaders) getReportRunRes()                          {}
 func (*ConflictHeaders) getRetentionStatusRes()                    {}
@@ -46319,6 +46320,18 @@ func (s *GetProfitCenterOKHeaders) SetResponse(val ProfitCenter) {
 }
 
 func (*GetProfitCenterOKHeaders) getProfitCenterRes() {}
+
+type GetProfitabilityReportBadRequest Problem
+
+func (*GetProfitabilityReportBadRequest) getProfitabilityReportRes() {}
+
+type GetProfitabilityReportForbidden Problem
+
+func (*GetProfitabilityReportForbidden) getProfitabilityReportRes() {}
+
+type GetProfitabilityReportUnprocessableEntity Problem
+
+func (*GetProfitabilityReportUnprocessableEntity) getProfitabilityReportRes() {}
 
 type GetPurchaseOrderBadRequest Problem
 
@@ -77803,6 +77816,328 @@ func (s *ProfitCenterPlanActualPage) SetNextPageToken(val OptString) {
 
 func (*ProfitCenterPlanActualPage) listProfitCenterPlanActualRes() {}
 
+// One page of a legal entity's net revenue by profitability segment (ADR-0075 §6), with the selection
+// and the totals on every page. It has no cost side, and says so.
+// Ref: #/components/schemas/ProfitabilityReport
+type ProfitabilityReport struct {
+	// The segments on this page, by the customer's number, then the item key.
+	Items []ProfitabilityRow `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The customer the selection is restricted to; absent for every customer.
+	CustomerID OptUUID `json:"customer_id"`
+	// Fiscal year of the selection.
+	FiscalYear int32 `json:"fiscal_year"`
+	// First period of the selection.
+	FiscalPeriodFrom int32 `json:"fiscal_period_from"`
+	// Last period of the selection.
+	FiscalPeriodTo int32 `json:"fiscal_period_to"`
+	// The first day of the first period: the earliest posting date counted.
+	DateFrom time.Time `json:"date_from"`
+	// The last day of the last period: the latest posting date counted.
+	DateTo time.Time `json:"date_to"`
+	// The legal entity's local currency, which every amount is in.
+	Currency string `json:"currency"`
+	// Always false: the report shows no cost, since no cost of goods sold is posted per item; the margin
+	// report (`getMarginReport`) has the ledger's cost of sales.
+	IncludesCost bool `json:"includes_cost"`
+	// The posted billing documents and credit memos of the selection in a currency other than `currency`,
+	// which are not converted and are left out of every figure.
+	ForeignCurrencyDocuments int32 `json:"foreign_currency_documents"`
+	// The whole selection's totals, the same on every page.
+	Totals ProfitabilityTotals `json:"totals"`
+}
+
+// GetItems returns the value of Items.
+func (s *ProfitabilityReport) GetItems() []ProfitabilityRow {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ProfitabilityReport) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ProfitabilityReport) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *ProfitabilityReport) GetCustomerID() OptUUID {
+	return s.CustomerID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *ProfitabilityReport) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriodFrom returns the value of FiscalPeriodFrom.
+func (s *ProfitabilityReport) GetFiscalPeriodFrom() int32 {
+	return s.FiscalPeriodFrom
+}
+
+// GetFiscalPeriodTo returns the value of FiscalPeriodTo.
+func (s *ProfitabilityReport) GetFiscalPeriodTo() int32 {
+	return s.FiscalPeriodTo
+}
+
+// GetDateFrom returns the value of DateFrom.
+func (s *ProfitabilityReport) GetDateFrom() time.Time {
+	return s.DateFrom
+}
+
+// GetDateTo returns the value of DateTo.
+func (s *ProfitabilityReport) GetDateTo() time.Time {
+	return s.DateTo
+}
+
+// GetCurrency returns the value of Currency.
+func (s *ProfitabilityReport) GetCurrency() string {
+	return s.Currency
+}
+
+// GetIncludesCost returns the value of IncludesCost.
+func (s *ProfitabilityReport) GetIncludesCost() bool {
+	return s.IncludesCost
+}
+
+// GetForeignCurrencyDocuments returns the value of ForeignCurrencyDocuments.
+func (s *ProfitabilityReport) GetForeignCurrencyDocuments() int32 {
+	return s.ForeignCurrencyDocuments
+}
+
+// GetTotals returns the value of Totals.
+func (s *ProfitabilityReport) GetTotals() ProfitabilityTotals {
+	return s.Totals
+}
+
+// SetItems sets the value of Items.
+func (s *ProfitabilityReport) SetItems(val []ProfitabilityRow) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ProfitabilityReport) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ProfitabilityReport) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *ProfitabilityReport) SetCustomerID(val OptUUID) {
+	s.CustomerID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *ProfitabilityReport) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriodFrom sets the value of FiscalPeriodFrom.
+func (s *ProfitabilityReport) SetFiscalPeriodFrom(val int32) {
+	s.FiscalPeriodFrom = val
+}
+
+// SetFiscalPeriodTo sets the value of FiscalPeriodTo.
+func (s *ProfitabilityReport) SetFiscalPeriodTo(val int32) {
+	s.FiscalPeriodTo = val
+}
+
+// SetDateFrom sets the value of DateFrom.
+func (s *ProfitabilityReport) SetDateFrom(val time.Time) {
+	s.DateFrom = val
+}
+
+// SetDateTo sets the value of DateTo.
+func (s *ProfitabilityReport) SetDateTo(val time.Time) {
+	s.DateTo = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *ProfitabilityReport) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetIncludesCost sets the value of IncludesCost.
+func (s *ProfitabilityReport) SetIncludesCost(val bool) {
+	s.IncludesCost = val
+}
+
+// SetForeignCurrencyDocuments sets the value of ForeignCurrencyDocuments.
+func (s *ProfitabilityReport) SetForeignCurrencyDocuments(val int32) {
+	s.ForeignCurrencyDocuments = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *ProfitabilityReport) SetTotals(val ProfitabilityTotals) {
+	s.Totals = val
+}
+
+func (*ProfitabilityReport) getProfitabilityReportRes() {}
+
+// A profitability segment's figures in the selection (ADR-0075 §6): a customer and an item key, or
+// the customer alone for its items without one; in the legal entity's local currency.
+// Ref: #/components/schemas/ProfitabilityRow
+type ProfitabilityRow struct {
+	// The customer.
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name.
+	CustomerName string `json:"customer_name"`
+	// The billed items' item key; absent on the row of the customer's items without one.
+	ItemKey OptString `json:"item_key"`
+	// The billed items' value before discounts.
+	GrossValue Money `json:"gross_value"`
+	// The discounts taken off the billed items.
+	Discounts Money `json:"discounts"`
+	// The net value of the credit memos posted against the segment's billed items.
+	CreditMemos Money `json:"credit_memos"`
+	// Gross value less discounts less credit memos.
+	NetRevenue Money `json:"net_revenue"`
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *ProfitabilityRow) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *ProfitabilityRow) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *ProfitabilityRow) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetItemKey returns the value of ItemKey.
+func (s *ProfitabilityRow) GetItemKey() OptString {
+	return s.ItemKey
+}
+
+// GetGrossValue returns the value of GrossValue.
+func (s *ProfitabilityRow) GetGrossValue() Money {
+	return s.GrossValue
+}
+
+// GetDiscounts returns the value of Discounts.
+func (s *ProfitabilityRow) GetDiscounts() Money {
+	return s.Discounts
+}
+
+// GetCreditMemos returns the value of CreditMemos.
+func (s *ProfitabilityRow) GetCreditMemos() Money {
+	return s.CreditMemos
+}
+
+// GetNetRevenue returns the value of NetRevenue.
+func (s *ProfitabilityRow) GetNetRevenue() Money {
+	return s.NetRevenue
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *ProfitabilityRow) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *ProfitabilityRow) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *ProfitabilityRow) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetItemKey sets the value of ItemKey.
+func (s *ProfitabilityRow) SetItemKey(val OptString) {
+	s.ItemKey = val
+}
+
+// SetGrossValue sets the value of GrossValue.
+func (s *ProfitabilityRow) SetGrossValue(val Money) {
+	s.GrossValue = val
+}
+
+// SetDiscounts sets the value of Discounts.
+func (s *ProfitabilityRow) SetDiscounts(val Money) {
+	s.Discounts = val
+}
+
+// SetCreditMemos sets the value of CreditMemos.
+func (s *ProfitabilityRow) SetCreditMemos(val Money) {
+	s.CreditMemos = val
+}
+
+// SetNetRevenue sets the value of NetRevenue.
+func (s *ProfitabilityRow) SetNetRevenue(val Money) {
+	s.NetRevenue = val
+}
+
+// The whole selection's gross value, discounts, credit memos and net revenue, which the rows of every
+// page add up to over the pages; in the legal entity's local currency.
+// Ref: #/components/schemas/ProfitabilityTotals
+type ProfitabilityTotals struct {
+	// Gross value billed.
+	GrossValue Money `json:"gross_value"`
+	// Discounts.
+	Discounts Money `json:"discounts"`
+	// Credit memos.
+	CreditMemos Money `json:"credit_memos"`
+	// Net revenue: the net value of the posted billing documents less the posted credit memos.
+	NetRevenue Money `json:"net_revenue"`
+}
+
+// GetGrossValue returns the value of GrossValue.
+func (s *ProfitabilityTotals) GetGrossValue() Money {
+	return s.GrossValue
+}
+
+// GetDiscounts returns the value of Discounts.
+func (s *ProfitabilityTotals) GetDiscounts() Money {
+	return s.Discounts
+}
+
+// GetCreditMemos returns the value of CreditMemos.
+func (s *ProfitabilityTotals) GetCreditMemos() Money {
+	return s.CreditMemos
+}
+
+// GetNetRevenue returns the value of NetRevenue.
+func (s *ProfitabilityTotals) GetNetRevenue() Money {
+	return s.NetRevenue
+}
+
+// SetGrossValue sets the value of GrossValue.
+func (s *ProfitabilityTotals) SetGrossValue(val Money) {
+	s.GrossValue = val
+}
+
+// SetDiscounts sets the value of Discounts.
+func (s *ProfitabilityTotals) SetDiscounts(val Money) {
+	s.Discounts = val
+}
+
+// SetCreditMemos sets the value of CreditMemos.
+func (s *ProfitabilityTotals) SetCreditMemos(val Money) {
+	s.CreditMemos = val
+}
+
+// SetNetRevenue sets the value of NetRevenue.
+func (s *ProfitabilityTotals) SetNetRevenue(val Money) {
+	s.NetRevenue = val
+}
+
 type ProposeAccrualBadRequest Problem
 
 func (*ProposeAccrualBadRequest) proposeAccrualRes() {}
@@ -98649,6 +98984,7 @@ func (*TooManyRequestsHeaders) getPersonalDataSubjectRes()                {}
 func (*TooManyRequestsHeaders) getPlanCategoryRes()                       {}
 func (*TooManyRequestsHeaders) getPrincipalRes()                          {}
 func (*TooManyRequestsHeaders) getProfitCenterRes()                       {}
+func (*TooManyRequestsHeaders) getProfitabilityReportRes()                {}
 func (*TooManyRequestsHeaders) getPurchaseOrderChangeRes()                {}
 func (*TooManyRequestsHeaders) getPurchaseOrderDocumentRes()              {}
 func (*TooManyRequestsHeaders) getPurchaseOrderRes()                      {}
@@ -99518,6 +99854,7 @@ func (*UnauthorizedHeaders) getPersonalDataSubjectRes()                {}
 func (*UnauthorizedHeaders) getPlanCategoryRes()                       {}
 func (*UnauthorizedHeaders) getPrincipalRes()                          {}
 func (*UnauthorizedHeaders) getProfitCenterRes()                       {}
+func (*UnauthorizedHeaders) getProfitabilityReportRes()                {}
 func (*UnauthorizedHeaders) getPurchaseOrderChangeRes()                {}
 func (*UnauthorizedHeaders) getPurchaseOrderDocumentRes()              {}
 func (*UnauthorizedHeaders) getPurchaseOrderRes()                      {}
