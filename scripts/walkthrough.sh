@@ -9798,10 +9798,13 @@ step_support_agent() {
 # revenue for the next three months by the average of its months of
 # history; the forecast equals that average, computed here from the
 # governed query's monthly figures; a ratio and a year before the history
-# are refused.
+# are refused. T97b (§8): a scenario raises account 4000's revenue by ten
+# percent; the scenario's total exceeds the baseline's by ten percent of
+# account 4000's forecast; two adjustments on one row and a dimension
+# revenue lacks are refused.
 step_metric_forecast() {
-  heading "Step 93 — Forecast of a governed metric: Maple's revenue for the next three months, the average of its months of history"
-  local n sum cents_sum avg want got
+  heading "Step 93 — Forecast of a governed metric: Maple's revenue for the next three months, the average of its months of history; a scenario with one account's revenue ten percent higher beside the baseline"
+  local n sum cents_sum avg want got part ten
   as carla
   say "Carla asks the semantic layer for Maple's revenue by fiscal month: the history a forecast reads, as her."
   api 200 '(.rows[] | "  \(.[0].value)-\(.[1].value): revenue \(.[2].value) \(.[2].currency)")' runAnalyticsQuery -body \
@@ -9831,6 +9834,27 @@ step_metric_forecast() {
     refused 422 analytics.forecast_history_short runAnalyticsForecast -body \
       "{\"metric\": \"revenue\", \"companies\": [\"$CC\"], \"grain\": \"month\", \"periods_ahead\": 3, \"method\": \"same_period_last_year\"}"
   fi
+  say "Carla tries a scenario (ADR-0077 §8, T97b): sales on account 4000 ten percent higher. Account 4000's rows and the"
+  say "rest are each forecast by the same average and summed: the baseline. The scenario raises account 4000's part by"
+  say "ten percent, period by period, rounded half away from zero; nothing is stored:"
+  local body="{\"metric\": \"revenue\", \"companies\": [\"$CC\"], \"grain\": \"month\", \"periods_ahead\": 3, \"method\": \"moving_average\", \"window\": $n"
+  api 200 '(.scenario.adjustments[] | "  account \(.value) \(.percent)%: forecast \(.baseline_total), in the scenario \(.scenario_total)"), (.scenario.periods[] | "  \(.label): baseline \(.baseline), scenario \(.scenario), difference \(.difference) \(.currency)"), "  totals: baseline \(.scenario.baseline_total), scenario \(.scenario.scenario_total), difference \(.scenario.difference_total) \(.scenario.currency)"' \
+    runAnalyticsForecast -body "$body, \"scenario\": {\"adjustments\": [{\"dimension\": \"account\", \"value\": \"4000\", \"percent\": \"10\"}]}}"
+  part=$(cents "$(field '.scenario.adjustments[0].baseline_total')")
+  [ "$part" -ne 0 ] || fail "account 4000 has no revenue to forecast: the earlier steps' billing documents are not there"
+  # Each month's forecast of account 4000 is the same average: a third of its total; ten percent of it, rounded half
+  # away from zero to the cent, three times.
+  if [ "$part" -ge 0 ]; then ten=$(((2 * part / 3 + 10) / 20)); else ten=$((-((-2 * part / 3 + 10) / 20))); fi
+  expect "the scenario's total above the baseline's by ten percent of account 4000's forecast" \
+    "$(cents "$(field .scenario.scenario_total)") $(cents "$(field .scenario.difference_total)")" \
+    "$(($(cents "$(field .scenario.baseline_total)") + 3 * ten)) $((3 * ten))"
+  expect "the baseline, the forecast, adding up by month" "$(field '[.scenario.periods[].baseline] == [.forecast[].value]') $(field 'def cents: sub("\\."; "") | tonumber; ([.scenario.periods[].scenario | cents] | add) == (.scenario.scenario_total | cents)')" "true true"
+  say "A row takes one adjustment: account 4000 and company $CC meet in its rows, and a dimension revenue lacks is refused:"
+  refused 422 analytics.scenario_overlap runAnalyticsForecast -body \
+    "$body, \"scenario\": {\"adjustments\": [{\"dimension\": \"account\", \"value\": \"4000\", \"percent\": \"10\"}, {\"dimension\": \"company\", \"value\": \"$CC\", \"percent\": \"5\"}]}}"
+  refused 422 request.validation_failed runAnalyticsForecast -body \
+    "$body, \"scenario\": {\"adjustments\": [{\"dimension\": \"supplier\", \"value\": \"V1\", \"percent\": \"10\"}]}}"
+  expect "the field refused" "$(field '.errors[0].field')" "scenario.adjustments[0].dimension"
   passed
 }
 

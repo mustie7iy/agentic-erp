@@ -4448,7 +4448,8 @@ type AnalyticsForecast struct {
 	// The latest posting or document date in the history's data (YYYY-MM-DD).
 	DataThrough string `json:"data_through"`
 	// The configuration version whose metric definitions answered.
-	ConfigVersion int32 `json:"config_version"`
+	ConfigVersion int32                      `json:"config_version"`
+	Scenario      OptAnalyticsScenarioResult `json:"scenario"`
 }
 
 // GetMetric returns the value of Metric.
@@ -4541,6 +4542,11 @@ func (s *AnalyticsForecast) GetConfigVersion() int32 {
 	return s.ConfigVersion
 }
 
+// GetScenario returns the value of Scenario.
+func (s *AnalyticsForecast) GetScenario() OptAnalyticsScenarioResult {
+	return s.Scenario
+}
+
 // SetMetric sets the value of Metric.
 func (s *AnalyticsForecast) SetMetric(val string) {
 	s.Metric = val
@@ -4629,6 +4635,11 @@ func (s *AnalyticsForecast) SetDataThrough(val string) {
 // SetConfigVersion sets the value of ConfigVersion.
 func (s *AnalyticsForecast) SetConfigVersion(val int32) {
 	s.ConfigVersion = val
+}
+
+// SetScenario sets the value of Scenario.
+func (s *AnalyticsForecast) SetScenario(val OptAnalyticsScenarioResult) {
+	s.Scenario = val
 }
 
 // AnalyticsForecastHeaders wraps AnalyticsForecast with response headers.
@@ -4757,7 +4768,8 @@ type AnalyticsForecastRequest struct {
 	// here; values may be added within /v1.
 	Method string `json:"method"`
 	// For `moving_average`, and for it alone: how many of the last periods it averages.
-	Window OptInt32 `json:"window"`
+	Window   OptInt32             `json:"window"`
+	Scenario OptAnalyticsScenario `json:"scenario"`
 }
 
 // GetMetric returns the value of Metric.
@@ -4795,6 +4807,11 @@ func (s *AnalyticsForecastRequest) GetWindow() OptInt32 {
 	return s.Window
 }
 
+// GetScenario returns the value of Scenario.
+func (s *AnalyticsForecastRequest) GetScenario() OptAnalyticsScenario {
+	return s.Scenario
+}
+
 // SetMetric sets the value of Metric.
 func (s *AnalyticsForecastRequest) SetMetric(val string) {
 	s.Metric = val
@@ -4828,6 +4845,11 @@ func (s *AnalyticsForecastRequest) SetMethod(val string) {
 // SetWindow sets the value of Window.
 func (s *AnalyticsForecastRequest) SetWindow(val OptInt32) {
 	s.Window = val
+}
+
+// SetScenario sets the value of Scenario.
+func (s *AnalyticsForecastRequest) SetScenario(val OptAnalyticsScenario) {
+	s.Scenario = val
 }
 
 // A configuration version's governed semantic model.
@@ -5150,6 +5172,307 @@ func (s *AnalyticsResultHeaders) SetResponse(val AnalyticsResult) {
 }
 
 func (*AnalyticsResultHeaders) runAnalyticsQueryRes() {}
+
+// A scenario on the forecast (ADR-0077 §8, T97b): percentage changes of the rows of named dimension
+// values. Each adjustment's rows are forecast on their own, and so are the rows of none; the baseline
+// is those forecasts summed, the scenario the same with each adjusted part changed by its percentage.
+// Nothing is stored.
+// Ref: #/components/schemas/AnalyticsScenario
+type AnalyticsScenario struct {
+	// The changes, at most one per row: two adjustments that would change one row, the same value named
+	// twice or values of two dimensions meeting in a row, are refused (422 `analytics.scenario_overlap`).
+	Adjustments []AnalyticsScenarioAdjustment `json:"adjustments"`
+}
+
+// GetAdjustments returns the value of Adjustments.
+func (s *AnalyticsScenario) GetAdjustments() []AnalyticsScenarioAdjustment {
+	return s.Adjustments
+}
+
+// SetAdjustments sets the value of Adjustments.
+func (s *AnalyticsScenario) SetAdjustments(val []AnalyticsScenarioAdjustment) {
+	s.Adjustments = val
+}
+
+// A percentage change of the forecast of the rows whose dimension has the value.
+// Ref: #/components/schemas/AnalyticsScenarioAdjustment
+type AnalyticsScenarioAdjustment struct {
+	// A dimension of the metric (`getAnalyticsModel`), not one of the forecast's periods (`fiscal_year`,
+	// `fiscal_quarter`, `fiscal_month`, `posting_date`); another is 422 `request.validation_failed` on it.
+	Dimension string `json:"dimension"`
+	// The dimension's value whose rows are changed, as a query's rows write it (an account's number, a
+	// company's code).
+	Value string `json:"value"`
+	// The change in percent of the rows' forecast: `10` ten percent more, `-5` five percent less; -100 at
+	// the least.
+	Percent string `json:"percent"`
+}
+
+// GetDimension returns the value of Dimension.
+func (s *AnalyticsScenarioAdjustment) GetDimension() string {
+	return s.Dimension
+}
+
+// GetValue returns the value of Value.
+func (s *AnalyticsScenarioAdjustment) GetValue() string {
+	return s.Value
+}
+
+// GetPercent returns the value of Percent.
+func (s *AnalyticsScenarioAdjustment) GetPercent() string {
+	return s.Percent
+}
+
+// SetDimension sets the value of Dimension.
+func (s *AnalyticsScenarioAdjustment) SetDimension(val string) {
+	s.Dimension = val
+}
+
+// SetValue sets the value of Value.
+func (s *AnalyticsScenarioAdjustment) SetValue(val string) {
+	s.Value = val
+}
+
+// SetPercent sets the value of Percent.
+func (s *AnalyticsScenarioAdjustment) SetPercent(val string) {
+	s.Percent = val
+}
+
+// An adjustment's part of the scenario.
+// Ref: #/components/schemas/AnalyticsScenarioPart
+type AnalyticsScenarioPart struct {
+	// The dimension.
+	Dimension string `json:"dimension"`
+	// The dimension's value.
+	Value string `json:"value"`
+	// The change in percent.
+	Percent string `json:"percent"`
+	// The forecast of the value's rows over the periods ahead.
+	BaselineTotal string `json:"baseline_total"`
+	// The same, changed by the percentage period by period, each rounded half away from zero to the
+	// metric's digits.
+	ScenarioTotal string `json:"scenario_total"`
+}
+
+// GetDimension returns the value of Dimension.
+func (s *AnalyticsScenarioPart) GetDimension() string {
+	return s.Dimension
+}
+
+// GetValue returns the value of Value.
+func (s *AnalyticsScenarioPart) GetValue() string {
+	return s.Value
+}
+
+// GetPercent returns the value of Percent.
+func (s *AnalyticsScenarioPart) GetPercent() string {
+	return s.Percent
+}
+
+// GetBaselineTotal returns the value of BaselineTotal.
+func (s *AnalyticsScenarioPart) GetBaselineTotal() string {
+	return s.BaselineTotal
+}
+
+// GetScenarioTotal returns the value of ScenarioTotal.
+func (s *AnalyticsScenarioPart) GetScenarioTotal() string {
+	return s.ScenarioTotal
+}
+
+// SetDimension sets the value of Dimension.
+func (s *AnalyticsScenarioPart) SetDimension(val string) {
+	s.Dimension = val
+}
+
+// SetValue sets the value of Value.
+func (s *AnalyticsScenarioPart) SetValue(val string) {
+	s.Value = val
+}
+
+// SetPercent sets the value of Percent.
+func (s *AnalyticsScenarioPart) SetPercent(val string) {
+	s.Percent = val
+}
+
+// SetBaselineTotal sets the value of BaselineTotal.
+func (s *AnalyticsScenarioPart) SetBaselineTotal(val string) {
+	s.BaselineTotal = val
+}
+
+// SetScenarioTotal sets the value of ScenarioTotal.
+func (s *AnalyticsScenarioPart) SetScenarioTotal(val string) {
+	s.ScenarioTotal = val
+}
+
+// A period ahead's baseline, scenario and their difference.
+// Ref: #/components/schemas/AnalyticsScenarioPoint
+type AnalyticsScenarioPoint struct {
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The fiscal month (1-12) or quarter (1-4) within it; absent for a year.
+	Period OptInt32 `json:"period"`
+	// The period as `2026-09`, `2026-Q3` or `2026`.
+	Label string `json:"label"`
+	// The baseline: every part's forecast summed.
+	Baseline string `json:"baseline"`
+	// The scenario: every part's forecast, each adjusted part changed by its percentage, summed.
+	Scenario string `json:"scenario"`
+	// The scenario less the baseline.
+	Difference string `json:"difference"`
+	// For an amount: its currency.
+	Currency OptString `json:"currency"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AnalyticsScenarioPoint) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *AnalyticsScenarioPoint) GetPeriod() OptInt32 {
+	return s.Period
+}
+
+// GetLabel returns the value of Label.
+func (s *AnalyticsScenarioPoint) GetLabel() string {
+	return s.Label
+}
+
+// GetBaseline returns the value of Baseline.
+func (s *AnalyticsScenarioPoint) GetBaseline() string {
+	return s.Baseline
+}
+
+// GetScenario returns the value of Scenario.
+func (s *AnalyticsScenarioPoint) GetScenario() string {
+	return s.Scenario
+}
+
+// GetDifference returns the value of Difference.
+func (s *AnalyticsScenarioPoint) GetDifference() string {
+	return s.Difference
+}
+
+// GetCurrency returns the value of Currency.
+func (s *AnalyticsScenarioPoint) GetCurrency() OptString {
+	return s.Currency
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AnalyticsScenarioPoint) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *AnalyticsScenarioPoint) SetPeriod(val OptInt32) {
+	s.Period = val
+}
+
+// SetLabel sets the value of Label.
+func (s *AnalyticsScenarioPoint) SetLabel(val string) {
+	s.Label = val
+}
+
+// SetBaseline sets the value of Baseline.
+func (s *AnalyticsScenarioPoint) SetBaseline(val string) {
+	s.Baseline = val
+}
+
+// SetScenario sets the value of Scenario.
+func (s *AnalyticsScenarioPoint) SetScenario(val string) {
+	s.Scenario = val
+}
+
+// SetDifference sets the value of Difference.
+func (s *AnalyticsScenarioPoint) SetDifference(val string) {
+	s.Difference = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *AnalyticsScenarioPoint) SetCurrency(val OptString) {
+	s.Currency = val
+}
+
+// A scenario's answer (ADR-0077 §8): per period ahead the baseline, the scenario and their
+// difference, each figure an exact decimal at the metric's digits in `currency` for an amount, with
+// their totals and each adjustment's part. The baseline is the forecast (`forecast`): the parts'
+// forecasts summed, so the baseline and the scenario each add up.
+// Ref: #/components/schemas/AnalyticsScenarioResult
+type AnalyticsScenarioResult struct {
+	// Each adjustment as asked, with its rows' forecast over the periods ahead before and after its
+	// change.
+	Adjustments []AnalyticsScenarioPart `json:"adjustments"`
+	// The periods ahead, in order.
+	Periods []AnalyticsScenarioPoint `json:"periods"`
+	// The baseline over the periods ahead.
+	BaselineTotal string `json:"baseline_total"`
+	// The scenario over the periods ahead.
+	ScenarioTotal string `json:"scenario_total"`
+	// The scenario less the baseline over the periods ahead.
+	DifferenceTotal string `json:"difference_total"`
+	// For an amount: the currency of every figure.
+	Currency OptString `json:"currency"`
+}
+
+// GetAdjustments returns the value of Adjustments.
+func (s *AnalyticsScenarioResult) GetAdjustments() []AnalyticsScenarioPart {
+	return s.Adjustments
+}
+
+// GetPeriods returns the value of Periods.
+func (s *AnalyticsScenarioResult) GetPeriods() []AnalyticsScenarioPoint {
+	return s.Periods
+}
+
+// GetBaselineTotal returns the value of BaselineTotal.
+func (s *AnalyticsScenarioResult) GetBaselineTotal() string {
+	return s.BaselineTotal
+}
+
+// GetScenarioTotal returns the value of ScenarioTotal.
+func (s *AnalyticsScenarioResult) GetScenarioTotal() string {
+	return s.ScenarioTotal
+}
+
+// GetDifferenceTotal returns the value of DifferenceTotal.
+func (s *AnalyticsScenarioResult) GetDifferenceTotal() string {
+	return s.DifferenceTotal
+}
+
+// GetCurrency returns the value of Currency.
+func (s *AnalyticsScenarioResult) GetCurrency() OptString {
+	return s.Currency
+}
+
+// SetAdjustments sets the value of Adjustments.
+func (s *AnalyticsScenarioResult) SetAdjustments(val []AnalyticsScenarioPart) {
+	s.Adjustments = val
+}
+
+// SetPeriods sets the value of Periods.
+func (s *AnalyticsScenarioResult) SetPeriods(val []AnalyticsScenarioPoint) {
+	s.Periods = val
+}
+
+// SetBaselineTotal sets the value of BaselineTotal.
+func (s *AnalyticsScenarioResult) SetBaselineTotal(val string) {
+	s.BaselineTotal = val
+}
+
+// SetScenarioTotal sets the value of ScenarioTotal.
+func (s *AnalyticsScenarioResult) SetScenarioTotal(val string) {
+	s.ScenarioTotal = val
+}
+
+// SetDifferenceTotal sets the value of DifferenceTotal.
+func (s *AnalyticsScenarioResult) SetDifferenceTotal(val string) {
+	s.DifferenceTotal = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *AnalyticsScenarioResult) SetCurrency(val OptString) {
+	s.Currency = val
+}
 
 type ApplyCountryPackBadRequest Problem
 
@@ -64882,6 +65205,98 @@ func (o OptAnalyticsDerived) Get() (v AnalyticsDerived, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAnalyticsDerived) Or(d AnalyticsDerived) AnalyticsDerived {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAnalyticsScenario returns new OptAnalyticsScenario with value set to v.
+func NewOptAnalyticsScenario(v AnalyticsScenario) OptAnalyticsScenario {
+	return OptAnalyticsScenario{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAnalyticsScenario is optional AnalyticsScenario.
+type OptAnalyticsScenario struct {
+	Value AnalyticsScenario
+	Set   bool
+}
+
+// IsSet returns true if OptAnalyticsScenario was set.
+func (o OptAnalyticsScenario) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAnalyticsScenario) Reset() {
+	var v AnalyticsScenario
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAnalyticsScenario) SetTo(v AnalyticsScenario) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAnalyticsScenario) Get() (v AnalyticsScenario, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAnalyticsScenario) Or(d AnalyticsScenario) AnalyticsScenario {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAnalyticsScenarioResult returns new OptAnalyticsScenarioResult with value set to v.
+func NewOptAnalyticsScenarioResult(v AnalyticsScenarioResult) OptAnalyticsScenarioResult {
+	return OptAnalyticsScenarioResult{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAnalyticsScenarioResult is optional AnalyticsScenarioResult.
+type OptAnalyticsScenarioResult struct {
+	Value AnalyticsScenarioResult
+	Set   bool
+}
+
+// IsSet returns true if OptAnalyticsScenarioResult was set.
+func (o OptAnalyticsScenarioResult) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAnalyticsScenarioResult) Reset() {
+	var v AnalyticsScenarioResult
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAnalyticsScenarioResult) SetTo(v AnalyticsScenarioResult) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAnalyticsScenarioResult) Get() (v AnalyticsScenarioResult, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAnalyticsScenarioResult) Or(d AnalyticsScenarioResult) AnalyticsScenarioResult {
 	if v, ok := o.Get(); ok {
 		return v
 	}

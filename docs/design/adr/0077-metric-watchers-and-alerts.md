@@ -170,6 +170,37 @@ may run it (`x-autonomy: read`).
   figure is an exact decimal beside its currency, with the history's and
   the forecast's totals.
 
+### 8. A scenario on a forecast (T97b)
+
+Decided by default while building T97b (ADR-0053 d; the plan's §T97b
+asks for it here). `scenario.adjustments[]` on `POST
+/v1/analytics-forecasts` each name a dimension of the metric, one of its
+values and a percentage (`10` ten percent more, `-5` five percent less,
+-100 at the least, up to four decimals); nothing is stored.
+
+- The history is read by period and by every dimension an adjustment
+  names, as the caller's query (§7). The rows of each adjustment's value
+  are one part, the rows of none another; each part is forecast on its
+  own by the method over the whole history's periods, a period without
+  its data counting as zero.
+- The **baseline** is the parts' forecasts summed per period, and is the
+  answer's `forecast`; the **scenario** is the same with each adjusted
+  part changed by its percentage, period by period, rounded half away
+  from zero to the metric's digits (`money.Scale`). Both add up by
+  construction, and each adjustment's part is answered with its forecast
+  before and after. With a moving average the baseline may differ from
+  the forecast without a scenario by the rounding of each part's average,
+  a minor unit a part at most.
+- A row takes one adjustment: the same value named twice, or values of
+  two dimensions meeting in a row, are 422 `analytics.scenario_overlap`
+  naming the second adjustment. A dimension the metric lacks, or one of
+  the forecast's periods (`fiscal_year`, `fiscal_quarter`,
+  `fiscal_month`, `posting_date`), is 422 `request.validation_failed` on
+  the adjustment's `dimension`; a percentage below -100 on its `percent`.
+- The history by period and the scenario's dimensions is one query, so it
+  is bounded as a query is: more than 500 rows is refused as §7 refuses a
+  long history (422 `analytics.invalid_query`).
+
 ## Alternatives
 
 - **The worker reads the database through the loopback as the creator.**
@@ -203,6 +234,10 @@ may run it (`x-autonomy: read`).
    the last, a period between without data counting as zero; the
    moving average is flat over the periods ahead; same period last year
    reaches at most a year ahead; a history in two currencies is refused.
+
+8. (T97b) A scenario's parts are forecast separately and summed, so the
+   baseline is their sum, not the forecast without a scenario; a row
+   takes one adjustment; percentages from -100 (§8).
 
 ## Questions
 
@@ -298,3 +333,23 @@ may run it (`x-autonomy: read`).
 - Decided by default while building: §7 and default 7 above. Written in
   ADR-0076 on T97a's lane, whose base lacked ADR-0077, and moved here at
   integration (batch 73), where the plan puts forecasts.
+
+### T97b Scenario on a forecast (no migration)
+
+- `internal/analytics/scenario.go`: `Adjustment`, `Scenario`; the spec's
+  `Check` refuses adjustments as §8 says, its `Query` reads the
+  adjustments' dimensions, and `NewForecast` splits the result into the
+  history and the parts, forecasts each part and sums baseline and
+  scenario. `endpoint.RunAnalyticsForecast` passes `scenario` and answers
+  it (`AnalyticsScenarioResult`: per period ahead the baseline, the
+  scenario and their difference, their totals, each adjustment's part).
+- Tests: `TestScenario`, `TestScenarioRefusals`, `TestScenarioBounds`
+  (every figure out of an amount's range an error),
+  `TestForecastScenario` through the API.
+- Walkthrough `step_metric_forecast` (step 93) extended: Carla raises
+  account 4000's revenue by ten percent; the scenario's total exceeds the
+  baseline's by ten percent of account 4000's monthly forecast, rounded,
+  three times; the baseline is the forecast; account 4000 with company
+  3000 is refused as two adjustments on one row, and a dimension revenue
+  lacks is refused naming the field.
+- Decided by default while building: §8 and default 8 above.

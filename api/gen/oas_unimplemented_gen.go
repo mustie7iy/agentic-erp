@@ -8385,7 +8385,15 @@ func (UnimplementedHandler) RunAllocationCycle(ctx context.Context, req *Allocat
 // periods it needs and those the history has (422 `analytics.forecast_history_short`); a history of
 // more periods than a query answers (500 rows) is refused (422 `analytics.invalid_query`). The answer
 // names the method, the periods it used (`used`) and says it is an arithmetic projection, not a
-// statistical forecast. Changes nothing: agents of any autonomy level may run it.
+// statistical forecast. With a `scenario` (ADR-0077 §8, T97b), the history is read by period and by
+// each dimension an adjustment names; the rows of each adjustment's value are forecast on their own by
+// the method, and so are the rows of none; `forecast` is then the baseline, those forecasts summed,
+// and `scenario` gives per period ahead the baseline, the scenario (each adjusted part changed by its
+// percentage, rounded half away from zero to the metric's digits) and their difference, with their
+// totals and each adjustment's part. A dimension the metric lacks or one of the forecast's periods is
+// 422 `request.validation_failed` on the adjustment's `dimension`; two adjustments that would change
+// one row are 422 `analytics.scenario_overlap`; a history by those dimensions of more than 500 rows is
+// refused (422 `analytics.invalid_query`). Changes nothing: agents of any autonomy level may run it.
 //
 // POST /v1/analytics-forecasts
 func (UnimplementedHandler) RunAnalyticsForecast(ctx context.Context, req *AnalyticsForecastRequest, params RunAnalyticsForecastParams) (r RunAnalyticsForecastRes, _ error) {
