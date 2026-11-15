@@ -858,6 +858,11 @@ func (s *server) startOperations(runCtx context.Context) {
 			WorkerRole: cfg.WorkerRole, Log: log}
 		s.spawn("records archiver", func() { archiver.Run(runCtx) })
 	}
+	// Deletion runs blank blocked partners' personal data on a worker of
+	// every replica, as archiving runs are written (T100c, ADR-0079 §12).
+	deleter := &records.Deleter{Endpoints: app.Records(apiCfg), Requesters: identity.Actors{}, Pool: pool, AppRole: cfg.AppRole,
+		WorkerRole: cfg.WorkerRole, Log: log}
+	s.spawn("records deleter", func() { deleter.Run(runCtx) })
 	recurrences := &workflows.Recurrences{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Endpoints: app.Ledger(apiCfg)}
 	// The cash context is a leaf (ADR-0051 §2): its endpoints are the
 	// snapshot workflow's port, wired here.

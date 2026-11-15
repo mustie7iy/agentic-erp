@@ -1,7 +1,9 @@
 package pagination
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -144,4 +146,42 @@ func Page[T any](k *Keyset, rows []T, key func(T) (string, uuid.UUID)) ([]T, str
 	v, id := key(rows[k.size-1])
 	tok, _ := k.codec.Encode(k.scope, keysetCursor{V: v, ID: id}) // strings and a uuid always encode
 	return rows, tok
+}
+
+// InMemory pages rows that are read whole rather than by a statement:
+// it sorts them by a text key, then id, compared byte by byte as the
+// cursor is, in the keyset's direction, keeps those after the cursor and
+// pages them as Page does. A listing computed rather than stored still
+// answers a page at a time, whatever order it was computed in.
+func InMemory[T any](k *Keyset, rows []T, key func(T) (string, uuid.UUID)) ([]T, string) {
+	sorted := slices.Clone(rows)
+	slices.SortFunc(sorted, func(a, b T) int {
+		va, ia := key(a)
+		vb, ib := key(b)
+		c := cmp.Or(strings.Compare(va, vb), strings.Compare(ia.String(), ib.String()))
+		if k.desc {
+			return -c
+		}
+		return c
+	})
+	start := 0
+	if k.after != nil {
+		for start < len(sorted) && !k.past(key(sorted[start])) {
+			start++
+		}
+	}
+	sorted = sorted[start:]
+	return Page(k, sorted[:min(len(sorted), k.size+1)], key)
+}
+
+// past reports whether a row's key lies after the cursor in the order.
+func (k *Keyset) past(v string, id uuid.UUID) bool {
+	c := strings.Compare(v, k.after.V)
+	if c == 0 {
+		c = strings.Compare(id.String(), k.after.ID.String())
+	}
+	if k.desc {
+		return c < 0
+	}
+	return c > 0
 }

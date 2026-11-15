@@ -593,6 +593,8 @@ erDiagram
     char country_code
     text status
     uuid group_company_id "tenancy; T68c"
+    timestamptz personal_data_blocked_at "T100b"
+    timestamptz personal_data_deleted_at "T100c"
     int version }
   partner_role { uuid partner_id PK
     text role PK "supplier | customer" }
@@ -798,6 +800,36 @@ warning `partner.duplicate_tax_identifier` is kept. Decided by default
 the identifier's index is keyed; the check runs only when a partner is
 created ("Later": the check on a change of an existing partner, fuzzy
 matching, bank details, a run over existing partners, merging).
+
+**Personal data blocked (T100b, migration 000336; ADR-0079 §11; as
+built).** `personal_data_blocked_at` is when the privacy officer blocked
+the partner's personal data (`blockPersonalData`), null while it is not.
+A partner whose personal data is blocked is blocked itself
+(`business_partner_personal_data_blocked_check`: the column is set only
+with status `blocked`), so no document is entered or posted for it. The
+partner context's reads answer its name, legal name, addresses' lines,
+city, postal code and region, tax identifiers' last four characters and
+bank accounts' holder, last four characters and bank identifiers masked
+(`[blocked]`, `XXXX`) to a caller without `partner.privacy.read_blocked`,
+as do the names other contexts take from it (`partner.Payees.Names`) and a
+change's payload and possible duplicates naming it; nothing stored changes.
+Permissions `partner.privacy.block` and `partner.privacy.read_blocked`.
+
+**Personal data deleted (T100c, migration 000337; ADR-0079 §12; as
+built).** `personal_data_deleted_at` is when a deletion run blanked the
+partner's personal data; it is set only while the data is blocked
+(`business_partner_personal_data_deleted_check`), and once set neither it,
+the block, the status nor the names change again
+(`business_partner_personal_data_deleted_fixed`, for the owner too).
+Blanking writes the markers (`[deleted]`, `XXXX`, a Canadian account's
+`000`/`00000`) into the partner's names, addresses, tax identifiers, bank
+accounts (ended) and its changes; an address's or a bank account's
+personal columns change only to them (`address_personal_fixed`,
+`bank_account_personal_fixed`, with column grants) and only of a partner
+whose personal data is deleted (`personal_data_not_deleted`), and such a change
+alone passes the validity trigger (`address_end` and `bank_account_end`
+carry `WHEN (NOT partner.address_blanked(OLD, NEW))` and its bank account
+twin). No row is removed.
 
 ## 3.7 General ledger (`ledger`)
 
@@ -5492,10 +5524,11 @@ erDiagram
 
 ## 3.32 Records management (`records`)
 
-ADR-0079, T99a (migration 000316), T99b (migration 000317). A leaf: it
-reads tenancy's legal entities, the configuration's retention rules
-(`companies[].retention[]`, described with the configuration document above)
-and the ledger's fiscal years and journal through its ports. The retention
+ADR-0079, T99a (migration 000316), T99b (migration 000317), T100c
+(migration 000337). A leaf: it reads tenancy's legal entities, the
+configuration's retention rules (`companies[].retention[]`, described with
+the configuration document above), the ledger's fiscal years and journal
+and the partner context's blocked personal data through its ports. The retention
 status is computed on read from the fiscal periods' dates
 (`ledger.fiscal_period`, through `ledger.Calendar.Years`), the rule's years
 and the completed archiving runs (`archived`). The schema `records` holds
@@ -5505,6 +5538,8 @@ the archiving runs and the context's outbox and inbox.
 records.archiving_run  (tenant_id, id, legal_entity_id, document_kind, fiscal_year, retention_years, config_version,
                         status, object_key, manifest_key, sha256, manifest_sha256, size_bytes, entry_count, line_count,
                         debit_total, currency, failure_code, completed_at, requested_by, created_at, updated_at, version)
+records.deletion_run   (tenant_id, id, config_version, status, subject_count, failure_code, completed_at, requested_by,
+                        created_at, updated_at, version)
 ```
 
 - An archiving run (ADR-0079 §6, T99b) archives one company's documents of
@@ -5540,8 +5575,22 @@ records.archiving_run  (tenant_id, id, legal_entity_id, document_kind, fiscal_ye
   not say why (`records.SchemasWithout`). The subject read counts rows of
   those tables by the subject's column, through RLS in the request's
   transaction; it reads no value.
+- A deletion run (ADR-0079 §12, T100c) is the subjects eligible when it
+  was asked for, under its configuration version (at least one subject,
+  `deletion_run_count_check`), `queued`, then `completed` (with its time)
+  or `failed` (with its problem code), either its last change
+  (`deletion_run_settled_fixed`); one queued run per tenant
+  (`deletion_run_one_queued`). Each subject
+  (`records.deletion_run_subject (tenant_id, run_id, partner_id,
+  partner_number, blocked_at, retention_years, retention_ends, status,
+  settled_at)`) is a partner by id and number, `pending`, then `blanked`
+  or `skipped` with its time, either its last change
+  (`deletion_run_subject_settled_fixed`); the application writes only the
+  settling columns and deletes nothing. The deleter reads the pending
+  subjects by `deletion_run_subject_pending`.
 - Permissions `records.retention.read`, `records.archive.run`,
-  `records.privacy.read` (migration 000318).
+  `records.privacy.read` (migration 000318), `records.privacy.delete`
+  (migration 000337).
 
 ## 3.33 Lease accounting (`leases`)
 

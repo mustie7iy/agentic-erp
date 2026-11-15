@@ -956,6 +956,9 @@ func Unblock(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reaso
 	if bp.Status != Blocked {
 		return Change{}, problem.Conflict("partner.invalid_status", "The business partner is "+bp.Status+"; unblock requires status blocked.")
 	}
+	if bp.PersonalDataBlockedAt != nil {
+		return Change{}, personalDataBlocked(id)
+	}
 	c, err := insertChange(ctx, tx, p, KindUnblock, id, map[string]any{"scope": "all"}, reason, nil, nil, false)
 	if err != nil {
 		return Change{}, err
@@ -994,6 +997,9 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 	bp, err := getPartner(ctx, tx, partnerID, false)
 	if err != nil {
 		return Change{}, problem.Reference(err, "partner_id", "business partner", "no business partner with this id")
+	}
+	if err := openForChange(ctx, tx, partnerID); err != nil {
+		return Change{}, err
 	}
 	if err := checkChanges(ch); err != nil {
 		return Change{}, err
@@ -1114,7 +1120,7 @@ func RequestBankAccount(ctx context.Context, ports Ports, partnerID uuid.UUID, i
 	if err != nil {
 		return Change{}, err
 	}
-	if _, err := getPartner(ctx, tx, partnerID, false); err != nil {
+	if err := openForChange(ctx, tx, partnerID); err != nil {
 		return Change{}, err
 	}
 	day, err := database.Today(ctx, tx)
@@ -1144,6 +1150,9 @@ func RequestBankAccount(ctx context.Context, ports Ports, partnerID uuid.UUID, i
 func RequestBankAccountEnd(ctx context.Context, partnerID, bankID uuid.UUID, ifMatch func(BankAccount) error, validTo time.Time, reason string) (Change, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
+		return Change{}, err
+	}
+	if err := openForChange(ctx, tx, partnerID); err != nil {
 		return Change{}, err
 	}
 	b, err := getBank(ctx, tx, partnerID, bankID)

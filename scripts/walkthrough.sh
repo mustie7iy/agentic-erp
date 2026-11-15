@@ -603,7 +603,7 @@ latest_pack() {
 # The permissions of everyone's day-to-day work: all but administering
 # access and the organisation, activating configuration, the AI policy,
 # releasing payments and deciding approvals, which the approver roles hold.
-STAFF_DENIED=' identity.access.manage tenancy.org.manage config.change.activate agents.ai_policy.manage agents.model.invoke payments.run.release payments.file.transmit workflow.request.decide sales.order.credit_release '
+STAFF_DENIED=' partner.privacy.block partner.privacy.read_blocked records.privacy.delete identity.access.manage tenancy.org.manage config.change.activate agents.ai_policy.manage agents.model.invoke payments.run.release payments.file.transmit workflow.request.decide sales.order.credit_release '
 
 # grant ROLE_ID PERMISSION... grants a role the permissions.
 grant() {
@@ -8028,13 +8028,13 @@ step_risks() {
 # 2026-11-13): replayed, approved by the process owner and the
 # controller, then activated.
 retention_rule() {
-  local years=$1 title=$2 base cr request
+  local years=$1 title=$2 kind=${3:-journal_entry} base cr request
   as ada
   QUIET=1 api 200 '' listConfigVersions -p is_active=true
   base=$(field '.items[0].number')
-  jq --arg cc "$CC" --argjson years "$years" --arg title "$title" --argjson base "$base" '{title: $title,
-    rationale: "Maple'"'"'s retention of journal entries (T99a)", base_version: $base,
-    proposed: (.items[0].document | .companies |= map(if .code == $cc then .retention = [{kind: "journal_entry", years: $years}] else . end))}' \
+  jq --arg cc "$CC" --argjson years "$years" --arg title "$title" --argjson base "$base" --arg kind "$kind" '{title: $title,
+    rationale: "Maple'"'"'s retention of \($kind) (T99a)", base_version: $base,
+    proposed: (.items[0].document | .companies |= map(if .code == $cc then .retention = ([(.retention // [])[] | select(.kind != $kind)] + [{kind: $kind, years: $years}]) else . end))}' \
     "$WORK/last.json" >"$WORK/retention.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @retention.json
   cr=$(field .id)
@@ -8047,7 +8047,7 @@ retention_rule() {
   api 200 '.evidence[] | "evidence \(.kind): \(if .passed then "passed" else "FAILED" end), \(.summary)"' getChangeRequest -p "id=$cr"
   expect "status after the evidence" "$(field .status)" pending_approval
   request=$(field .workflow_request_id)
-  approve priya "$request" "The retention of journal entries, as the records administrator asked"
+  approve priya "$request" "The retention of ${kind//_/ }, as the records administrator asked"
   approve carla "$request" "Erasure after this period cannot be undone; the period is the company's"
   as ada
   QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
@@ -8171,9 +8171,11 @@ step_retention() {
 # details and the audit trail's client addresses; then, for Tyrell, the
 # supplier migrated in step 3, how many rows of each entry name it. The
 # read counts rows and returns no name, address or account. Closed to
-# agents.
+# agents. T100b and T100c (ADR-0079 §11-§12): a consultant's personal
+# data is blocked and read masked (privacy_block), then blanked by a
+# deletion run (privacy_delete).
 step_privacy() {
-  heading "Step 91 — The personal data inventory: the columns holding personal data with their purpose, and where the supplier Tyrell's data is held, counted without being shown"
+  heading "Step 91 — The personal data inventory: the columns holding personal data with their purpose, and where the supplier Tyrell's data is held, counted without being shown; a consultant's personal data blocked, read masked, then blanked by a deletion run"
   local want got
   as ada
   say "Ada adds Petra, the privacy officer, to the team:"
@@ -8195,7 +8197,137 @@ step_privacy() {
   QUIET=1 api 200 '' getPersonalDataSubject -p kind=principal -p "id=$(awk -F'\t' '$2 == "Petra Privacy Officer" { print $1 }' "$WORK/names")"
   expect "Petra's own name, once" "$(field '[.items[] | select(.table == "principal" and .column == "display_name") | .rows] | first')" 1
   refused 422 request.validation_failed getPersonalDataSubject -p kind=employee -p "id=$SUPPLIER"
+  privacy_block
+  privacy_delete
   passed
+}
+
+# wait_deletion RUN polls a deletion run until the server's deleter has
+# completed it (T100c); a failed run stops the walkthrough.
+wait_deletion() {
+  local status i
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' getPersonalDataDeletionRun -p "id=$1"
+    status=$(field .status)
+    case "$status" in
+    completed) return 0 ;;
+    failed) fail "deletion run $1 failed: $(field .failure_code)" ;;
+    esac
+    sleep 0.25
+  done
+  fail "deletion run $1 still $status after a minute"
+}
+
+# privacy_delete is T100c (ADR-0079 §12): without a retention rule for
+# personal data nothing is eligible; Ada sets Maple's rule of zero years
+# through a governed change, and Petra's preview lists Ivy, blocked since
+# privacy_block. Her deletion run is blanked by the server's deleter: Ivy's
+# name, address and bank account read [deleted], the account is ended, her
+# reversed invoice still reads and the ledger names her by number; the
+# block can no longer be lifted.
+privacy_delete() {
+  local role run
+  as ada
+  QUIET=1 api 200 '' listRoles -p page_size=100
+  role=$(field '.items[] | select(.code == "privacy_officer") | .id')
+  grant "$role" records.privacy.delete
+  as petra
+  say "Petra previews a deletion run. Maple keeps no retention rule for personal data, so nothing is eligible:"
+  api 200 '"\(.count) subject(s) eligible"' getPersonalDataDeletionPreview
+  expect "eligible without a rule" "$(field .count)" 0
+  refused 422 records.nothing_to_delete createPersonalDataDeletionRun -body '{"reason": "Retention of personal data ended"}'
+  say "Ada sets Maple's rule for personal data: kept no longer than its block, through a governed change (tier 3):"
+  retention_rule 0 "Retention of personal data: until blocked" personal_data
+  as petra
+  api 200 '"\(.count) subject(s) eligible under configuration version \(.configuration_version)", (.items[] | "  \(.partner_number), blocked \(.personal_data_blocked_at), rule of \(.retention_years) years, ended \(.retention_ends)")' \
+    getPersonalDataDeletionPreview
+  expect "Ivy eligible, by number" "$(field "[.items[] | select(.partner_id == \"$IVY\") | has(\"name\")] | join(\" \")")" false
+  say "She starts the run; the server's deleter blanks each subject in a transaction of its own (ADR-0079 §12):"
+  api 201 '"deletion run: \(.status), \(.subject_count) subject(s)"' createPersonalDataDeletionRun -body '{"reason": "Retention of personal data ended"}'
+  run=$(field .id)
+  wait_deletion "$run"
+  api 200 '"  \(.status): \(.blanked_count) blanked, \(.skipped_count) skipped, \(.pending_count) pending of \(.subject_count)"' getPersonalDataDeletionRun -p "id=$run"
+  api 200 '.items[] | "  \(.partner_number) \(.status) at \(.settled_at)"' listPersonalDataDeletionSubjects -p "id=$run"
+  expect "Ivy blanked" "$(field "[.items[] | select(.partner_id == \"$IVY\") | .status] | first")" blanked
+  say "Ivy's name, address and bank account are blanked, to everyone; the account is ended:"
+  api 200 '"  \(.number) \(.name): \(.addresses[0].line1), \(.addresses[0].city), deleted at \(.personal_data_deleted_at)"' getBusinessPartner -p "id=$IVY"
+  expect "her data blanked" "$(field '"\(.name) \(.addresses[0].line1) \(.addresses[0].city) \(.personal_data_deleted_at != null)"')" "[deleted] [deleted] [deleted] true"
+  api 200 '.items[] | "  bank account \(.holder_name), ending \(.account_last4), valid to \(.valid_to)"' listBankAccounts -p "id=$IVY"
+  expect "her bank account" "$(field '.items[0] | "\(.holder_name) \(.account_last4) \(.valid_to != null)"')" "[deleted] XXXX true"
+  say "Her invoice and its journal entry stay; the ledger names her by number:"
+  api 200 '"  \(.document_number) \(.supplier_reference): \(.status)"' getSupplierInvoice -p "id=$IVY_INVOICE"
+  expect "her invoice" "$(field '"\(.supplier_id) \(.status)"')" "$IVY reversed"
+  as ben
+  api 200 '.expanded.partners[] | "  journal entry partner \(.number) \(.name)"' getJournalEntry -p "id=$IVY_ENTRY" -p expand=partners
+  expect "the ledger's name for her" "$(field '.expanded.partners[0].name')" "[deleted]"
+  as petra
+  say "Deletion cannot be undone: the block of her personal data can no longer be lifted."
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$IVY"
+  refused 409 partner.personal_data_deleted unblockPersonalData -p "id=$IVY" -if-match "$ETAG" -body '{"reason": "Lift the block"}'
+}
+
+# privacy_block is T100b (ADR-0079 §11): Ada gives Petra the privacy
+# officer's role. Alex sets up Ivy Moreau, a consultant who is a supplier,
+# books her invoice and reverses it, so nothing is open for her. Petra
+# blocks her personal data (Tyrell's is refused: it has open items); the
+# supplier is blocked with it, Ben reads her name, address and bank account
+# masked, Petra in full, and a new invoice for her is refused.
+privacy_block() {
+  local petra role day ap ivy invoice entry tag
+  as ada
+  say "Ada gives Petra the privacy officer's role: blocking personal data, and reading it while it is blocked."
+  QUIET=1 api 201 '' createRole -body '{"code": "privacy_officer", "name": "Privacy officer"}'
+  role=$(field .id)
+  grant "$role" partner.privacy.block partner.privacy.read_blocked
+  petra=$(awk -F'\t' '$2 == "Petra Privacy Officer" { print $1 }' "$WORK/names")
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$petra\", \"role_id\": \"$role\"}"
+  as alex
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$SUPPLIER"
+  ap=$(field ".supplier_companies[] | select(.legal_entity_id == \"$LE\") | .reconciliation_account_id")
+  day=$(company_day)
+  say "Alex sets up Ivy Moreau, an independent consultant, as a supplier of $CC with her address and bank account;"
+  say "Carla approves her:"
+  api 201 '"business partner \(.number) \(.name): \(.status)"' createBusinessPartner \
+    -body "{\"kind\": \"person\", \"name\": \"Ivy Moreau\", \"country_code\": \"CA\", \"roles\": [\"supplier\"], \"supplier_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"$ap\", \"payment_term_code\": \"NT30\"}], \"addresses\": [{\"purpose\": \"legal\", \"line1\": \"12 Rue Saint-Paul\", \"city\": \"Montreal\", \"region\": \"QC\", \"postal_code\": \"H2Y 1Z1\", \"country_code\": \"CA\", \"valid_from\": \"$day\"}], \"bank_accounts\": [{\"purpose\": \"payments\", \"account_scheme\": \"ca\", \"institution_number\": \"003\", \"transit_number\": \"00002\", \"account_number\": \"7000456\", \"bank_country_code\": \"CA\", \"holder_name\": \"Ivy Moreau\", \"valid_from\": \"$day\"}], \"reason\": \"Consultant for the privacy review\"}"
+  ivy=$(field .id)
+  IVY=$ivy
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$ivy" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Consultant confirmed by call-back"
+  as alex
+  accounts
+  say "Her invoice is posted, then reversed as entered in error: nothing is open for her."
+  api 201 '"\(.kind) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$ivy\", \"supplier_reference\": \"IM-001\", \"invoice_date\": \"$day\", \"gross_amount\": {\"amount\": \"105.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"5.00\", \"currency\": \"CAD\"}, \"items\": [{\"account_id\": \"$(account 6000)\", \"description\": \"Privacy review\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"100.00\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\"}]}"
+  invoice=$(field .id)
+  IVY_INVOICE=$invoice
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$day\"}"
+  entry=$(field .journal_entry_id)
+  IVY_ENTRY=$entry
+  api 200 '"\(.document_number): \(.status)"' reverseSupplierInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"reason\": \"Entered in error\", \"posting_date\": \"$day\"}"
+  as petra
+  say "Petra blocks personal data only when nothing is open for the partner. Tyrell has open items:"
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$SUPPLIER"
+  refused 409 partner.open_items blockPersonalData -p "id=$SUPPLIER" -if-match "$ETAG" -body '{"reason": "Data subject request"}'
+  say "Ivy has none. Petra blocks her personal data; the supplier is blocked with it (ADR-0079 §11):"
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$ivy"
+  api 200 '"business partner \(.number) \(.name): \(.status), personal data blocked at \(.personal_data_blocked_at)"' blockPersonalData -p "id=$ivy" -if-match "$ETAG" \
+    -body '{"reason": "Data subject request: the consultancy has ended"}'
+  expect "blocked, as Petra reads it" "$(field '"\(.status) \(.name) \(.personal_data_blocked_at != null)"')" "blocked Ivy Moreau true"
+  as ben
+  say "Ben, a clerk, reads her masked: her name, address and bank account, and the name the ledger shows beside her:"
+  api 200 '"  \(.number) \(.name): \(.addresses[0].line1), \(.addresses[0].city) \(.addresses[0].postal_code)"' getBusinessPartner -p "id=$ivy"
+  expect "masked to Ben" "$(field '"\(.name) \(.addresses[0].line1) \(.addresses[0].city)"')" "[blocked] [blocked] [blocked]"
+  api 200 '.items[] | "  bank account \(.holder_name), ending \(.account_last4)"' listBankAccounts -p "id=$ivy"
+  expect "her bank account, masked" "$(field '.items[0] | "\(.holder_name) \(.account_last4) \(has("institution_number"))"')" "[blocked] XXXX false"
+  api 200 '.expanded.partners[] | "  journal entry partner \(.number) \(.name)"' getJournalEntry -p "id=$entry" -p expand=partners
+  expect "the ledger's name for her, masked" "$(field '.expanded.partners[0].name')" "[blocked]"
+  as petra
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$ivy"
+  expect "Petra reads her in full" "$(field '"\(.name) \(.addresses[0].city)"')" "Ivy Moreau Montreal"
+  as alex
+  say "A new invoice for her is refused: she is blocked."
+  refused 422 payables.supplier_not_usable createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$ivy\", \"supplier_reference\": \"IM-002\", \"invoice_date\": \"$day\", \"gross_amount\": {\"amount\": \"105.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"5.00\", \"currency\": \"CAD\"}, \"items\": [{\"account_id\": \"$(account 6000)\", \"description\": \"Privacy review\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"100.00\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\"}]}"
 }
 
 # step_saved_report is T95a, T95b and T95c (ADR-0076): Carla saves the

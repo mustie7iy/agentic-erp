@@ -255,6 +255,20 @@ func encodeBlockOrgUnitRequest(
 	return nil
 }
 
+func encodeBlockPersonalDataRequest(
+	req *ReasonInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeBlockPrincipalRequest(
 	req *ReasonInput,
 	r *http.Request,
@@ -1150,6 +1164,20 @@ func encodeCreatePartnerChangeRequest(
 
 func encodeCreatePeriodCloseRequest(
 	req *PeriodCloseCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreatePersonalDataDeletionRunRequest(
+	req *ReasonInput,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -2866,6 +2894,20 @@ func encodeTerminateContractRequest(
 }
 
 func encodeUnblockBusinessPartnerRequest(
+	req *ReasonInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUnblockPersonalDataRequest(
 	req *ReasonInput,
 	r *http.Request,
 ) error {

@@ -262,7 +262,7 @@ func New(cfg Config) (http.Handler, error) {
 		identityAPI:   &identity.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Certifications: certifications(cfg), Sessions: sessions},
 		configAPI: &configuration.Endpoints{Pages: cfg.Pages, Packs: library, RefuseUnsignedPacks: cfg.RefuseUnsignedPacks,
 			Dependencies: Configuration(cfg)},
-		partnerAPI: &partner.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys, Schemas: configuration.Settings{}, Rules: configuration.Settings{},
+		partnerAPI: &partner.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, OpenItems: ledger.OpenItems{}, Keys: cfg.FieldKeys, Schemas: configuration.Settings{}, Rules: configuration.Settings{},
 			PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, PlanningGroups: cash.PlanningGroups{}, Approvals: opener()},
 		ledgerAPI:      Ledger(cfg),
 		workflowAPI:    &approvals.Endpoints{Pages: cfg.Pages, Decider: approvals.Decider{Roles: identity.Directory{}, AgentKind: identity.AgentKind, Metrics: cfg.Metrics, Handlers: approvalHandlers(cfg)}},
@@ -560,10 +560,11 @@ func Collections(cfg Config) *collections.Endpoints {
 // Records is the records management context as the API wires it
 // (ADR-0079 §1): a leaf that reads tenancy's legal entities, the active
 // configuration and the ledger's fiscal calendar and journal through its
-// ports, and writes archive files to the object store (T99b).
+// ports, writes archive files to the object store (T99b), and blanks
+// blocked partners' personal data through the partner context's (T100c).
 func Records(cfg Config) *records.Endpoints {
 	return &records.Endpoints{LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Calendar: calendar(), Journal: ledger.Archive{},
-		People: LedgerPeople{}, Pages: cfg.Pages, Objects: cfg.Objects, Now: cfg.Now}
+		People: LedgerPeople{}, Privacy: partner.Privacy{Keys: cfg.FieldKeys, OpenItems: ledger.OpenItems{}}, Pages: cfg.Pages, Objects: cfg.Objects, Now: cfg.Now}
 }
 
 // Credit is the credit management context as the API wires it (ADR-0066

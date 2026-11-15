@@ -23,7 +23,7 @@ func TestRecordsPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "records.archive.run records.privacy.read records.retention.read"; got != want {
+	if got, want := strings.Join(codes, " "), "records.archive.run records.privacy.delete records.privacy.read records.retention.read"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }
