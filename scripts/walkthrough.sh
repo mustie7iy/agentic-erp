@@ -9881,9 +9881,16 @@ regulatory_draft() {
 # not have is refused by the run first; it then replies naming
 # releaseSupplierInvoice and citing the tolerance of the walkthrough's
 # company as the active version holds it. Its role changes nothing, and
-# the configuration is as it was.
+# the configuration is as it was. T108b: Alex's invoice dated today and
+# posted on a day of last year, whose period is closed, is refused and
+# stays parked; the refusal is audited on the invoice. Ada grants the
+# agent's role the audit trail and supplier invoices, which nothing grants
+# by default; erp agent support-diagnose reads the invoice and its audit
+# events and recommends its root cause: a cause citing an event that is
+# not the invoice's is refused first, then closed_period, citing the
+# refusal's event and quoting it. Alex posts the invoice on today's date.
 step_support_agent() {
-  heading "Step 88 — The support agent: asked how an invoice above the tolerance is released, it names the operation from the contract and the tenant's tolerance from the active configuration; an operation it made up refused; nothing changed"
+  heading "Step 88 — The support agent: asked how an invoice above the tolerance is released, it names the operation from the contract and the tenant's tolerance from the active configuration; an operation it made up refused; nothing changed; an invoice whose posting a closed period refused diagnosed closed_period from its audit events"
   local role version pct abs question got session
   as ada
   say "Ada sets up the support agent (ADR-0072): an agent principal of type support at autonomy level 1 on erp-default."
@@ -9929,7 +9936,62 @@ step_support_agent() {
   as alex
   QUIET=1 api 200 '' listConfigVersions -p is_active=true
   expect "the active version" "$(field '.items[0].id')" "$version"
+  support_diagnosis "$role"
   passed
+}
+
+# support_diagnosis ROLE is step 88's T108b: Alex's invoice whose posting
+# a closed period refused, diagnosed by the support agent of ROLE.
+support_diagnosis() {
+  local role=$1 invoice tag day="$PREV-06-15" seq detail other got session rec
+  as alex
+  say "Alex enters a supplier invoice from Tyrell Office Products, dated today, and posts it on $day, a day of last year. Its"
+  say "period is closed, so the posting is refused and the invoice stays parked. The refusal is audited on the invoice:"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' \
+    createSupplierInvoice -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"LATE-${TODAY}\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"315.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"15.00\", \"currency\": \"CAD\"}, \"items\": [{\"account_id\": \"$(account 6000)\", \"description\": \"Courier deliveries\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\"}]}"
+  invoice=$(field .id) tag=$ETAG
+  refused 409 ledger.period_not_open postSupplierInvoice -p "id=$invoice" -if-match "$tag" -body "{\"posting_date\": \"$day\"}"
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$invoice"
+  expect "the invoice stays parked" "$(field .status) $ETAG" "parked $tag"
+  as ada
+  say "Ada lets the support agent read the audit trail and supplier invoices, which nothing grants by default (ADR-0072):"
+  grant "$role" audit.event.read payables.invoice.read platform.operation.read workflow.request.read
+  api 200 '(.items[] | "  event \(.seq): \(.action) \(.outcome)\(if .detail.code then ", \(.detail.code): \(.detail.detail)" else "" end)")' \
+    listAuditEvents -p "object_id=$invoice"
+  seq=$(field '[.items[] | select(.outcome == "refused")][0].seq')
+  detail=$(field '[.items[] | select(.outcome == "refused")][0].detail.detail')
+  expect "the refusal audited" "$(field "[.items[] | select(.outcome == \"refused\") | \"\\(.action) \\(.detail.code) \\(.detail.posting_date)\"] | join(\", \")")" \
+    "payables.supplier_invoice.post ledger.period_not_open $day"
+  QUIET=1 api 200 '' listAuditEvents -p page_size=1
+  other=$(field '.items[0].seq')
+  jq -n --arg inv "$invoice" --arg seq "$seq" --arg other "$other" --arg detail "$detail" '
+    {session_id: "{{session}}", object_type: "supplier_invoice", object_id: $inv, kind: "root_cause"} as $on |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "getSupplierInvoice", input: {id: $inv}},
+      {tool: "listAuditEvents", input: {object_id: $inv}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Root cause: closed_period\nEvent \($other) closed the period."})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Root cause: closed_period\nIts posting was refused, event \($seq): \"\($detail)\" Post it on a date of an open period, or have the period opened."})}},
+      {final: "The invoice'"'"'s period is closed: event \($seq)."}]}' >"$WORK/model-script.json"
+  as alex
+  say "Alex asks the support agent why the invoice does not post. erp agent support-diagnose reads it, its audit events and"
+  say "the configuration through the stand-in's script (evals/support); a cause citing an event that is not the invoice's"
+  say "is refused by the run first (every event cited is one the API returned for the invoice), then it recommends:"
+  show ERP_AGENT_TOKEN=… erp agent support-diagnose -type supplier_invoice -id "$invoice" "\"Posting it on $day was refused.\""
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/support-agent") "$ERP" agent support-diagnose -type supplier_invoice -id "$invoice" "Posting it on $day was refused." 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent support-diagnose failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): root_cause on supplier_invoice $invoice\$/\1/p")
+  [ -n "$rec" ] || fail "erp agent support-diagnose printed no root cause on the invoice"
+  api 200 '"  \(.kind) on the \(.object_type), \(.outcome // "open"): \(.content | split("\n") | join(" / "))"' getRecommendation -p "id=$rec"
+  expect "the closed period, with the refusal's event" "$(jq -r --arg s "event $seq" --arg d "$detail" '.content | startswith("Root cause: closed_period") and contains($s) and contains($d)' "$WORK/last.json")" true
+  say "Alex accepts it, which changes nothing, and posts the invoice on today's date, in an open period:"
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" -body '{"outcome": "accepted"}'
+  api 200 '"\(.kind) \(.document_number): \(.status) on \(.posting_date)"' postSupplierInvoice -p "id=$invoice" -if-match "$tag" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "posted" "$(field .status)" posted
 }
 
 # step_metric_forecast is T97a (ADR-0077 §7): Carla forecasts Maple's
@@ -10084,10 +10146,11 @@ step_metric_watch() {
 # the customer list it. The open item is unchanged: a case posts nothing.
 # A dunning run at step_dunning's key date leaves the invoice out whole
 # and names it as disputed; the worklist shows Northwind's disputed
-# amount beside its overdue amount; once Ruth closes the case as
-# rejected, a new run proposes the invoice again.
+# amount beside its overdue amount. The case stays open for
+# step_collections_agent, which closes it as rejected once the agent has
+# recommended, and a new run proposes the invoice again.
 step_dispute() {
-  heading "Step 95 — Dispute cases: a case opened on a customer's overdue invoice for part of its amount, with the reason; a second case on the invoice and more than it owes refused; the case assigned to a person and read back; the open item unchanged; a dunning run leaves the disputed invoice out and names it; the worklist shows the disputed amount; once the case is closed as rejected the invoice is dunned again"
+  heading "Step 95 — Dispute cases: a case opened on a customer's overdue invoice for part of its amount, with the reason; a second case on the invoice and more than it owes refused; the case assigned to a person and read back; the open item unchanged; a dunning run leaves the disputed invoice out and names it; the worklist shows the disputed amount"
   local customer=$DUNNED_CUSTOMER entry=$DUNNED_ENTRY key=$DUNNING_KEY item line year body ruth id tag before run
   [ -n "$entry" ] || fail "the invoice step 57 dunned is not there"
   as ruth
@@ -10138,6 +10201,85 @@ step_dispute() {
     getCollectionWorklist -p "legal_entity_id=$LE" -p "key_date=$key"
   expect "Northwind's disputed amount" "$(field "[.items[] | select(.customer_id == \"$customer\") | \"\(.disputed_amount.amount) \(.disputed_amount.currency) \(.open_dispute_cases)\"] | join(\", \")")" \
     "150.00 CAD 1"
+  DISPUTE_CASE=$id DISPUTE_TAG=$tag # step_collections_agent closes it
+  passed
+}
+
+# step_collections_agent is T105b (ADR-0072 As built): the collections
+# agent, erp agent collections through the model stand-in answering from a
+# script of turns (its suite's replay, evals/collections), recommends the
+# next action for each customer of the worklist of step_collections, on
+# its key date, while step_dispute's case is open. The script is built from
+# the worklist as Ruth reads it: every customer with an open dispute case,
+# Northwind among them, gets wait_for_dispute, naming its overdue and
+# disputed amounts; every other customer a reminder with a draft message
+# of its overdue amount. A reminder for Northwind whose draft names an
+# amount no read returned is refused by the run first (and, when every
+# overdue item of Northwind's is disputed, as a contact of a customer that
+# waits for its dispute). The agent's own dunning run is refused; Ruth
+# accepts the recommendation, which changes nothing; then sales confirms
+# the quotation's price, Ruth closes the case as rejected, and a new run
+# proposes the invoice again.
+step_collections_agent() {
+  heading "Step 100 — The collections agent: one recommendation per customer of the collection worklist, the customer with an open dispute case told to wait for it; every figure the API's, a computed one refused; the specialist decides; the case closed and the invoice dunned again"
+  local customer=$DUNNED_CUSTOMER entry=$DUNNED_ENTRY key=$DUNNING_KEY id=$DISPUTE_CASE tag=$DISPUTE_TAG role ruth count overdue computed got session rec run
+  [ -n "$id" ] || fail "the dispute case of step 95 is not there"
+  as ada
+  say "Ada sets up the collections agent (ADR-0072): an agent principal of type collections at autonomy level 1 on"
+  say "erp-default. Its role reads the worklist, dispute cases, dunning, receivables, open items, accounts and partners, and records"
+  say "its sessions and recommendations; it holds no permission that runs dunning or works a dispute case."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "collections_agent", "name": "Collections agent"}'
+  role=$(field .id)
+  grant "$role" tenancy.org.read collections.worklist.read collections.dispute.read collections.dunning.read receivables.invoice.read \
+    ledger.entry.read ledger.account.read partner.supplier.read agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "collections-agent", "display_name": "Collections agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "collections", "model": "erp-default", "description": "Recommends the next collection action per customer (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token collections-agent "Collections agent"
+  as ruth
+  say "What the agent will find, as Ruth reads it: Maple's worklist on step 57's key date, $key, with Northwind's open case:"
+  api 200 '.items[] | "  \(.customer_number) \(.customer_name): \(.overdue_amount.amount) \(.overdue_amount.currency) overdue, \(.disputed_amount.amount) disputed in \(.open_dispute_cases) open case(s)"' \
+    getCollectionWorklist -p "legal_entity_id=$LE" -p "key_date=$key" -p page_size=20
+  cp "$WORK/last.json" "$WORK/worklist.json"
+  count=$(field '.items | length')
+  overdue=$(field ".items[] | select(.customer_id == \"$customer\") | .overdue_amount.amount")
+  [ -n "$overdue" ] || fail "Northwind is not on the worklist at $key"
+  # An amount the agent would compute: Northwind's overdue amount and a
+  # tenth, moved on by a cent while the worklist returned that very amount.
+  computed=$(amount $(($(cents "$overdue") * 11 / 10 + 1)))
+  while grep -q "\"$computed\"" "$WORK/worklist.json"; do computed=$(amount $(($(cents "$computed") + 1))); done
+  collections_agent_script "$customer" "$key" "$computed"
+  say "The agent runs: erp agent collections starts a session on erp-default, reads the worklist through its tool and"
+  say "recommends per customer. The model is the stand-in (evals/collections): it first asks to remind Northwind of"
+  say "$computed CAD, its overdue amount with a tenth on top, which no read returned (refused by the run), then waits for"
+  say "Northwind's dispute and reminds every customer without a case of its overdue amount."
+  show ERP_AGENT_TOKEN=… erp agent collections -company "$CC" -key-date "$key"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/collections-agent") "$ERP" agent collections -company "$CC" -key-date "$key" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent collections failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made $count, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): wait_for_dispute on business_partner $customer .*/\1/p")
+  [ -n "$rec" ] || fail "erp agent collections printed no wait_for_dispute for Northwind"
+  say "Ruth, the collections specialist, reads the recommendations of the session, one per customer:"
+  api 200 '(.items[] | "  \(.kind) on \(.object_id[0:8])…, \(.outcome // "open"): \(.content | split("\n") | join(" / "))")' listRecommendations -p "session_id=$session"
+  expect "one per customer of the worklist" "$(field '[.items[].object_id] | unique | length') $(field '.items | length')" "$count $count"
+  expect "Northwind waits for its dispute" "$(field "[.items[] | select(.object_id == \"$customer\") | .kind] | join(\" \")")" wait_for_dispute
+  expect "naming its overdue amount" "$(field "[.items[] | select(.object_id == \"$customer\") | .content | startswith(\"Overdue $overdue CAD\")] | join(\" \")")" true
+  expect "the computed amount in none" "$(field "[.items[] | select(.content | contains(\"$computed\"))] | length")" 0
+  as collections-agent
+  say "Recommending is all it may do: a dunning run and a dispute case are a person's (x-agent: false), erp agent builds it"
+  say "no tool for them, and the API refuses its own calls:"
+  refused 403 identity.agent_not_allowed createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$key\"}"
+  refused 403 identity.agent_not_allowed closeDisputeCase -p "id=$id" -if-match "$tag" -body '{"outcome": "rejected", "reason": "Closed by the agent"}'
+  as ruth
+  say "Ruth accepts waiting for Northwind's dispute. Accepting changes nothing: the case is open, as it was."
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" -body '{"outcome": "accepted"}'
+  QUIET=1 api 200 '' getDisputeCase -p "id=$id"
+  expect "the case as it was" "$(field .status) $ETAG" "open $tag"
+  ruth=$(awk -F'\t' '$2 == "Ruth Receivables" { print $1 }' "$WORK/names")
   say "Sales confirms the quotation's price. Ruth closes the case as rejected: Northwind owes the amount. Closing posts nothing:"
   api 200 '"case \(.status) by \(.closed_by_name): \(.close_reason)"' \
     closeDisputeCase -p "id=$id" -if-match "$tag" -body '{"outcome": "rejected", "reason": "The invoice priced the bearing as quoted"}'
@@ -10150,6 +10292,27 @@ step_dispute() {
   QUIET=1 api 200 '' listDunningNotices -p "id=$run" -p "customer_id=$customer"
   expect "the invoice in Northwind's notice" "$(field "[.items[].items[] | select(.journal_entry_id == \"$entry\")] | length")" 1
   passed
+}
+
+# collections_agent_script CUSTOMER KEY COMPUTED writes the stand-in's
+# turns of the collections agent's run from the worklist Ruth read
+# ($WORK/worklist.json): the worklist read, a reminder for CUSTOMER of
+# COMPUTED, an amount no read returned (refused by the run), then per
+# customer wait_for_dispute where it has an open case and send_reminder
+# with a draft message of its overdue amount elsewhere.
+collections_agent_script() {
+  jq --arg le "$LE" --arg customer "$1" --arg key "$2" --arg computed "$3" '
+    {session_id: "{{session}}", object_type: "business_partner"} as $on |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: ([{tool: "getCollectionWorklist", input: {legal_entity_id: $le, key_date: $key, page_size: 20}},
+      {tool: "createRecommendation", input: {body: ($on + {object_id: $customer, kind: "send_reminder",
+        content: "Overdue \(.items[] | select(.customer_id == $customer) | .overdue_amount.amount) CAD.\nDraft message: please pay \($computed) CAD with the fees."})}}] +
+      [.items[] | {tool: "createRecommendation", input: {body: ($on + {object_id: .customer_id} + (if .open_dispute_cases > 0 then
+        {kind: "wait_for_dispute", content: "Overdue \(.overdue_amount.amount) CAD, of which \(.disputed_amount.amount) CAD is disputed in an open case: wait for the case to be closed."}
+      else
+        {kind: "send_reminder", content: "Overdue \(.overdue_amount.amount) CAD, not disputed.\nDraft message: Dear \(.customer_name), \(.overdue_amount.amount) CAD of your account is overdue; please pay it."}
+      end))}}] +
+      [{final: "Recommended the next action for each customer of the worklist; a collections specialist decides."}])}' "$WORK/worklist.json" >"$WORK/model-script.json"
 }
 
 # month_first DAY N is the first day of the month N months after DAY's.
@@ -12579,7 +12742,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_close'
 
 main() {
   stop_unseen

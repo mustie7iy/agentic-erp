@@ -613,4 +613,6 @@ each listed for the product owner's digest.
   date names the invoice as disputed with its case and has it in no
   notice; the worklist shows Northwind's CAD 150.00 disputed in one open
   case; Ruth closes the case as rejected and a new run at the key date
-  proposes the invoice again.
+  proposes the invoice again (since T105b in `step_collections_agent`,
+  step 98, once the collections agent has recommended on the worklist
+  while the case is open; ADR-0072 As built).

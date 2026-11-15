@@ -34871,6 +34871,7 @@ components:
             - bid_comparison
             - regulatory
             - support
+            - collections
           maxLength: 50
         model:
           type: string

@@ -271,46 +271,42 @@ func agentInvoices(ctx context.Context) error {
 	return errs.Wrapf(w.Flush(), "agent invoices: print")
 }
 
+// agentUsage names the delivery agents.
+const agentUsage = "agent invoices | config | migration | test | reconcile | close-accruals | close-variances | cash-variance | tax-draft | credit-score | access-roles | access-sod | access-review | bid-compare | regulatory-notice | regulatory-draft | support-ask | support-diagnose | collections"
+
+// agents are the delivery agents but invoices, by their command's name,
+// each run with the arguments after it.
+var agents = map[string]func(context.Context, []string) error{
+	"config":            agentConfig,
+	"migration":         agentMigration,
+	"test":              agentTest,
+	"reconcile":         agentReconcile,
+	"close-accruals":    agentCloseAccruals,
+	"close-variances":   agentCloseVariances,
+	"cash-variance":     agentCashVariance,
+	"tax-draft":         agentTaxDraft,
+	"credit-score":      agentCreditScore,
+	"access-roles":      agentAccessRoles,
+	"access-sod":        agentAccessSod,
+	"access-review":     agentAccessReview,
+	"bid-compare":       agentBidCompare,
+	"regulatory-notice": agentRegulatoryNotice,
+	"regulatory-draft":  agentRegulatoryDraft,
+	"support-ask":       agentSupportAsk,
+	"support-diagnose":  agentSupportDiagnose,
+	"collections":       agentCollections,
+}
+
 // agentCmd runs a delivery agent with the agents' token.
 func agentCmd(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("agent invoices | config | migration | test | reconcile | close-accruals | close-variances | cash-variance | tax-draft | credit-score | access-roles | access-sod | access-review | bid-compare | regulatory-notice | regulatory-draft | support-ask")
+		return errors.New(agentUsage)
 	}
-	switch args[0] {
-	case "invoices":
+	if args[0] == "invoices" {
 		return agentInvoices(ctx)
-	case "config":
-		return agentConfig(ctx, args[1:])
-	case "migration":
-		return agentMigration(ctx, args[1:])
-	case "test":
-		return agentTest(ctx, args[1:])
-	case "reconcile":
-		return agentReconcile(ctx, args[1:])
-	case "close-accruals":
-		return agentCloseAccruals(ctx, args[1:])
-	case "close-variances":
-		return agentCloseVariances(ctx, args[1:])
-	case "cash-variance":
-		return agentCashVariance(ctx, args[1:])
-	case "tax-draft":
-		return agentTaxDraft(ctx, args[1:])
-	case "credit-score":
-		return agentCreditScore(ctx, args[1:])
-	case "access-roles":
-		return agentAccessRoles(ctx, args[1:])
-	case "access-sod":
-		return agentAccessSod(ctx, args[1:])
-	case "access-review":
-		return agentAccessReview(ctx, args[1:])
-	case "bid-compare":
-		return agentBidCompare(ctx, args[1:])
-	case "regulatory-notice":
-		return agentRegulatoryNotice(ctx, args[1:])
-	case "regulatory-draft":
-		return agentRegulatoryDraft(ctx, args[1:])
-	case "support-ask":
-		return agentSupportAsk(ctx, args[1:])
+	}
+	if run, ok := agents[args[0]]; ok {
+		return run(ctx, args[1:])
 	}
 	return fmt.Errorf("unknown agent %q", args[0])
 }
