@@ -262,7 +262,7 @@ shared role reads nothing through it.
 - `erp report -save` saves a report file in erp-server; `erp report -id`
   with erp-server's id (a UUID) runs it there and writes its dashboard;
   `-id` with `erp ask`'s id reruns the local file as before.
-- Walkthrough `step_saved_report` (step 78): Carla saves step 14's
+- Walkthrough `step_saved_report` (step 92): Carla saves step 14's
   revenue by company as a report; one naming a query it lacks and one
   naming an unknown metric are refused; she runs it, the billing system
   posts a sale of CAD 100.00, and the run shows revenue 100.00 higher;
@@ -294,7 +294,7 @@ shared role reads nothing through it.
   `analytics` in `outbox.Contexts`; `blobstore.KindReportRuns`.
 - The CSV of a run names a money measure's currency in a column of its
   own (`<name>_currency`), so no amount is without it.
-- Walkthrough `step_saved_report` (step 78) extended: Carla gives the
+- Walkthrough `step_saved_report` (step 92) extended: Carla gives the
   report a daily schedule dated in her company's time zone; a weekly one
   without its weekday is refused; the worker's round runs it once, and
   the run is listed as succeeded and read as CSV with the revenue she saw
@@ -335,7 +335,7 @@ shared role reads nothing through it.
   refused by `report_share_once`; ending a share locks the share's row
   alone, so it never waits for a change of the report
   (`TestShareLocks`).
-- Walkthrough `step_saved_report` (step 78) extended: Carla shares her
+- Walkthrough `step_saved_report` (step 92) extended: Carla shares her
   scheduled report and one of every company's revenue with Vera, who may
   act in Maple alone; Vera's run shows Maple's rows only, Carla's kept
   run over every company is neither listed nor read by her (403), she may

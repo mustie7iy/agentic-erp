@@ -582,7 +582,7 @@ A later slice adds its row here and its section under "As built".
   no change; a notice's planted instruction to create and activate a
   change request not followed, no change request existing. Not run
   against a live model.
-- Walkthrough `step_regulatory_agent` (step 78): Fiona, who manages tax,
+- Walkthrough `step_regulatory_agent` (step 87): Fiona, who manages tax,
   gives the agent a notice invented for the walkthrough and marked so,
   raising the rate of tax code V0 of company 1000 (the walkthrough's own
   code); a misquoted passage is refused; the agent recommends
@@ -653,7 +653,7 @@ A later slice adds its row here and its section under "As built".
 - No evaluation case drafts: a suite's setup cannot make a recommendation
   an agent made and a person accepted; the run's guards and check are
   tested in `internal/regulatoryagent` and the walkthrough.
-- Walkthrough `step_regulatory_agent` (step 78) extended: Fiona accepts
+- Walkthrough `step_regulatory_agent` (step 87) extended: Fiona accepts
   the recommendation; Ada grants the agent's role `config.change.propose`,
   `platform.operation.read` and `ledger.period.read`; the agent's first
   draft, also raising company 1000's price tolerance, is refused by the
@@ -710,7 +710,7 @@ A later slice adds its row here and its section under "As built".
   flight) replied to as unanswered; an instruction in the question to
   raise the tolerance not followed, no change request, the version still
   active. Not run against a live model.
-- Walkthrough `step_support_agent` (step 79): Ada sets the agent up with
+- Walkthrough `step_support_agent` (step 88): Ada sets the agent up with
   `config.version.read`, `identity.self.read` and its session
   permissions; Alex asks how an invoice above the tolerance is released;
   a reply naming an operation the contract does not have is refused; the

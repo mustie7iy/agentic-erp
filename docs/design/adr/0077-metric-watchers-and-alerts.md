@@ -231,7 +231,7 @@ may run it (`x-autonomy: read`).
   is 422 `analytics.invalid_watcher` naming the field; a watcher no longer
   active is 409 `analytics.watcher_inactive`; an answer cut at 500 rows is
   422 `analytics.watcher_too_many_series`.
-- Walkthrough `step_metric_watch` (step 78): Ben watches Maple's spend by
+- Walkthrough `step_metric_watch` (step 94): Ben watches Maple's spend by
   month in one currency above a value just below the latest month's
   figure; a watcher without the value's currency is refused; evaluated,
   it raises one alert naming the figure and the value; evaluated again, it
@@ -262,7 +262,7 @@ may run it (`x-autonomy: read`).
   list needs them (ADR-0053 consumer classes).
 - Budget: `TestAlertListBudget`, a page of 12,000 alerts of 200 watchers
   under 150 ms p95 (01-requirements' list with filters).
-- Walkthrough `step_metric_watch` (step 78) extended: a deviation watcher
+- Walkthrough `step_metric_watch` (step 94) extended: a deviation watcher
   on spend against the month before judges nothing, the month before
   having no spend; Carla lists the open alerts and acknowledges Ben's,
   once; Rita, granted the alerts' read but no invoice read, sees no alert

@@ -276,7 +276,7 @@ func TestLeaseAccountsAndJournal(t *testing.T) {
 // whose activation it would drop.
 func TestLeaseActivationRevert(t *testing.T) {
 	need(t)
-	down := migrationNamed(t, "000309_lease_activation").Down
+	down := migrationNamed(t, "000327_lease_activation").Down
 	ctx := context.Background()
 	tx, err := testDB.Begin(ctx)
 	if err != nil {

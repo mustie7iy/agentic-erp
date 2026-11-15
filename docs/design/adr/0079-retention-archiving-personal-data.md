@@ -364,7 +364,7 @@ question for the legal specialists before any period is shipped (plan,
   `GET /v1/retention-status`; `app.Records` wires it.
 - Migration 000316: the permission `records.retention.read`
   (`db/records_test.go`).
-- Walkthrough `step_retention` (step 79): Rhea, the records
+- Walkthrough `step_retention` (step 90): Rhea, the records
   administrator, reads that Maple has no rule and nothing past
   retention; Ada sets ten years for journal entries through a tier 3
   change, replayed and approved by Priya and Carla, and the migrated prior year is kept until
@@ -393,7 +393,7 @@ question for the legal specialists before any period is shipped (plan,
   `erp-server` on every replica with object storage; `archived` in the
   status. `blobstore.KindArchives`. ArchivingRunCompleted in
   `api/asyncapi.yaml` (not a webhook event).
-- Walkthrough `step_retention` (step 79, `retention_archive`): under the
+- Walkthrough `step_retention` (step 90, `retention_archive`): under the
   zero-year rule Rhea archives the prior year, closed by step 42's
   sign-off; the archiver completes the run, the file downloaded matches the
   run's SHA-256 and has one line per entry, as many as the ledger lists
@@ -412,7 +412,7 @@ question for the legal specialists before any period is shipped (plan,
   (p95 0.1 s for a principal with 200,000 audit events).
 - Migration 000318: the permission `records.privacy.read`
   (`db/records_test.go`).
-- Walkthrough `step_privacy` (step 80): Petra, the privacy officer, reads
+- Walkthrough `step_privacy` (step 91): Petra, the privacy officer, reads
   the inventory (the partner's name and bank details, the audit trail's
   client addresses among it) and Tyrell's rows per entry, counts and no
   value; her own name is counted once; an unknown kind is refused.

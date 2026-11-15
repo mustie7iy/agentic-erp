@@ -292,7 +292,7 @@ the contract's cost center. T88c records the detail when it builds it.
   `lease_contract` range.
 - `addMonths` moved from the cash context to `clock.AddMonths`, which both
   use (CLAUDE.md: a helper is moved, never copied).
-- Walkthrough step 78, `step_lease`: a three-year lease of office space,
+- Walkthrough step 96, `step_lease`: a three-year lease of office space,
   5,000.00 CAD a month in advance at 6 percent, read back with its 36
   payments; a foreign currency and a term the frequency does not divide
   refused; nothing posted. The pilot's settings add the company's
@@ -333,7 +333,7 @@ the contract's cost center. T88c records the detail when it builds it.
   `TestScheduleOf360Periods` (the liability in arrears 166,791.61, the
   annuity's present value); `TestScheduleBudget` reads the schedule of a
   contract of 600 payments, computed and stored, within 3 s at p95.
-- Walkthrough step 78 extended: the schedule read (the liability below
+- Walkthrough step 96 extended: the schedule read (the liability below
   the payments' sum, the first interval's interest half a percent of the
   liability alone, the last closing liability zero), the contract
   activated and its entry's two lines read back, a second activation

@@ -1,4 +1,4 @@
--- Lease accounting (T88a; ADR-0073 §1-§5; 02 §2.2, 03-data-model §3.32):
+-- Lease accounting (T88a; ADR-0073 §1-§5; 02 §2.2, 03-data-model §3.33):
 -- the leases context's schema with its outbox and inbox, the lease
 -- contract a company enters as lessee and its payment schedule, written
 -- when the contract is created. A contract is a draft and posts nothing

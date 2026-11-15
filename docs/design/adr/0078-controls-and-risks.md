@@ -518,7 +518,7 @@ limit.
   `GET /v1/risks/{id}/ratings`. The lock order of §12 has its test
   (`TestRiskWaitsForARetirement`).
 - `RiskChanged` in `api/asyncapi.yaml` (channel `grc`).
-- Walkthrough `step_risks` (step 78): Tara, the treasury manager,
+- Walkthrough `step_risks` (step 89): Tara, the treasury manager,
   records the risk of duplicate payments with step 76's control PAY-01,
   rated 2 by 4 (score 8); a control named twice and a likelihood of 6
   are refused; she rates it again 1 by 4 and the risk carries score 4

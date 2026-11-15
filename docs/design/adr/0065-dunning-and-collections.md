@@ -548,7 +548,7 @@ default 4; no new ADR), each listed for the product owner's digest.
   keyset), filtered by company, customer, status and assignee. No
   budget test: a keyset-paged list of stored rows over an index (07
   §7.7 item 7), as the dunning runs' list.
-- **Walkthrough.** `step_dispute` (step 78): Ruth opens a case on the
+- **Walkthrough.** `step_dispute` (step 95): Ruth opens a case on the
   invoice `step_dunning` dunned for CAD 150.00 of it; a second case and
   more than the item's amount are refused; she assigns it to herself
   with a note and reads it back; Northwind's open items are unchanged.

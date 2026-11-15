@@ -1549,7 +1549,7 @@ migrated_down_payment() {
 # CRA, "Charge and collect the tax - Which rate to charge",
 # https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html),
 # number ranges for the returns orders of step 74 (T85a) and the lease
-# contracts of step 78 (T88a), which no pack ships (the ranges of
+# contracts of step 96 (T88a), which no pack ships (the ranges of
 # customer invoices, incoming payments, quotations, sales orders, billing
 # documents and RFQs come from the pack since Canada 2026.9), the
 # right-of-use asset (1660) and lease liability (2650) accounts a lease's

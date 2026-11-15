@@ -1,5 +1,5 @@
 -- The lease schedule and the contract activated (T88b; ADR-0073 §7-§9;
--- 03-data-model §3.32): activating a draft lease contract posts the
+-- 03-data-model §3.33): activating a draft lease contract posts the
 -- right-of-use asset against the lease liability on the commencement
 -- date and keeps the schedule the amounts are taken from, so what later
 -- runs post is what was shown. The ledger's account determination takes
