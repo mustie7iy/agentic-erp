@@ -7097,6 +7097,13 @@
       "r": "workflows.ApprovalDeadline · approvals.Escalate · workflow.Codec · migration 000032",
       "src": "baseline",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "A holder of a deactivated role neither receives nor decides an approval step: identity.Directory.HoldsRole and RolesHeld ignore the role's status, so approvals route a step to the holder of a deactivated role and let that holder decide it, while authz grants that role nothing (pre-existing security finding on T95c's review)",
+      "r": "internal/identity/directory.go HoldsRole, RolesHeld · internal/approvals/approvals.go (step routing) · internal/approvals/inbox.go",
+      "src": "review:T95c",
+      "c": []
      }
     ]
    },
