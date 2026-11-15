@@ -1584,9 +1584,15 @@ PILOT_SETTINGS='
       {"number": "1030", "name": "Bank - RBC USD", "type": "asset", "revalue_foreign_currency": true},
       {"number": "1040", "name": "Bank incoming - RBC USD", "type": "asset", "open_items": true, "revalue_foreign_currency": true},
       {"number": "1660", "name": "Right-of-use assets", "type": "asset"},
-      {"number": "2650", "name": "Lease liabilities", "type": "liability"}]
+      {"number": "2650", "name": "Lease liabilities", "type": "liability"},
+      {"number": "1669", "name": "Right-of-use assets, accumulated depreciation", "type": "asset"},
+      {"number": "6720", "name": "Interest on lease liabilities", "type": "expense"},
+      {"number": "6730", "name": "Depreciation of right-of-use assets", "type": "expense"}]
     | .account_determination.right_of_use_asset = "1660"
     | .account_determination.lease_liability = "2650"
+    | .account_determination.lease_interest = "6720"
+    | .account_determination.right_of_use_depreciation = "6730"
+    | .account_determination.right_of_use_accumulated_depreciation = "1669"
     | .tax_codes = ((.tax_codes // []) + [{"code": "GO5", "description": "GST 5% on sales (walkthrough; the Canada pack codes purchases)",
         "direction": "output", "kind": "standard", "category": "S", "components": [{"key": "gst", "jurisdiction": "CA",
         "account_key": "output", "account": "2300", "rates": [{"rate_percent": "5", "valid_from": "@PREV@-01-01"}]}]},
@@ -10021,7 +10027,7 @@ month_first() {
   printf '%04d-%02d-01' $((y + m / 12)) $((m % 12 + 1))
 }
 
-# step_lease is T88a and T88b (ADR-0073): Lena, the lease accountant, enters the
+# step_lease is T88a, T88b and T88c (ADR-0073): Lena, the lease accountant, enters the
 # lease of a floor of office space from Tyrell as lessee: three years
 # from the first of this month, 5,000.00 CAD a month in advance, at an
 # annual discount rate of 6 percent, on the finance office's cost center.
@@ -10035,10 +10041,11 @@ month_first() {
 # closing liability of zero; activating it posts one entry on the
 # commencement date, the right-of-use asset (1660) against the lease
 # liability (2650), and stores the schedule; a second activation is
-# refused (T88b).
+# refused (T88b). The lease run of the commencement period posts the
+# first line's interest and depreciation (T88c, lease_run).
 step_lease() {
-  heading "Step 96 — Lease contracts: a three-year lease of office space entered as lessee, paid monthly in advance, read back with its 36 payments; a payment in a foreign currency and a frequency that does not divide the term refused; its schedule read; activated, posting the right-of-use asset against the lease liability"
-  local supplier=$SUPPLIER start center contract number body open entry
+  heading "Step 96 — Lease contracts: a three-year lease of office space entered as lessee, paid monthly in advance, read back with its 36 payments; a payment in a foreign currency and a frequency that does not divide the term refused; its schedule read; activated, posting the right-of-use asset against the lease liability; the lease run of the commencement period posting the first line's interest and depreciation"
+  local supplier=$SUPPLIER start center contract number body open entry year period
   [ -n "$supplier" ] || fail "step 4's supplier is not there"
   as ada
   say "Ada adds Lena, the lease accountant, to the team:"
@@ -10112,6 +10119,8 @@ step_lease() {
   expect "the right-of-use asset's line" "$(field "[.lines[] | select(.account_id == \"$(account 1660)\") | .amount.amount] | join(\" \")")" "$rou"
   expect "the lease liability's line" "$(field "[.lines[] | select(.account_id == \"$(account 2650)\") | .amount.amount] | join(\" \")")" "-$rou"
   expect "the entry's date and source" "$(field '"\(.posting_date) \(.source_context)"')" "$start leases"
+  year=$(field .fiscal_year)
+  period=$(field .fiscal_period)
   say "The schedule is now the stored one, which later runs post from; an active contract is activated once:"
   QUIET=1 api 200 '' getLeaseSchedule -p "id=$contract"
   expect "the stored schedule" "$(field '"\(.status) \(.lease_liability.amount) \(.right_of_use_asset.amount) \(.lines | length) \(.lines[35].closing_liability.amount)"')" \
@@ -10120,8 +10129,53 @@ step_lease() {
   refused 409 leases.invalid_status activateLeaseContract -p "id=$contract" -if-match "$ETAG"
   QUIET=1 api 200 '' listAuditEvents -p object_type=leases.contract -p "object_id=$contract"
   expect "the contract's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "leases.contract.activate leases.contract.create"
+  lease_run "$contract" "$number" "$year" "$period"
   LEASE_CONTRACT=$contract
   passed
+}
+
+# lease_run CONTRACT NUMBER YEAR PERIOD is T88c's part of step_lease
+# (ADR-0073 §9): Lena runs lease accounting for Maple and the commencement
+# period. The run posts each active contract's stored schedule lines whose
+# interval ends by the period's last day, here the contract's first line:
+# one entry dated that day, its interest debited to 6720 and credited to
+# the lease liability (2650), its depreciation debited to 6730 and
+# credited to accumulated depreciation (1669), the expenses on the
+# contract's cost center. The lease payment is not posted by the run. A
+# second run of the period is refused.
+lease_run() {
+  local contract=$1 number=$2 year=$3 period=$4 run interest depreciation entry body
+  say "At the end of the period Lena runs lease accounting for Maple and period $period of $year (ADR-0073 §9). For each active"
+  say "contract the run posts the stored schedule lines whose interval ends by the period's last day, here the first:"
+  say "its interest against the lease liability (2650) and its depreciation against accumulated depreciation (1669), the"
+  say "expenses (6720, 6730) on the contract's cost center. Tyrell's invoice for the payment is posted by a person:"
+  QUIET=1 api 200 '' getLeaseSchedule -p "id=$contract"
+  interest=$(field .lines[0].interest.amount)
+  depreciation=$(field .lines[0].depreciation.amount)
+  body="{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $year, \"fiscal_period\": $period}"
+  api 201 '"lease run of \(.company_code) \(.company_name) for \(.fiscal_year)/\(.fiscal_period), posted \(.posting_date): \(.contract_count) contracts read, \(.posting_count) posted; interest \(.interest_amount.amount), depreciation \(.depreciation_amount.amount) \(.currency)", (.postings[] | "  lease contract \(.document_number) \(.lessor_number) \(.lessor_name) on \(.cost_center_code): lines \(.first_line_no) to \(.last_line_no), interest \(.interest_amount.amount), depreciation \(.depreciation_amount.amount), journal entry \(.journal_entry_number)")' \
+    createLeaseRun -body "$body"
+  run=$(field .id)
+  expect "the run's period, contracts read and posted" "$(field '"\(.fiscal_year)/\(.fiscal_period) \(.contract_count) \(.posting_count) \(.currency)"')" "$year/$period 1 1 CAD"
+  expect "the run's interest and depreciation: the first line's" "$(field '"\(.interest_amount.amount) \(.depreciation_amount.amount)"')" "$interest $depreciation"
+  expect "the contract's posting" "$(field '.postings[0] | "\(.document_number) \(.first_line_no) \(.last_line_no) \(.cost_center_code)"')" "$number 1 1 CC-1100"
+  entry=$(field '.postings[0].journal_entry_id')
+  api 200 '"journal entry \(.document_number), \(.document_type), source \(.source_context), posted \(.posting_date), reference \(.reference)", (.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' \
+    getJournalEntry -p "id=$entry"
+  expect "the entry's source, type and reference" "$(field '"\(.source_context) \(.document_type) \(.reference)"')" "leases SA $number"
+  expect "interest expense and the liability moved by the first line's interest" \
+    "$(field "[.lines[] | select(.account_id == \"$(account 6720)\" or .account_id == \"$(account 2650)\") | .amount.amount] | sort | join(\" \")")" \
+    "$(printf '%s\n' "$interest" "-$interest" | sort | paste -sd' ' -)"
+  expect "depreciation expense and accumulated depreciation moved by its depreciation" \
+    "$(field "[.lines[] | select(.account_id == \"$(account 6730)\" or .account_id == \"$(account 1669)\") | .amount.amount] | sort | join(\" \")")" \
+    "$(printf '%s\n' "$depreciation" "-$depreciation" | sort | paste -sd' ' -)"
+  expect "the entry's four lines" "$(field '.lines | length')" 4
+  say "The run is read back and listed; one run per company and period, so a second is refused:"
+  QUIET=1 api 200 '' getLeaseRun -p "id=$run"
+  expect "the run read back" "$(field '"\(.id) \(.posting_count) \(.postings | length)"')" "$run 1 1"
+  api 200 '.items[] | "  \(.company_code) \(.fiscal_year)/\(.fiscal_period), posted \(.posting_date): \(.posting_count) of \(.contract_count) contracts posted"' \
+    listLeaseRuns -p "legal_entity_id=$LE"
+  refused 409 leases.run_exists createLeaseRun -body "$body"
 }
 
 # step_expense_report is T87a (ADR-0074): Ada gives Maple two expense
@@ -10312,6 +10366,60 @@ step_profitability() {
   say "Rita holds neither the report's permission nor the billing documents' read:"
   refused 403 identity.permission_missing getProfitabilityReport -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
   as carla
+  passed
+}
+
+# step_order_capture is T90a (ADR-0067 As built T90a): Northwind sends a
+# purchase order as plain text. Sally uploads it for order capture
+# (createSalesOrderUpload, purpose sales_order, under order capture's
+# permission, via the API's own path) and captures it through the model
+# stand-in: the draft order is Northwind's, found by the customer number
+# the order prints, with its two items, the brackets at Northwind's price
+# list price and the set-up at the price printed (manual), on the revenue
+# account and tax code Sally names; the order keeps what was read and the
+# upload names it. The same upload captured again answers the same order.
+# Capture never confirms: Sally confirms the draft.
+step_order_capture() {
+  heading "Step 99 — Order capture: a customer's purchase order uploaded as text and read into a draft sales order, the customer by its number, one item at the price list's price and one at the price printed; the same upload answers the same order; a person confirms it"
+  local customer=$CUSTOMER number up url code order
+  as sally
+  accounts
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$customer"
+  number=$(field .number)
+  printf 'NORTHWIND TRADERS\nPurchase order NW-4711, customer number %s\n1  BRACKET-M8 Machined bracket M8   250 EA\n2  Set-up, one hour                 1 H   120.00 CAD\nPlease confirm and ship at once.\n' \
+    "$number" >"$WORK/NW-4711.txt"
+  jq -n --arg n "$number" '{customer_name: "Northwind Traders", customer_number: $n, customer_tax_number: "", order_number: "NW-4711", currency: "CAD",
+    items: [{item_key: "BRACKET-M8", description: "Machined bracket M8", quantity: "250", unit: "EA", unit_price: ""},
+      {item_key: "", description: "Set-up, one hour", quantity: "1", unit: "H", unit_price: "120.00"}], confidence: "high"} | tojson' -r >"$WORK/model-answer.json"
+  say "Northwind sends a purchase order as plain text. Sally uploads it for order capture: an upload's permission"
+  say "follows its purpose, so an order's is started under order capture's permission, not an invoice's:"
+  api 201 '"upload \(.id): \(.status), \(.purpose), \(.content_type), via \(.via)"' createSalesOrderUpload \
+    -body '{"content_type": "text/plain", "via": "api"}'
+  up=$(field .id)
+  url=$(field .url)
+  code=$(curl -s -o "$WORK/put.out" -w '%{http_code}' -X PUT -H "Content-Type: text/plain" --data-binary @"$WORK/NW-4711.txt" "$ERP_API_URL$url")
+  expect "the upload's PUT" "$code" 204
+  say "She captures it into a draft order of Maple, every item on 4000 Sales with GO5 (a document names neither). The"
+  say "model (here the stand-in) reads the document as data: its request to confirm and ship is not done. The customer"
+  say "is the business partner whose number the order prints; the brackets print no price and take Northwind's price"
+  say "list, the set-up its printed price:"
+  api 202 '"operation \(.kind): \(.status)"' captureSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"upload_id\": \"$up\", \"account_id\": \"$(account 4000)\", \"tax_code\": \"GO5\"}"
+  wait_op
+  order=$(field .result.sales_order_id)
+  api 200 '"sales order \(.document_number) of \(.customer_number) \(.customer_name): \(.status), net \(.net_amount.amount) \(.net_amount.currency); captured from upload \(.capture.upload_id), the customer'"'"'s order \(.capture.customer_reference), found by \(.capture.customer_matched_by | join(" and "))", (.items[] | "  item \(.item_no) \(.item_key // "-") \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) per \(.price_unit) (\(.price_source)) = \(.net_amount.amount)")' \
+    getSalesOrder -p "id=$order"
+  expect "the captured order" "$(field '"\(.status) \(.customer_id) \(.items | length) \(.capture.customer_reference)"')" "draft $customer 2 NW-4711"
+  expect "where the prices came from" "$(field '[.items[] | "\(.item_no) \(.price_source)"] | join(", ")')" "1 price_list, 2 manual"
+  expect "the set-up at the price printed" "$(field '.items[1] | "\(.unit_price.amount) \(.net_amount.amount)"')" "120.00 120.00"
+  QUIET=1 api 200 '' getSalesOrderUpload -p "id=$up"
+  expect "the upload, consumed by the order" "$(field '"\(.status) \(.used_by)"')" "used $order"
+  say "The same upload captured again answers the same order:"
+  api 202 '"operation \(.kind): \(.status), order \(.result.sales_order_id)"' captureSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"upload_id\": \"$up\", \"account_id\": \"$(account 4000)\"}"
+  expect "the order answered" "$(field .result.sales_order_id)" "$order"
+  say "Capture never confirms. Sally checks the draft against the document and confirms it:"
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  api 200 '"sales order \(.document_number): \(.status), credit block \(.credit_block)"' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  expect "the order confirmed" "$(field .status)" confirmed
   passed
 }
 
@@ -12339,7 +12447,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_close'
 
 main() {
   stop_unseen

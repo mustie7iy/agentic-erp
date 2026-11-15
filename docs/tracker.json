@@ -3071,9 +3071,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The lease accountant runs lease accounting for a company and a period: per active contract the period's interest and depreciation are posted (POST /v1/lease-runs)",
-        "r": "T88c · docs/design/plan-breadth-week3.md §T88c",
+        "r": "T88c · docs/design/plan-breadth-week3.md §T88c · db/migrations/000332, 000333 · leases.run · leases.run_posting · account determination lease_interest, right_of_use_depreciation, right_of_use_accumulated_depreciation · POST/GET /v1/lease-runs · GET /v1/lease-runs/{id} · LeaseRunPosted · leases.run.post · ledger.Calendar.RegularPeriod · walkthrough step_lease (lease_run) · ADR-0073 §9, As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -4852,13 +4852,13 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Order capture agent",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A sales representative uploads a customer's purchase order document and order capture reads it into a draft sales order (the customer, the items with quantity, unit, item key or description and the printed price), which a person checks and confirms; capture never confirms (POST /v1/sales-orders:capture)",
-        "r": "T90a · docs/design/plan-breadth-week3.md §T90a",
+        "r": "T90a · docs/design/plan-breadth-week3.md §T90a · db/migrations/000334, 000335 · sales.sales_order capture, capture_upload_id · upload purpose sales_order · POST /v1/sales-orders:capture · sales.order.capture · internal/capture OrderExtractor · partner.Payees.FindCustomers · erp capture -order · evals/order_capture · walkthrough step_order_capture · ADR-0067 As built T90a, ADR-0020 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

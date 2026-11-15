@@ -568,6 +568,41 @@ func (UnimplementedHandler) CancelSupplierInvoice(ctx context.Context, req *Reas
 	return r, ht.ErrNotImplemented
 }
 
+// CaptureSalesOrder implements captureSalesOrder operation.
+//
+// Reads a customer's purchase order document into a draft sales order (ADR-0067, As built T90a). The
+// document is a direct upload (`createSalesOrderUpload`: purpose `sales_order`, a PDF or plain text)
+// consumed by this capture. A model reads it through the cell's model gateway (ADR-0036), whose
+// refusals of the tenant's call are answered as they are: 422 `agents.documents_withheld`, 403
+// `agents.ai_disabled`, 429 `agents.budget_exhausted`, 422 `agents.model_not_allowed` or
+// `agents.model_unpriced`; a document the model does not read, or that prints no items, is 422
+// `sales.unreadable_document`. The document is data: what it asks for (to confirm the order, to ship,
+// to change a price) is not done. The customer is the business partner whose number or tax
+// registration number the document prints (whatever the scheme): none is 422
+// `sales.capture_customer_unknown` and more than one 422 `sales.capture_customer_ambiguous`; whether
+// it may be sold to in the company is the order's check (422 `sales.customer_not_usable`). Each item
+// of the document is an item of the order with its item key when one is printed, its description,
+// quantity and unit: an item with a printed unit price takes it as entered (`price_source` `manual`),
+// one without takes its item key's price record valid on the order's date (`price_list`, T80a), and
+// one with neither is refused naming it by its place (422 `sales.no_price`, `items[i].unit_price`).
+// The currency is the one printed, else the company's. Every item takes the revenue account
+// (`account_id`) and output tax code (`tax_code`) of the request, which a document does not name;
+// their refusals name those fields. What an order created by hand refuses is refused alike. The order
+// is always a `draft`, numbered and dated as `createSalesOrder` makes one, and keeps what capture read
+// (`capture`); a person checks and confirms it (`:confirm`); capture never confirms. One upload gives
+// one order: the same upload captured again into the same company answers the same order; into another
+// company it is refused as used (422 `payables.upload_used`), naming no order. Extraction can take
+// longer than a synchronous answer, so this returns an Operation, completed within the request, whose
+// `resource` is the order and whose `result` names it with any warning (a confidence below high).
+// Audited and published as SalesOrderChanged, as an order created by hand. Human-only
+// (`x-agent: false`): an agent or a service cannot capture an order. The upload is started with
+// `createSalesOrderUpload`, which asks the same permission.
+//
+// POST /v1/sales-orders:capture
+func (UnimplementedHandler) CaptureSalesOrder(ctx context.Context, req *SalesOrderCaptureRequest, params CaptureSalesOrderParams) (r CaptureSalesOrderRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CaptureSupplierInvoice implements captureSupplierInvoice operation.
 //
 // Extracts a supplier invoice from a document and creates it `parked` with source `capture`.
@@ -1801,6 +1836,43 @@ func (UnimplementedHandler) CreateLeaseContract(ctx context.Context, req *LeaseC
 	return r, ht.ErrNotImplemented
 }
 
+// CreateLeaseRun implements createLeaseRun operation.
+//
+// Runs lease accounting for a company and one of its regular fiscal periods and posts it (ADR-0073
+// §9, T88c), in the request's transaction: either the whole run is posted or nothing. The system does
+// the arithmetic only; every judgement is the person's, on the contract. For each `active` lease
+// contract of the company the run takes the lines of the schedule stored at its activation
+// (`getLeaseSchedule`) whose payment interval ends on or before the period's last day and that no
+// earlier run posted: in the usual course the one line whose interval ends in the period, none in a
+// period that a quarterly or yearly interval does not end in, and a line whose period was run before
+// the contract was activated is caught up by the next run. A contract with such lines posts one
+// balanced journal entry (document type `SA`, `source_context` `leases`, dated the period's last day,
+// the contract's number as its reference) to every ledger the company keeps: the lines' interest
+// debited to the company's `lease_interest` account and credited to its `lease_liability` account, and
+// their depreciation debited to its `right_of_use_depreciation` account and credited to its
+// `right_of_use_accumulated_depreciation` account, both expenses on the contract's cost center; a
+// contract without such lines posts nothing. The lease payment itself is not posted by the run: a
+// person posts the lessor's invoice against the lease liability account. One run per company and
+// period: a second is refused (409 `leases.run_exists`), and a retry with the same `Idempotency-Key`
+// answers the run as the first answered it. A company's first run is for any open period; each later
+// run is for a later period than its last (409 `leases.run_period_not_later`): a run is not reversed
+// or repeated in the first version. `legal_entity_id` is a company the caller may act in (422
+// `request.reference_not_found`); `fiscal_period` is a regular posting period of `fiscal_year` in the
+// company's calendar (422 `ledger.no_fiscal_period` for a year that is not set up, 422
+// `ledger.period_not_regular`); the company has the four accounts (422 `leases.no_lease_accounts`,
+// naming the keys missing); the period is open in every ledger the company keeps (409
+// `ledger.period_not_open`), also when nothing is to post; the company has at most 2,000 active
+// contracts (422 `leases.run_too_large`: larger runs are not supported yet). What the ledger refuses
+// of an entry refuses the run (for example a cost center no longer valid on the period's last day).
+// The answer is the run with its counts, the interest and depreciation it posted and its postings, one
+// per contract that posted, each naming its lines and its journal entry. Audited, and published as
+// LeaseRunPosted. Human-only (`x-agent: false`).
+//
+// POST /v1/lease-runs
+func (UnimplementedHandler) CreateLeaseRun(ctx context.Context, req *LeaseRunCreate, params CreateLeaseRunParams) (r CreateLeaseRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateLegalEntity implements createLegalEntity operation.
 //
 // Creates a legal entity in status `inactive`.
@@ -2294,6 +2366,21 @@ func (UnimplementedHandler) CreateSalesOrder(ctx context.Context, req *SalesOrde
 	return r, ht.ErrNotImplemented
 }
 
+// CreateSalesOrderUpload implements createSalesOrderUpload operation.
+//
+// Starts a direct upload (ADR-0020) of purpose `sales_order`: a customer's purchase order, a PDF or
+// plain text of at most 50 MB, which `captureSalesOrder` consumes (ADR-0067 As built T90a). It answers
+// as `createUpload` does: a `url` to `PUT` the bytes to, with the `headers` to send, within
+// `expires_at`; `via: api` asks for the path on this API whatever the store. An upload's permission
+// follows its purpose: this one asks `sales.order.capture`, a supplier invoice's `createUpload` asks
+// `payables.invoice.capture`. Another content type is refused (422
+// `payables.unsupported_content_type`). Human-only (`x-agent: false`), as the capture is.
+//
+// POST /v1/sales-order-uploads
+func (UnimplementedHandler) CreateSalesOrderUpload(ctx context.Context, req *SalesOrderUploadCreate, params CreateSalesOrderUploadParams) (r CreateSalesOrderUploadRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateSalesPrice implements createSalesPrice operation.
 //
 // Records a price for an item key in a company (ADR-0067 §10, T80a): for every customer, or with
@@ -2411,7 +2498,10 @@ func (UnimplementedHandler) CreateSupplierQuotation(ctx context.Context, req *Su
 // to the tenant's request quota once its signature checks out, and carries the rate-limit headers (429
 // `request.rate_limited` with `Retry-After` over it); it is answered 503 with `Retry-After` while the
 // server is receiving as many documents as it can, or as many of the tenant's at once as one tenant
-// may (ADR-0020). 503 while the server has no object storage.
+// may (ADR-0020). 503 while the server has no object storage. A customer's purchase order is not
+// uploaded here but with `createSalesOrderUpload` (`sales.order.capture`, T90a): an upload's
+// permission follows its purpose, and purpose `sales_order` is refused here (422
+// `payables.unknown_upload_purpose`).
 //
 // POST /v1/uploads
 func (UnimplementedHandler) CreateUpload(ctx context.Context, req *UploadCreate, params CreateUploadParams) (r CreateUploadRes, _ error) {
@@ -3949,6 +4039,20 @@ func (UnimplementedHandler) GetLeaseContract(ctx context.Context, params GetLeas
 	return r, ht.ErrNotImplemented
 }
 
+// GetLeaseRun implements getLeaseRun operation.
+//
+// One lease run (ADR-0073 §9, T88c) with its company's code and name, its fiscal period and posting
+// date, the number of active contracts it read and of contracts it posted, the interest and
+// depreciation it posted and its `postings`, one per contract that posted, by contract number: the
+// contract with its lessor and cost center, the schedule lines it posted, their interest and
+// depreciation and the journal entry. One of a company the caller may not act in is not found (404),
+// as one that does not exist.
+//
+// GET /v1/lease-runs/{id}
+func (UnimplementedHandler) GetLeaseRun(ctx context.Context, params GetLeaseRunParams) (r GetLeaseRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetLeaseSchedule implements getLeaseSchedule operation.
 //
 // The schedule of one lease contract (ADR-0073 §8, T88b): the lease liability at commencement, the
@@ -4716,6 +4820,18 @@ func (UnimplementedHandler) GetSalesOrder(ctx context.Context, params GetSalesOr
 	return r, ht.ErrNotImplemented
 }
 
+// GetSalesOrderUpload implements getSalesOrderUpload operation.
+//
+// Returns one upload of purpose `sales_order` (T90a), as `getUpload` returns a supplier invoice's:
+// `open`, `received` or `used` by the order captured from it (`used_by`). An upload's permission
+// follows its purpose: this one asks `sales.order.capture`; an upload of another purpose is not found
+// here (404).
+//
+// GET /v1/sales-order-uploads/{id}
+func (UnimplementedHandler) GetSalesOrderUpload(ctx context.Context, params GetSalesOrderUploadParams) (r GetSalesOrderUploadRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetSalesPrice implements getSalesPrice operation.
 //
 // One price record (ADR-0067 §10, §11, T80a, T80b), a price or a discount, with its company's code
@@ -4818,7 +4934,9 @@ func (UnimplementedHandler) GetTaxReturnDraft(ctx context.Context, params GetTax
 // GetUpload implements getUpload operation.
 //
 // Returns one upload: `open` until bytes arrive through this API (`received`) or the upload is
-// consumed (`used`); an upload to object storage stays `open` until it is consumed.
+// consumed (`used`); an upload to object storage stays `open` until it is consumed. An upload's
+// permission follows its purpose: an upload of a customer's purchase order (`sales_order`) is read
+// with `getSalesOrderUpload` (`sales.order.capture`) and is not found here (404).
 //
 // GET /v1/uploads/{id}
 func (UnimplementedHandler) GetUpload(ctx context.Context, params GetUploadParams) (r GetUploadRes, _ error) {
@@ -5980,6 +6098,18 @@ func (UnimplementedHandler) ListJournalEntries(ctx context.Context, params ListJ
 //
 // GET /v1/lease-contracts
 func (UnimplementedHandler) ListLeaseContracts(ctx context.Context, params ListLeaseContractsParams) (r ListLeaseContractsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListLeaseRuns implements listLeaseRuns operation.
+//
+// The lease runs of the companies the caller may act in (ADR-0073 §9, T88c), latest posting date
+// first, each with its company's code and name, its fiscal period, its counts and the interest and
+// depreciation it posted, without its postings, which `getLeaseRun` gives. Filtered by company, fiscal
+// year and fiscal period. Sortable by: `posting_date`.
+//
+// GET /v1/lease-runs
+func (UnimplementedHandler) ListLeaseRuns(ctx context.Context, params ListLeaseRunsParams) (r ListLeaseRunsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

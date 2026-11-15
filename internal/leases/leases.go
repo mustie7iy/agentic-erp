@@ -9,7 +9,9 @@
 // for short-term or low-value leases is applied.
 //
 // Activating a contract posts the right-of-use asset against the lease
-// liability and stores its schedule (activate.go, ADR-0073 §7-§8).
+// liability and stores its schedule (activate.go, ADR-0073 §7-§8). A
+// lease run posts, per company and fiscal period, each active contract's
+// interest and depreciation from that schedule (run.go, ADR-0073 §9).
 //
 // The context is a leaf (ADR-0073 §1; ADR-0051 §2): it reads tenancy's
 // legal entities, the partner context's suppliers, the ledger's cost
@@ -86,9 +88,11 @@ type Numbers interface {
 	Next(ctx context.Context, legalEntity uuid.UUID, documentType string, fiscalYear int16) (string, error)
 }
 
-// Calendar maps dates to fiscal years (ledger context).
+// Calendar maps dates to fiscal years and names a company's regular
+// posting periods (ledger context).
 type Calendar interface {
 	FiscalYear(ctx context.Context, legalEntity uuid.UUID, date time.Time) (int16, error)
+	RegularPeriod(ctx context.Context, legalEntity uuid.UUID, year, number int32) (ledger.FiscalPeriod, error)
 }
 
 // Settings reads the active configuration: a company's time zone
@@ -109,6 +113,9 @@ type Endpoints struct {
 	Settings      Settings
 	Postings      Postings
 	Accounts      Accounts
+	// MaxRunContracts bounds the active contracts one run reads; 0:
+	// MaxRunContracts.
+	MaxRunContracts int
 	// Now is the clock a contract is numbered by, in its company's time
 	// zone; nil: the wall clock.
 	Now func() time.Time

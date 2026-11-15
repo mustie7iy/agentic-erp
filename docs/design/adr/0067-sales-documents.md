@@ -1546,3 +1546,77 @@ credited; T79b's posting is the pattern.
   paid out to the customer, cancelling a posted request, the credit memo
   as a document or an e-invoice, the credited amounts in the revenue
   contract and in rebates.
+
+### T90a Order capture into a draft sales order (migrations 000334, 000335)
+
+`docs/design/plan-breadth-week3.md`, T90a, and its rule 17: order
+capture creates a draft order at the printed price; a person confirms.
+
+- `POST /v1/sales-orders:capture` (`sales.order.capture`, `x-agent:
+  false`, idempotent by its key) takes a direct upload of purpose
+  `sales_order` (ADR-0020; a PDF or plain text, started with
+  `POST /v1/sales-order-uploads`), the company, and the
+  revenue account and optional output tax code every item takes, and
+  answers an Operation completed within the request whose `resource` is
+  the draft order, as an invoice's capture does. `internal/capture`
+  gained the order's extraction (`OrderExtractor`, `ExtractOrder`, its
+  own schema beside the invoice's, the document as a PDF or a plain-text
+  document block, the prompt treating it as data); the server's
+  `ClaudeExtractor` serves both through the cell's model gateway and its
+  budget (ADR-0036), whose refusals pass through as they are.
+- `internal/sales/capture.go`: the customer is the one business partner
+  whose number or tax registration number (any scheme, by the
+  identifiers' keyed hash, `partner.Payees.FindCustomers`) the document
+  prints; none is 422 `sales.capture_customer_unknown`, more than one
+  422 `sales.capture_customer_ambiguous`. Each document item is an order
+  item through `MakeOrder`'s own path (T78b's checks, T80a's price
+  determination, unchanged): a printed price as entered (`manual`), else
+  the item key's price record (`price_list`), else 422 `sales.no_price`
+  naming `items[i].unit_price`; the account's and tax code's refusals
+  name the request's `account_id` and `tax_code`. A document the model
+  does not read, or that prints no items, is 422
+  `sales.unreadable_document`. The order keeps `capture` and
+  `capture_upload_id`; the upload is closed as used by the order. The
+  same upload captured again into the same company answers its order
+  without reading the document again; into another company it is
+  refused as used (422 `payables.upload_used`) and names no order
+  (review round 1). A tax registration number is found by its keyed hash
+  alone through the index `tax_identifier_by_fingerprint` (migration
+  000334). `capture.Refusal` passes the gateway's refusals through for
+  both captures.
+- The upload is taken through a port (`sales.Uploads`), which
+  `payables.Uploads` answers with `Take` and `Used`, so sales does not
+  import payables; the take now checks the upload's purpose for both
+  captures (422 `payables.upload_purpose`).
+- `erp capture -order` uploads and captures an order; the evaluation
+  suite `evals/order_capture` (three cases: an order captured, a
+  document asking for an action that changes nothing, an unknown
+  customer refused) runs in replay in `TestEvalSuites`.
+- Walkthrough step 98 (`step_order_capture`): Northwind's text purchase
+  order uploaded and captured through the model stand-in into a draft
+  of two items (price list and manual), the same upload answering the
+  same order, and the draft confirmed by Sally.
+- Decided by default: a document names no revenue account or tax code,
+  so the capture request gives one of each for every item, as the person
+  who captures decides them (an item needing another is entered by hand
+  in the first version); the currency is the one printed, else the
+  company's; the tax registration number read is not stored on the order
+  (the partner context keeps tax numbers sealed), only that it found the
+  customer; the operation is `x-agent: false`, which also closes it to
+  services: the plan says "closed to agents as payables' capture is",
+  but the contract leaves the invoice's capture open to services and to
+  agents at autonomy level 2, so the order's is closed more strictly than
+  that.
+- Decided by default (coordinator, 2026-11-15; ERP practice, least
+  privilege): an upload's permission follows its purpose. A customer's
+  purchase order is uploaded with `POST /v1/sales-order-uploads`
+  (`createSalesOrderUpload`, `sales.order.capture`, `x-agent: false`,
+  a PDF or plain text), and `createUpload` (`payables.invoice.capture`)
+  refuses purpose `sales_order` (422 `payables.unknown_upload_purpose`):
+  a sales representative needs no accounts payable permission, and an
+  invoice clerk uploads no orders (`TestUploadPermissionFollowsPurpose`
+  tests the refusals). Reading follows it too: an order's upload is
+  read with `GET /v1/sales-order-uploads/{id}` (`getSalesOrderUpload`,
+  `sales.order.capture`) and an invoice's with `getUpload`, each answering
+  404 for an upload of the other purpose.
+

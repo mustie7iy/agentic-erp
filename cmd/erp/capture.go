@@ -22,20 +22,27 @@ import (
 // documents above it go through an upload.
 const requestLimit = 5 << 20
 
-// captureCmd captures a supplier invoice from a document file:
+// captureCmd captures a supplier invoice, or a customer's purchase order
+// (-order, T90a), from a document file:
 //
 //	erp capture -legal-entity ID -file invoice.pdf [-content-type application/pdf] [-upload]
+//	erp capture -order -legal-entity ID -file order.txt -account ID [-tax-code CODE]
 //
 // A document within the request limit is sent with the capture; a larger
 // one (or any, with -upload) goes through a direct upload first: the API
 // names where to PUT the bytes (object storage, or a path on the API) and
-// the capture then names the upload. It prints the Operation.
+// the capture then names the upload. An order always goes through an
+// upload, and its items take the revenue account and tax code given. It
+// prints the Operation.
 func captureCmd(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("capture", flag.ContinueOnError)
-	le := fs.String("legal-entity", "", "legal entity receiving the invoice (id)")
-	file := fs.String("file", "", "the document: PDF, PNG, JPEG or e-invoice XML")
+	le := fs.String("legal-entity", "", "legal entity receiving the invoice or taking the order (id)")
+	file := fs.String("file", "", "the document: PDF, PNG, JPEG or e-invoice XML; an order PDF or plain text")
 	ct := fs.String("content-type", "", "content type of the document (default: by extension)")
 	force := fs.Bool("upload", false, "upload first even for a small document")
+	order := fs.Bool("order", false, "capture a customer's purchase order into a draft sales order")
+	account := fs.String("account", "", "the order: revenue account of every item (id)")
+	taxCode := fs.String("tax-code", "", "the order: output tax code of every item")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -51,6 +58,9 @@ func captureCmd(ctx context.Context, args []string) error {
 	}
 	if *ct == "" {
 		*ct = contentTypeOf(*file)
+	}
+	if *order {
+		return captureOrder(ctx, map[string]string{"legal_entity_id": *le, "account_id": *account, "tax_code": *taxCode}, doc, *ct)
 	}
 	c, err := client("ERP_TOKEN")
 	if err != nil {
@@ -74,9 +84,51 @@ func captureCmd(ctx context.Context, args []string) error {
 	return printJSON(op)
 }
 
+// captureOrder uploads a customer's purchase order and captures it into a
+// draft sales order (POST /v1/sales-orders:capture); fields are the
+// company, the account and the tax code, "" for none.
+func captureOrder(ctx context.Context, fields map[string]string, doc []byte, contentType string) error {
+	if _, err := uuid.Parse(fields["account_id"]); err != nil {
+		return fmt.Errorf("-account %q is not an id; an order's items need their revenue account", fields["account_id"])
+	}
+	c, err := client("ERP_TOKEN")
+	if err != nil {
+		return err
+	}
+	op, err := orderCapture(ctx, c, fields, doc, contentType)
+	if err != nil {
+		return err
+	}
+	return printJSON(op)
+}
+
+// orderCapture uploads the document as a customer's purchase order and
+// captures it, returning the Operation.
+func orderCapture(ctx context.Context, c *apitools.Client, fields map[string]string, doc []byte, contentType string) (map[string]any, error) {
+	id, err := uploadFor(ctx, c, doc, contentType, "sales_order")
+	if err != nil {
+		return nil, err
+	}
+	body := map[string]string{"legal_entity_id": fields["legal_entity_id"], "upload_id": id, "account_id": fields["account_id"]}
+	if fields["tax_code"] != "" {
+		body["tax_code"] = fields["tax_code"]
+	}
+	res, err := c.Do(ctx, http.MethodPost, "/v1/sales-orders:capture", nil, body, "")
+	if err != nil {
+		return nil, err
+	}
+	var op map[string]any
+	if err := res.Decode(&op); err != nil {
+		return nil, err
+	}
+	return op, nil
+}
+
 // contentTypeOf is the content type a document's extension implies.
 func contentTypeOf(name string) string {
 	switch strings.ToLower(name[strings.LastIndex(name, ".")+1:]) {
+	case "txt":
+		return "text/plain"
 	case "png":
 		return "image/png"
 	case "jpg", "jpeg":
@@ -87,15 +139,28 @@ func contentTypeOf(name string) string {
 	return "application/pdf"
 }
 
-// upload creates an upload and PUTs the document where it says.
+// upload creates an upload of a supplier invoice and PUTs the document
+// where it says.
 func upload(ctx context.Context, c *apitools.Client, doc []byte, contentType string) (string, error) {
+	return uploadFor(ctx, c, doc, contentType, "supplier_invoice")
+}
+
+// uploadFor creates an upload for the purpose and PUTs the document where
+// it says.
+func uploadFor(ctx context.Context, c *apitools.Client, doc []byte, contentType, purpose string) (string, error) {
 	var up struct {
 		ID      string            `json:"id"`
 		URL     string            `json:"url"`
 		Method  string            `json:"method"`
 		Headers map[string]string `json:"headers"`
 	}
-	res, err := c.Do(ctx, http.MethodPost, "/v1/uploads", nil, map[string]string{"purpose": "supplier_invoice", "content_type": contentType}, "")
+	// An upload's permission follows its purpose: a customer's purchase
+	// order has an operation of its own (T90a).
+	path, body := "/v1/uploads", map[string]string{"purpose": purpose, "content_type": contentType}
+	if purpose == "sales_order" {
+		path, body = "/v1/sales-order-uploads", map[string]string{"content_type": contentType}
+	}
+	res, err := c.Do(ctx, http.MethodPost, path, nil, body, "")
 	if err != nil {
 		return "", err
 	}

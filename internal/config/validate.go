@@ -717,7 +717,8 @@ func (v *validator) customerReconciliation(ap string, a *Account) {
 // account is an asset vendor reconciliation account (ADR-0037), the
 // contract asset and contract liability accounts are an asset and a
 // liability that reconcile nothing (ADR-0068 §9), and so are a lease's
-// right-of-use asset and lease liability accounts (ADR-0073 §7).
+// right-of-use asset and lease liability accounts (ADR-0073 §7) and a
+// lease run's (leaseRunAccounts).
 func (v *validator) accountDetermination(p string, co *Company) {
 	ad := co.AccountDetermination
 	check := func(field, number string, want AccountType, recon bool) {
@@ -755,6 +756,23 @@ func (v *validator) accountDetermination(p string, co *Company) {
 	}
 	if ad.LeaseLiability != "" {
 		check("lease_liability", ad.LeaseLiability, Liability, false)
+	}
+	v.leaseRunAccounts(p, co)
+}
+
+// leaseRunAccounts checks the accounts a lease run posts to (ADR-0073 §9):
+// the interest and the depreciation are expenses, the accumulated
+// depreciation an asset, none a reconciliation account.
+func (v *validator) leaseRunAccounts(p string, co *Company) {
+	ad := co.AccountDetermination
+	for _, a := range []struct {
+		field, number string
+		want          AccountType
+	}{{"lease_interest", ad.LeaseInterest, Expense}, {"right_of_use_depreciation", ad.RightOfUseDepreciation, Expense},
+		{"right_of_use_accumulated_depreciation", ad.RightOfUseAccumulatedDepreciation, Asset}} {
+		if a.number != "" {
+			v.account(p+".account_determination."+a.field, co, a.number, a.want, false)
+		}
 	}
 }
 

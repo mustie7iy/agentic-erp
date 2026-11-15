@@ -145,6 +145,10 @@ type CancelSupplierInvoiceRes interface {
 	cancelSupplierInvoiceRes()
 }
 
+type CaptureSalesOrderRes interface {
+	captureSalesOrderRes()
+}
+
 type CaptureSupplierInvoiceRes interface {
 	captureSupplierInvoiceRes()
 }
@@ -353,6 +357,10 @@ type CreateLeaseContractRes interface {
 	createLeaseContractRes()
 }
 
+type CreateLeaseRunRes interface {
+	createLeaseRunRes()
+}
+
 type CreateLegalEntityRes interface {
 	createLegalEntityRes()
 }
@@ -459,6 +467,10 @@ type CreateRoleRes interface {
 
 type CreateSalesOrderRes interface {
 	createSalesOrderRes()
+}
+
+type CreateSalesOrderUploadRes interface {
+	createSalesOrderUploadRes()
 }
 
 type CreateSalesPriceRes interface {
@@ -881,6 +893,10 @@ type GetLeaseContractRes interface {
 	getLeaseContractRes()
 }
 
+type GetLeaseRunRes interface {
+	getLeaseRunRes()
+}
+
 type GetLeaseScheduleRes interface {
 	getLeaseScheduleRes()
 }
@@ -1067,6 +1083,10 @@ type GetRoleRes interface {
 
 type GetSalesOrderRes interface {
 	getSalesOrderRes()
+}
+
+type GetSalesOrderUploadRes interface {
+	getSalesOrderUploadRes()
 }
 
 type GetSalesPriceRes interface {
@@ -1443,6 +1463,10 @@ type ListJournalEntriesRes interface {
 
 type ListLeaseContractsRes interface {
 	listLeaseContractsRes()
+}
+
+type ListLeaseRunsRes interface {
+	listLeaseRunsRes()
 }
 
 type ListLedgerGroupsRes interface {

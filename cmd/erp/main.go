@@ -10,6 +10,7 @@
 //	erp migrate -connector ID -legal-entities ID,... -year 2026 [-rehearsal]
 //	erp invoices [-agent]          match parked invoices, post clean ones
 //	erp capture -legal-entity ID -file F   capture an invoice document (large ones through an upload)
+//	erp capture -order -legal-entity ID -file F -account ID   capture a customer's purchase order into a draft sales order
 //	erp agent invoices|config|migration|test|reconcile|cash-variance|credit-score|access-roles|access-sod|access-review|bid-compare|regulatory-notice|regulatory-draft|support-ask
 //	erp metrics | query | ask | report
 //	erp gen-mock-sap | config generate | config validate
@@ -143,7 +144,7 @@ the API (ERP_API_URL, ERP_TOKEN):
   call           call any API operation: erp call getPaymentRun -p id=...
   migrate        run a migration scope from a connector: start, reconcile, print the report
   invoices       match parked supplier invoices and post the clean ones (-agent: investigate held ones)
-  capture        capture a supplier invoice from a document file (large ones through an upload)
+  capture        capture a supplier invoice from a document file (large ones through an upload); -order: a customer's purchase order into a draft sales order
   metrics        list the tenant's governed metrics
   query          run a semantic query over the data you may read
   ask            ask a question; the analytics agent builds a dashboard on demand
