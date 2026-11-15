@@ -31,3 +31,18 @@ func TestInputNumbersAreNotRead(t *testing.T) {
 		t.Error("the amount the input asked about: got returned as money, want not")
 	}
 }
+
+// TestAnalyticsCellsAreMoney: a money measure's cell of runAnalyticsQuery,
+// its value beside a currency, is an amount returned as money (T105d); a
+// ratio's cell, without a currency, and a dimension's are text, whose
+// fractions are not amounts.
+func TestAnalyticsCellsAreMoney(t *testing.T) {
+	f := newFigures("")
+	f.add([]byte(`{"columns": [{"name": "spend", "currency": "CAD"}], "rows": [[{"value": "4700.00"}, {"value": "1200.50", "currency": "CAD"}, {"value": "0.2500"}]]}`), input{})
+	if !f.Returned("1200.50") {
+		t.Error("a money cell: got not returned as money, want returned")
+	}
+	if got := strings.Join(f.Unread("1200.50 CAD, 4700.00 and 0.2500"), " "); got != "4700.00 0.2500" {
+		t.Errorf("numbers not read: got %q, want %q", got, "4700.00 0.2500")
+	}
+}

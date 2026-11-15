@@ -10518,6 +10518,79 @@ step_expense_report() {
   passed
 }
 
+# step_savings_agent is T105d (ADR-0072 As built): the savings
+# opportunity agent, erp agent savings through the model stand-in
+# answering from a script of turns (its suite's replay, evals/savings),
+# finds the opportunities in Maple's purchasing of this year and last: the
+# suppliers with spend off contract (all of them, as step_spend showed),
+# the accounts bought from several suppliers and the orders above a
+# contract's price; it recommends bringing Tyrell under a contract, naming
+# its spend off contract as the spend metric returns it. A recommendation
+# stating a saving with a figure is refused by the run first. Its own
+# contract is refused (403); Ben accepts, which creates nothing.
+step_savings_agent() {
+  heading "Step 99 — The savings opportunity agent: from the spend of step 71 it recommends bringing the off-contract supplier under a contract, naming its spend off contract; a saving stated in money refused; nothing created"
+  local role period number name q want got session rec contracts
+  as ada
+  say "Ada sets up the savings opportunity agent (ADR-0072): an agent principal of type savings at autonomy level 1 on"
+  say "erp-default. Its role reads the spend metrics and what they read (supplier invoices, orders, contracts, cost"
+  say "centers, accounts and suppliers) and records its sessions; it holds no permission that creates an RFQ, a contract or an order."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "savings_agent", "name": "Savings opportunity agent"}'
+  role=$(field .id)
+  grant "$role" tenancy.org.read analytics.query.run payables.invoice.read procurement.order.read procurement.contract.read \
+    ledger.cost_center.read ledger.account.read partner.supplier.read agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "savings-agent", "display_name": "Savings opportunity agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "savings", "model": "erp-default", "description": "Recommends savings opportunities in purchasing for a buyer to decide (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token savings-agent "Savings opportunity agent"
+  as ben
+  period="$PREV-01-01..$TODAY"
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$SUPPLIER"
+  number=$(field .number) name=$(field .name)
+  say "What the agent will read, as Ben reads it: Tyrell's spend off contract from $PREV-01-01 to today, by currency:"
+  q="{\"measures\": [\"spend_off_contract\"], \"by\": [\"vendor\", \"vendor_name\", \"currency\"], \"companies\": [\"$CC\"], \"where\": [{\"dim\": \"posting_date\", \"op\": \"between\", \"values\": [\"$PREV-01-01\", \"$TODAY\"]}], \"order_by\": \"spend_off_contract\", \"desc\": true}"
+  api 200 "(.rows[] | select(.[0].value == \"$number\") | \"  \\(.[1].value): \\(.[3].value) \\(.[2].value) off contract\")" runAnalyticsQuery -body "$q"
+  want="Spend off contract $(field "[.rows[] | select(.[0].value == \"$number\") | \"\(.[3].value) \(.[2].value)\"] | join(\", \")")"
+  [ "$want" != "Spend off contract " ] || fail "no spend of Tyrell off contract: step 71's invoices are not there"
+  jq -n --arg s "$SUPPLIER" --arg want "$want" --arg q "$q" --arg name "$name" '
+    {session_id: "{{session}}", object_type: "business_partner", object_id: $s, kind: "bring_under_contract"} as $on |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "runAnalyticsQuery", input: {body: ($q | fromjson)}},
+      {tool: "createRecommendation", input: {body: ($on + {content: ($want + "\nA contract with \($name) saves 10 percent of it.")})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: ($want + "\nNone of \($name)'"'"'s spend in the period is under a contract: no order of it was made on one. Negotiate a contract; the buyer judges what it would save.")})}},
+      {final: "Recommended bringing Tyrell under a contract; the other opportunities are left for another run."}]}' >"$WORK/model-script.json"
+  say "Ben runs the agent: erp agent savings finds the opportunities of the period before its session, then, through the"
+  say "stand-in's script (its suite's replay, evals/savings), reads the spend, states a saving (refused by the run: it"
+  say "states only the spend an opportunity covers) and recommends bringing Tyrell under a contract."
+  show ERP_AGENT_TOKEN=… erp agent savings -company "$CC" -period "$period" -max 20
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/savings-agent") "$ERP" agent savings -company "$CC" -period "$period" -max 20 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent savings failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): bring_under_contract on business_partner $SUPPLIER .*/\1/p")
+  [ -n "$rec" ] || fail "erp agent savings printed no bring_under_contract on Tyrell"
+  api 200 '"  \(.kind) on the \(.object_type), \(.outcome // "open"): \(.content | split("\n") | join(" / "))"' getRecommendation -p "id=$rec"
+  expect "naming Tyrell's spend off contract" "$(field '.content | split("\n")[0]')" "$want"
+  expect "made in its session" "$(field .session_id)" "$session"
+  as savings-agent
+  api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "runAnalyticsQuery createRecommendation createRecommendation"
+  say "Recommending is all it may do: its role creates no contract, so the API refuses its own:"
+  refused 403 identity.permission_missing createContract -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"valid_from\": \"$TODAY\", \"valid_to\": \"$TODAY\", \"target_value\": {\"amount\": \"1.00\", \"currency\": \"CAD\"}, \"items\": []}"
+  as ben
+  QUIET=1 api 200 '' listContracts -p "legal_entity_id=$LE" -p "supplier_id=$SUPPLIER" -p page_size=200
+  contracts=$(field '.items | length')
+  say "Ben accepts the recommendation, which creates nothing: he asks Tyrell for a contract himself."
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" -body '{"outcome": "accepted"}'
+  QUIET=1 api 200 '' listContracts -p "legal_entity_id=$LE" -p "supplier_id=$SUPPLIER" -p page_size=200
+  expect "Tyrell's contracts, as they were" "$(field '.items | length')" "$contracts"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -12542,7 +12615,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_collections_agent step_lease step_expense_report step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_collections_agent step_lease step_expense_report step_savings_agent step_close'
 
 main() {
   stop_unseen

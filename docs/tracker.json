@@ -4623,13 +4623,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Savings opportunity agent",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The savings opportunity agent reads the spend cube, contracts and catalog items and recommends savings opportunities (spend outside a contract, several suppliers for one account, prices above a contract's) with the figures behind each for a buyer to decide (erp agent savings)",
-        "r": "T105d · docs/design/plan-breadth-week3.md §T105d",
+        "r": "T105d · docs/design/plan-breadth-week3.md §T105d · internal/savingsagent · agent type savings · erp agent savings -company CODE [-period FROM..TO] [-max N] · runAnalyticsQuery a read of the pattern (x-autonomy: read) · evals/savings · walkthrough step_savings_agent · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

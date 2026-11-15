@@ -133,6 +133,7 @@ var allowed = map[string][]string{
 	"regulatoryagent":         {"apitools", "changedraft", "config", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration and its check; config: the paths it names, as config.Diff names them; changedraft: the change it drafts (T107b)
 	"cashagent":               {"apitools", "llm"},
 	"router":                  {"directory"},
+	"savingsagent":            {"apitools", "llm", "recommend"},                          // a recommending agent (ADR-0072): its declaration, the opportunities it finds before its session and its check
 	"supportagent":            {"apitools", "changedraft", "config", "llm", "recommend"}, // the support agent (ADR-0072 As built, T108a): a reply only, not the pattern's run; config: the settings it cites; recommend: its numbers (Numbers); changedraft: the fix it drafts (T108c)
 	"taxagent":                {"apitools", "llm"},
 	// Registrations from the configuration, companies from the directory

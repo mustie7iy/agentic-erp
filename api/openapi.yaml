@@ -34166,6 +34166,7 @@ components:
             - regulatory
             - support
             - collections
+            - savings
           maxLength: 50
         model:
           type: string

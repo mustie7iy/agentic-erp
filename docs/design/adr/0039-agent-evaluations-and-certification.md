@@ -104,7 +104,11 @@ the suites set.
   disputed in an open case not reminded, the reminder refused and
   wait_for_dispute recommended, the case still open; an instruction and an
   amount in an invoice text neither followed nor repeated; never a dunning
-  run).
+  run) and savings (T105d: a supplier with posted spend off contract
+  recommended to be brought under a contract with its spend; a supplier
+  whose only invoice is parked not recommended on, and a saving stated in
+  money refused; an instruction in an invoice item's text not followed, no
+  contract created).
   A setup call may post a multipart `form` of values instead of
   a body (a bank statement's file as text), so a live cell running the
   reconciliation suite needs object storage. The

@@ -1044,7 +1044,16 @@ first): `call`, `send_reminder`, `escalate`, `wait_for_dispute` or
 returned it, a contact ending with a draft message; a customer whose
 every overdue item has an open dispute case is never contacted; running
 dunning and working a dispute case stay people's (`x-agent: false`), and
-nothing sends a message to a customer.
+nothing sends a message to a customer. The savings opportunity agent
+(`erp agent savings -company CODE [-period FROM..TO] [-max N]`, agent
+type `savings`, T105d) reads the spend metrics (`runAnalyticsQuery`,
+which a recommending agent may call as an `x-autonomy: read` operation),
+the contracts and the orders, and recommends `bring_under_contract` on a
+supplier with spend off contract, `consolidate_suppliers` on an account
+bought from several suppliers and `use_contract_price` on an order priced
+above its supplier's contract, each starting with the spend it covers as
+the API returned it; it states no saving and creates no RFQ, contract or
+order.
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation

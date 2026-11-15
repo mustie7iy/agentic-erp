@@ -76,7 +76,9 @@ nothing imports it but `cmd/erp`.
 
 An agent's tools are reads and the one recommendation. `Agent.Run`
 refuses, before a session starts, a declaration whose `Reads` name
-anything but a `GET` of the contract (`recommend.ErrNotARead`), and
+anything but a read of the contract, a `GET` or an operation marked
+`x-autonomy: read` (T105d: `runAnalyticsQuery`, a `POST` that changes
+nothing) (`recommend.ErrNotARead`), and
 `apitools` builds no tool of an operation closed to agents. So the
 permissions, company access and masking are the API's, and an agent of
 this pattern cannot be handed a write by mistake. An agent whose slice
@@ -208,6 +210,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `collections` | `internal/collectionsagent`, `erp agent collections -company CODE [-key-date YYYY-MM-DD]` | `getCollectionWorklist`, `getReceivablesAging`, `listDunningRuns`, `listDunningNotices`, `listIncomingPayments`, `listCustomerInvoices`, `listDisputeCases`, `getDisputeCase`, `listOpenItems`, `listAccounts`, `getBusinessPartner` | on `business_partner` (a customer of the worklist): `call`, `send_reminder`, `escalate`, `wait_for_dispute`, `no_action` | `createDunningRun`, `confirmDunningRun`, `createDisputeCase`, `updateDisputeCase`, `closeDisputeCase`; nothing in the contract sends to a customer |
 | `support` (diagnosis, T108b) | `internal/supportagent`, `erp agent support-diagnose -type KIND -id ID [WHAT HAPPENED]` | T108a's (`listConfigVersions`, `getConfigVersion`, `getSchema`, `getCurrentPrincipal`), `listAuditEvents`, `listOperations`, `listApprovalRequests`, each document's read (`getSupplierInvoice`, `getCustomerInvoice`, `getJournalEntry`, `getPurchaseOrder`, `getSalesOrder`, `getPaymentRun`, `getChangeRequest`, `getOperation`), the contract's search (`findOperations`) | on the document (its kind): `root_cause` | every write: its tools hold none |
 | `support` (fix, T108c) | `erp agent support-fix -recommendation ID` | `getRecommendation`, `listConfigVersions`, `getConfigVersion`, `getChangeRequest`, `getOperation`; writes `createChangeRequest`, `updateChangeRequest`, `simulateChangeRequest` (`internal/changedraft`) | on `change_request`: `ready_to_submit`, `simulation_failed` | submitting, withdrawing or activating a change request, a decision on an approval or a recommendation, any write of master data or a document |
+| `savings` | `internal/savingsagent`, `erp agent savings -company CODE [-period FROM..TO] [-max N]` | `runAnalyticsQuery`, `getAnalyticsModel`, `listContracts`, `getContract`, `listCatalogItems`, `listPurchaseOrders`, `getPurchaseOrder`, `getBusinessPartner`, `listAccounts` | on `business_partner`: `bring_under_contract`; on `account`: `consolidate_suppliers`; on `purchase_order`: `use_contract_price` | `createRfq`, `publishRfq`, `createContract`, `releaseContract`, `createPurchaseOrder`, `releasePurchaseOrder` |
 
 A later slice adds its row here and its section under "As built".
 
@@ -904,12 +907,80 @@ A later slice adds its row here and its section under "As built".
   of the lamp is left open for the steps after.
 - No migration, no new operation, permission, event or problem code.
 
+### T105d, the savings opportunity agent
+
+- `internal/savingsagent`; agent type `savings` (added to the profile's
+  open enumeration, `autonomy.Types`, and the contract's and the event's
+  descriptions of it); `erp agent savings -company CODE [-period
+  FROM..TO] [-max N]`. The period defaults to the year to today, UTC (as
+  T105a's date); `-max` (default ten, `MaxOpportunities`) bounds the
+  recommendations of a run: the plan's "at most a stated number".
+- **Found before the session, not judged** (`find.go`): the spend metrics
+  of T91b (`runAnalyticsQuery`, the company in `companies`, `posting_date`
+  between the period's days): `spend_off_contract` by supplier and
+  currency, a supplier with some above zero being an opportunity
+  `bring_under_contract` on its business partner (found by its number);
+  `spend` by account, supplier and currency, an account with spend from
+  more than one supplier in one currency being an opportunity
+  `consolidate_suppliers` on the account (found by its number in the
+  company); and, where the company has active contracts, its orders of the
+  period (`listPurchaseOrders`), an order released or closed, made on no
+  contract, with an item of a material priced above the item of an
+  active contract of the same supplier valid on the order's date (same
+  currency, same price unit) being an opportunity `use_contract_price` on
+  the order. Each recommendation is on its own object (§3: one per
+  object), not on the company as the plan writes it. A period without
+  opportunities starts no session and says so; a read refused stops the
+  run before a session.
+- **`runAnalyticsQuery` is a read of the pattern**: `recommend.Agent.Run`
+  now admits among an agent's reads an operation marked `x-autonomy:
+  read` beside a `GET`; and a money measure's cell (a `value` beside a
+  `currency`) counts as money in the figures (§4), as a Money's
+  `amount` does, so the spend the agent states is an amount a read
+  returned.
+- Its check (`savingsagent.review.check`): the first line is the spend
+  the opportunity covers as found (`Spend off contract <amount> <currency>`,
+  per currency; `Spend <amount> <currency>`; `Ordered <amount>
+  <currency>`, the order's total), each amount one a tool of the run
+  returned as money (read again by the model); a saving stated with a
+  figure (a word of saving, reducing or cheaper and a number in the same
+  sentence) is refused, the plan's "no saving in money" (default 13);
+  every number is one the run read.
+- Its reads: `runAnalyticsQuery`, `getAnalyticsModel`, `listContracts`,
+  `getContract`, `listCatalogItems`, `listPurchaseOrders`,
+  `getPurchaseOrder`, `getBusinessPartner`, `listAccounts`; its role needs
+  the spend metrics' permissions (`analytics.query.run`,
+  `payables.invoice.read`, `procurement.order.read`,
+  `procurement.contract.read`, `ledger.cost_center.read`,
+  `ledger.account.read`, `partner.supplier.read`) and `tenancy.org.read`.
+  Its never list: `createRfq`, `publishRfq`, `createContract`,
+  `releaseContract`, `createPurchaseOrder`, `releasePurchaseOrder`.
+- `erp agent savings` prints each recommendation with its object's name
+  (the supplier's number and name, the account's number and name, the
+  order's number) and its first line (`recommend.Result.Names`).
+- `evals/savings`, version 1, replayed to level 2: a supplier with posted
+  spend off contract recommended to be brought under a contract with its
+  spend; a supplier whose only invoice is parked not recommended on (the
+  recommendation refused) and a saving stated in money refused; an
+  instruction in an invoice item's text not followed, no contract
+  created. Not run against a live model.
+- Walkthrough `step_savings_agent` (step 99, before the close): Ada sets
+  the agent up; Ben reads Tyrell's spend off contract of this year and
+  last; the agent's recommendation stating a saving is refused; it
+  recommends `bring_under_contract` on Tyrell, its first line Tyrell's
+  spend off contract as the metric returns it; its own contract is
+  refused (403); Ben accepts, and Tyrell's contracts are as they were.
+- No migration, no new operation, permission, event or problem code; the
+  agent type `savings` added to the open enumeration of
+  `agent_profile.agent_type`.
+
 ## Defaults taken (for the product owner's digest)
 
 1. The shared run is a package, `internal/recommend`, not a copy per
    agent (`CLAUDE.md`: no copied helpers); `apitools.LegalEntity` likewise.
-2. An agent of the pattern has no tool but reads (`GET`) and
-   `createRecommendation`, refused at run time otherwise.
+2. An agent of the pattern has no tool but reads (`GET`, or marked
+   `x-autonomy: read`, T105d) and `createRecommendation`, refused at run
+   time otherwise.
 3. Every number in a recommendation that states amounts is one the run
    read (§4 says what that floor does not see), and **the recommended
    limit is an amount a read of the run returned as money**: the credit
@@ -1010,3 +1081,27 @@ A later slice adds its row here and its section under "As built".
     detail, the posting date asked for), as ADR-0046 audits a rule's
     refusal, so a parked invoice's trail shows why; the other documents'
     refusals are not audited (a gap for the product owner).
+20. (T108c) The fix is drafted only from an accepted `root_cause` of the
+    class `configuration` that cites a setting, and changes exactly one
+    of the settings it cites; a cited setting the active version no
+    longer holds with that value stops the run (diagnose again). T107b's
+    drafting is shared from `internal/changedraft`, each agent giving its
+    scope. Its first line is the draft's change as `config.Diff` writes
+    it. No evaluation case, as for T107b.
+21. (T105d) The plan has every recommendation "on the company"; §3 has
+    one recommendation per object, so each opportunity is recommended on
+    its own object: the supplier (`bring_under_contract`), the account
+    (`consolidate_suppliers`), the purchase order (`use_contract_price`);
+    the company is the run's. The opportunities are found by the run's
+    code, not the model: a supplier with spend off contract in the period;
+    an account with spend from more than one supplier in one currency; an
+    order released or closed, made on no contract, with an item of a
+    material priced above the item of an active contract of the same
+    supplier valid on the order's date, in the same currency per the same
+    quantity. At most ten a run by default (`-max`), suppliers first, then
+    accounts, then orders, each the largest spend first. The period
+    defaults to the year to today (UTC). The first line is the spend the
+    opportunity covers as a tool returned it (the spend off contract, the
+    account's spend, the order's total), per currency, never summed
+    across currencies; a saving stated with a figure is refused (a
+    backstop: a saving stated in other words is not seen).
