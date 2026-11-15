@@ -636,6 +636,12 @@ func TestAnalyticsErrors(t *testing.T) {
 		t.Errorf("metrics: got %s, want the tenant's aa_total listed", got)
 	}
 	fails(t, "not a directory", "query", "-measures", "invoice_count", "-csv", "file/q.csv")
+	fails(t, "query: create workbook", "query", "-measures", "invoice_count", "-xlsx", "file/q.xlsx")
+	// The workbook holds the rows the CSV does (T95d).
+	must(t, "query", "-measures", "invoice_count", "-by", "fiscal_month", "-csv", "q.csv", "-xlsx", "q.xlsx")
+	if b, err := os.ReadFile("q.xlsx"); err != nil || !bytes.HasPrefix(b, []byte("PK\x03\x04")) {
+		t.Errorf("workbook: got %.20q (%v), want a ZIP package", b, err)
+	}
 	// A month without revenue shows a dash; the answer says where it came from.
 	got := must(t, "query", "-measures", "revenue,invoice_count", "-by", "fiscal_month")
 	for _, want := range []string{"—", "from the database as of 2026-10-20T12:00:00Z"} {

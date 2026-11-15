@@ -1,9 +1,12 @@
 package reports_test
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -15,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/analytics/reports"
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
@@ -126,12 +130,23 @@ func TestScheduledRun(t *testing.T) {
 		t.Errorf("audit: got %v, want the run's", a)
 	}
 	e.Problem(422, "analytics.unknown_query", "GET", "/v1/report-runs/"+runID+"?format=csv&query_id=nope", "", "")
-	e.Problem(422, "request.validation_failed", "GET", "/v1/report-runs/"+runID+"?format=xlsx", "", "")
-	// Its bytes changed in storage: refused, never served.
+	e.Problem(422, "request.validation_failed", "GET", "/v1/report-runs/"+runID+"?format=pdf", "", "")
+	// The same result as an Excel workbook (T95d): its sheet holds the
+	// amount as a number with its currency's decimals, and its currency.
+	xlsx := e.API.Do(apitest.Req{Method: "GET", Path: "/v1/report-runs/" + runID + "?format=xlsx", Tenant: e.Tenant.ID, As: e.Tenant.Human})
+	if got := xlsx.Header().Get("Content-Type"); xlsx.Code != 200 || got != analytics.XLSXMediaType {
+		t.Fatalf("workbook: got %d %s, want 200 %s", xlsx.Code, got, analytics.XLSXMediaType)
+	}
+	if sheet := sheetOf(t, xlsx.Body.Bytes()); !strings.Contains(sheet, `<sheet name="Report"`) || !strings.Contains(sheet, `<c r="B2" s="1"><v>500.00</v></c>`) ||
+		!strings.Contains(sheet, `<t xml:space="preserve">EUR</t>`) {
+		t.Errorf("workbook: got %s, want 2000's 500.00 EUR on the sheet Report", sheet)
+	}
+	e.Problem(422, "analytics.unknown_query", "GET", "/v1/report-runs/"+runID+"?format=xlsx&query_id=nope", "", "")
 	path := filepath.Join(e.root, filepath.FromSlash(blobstore.Key(e.Tenant.ID, blobstore.KindReportRuns, runID+".json")))
 	if err := os.Chmod(path, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// Its bytes changed in storage: refused, never served.
 	if err := os.WriteFile(path, []byte(`{}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -386,4 +401,26 @@ func TestSchedulerRun(t *testing.T) {
 	pgtest.Eventually(t, time.Minute, func() bool { return len(e.runs(t, id)) == 1 }, "report %s not run", id)
 	cancel()
 	<-stopped
+}
+
+// sheetOf is a workbook's workbook and sheet parts, one after the other.
+func sheetOf(t *testing.T, b []byte) string {
+	t.Helper()
+	z, err := zip.NewReader(bytes.NewReader(b), int64(len(b)))
+	if err != nil {
+		t.Fatalf("workbook: %v", err)
+	}
+	var out strings.Builder
+	for _, name := range []string{"xl/workbook.xml", "xl/worksheets/sheet1.xml"} {
+		f, err := z.Open(name)
+		if err != nil {
+			t.Fatalf("workbook part %s: %v", name, err)
+		}
+		part, err := io.ReadAll(f)
+		if err != nil {
+			t.Fatalf("workbook part %s: %v", name, err)
+		}
+		out.Write(part)
+	}
+	return out.String()
 }

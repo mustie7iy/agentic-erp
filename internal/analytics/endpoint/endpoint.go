@@ -8,6 +8,7 @@
 package endpoint
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -62,8 +63,14 @@ type Endpoints struct {
 	slots chan struct{}
 }
 
-// RunAnalyticsQuery implements gen.Handler.
-func (e *Endpoints) RunAnalyticsQuery(ctx context.Context, req *gen.AnalyticsQuery, _ gen.RunAnalyticsQueryParams) (gen.RunAnalyticsQueryRes, error) {
+// RunAnalyticsQuery implements gen.Handler: the result as JSON, or as an
+// Excel workbook (format=xlsx, T95d); a format the contract does not list
+// is 422 request.validation_failed.
+func (e *Endpoints) RunAnalyticsQuery(ctx context.Context, req *gen.AnalyticsQuery, params gen.RunAnalyticsQueryParams) (gen.RunAnalyticsQueryRes, error) {
+	format := params.Format.Value
+	if format != "" && format != "json" && format != "xlsx" {
+		return nil, problem.Invalid("request.validation_failed", "format", "json or xlsx")
+	}
 	m, version, err := e.model(ctx, req.ConfigVersion.Or(0))
 	if err != nil {
 		return nil, err
@@ -73,6 +80,13 @@ func (e *Endpoints) RunAnalyticsQuery(ctx context.Context, req *gen.AnalyticsQue
 		return nil, err
 	}
 	res.ConfigVersion = version
+	if format == "xlsx" {
+		var b bytes.Buffer
+		// A bytes.Buffer never fails a write, so neither does the workbook.
+		_ = analytics.WriteXLSX(&b, analytics.SheetQuery, res)
+		return &gen.RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders{
+			Response: gen.RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet{Data: &b}}, nil
+	}
 	return &gen.AnalyticsResultHeaders{Response: toAPI(res)}, nil
 }
 

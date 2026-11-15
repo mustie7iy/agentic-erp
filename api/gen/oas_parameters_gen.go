@@ -32057,9 +32057,10 @@ func decodeGetReportParams(args [1]string, argsEscaped bool, r *http.Request) (p
 type GetReportRunParams struct {
 	// Resource identifier (UUIDv7).
 	ID uuid.UUID
-	// `json` (default): the run with its results; `csv`: one result.
+	// `json` (default): the run with its results; `csv`: one result; `xlsx`: one result as an Excel
+	// workbook.
 	Format OptString `json:",omitempty,omitzero"`
-	// For `csv`: the result's `query_id`; needed when the run has more than one.
+	// For `csv` and `xlsx`: the result's `query_id`; needed when the run has more than one.
 	QueryID OptString `json:",omitempty,omitzero"`
 }
 
@@ -117951,6 +117952,8 @@ type RunAnalyticsQueryParams struct {
 	// `Retry-After`. An answer with `Retry-After` (409, 429, 503) or another 5xx is not stored, so a retry
 	// with the same key runs. Missing returns 428.
 	IdempotencyKey string
+	// `json` (default): the result as JSON; `xlsx`: the result as an Excel workbook.
+	Format OptString `json:",omitempty,omitzero"`
 }
 
 func unpackRunAnalyticsQueryParams(packed middleware.Parameters) (params RunAnalyticsQueryParams) {
@@ -117961,10 +117964,20 @@ func unpackRunAnalyticsQueryParams(packed middleware.Parameters) (params RunAnal
 		}
 		params.IdempotencyKey = packed[key].(string)
 	}
+	{
+		key := middleware.ParameterKey{
+			Name: "format",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Format = v.(OptString)
+		}
+	}
 	return params
 }
 
 func decodeRunAnalyticsQueryParams(args [0]string, argsEscaped bool, r *http.Request) (params RunAnalyticsQueryParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
 	h := uri.NewHeaderDecoder(r.Header)
 	// Decode header: Idempotency-Key.
 	if err := func() error {
@@ -118017,6 +118030,47 @@ func decodeRunAnalyticsQueryParams(args [0]string, argsEscaped bool, r *http.Req
 		return params, &ogenerrors.DecodeParamError{
 			Name: "Idempotency-Key",
 			In:   "header",
+			Err:  err,
+		}
+	}
+	// Decode query: format.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "format",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotFormatVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotFormatVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Format.SetTo(paramsDotFormatVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "format",
+			In:   "query",
 			Err:  err,
 		}
 	}

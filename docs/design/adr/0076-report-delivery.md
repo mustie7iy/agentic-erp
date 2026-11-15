@@ -203,6 +203,38 @@ shared role reads nothing through it.
   identity administration does. Each is audited
   (`analytics.report_share.create`, `.end`); a share has no event.
 
+### 8. Excel workbook (T95d)
+
+A query's result (`POST /v1/analytics-queries?format=xlsx`) and a kept
+run's result (`GET /v1/report-runs/{id}?format=xlsx`, the result named as
+for CSV) are answered as an Excel workbook, the media type
+`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`;
+`erp query -xlsx F` writes one too. The workbook is the minimal
+SpreadsheetML package of `docs/design/specs/xlsx-minimal.md` (ECMA-376,
+Transitional), written with the standard library's `archive/zip` alone
+(no new dependency):
+
+- one sheet (`Query`, or `Report` for a run); a header row of the
+  columns' names, a money measure followed by its currency's column
+  (`<name>_currency`), as the run's CSV lays it out (`analytics.Records`
+  writes both, so the CSV and the workbook cannot differ), then a row per
+  result row;
+- a measure is a number cell whose value is its exact decimal, written
+  from its units and scale with no float in between, styled with a number
+  format of its scale's decimals (`#,##0`, `#,##0.00`, or a custom
+  `#,##0.000…` from id 164); a measure that cannot be computed is no
+  cell;
+- every other cell is an inline string, escaped as the standard's
+  `ST_Xstring` before XML (a character XML cannot carry and a carriage
+  return as `_xHHHH_`, text shaped like an escape with its underscore
+  escaped); no cell has a formula, so text starting with `=`, `+`, `-` or
+  `@` stays text (xlsx-minimal §8).
+
+A query is a POST with an `Idempotency-Key`: its workbook is kept with
+the key as bytes (`platform.idempotency_key.response_bytes`, ADR-0008),
+since only JSON answers were kept before, and a replay answers the same
+bytes.
+
 ## Alternatives
 
 - Keep reports as files the CLI writes (as before): nothing a schedule,
@@ -347,3 +379,34 @@ shared role reads nothing through it.
 - Decided by default while building: §7 and default 6 above;
   `:schedule` checks the caller owns the report before it answers 503
   without object storage.
+
+### T95d Excel workbook (migration 000331)
+
+- Contract: `format` (`json`, `xlsx`) on `runAnalyticsQuery` and `xlsx`
+  among `getReportRun`'s formats, each with the workbook media type
+  beside JSON (and CSV); a format not listed is 422
+  `request.validation_failed`.
+- `internal/analytics`: `WriteXLSX` (§8), `Records` (the layout the
+  run's CSV and the workbook share) and `DecodeResult` (a result as the
+  endpoint writes it, now read by the run's CSV and workbook too);
+  `internal/analytics/endpoint` and `internal/analytics/reports` answer
+  the format; `erp query -xlsx`.
+- Migration 000331: `platform.idempotency_key.response_bytes` with
+  `idempotency_key_one_body` (a stored answer is JSON or bytes, never
+  both; `db/idempotency_bytes_test.go`); the unit of work keeps an
+  answer whose declared media type is not JSON as bytes and replays them.
+- Walkthrough `step_reports` (step 14) extended: Carla downloads the
+  months' expenses as a workbook through the API, whose sheet holds the
+  CSV's months and amounts, each amount a number beside its currency,
+  with no number in a text column and no formula; `step_saved_report`
+  (step 92) reads the kept run's result as a workbook too.
+- Decided by default while building: the workbook carries each money
+  measure's currency column as the run's CSV does, though `erp query
+  -csv` (`analytics.WriteCSV`) has none, since a result may mix
+  currencies in one column; a ratio is shown as a decimal of four digits,
+  not as a percentage; the sheet names are fixed, so no user text needs
+  the sheet-name rules; the deflate method `archive/zip` uses by default.
+- Not checked: whether Excel, LibreOffice or Numbers opens the file. No
+  spreadsheet program is available to the build; the format follows the
+  standard's text (xlsx-minimal §11), and the tests read the workbook back
+  with their own reader and compare it with the CSV.

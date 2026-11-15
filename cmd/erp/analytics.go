@@ -95,6 +95,7 @@ func queryCmd(ctx context.Context, args []string) error {
 	var where multiFlag
 	fs.Var(&where, "where", `filter, repeatable: "dim in a,b", "dim not_in a", "dim <= v", "dim >= v", "dim between a,b"`)
 	csvOut := fs.String("csv", "", "also write the result as CSV to this file")
+	xlsxOut := fs.String("xlsx", "", "also write the result as an Excel workbook to this file")
 	documents := fs.String("documents", "", `list the documents behind a row instead: "dim=value,..." for each -by dimension ("" without -by), of -measure`)
 	measure := fs.String("measure", "", "with -documents, the measure drilled (default: the only one)")
 	if err := parseFlags(fs, args); err != nil {
@@ -133,7 +134,12 @@ func queryCmd(ctx context.Context, args []string) error {
 		return fmt.Errorf("query: print summary: %w", err)
 	}
 	if *csvOut != "" {
-		return writeCSV(*csvOut, r)
+		if err := writeResult(*csvOut, "CSV", func(w io.Writer) error { return analytics.WriteCSV(w, r) }); err != nil {
+			return err
+		}
+	}
+	if *xlsxOut != "" {
+		return writeResult(*xlsxOut, "workbook", func(w io.Writer) error { return analytics.WriteXLSX(w, analytics.SheetQuery, r) })
 	}
 	return nil
 }
@@ -182,19 +188,20 @@ func drillCmd(ctx context.Context, c *apitools.Client, af analyticsFlags, d anal
 		got.AsOf.UTC().Format(time.RFC3339))
 }
 
-// writeCSV writes r to the file name. A failed close can mean the file was
-// truncated, so it is reported when the write itself succeeded.
-func writeCSV(name string, r *analytics.Result) (err error) {
+// writeResult writes the result, as write writes it, to the file name, a
+// file of the kind named. A failed close can mean the file was truncated,
+// so it is reported when the write itself succeeded.
+func writeResult(name, kind string, write func(io.Writer) error) (err error) {
 	f, err := createFile(name)
 	if err != nil {
-		return fmt.Errorf("query: create CSV: %w", err)
+		return fmt.Errorf("query: create %s: %w", kind, err)
 	}
 	defer func() {
 		if cerr := f.Close(); cerr != nil && err == nil {
-			err = fmt.Errorf("query: close CSV %s: %w", name, cerr)
+			err = fmt.Errorf("query: close %s %s: %w", kind, name, cerr)
 		}
 	}()
-	return analytics.WriteCSV(f, r)
+	return write(f)
 }
 
 // createFile creates a file the command writes; tests replace it.

@@ -6716,13 +6716,13 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Excel export",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An analyst downloads a query's result or a kept report run as an Excel workbook, amounts as numbers with their currency's decimals (the workbook media type on POST /v1/analytics-queries and GET /v1/report-runs/{id}; erp query -xlsx)",
-        "r": "T95d · docs/design/plan-breadth-week3.md §T95d",
+        "r": "T95d · docs/design/plan-breadth-week3.md §T95d · docs/design/specs/xlsx-minimal.md · analytics.WriteXLSX, analytics.Records · format=xlsx on runAnalyticsQuery and getReportRun · erp query -xlsx · db/migrations/000331 · platform.idempotency_key.response_bytes · walkthrough step_reports, step_saved_report · ADR-0076 §8 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

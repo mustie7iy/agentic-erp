@@ -15,7 +15,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -433,7 +435,7 @@ func (m *Middleware) claimKey(ctx context.Context, tx pgx.Tx, p reqctx.Principal
 	err := tx.QueryRow(ctx, `INSERT INTO platform.idempotency_key AS k (tenant_id, key, principal_id, request_hash, status, expires_at)
 		VALUES ($1, $2, $3, $4, 'in_progress', $5)
 		ON CONFLICT (tenant_id, key) DO UPDATE SET principal_id = EXCLUDED.principal_id, request_hash = EXCLUDED.request_hash,
-			status = 'in_progress', response_code = NULL, response_body = NULL, response_headers = '{}',
+			status = 'in_progress', response_code = NULL, response_body = NULL, response_bytes = NULL, response_headers = '{}',
 			created_at = now(), expires_at = EXCLUDED.expires_at
 		WHERE k.expires_at < now()
 		RETURNING true`, p.TenantID, req.key, p.ID, req.hash, m.Now().Add(Retention)).Scan(&fresh)
@@ -449,7 +451,10 @@ func (m *Middleware) claimKey(ctx context.Context, tx pgx.Tx, p reqctx.Principal
 	var code int
 	var body []byte
 	var headers map[string]string
-	if err := tx.QueryRow(ctx, `SELECT principal_id, request_hash, coalesce(response_code, 0), coalesce(response_body::text, ''), response_headers
+	// An answer is kept as JSON or, when its media type is not JSON, as
+	// bytes (storedBody): either is the body replayed.
+	if err := tx.QueryRow(ctx, `SELECT principal_id, request_hash, coalesce(response_code, 0),
+			coalesce(response_bytes, convert_to(coalesce(response_body::text, ''), 'UTF8')), response_headers
 		FROM platform.idempotency_key WHERE tenant_id = $1 AND key = $2`, p.TenantID, req.key).Scan(&owner, &hash, &code, &body, &headers); err != nil {
 		return false, fmt.Errorf("uow: read idempotency key: %w", err)
 	}
@@ -475,33 +480,38 @@ func (m *Middleware) storeResponse(ctx context.Context, tx pgx.Tx, p reqctx.Prin
 			headers[h] = v
 		}
 	}
-	body, err := storedBody(rec)
+	body, raw, err := storedBody(rec)
 	if err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE platform.idempotency_key SET status = 'completed', response_code = $3,
-		response_body = $4::jsonb, response_headers = $5 WHERE tenant_id = $1 AND key = $2`,
-		p.TenantID, req.key, rec.status, body, headers); err != nil {
+		response_body = $4::jsonb, response_bytes = $6, response_headers = $5 WHERE tenant_id = $1 AND key = $2`,
+		p.TenantID, req.key, rec.status, body, headers, raw); err != nil {
 		return fmt.Errorf("uow: store response: %w", err)
 	}
 	return nil
 }
 
 // storedBody is the response body kept with the idempotency key: NULL for
-// an empty body, and without the fields the handler omitted.
-func storedBody(rec *recorder) (any, error) {
+// an empty body, and without the fields the handler omitted. A body whose
+// declared media type is not JSON (an Excel workbook, T95d) is kept as
+// its bytes (raw); any other must be JSON.
+func storedBody(rec *recorder) (body any, raw []byte, err error) {
 	if rec.body.Len() == 0 {
-		return nil, nil
+		return nil, nil, nil
+	}
+	if ct := rec.header.Get("Content-Type"); ct != "" && !jsonMedia(ct) && len(rec.omit) == 0 {
+		return nil, bytes.Clone(rec.body.Bytes()), nil
 	}
 	if !json.Valid(rec.body.Bytes()) {
-		return nil, errors.New("uow: response body is not JSON")
+		return nil, nil, errors.New("uow: response body is not JSON")
 	}
 	if len(rec.omit) == 0 {
-		return rec.body.String(), nil
+		return rec.body.String(), nil, nil
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(rec.body.Bytes(), &fields); err != nil {
-		return nil, fmt.Errorf("uow: omit fields of a response that is not an object: %w", err)
+		return nil, nil, fmt.Errorf("uow: omit fields of a response that is not an object: %w", err)
 	}
 	for _, f := range rec.omit {
 		delete(fields, f)
@@ -509,7 +519,15 @@ func storedBody(rec *recorder) (any, error) {
 	// The error is safe to drop: values decoded as raw JSON are valid and
 	// re-encode as they were. The keys come out sorted, as jsonb stores them.
 	b, _ := json.Marshal(fields)
-	return string(b), nil
+	return string(b), nil, nil
+}
+
+// jsonMedia reports whether the media type is JSON: application/json or
+// a +json type such as application/problem+json. One that does not parse
+// is not.
+func jsonMedia(contentType string) bool {
+	mt, _, err := mime.ParseMediaType(contentType)
+	return err == nil && (mt == "application/json" || strings.HasSuffix(mt, "+json"))
 }
 
 // omitKey is the context key of the request's recorder, for OmitOnReplay.

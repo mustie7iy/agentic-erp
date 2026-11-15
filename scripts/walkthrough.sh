@@ -77,7 +77,7 @@ else
   B='' DIM='' RED='' GREEN='' YELLOW='' R=''
 fi
 
-for tool in jq curl ssh-keygen shasum; do
+for tool in jq curl ssh-keygen shasum unzip; do
   command -v "$tool" >/dev/null || { echo "walkthrough: $tool is needed (brew install $tool, apt-get install $tool)" >&2; exit 2; }
 done
 
@@ -3190,7 +3190,29 @@ step_reports() {
     { sed 's/^/     /' "$WORK/query.out"; fail "the query failed"; }
   sed 's/^/     /' "$WORK/query.out"
   expect "the months' order" "$(awk -F, 'NR > 1 { printf "%s ", $1 }' "$WORK/months.csv")" "$(awk -F, 'NR > 1 { print $1 }' "$WORK/months.csv" | sort -n | tr '\n' ' ')"
+  say "Carla downloads the same query as an Excel workbook through the API (T95d): one sheet, a header row, then a row per"
+  say "month, each amount a number with its currency's decimals beside its currency, every other cell text, never a formula:"
+  api 200 '' runAnalyticsQuery -p format=xlsx -out "$WORK/months.xlsx" \
+    -body "{\"measures\": [\"expenses\"], \"by\": [\"fiscal_month\"], \"where\": [{\"dim\": \"fiscal_year\", \"op\": \"in\", \"values\": [\"$YEAR\"]}], \"companies\": [\"$CC\"]}"
+  sed 's/^/     /' "$WORK/last.json"
+  sheet_rows "$WORK/months.xlsx" >"$WORK/months.sheet" || fail "the workbook's sheet does not read"
+  sed 's/^/     /' "$WORK/months.sheet"
+  expect "the sheet's header" "$(sed -n 1p "$WORK/months.sheet")" "fiscal_month,expenses,expenses_currency"
+  expect "the sheet's months and amounts, against the CSV's" "$(awk -F, 'NR > 1 { print $1 "," $2 }' "$WORK/months.sheet")" "$(awk -F, 'NR > 1 { print $1 "," $2 }' "$WORK/months.csv")"
+  expect "the sheet's currencies" "$(awk -F, 'NR > 1 { print $3 }' "$WORK/months.sheet" | sort -u)" CAD
+  unzip -p "$WORK/months.xlsx" xl/worksheets/sheet1.xml >"$WORK/months.sheet.xml"
+  expect "number cells in the sheet's text columns" "$(grep -c '<c r="[AC][0-9]*" s=' "$WORK/months.sheet.xml" || true)" 0
+  expect "formulas in the sheet" "$(grep -c '<f>' "$WORK/months.sheet.xml" || true)" 0
   passed
+}
+
+# sheet_rows FILE prints a workbook's sheet as erp writes it (T95d), a line
+# per row, its cells' values (an inline string's text, a number's value)
+# separated by commas; a row without a cell between two is not expected.
+sheet_rows() {
+  unzip -p "$1" xl/worksheets/sheet1.xml | sed 's#<row #\
+<row #g' | sed -n -e '/^<row /!d' -e 's#<c [^>]*><is><t xml:space="preserve">\([^<]*\)</t></is></c>#\1,#g' \
+    -e 's#<c [^>]*><v>\([^<]*\)</v></c>#\1,#g' -e 's#^<row [^>]*>##' -e 's#,</row>.*##p'
 }
 
 # GR/IR position of an order as the balances list it.
@@ -8279,6 +8301,10 @@ step_saved_report() {
   expect "the run's CSV" "$(sed -n 2p "$WORK/last.json")" "$CC,$after,CAD"
   passed_runs=$(grep -c . "$WORK/last.json" || true)
   expect "the CSV's lines" "$passed_runs" 2
+  say "And as an Excel workbook (T95d): the same row, the amount a number with its currency's decimals:"
+  api 200 '' getReportRun -p "id=$run" -p format=xlsx -out "$WORK/run.xlsx"
+  sed 's/^/     /' "$WORK/last.json"
+  expect "the run's workbook" "$(sheet_rows "$WORK/run.xlsx" | sed -n 2p)" "$CC,$after,CAD"
   say "Carla shares her reports with Vera in reporting, who may act in $CC alone (ADR-0076 §7, T95c): Vera reads and runs"
   say "them with her own company access and permissions, never Carla's, and neither changes nor shares them."
   as ada
