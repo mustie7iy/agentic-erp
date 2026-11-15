@@ -10248,6 +10248,60 @@ step_expense_report() {
 # late asset in the previous period's close (T64l), its other checks
 # (T64c), its accrual proposals (T64e), its variances (T64h) and their
 # comments (T64i) and, last, its sign-off (T64d), which locks the period.
+# step_mcp is T102a (ADR-0081): an agent host reaches the API through erp
+# mcp, the Model Context Protocol over standard input and output. A
+# scripted host, as the support agent of step 88, discovers the server,
+# lists its tools (the operations open to agents at its level, none closed
+# to agents), calls a read and is refused an operation closed to agents;
+# a host on the earlier protocol version is served after its handshake.
+# The calls are recorded in the agent's session, which ends when the host
+# closes the server's input.
+step_mcp() {
+  heading "Step 98 — An agent host uses the API through erp mcp: the tools open to the agent at its level, a read answered as the API answers it, an operation closed to agents refused, every call recorded in the agent's session"
+  local meta session
+  meta='"_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}, "io.modelcontextprotocol/clientInfo": {"name": "walkthrough", "version": "1"}}'
+  say "A host launches erp mcp with the support agent's token (level 1) and sends it four requests on its input, one per line"
+  say "(MCP 2026-07-28: no handshake, the version in each request's _meta):"
+  {
+    printf '%s\n' '{"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {'"$meta"'}}'
+    printf '%s\n' '{"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {'"$meta"'}}'
+    printf '%s\n' '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "listConfigVersions", "arguments": {"is_active": true}, '"$meta"'}}'
+    printf '%s\n' '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "createPrincipal", "arguments": {"body": {"kind": "agent"}}, '"$meta"'}}'
+  } >"$WORK/mcp.in"
+  show "ERP_AGENT_TOKEN=… erp mcp <mcp.in >mcp.out"
+  ERP_AGENT_TOKEN=$(cat "$WORK/tokens/support-agent") "$ERP" mcp -purpose "The walkthrough's MCP host" <"$WORK/mcp.in" >"$WORK/mcp.out" 2>"$WORK/stderr" ||
+    fail "erp mcp failed ($(cat "$WORK/stderr"))"
+  expect "answers, one per request" "$(jq -s length "$WORK/mcp.out")" 4
+  jq -r 'select(.id == 1) | .result | "  server/discover: versions \(.supportedVersions | join(", ")), server \(._meta["io.modelcontextprotocol/serverInfo"].name)"' "$WORK/mcp.out"
+  expect "the versions served" "$(jq -r 'select(.id == 1) | .result.supportedVersions | join(" ")' "$WORK/mcp.out")" "2026-07-28 2025-11-25"
+  jq -r 'select(.id == 2) | .result | "  tools/list: \(.tools | length) tools, \([.tools[] | select(.annotations.readOnlyHint)] | length) of them reads; for example \([.tools[].name] | map(select(. == "listConfigVersions" or . == "createRecommendation")) | join(", "))"' "$WORK/mcp.out"
+  expect "an operation closed to agents among the tools" "$(jq -r 'select(.id == 2) | [.result.tools[].name | select(. == "createPrincipal" or . == "approveApprovalRequest")] | length' "$WORK/mcp.out")" 0
+  expect "a write above its level among the tools" "$(jq -r 'select(.id == 2) | [.result.tools[].name | select(. == "createConnector")] | length' "$WORK/mcp.out")" 0
+  expect "a proposal at its level among the tools" "$(jq -r 'select(.id == 2) | [.result.tools[].name | select(. == "createRecommendation")] | length' "$WORK/mcp.out")" 1
+  jq -r 'select(.id == 3) | .result | "  tools/call listConfigVersions: status \(.structuredContent.status), active version \(.structuredContent.body.items[0].number), isError \(.isError)"' "$WORK/mcp.out"
+  as alex
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  expect "the read, as the API answers it" "$(jq -r 'select(.id == 3) | .result.structuredContent.body.items[0].id' "$WORK/mcp.out")" "$(field '.items[0].id')"
+  jq -r 'select(.id == 4) | "  tools/call createPrincipal: error \(.error.code) \(.error.message)"' "$WORK/mcp.out"
+  expect "the operation closed to agents" "$(jq -r 'select(.id == 4) | "\(.error.code) \(.error.message)"' "$WORK/mcp.out")" "-32602 Unknown tool: createPrincipal"
+  say "A host on MCP 2025-11-25 opens with the handshake, then lists the same tools:"
+  printf '%s\n' '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "walkthrough", "version": "1"}}}' \
+    '{"jsonrpc": "2.0", "method": "notifications/initialized"}' '{"jsonrpc": "2.0", "id": 2, "method": "ping"}' '{"jsonrpc": "2.0", "id": 3, "method": "tools/list"}' >"$WORK/mcp-legacy.in"
+  ERP_AGENT_TOKEN=$(cat "$WORK/tokens/support-agent") "$ERP" mcp <"$WORK/mcp-legacy.in" >"$WORK/mcp-legacy.out" 2>"$WORK/stderr" ||
+    fail "erp mcp failed ($(cat "$WORK/stderr"))"
+  jq -r 'select(.id == 1) | "  initialize: version \(.result.protocolVersion)"' "$WORK/mcp-legacy.out"
+  expect "the legacy tools, the same" "$(jq -r 'select(.id == 3) | [.result.tools[].name] | join(" ")' "$WORK/mcp-legacy.out")" "$(jq -r 'select(.id == 2) | [.result.tools[].name] | join(" ")' "$WORK/mcp.out")"
+  say "The calls are recorded in the agent's session, which ended when the host closed erp mcp's input:"
+  as support-agent
+  QUIET=1 api 200 '' listAgentSessions -p page_size=10
+  session=$(field '[.items[] | select(.purpose == "The walkthrough'"'"'s MCP host")][0].id')
+  api 200 '"  session \(.purpose): \(.status)"' getAgentSession -p "id=$session"
+  expect "the session" "$(field .status)" completed
+  api 200 '"  its tool calls: \([.items[] | "\(.tool) \(.result_summary)"] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[] | "\(.tool) \(.result_summary)"] | join(", ")')" "listConfigVersions 200"
+  passed
+}
+
 step_close() {
   heading "Final step — Financial close: the close template through a governed change, the year's close calendar, the checklist and its sign-off, and the group's consolidated figures finalized"
   as ada
@@ -12263,7 +12317,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_mcp step_close'
 
 main() {
   stop_unseen

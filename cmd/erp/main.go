@@ -10,6 +10,7 @@
 //	erp migrate -connector ID -legal-entities ID,... -year 2026 [-rehearsal]
 //	erp invoices [-agent]          match parked invoices, post clean ones
 //	erp capture -legal-entity ID -file F   capture an invoice document (large ones through an upload)
+//	erp mcp                        the API as MCP tools for an agent host, over stdin and stdout
 //	erp agent invoices|config|migration|test|reconcile|cash-variance|credit-score|access-roles|access-sod|access-review|bid-compare|regulatory-notice|regulatory-draft|support-ask
 //	erp metrics | query | ask | report
 //	erp gen-mock-sap | config generate | config validate
@@ -133,6 +134,7 @@ func init() {
 		"tenants":      tenantsCmd,
 		"version":      versionCmd,
 		"eval":         evalCmd,
+		"mcp":          mcpCmd,
 	}
 }
 
@@ -162,6 +164,7 @@ agents (ERP_AGENT_TOKEN; models through the cell's gateway, ERP_AGENT_MODEL an a
                  | regulatory-notice -file F
                  | regulatory-draft -recommendation ID
                  | support-ask QUESTION
+  mcp            serve the API's operations open to agents as MCP tools over standard input and output
 
 agent evaluations (ADR-0039; live, on demand: they spend model money):
   eval run -suite evals/<agent>/suite.yaml [-repeats 3] [-max-cost 5.00] [-out evals/results]

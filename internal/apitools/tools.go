@@ -3,6 +3,7 @@ package apitools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"slices"
@@ -72,16 +73,40 @@ func (t *Tool) Exclusive(mu *sync.Mutex) { t.exclusive = mu }
 // Execute calls the operation and records the call in the session. API
 // answers, problems included, go back to the model as the result.
 func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) ([]anthropic.BetaToolResultBlockParamContentUnion, error) {
-	if t.exclusive != nil {
-		t.exclusive.Lock()
-		defer t.exclusive.Unlock()
-	}
 	var input map[string]any
 	if err := json.Unmarshal(raw, &input); err != nil {
 		return nil, fmt.Errorf("tool input is not a JSON object: %w", err)
 	}
 	if input == nil {
 		input = map[string]any{}
+	}
+	resp, err := t.Invoke(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	// A status, a tag and a body nonEmpty has made valid JSON always encode.
+	out, _ := json.Marshal(map[string]any{"status": resp.Status, "etag": resp.ETag, "body": json.RawMessage(nonEmpty(resp.Body))})
+	text := string(out)
+	if len(text) > maxResult {
+		text = text[:maxResult] + "... (truncated; ask for a smaller page)"
+	}
+	return []anthropic.BetaToolResultBlockParamContentUnion{{OfText: &anthropic.BetaTextBlockParam{Text: text}}}, nil
+}
+
+// ErrNotRecorded is a call the session did not record: the API may have
+// answered it, so the caller stops rather than carry on unrecorded.
+var ErrNotRecorded = errors.New("apitools: tool call not recorded")
+
+// Invoke calls the operation with the input, an object of its parameters
+// as InputSchema describes them, records the call in the session and
+// returns the API's answer, whatever its status: Execute for a model's
+// runner, and erp mcp for an agent host (T102a). An input the call could
+// not be made from, a guard's refusal or an unreachable API is an error,
+// recorded too; a call the session failed to record is ErrNotRecorded.
+func (t *Tool) Invoke(ctx context.Context, input map[string]any) (Response, error) {
+	if t.exclusive != nil {
+		t.exclusive.Lock()
+		defer t.exclusive.Unlock()
 	}
 	resp, err := t.call(ctx, input)
 	summary, isError := "", err != nil
@@ -92,22 +117,16 @@ func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) ([]anthropic.Be
 	}
 	if t.session != nil {
 		if rerr := t.session.record(ctx, t.name, input, summary, isError); rerr != nil {
-			return nil, rerr
+			return Response{}, fmt.Errorf("%w: %w", ErrNotRecorded, rerr)
 		}
 	}
 	if err != nil {
-		return nil, err
+		return Response{}, err
 	}
 	if t.observe != nil {
 		t.observe(resp)
 	}
-	// A status, a tag and a body nonEmpty has made valid JSON always encode.
-	out, _ := json.Marshal(map[string]any{"status": resp.Status, "etag": resp.ETag, "body": json.RawMessage(nonEmpty(resp.Body))})
-	text := string(out)
-	if len(text) > maxResult {
-		text = text[:maxResult] + "... (truncated; ask for a smaller page)"
-	}
-	return []anthropic.BetaToolResultBlockParamContentUnion{{OfText: &anthropic.BetaTextBlockParam{Text: text}}}, nil
+	return resp, nil
 }
 
 func nonEmpty(b []byte) []byte {
@@ -213,6 +232,41 @@ func Tools(client *Client, session *Session, operationIDs ...string) ([]*Tool, e
 	}
 	return out, nil
 }
+
+// Agent builds a tool of every operation open to agents (none marked
+// x-agent: false), in the order of their names, calling the API with
+// client and recording into session: what an agent host is offered
+// (erp mcp, T102a), narrowed to the session's level with Offered.
+func Agent(client *Client, session *Session) []*Tool {
+	c := embedded()
+	var ids []string
+	paths, _ := c.spec["paths"].(map[string]any)
+	for _, item := range paths {
+		methods, _ := item.(map[string]any)
+		for _, v := range methods {
+			if op, ok := v.(map[string]any); ok && op["operationId"] != nil && op["x-agent"] != false {
+				ids = append(ids, fmt.Sprint(op["operationId"]))
+			}
+		}
+	}
+	slices.Sort(ids)
+	// Every operation of the embedded contract builds a tool
+	// (TestAgentTools), so none is an error here.
+	tools, _ := Tools(client, session, ids...)
+	return tools
+}
+
+// Offered is the tools an agent of the autonomy level performs: those
+// above it are not offered, since the API would only refuse them (403
+// identity.autonomy_insufficient, which stays the backstop).
+func Offered(tools []*Tool, level int) []*Tool { return offered(tools, level) }
+
+// Reads reports whether the operation changes no business data: an
+// agent of any level performs it.
+func (t *Tool) Reads() bool { return t.level == api.LevelReads }
+
+// Required is the names of the input's required properties.
+func (t *Tool) Required() []string { return slices.Clone(t.schema.Required) }
 
 // Operation is an operation called for a person (the CLI): unlike Tools,
 // it includes operations closed to agents, which the API still refuses to

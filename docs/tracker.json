@@ -8975,13 +8975,13 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "MCP servers so agents use the same governed APIs",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An agent host connects to erp mcp and uses the API's operations open to agents as tools, with the caller's token, permissions and autonomy level (erp mcp, over standard input and output)",
-        "r": "T102a · docs/design/plan-breadth-week3.md §T102a",
+        "r": "T102a · docs/design/plan-breadth-week3.md §T102a · docs/design/specs/mcp · internal/mcp · apitools.Agent, apitools.Offered, Tool.Invoke · erp mcp · MCP 2026-07-28 and 2025-11-25 · walkthrough step_mcp · ADR-0081",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
