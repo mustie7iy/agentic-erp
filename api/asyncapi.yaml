@@ -490,11 +490,12 @@ channels:
   analytics:
     address: 'erp.{cell}.analytics.{tenant}.{event}'
     title: Analytics events
-    description: Saved reports' scheduled runs (ADR-0076 §5).
+    description: Saved reports' scheduled runs (ADR-0076 §5) and metric watchers' alerts (ADR-0077 §3).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       ReportRunCompleted: {$ref: '#/components/messages/ReportRunCompleted'}
+      MetricAlertRaised: {$ref: '#/components/messages/MetricAlertRaised'}
   records:
     address: 'erp.{cell}.records.{tenant}.{event}'
     title: Records management events
@@ -825,6 +826,7 @@ operations:
     channel: {$ref: '#/channels/analytics'}
     messages:
       - $ref: '#/channels/analytics/messages/ReportRunCompleted'
+      - $ref: '#/channels/analytics/messages/MetricAlertRaised'
   publishRecordsEvents:
     action: send
     title: Records management publishes
@@ -4460,6 +4462,31 @@ components:
         - name: completed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f72, source: /erp/eu-1/records, type: com.example.erp.records.archiving_run_completed.v1, subject: 0192a000-0000-7000-8000-000000000f71, time: '2026-11-25T10:00:04Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000f00}
           payload: {archiving_run_id: 0192a000-0000-7000-8000-000000000f71, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', document_kind: journal_entry, fiscal_year: 2025, file_name: 0192a000-0000-7000-8000-000000000f71.jsonl, sha256: 4f2c1e0b9a7d6c5b4a3928170615f4e3d2c1b0a99887766554433221100ffeed, size_bytes: 48213, manifest_sha256: 9b1d0e2f3a4c5b6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f, entry_count: 41, line_count: 118, debit_total: {amount: '1840522.17', currency: CAD}, requested_by: 0192a000-0000-7000-8000-000000000101}
+    MetricAlertRaised:
+      name: MetricAlertRaised
+      title: Metric alert raised
+      summary: A metric watcher's condition held in a period and raised an alert.
+      description: |
+        Emitted when an evaluation of a metric watcher, through the API or
+        after a refresh of the analytical store, finds its condition holding
+        in a period for the first time (ADR-0077 §3, T96a): one alert per
+        watcher and period. It names the watcher, its metric and condition,
+        the period, the companies whose figures held it and, for each, the
+        figure, what it was compared with and the percentage. The creator
+        the evaluation ran as is named by id, never by name. It is not
+        offered as a webhook event. `GET /v1/metric-alerts/{id}` returns the
+        alert to those who may see it (ADR-0077 §5). Subject is the alert id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.analytics.metric_alert_raised.v1}
+      payload: {$ref: '#/components/schemas/MetricAlertRaisedV1'}
+      examples:
+        - name: above
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000fc1, source: /erp/eu-1/analytics, type: com.example.erp.analytics.metric_alert_raised.v1, subject: 0192a000-0000-7000-8000-000000000fc0, time: '2026-11-26T05:00:12Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {metric_alert_id: 0192a000-0000-7000-8000-000000000fc0, watcher_id: 0192a000-0000-7000-8000-000000000fb9, watcher_name: Spend above 50000, metric: spend, condition: above, fiscal_year: 2026, fiscal_period: 11, companies: ['3000'], findings: [{company: '3000', currency: CAD, figure: '61250.00', compared_with: '50000.00', percent: null}], raised_as: 0192a000-0000-7000-8000-000000000101}
     RevenueContractChanged:
       name: RevenueContractChanged
       x-webhook: true
@@ -5597,6 +5624,31 @@ components:
         line_count: {type: integer, description: Their lines.}
         debit_total: {$ref: '#/components/schemas/Money', description: "The sum of the lines' debits in the company's currency."}
         requested_by: {$ref: '#/components/schemas/Uuid', description: 'Who asked for the run: `identity.principal.id`.'}
+    MetricAlertRaisedV1:
+      type: object
+      required: [metric_alert_id, watcher_id, watcher_name, metric, condition, fiscal_year, fiscal_period, companies, findings, raised_as]
+      properties:
+        metric_alert_id: {$ref: '#/components/schemas/Uuid', description: '`analytics.metric_alert.id`.'}
+        watcher_id: {$ref: '#/components/schemas/Uuid', description: '`analytics.metric_watcher.id`.'}
+        watcher_name: {type: string, description: "The watcher's name."}
+        metric: {type: string, description: The governed metric watched.}
+        condition: {type: string, description: 'above, below, change or deviation. Open enumeration.'}
+        fiscal_year: {type: integer, description: The fiscal year of the period judged.}
+        fiscal_period: {type: [integer, 'null'], description: 'The fiscal month of the period judged; null for a watcher by year.'}
+        companies: {type: array, items: {type: string}, description: 'The company codes whose figures held the condition, in order.'}
+        findings:
+          type: array
+          description: 'A finding per company and currency that held the condition.'
+          items:
+            type: object
+            required: [company, currency, figure, compared_with, percent]
+            properties:
+              company: {type: string, description: The company code.}
+              currency: {type: [string, 'null'], description: "The figure's currency; null for a count or a ratio."}
+              figure: {type: string, description: 'The figure of the period, an exact decimal.'}
+              compared_with: {type: string, description: "The value, the previous period's figure, or the average of the previous periods, it was compared with."}
+              percent: {type: [string, 'null'], description: 'The change in percent from the base, two decimals; null for above and below.'}
+        raised_as: {$ref: '#/components/schemas/Uuid', description: "The watcher's creator the evaluation ran as: `identity.principal.id`."}
     RevenueContractChangedV1:
       type: object
       required: [revenue_contract_id, sales_order_id, sales_order_number, legal_entity_id, legal_entity_code, customer_id, customer_number, transaction_price, obligation_count, status, status_before, version]

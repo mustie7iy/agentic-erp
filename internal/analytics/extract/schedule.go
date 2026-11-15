@@ -65,6 +65,11 @@ type Scheduler struct {
 	Target     time.Duration      // the freshness target the sweep applies; default 15 minutes
 	Now        func() time.Time   // when the last sweep ran; nil: the wall clock
 	Log        worker.Logger
+	// Refreshed is called with the tenant after each run that published a
+	// manifest, its data changed: the metric watchers' evaluation
+	// (ADR-0077 §4). Its failure is the run's, reported with it. Nil:
+	// nothing is called.
+	Refreshed func(ctx context.Context, tenant uuid.UUID) error
 
 	swept time.Time // the last sweep of this scheduler
 }
@@ -122,6 +127,9 @@ func (s *Scheduler) runTenant(ctx context.Context, c claim) (bool, error) {
 	// Entries waiting above the cutoff keep the tenant due.
 	if !res.Pending {
 		err = s.done(ctx, c.tenant, c.started)
+	}
+	if res.Published && s.Refreshed != nil {
+		err = errors.Join(err, s.Refreshed(ctx, c.tenant))
 	}
 	if _, cerr := s.Extractor.Collect(ctx, c.tenant); cerr != nil {
 		err = errors.Join(err, cerr)

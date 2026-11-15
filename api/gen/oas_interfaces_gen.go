@@ -29,6 +29,10 @@ type AcceptVarianceCommentRes interface {
 	acceptVarianceCommentRes()
 }
 
+type AcknowledgeMetricAlertRes interface {
+	acknowledgeMetricAlertRes()
+}
+
 type ActivateChangeRequestRes interface {
 	activateChangeRequestRes()
 }
@@ -337,6 +341,10 @@ type CreateMemoRecordRes interface {
 	createMemoRecordRes()
 }
 
+type CreateMetricWatcherRes interface {
+	createMetricWatcherRes()
+}
+
 type CreateMigrationRunRes interface {
 	createMigrationRunRes()
 }
@@ -531,6 +539,10 @@ type EndRolePermissionRes interface {
 
 type EndSodRuleRes interface {
 	endSodRuleRes()
+}
+
+type EvaluateMetricWatcherRes interface {
+	evaluateMetricWatcherRes()
 }
 
 type ExcludeBankStatementLineRes interface {
@@ -863,6 +875,14 @@ type GetMatchResultRes interface {
 
 type GetMemoRecordRes interface {
 	getMemoRecordRes()
+}
+
+type GetMetricAlertRes interface {
+	getMetricAlertRes()
+}
+
+type GetMetricWatcherRes interface {
+	getMetricWatcherRes()
 }
 
 type GetMigrationRunRes interface {
@@ -1405,6 +1425,14 @@ type ListMemoRecordsRes interface {
 	listMemoRecordsRes()
 }
 
+type ListMetricAlertsRes interface {
+	listMetricAlertsRes()
+}
+
+type ListMetricWatchersRes interface {
+	listMetricWatchersRes()
+}
+
 type ListMigrationRunsRes interface {
 	listMigrationRunsRes()
 }
@@ -1859,6 +1887,10 @@ type RemoveControlLinkRes interface {
 
 type RemoveHierarchyNodeRes interface {
 	removeHierarchyNodeRes()
+}
+
+type RemoveMetricWatcherRes interface {
+	removeMetricWatcherRes()
 }
 
 type RemoveReportRes interface {

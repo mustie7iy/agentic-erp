@@ -133,6 +133,18 @@ func (UnimplementedHandler) AcceptVarianceComment(ctx context.Context, req OptVa
 	return r, ht.ErrNotImplemented
 }
 
+// AcknowledgeMetricAlert implements acknowledgeMetricAlert operation.
+//
+// Acknowledges an open alert the caller may see (ADR-0077 §5, T96b), once (409
+// `analytics.alert_acknowledged` after), at the version read (`If-Match`): it is `acknowledged`, with
+// who and when. Nothing else changes; the watcher goes on being evaluated, and its next period's alert
+// is a new one. An audit record is written with it. Human-only (`x-agent: false`).
+//
+// POST /v1/metric-alerts/{id}:acknowledge
+func (UnimplementedHandler) AcknowledgeMetricAlert(ctx context.Context, params AcknowledgeMetricAlertParams) (r AcknowledgeMetricAlertRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ActivateChangeRequest implements activateChangeRequest operation.
 //
 // Creates and activates a new configuration version from an approved change request; each context
@@ -1688,6 +1700,31 @@ func (UnimplementedHandler) CreateMemoRecord(ctx context.Context, req *MemoRecor
 	return r, ht.ErrNotImplemented
 }
 
+// CreateMetricWatcher implements createMetricWatcher operation.
+//
+// Sets a watcher on a governed metric of the active model (ADR-0077 §1, T96a), the caller's own: its
+// name, the metric, filters on the metric's dimensions in the query's form, one company by its code
+// (absent: every company the caller may read when it is evaluated), a period grain (`month` or `year`,
+// fiscal) and one condition: `above` or `below` a value (for a money metric with the currency it is
+// in, which only figures in that currency are compared with; for a count or a ratio without one, 422
+// `analytics.invalid_watcher` naming `condition.currency` otherwise), `change`, the figure differing
+// from the previous period's by more than a percentage of it, either way, or `deviation` (T96b), the
+// figure differing from the average of the previous `periods` periods (1 to 12) by more than a
+// percentage of that average. Each condition takes exactly its settings (422
+// `analytics.invalid_watcher` naming the field). The watcher is checked as the query it runs is
+// checked: an unknown metric, a dimension the metric lacks or a malformed filter is 422
+// `analytics.invalid_query`. It is created `active`, evaluated on `evaluateMetricWatcher` and, with
+// the analytical store's reader configured, after each refresh of the store that changed its data,
+// from the store, as its creator (ADR-0077 §4). A tenant without a configuration is 409
+// `config.not_bootstrapped`. An audit record is written with it. Human-only (`x-agent: false`): a
+// watcher proposed by an agent is not built yet. A retry with the same `Idempotency-Key` answers the
+// watcher set.
+//
+// POST /v1/metric-watchers
+func (UnimplementedHandler) CreateMetricWatcher(ctx context.Context, req *MetricWatcherCreate, params CreateMetricWatcherParams) (r CreateMetricWatcherRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateMigrationRun implements createMigrationRun operation.
 //
 // Creates a migration run in status `queued`.
@@ -2487,6 +2524,28 @@ func (UnimplementedHandler) EndRolePermission(ctx context.Context, req *EndInput
 //
 // POST /v1/sod-rules/{id}:end
 func (UnimplementedHandler) EndSodRule(ctx context.Context, req *EndInput, params EndSodRuleParams) (r EndSodRuleRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// EvaluateMetricWatcher implements evaluateMetricWatcher operation.
+//
+// Evaluates one of the caller's active watchers now, at the version read (`If-Match`), as
+// `runAnalyticsQuery` answers the caller (ADR-0077 §2): the metric by company, by currency where the
+// metric has it, and by fiscal year and month (or year), under the watcher's filters, over its company
+// or the caller's companies, so it needs the permissions that query needs (403 as it is). Each company
+// and currency is a series, never added to another. The period judged is the latest with a figure in
+// the answer; a series without a figure in it, a change without the previous period's figure, a
+// deviation without a figure in each of its previous periods, and a base of zero judge nothing.
+// Percentages are compared exactly; the one shown is rounded to two decimals. A condition holding in
+// at least one series raises one alert for the watcher and the period, with a finding per series that
+// holds, an audit record and MetricAlertRaised; evaluating again in the same period raises none and
+// answers the alert raised (`raised` false). A metric the model no longer has fails the watcher
+// (`failed`, `analytics.watcher_metric_removed`, with an audit record), answered 200 with no alert; a
+// watcher removed or failed is 409 `analytics.watcher_inactive`. An answer of more than 500 rows is
+// 422 `analytics.watcher_too_many_series`. Human-only (`x-agent: false`).
+//
+// POST /v1/metric-watchers/{id}:evaluate
+func (UnimplementedHandler) EvaluateMetricWatcher(ctx context.Context, params EvaluateMetricWatcherParams) (r EvaluateMetricWatcherRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3913,6 +3972,25 @@ func (UnimplementedHandler) GetMatchResult(ctx context.Context, params GetMatchR
 //
 // GET /v1/memo-records/{id}
 func (UnimplementedHandler) GetMemoRecord(ctx context.Context, params GetMemoRecordParams) (r GetMemoRecordRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetMetricAlert implements getMetricAlert operation.
+//
+// One alert (ADR-0077 §3, T96b), with its findings and its watcher's name, metric and condition; an
+// alert the caller may not see, as `listMetricAlerts` decides it, is not found (404).
+//
+// GET /v1/metric-alerts/{id}
+func (UnimplementedHandler) GetMetricAlert(ctx context.Context, params GetMetricAlertParams) (r GetMetricAlertRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetMetricWatcher implements getMetricWatcher operation.
+//
+// One of the caller's metric watchers (ADR-0077 §1, T96a); another person's is not found (404).
+//
+// GET /v1/metric-watchers/{id}
+func (UnimplementedHandler) GetMetricWatcher(ctx context.Context, params GetMetricWatcherParams) (r GetMetricWatcherRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -5735,6 +5813,29 @@ func (UnimplementedHandler) ListMatchResults(ctx context.Context, params ListMat
 //
 // GET /v1/memo-records
 func (UnimplementedHandler) ListMemoRecords(ctx context.Context, params ListMemoRecordsParams) (r ListMemoRecordsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListMetricAlerts implements listMetricAlerts operation.
+//
+// The alerts metric watchers raised (ADR-0077 §3, §5, T96b), through the API or after a refresh of
+// the analytical store, each as `getMetricAlert` gives it: only those whose every company the caller
+// may access and whose metric's data the caller may read (the permissions its query needed when it was
+// raised), so a figure reaches no one the query would refuse. Filtered by status and by watcher.
+// Sortable by: `raised_at` (default, the latest first).
+//
+// GET /v1/metric-alerts
+func (UnimplementedHandler) ListMetricAlerts(ctx context.Context, params ListMetricAlertsParams) (r ListMetricAlertsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListMetricWatchers implements listMetricWatchers operation.
+//
+// The caller's own metric watchers (ADR-0077 §1, T96a), each as `getMetricWatcher` gives it; another
+// person's are never listed. Filtered by status and by metric. Sortable by: `name` (default).
+//
+// GET /v1/metric-watchers
+func (UnimplementedHandler) ListMetricWatchers(ctx context.Context, params ListMetricWatchersParams) (r ListMetricWatchersRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -7604,6 +7705,18 @@ func (UnimplementedHandler) RemoveHierarchyNode(ctx context.Context, req *Hierar
 	return r, ht.ErrNotImplemented
 }
 
+// RemoveMetricWatcher implements removeMetricWatcher operation.
+//
+// Removes one of the caller's active watchers for good (status `removed`), at the version read
+// (`If-Match`). Nothing is deleted (04 §4.3): the watcher and its alerts are kept, and it is
+// evaluated no more. A watcher already removed, or failed, is 409 `analytics.watcher_inactive`. An
+// audit record is written with it. Human-only (`x-agent: false`).
+//
+// POST /v1/metric-watchers/{id}:remove
+func (UnimplementedHandler) RemoveMetricWatcher(ctx context.Context, params RemoveMetricWatcherParams) (r RemoveMetricWatcherRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // RemoveReport implements removeReport operation.
 //
 // Removes one of the caller's active reports (status `removed`), once (409 `analytics.report_removed`
@@ -7957,7 +8070,7 @@ func (UnimplementedHandler) RunAllocationCycle(ctx context.Context, req *Allocat
 
 // RunAnalyticsForecast implements runAnalyticsForecast operation.
 //
-// Forecasts a governed metric (ADR-0076 §8, T97a) for the periods after its history by a named
+// Forecasts a governed metric (ADR-0077 §7, T97a) for the periods after its history by a named
 // method, and answers history and forecast together; nothing is stored. The history is the metric by
 // fiscal period of `grain` (`month`, `quarter` or `year` of the semantic model's fiscal calendar),
 // filtered by `where` and `companies`, as `runAnalyticsQuery` answers it for the caller (their company

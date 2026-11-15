@@ -128,6 +128,15 @@ type Invoker interface {
 	//
 	// POST /v1/variance-comments/{id}:acceptProposal
 	AcceptVarianceComment(ctx context.Context, request OptVarianceCommentAccept, params AcceptVarianceCommentParams) (AcceptVarianceCommentRes, error)
+	// AcknowledgeMetricAlert invokes acknowledgeMetricAlert operation.
+	//
+	// Acknowledges an open alert the caller may see (ADR-0077 §5, T96b), once (409
+	// `analytics.alert_acknowledged` after), at the version read (`If-Match`): it is `acknowledged`, with
+	// who and when. Nothing else changes; the watcher goes on being evaluated, and its next period's alert
+	// is a new one. An audit record is written with it. Human-only (`x-agent: false`).
+	//
+	// POST /v1/metric-alerts/{id}:acknowledge
+	AcknowledgeMetricAlert(ctx context.Context, params AcknowledgeMetricAlertParams) (AcknowledgeMetricAlertRes, error)
 	// ActivateChangeRequest invokes activateChangeRequest operation.
 	//
 	// Creates and activates a new configuration version from an approved change request; each context
@@ -1452,6 +1461,28 @@ type Invoker interface {
 	//
 	// POST /v1/memo-records
 	CreateMemoRecord(ctx context.Context, request *MemoRecordCreate, params CreateMemoRecordParams) (CreateMemoRecordRes, error)
+	// CreateMetricWatcher invokes createMetricWatcher operation.
+	//
+	// Sets a watcher on a governed metric of the active model (ADR-0077 §1, T96a), the caller's own: its
+	// name, the metric, filters on the metric's dimensions in the query's form, one company by its code
+	// (absent: every company the caller may read when it is evaluated), a period grain (`month` or `year`,
+	// fiscal) and one condition: `above` or `below` a value (for a money metric with the currency it is
+	// in, which only figures in that currency are compared with; for a count or a ratio without one, 422
+	// `analytics.invalid_watcher` naming `condition.currency` otherwise), `change`, the figure differing
+	// from the previous period's by more than a percentage of it, either way, or `deviation` (T96b), the
+	// figure differing from the average of the previous `periods` periods (1 to 12) by more than a
+	// percentage of that average. Each condition takes exactly its settings (422
+	// `analytics.invalid_watcher` naming the field). The watcher is checked as the query it runs is
+	// checked: an unknown metric, a dimension the metric lacks or a malformed filter is 422
+	// `analytics.invalid_query`. It is created `active`, evaluated on `evaluateMetricWatcher` and, with
+	// the analytical store's reader configured, after each refresh of the store that changed its data,
+	// from the store, as its creator (ADR-0077 §4). A tenant without a configuration is 409
+	// `config.not_bootstrapped`. An audit record is written with it. Human-only (`x-agent: false`): a
+	// watcher proposed by an agent is not built yet. A retry with the same `Idempotency-Key` answers the
+	// watcher set.
+	//
+	// POST /v1/metric-watchers
+	CreateMetricWatcher(ctx context.Context, request *MetricWatcherCreate, params CreateMetricWatcherParams) (CreateMetricWatcherRes, error)
 	// CreateMigrationRun invokes createMigrationRun operation.
 	//
 	// Creates a migration run in status `queued`.
@@ -2107,6 +2138,25 @@ type Invoker interface {
 	//
 	// POST /v1/sod-rules/{id}:end
 	EndSodRule(ctx context.Context, request *EndInput, params EndSodRuleParams) (EndSodRuleRes, error)
+	// EvaluateMetricWatcher invokes evaluateMetricWatcher operation.
+	//
+	// Evaluates one of the caller's active watchers now, at the version read (`If-Match`), as
+	// `runAnalyticsQuery` answers the caller (ADR-0077 §2): the metric by company, by currency where the
+	// metric has it, and by fiscal year and month (or year), under the watcher's filters, over its company
+	// or the caller's companies, so it needs the permissions that query needs (403 as it is). Each company
+	// and currency is a series, never added to another. The period judged is the latest with a figure in
+	// the answer; a series without a figure in it, a change without the previous period's figure, a
+	// deviation without a figure in each of its previous periods, and a base of zero judge nothing.
+	// Percentages are compared exactly; the one shown is rounded to two decimals. A condition holding in
+	// at least one series raises one alert for the watcher and the period, with a finding per series that
+	// holds, an audit record and MetricAlertRaised; evaluating again in the same period raises none and
+	// answers the alert raised (`raised` false). A metric the model no longer has fails the watcher
+	// (`failed`, `analytics.watcher_metric_removed`, with an audit record), answered 200 with no alert; a
+	// watcher removed or failed is 409 `analytics.watcher_inactive`. An answer of more than 500 rows is
+	// 422 `analytics.watcher_too_many_series`. Human-only (`x-agent: false`).
+	//
+	// POST /v1/metric-watchers/{id}:evaluate
+	EvaluateMetricWatcher(ctx context.Context, params EvaluateMetricWatcherParams) (EvaluateMetricWatcherRes, error)
 	// ExcludeBankStatementLine invokes excludeBankStatementLine operation.
 	//
 	// A person excludes the line from reconciliation, with a reason: the bank's booking clears nothing the
@@ -3284,6 +3334,19 @@ type Invoker interface {
 	//
 	// GET /v1/memo-records/{id}
 	GetMemoRecord(ctx context.Context, params GetMemoRecordParams) (GetMemoRecordRes, error)
+	// GetMetricAlert invokes getMetricAlert operation.
+	//
+	// One alert (ADR-0077 §3, T96b), with its findings and its watcher's name, metric and condition; an
+	// alert the caller may not see, as `listMetricAlerts` decides it, is not found (404).
+	//
+	// GET /v1/metric-alerts/{id}
+	GetMetricAlert(ctx context.Context, params GetMetricAlertParams) (GetMetricAlertRes, error)
+	// GetMetricWatcher invokes getMetricWatcher operation.
+	//
+	// One of the caller's metric watchers (ADR-0077 §1, T96a); another person's is not found (404).
+	//
+	// GET /v1/metric-watchers/{id}
+	GetMetricWatcher(ctx context.Context, params GetMetricWatcherParams) (GetMetricWatcherRes, error)
 	// GetMigrationRun invokes getMigrationRun operation.
 	//
 	// Returns one migration run.
@@ -4701,6 +4764,23 @@ type Invoker interface {
 	//
 	// GET /v1/memo-records
 	ListMemoRecords(ctx context.Context, params ListMemoRecordsParams) (ListMemoRecordsRes, error)
+	// ListMetricAlerts invokes listMetricAlerts operation.
+	//
+	// The alerts metric watchers raised (ADR-0077 §3, §5, T96b), through the API or after a refresh of
+	// the analytical store, each as `getMetricAlert` gives it: only those whose every company the caller
+	// may access and whose metric's data the caller may read (the permissions its query needed when it was
+	// raised), so a figure reaches no one the query would refuse. Filtered by status and by watcher.
+	// Sortable by: `raised_at` (default, the latest first).
+	//
+	// GET /v1/metric-alerts
+	ListMetricAlerts(ctx context.Context, params ListMetricAlertsParams) (ListMetricAlertsRes, error)
+	// ListMetricWatchers invokes listMetricWatchers operation.
+	//
+	// The caller's own metric watchers (ADR-0077 §1, T96a), each as `getMetricWatcher` gives it; another
+	// person's are never listed. Filtered by status and by metric. Sortable by: `name` (default).
+	//
+	// GET /v1/metric-watchers
+	ListMetricWatchers(ctx context.Context, params ListMetricWatchersParams) (ListMetricWatchersRes, error)
 	// ListMigrationRuns invokes listMigrationRuns operation.
 	//
 	// Migration runs and rehearsals. Sortable by: `created_at`.
@@ -6225,6 +6305,15 @@ type Invoker interface {
 	//
 	// POST /v1/hierarchies/{id}/nodes/{node_id}:remove
 	RemoveHierarchyNode(ctx context.Context, request *HierarchyNodeRemove, params RemoveHierarchyNodeParams) (RemoveHierarchyNodeRes, error)
+	// RemoveMetricWatcher invokes removeMetricWatcher operation.
+	//
+	// Removes one of the caller's active watchers for good (status `removed`), at the version read
+	// (`If-Match`). Nothing is deleted (04 §4.3): the watcher and its alerts are kept, and it is
+	// evaluated no more. A watcher already removed, or failed, is 409 `analytics.watcher_inactive`. An
+	// audit record is written with it. Human-only (`x-agent: false`).
+	//
+	// POST /v1/metric-watchers/{id}:remove
+	RemoveMetricWatcher(ctx context.Context, params RemoveMetricWatcherParams) (RemoveMetricWatcherRes, error)
 	// RemoveReport invokes removeReport operation.
 	//
 	// Removes one of the caller's active reports (status `removed`), once (409 `analytics.report_removed`
@@ -6515,7 +6604,7 @@ type Invoker interface {
 	RunAllocationCycle(ctx context.Context, request *AllocationCycleRun, params RunAllocationCycleParams) (RunAllocationCycleRes, error)
 	// RunAnalyticsForecast invokes runAnalyticsForecast operation.
 	//
-	// Forecasts a governed metric (ADR-0076 §8, T97a) for the periods after its history by a named
+	// Forecasts a governed metric (ADR-0077 §7, T97a) for the periods after its history by a named
 	// method, and answers history and forecast together; nothing is stored. The history is the metric by
 	// fiscal period of `grain` (`month`, `quarter` or `year` of the semantic model's fiscal calendar),
 	// filtered by `where` and `companies`, as `runAnalyticsQuery` answers it for the caller (their company
@@ -8566,6 +8655,166 @@ func (c *Client) sendAcceptVarianceComment(ctx context.Context, request OptVaria
 
 	stage = "DecodeResponse"
 	result, err := decodeAcceptVarianceCommentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// AcknowledgeMetricAlert invokes acknowledgeMetricAlert operation.
+//
+// Acknowledges an open alert the caller may see (ADR-0077 §5, T96b), once (409
+// `analytics.alert_acknowledged` after), at the version read (`If-Match`): it is `acknowledged`, with
+// who and when. Nothing else changes; the watcher goes on being evaluated, and its next period's alert
+// is a new one. An audit record is written with it. Human-only (`x-agent: false`).
+//
+// POST /v1/metric-alerts/{id}:acknowledge
+func (c *Client) AcknowledgeMetricAlert(ctx context.Context, params AcknowledgeMetricAlertParams) (AcknowledgeMetricAlertRes, error) {
+	res, err := c.sendAcknowledgeMetricAlert(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendAcknowledgeMetricAlert(ctx context.Context, params AcknowledgeMetricAlertParams) (res AcknowledgeMetricAlertRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("acknowledgeMetricAlert"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/metric-alerts/{id}:acknowledge"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, AcknowledgeMetricAlertOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/metric-alerts/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":acknowledge"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, AcknowledgeMetricAlertOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeAcknowledgeMetricAlertResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -20775,6 +21024,152 @@ func (c *Client) sendCreateMemoRecord(ctx context.Context, request *MemoRecordCr
 	return result, nil
 }
 
+// CreateMetricWatcher invokes createMetricWatcher operation.
+//
+// Sets a watcher on a governed metric of the active model (ADR-0077 §1, T96a), the caller's own: its
+// name, the metric, filters on the metric's dimensions in the query's form, one company by its code
+// (absent: every company the caller may read when it is evaluated), a period grain (`month` or `year`,
+// fiscal) and one condition: `above` or `below` a value (for a money metric with the currency it is
+// in, which only figures in that currency are compared with; for a count or a ratio without one, 422
+// `analytics.invalid_watcher` naming `condition.currency` otherwise), `change`, the figure differing
+// from the previous period's by more than a percentage of it, either way, or `deviation` (T96b), the
+// figure differing from the average of the previous `periods` periods (1 to 12) by more than a
+// percentage of that average. Each condition takes exactly its settings (422
+// `analytics.invalid_watcher` naming the field). The watcher is checked as the query it runs is
+// checked: an unknown metric, a dimension the metric lacks or a malformed filter is 422
+// `analytics.invalid_query`. It is created `active`, evaluated on `evaluateMetricWatcher` and, with
+// the analytical store's reader configured, after each refresh of the store that changed its data,
+// from the store, as its creator (ADR-0077 §4). A tenant without a configuration is 409
+// `config.not_bootstrapped`. An audit record is written with it. Human-only (`x-agent: false`): a
+// watcher proposed by an agent is not built yet. A retry with the same `Idempotency-Key` answers the
+// watcher set.
+//
+// POST /v1/metric-watchers
+func (c *Client) CreateMetricWatcher(ctx context.Context, request *MetricWatcherCreate, params CreateMetricWatcherParams) (CreateMetricWatcherRes, error) {
+	res, err := c.sendCreateMetricWatcher(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateMetricWatcher(ctx context.Context, request *MetricWatcherCreate, params CreateMetricWatcherParams) (res CreateMetricWatcherRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createMetricWatcher"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/metric-watchers"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateMetricWatcherOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/metric-watchers"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateMetricWatcherRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateMetricWatcherOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateMetricWatcherResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreateMigrationRun invokes createMigrationRun operation.
 //
 // Creates a migration run in status `queued`.
@@ -28042,6 +28437,176 @@ func (c *Client) sendEndSodRule(ctx context.Context, request *EndInput, params E
 
 	stage = "DecodeResponse"
 	result, err := decodeEndSodRuleResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// EvaluateMetricWatcher invokes evaluateMetricWatcher operation.
+//
+// Evaluates one of the caller's active watchers now, at the version read (`If-Match`), as
+// `runAnalyticsQuery` answers the caller (ADR-0077 §2): the metric by company, by currency where the
+// metric has it, and by fiscal year and month (or year), under the watcher's filters, over its company
+// or the caller's companies, so it needs the permissions that query needs (403 as it is). Each company
+// and currency is a series, never added to another. The period judged is the latest with a figure in
+// the answer; a series without a figure in it, a change without the previous period's figure, a
+// deviation without a figure in each of its previous periods, and a base of zero judge nothing.
+// Percentages are compared exactly; the one shown is rounded to two decimals. A condition holding in
+// at least one series raises one alert for the watcher and the period, with a finding per series that
+// holds, an audit record and MetricAlertRaised; evaluating again in the same period raises none and
+// answers the alert raised (`raised` false). A metric the model no longer has fails the watcher
+// (`failed`, `analytics.watcher_metric_removed`, with an audit record), answered 200 with no alert; a
+// watcher removed or failed is 409 `analytics.watcher_inactive`. An answer of more than 500 rows is
+// 422 `analytics.watcher_too_many_series`. Human-only (`x-agent: false`).
+//
+// POST /v1/metric-watchers/{id}:evaluate
+func (c *Client) EvaluateMetricWatcher(ctx context.Context, params EvaluateMetricWatcherParams) (EvaluateMetricWatcherRes, error) {
+	res, err := c.sendEvaluateMetricWatcher(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendEvaluateMetricWatcher(ctx context.Context, params EvaluateMetricWatcherParams) (res EvaluateMetricWatcherRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("evaluateMetricWatcher"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/metric-watchers/{id}:evaluate"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, EvaluateMetricWatcherOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/metric-watchers/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":evaluate"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, EvaluateMetricWatcherOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeEvaluateMetricWatcherResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -40649,6 +41214,269 @@ func (c *Client) sendGetMemoRecord(ctx context.Context, params GetMemoRecordPara
 
 	stage = "DecodeResponse"
 	result, err := decodeGetMemoRecordResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetMetricAlert invokes getMetricAlert operation.
+//
+// One alert (ADR-0077 §3, T96b), with its findings and its watcher's name, metric and condition; an
+// alert the caller may not see, as `listMetricAlerts` decides it, is not found (404).
+//
+// GET /v1/metric-alerts/{id}
+func (c *Client) GetMetricAlert(ctx context.Context, params GetMetricAlertParams) (GetMetricAlertRes, error) {
+	res, err := c.sendGetMetricAlert(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetMetricAlert(ctx context.Context, params GetMetricAlertParams) (res GetMetricAlertRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getMetricAlert"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/metric-alerts/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetMetricAlertOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/metric-alerts/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetMetricAlertOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetMetricAlertResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetMetricWatcher invokes getMetricWatcher operation.
+//
+// One of the caller's metric watchers (ADR-0077 §1, T96a); another person's is not found (404).
+//
+// GET /v1/metric-watchers/{id}
+func (c *Client) GetMetricWatcher(ctx context.Context, params GetMetricWatcherParams) (GetMetricWatcherRes, error) {
+	res, err := c.sendGetMetricWatcher(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetMetricWatcher(ctx context.Context, params GetMetricWatcherParams) (res GetMetricWatcherRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getMetricWatcher"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/metric-watchers/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetMetricWatcherOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/metric-watchers/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetMetricWatcherOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetMetricWatcherResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -68140,6 +68968,415 @@ func (c *Client) sendListMemoRecords(ctx context.Context, params ListMemoRecords
 	return result, nil
 }
 
+// ListMetricAlerts invokes listMetricAlerts operation.
+//
+// The alerts metric watchers raised (ADR-0077 §3, §5, T96b), through the API or after a refresh of
+// the analytical store, each as `getMetricAlert` gives it: only those whose every company the caller
+// may access and whose metric's data the caller may read (the permissions its query needed when it was
+// raised), so a figure reaches no one the query would refuse. Filtered by status and by watcher.
+// Sortable by: `raised_at` (default, the latest first).
+//
+// GET /v1/metric-alerts
+func (c *Client) ListMetricAlerts(ctx context.Context, params ListMetricAlertsParams) (ListMetricAlertsRes, error) {
+	res, err := c.sendListMetricAlerts(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListMetricAlerts(ctx context.Context, params ListMetricAlertsParams) (res ListMetricAlertsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listMetricAlerts"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/metric-alerts"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListMetricAlertsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/metric-alerts"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "watcher_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "watcher_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.WatcherID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListMetricAlertsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListMetricAlertsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListMetricWatchers invokes listMetricWatchers operation.
+//
+// The caller's own metric watchers (ADR-0077 §1, T96a), each as `getMetricWatcher` gives it; another
+// person's are never listed. Filtered by status and by metric. Sortable by: `name` (default).
+//
+// GET /v1/metric-watchers
+func (c *Client) ListMetricWatchers(ctx context.Context, params ListMetricWatchersParams) (ListMetricWatchersRes, error) {
+	res, err := c.sendListMetricWatchers(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListMetricWatchers(ctx context.Context, params ListMetricWatchersParams) (res ListMetricWatchersRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listMetricWatchers"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/metric-watchers"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListMetricWatchersOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/metric-watchers"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "metric" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "metric",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Metric.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListMetricWatchersOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListMetricWatchersResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListMigrationRuns invokes listMigrationRuns operation.
 //
 // Migration runs and rehearsals. Sortable by: `created_at`.
@@ -90921,6 +92158,166 @@ func (c *Client) sendRemoveHierarchyNode(ctx context.Context, request *Hierarchy
 	return result, nil
 }
 
+// RemoveMetricWatcher invokes removeMetricWatcher operation.
+//
+// Removes one of the caller's active watchers for good (status `removed`), at the version read
+// (`If-Match`). Nothing is deleted (04 §4.3): the watcher and its alerts are kept, and it is
+// evaluated no more. A watcher already removed, or failed, is 409 `analytics.watcher_inactive`. An
+// audit record is written with it. Human-only (`x-agent: false`).
+//
+// POST /v1/metric-watchers/{id}:remove
+func (c *Client) RemoveMetricWatcher(ctx context.Context, params RemoveMetricWatcherParams) (RemoveMetricWatcherRes, error) {
+	res, err := c.sendRemoveMetricWatcher(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendRemoveMetricWatcher(ctx context.Context, params RemoveMetricWatcherParams) (res RemoveMetricWatcherRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("removeMetricWatcher"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/metric-watchers/{id}:remove"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RemoveMetricWatcherOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/metric-watchers/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":remove"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RemoveMetricWatcherOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRemoveMetricWatcherResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // RemoveReport invokes removeReport operation.
 //
 // Removes one of the caller's active reports (status `removed`), once (409 `analytics.report_removed`
@@ -94492,7 +95889,7 @@ func (c *Client) sendRunAllocationCycle(ctx context.Context, request *Allocation
 
 // RunAnalyticsForecast invokes runAnalyticsForecast operation.
 //
-// Forecasts a governed metric (ADR-0076 §8, T97a) for the periods after its history by a named
+// Forecasts a governed metric (ADR-0077 §7, T97a) for the periods after its history by a named
 // method, and answers history and forecast together; nothing is stored. The history is the metric by
 // fiscal period of `grain` (`month`, `quarter` or `year` of the semantic model's fiscal calendar),
 // filtered by `where` and `companies`, as `runAnalyticsQuery` answers it for the caller (their company

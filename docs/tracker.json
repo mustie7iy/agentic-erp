@@ -6751,13 +6751,13 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Metric watchers",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An analyst sets a watcher on a governed metric (its filter, its period, and a condition: above or below a value, or changed against the previous period by more than a percentage) and evaluates it; a condition that holds raises an alert (POST /v1/metric-watchers, :evaluate)",
-        "r": "T96a · docs/design/plan-breadth-week3.md §T96a",
+        "r": "T96a · docs/design/plan-breadth-week3.md §T96a · db/migrations/000322 · analytics.metric_watcher, analytics.metric_alert · POST /v1/metric-watchers · GET /v1/metric-watchers · GET /v1/metric-watchers/{id} · POST /v1/metric-watchers/{id}:remove · POST /v1/metric-watchers/{id}:evaluate · MetricAlertRaised · analytics.watcher.read, .write · walkthrough step_metric_watch · ADR-0077 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -6772,13 +6772,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Anomaly alerts in workspaces",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "Watchers are evaluated after each refresh of the analytical store, a deviation from the average of the earlier periods among their conditions; a controller lists the open alerts of the companies they may access and acknowledges one (GET /v1/metric-alerts, :acknowledge)",
-        "r": "T96b · docs/design/plan-breadth-week3.md §T96b",
+        "r": "T96b · docs/design/plan-breadth-week3.md §T96b · db/migrations/000323 · analytics.metric_watcher.periods, analytics.metric_alert acknowledgement · GET /v1/metric-alerts · GET /v1/metric-alerts/{id} · POST /v1/metric-alerts/{id}:acknowledge · extract.Scheduler.Refreshed · analytics.alert.read, .acknowledge · walkthrough step_metric_watch · ADR-0077 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -6806,7 +6806,7 @@
        {
         "s": "D",
         "t": "An analyst forecasts a governed metric for the coming periods from its history by a named method (the average of the last periods, or the same period a year before) and reads history and forecast together (POST /v1/analytics-forecasts)",
-        "r": "T97a · docs/design/plan-breadth-week3.md §T97a · POST /v1/analytics-forecasts (runAnalyticsForecast, x-autonomy: read; nothing stored) · internal/analytics forecast.go · walkthrough step_metric_forecast · ADR-0076 §8 and As built (ADR-0077 not on the lane's base)",
+        "r": "T97a · docs/design/plan-breadth-week3.md §T97a · POST /v1/analytics-forecasts (runAnalyticsForecast, x-autonomy: read; nothing stored) · internal/analytics forecast.go · walkthrough step_metric_forecast · ADR-0077 §7 and As built (ADR-0077 not on the lane's base)",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

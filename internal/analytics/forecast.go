@@ -9,7 +9,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 )
 
-// The methods a governed metric is forecast by (ADR-0076 §8, T97a).
+// The methods a governed metric is forecast by (ADR-0077 §7, T97a).
 const (
 	MovingAverage      = "moving_average"
 	SamePeriodLastYear = "same_period_last_year"
@@ -101,7 +101,7 @@ type Point struct {
 	Data   bool
 }
 
-// Forecast is a metric's history and its forecast (ADR-0076 §8): an
+// Forecast is a metric's history and its forecast (ADR-0077 §7): an
 // arithmetic projection, stored nowhere.
 type Forecast struct {
 	Spec            ForecastSpec

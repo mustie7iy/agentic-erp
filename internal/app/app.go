@@ -28,6 +28,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/analytics/endpoint"
 	"github.com/mustie7iy/agentic-erp/internal/analytics/reports"
 	"github.com/mustie7iy/agentic-erp/internal/analytics/store"
+	"github.com/mustie7iy/agentic-erp/internal/analytics/watchers"
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/assets"
 	"github.com/mustie7iy/agentic-erp/internal/audit"
@@ -101,6 +102,7 @@ type (
 	agentsAPI      = agents.Endpoints
 	analyticsAPI   = endpoint.Endpoints
 	reportsAPI     = reports.Endpoints
+	watchersAPI    = watchers.Endpoints
 	cashAPI        = cash.Endpoints
 	assetsAPI      = assets.Endpoints
 	closingAPI     = closing.Endpoints
@@ -135,6 +137,7 @@ type handler struct {
 	*agentsAPI
 	*analyticsAPI
 	*reportsAPI
+	*watchersAPI
 	*cashAPI
 	*assetsAPI
 	*closingAPI
@@ -272,6 +275,7 @@ func New(cfg Config) (http.Handler, error) {
 		agentsAPI:      &agents.Endpoints{Pages: cfg.Pages, Countries: tenancy.Countries, Certifications: certifications(cfg)},
 		analyticsAPI:   queries,
 		reportsAPI:     Reports(cfg, queries),
+		watchersAPI:    Watchers(cfg, queries),
 		cashAPI:        Cash(cfg),
 		assetsAPI:      Assets(cfg),
 		closingAPI:     Closing(cfg),
