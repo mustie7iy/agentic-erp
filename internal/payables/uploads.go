@@ -50,8 +50,14 @@ const MaxUpload = 50 << 20
 // UploadTTL is how long an upload URL accepts bytes.
 const UploadTTL = 15 * time.Minute
 
-// UploadPurposes are what uploads may be for, and the operation that consumes each.
-var UploadPurposes = map[string]string{"supplier_invoice": "POST /v1/supplier-invoices:capture"}
+// UploadPurposes are what uploads may be for, and the operation that
+// consumes each: a supplier invoice, or a customer's purchase order for
+// order capture (T90a), which the sales context takes through its port.
+var UploadPurposes = map[string]string{"supplier_invoice": "POST /v1/supplier-invoices:capture", PurposeSalesOrder: "POST /v1/sales-orders:capture"}
+
+// PurposeSalesOrder is the purpose of an upload of a customer's purchase
+// order (T90a).
+const PurposeSalesOrder = "sales_order"
 
 // Where an upload's bytes go (payables.upload.via): the store's presigned
 // URL, or the API's own signed path.
@@ -76,6 +82,19 @@ const MaxReceivingPerTenant = 2
 
 // UploadTypes are the content types a document may be uploaded as.
 var UploadTypes = map[string]bool{"application/pdf": true, "image/png": true, "image/jpeg": true, "application/xml": true, "text/xml": true}
+
+// orderTypes are the content types a customer's purchase order may be
+// uploaded as: what order capture reads, a PDF or plain text (T90a).
+var orderTypes = map[string]bool{"application/pdf": true, "text/plain": true}
+
+// uploadable reports whether a document of the content type may be
+// uploaded for the purpose.
+func uploadable(purpose, contentType string) bool {
+	if purpose == PurposeSalesOrder {
+		return orderTypes[contentType]
+	}
+	return UploadTypes[contentType]
+}
 
 // Upload is a row of payables.upload.
 type Upload struct {
@@ -173,10 +192,11 @@ func (u *Uploads) Create(ctx context.Context, purpose, contentType, via string) 
 		return Upload{}, err
 	}
 	if _, ok := UploadPurposes[purpose]; !ok {
-		return Upload{}, problem.Unprocessable("payables.unknown_upload_purpose", "Uploads are for supplier_invoice documents.")
+		return Upload{}, problem.Unprocessable("payables.unknown_upload_purpose", "Uploads here are for supplier_invoice documents; a customer's purchase order is uploaded with POST /v1/sales-order-uploads.")
 	}
-	if !UploadTypes[contentType] {
-		return Upload{}, problem.Unprocessable("payables.unsupported_content_type", "Documents are PDF, PNG, JPEG or XML.")
+	if !uploadable(purpose, contentType) {
+		return Upload{}, problem.Unprocessable("payables.unsupported_content_type",
+			"Supplier invoices are PDF, PNG, JPEG or XML; customers' purchase orders are PDF or plain text.")
 	}
 	if via != "" && via != ViaStore && via != ViaAPI {
 		return Upload{}, problem.Unprocessable("payables.unknown_upload_via", "Uploads go via store or api.")
@@ -491,17 +511,19 @@ func (u *Uploads) store(ctx context.Context, s blobstore.Streamer, up Upload, do
 	return nil
 }
 
-// take reads the document of an upload for the operation consuming it, in
-// the request's transaction, locking the upload; mark then closes it. Only
-// supplier_invoice uploads exist (UploadPurposes), so an upload always suits
-// the one operation that consumes them; a second purpose adds a purpose
-// parameter and its check here.
-func (u *Uploads) take(ctx context.Context, tx pgx.Tx, id uuid.UUID) ([]byte, Upload, error) {
+// take reads the document of an upload of the purpose for the operation
+// consuming it, in the request's transaction, locking the upload; mark
+// then closes it. An upload of another purpose is refused (422
+// payables.upload_purpose): its document is for the other operation.
+func (u *Uploads) take(ctx context.Context, tx pgx.Tx, id uuid.UUID, purpose string) ([]byte, Upload, error) {
 	up, err := readUpload(ctx, tx, id, true)
 	if err != nil {
 		return nil, Upload{}, err
 	}
 	switch {
+	case up.Purpose != purpose:
+		return nil, Upload{}, problem.Unprocessable("payables.upload_purpose",
+			"This upload is for a "+up.Purpose+" document, which "+UploadPurposes[up.Purpose]+" captures.")
 	case up.Status == "used":
 		return nil, Upload{}, problem.Unprocessable("payables.upload_used", "This upload has already been captured.")
 	case u == nil || u.Objects == nil:
@@ -525,6 +547,27 @@ func (u *Uploads) take(ctx context.Context, tx pgx.Tx, id uuid.UUID) ([]byte, Up
 		return nil, Upload{}, problem.Unavailable("The object store did not answer; capture again.", 30).WithCause(err)
 	}
 	return content, up, nil
+}
+
+// Take reads the document of an upload of the purpose, with its content
+// type, for an operation of another context that consumes it (order
+// capture, T90a), as take does; Used then closes it.
+func (u *Uploads) Take(ctx context.Context, id uuid.UUID, purpose string) ([]byte, string, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	content, up, err := u.take(ctx, tx, id, purpose)
+	return content, up.ContentType, err
+}
+
+// Used closes an upload as used by the resource its document gave.
+func (u *Uploads) Used(ctx context.Context, id uuid.UUID, content []byte, usedBy uuid.UUID) error {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return err
+	}
+	return u.mark(ctx, tx, Upload{ID: id}, content, usedBy)
 }
 
 // mark closes an upload as used by a resource.
@@ -556,37 +599,82 @@ func (e *Endpoints) uploadToAPI(ctx context.Context, tenant uuid.UUID, up Upload
 
 // CreateUpload implements POST /v1/uploads.
 func (e *Endpoints) CreateUpload(ctx context.Context, req *gen.UploadCreate, _ gen.CreateUploadParams) (gen.CreateUploadRes, error) {
+	// An upload's permission follows its purpose (T90a): a customer's
+	// purchase order is uploaded with createSalesOrderUpload, which asks
+	// sales.order.capture, never here under payables.invoice.capture.
+	if req.Purpose == PurposeSalesOrder {
+		return nil, problem.Unprocessable("payables.unknown_upload_purpose",
+			"A customer's purchase order is uploaded with POST /v1/sales-order-uploads; this operation uploads supplier invoices.")
+	}
+	out, err := e.startUpload(ctx, req.Purpose, req.ContentType, req.Via.Or(ViaStore))
+	if err != nil {
+		return nil, err
+	}
+	return &gen.CreateUploadCreatedHeaders{ETag: gen.NewOptString(etag.Format(out.Version)), Location: gen.NewOptString("/v1/uploads/" + out.ID.String()),
+		Response: *out}, nil
+}
+
+// CreateSalesOrderUpload implements POST /v1/sales-order-uploads: an
+// upload of a customer's purchase order for order capture (T90a), under
+// the order capture's permission.
+func (e *Endpoints) CreateSalesOrderUpload(ctx context.Context, req *gen.SalesOrderUploadCreate, _ gen.CreateSalesOrderUploadParams) (gen.CreateSalesOrderUploadRes, error) {
+	out, err := e.startUpload(ctx, PurposeSalesOrder, req.ContentType, req.Via.Or(ViaStore))
+	if err != nil {
+		return nil, err
+	}
+	return &gen.CreateSalesOrderUploadCreatedHeaders{Location: gen.NewOptString("/v1/sales-order-uploads/" + out.ID.String()), Response: *out}, nil
+}
+
+// startUpload creates an upload of the purpose and answers it with its URL.
+func (e *Endpoints) startUpload(ctx context.Context, purpose, contentType, via string) (*gen.Upload, error) {
 	_, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
-	up, err := e.Uploads.Create(ctx, req.Purpose, req.ContentType, req.Via.Or(ViaStore))
+	up, err := e.Uploads.Create(ctx, purpose, contentType, via)
 	if err != nil {
 		return nil, err
 	}
-	out, err := e.uploadToAPI(ctx, p.TenantID, up)
-	if err != nil {
-		return nil, err
-	}
-	return &gen.CreateUploadCreatedHeaders{ETag: gen.NewOptString(etag.Format(up.Version)), Location: gen.NewOptString("/v1/uploads/" + up.ID.String()), Response: *out}, nil
+	return e.uploadToAPI(ctx, p.TenantID, up)
 }
 
 // GetUpload implements GET /v1/uploads/{id}.
 func (e *Endpoints) GetUpload(ctx context.Context, params gen.GetUploadParams) (gen.GetUploadRes, error) {
-	if e.Uploads == nil {
-		return nil, problem.Unavailable("This server has no object storage.", 0)
-	}
-	_, p, err := reqctx.Request(ctx)
-	if err != nil {
-		return nil, err
-	}
-	up, err := e.Uploads.Get(ctx, params.ID)
-	if err != nil {
-		return nil, err
-	}
-	out, err := e.uploadToAPI(ctx, p.TenantID, up)
+	up, out, err := e.uploadOf(ctx, params.ID, "supplier_invoice")
 	if err != nil {
 		return nil, err
 	}
 	return &gen.GetUploadOKHeaders{ETag: gen.NewOptString(etag.Format(up.Version)), Response: *out}, nil
+}
+
+// GetSalesOrderUpload implements GET /v1/sales-order-uploads/{id}: an
+// upload of a customer's purchase order, under the order capture's
+// permission (T90a).
+func (e *Endpoints) GetSalesOrderUpload(ctx context.Context, params gen.GetSalesOrderUploadParams) (gen.GetSalesOrderUploadRes, error) {
+	_, out, err := e.uploadOf(ctx, params.ID, PurposeSalesOrder)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// uploadOf reads an upload of the purpose with its URL; one of another
+// purpose is not found, its permission being another (T90a).
+func (e *Endpoints) uploadOf(ctx context.Context, id uuid.UUID, purpose string) (Upload, *gen.Upload, error) {
+	if e.Uploads == nil {
+		return Upload{}, nil, problem.Unavailable("This server has no object storage.", 0)
+	}
+	_, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return Upload{}, nil, err
+	}
+	up, err := e.Uploads.Get(ctx, id)
+	if err != nil {
+		return Upload{}, nil, err
+	}
+	if up.Purpose != purpose {
+		return Upload{}, nil, problem.NotFoundOf("upload")
+	}
+	out, err := e.uploadToAPI(ctx, p.TenantID, up)
+	return up, out, err
 }

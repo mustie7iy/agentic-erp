@@ -2460,7 +2460,10 @@ go to, where its URL sends them (`via`: `store`, a presigned URL of the
 store, or `api`, the API's own signed path, which streams them into the
 store; migration 000188, ADR-0020 As built 2026-11-01), until when, and its
 status (`open`, `received` through the API, `used` by the invoice in
-`used_by`, with size and hash once known).
+`used_by`, with size and hash once known). Its purpose is
+`supplier_invoice` or, since T90a (migrations 000333, 000334,
+`upload_purpose_check`), `sales_order`: a customer's purchase order that
+order capture consumes, `used_by` then naming the sales order.
 
 `down_payment_request` (T46b, ADR-0037) is a request to pay a supplier in
 advance of an invoice still to come (SAP F-47, special G/L F, a noted
@@ -4955,6 +4958,16 @@ erDiagram
   `blocked`, and a blocked order released, once; the application may
   also update these four columns. The credit exposure reads a
   customer's confirmed, unblocked orders by `sales_order_by_customer`.
+  T90a (migration 000333) adds order capture: `capture_upload_id`, the
+  payables context's upload an order was captured from, and `capture`,
+  what was read (the customer's own order number, how the customer was
+  found, the confidence and per item what was printed and where its
+  price came from), a JSON object, both or neither
+  (`sales_order_capture_check`), one order per upload
+  (`sales_order_one_per_upload`); written when the order is created and
+  never changed. The same migration indexes `partner.tax_identifier` by
+  `(tenant_id, value_fingerprint)` (`tax_identifier_by_fingerprint`), by
+  which capture finds a customer's tax number of any scheme.
 - `sales.sales_order_item`: a quotation item's columns and rules, with
   `delivered_quantity` and `billed_quantity`, 0 when created:
   `0 <= billed_quantity <= delivered_quantity <= quantity`

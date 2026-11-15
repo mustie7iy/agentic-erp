@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
@@ -42,6 +43,15 @@ func orderAPI(o Order, refs references) gen.SalesOrder {
 		CreditReleasedByName: apitypes.OptString(o.CreditReleasedByName), Items: make([]gen.SalesOrderItem, len(o.Items))}
 	if o.CreditReleasedAt != nil {
 		out.CreditReleasedAt.SetTo(*o.CreditReleasedAt)
+	}
+	if c := o.Capture; c != nil {
+		captured := gen.SalesOrderCaptured{UploadID: c.UploadID, CustomerReference: c.CustomerReference, CustomerMatchedBy: c.CustomerMatchedBy,
+			Confidence: c.Confidence, Items: make([]gen.SalesOrderCapturedItem, len(c.Items))}
+		for i, it := range c.Items {
+			captured.Items[i] = gen.SalesOrderCapturedItem{ItemNo: it.ItemNo, ItemKey: it.ItemKey, Description: it.Description, Quantity: it.Quantity,
+				Unit: it.Unit, UnitPrice: it.UnitPrice, PriceSource: it.PriceSource}
+		}
+		out.Capture = gen.NewOptSalesOrderCaptured(captured)
 	}
 	for i, it := range o.Items {
 		base := itemAPI(it.Item, o.Currency, o.Exponent, refs)
@@ -81,6 +91,16 @@ func (e *Endpoints) CreateSalesOrder(ctx context.Context, req *gen.SalesOrderCre
 	}
 	return &gen.SalesOrderHeaders{ETag: gen.NewOptString(etag.Format(o.Version)), Location: gen.NewOptString("/v1/sales-orders/" + o.ID.String()),
 		Response: out}, nil
+}
+
+// CaptureSalesOrder implements POST /v1/sales-orders:capture.
+func (e *Endpoints) CaptureSalesOrder(ctx context.Context, req *gen.SalesOrderCaptureRequest, _ gen.CaptureSalesOrderParams) (gen.CaptureSalesOrderRes, error) {
+	op, err := e.CaptureOrder(ctx, CaptureInput{LegalEntityID: req.LegalEntityID, UploadID: req.UploadID, AccountID: req.AccountID,
+		TaxCode: apitypes.Ptr[string](req.TaxCode)})
+	if err != nil {
+		return nil, err
+	}
+	return &gen.OperationHeaders{Location: gen.NewOptString("/v1/operations/" + op.ID.String()), Response: operations.ToAPI(op)}, nil
 }
 
 // GetSalesOrder implements GET /v1/sales-orders/{id}.

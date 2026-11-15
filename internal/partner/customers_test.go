@@ -327,3 +327,47 @@ func TestCustomerCompanyRefusals(t *testing.T) {
 		t.Errorf("a refused request left an update change: %v", page["items"])
 	}
 }
+
+// TestFindCustomers (T90a): the business partners a document names, by
+// the number printed and by a tax registration number of any scheme, each
+// once by number; nothing printed finds none, and a partner awaiting its
+// creation's approval is not found.
+func TestFindCustomers(t *testing.T) {
+	ten := pgtest.NewTenant(t)
+	insert := func(number, status string) uuid.UUID {
+		id := uuid.Must(uuid.NewV7())
+		pgtest.Exec(t, `INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, country_code, status, created_by, updated_by)
+			VALUES ($1, $2, $3, 'organization', $3, 'DE', $4, $5, $5)`, ten.ID, id, number, status, ten.Human.ID)
+		return id
+	}
+	tax := func(id uuid.UUID, scheme, value string) {
+		pgtest.Exec(t, `INSERT INTO partner.tax_identifier (tenant_id, partner_id, scheme, value_cipher, value_fingerprint, value_last4, created_by, updated_by)
+			VALUES ($1, $2, $3, '\x00', $4, '1111', $5, $5)`, ten.ID, id, scheme, apitest.Fingerprint(t, ten.ID, value), ten.Human.ID)
+	}
+	a, b, pending := insert("BP1", "active"), insert("BP2", "blocked"), insert("BP3", "pending")
+	tax(a, "EU_VAT", "DE811111111")
+	tax(b, "DE_STNR", "DE811111111")
+	tax(pending, "EU_VAT", "DE822222222")
+	p := partner.Payees{Keys: apitest.FieldKeys()}
+	for name, c := range map[string]struct{ number, tax, want string }{
+		"by number":                   {"BP1", "", "BP1"},
+		"by tax number":               {"", "DE811111111", "BP1 BP2"},
+		"by both, each once":          {"BP1", "DE811111111", "BP1 BP2"},
+		"nothing printed":             {"", "", ""},
+		"a partner awaiting approval": {"BP3", "DE822222222", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var got []string
+			err := apitest.InRequest(t, ten, ten.Human, func(ctx context.Context) error {
+				found, err := p.FindCustomers(ctx, c.number, c.tax)
+				for _, f := range found {
+					got = append(got, f.Number)
+				}
+				return err
+			})
+			if err != nil || strings.Join(got, " ") != c.want {
+				t.Errorf("got %v %v, want %q", got, err, c.want)
+			}
+		})
+	}
+}

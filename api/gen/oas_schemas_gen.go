@@ -17486,6 +17486,22 @@ type CancelSupplierInvoiceUnprocessableEntity Problem
 
 func (*CancelSupplierInvoiceUnprocessableEntity) cancelSupplierInvoiceRes() {}
 
+type CaptureSalesOrderBadRequest Problem
+
+func (*CaptureSalesOrderBadRequest) captureSalesOrderRes() {}
+
+type CaptureSalesOrderForbidden Problem
+
+func (*CaptureSalesOrderForbidden) captureSalesOrderRes() {}
+
+type CaptureSalesOrderPreconditionRequired Problem
+
+func (*CaptureSalesOrderPreconditionRequired) captureSalesOrderRes() {}
+
+type CaptureSalesOrderUnprocessableEntity Problem
+
+func (*CaptureSalesOrderUnprocessableEntity) captureSalesOrderRes() {}
+
 type CaptureSupplierInvoiceBadRequest Problem
 
 func (*CaptureSupplierInvoiceBadRequest) captureSupplierInvoiceRes() {}
@@ -25708,6 +25724,7 @@ func (*ConflictHeaders) cancelPurchaseOrderRes()                   {}
 func (*ConflictHeaders) cancelRequisitionRes()                     {}
 func (*ConflictHeaders) cancelRevaluationRunRes()                  {}
 func (*ConflictHeaders) cancelSupplierInvoiceRes()                 {}
+func (*ConflictHeaders) captureSalesOrderRes()                     {}
 func (*ConflictHeaders) captureSupplierInvoiceRes()                {}
 func (*ConflictHeaders) checkCloseTaskRes()                        {}
 func (*ConflictHeaders) checkYearCloseTaskRes()                    {}
@@ -25786,6 +25803,7 @@ func (*ConflictHeaders) createRiskRatingRes()                      {}
 func (*ConflictHeaders) createRoleAssignmentRes()                  {}
 func (*ConflictHeaders) createRoleRes()                            {}
 func (*ConflictHeaders) createSalesOrderRes()                      {}
+func (*ConflictHeaders) createSalesOrderUploadRes()                {}
 func (*ConflictHeaders) createSalesPriceRes()                      {}
 func (*ConflictHeaders) createScheduleLineRes()                    {}
 func (*ConflictHeaders) createSegmentRes()                         {}
@@ -33407,6 +33425,61 @@ func (*CreateSalesOrderPreconditionRequired) createSalesOrderRes() {}
 type CreateSalesOrderUnprocessableEntity Problem
 
 func (*CreateSalesOrderUnprocessableEntity) createSalesOrderRes() {}
+
+type CreateSalesOrderUploadBadRequest Problem
+
+func (*CreateSalesOrderUploadBadRequest) createSalesOrderUploadRes() {}
+
+// CreateSalesOrderUploadCreatedHeaders wraps Upload with response headers.
+type CreateSalesOrderUploadCreatedHeaders struct {
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           Upload
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CreateSalesOrderUploadCreatedHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *CreateSalesOrderUploadCreatedHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *CreateSalesOrderUploadCreatedHeaders) GetResponse() Upload {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CreateSalesOrderUploadCreatedHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *CreateSalesOrderUploadCreatedHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CreateSalesOrderUploadCreatedHeaders) SetResponse(val Upload) {
+	s.Response = val
+}
+
+func (*CreateSalesOrderUploadCreatedHeaders) createSalesOrderUploadRes() {}
+
+type CreateSalesOrderUploadForbidden Problem
+
+func (*CreateSalesOrderUploadForbidden) createSalesOrderUploadRes() {}
+
+type CreateSalesOrderUploadPreconditionRequired Problem
+
+func (*CreateSalesOrderUploadPreconditionRequired) createSalesOrderUploadRes() {}
+
+type CreateSalesOrderUploadUnprocessableEntity Problem
+
+func (*CreateSalesOrderUploadUnprocessableEntity) createSalesOrderUploadRes() {}
 
 type CreateSalesPriceBadRequest Problem
 
@@ -47122,6 +47195,18 @@ func (s *GetSalesOrderOKHeaders) SetResponse(val SalesOrder) {
 }
 
 func (*GetSalesOrderOKHeaders) getSalesOrderRes() {}
+
+type GetSalesOrderUploadBadRequest Problem
+
+func (*GetSalesOrderUploadBadRequest) getSalesOrderUploadRes() {}
+
+type GetSalesOrderUploadForbidden Problem
+
+func (*GetSalesOrderUploadForbidden) getSalesOrderUploadRes() {}
+
+type GetSalesOrderUploadNotFound Problem
+
+func (*GetSalesOrderUploadNotFound) getSalesOrderUploadRes() {}
 
 type GetSalesPriceBadRequest Problem
 
@@ -65065,6 +65150,7 @@ func (s *OperationHeaders) SetResponse(val Operation) {
 	s.Response = val
 }
 
+func (*OperationHeaders) captureSalesOrderRes()      {}
 func (*OperationHeaders) captureSupplierInvoiceRes() {}
 func (*OperationHeaders) createConsolidationRunRes() {}
 func (*OperationHeaders) fetchEInvoicesRes()         {}
@@ -69748,6 +69834,52 @@ func (o OptReportTileWhere) Get() (v ReportTileWhere, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptReportTileWhere) Or(d ReportTileWhere) ReportTileWhere {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptSalesOrderCaptured returns new OptSalesOrderCaptured with value set to v.
+func NewOptSalesOrderCaptured(v SalesOrderCaptured) OptSalesOrderCaptured {
+	return OptSalesOrderCaptured{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSalesOrderCaptured is optional SalesOrderCaptured.
+type OptSalesOrderCaptured struct {
+	Value SalesOrderCaptured
+	Set   bool
+}
+
+// IsSet returns true if OptSalesOrderCaptured was set.
+func (o OptSalesOrderCaptured) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSalesOrderCaptured) Reset() {
+	var v SalesOrderCaptured
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSalesOrderCaptured) SetTo(v SalesOrderCaptured) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSalesOrderCaptured) Get() (v SalesOrderCaptured, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSalesOrderCaptured) Or(d SalesOrderCaptured) SalesOrderCaptured {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -91990,7 +92122,8 @@ type SalesOrder struct {
 	// When the credit block was released; absent unless `credit_block` is `released`.
 	CreditReleasedAt OptDateTime `json:"credit_released_at"`
 	// The items, by item number.
-	Items []SalesOrderItem `json:"items"`
+	Items   []SalesOrderItem      `json:"items"`
+	Capture OptSalesOrderCaptured `json:"capture"`
 }
 
 // GetID returns the value of ID.
@@ -92118,6 +92251,11 @@ func (s *SalesOrder) GetItems() []SalesOrderItem {
 	return s.Items
 }
 
+// GetCapture returns the value of Capture.
+func (s *SalesOrder) GetCapture() OptSalesOrderCaptured {
+	return s.Capture
+}
+
 // SetID sets the value of ID.
 func (s *SalesOrder) SetID(val uuid.UUID) {
 	s.ID = val
@@ -92241,6 +92379,227 @@ func (s *SalesOrder) SetCreditReleasedAt(val OptDateTime) {
 // SetItems sets the value of Items.
 func (s *SalesOrder) SetItems(val []SalesOrderItem) {
 	s.Items = val
+}
+
+// SetCapture sets the value of Capture.
+func (s *SalesOrder) SetCapture(val OptSalesOrderCaptured) {
+	s.Capture = val
+}
+
+// Capture a customer's purchase order from a direct upload into a draft sales order of the company.
+// Ref: #/components/schemas/SalesOrderCaptureRequest
+type SalesOrderCaptureRequest struct {
+	// The company that takes the order: one the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// A direct upload of the document (`createSalesOrderUpload`: purpose `sales_order`, a PDF or plain
+	// text, at most 50 MB), consumed by this capture. 422 `payables.upload_empty` when nothing was
+	// uploaded to it yet, `payables.upload_purpose` when it is for another purpose; captured again into
+	// the same company, it answers the order it gave; into another, 422 `payables.upload_used`.
+	UploadID uuid.UUID `json:"upload_id"`
+	// The revenue account every item of the order is billed to (`GET /v1/accounts/{id}`): postable in the
+	// company (422 `sales.account_not_postable`).
+	AccountID uuid.UUID `json:"account_id"`
+	// The output tax code every item is billed with: an output tax code of the company in force on the
+	// order's date (422 `sales.unknown_tax_code`); absent, the items have none.
+	TaxCode OptString `json:"tax_code"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *SalesOrderCaptureRequest) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetUploadID returns the value of UploadID.
+func (s *SalesOrderCaptureRequest) GetUploadID() uuid.UUID {
+	return s.UploadID
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *SalesOrderCaptureRequest) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *SalesOrderCaptureRequest) GetTaxCode() OptString {
+	return s.TaxCode
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *SalesOrderCaptureRequest) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetUploadID sets the value of UploadID.
+func (s *SalesOrderCaptureRequest) SetUploadID(val uuid.UUID) {
+	s.UploadID = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *SalesOrderCaptureRequest) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *SalesOrderCaptureRequest) SetTaxCode(val OptString) {
+	s.TaxCode = val
+}
+
+// What order capture read into the order (ADR-0067, As built T90a); absent for an order created by
+// hand. The items as the document printed them, numbered as the order's items they gave.
+// Ref: #/components/schemas/SalesOrderCaptured
+type SalesOrderCaptured struct {
+	// The direct upload the order was captured from (`GET /v1/uploads/{id}`).
+	UploadID uuid.UUID `json:"upload_id"`
+	// The customer's own purchase order number as printed; empty when none is.
+	CustomerReference string `json:"customer_reference"`
+	// What found the customer: the customer number printed, the tax registration number printed, or both.
+	CustomerMatchedBy []string `json:"customer_matched_by"`
+	// How sure the model was of what it read. Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	Confidence string `json:"confidence"`
+	// The document's items, in its order.
+	Items []SalesOrderCapturedItem `json:"items"`
+}
+
+// GetUploadID returns the value of UploadID.
+func (s *SalesOrderCaptured) GetUploadID() uuid.UUID {
+	return s.UploadID
+}
+
+// GetCustomerReference returns the value of CustomerReference.
+func (s *SalesOrderCaptured) GetCustomerReference() string {
+	return s.CustomerReference
+}
+
+// GetCustomerMatchedBy returns the value of CustomerMatchedBy.
+func (s *SalesOrderCaptured) GetCustomerMatchedBy() []string {
+	return s.CustomerMatchedBy
+}
+
+// GetConfidence returns the value of Confidence.
+func (s *SalesOrderCaptured) GetConfidence() string {
+	return s.Confidence
+}
+
+// GetItems returns the value of Items.
+func (s *SalesOrderCaptured) GetItems() []SalesOrderCapturedItem {
+	return s.Items
+}
+
+// SetUploadID sets the value of UploadID.
+func (s *SalesOrderCaptured) SetUploadID(val uuid.UUID) {
+	s.UploadID = val
+}
+
+// SetCustomerReference sets the value of CustomerReference.
+func (s *SalesOrderCaptured) SetCustomerReference(val string) {
+	s.CustomerReference = val
+}
+
+// SetCustomerMatchedBy sets the value of CustomerMatchedBy.
+func (s *SalesOrderCaptured) SetCustomerMatchedBy(val []string) {
+	s.CustomerMatchedBy = val
+}
+
+// SetConfidence sets the value of Confidence.
+func (s *SalesOrderCaptured) SetConfidence(val string) {
+	s.Confidence = val
+}
+
+// SetItems sets the value of Items.
+func (s *SalesOrderCaptured) SetItems(val []SalesOrderCapturedItem) {
+	s.Items = val
+}
+
+// An item as the document printed it.
+// Ref: #/components/schemas/SalesOrderCapturedItem
+type SalesOrderCapturedItem struct {
+	// The order's item it gave.
+	ItemNo int32 `json:"item_no"`
+	// The item key printed; empty when none is.
+	ItemKey string `json:"item_key"`
+	// The description printed.
+	Description string `json:"description"`
+	// The quantity printed, a decimal.
+	Quantity string `json:"quantity"`
+	// The unit of measure read.
+	Unit string `json:"unit"`
+	// The unit price printed, a decimal in the order's currency; empty when none is printed.
+	UnitPrice string `json:"unit_price"`
+	// `manual`: the item took the price printed; `price_list`: none was printed and the item took its item
+	// key's price record (its `unit_price` on the order's item). Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	PriceSource string `json:"price_source"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *SalesOrderCapturedItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetItemKey returns the value of ItemKey.
+func (s *SalesOrderCapturedItem) GetItemKey() string {
+	return s.ItemKey
+}
+
+// GetDescription returns the value of Description.
+func (s *SalesOrderCapturedItem) GetDescription() string {
+	return s.Description
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *SalesOrderCapturedItem) GetQuantity() string {
+	return s.Quantity
+}
+
+// GetUnit returns the value of Unit.
+func (s *SalesOrderCapturedItem) GetUnit() string {
+	return s.Unit
+}
+
+// GetUnitPrice returns the value of UnitPrice.
+func (s *SalesOrderCapturedItem) GetUnitPrice() string {
+	return s.UnitPrice
+}
+
+// GetPriceSource returns the value of PriceSource.
+func (s *SalesOrderCapturedItem) GetPriceSource() string {
+	return s.PriceSource
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *SalesOrderCapturedItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetItemKey sets the value of ItemKey.
+func (s *SalesOrderCapturedItem) SetItemKey(val string) {
+	s.ItemKey = val
+}
+
+// SetDescription sets the value of Description.
+func (s *SalesOrderCapturedItem) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *SalesOrderCapturedItem) SetQuantity(val string) {
+	s.Quantity = val
+}
+
+// SetUnit sets the value of Unit.
+func (s *SalesOrderCapturedItem) SetUnit(val string) {
+	s.Unit = val
+}
+
+// SetUnitPrice sets the value of UnitPrice.
+func (s *SalesOrderCapturedItem) SetUnitPrice(val string) {
+	s.UnitPrice = val
+}
+
+// SetPriceSource sets the value of PriceSource.
+func (s *SalesOrderCapturedItem) SetPriceSource(val string) {
+	s.PriceSource = val
 }
 
 // Create a sales order: from an accepted quotation (`quotation_id` alone, with `payment_term_code` if
@@ -92613,6 +92972,37 @@ func (s *SalesOrderPage) SetNextPageToken(val OptString) {
 }
 
 func (*SalesOrderPage) listSalesOrdersRes() {}
+
+// What a direct upload of a customer's purchase order will carry.
+// Ref: #/components/schemas/SalesOrderUploadCreate
+type SalesOrderUploadCreate struct {
+	// The content type of the document: a PDF or plain text; another type is refused (422
+	// `payables.unsupported_content_type`). Open enumeration: values may be added within /v1.
+	ContentType string `json:"content_type"`
+	// Where the bytes are to go, as `createUpload`'s `via`: `store` (the default) or `api`. Another value
+	// is refused (422 `payables.unknown_upload_via`). Open enumeration: values may be added within /v1.
+	Via OptString `json:"via"`
+}
+
+// GetContentType returns the value of ContentType.
+func (s *SalesOrderUploadCreate) GetContentType() string {
+	return s.ContentType
+}
+
+// GetVia returns the value of Via.
+func (s *SalesOrderUploadCreate) GetVia() OptString {
+	return s.Via
+}
+
+// SetContentType sets the value of ContentType.
+func (s *SalesOrderUploadCreate) SetContentType(val string) {
+	s.ContentType = val
+}
+
+// SetVia sets the value of Via.
+func (s *SalesOrderUploadCreate) SetVia(val OptString) {
+	s.Via = val
+}
 
 // Merged schema.
 // Ref: #/components/schemas/SalesPrice
@@ -93831,6 +94221,7 @@ func (*ServiceUnavailableHeaders) cancelPurchaseOrderRes()                   {}
 func (*ServiceUnavailableHeaders) cancelRequisitionRes()                     {}
 func (*ServiceUnavailableHeaders) cancelRevaluationRunRes()                  {}
 func (*ServiceUnavailableHeaders) cancelSupplierInvoiceRes()                 {}
+func (*ServiceUnavailableHeaders) captureSalesOrderRes()                     {}
 func (*ServiceUnavailableHeaders) captureSupplierInvoiceRes()                {}
 func (*ServiceUnavailableHeaders) checkCloseTaskRes()                        {}
 func (*ServiceUnavailableHeaders) checkYearCloseTaskRes()                    {}
@@ -93881,6 +94272,7 @@ func (*ServiceUnavailableHeaders) createRequisitionRes()                     {}
 func (*ServiceUnavailableHeaders) createRfqRes()                             {}
 func (*ServiceUnavailableHeaders) createRoleAssignmentRes()                  {}
 func (*ServiceUnavailableHeaders) createRoleRes()                            {}
+func (*ServiceUnavailableHeaders) createSalesOrderUploadRes()                {}
 func (*ServiceUnavailableHeaders) createScheduleLineRes()                    {}
 func (*ServiceUnavailableHeaders) createSegmentRes()                         {}
 func (*ServiceUnavailableHeaders) createSodRuleRes()                         {}
@@ -95899,7 +96291,8 @@ type SupplierInvoiceCaptureMultipart struct {
 	Document OptString `json:"document"`
 	// A direct upload of the document (purpose `supplier_invoice`, at most 50 MB), consumed by this
 	// capture. 422 `payables.upload_empty` when nothing was uploaded to it yet, `payables.upload_used`
-	// when it was consumed before.
+	// when it was consumed before, `payables.upload_purpose` when it is for another purpose (a customer's
+	// purchase order).
 	UploadID OptUUID `json:"upload_id"`
 }
 
@@ -98959,6 +99352,7 @@ func (*TooManyRequestsHeaders) cancelPurchaseOrderRes()                   {}
 func (*TooManyRequestsHeaders) cancelRequisitionRes()                     {}
 func (*TooManyRequestsHeaders) cancelRevaluationRunRes()                  {}
 func (*TooManyRequestsHeaders) cancelSupplierInvoiceRes()                 {}
+func (*TooManyRequestsHeaders) captureSalesOrderRes()                     {}
 func (*TooManyRequestsHeaders) captureSupplierInvoiceRes()                {}
 func (*TooManyRequestsHeaders) checkCloseTaskRes()                        {}
 func (*TooManyRequestsHeaders) checkYearCloseTaskRes()                    {}
@@ -99039,6 +99433,7 @@ func (*TooManyRequestsHeaders) createRiskRes()                            {}
 func (*TooManyRequestsHeaders) createRoleAssignmentRes()                  {}
 func (*TooManyRequestsHeaders) createRoleRes()                            {}
 func (*TooManyRequestsHeaders) createSalesOrderRes()                      {}
+func (*TooManyRequestsHeaders) createSalesOrderUploadRes()                {}
 func (*TooManyRequestsHeaders) createSalesPriceRes()                      {}
 func (*TooManyRequestsHeaders) createScheduleLineRes()                    {}
 func (*TooManyRequestsHeaders) createSegmentRes()                         {}
@@ -99191,6 +99586,7 @@ func (*TooManyRequestsHeaders) getRoleAssignmentRes()                     {}
 func (*TooManyRequestsHeaders) getRolePermissionRes()                     {}
 func (*TooManyRequestsHeaders) getRoleRes()                               {}
 func (*TooManyRequestsHeaders) getSalesOrderRes()                         {}
+func (*TooManyRequestsHeaders) getSalesOrderUploadRes()                   {}
 func (*TooManyRequestsHeaders) getSalesPriceRes()                         {}
 func (*TooManyRequestsHeaders) getSchemaRes()                             {}
 func (*TooManyRequestsHeaders) getSegmentRes()                            {}
@@ -99831,6 +100227,7 @@ func (*UnauthorizedHeaders) cancelPurchaseOrderRes()                   {}
 func (*UnauthorizedHeaders) cancelRequisitionRes()                     {}
 func (*UnauthorizedHeaders) cancelRevaluationRunRes()                  {}
 func (*UnauthorizedHeaders) cancelSupplierInvoiceRes()                 {}
+func (*UnauthorizedHeaders) captureSalesOrderRes()                     {}
 func (*UnauthorizedHeaders) captureSupplierInvoiceRes()                {}
 func (*UnauthorizedHeaders) checkCloseTaskRes()                        {}
 func (*UnauthorizedHeaders) checkYearCloseTaskRes()                    {}
@@ -99911,6 +100308,7 @@ func (*UnauthorizedHeaders) createRiskRes()                            {}
 func (*UnauthorizedHeaders) createRoleAssignmentRes()                  {}
 func (*UnauthorizedHeaders) createRoleRes()                            {}
 func (*UnauthorizedHeaders) createSalesOrderRes()                      {}
+func (*UnauthorizedHeaders) createSalesOrderUploadRes()                {}
 func (*UnauthorizedHeaders) createSalesPriceRes()                      {}
 func (*UnauthorizedHeaders) createScheduleLineRes()                    {}
 func (*UnauthorizedHeaders) createSegmentRes()                         {}
@@ -100063,6 +100461,7 @@ func (*UnauthorizedHeaders) getRoleAssignmentRes()                     {}
 func (*UnauthorizedHeaders) getRolePermissionRes()                     {}
 func (*UnauthorizedHeaders) getRoleRes()                               {}
 func (*UnauthorizedHeaders) getSalesOrderRes()                         {}
+func (*UnauthorizedHeaders) getSalesOrderUploadRes()                   {}
 func (*UnauthorizedHeaders) getSalesPriceRes()                         {}
 func (*UnauthorizedHeaders) getSchemaRes()                             {}
 func (*UnauthorizedHeaders) getSegmentRes()                            {}
@@ -102509,6 +102908,8 @@ func (s *Upload) SetSize(val OptInt64) {
 func (s *Upload) SetUsedBy(val OptUUID) {
 	s.UsedBy = val
 }
+
+func (*Upload) getSalesOrderUploadRes() {}
 
 // What a direct upload will carry.
 // Ref: #/components/schemas/UploadCreate

@@ -261,6 +261,7 @@ type server struct {
 	sync         *directory.Sync
 	control      http.Handler
 	extractor    capture.Extractor
+	orders       capture.OrderExtractor
 	connector    payments.Connector
 	metrics      *telemetry.Metrics
 	engine       *workflow.Temporal
@@ -577,7 +578,8 @@ func (s *server) collaborators() {
 			Countries: tenancy.Countries}
 		// Capture's model calls go through the gateway too, in the
 		// request's unit of work (ADR-0036).
-		s.extractor = &capture.ClaudeExtractor{LLM: llm.InProcess(s.gateway.Transport(), "erp-extraction")}
+		claude := &capture.ClaudeExtractor{LLM: llm.InProcess(s.gateway.Transport(), "erp-extraction")}
+		s.extractor, s.orders = claude, claude
 	}
 	if s.cfg.BankOutboxDir != "" {
 		s.connector = payments.DirConnector{Dir: s.cfg.BankOutboxDir}
@@ -669,7 +671,7 @@ const analyticsTimeout = 30 * time.Second
 func (s *server) newAPI() error {
 	cfg := s.cfg
 	s.apiCfg = app.Config{
-		Pool: s.pool, Consistent: s.consistent, AppRole: cfg.AppRole, Verifier: s.verifier, Pages: s.pages, FieldKeys: s.keys, Extractor: s.extractor, Connector: s.connector, ExtractDir: cfg.ExtractDir, Objects: s.store, Retention: cfg.Objects.Retention, Secrets: cfg.Secrets, Log: s.log,
+		Pool: s.pool, Consistent: s.consistent, AppRole: cfg.AppRole, Verifier: s.verifier, Pages: s.pages, FieldKeys: s.keys, Extractor: s.extractor, OrderExtractor: s.orders, Connector: s.connector, ExtractDir: cfg.ExtractDir, Objects: s.store, Retention: cfg.Objects.Retention, Secrets: cfg.Secrets, Log: s.log,
 		UploadKey: uploadKey(cfg.PageTokenKey), PublicURL: cfg.PublicURL, Workflows: s.engineClient,
 		Limits: ratelimit.New(cfg.TenantQuota, cfg.PrincipalQuota), RequestTimeout: cfg.RequestTimeout,
 		Metrics: s.metrics, Tracer: s.tp, Meter: otel.GetMeterProvider(), Now: time.Now,

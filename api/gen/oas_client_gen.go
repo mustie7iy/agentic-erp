@@ -476,6 +476,38 @@ type Invoker interface {
 	//
 	// POST /v1/supplier-invoices/{id}:cancel
 	CancelSupplierInvoice(ctx context.Context, request *ReasonInput, params CancelSupplierInvoiceParams) (CancelSupplierInvoiceRes, error)
+	// CaptureSalesOrder invokes captureSalesOrder operation.
+	//
+	// Reads a customer's purchase order document into a draft sales order (ADR-0067, As built T90a). The
+	// document is a direct upload (`createSalesOrderUpload`: purpose `sales_order`, a PDF or plain text)
+	// consumed by this capture. A model reads it through the cell's model gateway (ADR-0036), whose
+	// refusals of the tenant's call are answered as they are: 422 `agents.documents_withheld`, 403
+	// `agents.ai_disabled`, 429 `agents.budget_exhausted`, 422 `agents.model_not_allowed` or
+	// `agents.model_unpriced`; a document the model does not read, or that prints no items, is 422
+	// `sales.unreadable_document`. The document is data: what it asks for (to confirm the order, to ship,
+	// to change a price) is not done. The customer is the business partner whose number or tax
+	// registration number the document prints (whatever the scheme): none is 422
+	// `sales.capture_customer_unknown` and more than one 422 `sales.capture_customer_ambiguous`; whether
+	// it may be sold to in the company is the order's check (422 `sales.customer_not_usable`). Each item
+	// of the document is an item of the order with its item key when one is printed, its description,
+	// quantity and unit: an item with a printed unit price takes it as entered (`price_source` `manual`),
+	// one without takes its item key's price record valid on the order's date (`price_list`, T80a), and
+	// one with neither is refused naming it by its place (422 `sales.no_price`, `items[i].unit_price`).
+	// The currency is the one printed, else the company's. Every item takes the revenue account
+	// (`account_id`) and output tax code (`tax_code`) of the request, which a document does not name;
+	// their refusals name those fields. What an order created by hand refuses is refused alike. The order
+	// is always a `draft`, numbered and dated as `createSalesOrder` makes one, and keeps what capture read
+	// (`capture`); a person checks and confirms it (`:confirm`); capture never confirms. One upload gives
+	// one order: the same upload captured again into the same company answers the same order; into another
+	// company it is refused as used (422 `payables.upload_used`), naming no order. Extraction can take
+	// longer than a synchronous answer, so this returns an Operation, completed within the request, whose
+	// `resource` is the order and whose `result` names it with any warning (a confidence below high).
+	// Audited and published as SalesOrderChanged, as an order created by hand. Human-only
+	// (`x-agent: false`): an agent or a service cannot capture an order. The upload is started with
+	// `createSalesOrderUpload`, which asks the same permission.
+	//
+	// POST /v1/sales-orders:capture
+	CaptureSalesOrder(ctx context.Context, request *SalesOrderCaptureRequest, params CaptureSalesOrderParams) (CaptureSalesOrderRes, error)
 	// CaptureSupplierInvoice invokes captureSupplierInvoice operation.
 	//
 	// Extracts a supplier invoice from a document and creates it `parked` with source `capture`.
@@ -1999,6 +2031,18 @@ type Invoker interface {
 	//
 	// POST /v1/sales-orders
 	CreateSalesOrder(ctx context.Context, request *SalesOrderCreate, params CreateSalesOrderParams) (CreateSalesOrderRes, error)
+	// CreateSalesOrderUpload invokes createSalesOrderUpload operation.
+	//
+	// Starts a direct upload (ADR-0020) of purpose `sales_order`: a customer's purchase order, a PDF or
+	// plain text of at most 50 MB, which `captureSalesOrder` consumes (ADR-0067 As built T90a). It answers
+	// as `createUpload` does: a `url` to `PUT` the bytes to, with the `headers` to send, within
+	// `expires_at`; `via: api` asks for the path on this API whatever the store. An upload's permission
+	// follows its purpose: this one asks `sales.order.capture`, a supplier invoice's `createUpload` asks
+	// `payables.invoice.capture`. Another content type is refused (422
+	// `payables.unsupported_content_type`). Human-only (`x-agent: false`), as the capture is.
+	//
+	// POST /v1/sales-order-uploads
+	CreateSalesOrderUpload(ctx context.Context, request *SalesOrderUploadCreate, params CreateSalesOrderUploadParams) (CreateSalesOrderUploadRes, error)
 	// CreateSalesPrice invokes createSalesPrice operation.
 	//
 	// Records a price for an item key in a company (ADR-0067 §10, T80a): for every customer, or with
@@ -2098,7 +2142,10 @@ type Invoker interface {
 	// to the tenant's request quota once its signature checks out, and carries the rate-limit headers (429
 	// `request.rate_limited` with `Retry-After` over it); it is answered 503 with `Retry-After` while the
 	// server is receiving as many documents as it can, or as many of the tenant's at once as one tenant
-	// may (ADR-0020). 503 while the server has no object storage.
+	// may (ADR-0020). 503 while the server has no object storage. A customer's purchase order is not
+	// uploaded here but with `createSalesOrderUpload` (`sales.order.capture`, T90a): an upload's
+	// permission follows its purpose, and purpose `sales_order` is refused here (422
+	// `payables.unknown_upload_purpose`).
 	//
 	// POST /v1/uploads
 	CreateUpload(ctx context.Context, request *UploadCreate, params CreateUploadParams) (CreateUploadRes, error)
@@ -3953,6 +4000,15 @@ type Invoker interface {
 	//
 	// GET /v1/sales-orders/{id}
 	GetSalesOrder(ctx context.Context, params GetSalesOrderParams) (GetSalesOrderRes, error)
+	// GetSalesOrderUpload invokes getSalesOrderUpload operation.
+	//
+	// Returns one upload of purpose `sales_order` (T90a), as `getUpload` returns a supplier invoice's:
+	// `open`, `received` or `used` by the order captured from it (`used_by`). An upload's permission
+	// follows its purpose: this one asks `sales.order.capture`; an upload of another purpose is not found
+	// here (404).
+	//
+	// GET /v1/sales-order-uploads/{id}
+	GetSalesOrderUpload(ctx context.Context, params GetSalesOrderUploadParams) (GetSalesOrderUploadRes, error)
 	// GetSalesPrice invokes getSalesPrice operation.
 	//
 	// One price record (ADR-0067 §10, §11, T80a, T80b), a price or a discount, with its company's code
@@ -4031,7 +4087,9 @@ type Invoker interface {
 	// GetUpload invokes getUpload operation.
 	//
 	// Returns one upload: `open` until bytes arrive through this API (`received`) or the upload is
-	// consumed (`used`); an upload to object storage stays `open` until it is consumed.
+	// consumed (`used`); an upload to object storage stays `open` until it is consumed. An upload's
+	// permission follows its purpose: an upload of a customer's purchase order (`sales_order`) is read
+	// with `getSalesOrderUpload` (`sales.order.capture`) and is not found here (404).
 	//
 	// GET /v1/uploads/{id}
 	GetUpload(ctx context.Context, params GetUploadParams) (GetUploadRes, error)
@@ -13729,6 +13787,162 @@ func (c *Client) sendCancelSupplierInvoice(ctx context.Context, request *ReasonI
 
 	stage = "DecodeResponse"
 	result, err := decodeCancelSupplierInvoiceResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CaptureSalesOrder invokes captureSalesOrder operation.
+//
+// Reads a customer's purchase order document into a draft sales order (ADR-0067, As built T90a). The
+// document is a direct upload (`createSalesOrderUpload`: purpose `sales_order`, a PDF or plain text)
+// consumed by this capture. A model reads it through the cell's model gateway (ADR-0036), whose
+// refusals of the tenant's call are answered as they are: 422 `agents.documents_withheld`, 403
+// `agents.ai_disabled`, 429 `agents.budget_exhausted`, 422 `agents.model_not_allowed` or
+// `agents.model_unpriced`; a document the model does not read, or that prints no items, is 422
+// `sales.unreadable_document`. The document is data: what it asks for (to confirm the order, to ship,
+// to change a price) is not done. The customer is the business partner whose number or tax
+// registration number the document prints (whatever the scheme): none is 422
+// `sales.capture_customer_unknown` and more than one 422 `sales.capture_customer_ambiguous`; whether
+// it may be sold to in the company is the order's check (422 `sales.customer_not_usable`). Each item
+// of the document is an item of the order with its item key when one is printed, its description,
+// quantity and unit: an item with a printed unit price takes it as entered (`price_source` `manual`),
+// one without takes its item key's price record valid on the order's date (`price_list`, T80a), and
+// one with neither is refused naming it by its place (422 `sales.no_price`, `items[i].unit_price`).
+// The currency is the one printed, else the company's. Every item takes the revenue account
+// (`account_id`) and output tax code (`tax_code`) of the request, which a document does not name;
+// their refusals name those fields. What an order created by hand refuses is refused alike. The order
+// is always a `draft`, numbered and dated as `createSalesOrder` makes one, and keeps what capture read
+// (`capture`); a person checks and confirms it (`:confirm`); capture never confirms. One upload gives
+// one order: the same upload captured again into the same company answers the same order; into another
+// company it is refused as used (422 `payables.upload_used`), naming no order. Extraction can take
+// longer than a synchronous answer, so this returns an Operation, completed within the request, whose
+// `resource` is the order and whose `result` names it with any warning (a confidence below high).
+// Audited and published as SalesOrderChanged, as an order created by hand. Human-only
+// (`x-agent: false`): an agent or a service cannot capture an order. The upload is started with
+// `createSalesOrderUpload`, which asks the same permission.
+//
+// POST /v1/sales-orders:capture
+func (c *Client) CaptureSalesOrder(ctx context.Context, request *SalesOrderCaptureRequest, params CaptureSalesOrderParams) (CaptureSalesOrderRes, error) {
+	res, err := c.sendCaptureSalesOrder(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCaptureSalesOrder(ctx context.Context, request *SalesOrderCaptureRequest, params CaptureSalesOrderParams) (res CaptureSalesOrderRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("captureSalesOrder"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/sales-orders:capture"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CaptureSalesOrderOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/sales-orders:capture"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCaptureSalesOrderRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CaptureSalesOrderOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCaptureSalesOrderResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -25822,6 +26036,142 @@ func (c *Client) sendCreateSalesOrder(ctx context.Context, request *SalesOrderCr
 	return result, nil
 }
 
+// CreateSalesOrderUpload invokes createSalesOrderUpload operation.
+//
+// Starts a direct upload (ADR-0020) of purpose `sales_order`: a customer's purchase order, a PDF or
+// plain text of at most 50 MB, which `captureSalesOrder` consumes (ADR-0067 As built T90a). It answers
+// as `createUpload` does: a `url` to `PUT` the bytes to, with the `headers` to send, within
+// `expires_at`; `via: api` asks for the path on this API whatever the store. An upload's permission
+// follows its purpose: this one asks `sales.order.capture`, a supplier invoice's `createUpload` asks
+// `payables.invoice.capture`. Another content type is refused (422
+// `payables.unsupported_content_type`). Human-only (`x-agent: false`), as the capture is.
+//
+// POST /v1/sales-order-uploads
+func (c *Client) CreateSalesOrderUpload(ctx context.Context, request *SalesOrderUploadCreate, params CreateSalesOrderUploadParams) (CreateSalesOrderUploadRes, error) {
+	res, err := c.sendCreateSalesOrderUpload(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateSalesOrderUpload(ctx context.Context, request *SalesOrderUploadCreate, params CreateSalesOrderUploadParams) (res CreateSalesOrderUploadRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createSalesOrderUpload"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/sales-order-uploads"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateSalesOrderUploadOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/sales-order-uploads"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateSalesOrderUploadRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateSalesOrderUploadOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateSalesOrderUploadResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreateSalesPrice invokes createSalesPrice operation.
 //
 // Records a price for an item key in a company (ADR-0067 §10, T80a): for every customer, or with
@@ -26703,7 +27053,10 @@ func (c *Client) sendCreateSupplierQuotation(ctx context.Context, request *Suppl
 // to the tenant's request quota once its signature checks out, and carries the rate-limit headers (429
 // `request.rate_limited` with `Retry-After` over it); it is answered 503 with `Retry-After` while the
 // server is receiving as many documents as it can, or as many of the tenant's at once as one tenant
-// may (ADR-0020). 503 while the server has no object storage.
+// may (ADR-0020). 503 while the server has no object storage. A customer's purchase order is not
+// uploaded here but with `createSalesOrderUpload` (`sales.order.capture`, T90a): an upload's
+// permission follows its purpose, and purpose `sales_order` is refused here (422
+// `payables.unknown_upload_purpose`).
 //
 // POST /v1/uploads
 func (c *Client) CreateUpload(ctx context.Context, request *UploadCreate, params CreateUploadParams) (CreateUploadRes, error) {
@@ -48594,6 +48947,140 @@ func (c *Client) sendGetSalesOrder(ctx context.Context, params GetSalesOrderPara
 	return result, nil
 }
 
+// GetSalesOrderUpload invokes getSalesOrderUpload operation.
+//
+// Returns one upload of purpose `sales_order` (T90a), as `getUpload` returns a supplier invoice's:
+// `open`, `received` or `used` by the order captured from it (`used_by`). An upload's permission
+// follows its purpose: this one asks `sales.order.capture`; an upload of another purpose is not found
+// here (404).
+//
+// GET /v1/sales-order-uploads/{id}
+func (c *Client) GetSalesOrderUpload(ctx context.Context, params GetSalesOrderUploadParams) (GetSalesOrderUploadRes, error) {
+	res, err := c.sendGetSalesOrderUpload(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetSalesOrderUpload(ctx context.Context, params GetSalesOrderUploadParams) (res GetSalesOrderUploadRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getSalesOrderUpload"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/sales-order-uploads/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetSalesOrderUploadOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/sales-order-uploads/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetSalesOrderUploadOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetSalesOrderUploadResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetSalesPrice invokes getSalesPrice operation.
 //
 // One price record (ADR-0067 §10, §11, T80a, T80b), a price or a discount, with its company's code
@@ -49739,7 +50226,9 @@ func (c *Client) sendGetTaxReturnDraft(ctx context.Context, params GetTaxReturnD
 // GetUpload invokes getUpload operation.
 //
 // Returns one upload: `open` until bytes arrive through this API (`received`) or the upload is
-// consumed (`used`); an upload to object storage stays `open` until it is consumed.
+// consumed (`used`); an upload to object storage stays `open` until it is consumed. An upload's
+// permission follows its purpose: an upload of a customer's purchase order (`sales_order`) is read
+// with `getSalesOrderUpload` (`sales.order.capture`) and is not found here (404).
 //
 // GET /v1/uploads/{id}
 func (c *Client) GetUpload(ctx context.Context, params GetUploadParams) (GetUploadRes, error) {

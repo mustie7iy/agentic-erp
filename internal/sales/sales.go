@@ -52,6 +52,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/capture"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
@@ -159,6 +160,12 @@ type Endpoints struct {
 	Rates         Rates
 	Credit        Credit
 	People        People
+	// Uploads, OrderExtractor and Finder serve order capture (T90a): the
+	// upload's document, the model that reads it (nil: capture answers
+	// 503) and the customer it names.
+	Uploads        Uploads
+	OrderExtractor capture.OrderExtractor
+	Finder         CustomerFinder
 	// Now is the clock a document is dated by and a quotation's validity
 	// is judged on, in the company's time zone; nil: the wall clock.
 	Now func() time.Time

@@ -57,6 +57,13 @@ func (s *swapExtractor) Extract(ctx context.Context, pdf []byte) (*capturepkg.Ex
 	return (&capturepkg.ClaudeExtractor{LLM: r}).Extract(ctx, pdf)
 }
 
+func (s *swapExtractor) ExtractOrder(ctx context.Context, document []byte, contentType string) (*capturepkg.OrderExtraction, error) {
+	s.mu.Lock()
+	r := s.runner
+	s.mu.Unlock()
+	return (&capturepkg.ClaudeExtractor{LLM: r}).ExtractOrder(ctx, document, contentType)
+}
+
 func newReplayCell(t *testing.T, now func() time.Time) replayCell {
 	t.Helper()
 	// The suites cap their tenants' AI; a cap's routes need priced models.
@@ -69,7 +76,7 @@ func newReplayCell(t *testing.T, now func() time.Time) replayCell {
 	}
 	objects := blobstoretest.New(t).Store()         // the reconciliation suite's statement files
 	api := apitest.NewWith(t, func(c *app.Config) { // an evaluation cell (ADR-0039)
-		c.Extractor, c.ExtractDir, c.EvalCell, c.Objects, c.Now = extract, extracts, true, objects, now
+		c.Extractor, c.OrderExtractor, c.ExtractDir, c.EvalCell, c.Objects, c.Now = extract, extract, extracts, true, objects, now
 	})
 	is := api.Issuer
 	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})

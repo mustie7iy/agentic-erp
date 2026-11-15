@@ -1,0 +1,4 @@
+INITECH LTD
+Purchase order IN-1
+Item   Description            Quantity   Unit price
+1      Widgets                5 EA       9.00 CAD

@@ -7618,6 +7618,234 @@ func (s *Server) handleCancelSupplierInvoiceRequest(args [1]string, argsEscaped 
 	}
 }
 
+// handleCaptureSalesOrderRequest handles captureSalesOrder operation.
+//
+// Reads a customer's purchase order document into a draft sales order (ADR-0067, As built T90a). The
+// document is a direct upload (`createSalesOrderUpload`: purpose `sales_order`, a PDF or plain text)
+// consumed by this capture. A model reads it through the cell's model gateway (ADR-0036), whose
+// refusals of the tenant's call are answered as they are: 422 `agents.documents_withheld`, 403
+// `agents.ai_disabled`, 429 `agents.budget_exhausted`, 422 `agents.model_not_allowed` or
+// `agents.model_unpriced`; a document the model does not read, or that prints no items, is 422
+// `sales.unreadable_document`. The document is data: what it asks for (to confirm the order, to ship,
+// to change a price) is not done. The customer is the business partner whose number or tax
+// registration number the document prints (whatever the scheme): none is 422
+// `sales.capture_customer_unknown` and more than one 422 `sales.capture_customer_ambiguous`; whether
+// it may be sold to in the company is the order's check (422 `sales.customer_not_usable`). Each item
+// of the document is an item of the order with its item key when one is printed, its description,
+// quantity and unit: an item with a printed unit price takes it as entered (`price_source` `manual`),
+// one without takes its item key's price record valid on the order's date (`price_list`, T80a), and
+// one with neither is refused naming it by its place (422 `sales.no_price`, `items[i].unit_price`).
+// The currency is the one printed, else the company's. Every item takes the revenue account
+// (`account_id`) and output tax code (`tax_code`) of the request, which a document does not name;
+// their refusals name those fields. What an order created by hand refuses is refused alike. The order
+// is always a `draft`, numbered and dated as `createSalesOrder` makes one, and keeps what capture read
+// (`capture`); a person checks and confirms it (`:confirm`); capture never confirms. One upload gives
+// one order: the same upload captured again into the same company answers the same order; into another
+// company it is refused as used (422 `payables.upload_used`), naming no order. Extraction can take
+// longer than a synchronous answer, so this returns an Operation, completed within the request, whose
+// `resource` is the order and whose `result` names it with any warning (a confidence below high).
+// Audited and published as SalesOrderChanged, as an order created by hand. Human-only
+// (`x-agent: false`): an agent or a service cannot capture an order. The upload is started with
+// `createSalesOrderUpload`, which asks the same permission.
+//
+// POST /v1/sales-orders:capture
+func (s *Server) handleCaptureSalesOrderRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("captureSalesOrder"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/sales-orders:capture"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CaptureSalesOrderOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CaptureSalesOrderOperation,
+			ID:   "captureSalesOrder",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CaptureSalesOrderOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCaptureSalesOrderParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCaptureSalesOrderRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CaptureSalesOrderRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CaptureSalesOrderOperation,
+			OperationSummary: "Capture a customer's purchase order into a draft sales order",
+			OperationID:      "captureSalesOrder",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *SalesOrderCaptureRequest
+			Params   = CaptureSalesOrderParams
+			Response = CaptureSalesOrderRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCaptureSalesOrderParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CaptureSalesOrder(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CaptureSalesOrder(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCaptureSalesOrderResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCaptureSupplierInvoiceRequest handles captureSupplierInvoice operation.
 //
 // Extracts a supplier invoice from a document and creates it `parked` with source `capture`.
@@ -24865,6 +25093,214 @@ func (s *Server) handleCreateSalesOrderRequest(args [0]string, argsEscaped bool,
 	}
 }
 
+// handleCreateSalesOrderUploadRequest handles createSalesOrderUpload operation.
+//
+// Starts a direct upload (ADR-0020) of purpose `sales_order`: a customer's purchase order, a PDF or
+// plain text of at most 50 MB, which `captureSalesOrder` consumes (ADR-0067 As built T90a). It answers
+// as `createUpload` does: a `url` to `PUT` the bytes to, with the `headers` to send, within
+// `expires_at`; `via: api` asks for the path on this API whatever the store. An upload's permission
+// follows its purpose: this one asks `sales.order.capture`, a supplier invoice's `createUpload` asks
+// `payables.invoice.capture`. Another content type is refused (422
+// `payables.unsupported_content_type`). Human-only (`x-agent: false`), as the capture is.
+//
+// POST /v1/sales-order-uploads
+func (s *Server) handleCreateSalesOrderUploadRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createSalesOrderUpload"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/sales-order-uploads"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CreateSalesOrderUploadOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CreateSalesOrderUploadOperation,
+			ID:   "createSalesOrderUpload",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CreateSalesOrderUploadOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCreateSalesOrderUploadParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCreateSalesOrderUploadRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CreateSalesOrderUploadRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CreateSalesOrderUploadOperation,
+			OperationSummary: "Start a direct upload of a customer's purchase order",
+			OperationID:      "createSalesOrderUpload",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *SalesOrderUploadCreate
+			Params   = CreateSalesOrderUploadParams
+			Response = CreateSalesOrderUploadRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCreateSalesOrderUploadParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CreateSalesOrderUpload(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CreateSalesOrderUpload(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCreateSalesOrderUploadResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCreateSalesPriceRequest handles createSalesPrice operation.
 //
 // Records a price for an item key in a company (ADR-0067 §10, T80a): for every customer, or with
@@ -26148,7 +26584,10 @@ func (s *Server) handleCreateSupplierQuotationRequest(args [1]string, argsEscape
 // to the tenant's request quota once its signature checks out, and carries the rate-limit headers (429
 // `request.rate_limited` with `Retry-After` over it); it is answered 503 with `Retry-After` while the
 // server is receiving as many documents as it can, or as many of the tenant's at once as one tenant
-// may (ADR-0020). 503 while the server has no object storage.
+// may (ADR-0020). 503 while the server has no object storage. A customer's purchase order is not
+// uploaded here but with `createSalesOrderUpload` (`sales.order.capture`, T90a): an upload's
+// permission follows its purpose, and purpose `sales_order` is refused here (422
+// `payables.unknown_upload_purpose`).
 //
 // POST /v1/uploads
 func (s *Server) handleCreateUploadRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -55064,6 +55503,196 @@ func (s *Server) handleGetSalesOrderRequest(args [1]string, argsEscaped bool, w 
 	}
 }
 
+// handleGetSalesOrderUploadRequest handles getSalesOrderUpload operation.
+//
+// Returns one upload of purpose `sales_order` (T90a), as `getUpload` returns a supplier invoice's:
+// `open`, `received` or `used` by the order captured from it (`used_by`). An upload's permission
+// follows its purpose: this one asks `sales.order.capture`; an upload of another purpose is not found
+// here (404).
+//
+// GET /v1/sales-order-uploads/{id}
+func (s *Server) handleGetSalesOrderUploadRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getSalesOrderUpload"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/sales-order-uploads/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetSalesOrderUploadOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetSalesOrderUploadOperation,
+			ID:   "getSalesOrderUpload",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetSalesOrderUploadOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetSalesOrderUploadParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetSalesOrderUploadRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetSalesOrderUploadOperation,
+			OperationSummary: "Get an upload of a customer's purchase order",
+			OperationID:      "getSalesOrderUpload",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetSalesOrderUploadParams
+			Response = GetSalesOrderUploadRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetSalesOrderUploadParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetSalesOrderUpload(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetSalesOrderUpload(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetSalesOrderUploadResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleGetSalesPriceRequest handles getSalesPrice operation.
 //
 // One price record (ADR-0067 §10, §11, T80a, T80b), a price or a discount, with its company's code
@@ -56602,7 +57231,9 @@ func (s *Server) handleGetTaxReturnDraftRequest(args [1]string, argsEscaped bool
 // handleGetUploadRequest handles getUpload operation.
 //
 // Returns one upload: `open` until bytes arrive through this API (`received`) or the upload is
-// consumed (`used`); an upload to object storage stays `open` until it is consumed.
+// consumed (`used`); an upload to object storage stays `open` until it is consumed. An upload's
+// permission follows its purpose: an upload of a customer's purchase order (`sales_order`) is read
+// with `getSalesOrderUpload` (`sales.order.capture`) and is not found here (404).
 //
 // GET /v1/uploads/{id}
 func (s *Server) handleGetUploadRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

@@ -162,15 +162,18 @@ type Config struct {
 	AppRole    string
 	// Begin starts the API's request transactions; nil: Pool.Begin. Tests
 	// set it to run a concurrent change between a request's statements.
-	Begin      database.BeginFunc
-	Verifier   *authn.Verifier
-	Pages      *pagination.Codec
-	FieldKeys  *fieldcrypt.Keyring // seals bank accounts and tax identifiers with each tenant's key
-	Extractor  capture.Extractor   // reads captured invoices; nil: capture answers 503
-	Connector  payments.Connector  // transmits bank files; nil: transmission answers 503
-	Workflows  workflow.Client     // the workflow engine behind operations (ADR-0012); nil: none
-	ExtractDir string              // sap_file connectors read extracts below it; empty: they answer 503
-	Objects    blobstore.Store     // documents, bank files, statement files and audit anchors; nil: documents and files are not kept, statements not imported
+	Begin     database.BeginFunc
+	Verifier  *authn.Verifier
+	Pages     *pagination.Codec
+	FieldKeys *fieldcrypt.Keyring // seals bank accounts and tax identifiers with each tenant's key
+	Extractor capture.Extractor   // reads captured invoices; nil: capture answers 503
+	// OrderExtractor reads captured customers' purchase orders (T90a);
+	// nil: order capture answers 503.
+	OrderExtractor capture.OrderExtractor
+	Connector      payments.Connector // transmits bank files; nil: transmission answers 503
+	Workflows      workflow.Client    // the workflow engine behind operations (ADR-0012); nil: none
+	ExtractDir     string             // sap_file connectors read extracts below it; empty: they answer 503
+	Objects        blobstore.Store    // documents, bank files, statement files and audit anchors; nil: documents and files are not kept, statements not imported
 	// Loopback serves the API's reads in-process (httpapi.Loopback): New
 	// gives it its handler; a worker reading as a principal (a report's
 	// scheduled run, ADR-0076 §5) shares it. Nil: New makes its own.
@@ -498,7 +501,8 @@ func salesAndCredit(cfg Config) (*sales.Endpoints, *credit.Endpoints) {
 		Terms: partner.Suppliers{}, Partners: partner.Payees{},
 		Accounts: ledger.Accounts{}, References: ledger.AssetReads{}, Invoices: Receivables(cfg), Entries: ledger.OpenItems{},
 		Numbers: configuration.Numbers{}, Calendar: calendar(),
-		Settings: configuration.Settings{}, Rates: ledger.Rates{LegalEntities: tenancy.Directory{}}, People: LedgerPeople{}, Now: cfg.Now}
+		Settings: configuration.Settings{}, Rates: ledger.Rates{LegalEntities: tenancy.Directory{}}, People: LedgerPeople{},
+		Uploads: uploads(cfg), OrderExtractor: cfg.OrderExtractor, Finder: partner.Payees{Keys: cfg.FieldKeys}, Now: cfg.Now}
 	c := &credit.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{}, Customers: partner.Customers{},
 		Partners: partner.Payees{}, Orders: s}
 	s.Credit = salesCredit{credit: c}

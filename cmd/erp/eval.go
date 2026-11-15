@@ -35,7 +35,7 @@ import (
 
 // evalAgents are the adapters of the agents a suite may evaluate, by agent
 // type (ADR-0039).
-var evalAgents = map[string]eval.Agent{"analytics": analyticsEval, "ap_exceptions": apExceptions, "capture": captureEval,
+var evalAgents = map[string]eval.Agent{"analytics": analyticsEval, "ap_exceptions": apExceptions, "capture": captureEval, "order_capture": orderCaptureEval,
 	"close": closeEval, "configuration": configurationEval, "migration": migrationEval, "reconciliation": reconciliationEval, "tax": taxEval, "test": testEval,
 	cashagent.Type: cashForecastEval, creditagent.Type: creditScoringEval, accessagent.Type: accessEval, bidagent.Type: bidComparisonEval,
 	regulatoryagent.Type: regulatoryEval, supportagent.Type: supportEval}
@@ -263,6 +263,32 @@ func captureEval(ctx context.Context, env eval.Env) error {
 	}
 	if err != nil {
 		return fmt.Errorf("capture: %w", err)
+	}
+	return nil
+}
+
+// orderCaptureEval uploads the task's document as a customer's purchase
+// order and captures it into a draft order of the task's company, with
+// its account and tax code, as erp capture -order does; the server's
+// extraction runs through the cell's gateway on erp-extraction. Only the
+// refusal the task names is the case's to judge, as for captureEval.
+func orderCaptureEval(ctx context.Context, env eval.Env) error {
+	name := fmt.Sprint(env.Task["document"])
+	doc, err := os.ReadFile(filepath.Join(env.Dir, name)) // #nosec G304 -- a document the suite names
+	if err != nil {
+		return fmt.Errorf("order capture: read the document: %w", err)
+	}
+	fields := map[string]string{"legal_entity_id": fmt.Sprint(env.Task["legal_entity_id"]), "account_id": fmt.Sprint(env.Task["account_id"])}
+	if code, ok := env.Task["tax_code"]; ok {
+		fields["tax_code"] = fmt.Sprint(code)
+	}
+	_, err = orderCapture(ctx, env.Agent, fields, doc, contentTypeOf(name))
+	var refused *apitools.Error
+	if want, ok := env.Task["refused"]; ok && errors.As(err, &refused) && refused.Code == fmt.Sprint(want) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("order capture: %w", err)
 	}
 	return nil
 }

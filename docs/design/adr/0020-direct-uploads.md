@@ -258,3 +258,18 @@ posture, PO 2026-11-02):
 
 [nlb]: https://docs.aws.amazon.com/elasticloadbalancing/latest/network/network-load-balancers.html
 [nlb-idle]: https://docs.aws.amazon.com/elasticloadbalancing/latest/network/update-idle-timeout.html
+
+## As built: a second purpose, a customer's purchase order (T90a, 2026-11-15)
+
+Order capture (ADR-0067 As built T90a) takes its document through a
+direct upload of purpose `sales_order` (migrations 000333, 000334), a PDF
+or plain text; a supplier invoice's types are unchanged. The take checks
+the purpose (422 `payables.upload_purpose`), and the sales context takes
+an upload through a port that `payables.Uploads` answers (`Take`,
+`Used`), so it does not import payables. An upload's permission follows
+its purpose (coordinator, 2026-11-15): an order's is started with
+`POST /v1/sales-order-uploads` under `sales.order.capture`, and
+`createUpload` (`payables.invoice.capture`) refuses purpose `sales_order`;
+an order's upload is read with `GET /v1/sales-order-uploads/{id}` and
+`getUpload` finds none of another purpose (404).
+

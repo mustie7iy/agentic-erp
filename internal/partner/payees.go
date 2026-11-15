@@ -157,3 +157,40 @@ func (Payees) BankAccounts(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]
 	}
 	return out, nil
 }
+
+// Found is a business partner a document names: its id, number and name.
+type Found struct {
+	ID           uuid.UUID
+	Number, Name string
+}
+
+// FindCustomers are the business partners a document names as its
+// customer (T90a, order capture), each once, by number: the one with the
+// number printed and those with a tax registration number of the value
+// printed, whatever its scheme, found through the identifiers' keyed hash
+// without opening one. An empty number or value finds none, nor does a
+// partner whose creation waits for approval; what the partners are to the
+// company is the caller's to check.
+func (p Payees) FindCustomers(ctx context.Context, number, taxNumber string) ([]Found, error) {
+	tx, pr, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var print *string
+	if taxNumber != "" {
+		f, err := p.Keys.Fingerprint(ctx, pr.TenantID, taxNumber)
+		if err != nil {
+			return nil, fmt.Errorf("partner: fingerprint of a tax registration number: %w", err)
+		}
+		print = &f
+	}
+	rows, _ := tx.Query(ctx, `SELECT p.id, p.number, p.name FROM partner.business_partner p
+		WHERE p.status <> 'pending' AND (($1 <> '' AND p.number = $1)
+			OR p.id IN (SELECT t.partner_id FROM partner.tax_identifier t WHERE $2::text IS NOT NULL AND t.value_fingerprint = $2))
+		ORDER BY p.number, p.id`, number, print)
+	found, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Found])
+	if err != nil {
+		return nil, fmt.Errorf("partner: customers named %q, %q: %w", number, taxNumber, err)
+	}
+	return found, nil
+}

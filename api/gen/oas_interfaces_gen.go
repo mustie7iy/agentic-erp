@@ -145,6 +145,10 @@ type CancelSupplierInvoiceRes interface {
 	cancelSupplierInvoiceRes()
 }
 
+type CaptureSalesOrderRes interface {
+	captureSalesOrderRes()
+}
+
 type CaptureSupplierInvoiceRes interface {
 	captureSupplierInvoiceRes()
 }
@@ -463,6 +467,10 @@ type CreateRoleRes interface {
 
 type CreateSalesOrderRes interface {
 	createSalesOrderRes()
+}
+
+type CreateSalesOrderUploadRes interface {
+	createSalesOrderUploadRes()
 }
 
 type CreateSalesPriceRes interface {
@@ -1071,6 +1079,10 @@ type GetRoleRes interface {
 
 type GetSalesOrderRes interface {
 	getSalesOrderRes()
+}
+
+type GetSalesOrderUploadRes interface {
+	getSalesOrderUploadRes()
 }
 
 type GetSalesPriceRes interface {

@@ -13279,6 +13279,7 @@ paths:
         - payables.unreadable_document
         - payables.upload_empty
         - payables.upload_expired
+        - payables.upload_purpose
         - payables.upload_used
         - platform.operation_finished
         - request.invalid_amount
@@ -13362,7 +13363,7 @@ paths:
       tags:
         - payables
       summary: Start a direct upload
-      description: "Starts an upload of a document too large for a request body (04 §4.11): the answer names a `url` to `PUT` the bytes to, with the `headers` to send, within `expires_at`; the URL is absolute when it points at object storage, or a path on this API. `via: api` asks for the path on this API whatever the store, for a client that must not reach the object store (ADR-0020); the answer's `via` says which was given. The upload is then named by `upload_id` in the operation that consumes it (`POST /v1/supplier-invoices:capture` for `supplier_invoice`). A `PUT` to this API's path is charged to the tenant's request quota once its signature checks out, and carries the rate-limit headers (429 `request.rate_limited` with `Retry-After` over it); it is answered 503 with `Retry-After` while the server is receiving as many documents as it can, or as many of the tenant's at once as one tenant may (ADR-0020). 503 while the server has no object storage."
+      description: "Starts an upload of a document too large for a request body (04 §4.11): the answer names a `url` to `PUT` the bytes to, with the `headers` to send, within `expires_at`; the URL is absolute when it points at object storage, or a path on this API. `via: api` asks for the path on this API whatever the store, for a client that must not reach the object store (ADR-0020); the answer's `via` says which was given. The upload is then named by `upload_id` in the operation that consumes it (`POST /v1/supplier-invoices:capture` for `supplier_invoice`). A `PUT` to this API's path is charged to the tenant's request quota once its signature checks out, and carries the rate-limit headers (429 `request.rate_limited` with `Retry-After` over it); it is answered 503 with `Retry-After` while the server is receiving as many documents as it can, or as many of the tenant's at once as one tenant may (ADR-0020). 503 while the server has no object storage. A customer's purchase order is not uploaded here but with `createSalesOrderUpload` (`sales.order.capture`, T90a): an upload's permission follows its purpose, and purpose `sales_order` is refused here (422 `payables.unknown_upload_purpose`)."
       x-permission: payables.invoice.capture
       x-problem-codes:
         - payables.unknown_upload_purpose
@@ -13413,7 +13414,7 @@ paths:
       tags:
         - payables
       summary: Get an upload
-      description: "Returns one upload: `open` until bytes arrive through this API (`received`) or the upload is consumed (`used`); an upload to object storage stays `open` until it is consumed."
+      description: "Returns one upload: `open` until bytes arrive through this API (`received`) or the upload is consumed (`used`); an upload to object storage stays `open` until it is consumed. An upload's permission follows its purpose: an upload of a customer's purchase order (`sales_order`) is read with `getSalesOrderUpload` (`sales.order.capture`) and is not found here (404)."
       x-permission: payables.invoice.capture
       x-problem-codes: []
       parameters:
@@ -19871,6 +19872,162 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/sales-orders:capture:
+    post:
+      operationId: captureSalesOrder
+      tags:
+        - sales
+      summary: Capture a customer's purchase order into a draft sales order
+      description: "Reads a customer's purchase order document into a draft sales order (ADR-0067, As built T90a). The document is a direct upload (`createSalesOrderUpload`: purpose `sales_order`, a PDF or plain text) consumed by this capture. A model reads it through the cell's model gateway (ADR-0036), whose refusals of the tenant's call are answered as they are: 422 `agents.documents_withheld`, 403 `agents.ai_disabled`, 429 `agents.budget_exhausted`, 422 `agents.model_not_allowed` or `agents.model_unpriced`; a document the model does not read, or that prints no items, is 422 `sales.unreadable_document`. The document is data: what it asks for (to confirm the order, to ship, to change a price) is not done. The customer is the business partner whose number or tax registration number the document prints (whatever the scheme): none is 422 `sales.capture_customer_unknown` and more than one 422 `sales.capture_customer_ambiguous`; whether it may be sold to in the company is the order's check (422 `sales.customer_not_usable`). Each item of the document is an item of the order with its item key when one is printed, its description, quantity and unit: an item with a printed unit price takes it as entered (`price_source` `manual`), one without takes its item key's price record valid on the order's date (`price_list`, T80a), and one with neither is refused naming it by its place (422 `sales.no_price`, `items[i].unit_price`). The currency is the one printed, else the company's. Every item takes the revenue account (`account_id`) and output tax code (`tax_code`) of the request, which a document does not name; their refusals name those fields. What an order created by hand refuses is refused alike. The order is always a `draft`, numbered and dated as `createSalesOrder` makes one, and keeps what capture read (`capture`); a person checks and confirms it (`:confirm`); capture never confirms. One upload gives one order: the same upload captured again into the same company answers the same order; into another company it is refused as used (422 `payables.upload_used`), naming no order. Extraction can take longer than a synchronous answer, so this returns an Operation, completed within the request, whose `resource` is the order and whose `result` names it with any warning (a confidence below high). Audited and published as SalesOrderChanged, as an order created by hand. Human-only (`x-agent: false`): an agent or a service cannot capture an order. The upload is started with `createSalesOrderUpload`, which asks the same permission."
+      x-permission: sales.order.capture
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.no_fiscal_period
+        - payables.document_too_large
+        - payables.upload_empty
+        - payables.upload_expired
+        - payables.upload_purpose
+        - payables.upload_used
+        - platform.operation_finished
+        - request.invalid_amount
+        - request.validation_failed
+        - sales.account_not_postable
+        - sales.amount_not_positive
+        - sales.amount_too_large
+        - sales.capture_customer_ambiguous
+        - sales.capture_customer_unknown
+        - sales.currency_mismatch
+        - sales.customer_not_usable
+        - sales.invalid_quantity
+        - sales.items_required
+        - sales.no_price
+        - sales.quotation_not_accepted
+        - sales.quotation_or_items
+        - sales.quotation_ordered
+        - sales.tax_jurisdiction_not_supported
+        - sales.unknown_currency
+        - sales.unknown_payment_term
+        - sales.unknown_tax_code
+        - sales.unknown_unit
+        - sales.unreadable_document
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The company, the upload and what every item posts to.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesOrderCaptureRequest"
+      responses:
+        "202":
+          description: "Accepted; the capture's Operation, completed, whose `resource` is the draft order. Poll the Operation at `Location`."
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Operation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/sales-order-uploads:
+    post:
+      operationId: createSalesOrderUpload
+      tags:
+        - sales
+      summary: Start a direct upload of a customer's purchase order
+      description: "Starts a direct upload (ADR-0020) of purpose `sales_order`: a customer's purchase order, a PDF or plain text of at most 50 MB, which `captureSalesOrder` consumes (ADR-0067 As built T90a). It answers as `createUpload` does: a `url` to `PUT` the bytes to, with the `headers` to send, within `expires_at`; `via: api` asks for the path on this API whatever the store. An upload's permission follows its purpose: this one asks `sales.order.capture`, a supplier invoice's `createUpload` asks `payables.invoice.capture`. Another content type is refused (422 `payables.unsupported_content_type`). Human-only (`x-agent: false`), as the capture is."
+      x-permission: sales.order.capture
+      x-agent: false
+      x-problem-codes:
+        - payables.unknown_upload_purpose
+        - payables.unknown_upload_via
+        - payables.unsupported_content_type
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The document to upload.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesOrderUploadCreate"
+      responses:
+        "201":
+          description: "Created; the upload of the purchase order with its URL, to be followed at `Location` (`getSalesOrderUpload`)."
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Upload"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/sales-order-uploads/{id}":
+    get:
+      operationId: getSalesOrderUpload
+      tags:
+        - sales
+      summary: Get an upload of a customer's purchase order
+      description: "Returns one upload of purpose `sales_order` (T90a), as `getUpload` returns a supplier invoice's: `open`, `received` or `used` by the order captured from it (`used_by`). An upload's permission follows its purpose: this one asks `sales.order.capture`; an upload of another purpose is not found here (404)."
+      x-permission: sales.order.capture
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The upload.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Upload"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   "/v1/sales-orders/{id}":
@@ -48017,7 +48174,7 @@ components:
         upload_id:
           type: string
           format: uuid
-          description: "A direct upload of the document (purpose `supplier_invoice`, at most 50 MB), consumed by this capture. 422 `payables.upload_empty` when nothing was uploaded to it yet, `payables.upload_used` when it was consumed before."
+          description: "A direct upload of the document (purpose `supplier_invoice`, at most 50 MB), consumed by this capture. 422 `payables.upload_empty` when nothing was uploaded to it yet, `payables.upload_used` when it was consumed before, `payables.upload_purpose` when it is for another purpose (a customer's purchase order)."
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
           document: JVBERi0xLjcK
@@ -48044,6 +48201,7 @@ components:
               description: "What the document is for; decides which operation may consume it. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - supplier_invoice
+                - sales_order
               readOnly: true
             content_type:
               type: string
@@ -54422,6 +54580,76 @@ components:
             delivered_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity confirmed as delivered so far (`confirmSalesDelivery`), in the item's unit; at most `quantity`, the quantity ordered, and what is open for delivery is the difference."}
             billed_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity billed so far by the order's billing documents (`createBillingDocument`), in the item's unit; at most `delivered_quantity`."}
             returned_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity the returns orders for the order's billing documents take (`createReturnsOrder`), drafts included, in the item's unit; at most `billed_quantity`."}
+    SalesOrderUploadCreate:
+      type: object
+      description: "What a direct upload of a customer's purchase order will carry."
+      required: [content_type]
+      additionalProperties: false
+      properties:
+        content_type:
+          type: string
+          description: "The content type of the document: a PDF or plain text; another type is refused (422 `payables.unsupported_content_type`). Open enumeration: values may be added within /v1."
+          x-extensible-enum: [application/pdf, text/plain]
+        via:
+          type: string
+          description: "Where the bytes are to go, as `createUpload`'s `via`: `store` (the default) or `api`. Another value is refused (422 `payables.unknown_upload_via`). Open enumeration: values may be added within /v1."
+          x-extensible-enum: [store, api]
+      examples:
+        - content_type: text/plain
+          via: api
+    SalesOrderCaptureRequest:
+      type: object
+      description: "Capture a customer's purchase order from a direct upload into a draft sales order of the company."
+      required: [legal_entity_id, upload_id, account_id]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company that takes the order: one the caller may act in."}
+        upload_id: {type: string, format: uuid, description: "A direct upload of the document (`createSalesOrderUpload`: purpose `sales_order`, a PDF or plain text, at most 50 MB), consumed by this capture. 422 `payables.upload_empty` when nothing was uploaded to it yet, `payables.upload_purpose` when it is for another purpose; captured again into the same company, it answers the order it gave; into another, 422 `payables.upload_used`."}
+        account_id: {type: string, format: uuid, description: "The revenue account every item of the order is billed to (`GET /v1/accounts/{id}`): postable in the company (422 `sales.account_not_postable`)."}
+        tax_code: {type: string, maxLength: 20, description: "The output tax code every item is billed with: an output tax code of the company in force on the order's date (422 `sales.unknown_tax_code`); absent, the items have none."}
+      examples:
+        - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          upload_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5df1"
+          account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d31"
+          tax_code: GO5
+    SalesOrderCaptured:
+      type: object
+      description: "What order capture read into the order (ADR-0067, As built T90a); absent for an order created by hand. The items as the document printed them, numbered as the order's items they gave."
+      required: [upload_id, customer_reference, customer_matched_by, confidence, items]
+      readOnly: true
+      properties:
+        upload_id: {type: string, format: uuid, description: "The direct upload the order was captured from (`GET /v1/uploads/{id}`)."}
+        customer_reference: {type: string, description: "The customer's own purchase order number as printed; empty when none is."}
+        customer_matched_by:
+          type: array
+          items:
+            type: string
+            x-extensible-enum: [customer_number, tax_number]
+            description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "What found the customer: the customer number printed, the tax registration number printed, or both."
+        confidence:
+          type: string
+          x-extensible-enum: [high, medium, low]
+          description: "How sure the model was of what it read. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/SalesOrderCapturedItem"}
+          description: "The document's items, in its order."
+    SalesOrderCapturedItem:
+      type: object
+      description: "An item as the document printed it."
+      required: [item_no, item_key, description, quantity, unit, unit_price, price_source]
+      properties:
+        item_no: {type: integer, format: int32, description: "The order's item it gave."}
+        item_key: {type: string, description: "The item key printed; empty when none is."}
+        description: {type: string, description: "The description printed."}
+        quantity: {type: string, description: "The quantity printed, a decimal."}
+        unit: {type: string, description: "The unit of measure read."}
+        unit_price: {type: string, description: "The unit price printed, a decimal in the order's currency; empty when none is printed."}
+        price_source:
+          type: string
+          x-extensible-enum: [manual, price_list]
+          description: "`manual`: the item took the price printed; `price_list`: none was printed and the item took its item key's price record (its `unit_price` on the order's item). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
     SalesOrder:
       description: "A sales order (sales, ADR-0067 §5): what a customer ordered. Amounts are net. Its `version` moves when it is confirmed, when its credit block is released (`releaseSalesOrderCreditBlock`) and with each delivery confirmed against it (`confirmSalesDelivery`) and each billing document created for it (`createBillingDocument`), which change what its items show as delivered and billed, and with each returns order created for one of its billing documents (`createReturnsOrder`), which changes what they show as returned."
       allOf:
@@ -54461,6 +54689,7 @@ components:
               items: {$ref: "#/components/schemas/SalesOrderItem"}
               description: "The items, by item number."
               readOnly: true
+            capture: {$ref: "#/components/schemas/SalesOrderCaptured"}
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
           version: 1

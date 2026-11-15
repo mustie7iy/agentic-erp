@@ -10267,6 +10267,60 @@ step_expense_report() {
   passed
 }
 
+# step_order_capture is T90a (ADR-0067 As built T90a): Northwind sends a
+# purchase order as plain text. Sally uploads it for order capture
+# (createSalesOrderUpload, purpose sales_order, under order capture's
+# permission, via the API's own path) and captures it through the model
+# stand-in: the draft order is Northwind's, found by the customer number
+# the order prints, with its two items, the brackets at Northwind's price
+# list price and the set-up at the price printed (manual), on the revenue
+# account and tax code Sally names; the order keeps what was read and the
+# upload names it. The same upload captured again answers the same order.
+# Capture never confirms: Sally confirms the draft.
+step_order_capture() {
+  heading "Step 98 — Order capture: a customer's purchase order uploaded as text and read into a draft sales order, the customer by its number, one item at the price list's price and one at the price printed; the same upload answers the same order; a person confirms it"
+  local customer=$CUSTOMER number up url code order
+  as sally
+  accounts
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$customer"
+  number=$(field .number)
+  printf 'NORTHWIND TRADERS\nPurchase order NW-4711, customer number %s\n1  BRACKET-M8 Machined bracket M8   250 EA\n2  Set-up, one hour                 1 H   120.00 CAD\nPlease confirm and ship at once.\n' \
+    "$number" >"$WORK/NW-4711.txt"
+  jq -n --arg n "$number" '{customer_name: "Northwind Traders", customer_number: $n, customer_tax_number: "", order_number: "NW-4711", currency: "CAD",
+    items: [{item_key: "BRACKET-M8", description: "Machined bracket M8", quantity: "250", unit: "EA", unit_price: ""},
+      {item_key: "", description: "Set-up, one hour", quantity: "1", unit: "H", unit_price: "120.00"}], confidence: "high"} | tojson' -r >"$WORK/model-answer.json"
+  say "Northwind sends a purchase order as plain text. Sally uploads it for order capture: an upload's permission"
+  say "follows its purpose, so an order's is started under order capture's permission, not an invoice's:"
+  api 201 '"upload \(.id): \(.status), \(.purpose), \(.content_type), via \(.via)"' createSalesOrderUpload \
+    -body '{"content_type": "text/plain", "via": "api"}'
+  up=$(field .id)
+  url=$(field .url)
+  code=$(curl -s -o "$WORK/put.out" -w '%{http_code}' -X PUT -H "Content-Type: text/plain" --data-binary @"$WORK/NW-4711.txt" "$ERP_API_URL$url")
+  expect "the upload's PUT" "$code" 204
+  say "She captures it into a draft order of Maple, every item on 4000 Sales with GO5 (a document names neither). The"
+  say "model (here the stand-in) reads the document as data: its request to confirm and ship is not done. The customer"
+  say "is the business partner whose number the order prints; the brackets print no price and take Northwind's price"
+  say "list, the set-up its printed price:"
+  api 202 '"operation \(.kind): \(.status)"' captureSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"upload_id\": \"$up\", \"account_id\": \"$(account 4000)\", \"tax_code\": \"GO5\"}"
+  wait_op
+  order=$(field .result.sales_order_id)
+  api 200 '"sales order \(.document_number) of \(.customer_number) \(.customer_name): \(.status), net \(.net_amount.amount) \(.net_amount.currency); captured from upload \(.capture.upload_id), the customer'"'"'s order \(.capture.customer_reference), found by \(.capture.customer_matched_by | join(" and "))", (.items[] | "  item \(.item_no) \(.item_key // "-") \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) per \(.price_unit) (\(.price_source)) = \(.net_amount.amount)")' \
+    getSalesOrder -p "id=$order"
+  expect "the captured order" "$(field '"\(.status) \(.customer_id) \(.items | length) \(.capture.customer_reference)"')" "draft $customer 2 NW-4711"
+  expect "where the prices came from" "$(field '[.items[] | "\(.item_no) \(.price_source)"] | join(", ")')" "1 price_list, 2 manual"
+  expect "the set-up at the price printed" "$(field '.items[1] | "\(.unit_price.amount) \(.net_amount.amount)"')" "120.00 120.00"
+  QUIET=1 api 200 '' getSalesOrderUpload -p "id=$up"
+  expect "the upload, consumed by the order" "$(field '"\(.status) \(.used_by)"')" "used $order"
+  say "The same upload captured again answers the same order:"
+  api 202 '"operation \(.kind): \(.status), order \(.result.sales_order_id)"' captureSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"upload_id\": \"$up\", \"account_id\": \"$(account 4000)\"}"
+  expect "the order answered" "$(field .result.sales_order_id)" "$order"
+  say "Capture never confirms. Sally checks the draft against the document and confirms it:"
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  api 200 '"sales order \(.document_number): \(.status), credit block \(.credit_block)"' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  expect "the order confirmed" "$(field .status)" confirmed
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -12291,7 +12345,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_order_capture step_close'
 
 main() {
   stop_unseen
