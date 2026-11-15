@@ -7,11 +7,14 @@
 // publishes one event per customer (ADR-0065 §8, T76b). The collection
 // worklist, a company's customers with overdue items, is computed on read
 // from the same open items and the recorded levels and stores nothing
-// (ADR-0065 §9, T76c).
+// (ADR-0065 §9, T76c). A dispute case is a customer's dispute of an
+// amount of one of its open items, worked by a person and closed as
+// accepted or rejected; closing posts nothing (ADR-0065 As built, T86a).
 //
 // The context is a leaf (ADR-0065 §1): it reads the ledger's customer
-// open items, the partner context's names, tenancy and the configuration
-// through the ports below, posts nothing, and no context imports it.
+// open items, the partner context's names, the identity context's people,
+// tenancy and the configuration through the ports below, posts nothing,
+// and no context imports it.
 package collections
 
 import (
@@ -89,6 +92,12 @@ type Settings interface {
 	Document(ctx context.Context) (*config.Config, int32, error)
 }
 
+// People names principals (identity context): a dispute case's assignee
+// and who closed it. An id the tenant has no principal of is absent.
+type People interface {
+	PersonNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
+}
+
 // Endpoints implements the collections part of the generated API.
 type Endpoints struct {
 	Pages         *pagination.Codec
@@ -96,6 +105,7 @@ type Endpoints struct {
 	OpenItems     OpenItems
 	Partners      Partners
 	Settings      Settings
+	People        People
 	// MaxItems is the most overdue items one run proposes; 0: MaxRunItems.
 	MaxItems int
 }
@@ -112,11 +122,46 @@ type Run struct {
 	NoticeCount   int32
 	ItemCount     int32
 	OverdueAmount money.Minor
-	Version       int32
-	CreatedAt     time.Time
-	CreatedBy     uuid.UUID
-	UpdatedAt     time.Time
-	UpdatedBy     uuid.UUID
+	// Disputed are the items the run left out for their open dispute
+	// cases (T86b), by customer and item; DisputedLC what their amounts in
+	// the run's currency add up to, which total checked when the run was
+	// proposed.
+	Disputed  []DisputedItem
+	Version   int32
+	CreatedAt time.Time
+	CreatedBy uuid.UUID
+	UpdatedAt time.Time
+	UpdatedBy uuid.UUID
+}
+
+// DisputedLC is what the run's disputed items add up to in its currency.
+func (r Run) DisputedLC() money.Minor {
+	amounts := make([]money.Minor, len(r.Disputed))
+	for i, d := range r.Disputed {
+		amounts[i] = d.AmountLC
+	}
+	sum, _ := money.Sum(amounts...) // in range: total refused the run otherwise when it was proposed
+	return sum
+}
+
+// DisputedItem is an item a run would have proposed but left out, its
+// open dispute case named, with what the run read of it
+// (collections.dunning_run.disputed_items, T86b): Amount is minor units
+// of Currency, the item's, whose digits are Exponent (read with the run,
+// not stored); AmountLC of the run's currency.
+type DisputedItem struct {
+	CaseID         uuid.UUID `json:"dispute_case_id"`
+	CustomerID     uuid.UUID `json:"customer_id"`
+	CustomerNumber string    `json:"customer_number"`
+	ledger.ItemRef
+	DocumentNumber string      `json:"document_number"`
+	Reference      *string     `json:"reference"`
+	NetDueDate     time.Time   `json:"net_due_date"`
+	DaysOverdue    int32       `json:"days_overdue"`
+	Currency       string      `json:"currency"`
+	Exponent       int         `json:"exponent,omitempty"`
+	Amount         money.Minor `json:"amount"`
+	AmountLC       money.Minor `json:"amount_lc"`
 }
 
 // Item is a row of collections.dunning_notice_item: a customer's open
@@ -157,14 +202,18 @@ type Notice struct {
 	Items          []Item
 }
 
+// runSelect reads a run with its disputed items, each given its
+// currency's digits.
 const runSelect = `SELECT r.id, r.legal_entity_id, r.key_date, r.status, r.currency, c.exponent, r.notice_count, r.item_count, r.overdue_amount,
+		(SELECT coalesce(jsonb_agg(d || jsonb_build_object('exponent', x.exponent) ORDER BY n), '[]')
+		 FROM jsonb_array_elements(r.disputed_items) WITH ORDINALITY AS e(d, n) JOIN ref.currency x ON x.code = d->>'currency'),
 		r.version, r.created_at, r.created_by, r.updated_at, r.updated_by
 	FROM collections.dunning_run r JOIN ref.currency c ON c.code = r.currency`
 
 func scanRun(row pgx.Row) (Run, error) {
 	var r Run
 	err := row.Scan(&r.ID, &r.LegalEntityID, &r.KeyDate, &r.Status, &r.Currency, &r.Exponent, &r.NoticeCount, &r.ItemCount, &r.OverdueAmount,
-		&r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
+		&r.Disputed, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
 	return r, errs.Wrapf(err, "scan dunning run")
 }
 
@@ -238,6 +287,36 @@ func recorded(ctx context.Context, tx pgx.Tx, refs []ledger.ItemRef) (map[ledger
 	})
 	if err != nil {
 		return nil, fmt.Errorf("collections: read the dunning levels of %d items: %w", len(refs), err)
+	}
+	return out, nil
+}
+
+// openCase is an item's open dispute case as dunning and the worklist
+// read it: its id, its customer's number and its disputed amount in the
+// company's currency.
+type openCase struct {
+	ID             uuid.UUID
+	CustomerNumber string
+	AmountLC       money.Minor
+}
+
+// openCases reads the open dispute cases of a company's items, by item;
+// an item without one is absent. An item has one open case at most
+// (dispute_case_one_open); the read uses the index of a company's open
+// cases (dispute_case_open_by_company). A case whose item was cleared
+// is read too: the caller matches the cases with the open items it holds.
+func openCases(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID) (map[ledger.ItemRef]openCase, error) {
+	rows, _ := tx.Query(ctx, `SELECT fiscal_year, journal_entry_id, line_no, id, customer_number, disputed_amount_lc
+		FROM collections.dispute_case WHERE legal_entity_id = $1 AND status = 'open'`, legalEntity)
+	out := map[ledger.ItemRef]openCase{}
+	var ref ledger.ItemRef
+	var c openCase
+	_, err := pgx.ForEachRow(rows, []any{&ref.FiscalYear, &ref.EntryID, &ref.LineNo, &c.ID, &c.CustomerNumber, &c.AmountLC}, func() error {
+		out[ref] = c
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("collections: read the open dispute cases of company %s: %w", legalEntity, err)
 	}
 	return out, nil
 }

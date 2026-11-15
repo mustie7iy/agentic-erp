@@ -58,7 +58,7 @@ tags:
   - name: receivables
     description: "Accounts receivable (ADR-0063): customer invoices."
   - name: collections
-    description: "Dunning and collections (ADR-0065): dunning runs and their notices, and the collection worklist."
+    description: "Dunning and collections (ADR-0065): dunning runs and their notices, the collection worklist and dispute cases."
   - name: sales
     description: "Sales (ADR-0067): quotations, sales orders, the confirmations of their deliveries, billing documents, returns orders, the confirmations of their receipts, credit memo requests and sales prices."
   - name: revenue
@@ -16956,7 +16956,7 @@ paths:
       tags:
         - collections
       summary: Get a company's collection worklist
-      description: "The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue items, the largest overdue amount first (customers with the same amount by `customer_id`), each with its number and name, what its open items add up to (`open_amount`, credits included), what its overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest dunning level and the latest dunning date the confirmed dunning runs recorded for its open items (`confirmDunningRun`; level 0 and no date for a customer never dunned). An item is overdue as a dunning run counts it: the customer owes it (a debit) and the key date is past its net due date, which is that of the payment terms it was posted with or, for an item posted without payment terms (a manual or migrated entry's), its document date; an item due on the key date is not overdue, so an item without terms is overdue from the day after its document date, and credit items reduce no overdue amount. A customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in the company's currency, as the items were booked. `customer_count`, `open_amount` and `overdue_amount` at the top are the totals of every customer listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key date. Each page is computed anew and continues after the last customer's overdue amount and id: a customer whose overdue amount fell between two pages can be listed again with its new amount, and one whose amount rose is not read again, so a consumer that pages while items are posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is 404."
+      description: "The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue items, the largest overdue amount first (customers with the same amount by `customer_id`), each with its number and name, what its open items add up to (`open_amount`, credits included), what its overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest dunning level and the latest dunning date the confirmed dunning runs recorded for its open items (`confirmDunningRun`; level 0 and no date for a customer never dunned), and beside its overdue amount what the open dispute cases of its open items dispute (`disputed_amount`, in the company's currency as each case's share of its item was booked) and how many they are (`open_dispute_cases`; T86b): a disputed item stays open and overdue, so the order and the totals are as without the cases. An item is overdue as a dunning run counts it: the customer owes it (a debit) and the key date is past its net due date, which is that of the payment terms it was posted with or, for an item posted without payment terms (a manual or migrated entry's), its document date; an item due on the key date is not overdue, so an item without terms is overdue from the day after its document date, and credit items reduce no overdue amount. A customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in the company's currency, as the items were booked. `customer_count`, `open_amount`, `overdue_amount`, `disputed_amount` and `open_dispute_cases` at the top are the totals of every customer listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key date. Each page is computed anew and continues after the last customer's overdue amount and id: a customer whose overdue amount fell between two pages can be listed again with its new amount, and one whose amount rose is not read again, so a consumer that pages while items are posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is 404."
       x-permission: collections.worklist.read
       x-slo-class: report
       x-snapshot: true
@@ -16999,6 +16999,280 @@ paths:
           $ref: "#/components/responses/NotFound"
         "422":
           $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/dispute-cases:
+    get:
+      operationId: listDisputeCases
+      tags:
+        - collections
+      summary: List dispute cases
+      description: "The dispute cases of the companies the caller may act in (ADR-0065 As built, T86a), each as `getDisputeCase` gives it: with its company's code and name, its customer's number and name, the open item it disputes, the disputed amount, its reason, its assignee's name and its outcome. Filtered by company, customer, status and assignee. Sortable by: `created_at` (default, the latest first)."
+      x-permission: collections.dispute.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: customer_id
+          in: query
+          required: false
+          description: Only the cases of this customer (business partner id).
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only cases in this status.
+          schema:
+            type: string
+            description: "Dispute case status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - open
+              - accepted
+              - rejected
+        - name: assignee_id
+          in: query
+          required: false
+          description: Only the cases assigned to this person (principal id).
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of dispute cases.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DisputeCasePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createDisputeCase
+      tags:
+        - collections
+      summary: Open a dispute case on a customer's open item
+      description: "Opens a dispute case (ADR-0065 As built, T86a): the customer disputes an amount of one of its open items, an invoice, for a reason. The item is named by its journal line (`fiscal_year`, `journal_entry_id`, `line_no`, as a dunning notice's item names it) and must be an open item on a customer reconciliation account of the company in the leading ledger, one the customer owes (422 `collections.item_not_open` naming `journal_entry_id`). The company is one the caller may act in (422 `request.reference_not_found` naming `legal_entity_id`). `disputed_amount` is in the item's currency (422 `collections.currency_mismatch` naming `disputed_amount.currency`), more than zero and at most the item's open amount (422 `collections.invalid_disputed_amount` naming `disputed_amount.amount`); the case also keeps its share of the item's amount in the company's currency, as the item was booked (`local_disputed_amount`, the item's local amount × the disputed amount ÷ its amount, rounded half away from zero). An item has one open case at a time: a second is refused, whether it comes after the first or races it (409 `collections.dispute_exists`). An assignee, if named, is an active person of the tenant who may act in the company (422 `collections.assignee_invalid` naming `assignee_id`). `reason` and `note` are texts of more than white space (422 `request.validation_failed` naming the field). The case is created `open`. Opening a case posts nothing and changes nothing on the item; a dunning run leaves the item out while the case is open (T86b). Audited, and published as DisputeCaseChanged (`opened`), naming the customer by id and number. A retry with the same `Idempotency-Key` answers the case opened. Human-only (`x-agent: false`)."
+      x-permission: collections.dispute.write
+      x-agent: false
+      x-problem-codes:
+        - collections.assignee_invalid
+        - collections.currency_mismatch
+        - collections.dispute_exists
+        - collections.invalid_disputed_amount
+        - collections.item_not_open
+        - request.invalid_amount
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The dispute case to open.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DisputeCaseCreate"
+            examples:
+              price:
+                summary: Part of an invoice disputed for its price
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  fiscal_year: 2026
+                  journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+                  line_no: 1
+                  disputed_amount: {amount: "150.00", currency: CAD}
+                  reason: The customer says the bearing was priced above the quotation
+                  assignee_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+      responses:
+        "201":
+          description: "Created; the new dispute case."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DisputeCase"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/dispute-cases/{id}":
+    get:
+      operationId: getDisputeCase
+      tags:
+        - collections
+      summary: Get a dispute case
+      description: "One dispute case (ADR-0065 As built, T86a) with its company's code and name, its customer's number and name, the open item it disputes by journal line, document number and reference, the disputed amount in the item's currency and in the company's, its reason, its assignee and note, its status and, once closed, its outcome's reason and who closed it when. A case stays as it is when its item is cleared meanwhile: a person closes it. One of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: collections.dispute.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The dispute case.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DisputeCase"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateDisputeCase
+      tags:
+        - collections
+      summary: Assign a dispute case or note on it
+      description: "Changes an open dispute case's assignee or note, with the caller's version of it (`If-Match`; 412 when another change came first): JSON Merge Patch (RFC 7396) of `assignee_id` and `note`, each set or cleared (null); a note is a text of more than white space (422 `request.validation_failed` naming `note`). The assignee is an active person of the tenant who may act in the case's company (422 `collections.assignee_invalid` naming `assignee_id`). A patch that would leave the case as it is is refused (422 `collections.nothing_to_change`). A closed case is not changed (409 `collections.dispute_closed`). The company, customer, item, amounts and reason of a case do not change. Audited, and published as DisputeCaseChanged (`updated`). A case of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
+      x-permission: collections.dispute.write
+      x-agent: false
+      x-problem-codes:
+        - collections.assignee_invalid
+        - collections.dispute_closed
+        # The database's answer to a second open case of an item (dispute_case_one_open), which TestProblemCodes lists for every
+        # operation that writes cases; this one cannot reach it, as it changes an open case without opening one.
+        - collections.dispute_exists
+        - collections.nothing_to_change
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the dispute case.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/DisputeCaseUpdate"
+      responses:
+        "200":
+          description: "Updated; the dispute case after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DisputeCase"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/dispute-cases/{id}:close":
+    post:
+      operationId: closeDisputeCase
+      tags:
+        - collections
+      summary: Close a dispute case as accepted or rejected
+      description: "Closes an `open` dispute case once (ADR-0065 As built, T86a), at the version the caller read (`If-Match`): `outcome` `accepted` (the customer is right) or `rejected` (it owes the amount; another value is 422 `collections.unknown_outcome` naming `outcome`), with the reason, a text of more than white space (422 `request.validation_failed`). The case is read under a row lock and moves to its outcome; one that is not open is refused (409 `collections.dispute_closed`). A case whose item was cleared meanwhile is closed as any other. Closing posts nothing: an accepted case is credited by a person, with a credit memo request or a customer credit memo. Once the case is closed the item is dunned again (T86b). Audited, and published as DisputeCaseChanged (`closed`). A retry with the same `Idempotency-Key` answers the closed case. Human-only (`x-agent: false`)."
+      x-permission: collections.dispute.write
+      x-agent: false
+      x-problem-codes:
+        - collections.dispute_closed
+        # The database's answer to a second open case of an item (dispute_case_one_open), which TestProblemCodes lists for every
+        # operation that writes cases; this one cannot reach it, as it closes a case without opening one.
+        - collections.dispute_exists
+        - collections.unknown_outcome
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The outcome and its reason.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DisputeCaseClose"
+            examples:
+              rejected:
+                summary: The price was the quotation's
+                value:
+                  outcome: rejected
+                  reason: The invoice priced the bearing as quotation QT-2026-0042 did
+      responses:
+        "200":
+          description: "The dispute case, closed."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DisputeCase"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/dunning-runs:
@@ -17062,7 +17336,7 @@ paths:
       tags:
         - collections
       summary: Start a dunning run
-      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit) and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. The net due date is that of the payment terms the item was posted with; an item posted without payment terms (a manual or migrated entry's) is due on its document date and is proposed like any other. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing, with or without terms. An item rises one level per confirmed run at most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the highest level stays there. A notice's level is the highest among its items. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
+      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit) and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. The net due date is that of the payment terms the item was posted with; an item posted without payment terms (a manual or migrated entry's) is due on its document date and is proposed like any other. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing, with or without terms. An item with an open dispute case (`createDisputeCase`) is in no notice, whatever part of it is disputed: the run lists it in `disputed_items` with its case, and it counts in none of the run's totals; once the case is closed a new run proposes it again (T86b). An item rises one level per confirmed run at most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the highest level stays there. A notice's level is the highest among its items. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
       x-permission: collections.dunning.run
       x-agent: false
       x-problem-codes:
@@ -17151,7 +17425,7 @@ paths:
       tags:
         - collections
       summary: Confirm a dunning run
-      description: "Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`; an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written with it. From then on a run started for the company reads the recorded level as the item's `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is confirmed, the proposal is compared with the open items again: when an item of it was cleared since the run was started, or was dunned since by another confirmed run of the company (its recorded level is no longer the run's `previous_level`), the proposal is stale and refused (409 `collections.proposal_stale`), nothing of it is recorded, and a new run is started with `createDunningRun`; the stale run stays `proposed`. A run that is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
+      description: "Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`; an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written with it. From then on a run started for the company reads the recorded level as the item's `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is confirmed, the proposal is compared with the open items again: when an item of it was cleared since the run was started, or was dunned since by another confirmed run of the company (its recorded level is no longer the run's `previous_level`), the proposal is stale and refused (409 `collections.proposal_stale`), nothing of it is recorded, and a new run is started with `createDunningRun`; the stale run stays `proposed`. A dispute case opened on an item after the run was started does not make the proposal stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
       x-permission: collections.dunning.run
       x-agent: false
       x-problem-codes:
@@ -52493,7 +52767,7 @@ components:
     CollectionWorklistCustomer:
       type: object
       description: "A customer on a collection worklist: one with items overdue on the key date. Amounts are in the company's currency, as the items were booked."
-      required: [customer_id, customer_number, customer_name, open_amount, overdue_amount, oldest_due_date, dunning_level]
+      required: [customer_id, customer_number, customer_name, open_amount, overdue_amount, oldest_due_date, dunning_level, disputed_amount, open_dispute_cases]
       properties:
         customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
         customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
@@ -52503,10 +52777,12 @@ components:
         oldest_due_date: {type: string, format: date, description: "The earliest net due date among the customer's overdue items; an item posted without payment terms is due on its document date.", readOnly: true}
         dunning_level: {type: integer, format: int32, minimum: 0, maximum: 9, description: "The highest dunning level a confirmed dunning run recorded for one of the customer's open items; 0 when none was dunned.", readOnly: true}
         last_dunning_date: {type: string, format: date, description: "The latest dunning date (a confirmed run's key date) recorded for one of the customer's open items; absent when none was dunned.", readOnly: true}
+        disputed_amount: {$ref: "#/components/schemas/Money", description: "What the open dispute cases of the customer's open items dispute, overdue or not, each case's share of its item as booked (`local_disputed_amount`); 0 without any. It changes neither `open_amount` nor `overdue_amount`: a disputed item stays open and overdue."}
+        open_dispute_cases: {type: integer, format: int32, minimum: 0, description: "The open dispute cases of the customer's open items (`listDisputeCases?customer_id=&status=open`, which also lists a case whose item was cleared since).", readOnly: true}
     CollectionWorklist:
       type: object
       description: "A company's collection worklist on a key date (collections, ADR-0065 §9): one page of its customers with overdue items, the largest overdue amount first, with the totals of every customer listed."
-      required: [legal_entity_id, company_code, company_name, key_date, currency, customer_count, open_amount, overdue_amount, items]
+      required: [legal_entity_id, company_code, company_name, key_date, currency, customer_count, open_amount, overdue_amount, disputed_amount, open_dispute_cases, items]
       properties:
         legal_entity_id: {type: string, format: uuid, description: "The company.", readOnly: true}
         company_code: {type: string, description: "The company's code.", readOnly: true}
@@ -52516,6 +52792,8 @@ components:
         customer_count: {type: integer, format: int32, minimum: 0, description: "The customers on the worklist, on every page together.", readOnly: true}
         open_amount: {$ref: "#/components/schemas/Money", description: "The sum of `open_amount` of every customer on the worklist."}
         overdue_amount: {$ref: "#/components/schemas/Money", description: "The sum of `overdue_amount` of every customer on the worklist."}
+        disputed_amount: {$ref: "#/components/schemas/Money", description: "The sum of `disputed_amount` of every customer on the worklist (T86b)."}
+        open_dispute_cases: {type: integer, format: int32, minimum: 0, description: "The sum of `open_dispute_cases` of every customer on the worklist (T86b).", readOnly: true}
         items:
           type: array
           items: {$ref: "#/components/schemas/CollectionWorklistCustomer"}
@@ -52531,6 +52809,8 @@ components:
           customer_count: 1
           open_amount: {amount: "1050.00", currency: CAD}
           overdue_amount: {amount: "1050.00", currency: CAD}
+          disputed_amount: {amount: "150.00", currency: CAD}
+          open_dispute_cases: 1
           items:
             - customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
               customer_number: BP100042
@@ -52540,6 +52820,109 @@ components:
               oldest_due_date: "2026-12-11"
               dunning_level: 1
               last_dunning_date: "2026-12-31"
+              disputed_amount: {amount: "150.00", currency: CAD}
+              open_dispute_cases: 1
+    DisputeCaseCreate:
+      type: object
+      description: "Open a dispute case on a customer's open item. It is created `open`."
+      required: [legal_entity_id, fiscal_year, journal_entry_id, line_no, disputed_amount, reason]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company whose customer item is disputed: a legal entity the caller may act in."}
+        fiscal_year: {type: integer, format: int32, minimum: 1900, maximum: 2100, description: "The fiscal year of the item's journal entry."}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the open item (as `listOpenItems` and a dunning notice's item name it)."}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the open item."}
+        disputed_amount: {$ref: "#/components/schemas/Money", description: "The amount the customer disputes, in the item's currency: more than zero and at most what it owes on the item."}
+        reason: {type: string, minLength: 1, maxLength: 500, description: "Why the customer disputes the amount."}
+        assignee_id: {type: string, format: uuid, description: "The person who works the case: an active person of the tenant who may act in the company. Absent: nobody yet."}
+        note: {type: string, minLength: 1, maxLength: 2000, description: "A note on the case, for whoever works it."}
+    DisputeCaseUpdate:
+      type: object
+      description: "Merge patch of an open dispute case: its assignee and its note."
+      additionalProperties: false
+      properties:
+        assignee_id: {type: [string, "null"], format: uuid, description: "An active person of the tenant who may act in the case's company. Send null to unassign."}
+        note: {type: [string, "null"], minLength: 1, maxLength: 2000, description: "The note on the case. Send null to remove it."}
+      examples:
+        - {assignee_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08", note: Asked sales for the quotation}
+    DisputeCaseClose:
+      type: object
+      description: "The outcome of a dispute case and its reason."
+      required: [outcome, reason]
+      additionalProperties: false
+      properties:
+        outcome: {type: string, x-extensible-enum: [accepted, rejected], description: "`accepted`: the customer is right about the disputed amount; `rejected`: it owes it. Another value is refused (422 `collections.unknown_outcome`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."}
+        reason: {type: string, minLength: 1, maxLength: 500, description: "Why the case is closed with this outcome."}
+    DisputeCase:
+      description: "A dispute case (collections, ADR-0065 As built T86a): a customer disputes an amount of one of its open items."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, fiscal_year, journal_entry_id, line_no,
+            document_number, disputed_amount, local_disputed_amount, reason, status]
+          properties:
+            legal_entity_id: {type: string, format: uuid, description: "The company whose customer item is disputed.", readOnly: true}
+            company_code: {type: string, description: "The company's code.", readOnly: true}
+            company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+            customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+            customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+            customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+            fiscal_year: {type: integer, format: int32, description: "The fiscal year of the item's journal entry.", readOnly: true}
+            journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the disputed item (`GET /v1/journal-entries/{id}`).", readOnly: true}
+            line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the disputed item.", readOnly: true}
+            document_number: {type: string, description: "The journal entry's document number.", readOnly: true}
+            reference: {type: string, description: "The journal entry's reference, a customer invoice's document number for one; absent when it has none.", readOnly: true}
+            disputed_amount: {$ref: "#/components/schemas/Money", description: "The amount disputed, in the item's currency."}
+            local_disputed_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, its share of the item's amount as the item was booked."}
+            reason: {type: string, description: "Why the customer disputes the amount.", readOnly: true}
+            assignee_id: {type: string, format: uuid, description: "The person who works the case; absent when nobody is assigned.", readOnly: true}
+            assignee_name: {type: string, description: "The assignee's name; absent when `assignee_id` is.", readOnly: true}
+            note: {type: string, description: "The note on the case; absent when it has none.", readOnly: true}
+            status:
+              type: string
+              x-extensible-enum: [open, accepted, rejected]
+              description: "`open`: the case is being worked, and a dunning run leaves its item out (T86b). `accepted`: closed, the customer was right; a person credits it. `rejected`: closed, the customer owes the amount. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            close_reason: {type: string, description: "Why the case was closed with its outcome; absent while it is open.", readOnly: true}
+            closed_at: {type: string, format: date-time, description: "When the case was closed; absent while it is open.", readOnly: true}
+            closed_by: {type: string, format: uuid, description: "Who closed the case; absent while it is open.", readOnly: true}
+            closed_by_name: {type: string, description: "The name of who closed the case; absent while it is open.", readOnly: true}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
+          version: 2
+          created_at: "2026-12-31T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2027-01-08T09:12:40Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          fiscal_year: 2026
+          journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          line_no: 1
+          document_number: "1800000007"
+          reference: CI-2026-0007
+          disputed_amount: {amount: "150.00", currency: CAD}
+          local_disputed_amount: {amount: "150.00", currency: CAD}
+          reason: The customer says the bearing was priced above the quotation
+          status: rejected
+          close_reason: The invoice priced the bearing as quotation QT-2026-0042 did
+          closed_at: "2027-01-08T09:12:40Z"
+          closed_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          closed_by_name: Ruth Receivables
+    DisputeCasePage:
+      type: object
+      description: One page of dispute cases.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/DisputeCase"}
+          description: The dispute cases on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     DunningRunCreate:
       type: object
       description: "Start a dunning run. It is created `proposed`, with one notice per customer that has items overdue on the key date."
@@ -52553,7 +52936,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
-          required: [legal_entity_id, company_code, company_name, key_date, status, currency, notice_count, item_count, overdue_amount]
+          required: [legal_entity_id, company_code, company_name, key_date, status, currency, notice_count, item_count, overdue_amount, disputed_item_count, disputed_amount, disputed_items]
           properties:
             legal_entity_id: {type: string, format: uuid, description: "The company whose customers the run duns.", readOnly: true}
             company_code: {type: string, description: "The company's code.", readOnly: true}
@@ -52568,6 +52951,13 @@ components:
             notice_count: {type: integer, format: int32, minimum: 0, description: "The notices the run proposed, one per customer; 0 when nothing was overdue.", readOnly: true}
             item_count: {type: integer, format: int32, minimum: 0, description: "The overdue items in those notices.", readOnly: true}
             overdue_amount: {$ref: "#/components/schemas/Money", description: "The sum of the notices' `overdue_amount`: the items' amounts in the company's currency, as they were booked."}
+            disputed_item_count: {type: integer, format: int32, minimum: 0, description: "The items the run left out for their open dispute cases (`disputed_items`); 0 when none was disputed.", readOnly: true}
+            disputed_amount: {$ref: "#/components/schemas/Money", description: "What those items add up to in the company's currency, as they were booked (the sum of `disputed_items[].local_amount`): held back from dunning, not counted in `overdue_amount`."}
+            disputed_items:
+              type: array
+              items: {$ref: "#/components/schemas/DunningRunDisputedItem"}
+              description: "The items the run would have proposed but left out, each for its open dispute case (T86b), by customer and item; in no notice and in none of the run's totals. Empty when none was disputed, and for runs started before dispute cases existed."
+              readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
           version: 1
@@ -52584,6 +52974,38 @@ components:
           notice_count: 1
           item_count: 1
           overdue_amount: {amount: "1050.00", currency: CAD}
+          disputed_item_count: 1
+          disputed_amount: {amount: "400.00", currency: CAD}
+          disputed_items:
+            - dispute_case_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
+              customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+              customer_number: BP100042
+              fiscal_year: 2026
+              journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+              line_no: 1
+              document_number: "1800000007"
+              reference: CI-2026-0007
+              net_due_date: "2026-12-11"
+              days_overdue: 20
+              amount: {amount: "400.00", currency: CAD}
+              local_amount: {amount: "400.00", currency: CAD}
+    DunningRunDisputedItem:
+      type: object
+      description: "An item a dunning run left out for its open dispute case (T86b): a customer's open item overdue on the run's key date that would have reached a dunning level, as the run read it."
+      required: [dispute_case_id, customer_id, customer_number, fiscal_year, journal_entry_id, line_no, document_number, net_due_date, days_overdue, amount, local_amount]
+      properties:
+        dispute_case_id: {type: string, format: uuid, description: "The item's open dispute case when the run was started (`GET /v1/dispute-cases/{id}`).", readOnly: true}
+        customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+        customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: "The fiscal year of the item's journal entry.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the open item (`GET /v1/journal-entries/{id}`).", readOnly: true}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the open item.", readOnly: true}
+        document_number: {type: string, description: "The journal entry's document number.", readOnly: true}
+        reference: {type: string, description: "The journal entry's reference, a customer invoice's document number for one; absent when it has none.", readOnly: true}
+        net_due_date: {type: string, format: date, description: "The item's net due date: by the payment terms it was posted with, or, posted without any, its document date.", readOnly: true}
+        days_overdue: {type: integer, format: int32, minimum: 1, description: "The days from the net due date to the run's key date.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "What the customer owes on the item, in the item's currency, the disputed part and the rest."}
+        local_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, as it was booked."}
     DunningRunPage:
       type: object
       description: One page of dunning runs.

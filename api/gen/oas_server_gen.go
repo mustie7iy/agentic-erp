@@ -521,6 +521,20 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices/{id}:clearDownPayments
 	ClearSupplierInvoiceDownPayments(ctx context.Context, req *DownPaymentClearingInput, params ClearSupplierInvoiceDownPaymentsParams) (ClearSupplierInvoiceDownPaymentsRes, error)
+	// CloseDisputeCase implements closeDisputeCase operation.
+	//
+	// Closes an `open` dispute case once (ADR-0065 As built, T86a), at the version the caller read
+	// (`If-Match`): `outcome` `accepted` (the customer is right) or `rejected` (it owes the amount;
+	// another value is 422 `collections.unknown_outcome` naming `outcome`), with the reason, a text of
+	// more than white space (422 `request.validation_failed`). The case is read under a row lock and moves
+	// to its outcome; one that is not open is refused (409 `collections.dispute_closed`). A case whose
+	// item was cleared meanwhile is closed as any other. Closing posts nothing: an accepted case is
+	// credited by a person, with a credit memo request or a customer credit memo. Once the case is closed
+	// the item is dunned again (T86b). Audited, and published as DisputeCaseChanged (`closed`). A retry
+	// with the same `Idempotency-Key` answers the closed case. Human-only (`x-agent: false`).
+	//
+	// POST /v1/dispute-cases/{id}:close
+	CloseDisputeCase(ctx context.Context, req *DisputeCaseClose, params CloseDisputeCaseParams) (CloseDisputeCaseRes, error)
 	// CloseFiscalPeriod implements closeFiscalPeriod operation.
 	//
 	// Closes the period for postings. Requires status `open`.
@@ -604,11 +618,13 @@ type Handler interface {
 	// the run was started, or was dunned since by another confirmed run of the company (its recorded level
 	// is no longer the run's `previous_level`), the proposal is stale and refused (409
 	// `collections.proposal_stale`), nothing of it is recorded, and a new run is started with
-	// `createDunningRun`; the stale run stays `proposed`. A run that is not `proposed` is refused (409
-	// `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with
-	// the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and
-	// records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is
-	// not found (404). Human-only (`x-agent: false`).
+	// `createDunningRun`; the stale run stays `proposed`. A dispute case opened on an item after the run
+	// was started does not make the proposal stale: the run is confirmed as proposed and the item recorded
+	// as dunned (T86b). A run that is not `proposed` is refused (409 `collections.invalid_status`), so a
+	// second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers
+	// the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is
+	// not cancelled. A run of a company the caller may not act in is not found (404). Human-only
+	// (`x-agent: false`).
 	//
 	// POST /v1/dunning-runs/{id}:confirm
 	ConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (ConfirmDunningRunRes, error)
@@ -1252,6 +1268,30 @@ type Handler interface {
 	//
 	// POST /v1/customer-invoices
 	CreateCustomerInvoice(ctx context.Context, req *CustomerInvoiceCreate, params CreateCustomerInvoiceParams) (CreateCustomerInvoiceRes, error)
+	// CreateDisputeCase implements createDisputeCase operation.
+	//
+	// Opens a dispute case (ADR-0065 As built, T86a): the customer disputes an amount of one of its open
+	// items, an invoice, for a reason. The item is named by its journal line (`fiscal_year`,
+	// `journal_entry_id`, `line_no`, as a dunning notice's item names it) and must be an open item on a
+	// customer reconciliation account of the company in the leading ledger, one the customer owes (422
+	// `collections.item_not_open` naming `journal_entry_id`). The company is one the caller may act in
+	// (422 `request.reference_not_found` naming `legal_entity_id`). `disputed_amount` is in the item's
+	// currency (422 `collections.currency_mismatch` naming `disputed_amount.currency`), more than zero and
+	// at most the item's open amount (422 `collections.invalid_disputed_amount` naming
+	// `disputed_amount.amount`); the case also keeps its share of the item's amount in the company's
+	// currency, as the item was booked (`local_disputed_amount`, the item's local amount × the disputed
+	// amount ÷ its amount, rounded half away from zero). An item has one open case at a time: a second is
+	// refused, whether it comes after the first or races it (409 `collections.dispute_exists`). An
+	// assignee, if named, is an active person of the tenant who may act in the company (422
+	// `collections.assignee_invalid` naming `assignee_id`). `reason` and `note` are texts of more than
+	// white space (422 `request.validation_failed` naming the field). The case is created `open`. Opening
+	// a case posts nothing and changes nothing on the item; a dunning run leaves the item out while the
+	// case is open (T86b). Audited, and published as DisputeCaseChanged (`opened`), naming the customer by
+	// id and number. A retry with the same `Idempotency-Key` answers the case opened. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/dispute-cases
+	CreateDisputeCase(ctx context.Context, req *DisputeCaseCreate, params CreateDisputeCaseParams) (CreateDisputeCaseRes, error)
 	// CreateDownPaymentRequest implements createDownPaymentRequest operation.
 	//
 	// Requests a down payment to a supplier (SAP F-47, special G/L F): a payables document, not a ledger
@@ -1273,14 +1313,17 @@ type Handler interface {
 	// on the key date is not overdue. The net due date is that of the payment terms the item was posted
 	// with; an item posted without payment terms (a manual or migrated entry's) is due on its document
 	// date and is proposed like any other. Credit items (a credit memo, a payment on account) are not
-	// dunned and reduce nothing, with or without terms. An item rises one level per confirmed run at most,
-	// from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never
-	// dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second
-	// level's days, and one at the highest level stays there. A notice's level is the highest among its
-	// items. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming
-	// `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as
-	// is a run of more than 5,000 overdue items (422 `collections.run_too_large`: larger runs are not
-	// supported yet) and one whose amounts add up to more than an amount holds (422
+	// dunned and reduce nothing, with or without terms. An item with an open dispute case
+	// (`createDisputeCase`) is in no notice, whatever part of it is disputed: the run lists it in
+	// `disputed_items` with its case, and it counts in none of the run's totals; once the case is closed a
+	// new run proposes it again (T86b). An item rises one level per confirmed run at most, from the level
+	// the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would
+	// reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days,
+	// and one at the highest level stays there. A notice's level is the highest among its items. A key
+	// date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company
+	// without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than
+	// 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`:
+	// larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422
 	// `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices.
 	// A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`).
 	//
@@ -2719,23 +2762,27 @@ type Handler interface {
 	// its number and name, what its open items add up to (`open_amount`, credits included), what its
 	// overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest
 	// dunning level and the latest dunning date the confirmed dunning runs recorded for its open items
-	// (`confirmDunningRun`; level 0 and no date for a customer never dunned). An item is overdue as a
-	// dunning run counts it: the customer owes it (a debit) and the key date is past its net due date,
-	// which is that of the payment terms it was posted with or, for an item posted without payment terms
-	// (a manual or migrated entry's), its document date; an item due on the key date is not overdue, so an
-	// item without terms is overdue from the day after its document date, and credit items reduce no
-	// overdue amount. A customer with nothing overdue is not listed, whatever it owes. The worklist is
-	// computed at the read from one database state (a repeatable-read snapshot) and stores nothing: the
-	// items are the ones open now on the company's customer reconciliation accounts in the leading ledger,
-	// whoever posted them, and the key date only counts what is overdue. Amounts are in the company's
-	// currency, as the items were booked. `customer_count`, `open_amount` and `overdue_amount` at the top
-	// are the totals of every customer listed, not of the page. Paged by cursor in the worklist's order; a
-	// page token is bound to the company and key date. Each page is computed anew and continues after the
-	// last customer's overdue amount and id: a customer whose overdue amount fell between two pages can be
-	// listed again with its new amount, and one whose amount rose is not read again, so a consumer that
-	// pages while items are posted or cleared keys its rows by `customer_id`. The worklist needs no
-	// dunning levels: a company without any has one too. A key date after 2100-12-31 is refused (422
-	// `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is 404.
+	// (`confirmDunningRun`; level 0 and no date for a customer never dunned), and beside its overdue
+	// amount what the open dispute cases of its open items dispute (`disputed_amount`, in the company's
+	// currency as each case's share of its item was booked) and how many they are (`open_dispute_cases`;
+	// T86b): a disputed item stays open and overdue, so the order and the totals are as without the cases.
+	// An item is overdue as a dunning run counts it: the customer owes it (a debit) and the key date is
+	// past its net due date, which is that of the payment terms it was posted with or, for an item posted
+	// without payment terms (a manual or migrated entry's), its document date; an item due on the key date
+	// is not overdue, so an item without terms is overdue from the day after its document date, and credit
+	// items reduce no overdue amount. A customer with nothing overdue is not listed, whatever it owes. The
+	// worklist is computed at the read from one database state (a repeatable-read snapshot) and stores
+	// nothing: the items are the ones open now on the company's customer reconciliation accounts in the
+	// leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in
+	// the company's currency, as the items were booked. `customer_count`, `open_amount`, `overdue_amount`,
+	// `disputed_amount` and `open_dispute_cases` at the top are the totals of every customer listed, not
+	// of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key
+	// date. Each page is computed anew and continues after the last customer's overdue amount and id: a
+	// customer whose overdue amount fell between two pages can be listed again with its new amount, and
+	// one whose amount rose is not read again, so a consumer that pages while items are posted or cleared
+	// keys its rows by `customer_id`. The worklist needs no dunning levels: a company without any has one
+	// too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`).
+	// A legal entity the caller cannot act in is 404.
 	//
 	// GET /v1/collection-worklist
 	GetCollectionWorklist(ctx context.Context, params GetCollectionWorklistParams) (GetCollectionWorklistRes, error)
@@ -2955,6 +3002,17 @@ type Handler interface {
 	//
 	// GET /v1/depreciation-runs/{id}
 	GetDepreciationRun(ctx context.Context, params GetDepreciationRunParams) (GetDepreciationRunRes, error)
+	// GetDisputeCase implements getDisputeCase operation.
+	//
+	// One dispute case (ADR-0065 As built, T86a) with its company's code and name, its customer's number
+	// and name, the open item it disputes by journal line, document number and reference, the disputed
+	// amount in the item's currency and in the company's, its reason, its assignee and note, its status
+	// and, once closed, its outcome's reason and who closed it when. A case stays as it is when its item
+	// is cleared meanwhile: a person closes it. One of a company the caller may not act in is not found
+	// (404), as one that does not exist.
+	//
+	// GET /v1/dispute-cases/{id}
+	GetDisputeCase(ctx context.Context, params GetDisputeCaseParams) (GetDisputeCaseRes, error)
 	// GetDownPaymentRequest implements getDownPaymentRequest operation.
 	//
 	// Returns one down payment request.
@@ -4419,6 +4477,16 @@ type Handler interface {
 	//
 	// GET /v1/depreciation-runs
 	ListDepreciationRuns(ctx context.Context, params ListDepreciationRunsParams) (ListDepreciationRunsRes, error)
+	// ListDisputeCases implements listDisputeCases operation.
+	//
+	// The dispute cases of the companies the caller may act in (ADR-0065 As built, T86a), each as
+	// `getDisputeCase` gives it: with its company's code and name, its customer's number and name, the
+	// open item it disputes, the disputed amount, its reason, its assignee's name and its outcome.
+	// Filtered by company, customer, status and assignee. Sortable by: `created_at` (default, the latest
+	// first).
+	//
+	// GET /v1/dispute-cases
+	ListDisputeCases(ctx context.Context, params ListDisputeCasesParams) (ListDisputeCasesRes, error)
 	// ListDownPaymentRequests implements listDownPaymentRequests operation.
 	//
 	// Down payment requests (SAP F-47, ADR-0037). Sortable by: `due_date`.
@@ -7128,6 +7196,20 @@ type Handler interface {
 	//
 	// PATCH /v1/credit-limits/{id}
 	UpdateCreditLimit(ctx context.Context, req *CustomerCreditLimitUpdate, params UpdateCreditLimitParams) (UpdateCreditLimitRes, error)
+	// UpdateDisputeCase implements updateDisputeCase operation.
+	//
+	// Changes an open dispute case's assignee or note, with the caller's version of it (`If-Match`; 412
+	// when another change came first): JSON Merge Patch (RFC 7396) of `assignee_id` and `note`, each set
+	// or cleared (null); a note is a text of more than white space (422 `request.validation_failed` naming
+	// `note`). The assignee is an active person of the tenant who may act in the case's company (422
+	// `collections.assignee_invalid` naming `assignee_id`). A patch that would leave the case as it is is
+	// refused (422 `collections.nothing_to_change`). A closed case is not changed (409
+	// `collections.dispute_closed`). The company, customer, item, amounts and reason of a case do not
+	// change. Audited, and published as DisputeCaseChanged (`updated`). A case of a company the caller may
+	// not act in is not found (404). Human-only (`x-agent: false`).
+	//
+	// PATCH /v1/dispute-cases/{id}
+	UpdateDisputeCase(ctx context.Context, req *DisputeCaseUpdate, params UpdateDisputeCaseParams) (UpdateDisputeCaseRes, error)
 	// UpdateEntryTemplate implements updateEntryTemplate operation.
 	//
 	// Changes an active entry template (409 `ledger.template_retired` otherwise; `EntryTemplateChanged`).

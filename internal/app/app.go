@@ -531,10 +531,11 @@ func (receivablesStatements) Lines(ctx context.Context, entries []ledger.ItemRef
 
 // Collections is the collections context as the API wires it (ADR-0065
 // §1): a leaf that reads the ledger's customer open items, the partner
-// context's names, tenancy and the configuration through its ports.
+// context's names, people's names, tenancy and the configuration through
+// its ports.
 func Collections(cfg Config) *collections.Endpoints {
 	return &collections.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{}, Partners: partner.Payees{},
-		Settings: configuration.Settings{}}
+		Settings: configuration.Settings{}, People: LedgerPeople{}}
 }
 
 // Records is the records management context as the API wires it
@@ -583,10 +584,10 @@ func (LedgerPartners) PartnerNames(ctx context.Context, ids []uuid.UUID) (map[uu
 	return out, err
 }
 
-// LedgerPeople names the people who ran the ledger's carry-forwards from
-// the identity context's directory: the ledger does not import it.
-// Exported for the ledger's tests, which wire their endpoints as the API
-// does.
+// LedgerPeople names the people who ran the ledger's carry-forwards, and
+// a dispute case's assignee and closer, from the identity context's
+// directory: neither the ledger nor collections imports it. Exported for
+// the ledger's tests, which wire their endpoints as the API does.
 type LedgerPeople struct{}
 
 // PersonNames are the principals' names by id; an id of none is left out.

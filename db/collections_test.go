@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -9,9 +10,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestCollectionsPermissions (T76a, migration 000273; T76c, 000278;
-// ADR-0065 §7): the dunning permissions and the worklist's are seeded and
-// are no approval permissions.
+// TestCollectionsPermissions (T76a, migration 000273; T76c, 000278; T86a,
+// 000324; ADR-0065 §7): the dunning permissions, the worklist's and the
+// dispute cases' are seeded and are no approval permissions.
 func TestCollectionsPermissions(t *testing.T) {
 	need(t)
 	rows, err := testDB.Query(context.Background(), `SELECT code FROM ref.permission WHERE code LIKE 'collections.%' AND NOT is_approval ORDER BY code`)
@@ -22,7 +23,7 @@ func TestCollectionsPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "collections.dunning.read collections.dunning.run collections.worklist.read"; got != want {
+	if got, want := strings.Join(codes, " "), "collections.dispute.read collections.dispute.write collections.dunning.read collections.dunning.run collections.worklist.read"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }
@@ -252,6 +253,9 @@ func TestDunningRunConfirmation(t *testing.T) {
 		{"a run's totals changed with its confirmation", func(s scene) []stmt {
 			return []stmt{step(`UPDATE collections.dunning_run SET status = 'confirmed', overdue_amount = 1 WHERE id = $1`, s.run)}
 		}, "permission denied"},
+		{"a run's disputed items changed with its confirmation (T86b, 000325)", func(s scene) []stmt {
+			return []stmt{step(`UPDATE collections.dunning_run SET status = 'confirmed', disputed_items = '[{}]' WHERE id = $1`, s.run)}
+		}, "permission denied"},
 		{"an item recorded that the run did not propose", func(s scene) []stmt {
 			return []stmt{step(confirm, s.tenant, s.run), step(dunned, s.tenant, id(), s.run, 1)}
 		}, "dunned_item_proposed_fkey"},
@@ -351,5 +355,176 @@ func TestDunningRowsAreFixedForTheOwner(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// disputeCase inserts an open dispute case of the tenant on the entry's
+// line 1; the columns and values after it replace the defaults.
+const disputeCase = `INSERT INTO collections.dispute_case (tenant_id, id, legal_entity_id, customer_id, customer_number, fiscal_year, journal_entry_id,
+	line_no, document_number, currency, disputed_amount, currency_lc, disputed_amount_lc, reason, status, created_by, updated_by)
+	VALUES ($1, $2, gen_random_uuid(), gen_random_uuid(), 'BP1', 2026, $3, 1, 'DR1', 'EUR', 100, 'EUR', 100, 'Price', 'open', $1, $1)`
+
+// TestDisputeCaseRules (T86a, migration 000324; ADR-0065 As built): a case
+// names its customer, item and reason, disputes an amount above zero in a
+// known currency, and is open, accepted or rejected, a closed one with its
+// reason, time and person and an open one with none; an item has one open
+// case, and another once that one is closed; the application assigns,
+// notes on and closes an open case, and changes nothing else of it, and
+// deletes none.
+func TestDisputeCaseRules(t *testing.T) {
+	need(t)
+	type scene struct{ tenant, id, entry uuid.UUID }
+	open := func(s scene) stmt { return step(disputeCase, s.tenant, s.id, s.entry) }
+	with := func(s scene, from, to string) stmt {
+		return step(strings.Replace(disputeCase, from, to, 1), s.tenant, s.id, s.entry)
+	}
+	const closeIt = `UPDATE collections.dispute_case SET status = 'rejected', close_reason = 'Quoted', closed_at = now(), closed_by = $1,
+		version = version + 1, updated_by = $1 WHERE id = $2`
+	cases := []struct {
+		name string
+		run  func(s scene) []stmt
+		want string // empty: allowed
+	}{
+		{"an open case", func(s scene) []stmt { return []stmt{open(s)} }, ""},
+		{"no customer number", func(s scene) []stmt { return []stmt{with(s, "'BP1'", "''")} }, "dispute_case_customer_number_check"},
+		{"line 0", func(s scene) []stmt { return []stmt{with(s, "$3, 1, 'DR1'", "$3, 0, 'DR1'")} }, "dispute_case_line_no_check"},
+		{"no document number", func(s scene) []stmt { return []stmt{with(s, "'DR1'", "''")} }, "dispute_case_document_number_check"},
+		{"an unknown currency", func(s scene) []stmt { return []stmt{with(s, "'DR1', 'EUR'", "'DR1', 'XXA'")} }, "dispute_case_currency_fkey"},
+		{"an unknown company currency", func(s scene) []stmt { return []stmt{with(s, "100, 'EUR', 100", "100, 'XXA', 100")} }, "dispute_case_currency_lc_fkey"},
+		{"nothing disputed", func(s scene) []stmt { return []stmt{with(s, "'EUR', 100, 'EUR'", "'EUR', 0, 'EUR'")} }, "dispute_case_amount_check"},
+		{"nothing in the company's currency", func(s scene) []stmt { return []stmt{with(s, "'EUR', 100, 'Price'", "'EUR', 0, 'Price'")} }, ""},
+		{"below zero in the company's currency", func(s scene) []stmt { return []stmt{with(s, "'EUR', 100, 'Price'", "'EUR', -1, 'Price'")} },
+			"dispute_case_amount_lc_check"},
+		{"no reason", func(s scene) []stmt { return []stmt{with(s, "'Price'", "''")} }, "dispute_case_reason_check"},
+		{"a reason of white space", func(s scene) []stmt { return []stmt{with(s, "'Price'", "'  '")} }, "dispute_case_reason_check"},
+		{"a reason of 501 characters", func(s scene) []stmt { return []stmt{with(s, "'Price'", "repeat('x', 501)")} }, "dispute_case_reason_check"},
+		{"a reason of 500 characters", func(s scene) []stmt { return []stmt{with(s, "'Price'", "repeat('x', 500)")} }, ""},
+		{"an empty note", func(s scene) []stmt {
+			return []stmt{open(s), step(`UPDATE collections.dispute_case SET note = '', version = version + 1 WHERE id = $1`, s.id)}
+		}, "dispute_case_note_check"},
+		{"a note of white space", func(s scene) []stmt {
+			return []stmt{open(s), step(`UPDATE collections.dispute_case SET note = ' ', version = version + 1 WHERE id = $1`, s.id)}
+		}, "dispute_case_note_check"},
+		{"a note of 2001 characters", func(s scene) []stmt {
+			return []stmt{open(s), step(`UPDATE collections.dispute_case SET note = repeat('x', 2001), version = version + 1 WHERE id = $1`, s.id)}
+		}, "dispute_case_note_check"},
+		{"a note of 2000 characters, and an assignee", func(s scene) []stmt {
+			return []stmt{open(s), step(`UPDATE collections.dispute_case SET note = repeat('x', 2000), assignee_id = $1, version = version + 1 WHERE id = $2`,
+				s.tenant, s.id)}
+		}, ""},
+		{"an unknown status", func(s scene) []stmt {
+			return []stmt{open(s), step(strings.Replace(closeIt, "'rejected'", "'withdrawn'", 1), s.tenant, s.id)}
+		}, "dispute_case_status_check"},
+		{"a closed case without its reason", func(s scene) []stmt { return []stmt{with(s, "'open', $1", "'accepted', $1")} }, "dispute_case_closed_check"},
+		{"an open case with a reason", func(s scene) []stmt {
+			return []stmt{open(s), step(`UPDATE collections.dispute_case SET close_reason = 'x', version = version + 1 WHERE id = $1`, s.id)}
+		}, "dispute_case_closed_check"},
+		{"a case closed without who closed it", func(s scene) []stmt {
+			return []stmt{open(s), step(`UPDATE collections.dispute_case SET status = 'accepted', close_reason = 'x', closed_at = now(),
+				version = version + 1 WHERE id = $1`, s.id)}
+		}, "dispute_case_closed_check"},
+		{"a case closed", func(s scene) []stmt { return []stmt{open(s), step(closeIt, s.tenant, s.id)} }, ""},
+		{"a close reason of white space", func(s scene) []stmt {
+			return []stmt{open(s), step(strings.Replace(closeIt, "'Quoted'", "' '", 1), s.tenant, s.id)}
+		}, "dispute_case_close_reason_check"},
+		{"a close reason of 501 characters", func(s scene) []stmt {
+			return []stmt{open(s), step(strings.Replace(closeIt, "'Quoted'", "repeat('x', 501)", 1), s.tenant, s.id)}
+		}, "dispute_case_close_reason_check"},
+		{"version 0", func(s scene) []stmt {
+			return []stmt{step(strings.Replace(strings.Replace(disputeCase, "status, created_by", "status, version, created_by", 1), "'open', $1", "'open', 0, $1", 1),
+				s.tenant, s.id, s.entry)}
+		}, "dispute_case_version_check"},
+		{"a second open case of the item", func(s scene) []stmt { return []stmt{open(s), step(disputeCase, s.tenant, id(), s.entry)} },
+			"dispute_case_one_open"},
+		{"another open case once the first is closed", func(s scene) []stmt {
+			return []stmt{open(s), step(closeIt, s.tenant, s.id), step(disputeCase, s.tenant, id(), s.entry)}
+		}, ""},
+		{"a closed case changed", func(s scene) []stmt {
+			return []stmt{open(s), step(closeIt, s.tenant, s.id), step(`UPDATE collections.dispute_case SET note = 'x' WHERE id = $1`, s.id)}
+		}, "a closed case is not changed"},
+		{"a closed case opened again", func(s scene) []stmt {
+			return []stmt{open(s), step(closeIt, s.tenant, s.id), step(`UPDATE collections.dispute_case SET status = 'open', close_reason = NULL,
+				closed_at = NULL, closed_by = NULL WHERE id = $1`, s.id)}
+		}, "a closed case is not changed"},
+		{"the amount changed", func(s scene) []stmt {
+			return []stmt{open(s), step(`UPDATE collections.dispute_case SET disputed_amount = 1 WHERE id = $1`, s.id)}
+		}, "permission denied"},
+		{"the reason changed", func(s scene) []stmt {
+			return []stmt{open(s), step(`UPDATE collections.dispute_case SET reason = 'x' WHERE id = $1`, s.id)}
+		}, "permission denied"},
+		{"a case deleted", func(s scene) []stmt { return []stmt{open(s), step(`DELETE FROM collections.dispute_case`)} }, "permission denied"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), id: id(), entry: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, c.run(s)...) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestDisputeCaseClosedForTheOwner (T86a, migration 000324): a closed case
+// is not changed by any role, the table's owner included: the trigger,
+// not the grant, keeps it.
+func TestDisputeCaseClosedForTheOwner(t *testing.T) {
+	need(t)
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	tenant, c := id(), id()
+	if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, tenant.String()), step(disputeCase, tenant, c, id()),
+		step(`UPDATE collections.dispute_case SET status = 'accepted', close_reason = 'x', closed_at = now(), closed_by = $1, version = version + 1
+			WHERE id = $2`, tenant, c)); err != nil {
+		t.Fatal(err)
+	}
+	_, err = tx.Exec(ctx, `UPDATE collections.dispute_case SET disputed_amount = 1 WHERE id = $1`, c)
+	failsWith(t, err, "a closed case is not changed")
+}
+
+// TestDunningRunDisputedItems (T86b, migration 000325): a run's disputed
+// items are a list, empty by default, as the previous version's runs have
+// it.
+func TestDunningRunDisputedItems(t *testing.T) {
+	need(t)
+	const run = `INSERT INTO collections.dunning_run (tenant_id, id, legal_entity_id, key_date, status, currency, notice_count, item_count,
+		overdue_amount, created_by, updated_by%s) VALUES ($1, $2, gen_random_uuid(), '2026-06-30', 'proposed', 'EUR', 0, 0, 0, $1, $1%s)`
+	for _, c := range []struct{ name, column, value, want string }{
+		{"none given", "", "", ""},
+		{"a list", ", disputed_items", `, '[{"dispute_case_id": "x"}]'`, ""},
+		{"an object", ", disputed_items", `, '{}'`, "dunning_run_disputed_items_check"},
+		{"null", ", disputed_items", ", NULL", "disputed_items"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tenant, r := id(), id()
+			err := asApp(t, tenant, func(tx pgx.Tx) error {
+				if err := all(tx, step(fmt.Sprintf(run, c.column, c.value), tenant, r)); err != nil {
+					return err
+				}
+				var got string
+				if err := tx.QueryRow(context.Background(), `SELECT disputed_items::text FROM collections.dunning_run WHERE id = $1`, r).Scan(&got); err != nil {
+					return err
+				}
+				if c.column == "" && got != "[]" {
+					t.Errorf("default: got %s, want []", got)
+				}
+				return nil
+			})
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
 	}
 }
