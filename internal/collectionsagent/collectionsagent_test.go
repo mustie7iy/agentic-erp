@@ -61,7 +61,8 @@ var openItems = map[string]string{
 	disputed: `{"items": [
 		{"fiscal_year": 2026, "journal_entry_id": "` + entryA + `", "line_no": 1, "account_id": "` + ar + `", "posting_date": "2026-10-01", "amount_lc": {"amount": "400.00"}, "payment_terms": {"net_due_date": "2026-10-31"}},
 		{"fiscal_year": 2026, "journal_entry_id": "` + entryB + `", "line_no": 2, "account_id": "` + ar + `", "posting_date": "2026-09-01", "amount_lc": {"amount": "-420.00"}},
-		{"fiscal_year": 2026, "journal_entry_id": "` + entryB + `", "line_no": 1, "account_id": "` + ar + `", "posting_date": "2026-11-01", "amount_lc": {"amount": "100.00"}, "payment_terms": {"net_due_date": "2026-12-01"}}]}`,
+		{"fiscal_year": 2026, "journal_entry_id": "` + entryB + `", "line_no": 1, "account_id": "` + ar + `", "posting_date": "2026-11-01", "amount_lc": {"amount": "100.00"}, "payment_terms": {"net_due_date": "2026-12-01"}},
+		{"fiscal_year": 2026, "journal_entry_id": "` + entryB + `", "line_no": 4, "account_id": "` + ap + `", "posting_date": "2026-09-15", "amount_lc": {"amount": "500.00"}, "special_gl": "A"}]}`,
 	partly: `{"items": [
 		{"fiscal_year": 2026, "journal_entry_id": "` + entryA + `", "line_no": 3, "account_id": "` + ar + `", "posting_date": "2026-10-01", "amount_lc": {"amount": "300.00"}, "payment_terms": {"net_due_date": "2026-10-31"}},
 		{"fiscal_year": 2026, "journal_entry_id": "` + entryB + `", "line_no": 3, "account_id": "` + ar + `", "posting_date": "2026-10-01", "amount_lc": {"amount": "600.00"}}]}`,
