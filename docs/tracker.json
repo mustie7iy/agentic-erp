@@ -4864,6 +4864,20 @@
        },
        {
         "s": "T",
+        "t": "Tax-number fingerprints after a tenant key rotation need checking: the index tax_identifier_by_fingerprint holds fingerprints made with the key in force, and what a rotation does to them (a lookup by the printed number after the rotation) is not shown by a test (pre-existing, found in batch 74).",
+        "r": "db/migrations/000334_sales_order_capture · index tax_identifier_by_fingerprint · tenant key rotation",
+        "src": "review:batch74",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Capture operations can answer 404 for an unknown upload id but declare no 404 in api/openapi.yaml for captureSalesOrder (pre-existing, found in batch 74 in T90a's lane).",
+        "r": "api/openapi.yaml captureSalesOrder · docs/design/adr/0067-sales-documents.md As built T90a",
+        "src": "review:batch74",
+        "c": []
+       },
+       {
+        "s": "T",
         "t": "later: order capture variants: an email inbox that takes orders in, scanned documents and other languages, matching the customer's own item numbers to item keys, comparing the printed price with the price list and holding a difference, capture into a quotation, evaluation against the live Claude API (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week3.md §T90a, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
@@ -6309,6 +6323,13 @@
         "t": "The privacy officer previews and starts a deletion run: for each business partner blocked longer than the retention rule for personal data, its name, address and bank details are blanked; ledger documents and audit events stay (POST /v1/personal-data-deletion-runs)",
         "r": "T100c · docs/design/plan-breadth-week3.md §T100c · records.deletion_run, records.deletion_run_subject, partner.business_partner.personal_data_deleted_at · db/migrations/000337 · GET /v1/personal-data-deletion-preview, POST /v1/personal-data-deletion-runs, GET /v1/personal-data-deletion-runs/{id}, GET /v1/personal-data-deletion-runs/{id}/subjects · PersonalDataDeleted · records.privacy.delete · records.Deleter · partner.Privacy.Blocked, Blank · walkthrough step_privacy (privacy_delete) · ADR-0079 §12 and As built · 03-data-model §3.6, §3.32",
         "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A deletion run's subjects carry no skip reason: a subject the run did not delete shows that it was skipped but not why (lane C, batch 74).",
+        "r": "records.deletion_run_subject · T100c · docs/design/adr/0079-retention-archiving-personal-data.md §12",
+        "src": "review:batch74",
         "c": []
        },
        {
@@ -10557,6 +10578,13 @@
         "t": "A user gives the support agent a refused request or a stuck document; it reads the document, its audit events, its operation and the configuration and recommends the root cause with the events that show it (erp agent support-diagnose)",
         "r": "T108b · docs/design/plan-breadth-week3.md §T108b · internal/supportagent Diagnose · recommend.Agent.Contract · payables refused posting audited · erp agent support-diagnose -type KIND -id ID · evals/support v2 · walkthrough step_support_agent · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Refusals of writes other than supplier invoice posting are not audited, so the support agent's diagnosis cannot show their cause: only a refused supplier invoice post leaves an audit record the diagnosis reads (lane D gap, found in batch 74).",
+        "r": "internal/supportagent Diagnose · audit capability (ADR-0011) · internal/payables (the one refused write audited)",
+        "src": "review:batch74",
         "c": []
        },
        {
