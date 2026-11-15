@@ -677,6 +677,7 @@ func (s *server) newAPI() error {
 		RefuseEBICS: cfg.Environment == config.Production, RefuseUnsignedPacks: cfg.Environment == config.Production,
 		UnreleasedPacks: cfg.PacksDir,             // config.Load refuses it in production
 		WebhookReceiver: cfg.Walkthrough.Receiver, // config.Load refuses it outside development
+		Loopback:        &httpapi.Loopback{},      // shared with the report scheduler (startAnalytics)
 	}
 	if s.gateway != nil {
 		s.apiCfg.Model = s.gateway
@@ -797,7 +798,8 @@ func (s *server) startWebhooks(runCtx context.Context) {
 // extract scheduler (ADR-0044): the extract reads on the read replica once
 // it has replayed past the change, on the primary until then and without
 // a replica; it collects superseded files, rebuilds a store the database
-// is behind, and sweeps stale tenants hourly.
+// is behind, and sweeps stale tenants hourly; and saved reports' scheduled
+// runs, which keep their results there too.
 func (s *server) startAnalytics(runCtx context.Context) {
 	if s.store == nil {
 		return
@@ -810,6 +812,10 @@ func (s *server) startAnalytics(runCtx context.Context) {
 		Cash: app.NewAnalyticsCash(s.apiCfg)},
 		Begin: s.pool.Begin, WorkerRole: s.cfg.WorkerRole, Log: s.log}
 	s.spawn("analytics extract", func() { scheduler.Run(runCtx) })
+	// Saved reports' scheduled runs, kept in the same object storage
+	// (ADR-0076 §5): as their owners, reading the API in-process.
+	reportRuns := app.ReportScheduler(s.apiCfg, s.cfg.WorkerRole)
+	s.spawn("analytics report runs", func() { reportRuns.Run(runCtx) })
 }
 
 // startProjections starts the balance projector and, without a workflow

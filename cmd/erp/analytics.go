@@ -12,6 +12,8 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
@@ -292,11 +294,18 @@ func askOrContinue(ctx context.Context, c *apitools.Client, sess *analytics.Sess
 func reportCmd(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("report", flag.ContinueOnError)
 	af := addAnalyticsFlags(fs)
-	id := fs.String("id", "", "saved report id (from erp ask)")
+	id := fs.String("id", "", "saved report id: erp ask's, or erp-server's (a UUID, from -save), which erp-server runs over all your companies")
 	file := fs.String("file", "", "report definition JSON (instead of -id)")
 	outDir := fs.String("out", defaultReports, "directory for generated reports")
+	save := fs.Bool("save", false, "save the report of -id or -file in erp-server as yours, instead of rerunning it")
 	if err := parseFlags(fs, args); err != nil {
 		return err
+	}
+	if _, err := uuid.Parse(*id); err == nil && *file == "" {
+		if *save {
+			return fmt.Errorf("report %s is erp-server's already: -save takes erp ask's id or -file", *id)
+		}
+		return runSaved(ctx, *id, *outDir)
 	}
 	path := *file
 	if path == "" {
@@ -313,6 +322,13 @@ func reportCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if *save {
+		saved, err := analytics.Remote{API: c}.SaveReport(ctx, rep)
+		if err != nil {
+			return err
+		}
+		return printf("report", "Saved %q in erp-server as report %s\nRun it there with: erp report -id %s\n", saved.Title, saved.ID, saved.ID)
+	}
 	sess, err := af.session(ctx, c)
 	if err != nil {
 		return err
@@ -326,6 +342,24 @@ func reportCmd(ctx context.Context, args []string) error {
 		return err
 	}
 	return printf("report", "Refreshed %q with data through %s\nDashboard: %s\n", fresh.Spec.Title, sess.DataThrough(), html)
+}
+
+// runSaved runs a report saved in erp-server there, as the person, and
+// writes its dashboard.
+func runSaved(ctx context.Context, id, outDir string) error {
+	c, err := client("ERP_TOKEN")
+	if err != nil {
+		return err
+	}
+	rep, results, through, err := analytics.Remote{API: c}.RunReport(ctx, id)
+	if err != nil {
+		return err
+	}
+	html, err := rep.Save(outDir, results)
+	if err != nil {
+		return err
+	}
+	return printf("report", "Ran %q in erp-server with data through %s\nDashboard: %s\n", rep.Spec.Title, through, html)
 }
 
 func splitList(s string) []string {

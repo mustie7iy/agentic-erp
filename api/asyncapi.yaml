@@ -97,6 +97,7 @@ info:
     - name: revenue
     - name: credit
     - name: grc
+    - name: analytics
     - name: payments
     - name: workflow
     - name: integration
@@ -486,6 +487,14 @@ channels:
     messages:
       ControlChanged: {$ref: '#/components/messages/ControlChanged'}
       RiskChanged: {$ref: '#/components/messages/RiskChanged'}
+  analytics:
+    address: 'erp.{cell}.analytics.{tenant}.{event}'
+    title: Analytics events
+    description: Saved reports' scheduled runs (ADR-0076 §5).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      ReportRunCompleted: {$ref: '#/components/messages/ReportRunCompleted'}
   records:
     address: 'erp.{cell}.records.{tenant}.{event}'
     title: Records management events
@@ -810,6 +819,12 @@ operations:
     messages:
       - $ref: '#/channels/grc/messages/ControlChanged'
       - $ref: '#/channels/grc/messages/RiskChanged'
+  publishAnalyticsEvents:
+    action: send
+    title: Analytics publishes
+    channel: {$ref: '#/channels/analytics'}
+    messages:
+      - $ref: '#/channels/analytics/messages/ReportRunCompleted'
   publishRecordsEvents:
     action: send
     title: Records management publishes
@@ -4371,6 +4386,30 @@ components:
         - name: tested
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000fa2, source: /erp/eu-1/grc, type: com.example.erp.grc.control_changed.v1, subject: 0192a000-0000-7000-8000-000000000fa0, time: '2026-11-25T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {control_id: 0192a000-0000-7000-8000-000000000fa0, code: PAY-01, process: Payments, owner_id: 0192a000-0000-7000-8000-000000000101, frequency: continuous, nature: automated, status: active, change: tested, test: {test_id: 0192a000-0000-7000-8000-000000000fa3, tested_on: '2026-11-25', result: passed, tested_by: 0192a000-0000-7000-8000-000000000101}, link: null, version: 1}
+    ReportRunCompleted:
+      name: ReportRunCompleted
+      title: Report run completed
+      summary: A saved report's scheduled run was kept, succeeded or failed.
+      description: |
+        Emitted when the worker keeps a scheduled run of a saved report
+        (ADR-0076 §5, T95b): `succeeded` with the SHA-256 of the results
+        kept, or `failed` with the code of the problem that failed it (the
+        owner no longer active, a query refused). The event names the
+        owner the run acted as by id, never by name, and carries no figure
+        of the results. It is not offered as a webhook event.
+        `GET /v1/report-runs/{id}` returns the run with its results. Subject
+        is the run id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.analytics.report_run_completed.v1}
+      payload: {$ref: '#/components/schemas/ReportRunCompletedV1'}
+      examples:
+        - name: succeeded
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000fb1, source: /erp/eu-1/analytics, type: com.example.erp.analytics.report_run_completed.v1, subject: 0192a000-0000-7000-8000-000000000fb0, time: '2026-11-26T05:00:12Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {report_run_id: 0192a000-0000-7000-8000-000000000fb0, report_id: 0192a000-0000-7000-8000-000000000fa9, report_title: Revenue by company, run_as: 0192a000-0000-7000-8000-000000000101, run_date: '2026-11-26', status: succeeded, failure_code: null, sha256: 3f2a0c1d6e5b4a3928171615141312111009080706050403020100ffeeddccbb}
     RiskChanged:
       name: RiskChanged
       title: Risk changed
@@ -5499,6 +5538,18 @@ components:
                 target: {type: string, description: "What the link names: the permission's code, the segregation-of-duties rule's id or the configuration path."}
             - type: 'null'
         version: {type: integer, description: "The control's version after the change; a test or a link does not move it."}
+    ReportRunCompletedV1:
+      type: object
+      required: [report_run_id, report_id, report_title, run_as, run_date, status, failure_code, sha256]
+      properties:
+        report_run_id: {$ref: '#/components/schemas/Uuid', description: '`analytics.report_run.id`.'}
+        report_id: {$ref: '#/components/schemas/Uuid', description: '`analytics.report.id`.'}
+        report_title: {type: string, description: "The report's title."}
+        run_as: {$ref: '#/components/schemas/Uuid', description: "The report's owner the run acted as: `identity.principal.id`."}
+        run_date: {type: string, format: date, description: "The day the run is for, in the schedule's company's time zone."}
+        status: {type: string, description: 'succeeded or failed. Open enumeration.'}
+        failure_code: {type: [string, 'null'], description: "A failed run's problem code; null for a success."}
+        sha256: {type: [string, 'null'], description: "A succeeded run's SHA-256 of its results, in hexadecimal; null for a failure."}
     RiskChangedV1:
       type: object
       required: [risk_id, title, category, owner_id, likelihood, impact, score, control_ids, status, change, rating, version]

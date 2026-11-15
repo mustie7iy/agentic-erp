@@ -1176,6 +1176,34 @@ func encodeCreateRegressionSuiteRequest(
 	return nil
 }
 
+func encodeCreateReportRequest(
+	req *ReportCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateReportShareRequest(
+	req *ReportShareCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateRequisitionRequest(
 	req *RequisitionCreate,
 	r *http.Request,
@@ -2539,6 +2567,20 @@ func encodeRunAllocationCycleRequest(
 	return nil
 }
 
+func encodeRunAnalyticsForecastRequest(
+	req *AnalyticsForecastRequest,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeRunAnalyticsQueryRequest(
 	req *AnalyticsQuery,
 	r *http.Request,
@@ -2555,6 +2597,20 @@ func encodeRunAnalyticsQueryRequest(
 
 func encodeRunBalanceCarryForwardRequest(
 	req *BalanceCarryForwardRequest,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeScheduleReportRequest(
+	req *ReportScheduleSet,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"

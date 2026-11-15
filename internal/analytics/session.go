@@ -198,7 +198,7 @@ func (s *Session) Rerun(ctx context.Context, rep *Report) (*Report, map[string]*
 		}
 	}
 	if problems := spec.Validate(results); len(problems) > 0 {
-		return nil, nil, fmt.Errorf("saved report no longer valid: %v", problems)
+		return nil, nil, &SpecError{Problems: problems}
 	}
 	out.Spec = spec
 	if out.ID == "" {

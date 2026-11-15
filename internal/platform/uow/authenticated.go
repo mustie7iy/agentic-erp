@@ -33,7 +33,7 @@ func (m *Middleware) authenticate(ctx context.Context, check func(ctx context.Co
 	if !ok {
 		return reqctx.Principal{}, problem.Unauthorized("A bearer token is required.")
 	}
-	if err := m.admit(ctx, claims); err != nil {
+	if err := m.admit(ctx, caller{claims: claims}); err != nil {
 		return reqctx.Principal{}, err
 	}
 	tx, err := m.begin(ctx, database.Scope{Role: m.Role, TenantID: claims.TenantID, ReadOnly: true})
@@ -45,7 +45,7 @@ func (m *Middleware) authenticate(ctx context.Context, check func(ctx context.Co
 	if err != nil {
 		return p, err
 	}
-	if err := m.authorize(ctx, tx, claims, p); err != nil {
+	if err := m.authorize(ctx, tx, caller{claims: claims}, p); err != nil {
 		return p, err
 	}
 	return p, check(reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), p))

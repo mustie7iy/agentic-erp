@@ -8147,6 +8147,143 @@ step_privacy() {
   passed
 }
 
+# step_saved_report is T95a, T95b and T95c (ADR-0076): Carla saves the
+# revenue question of step 14 as a report of her own through the API, runs
+# it again once a sale is posted and sees the new figure; the CLI saves and
+# runs it too; a daily schedule is set, the worker's round runs it once,
+# and the run is listed and read as CSV; she shares her reports with Vera,
+# who may act in Maple alone: Vera's run shows Maple's rows only, and the
+# kept run over every company is refused to her.
+step_saved_report() {
+  heading "Step 92 — A saved report: Carla's revenue by company saved through the API, run again after a sale is posted, showing the new figure, run daily by the worker, and shared with Vera, who sees her own companies alone"
+  local rep tag before after other ran spec query passed_runs vera wide wide_tag share share_tag agent
+  as carla
+  query="{\"revenue\": {\"measures\": [\"revenue\"], \"by\": [\"company\"], \"where\": [{\"dim\": \"company\", \"op\": \"in\", \"values\": [\"$CC\"]}]}}"
+  spec="{\"title\": \"Revenue by company\", \"question\": \"What is our revenue by company?\", \"tiles\": [{\"label\": \"Revenue $CC\", \"query_id\": \"revenue\", \"measure\": \"revenue\", \"where\": {\"company\": \"$CC\"}}], \"tables\": [{\"title\": \"Revenue by company\", \"query_id\": \"revenue\"}]}"
+  say "Carla saves step 14's question as a report of her own: its dashboard, a tile of $CC's revenue and a table by"
+  say "company, and the governed query behind it. Saving runs the query once as her and checks the dashboard against"
+  say "the result, as the analytics agent's dashboard is checked (ADR-0076 §2):"
+  api 201 '"report \(.title), \(.status), owned by \(.owner_name): queries \(.queries | keys | join(", "))"' createReport \
+    -body "{\"spec\": $spec, \"queries\": $query}"
+  rep=$(field .id) tag=$ETAG
+  expect "the report" "$(field '"\(.title) \(.status) \(.version) \(.owner_name) \(.spec.tiles[0].query_id) \(.queries.revenue.measures[0])"')" \
+    "Revenue by company active 1 Carla Controller revenue revenue"
+  say "A dashboard naming a query the report lacks is refused at save, naming the problem:"
+  refused 422 analytics.invalid_report createReport \
+    -body "{\"spec\": {\"title\": \"Revenue\", \"tables\": [{\"title\": \"Revenue\", \"query_id\": \"other\"}]}, \"queries\": $query}"
+  say "So is a query naming a metric the semantic model does not have:"
+  refused 422 analytics.report_metric_removed createReport \
+    -body "{\"spec\": {\"title\": \"Revenue\", \"tables\": [{\"title\": \"Revenue\", \"query_id\": \"q\"}]}, \"queries\": {\"q\": {\"measures\": [\"bookings\"]}}}"
+  say "She runs it: the dashboard comes back with the query's result on current data, read as her:"
+  api 200 '"run of \(.title): data through \(.data_through)", (.results[] | .rows[] | "  \(.[0].value): revenue \(.[1].value) \(.[1].currency)")' \
+    runReport -p "id=$rep" -if-match "$tag"
+  before=$(field '.results[0].rows[0][1].value')
+  expect "the run's dashboard names its result" "$(field '.spec.tables[0].query_id == .results[0].query_id')" true
+  say "The billing system posts a sale of CAD 100.00 with its GST:"
+  accounts
+  as billing
+  api 201 '"journal entry \(.document_number): \([.lines[] | .amount.amount] | join(" / "))"' postJournalEntry -body \
+    "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"Billing: invoice 1101\", \"lines\": [{\"account_id\": \"$(account 100000)\", \"amount\": {\"amount\": \"105.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$(account 4000)\", \"amount\": {\"amount\": \"-100.00\", \"currency\": \"CAD\"}, \"tax_code\": \"GO5\"}, {\"account_id\": \"$(account 2300)\", \"amount\": {\"amount\": \"-5.00\", \"currency\": \"CAD\"}, \"tax_code\": \"GO5\"}]}"
+  as carla
+  say "Run again, the report shows the new figure:"
+  api 200 '(.results[] | .rows[] | "  \(.[0].value): revenue \(.[1].value) \(.[1].currency)")' runReport -p "id=$rep" -if-match "$tag"
+  after=$(field '.results[0].rows[0][1].value')
+  expect "revenue after the sale less before it" "$(amount $(($(cents "$after") - $(cents "$before"))))" 100.00
+  say "A report is its owner's alone: Ben neither lists nor finds it."
+  as ben
+  QUIET=1 api 200 '' listReports
+  expect "Ben's reports" "$(field '[.items[] | select(.id == "'"$rep"'")] | length')" 0
+  refused 404 request.not_found getReport -p "id=$rep"
+  as carla
+  say "The CLI keeps a report the same way: erp report -save saves a report file in erp-server as hers, and -id with"
+  say "erp-server's id runs it there and writes its dashboard:"
+  printf '{"spec": %s, "queries": %s}' "$spec" "$query" >"$WORK/revenue-report.json"
+  show erp report -save -file revenue-report.json
+  "$ERP" report -save -file "$WORK/revenue-report.json" >"$WORK/report.out" 2>&1 || { sed 's/^/     /' "$WORK/report.out"; fail "erp report -save failed"; }
+  sed 's/^/     /' "$WORK/report.out"
+  other=$(sed -n 's/.* as report \([0-9a-f-]*\)$/\1/p' "$WORK/report.out")
+  [ -n "$other" ] || fail "erp report -save named no report"
+  show erp report -id "$other"
+  "$ERP" report -id "$other" -out "$WORK/reports" >"$WORK/report.out" 2>&1 || { sed 's/^/     /' "$WORK/report.out"; fail "erp report -id failed"; }
+  sed 's/^/     /' "$WORK/report.out"
+  ran=$(grep -c "Ran \"Revenue by company\" in erp-server" "$WORK/report.out" || true)
+  expect "the CLI's run" "$ran" 1
+  [ -s "$WORK/reports/$other.html" ] || fail "erp report -id wrote no dashboard"
+  say "Carla gives her report a daily schedule, dated in $CC's time zone: the server's worker runs it each day as her,"
+  say "with her access that day, and keeps the run with its results in object storage (ADR-0076 §4-§5, T95b):"
+  QUIET=1 api 200 '' getReport -p "id=$rep"
+  api 200 '"report \(.title): \(.schedule.frequency), dated in company \(.schedule.company), from \(.schedule.from), version \(.version)"' \
+    scheduleReport -p "id=$rep" -if-match "$ETAG" -body "{\"frequency\": \"daily\", \"company\": \"$CC\"}"
+  expect "the schedule" "$(field '"\(.schedule.frequency) \(.schedule.company) \(.version)"')" "daily $CC 2"
+  say "A weekly schedule names its weekday:"
+  refused 422 request.validation_failed scheduleReport -p "id=$rep" -if-match '"2"' -body "{\"frequency\": \"weekly\", \"company\": \"$CC\"}"
+  say "The worker's round runs it once (it runs every 30 seconds); the run is listed with its outcome:"
+  local i run
+  for i in $(seq 1 120); do
+    QUIET=1 api 200 '' listReportRuns -p "report_id=$rep"
+    [ "$(field '.items | length')" = 0 ] || break
+    sleep 1
+  done
+  api 200 '.items[] | "run of \(.report_title) for \(.run_date): \(.status), as \(.run_as_name), data through \(.data_through), SHA-256 \(.sha256[0:16])…"' \
+    listReportRuns -p "report_id=$rep"
+  expect "the day's run" "$(field '[.items[] | "\(.status) \(.run_as_name)"] | join(", ")')" "succeeded Carla Controller"
+  run=$(field '.items[0].id')
+  say "Read as CSV, it shows the revenue as she saw it after the sale, an amount beside its currency:"
+  api 200 '' getReportRun -p "id=$run" -p format=csv
+  sed 's/^/     /' "$WORK/last.json"
+  expect "the run's CSV" "$(sed -n 2p "$WORK/last.json")" "$CC,$after,CAD"
+  passed_runs=$(grep -c . "$WORK/last.json" || true)
+  expect "the CSV's lines" "$passed_runs" 2
+  say "Carla shares her reports with Vera in reporting, who may act in $CC alone (ADR-0076 §7, T95c): Vera reads and runs"
+  say "them with her own company access and permissions, never Carla's, and neither changes nor shares them."
+  as ada
+  QUIET=1 api 201 '' createPrincipal -body '{"kind": "human", "external_subject": "vera", "display_name": "Vera Viewer", "all_companies": false}'
+  vera=$(field .id)
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$vera\", \"role_id\": \"$(role finance_staff)\"}"
+  QUIET=1 api 201 '' createCompanyAccess -body "{\"principal_id\": \"$vera\", \"legal_entity_id\": \"$LE\"}"
+  token vera "Vera Viewer"
+  printf '%s\tVera Viewer\n' "$vera" >>"$WORK/names"
+  as carla
+  say "Carla saves the revenue of every company she may read as a second report and runs it:"
+  api 201 '"report \(.title): \(.access), \(.status)"' createReport -body \
+    '{"spec": {"title": "Revenue of every company", "tables": [{"title": "Revenue by company", "query_id": "revenue"}]}, "queries": {"revenue": {"measures": ["revenue"], "by": ["company"], "order_by": "company"}}}'
+  wide=$(field .id) wide_tag=$ETAG
+  api 200 '(.results[] | .rows[] | "  Carla sees \(.[0].value): revenue \(.[1].value) \(.[1].currency)")' runReport -p "id=$wide" -if-match "$wide_tag"
+  api 201 '"shared \(.report_title) with \(.principal_name): \(.status)"' createReportShare -p "id=$wide" -body "{\"principal_id\": \"$vera\"}"
+  api 201 '"shared \(.report_title) with \(.principal_name): \(.status)"' createReportShare -p "id=$rep" -body "{\"principal_id\": \"$vera\"}"
+  share=$(field .id) share_tag=$ETAG
+  say "A report is shared with people: a share with an agent is refused."
+  QUIET=1 api 200 '' listPrincipals -p kind=agent
+  agent=$(field '.items[0].id')
+  refused 422 analytics.report_share_not_person createReportShare -p "id=$wide" -body "{\"principal_id\": \"$agent\"}"
+  as vera
+  say "Vera lists the reports shared with her and runs Carla's second one: it shows $CC's revenue alone."
+  api 200 '.items[] | "  \(.title): \(.access), owned by \(.owner_name)"' listReports -p shared=true
+  expect "the reports shared with Vera" "$(field '[.items[] | .access] | join(" ")')" "viewer viewer"
+  api 200 '(.results[] | .rows[] | "  Vera sees \(.[0].value): revenue \(.[1].value) \(.[1].currency)")' runReport -p "id=$wide" -if-match "$wide_tag"
+  expect "the companies of Vera's run" "$(field '[.results[0].rows[][0].value] | unique | join(" ")')" "$CC"
+  say "Carla's kept run covered every company she may read, so it is neither listed to Vera nor read by her:"
+  QUIET=1 api 200 '' listReportRuns -p "report_id=$rep"
+  expect "the runs listed to Vera" "$(field '.items | length')" 0
+  refused 403 analytics.report_run_access getReportRun -p "id=$run"
+  say "She reads and runs Carla's reports, but does not change or share them:"
+  refused 403 analytics.report_not_owner removeReport -p "id=$wide" -if-match "$wide_tag"
+  refused 403 analytics.report_not_owner createReportShare -p "id=$wide" -body "{\"principal_id\": \"$vera\"}"
+  as carla
+  api 200 '.items[] | "  run for \(.run_date): \(.status), covering companies \(.companies | join(", "))"' listReportRuns -p "report_id=$rep"
+  expect "the run's companies include $CC" "$(field "[.items[0].companies[] | select(. == \"$CC\")] | length")" 1
+  say "Carla ends the share of her scheduled report; at once Vera no longer finds it:"
+  api 200 '"share with \(.principal_name): \(.status), version \(.version)"' endReportShare -p "id=$rep" -p "share_id=$share" -if-match "$share_tag"
+  as vera
+  refused 404 request.not_found getReport -p "id=$rep"
+  as carla
+  say "Removed, a report is kept but no longer run:"
+  QUIET=1 api 200 '' getReport -p "id=$other"
+  api 200 '"report \(.title): \(.status), version \(.version)"' removeReport -p "id=$other" -if-match "$ETAG"
+  refused 409 analytics.report_removed runReport -p "id=$other" -if-match "$ETAG"
+  passed
+}
+
 # step_sales_analytics is T91a (ADR-0044 As built T91a): Anna, a sales
 # analyst, asks the semantic layer for the month's order intake and billed
 # value by customer. Order intake is the confirmed sales orders' items by
@@ -9609,6 +9746,46 @@ step_support_agent() {
   as alex
   QUIET=1 api 200 '' listConfigVersions -p is_active=true
   expect "the active version" "$(field '.items[0].id')" "$version"
+  passed
+}
+
+# step_metric_forecast is T97a (ADR-0076 §8): Carla forecasts Maple's
+# revenue for the next three months by the average of its months of
+# history; the forecast equals that average, computed here from the
+# governed query's monthly figures; a ratio and a year before the history
+# are refused.
+step_metric_forecast() {
+  heading "Step 93 — Forecast of a governed metric: Maple's revenue for the next three months, the average of its months of history"
+  local n sum cents_sum avg want got
+  as carla
+  say "Carla asks the semantic layer for Maple's revenue by fiscal month: the history a forecast reads, as her."
+  api 200 '(.rows[] | "  \(.[0].value)-\(.[1].value): revenue \(.[2].value) \(.[2].currency)")' runAnalyticsQuery -body \
+    "{\"measures\": [\"revenue\"], \"by\": [\"fiscal_year\", \"fiscal_month\"], \"companies\": [\"$CC\"], \"order_by\": \"fiscal_year\"}"
+  sum=$(field '[.rows[] | .[2].value | sub("\\."; "") | tonumber] | add')
+  say "She forecasts it for the next three months by the average of every month from the first with data through the"
+  say "last (a month without data counts as zero): first one month, to see how long the history is (ADR-0076 §8, T97a)."
+  QUIET=1 api 200 '' runAnalyticsForecast -body \
+    "{\"metric\": \"revenue\", \"companies\": [\"$CC\"], \"grain\": \"month\", \"periods_ahead\": 3, \"method\": \"moving_average\", \"window\": 1}"
+  n=$(field '.history | length')
+  api 200 '"history \(.history[0].label) to \(.history[-1].label): \(.history_total) \(.currency)", (.forecast[] | "  forecast \(.label): \(.value) \(.currency)"), "  \(.basis)"' \
+    runAnalyticsForecast -body \
+    "{\"metric\": \"revenue\", \"companies\": [\"$CC\"], \"grain\": \"month\", \"periods_ahead\": 3, \"method\": \"moving_average\", \"window\": $n}"
+  cents_sum=$(cents "$(field .history_total)")
+  expect "the history's total, the query's months summed" "$cents_sum" "$sum"
+  # The average in whole cents, rounded half away from zero, in integers.
+  if [ "$sum" -ge 0 ]; then avg=$(((2 * sum + n) / (2 * n))); else avg=$((-((-2 * sum + n) / (2 * n)))); fi
+  want=$(amount "$avg")
+  got=$(field '[.forecast[].value] | unique | join(" ")')
+  expect "each month's forecast, the average of the $n months" "$got" "$want"
+  expect "the months it used" "$(field '.used | length')" "$n"
+  expect "the forecast's total" "$(field .forecast_total)" "$(amount $((3 * avg)))"
+  say "A ratio is not forecast, and the same month a year before is refused while the history is shorter than a year:"
+  refused 422 analytics.forecast_ratio runAnalyticsForecast -body \
+    "{\"metric\": \"operating_margin\", \"companies\": [\"$CC\"], \"grain\": \"month\", \"periods_ahead\": 3, \"method\": \"moving_average\", \"window\": 3}"
+  if [ "$n" -lt 12 ]; then
+    refused 422 analytics.forecast_history_short runAnalyticsForecast -body \
+      "{\"metric\": \"revenue\", \"companies\": [\"$CC\"], \"grain\": \"month\", \"periods_ahead\": 3, \"method\": \"same_period_last_year\"}"
+  fi
   passed
 }
 
@@ -11636,7 +11813,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_close'
 
 main() {
   stop_unseen

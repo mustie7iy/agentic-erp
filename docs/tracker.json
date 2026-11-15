@@ -6653,20 +6653,20 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Scheduled delivery",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An analyst saves a report (its queries and dashboard specification) under a name through the API and runs it again on current data (POST /v1/reports, POST /v1/reports/{id}:run)",
-        "r": "T95a · docs/design/plan-breadth-week3.md §T95a",
+        "r": "T95a · docs/design/plan-breadth-week3.md §T95a · db/migrations/000319 · analytics.report · POST /v1/reports · GET /v1/reports · GET /v1/reports/{id} · POST /v1/reports/{id}:remove (no DELETE, 04 §4.3) · POST /v1/reports/{id}:run · analytics.report.read, .write · erp report -save, -id · walkthrough step_saved_report · ADR-0076 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The analyst gives a saved report a schedule (daily, weekly or monthly); each due run is kept with its results and its recipients read it (PUT /v1/reports/{id}/schedule, GET /v1/report-runs)",
-        "r": "T95b · docs/design/plan-breadth-week3.md §T95b",
+        "r": "T95b · docs/design/plan-breadth-week3.md §T95b · db/migrations/000320 · analytics.report (schedule), analytics.report_run, analytics.outbox · POST /v1/reports/{id}:schedule, :unschedule (no PUT or DELETE, 04 §4.3) · GET /v1/report-runs · GET /v1/report-runs/{id} (JSON or CSV) · ReportRunCompleted · the worker's round (reports.Scheduler) · reqctx.WithActing · walkthrough step_saved_report · ADR-0076 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -6681,13 +6681,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T63"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Sharing with per-viewer access",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The owner shares a saved report with people or roles; each viewer runs it with their own company access, and a kept run is read only by a viewer whose access covers its companies (POST /v1/reports/{id}/shares)",
-        "r": "T95c · docs/design/plan-breadth-week3.md §T95c",
+        "r": "T95c · docs/design/plan-breadth-week3.md §T95c · db/migrations/000321 · analytics.report_share, analytics.report_run.companies · POST /v1/reports/{id}/shares · GET /v1/reports/{id}/shares · POST /v1/reports/{id}/shares/{share_id}:end (no DELETE, 04 §4.3) · listReports shared · walkthrough step_saved_report · ADR-0076 §7 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -6800,13 +6800,13 @@
     "ph": 9,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Forecasts on governed metrics",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An analyst forecasts a governed metric for the coming periods from its history by a named method (the average of the last periods, or the same period a year before) and reads history and forecast together (POST /v1/analytics-forecasts)",
-        "r": "T97a · docs/design/plan-breadth-week3.md §T97a",
+        "r": "T97a · docs/design/plan-breadth-week3.md §T97a · POST /v1/analytics-forecasts (runAnalyticsForecast, x-autonomy: read; nothing stored) · internal/analytics forecast.go · walkthrough step_metric_forecast · ADR-0076 §8 and As built (ADR-0077 not on the lane's base)",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

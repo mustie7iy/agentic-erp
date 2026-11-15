@@ -105,6 +105,9 @@ const (
 	// manifests, named by archiving run id (ADR-0079 §7): written once,
 	// never changed.
 	KindArchives = "archives"
+	// KindReportRuns are saved reports' scheduled runs' results, named by
+	// run id (ADR-0076 §5).
+	KindReportRuns = "report-runs"
 )
 
 // Prefix is the first segment of every key.

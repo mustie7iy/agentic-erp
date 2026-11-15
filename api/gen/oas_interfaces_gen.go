@@ -385,6 +385,14 @@ type CreateRegressionSuiteRes interface {
 	createRegressionSuiteRes()
 }
 
+type CreateReportRes interface {
+	createReportRes()
+}
+
+type CreateReportShareRes interface {
+	createReportShareRes()
+}
+
 type CreateRequisitionRes interface {
 	createRequisitionRes()
 }
@@ -507,6 +515,10 @@ type EndCompanyAccessRes interface {
 
 type EndCurrentSessionRes interface {
 	endCurrentSessionRes()
+}
+
+type EndReportShareRes interface {
+	endReportShareRes()
 }
 
 type EndRoleAssignmentRes interface {
@@ -931,6 +943,14 @@ type GetRecommendationRes interface {
 
 type GetRegressionSuiteRes interface {
 	getRegressionSuiteRes()
+}
+
+type GetReportRes interface {
+	getReportRes()
+}
+
+type GetReportRunRes interface {
+	getReportRunRes()
 }
 
 type GetRequisitionRes interface {
@@ -1485,6 +1505,18 @@ type ListRegressionSuitesRes interface {
 	listRegressionSuitesRes()
 }
 
+type ListReportRunsRes interface {
+	listReportRunsRes()
+}
+
+type ListReportSharesRes interface {
+	listReportSharesRes()
+}
+
+type ListReportsRes interface {
+	listReportsRes()
+}
+
 type ListRequisitionsRes interface {
 	listRequisitionsRes()
 }
@@ -1829,6 +1861,10 @@ type RemoveHierarchyNodeRes interface {
 	removeHierarchyNodeRes()
 }
 
+type RemoveReportRes interface {
+	removeReportRes()
+}
+
 type RenameHierarchyNodeRes interface {
 	renameHierarchyNodeRes()
 }
@@ -1909,12 +1945,24 @@ type RunAllocationCycleRes interface {
 	runAllocationCycleRes()
 }
 
+type RunAnalyticsForecastRes interface {
+	runAnalyticsForecastRes()
+}
+
 type RunAnalyticsQueryRes interface {
 	runAnalyticsQueryRes()
 }
 
 type RunBalanceCarryForwardRes interface {
 	runBalanceCarryForwardRes()
+}
+
+type RunReportRes interface {
+	runReportRes()
+}
+
+type ScheduleReportRes interface {
+	scheduleReportRes()
 }
 
 type SettleInternalOrderRes interface {
@@ -1991,6 +2039,10 @@ type UnlockFiscalPeriodRes interface {
 
 type UnlockPlanCategoryRes interface {
 	unlockPlanCategoryRes()
+}
+
+type UnscheduleReportRes interface {
+	unscheduleReportRes()
 }
 
 type UpdateAiPolicyRes interface {
