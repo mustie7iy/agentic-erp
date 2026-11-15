@@ -95,7 +95,10 @@ the suites set.
   marked so) and support (T108a: an invoice above the tolerance released
   by its operation, the tenant's tolerance cited; a question no operation
   answers replied to as unanswered; an instruction in the question not
-  followed, nothing changed) and collections (T105b: a customer with an
+  followed, nothing changed; T108b, version 2: an invoice whose posting a
+  closed period refused diagnosed closed_period citing the refusal's
+  audit event; one whose trail shows no cause diagnosed unknown; an
+  instruction in an item's text not followed) and collections (T105b: a customer with an
   overdue invoice and no dispute recommended a reminder with a draft
   message of the API's figures; a customer whose only overdue invoice is
   disputed in an open case not reminded, the reminder refused and

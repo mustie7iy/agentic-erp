@@ -384,3 +384,31 @@ func TestNumbers(t *testing.T) {
 		})
 	}
 }
+
+// TestRunWithTheContract: an agent that asks for the contract's search is
+// offered it beside its reads, answered by its own code, and the numbers
+// it answers are read as the run's (T108b).
+func TestRunWithTheContract(t *testing.T) {
+	a := &fakeAPI{}
+	model := llmtest.New(t, llmtest.Tool(apitools.FindOperations, map[string]any{"operation_ids": []any{"getCreditExposure"}}),
+		llmtest.ToolFn("createRecommendation", rec(map[string]any{"content": "Limit kept: getCreditExposure is GET /v1/credit-exposure, 9876 at worst."})),
+		llmtest.Final("Done."))
+	contractual := agent
+	contractual.Contract = true
+	var read []string
+	task := recommend.Task{Purpose: "Review a limit", Prompt: "The credit limit.", Objects: map[string]string{limit: "credit_limit"},
+		Check: func(p recommend.Proposed, f *recommend.Figures) error { read = f.Unread(p.Content); return nil }}
+	res, err := contractual.Run(context.Background(), model.Runner(), client(t, a), task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Recommendations) != 1 {
+		t.Errorf("recommendations: got %v, want one", res.Recommendations)
+	}
+	if !slices.Equal(read, []string{"9876"}) {
+		t.Errorf("unread: got %v, want only 9876, which the contract's answer does not write", read)
+	}
+	if !slices.Contains(model.ToolNames(), apitools.FindOperations) {
+		t.Errorf("tools offered: got %v, want %s among them", model.ToolNames(), apitools.FindOperations)
+	}
+}

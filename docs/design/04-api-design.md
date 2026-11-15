@@ -1023,7 +1023,14 @@ only: it reads the contract through a local search of its operations
 (`findOperations`: method, path, summary, description, permission,
 problem codes) and the active configuration, and its reply names only
 operations of the contract and cites settings as the active version
-holds them; it has no tool that writes. The collections agent
+holds them; it has no tool that writes. Asked about a stuck document
+(`erp agent support-diagnose -type KIND -id ID`, T108b) it recommends
+on the document its `root_cause`, the class on the first line
+(`configuration`, `master_data`, `missing_approval`, `closed_period`,
+`permission`, `unknown`), citing the document's audit events by seq as
+the API returned them; a refused posting of a supplier invoice is
+audited on the invoice (outcome `refused`, the problem's code and
+detail). The collections agent
 (`erp agent collections -company CODE [-key-date D]`, agent type
 `collections`, T105b) recommends on each `business_partner` of a
 company's collection worklist (the first 20, the largest overdue amount

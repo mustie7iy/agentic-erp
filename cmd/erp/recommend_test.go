@@ -305,6 +305,32 @@ func TestAgentSupportAsk(t *testing.T) {
 	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "support-ask", "how?")
 }
 
+// TestAgentSupportDiagnose: erp agent support-diagnose needs -type and
+// -id, reads the document and the active configuration version, runs the
+// support agent's diagnosis and prints what it recommended on the
+// document and the model's reply (ADR-0072 As built, T108b).
+func TestAgentSupportDiagnose(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	const invoice = "01a1aa00-0000-7000-8000-000000000c01"
+	fails(t, "flag provided", "agent", "support-diagnose", "-x")
+	fails(t, "want -type KIND -id ID", "agent", "support-diagnose", "-type", "supplier_invoice")
+	fails(t, "404", "agent", "support-diagnose", "-type", "supplier_invoice", "-id", invoice)
+	fakeAPI(t, sessionRoutes(routes{"GET /v1/supplier-invoices/" + invoice: {ok(`{"id": "` + invoice + `", "status": "parked"}`)},
+		"GET /v1/config-versions":  {ok(`{"items": [{"id": "v1", "number": 3, "document": {"companies": []}}]}`)},
+		"POST /v1/recommendations": {reply{201, `{"id": "r1", "object_type": "supplier_invoice", "object_id": "` + invoice + `", "kind": "root_cause"}`}}}))
+	model(t, llmtest.Tool("createRecommendation", map[string]any{"body": map[string]any{"session_id": agentSession, "object_type": "supplier_invoice",
+		"object_id": invoice, "kind": "root_cause", "content": "Root cause: unknown\nNothing in its audit trail shows one."}}),
+		llmtest.Final("Unknown."))
+	got := must(t, "agent", "support-diagnose", "-type", "supplier_invoice", "-id", invoice, "posting", "it", "was", "refused")
+	if want := "Session " + agentSession + ": recommendations made 1, refused 0.\n  recommendation r1: root_cause on supplier_invoice " + invoice + "\nUnknown.\n"; got != want {
+		t.Errorf("agent support-diagnose: got %q, want %q", got, want)
+	}
+	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
+	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "support-diagnose", "-type", "supplier_invoice", "-id", invoice)
+}
+
 // TestAgentCollections: erp agent collections needs -company, reads the
 // worklist on the key date, runs the collections agent's session and
 // prints what it recommended, each customer named with the first line of
@@ -359,12 +385,15 @@ func TestRecommendingAdapterFailures(t *testing.T) {
 			Task: map[string]any{"run": "sod", "role": "clerk", "add": "payables.invoice.post"}}),
 		"access without its API": accessEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{},
 			Task: map[string]any{"role": "clerk", "from": "2026-04-01", "to": "2026-06-30"}}),
-		"bid_comparison without an RFQ":  bidComparisonEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
-		"bid_comparison without its API": bidComparisonEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"rfq": "q1"}}),
-		"regulatory without a notice":    regulatoryEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
-		"regulatory without its API":     regulatoryEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"notice": "A notice."}}),
-		"support without a question":     supportEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
-		"support without its API":        supportEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"question": "How?"}}),
+		"bid_comparison without an RFQ":   bidComparisonEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
+		"bid_comparison without its API":  bidComparisonEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"rfq": "q1"}}),
+		"regulatory without a notice":     regulatoryEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
+		"regulatory without its API":      regulatoryEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"notice": "A notice."}}),
+		"support without a question":      supportEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
+		"support without its API":         supportEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"question": "How?"}}),
+		"support diagnosis without an id": supportEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{"run": "diagnose", "type": "supplier_invoice"}}),
+		"support diagnosis without its API": supportEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{},
+			Task: map[string]any{"run": "diagnose", "type": "supplier_invoice", "id": "01a1aa00-0000-7000-8000-000000000c01"}}),
 		"collections without a key date": collectionsEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{"company": "3000"}}),
 		"collections without its API": collectionsEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{},
 			Task: map[string]any{"company": "3000", "key_date": "2026-11-15"}}),

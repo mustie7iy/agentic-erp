@@ -10549,13 +10549,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Root cause from audit trail and logs",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A user gives the support agent a refused request or a stuck document; it reads the document, its audit events, its operation and the configuration and recommends the root cause with the events that show it (erp agent support-diagnose)",
-        "r": "T108b · docs/design/plan-breadth-week3.md §T108b",
+        "r": "T108b · docs/design/plan-breadth-week3.md §T108b · internal/supportagent Diagnose · recommend.Agent.Contract · payables refused posting audited · erp agent support-diagnose -type KIND -id ID · evals/support v2 · walkthrough step_support_agent · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

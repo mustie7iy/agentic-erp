@@ -9743,9 +9743,16 @@ regulatory_draft() {
 # not have is refused by the run first; it then replies naming
 # releaseSupplierInvoice and citing the tolerance of the walkthrough's
 # company as the active version holds it. Its role changes nothing, and
-# the configuration is as it was.
+# the configuration is as it was. T108b: Alex's invoice dated today and
+# posted on a day of last year, whose period is closed, is refused and
+# stays parked; the refusal is audited on the invoice. Ada grants the
+# agent's role the audit trail and supplier invoices, which nothing grants
+# by default; erp agent support-diagnose reads the invoice and its audit
+# events and recommends its root cause: a cause citing an event that is
+# not the invoice's is refused first, then closed_period, citing the
+# refusal's event and quoting it. Alex posts the invoice on today's date.
 step_support_agent() {
-  heading "Step 88 — The support agent: asked how an invoice above the tolerance is released, it names the operation from the contract and the tenant's tolerance from the active configuration; an operation it made up refused; nothing changed"
+  heading "Step 88 — The support agent: asked how an invoice above the tolerance is released, it names the operation from the contract and the tenant's tolerance from the active configuration; an operation it made up refused; nothing changed; an invoice whose posting a closed period refused diagnosed closed_period from its audit events"
   local role version pct abs question got session
   as ada
   say "Ada sets up the support agent (ADR-0072): an agent principal of type support at autonomy level 1 on erp-default."
@@ -9791,7 +9798,62 @@ step_support_agent() {
   as alex
   QUIET=1 api 200 '' listConfigVersions -p is_active=true
   expect "the active version" "$(field '.items[0].id')" "$version"
+  support_diagnosis "$role"
   passed
+}
+
+# support_diagnosis ROLE is step 88's T108b: Alex's invoice whose posting
+# a closed period refused, diagnosed by the support agent of ROLE.
+support_diagnosis() {
+  local role=$1 invoice tag day="$PREV-06-15" seq detail other got session rec
+  as alex
+  say "Alex enters a supplier invoice from Tyrell Office Products, dated today, and posts it on $day, a day of last year. Its"
+  say "period is closed, so the posting is refused and the invoice stays parked. The refusal is audited on the invoice:"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' \
+    createSupplierInvoice -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"LATE-${TODAY}\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"315.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"15.00\", \"currency\": \"CAD\"}, \"items\": [{\"account_id\": \"$(account 6000)\", \"description\": \"Courier deliveries\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\"}]}"
+  invoice=$(field .id) tag=$ETAG
+  refused 409 ledger.period_not_open postSupplierInvoice -p "id=$invoice" -if-match "$tag" -body "{\"posting_date\": \"$day\"}"
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$invoice"
+  expect "the invoice stays parked" "$(field .status) $ETAG" "parked $tag"
+  as ada
+  say "Ada lets the support agent read the audit trail and supplier invoices, which nothing grants by default (ADR-0072):"
+  grant "$role" audit.event.read payables.invoice.read platform.operation.read workflow.request.read
+  api 200 '(.items[] | "  event \(.seq): \(.action) \(.outcome)\(if .detail.code then ", \(.detail.code): \(.detail.detail)" else "" end)")' \
+    listAuditEvents -p "object_id=$invoice"
+  seq=$(field '[.items[] | select(.outcome == "refused")][0].seq')
+  detail=$(field '[.items[] | select(.outcome == "refused")][0].detail.detail')
+  expect "the refusal audited" "$(field "[.items[] | select(.outcome == \"refused\") | \"\\(.action) \\(.detail.code) \\(.detail.posting_date)\"] | join(\", \")")" \
+    "payables.supplier_invoice.post ledger.period_not_open $day"
+  QUIET=1 api 200 '' listAuditEvents -p page_size=1
+  other=$(field '.items[0].seq')
+  jq -n --arg inv "$invoice" --arg seq "$seq" --arg other "$other" --arg detail "$detail" '
+    {session_id: "{{session}}", object_type: "supplier_invoice", object_id: $inv, kind: "root_cause"} as $on |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "getSupplierInvoice", input: {id: $inv}},
+      {tool: "listAuditEvents", input: {object_id: $inv}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Root cause: closed_period\nEvent \($other) closed the period."})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Root cause: closed_period\nIts posting was refused, event \($seq): \"\($detail)\" Post it on a date of an open period, or have the period opened."})}},
+      {final: "The invoice'"'"'s period is closed: event \($seq)."}]}' >"$WORK/model-script.json"
+  as alex
+  say "Alex asks the support agent why the invoice does not post. erp agent support-diagnose reads it, its audit events and"
+  say "the configuration through the stand-in's script (evals/support); a cause citing an event that is not the invoice's"
+  say "is refused by the run first (every event cited is one the API returned for the invoice), then it recommends:"
+  show ERP_AGENT_TOKEN=… erp agent support-diagnose -type supplier_invoice -id "$invoice" "\"Posting it on $day was refused.\""
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/support-agent") "$ERP" agent support-diagnose -type supplier_invoice -id "$invoice" "Posting it on $day was refused." 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent support-diagnose failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): root_cause on supplier_invoice $invoice\$/\1/p")
+  [ -n "$rec" ] || fail "erp agent support-diagnose printed no root cause on the invoice"
+  api 200 '"  \(.kind) on the \(.object_type), \(.outcome // "open"): \(.content | split("\n") | join(" / "))"' getRecommendation -p "id=$rec"
+  expect "the closed period, with the refusal's event" "$(jq -r --arg s "event $seq" --arg d "$detail" '.content | startswith("Root cause: closed_period") and contains($s) and contains($d)' "$WORK/last.json")" true
+  say "Alex accepts it, which changes nothing, and posts the invoice on today's date, in an open period:"
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" -body '{"outcome": "accepted"}'
+  api 200 '"\(.kind) \(.document_number): \(.status) on \(.posting_date)"' postSupplierInvoice -p "id=$invoice" -if-match "$tag" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "posted" "$(field .status)" posted
 }
 
 # step_metric_forecast is T97a (ADR-0077 §7): Carla forecasts Maple's

@@ -10,7 +10,8 @@
 // holds a recommendation to the run (its session, an object of the run
 // with that object's type, a kind of the agent's, one per object), the
 // numbers the run read, which a check may hold the content to, and the
-// result. An agent of this pattern is given no tool but reads,
+// result. An agent of this pattern is given no tool but reads (the
+// contract's search among them, where it asks for it),
 // createRecommendation and the writes it declares, each held by its run's
 // own guard (T107b: a change request drafted): Run refuses a declaration
 // whose reads are not reads, or a write the run does not guard, so it
@@ -74,6 +75,9 @@ type Agent struct {
 	System string
 	// MaxIterations bounds the model's requests in one run; default 30.
 	MaxIterations int
+	// Contract offers the agent the contract's search too
+	// (apitools.Contract, a read the agent's own code answers; T108b).
+	Contract bool
 }
 
 // Tools are the operations the agent may call: its reads, its writes and
@@ -172,6 +176,9 @@ func (a Agent) Run(ctx context.Context, model *llm.Runner, client *apitools.Clie
 	if err != nil {
 		// The session is ended rather than left running: nothing was asked.
 		return res, errors.Join(err, s.End(ctx, "failed", anthropic.BetaUsage{}))
+	}
+	if a.Contract {
+		tools = append(tools, apitools.Contract(s))
 	}
 	prompt := fmt.Sprintf("%s\n%sYour session id is %s.", t.Prompt, a.objects(t.Objects), s.ID)
 	r := &run{res: &res, session: s.ID, kinds: a.Kinds, task: t, figures: newFigures(prompt), recommended: map[string]bool{}}
