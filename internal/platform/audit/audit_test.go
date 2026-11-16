@@ -481,7 +481,7 @@ func TestRefuseProblem(t *testing.T) {
 		"a request refused": problem.BadRequest("request.invalid_body", "Bad."),
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := audit.RefuseProblem(ctx, entry(), err); got != err {
+			if got := audit.RefuseProblem(ctx, entry(), err); !errors.Is(got, err) {
 				t.Errorf("answer: got %v, want %v", got, err)
 			}
 			if buf.Len() != 0 {
@@ -490,10 +490,10 @@ func TestRefuseProblem(t *testing.T) {
 		})
 	}
 	refused := problem.Conflict("test.thing_closed", "The thing is closed.")
-	if got := audit.RefuseProblem(ctx, entry(), refused); got != refused {
+	if got := audit.RefuseProblem(ctx, entry(), refused); !errors.Is(got, refused) {
 		t.Errorf("answer: got %v, want %v", got, refused)
 	}
-	if got := audit.RefuseProblem(ctx, entry(), refused); got != refused || buf.Len() != 1 {
+	if got := audit.RefuseProblem(ctx, entry(), refused); !errors.Is(got, refused) || buf.Len() != 1 {
 		t.Errorf("refused again: got %v and %d entries, want the error and one entry", got, buf.Len())
 	}
 	if err := audit.RefuseProblem(context.Background(), entry(), refused); !errors.Is(err, audit.ErrNoBuffer) {
