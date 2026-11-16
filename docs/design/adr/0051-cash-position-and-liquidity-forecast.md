@@ -2861,7 +2861,20 @@ As built (business dates swept; hdates, review:batch75):
   and its cutover on each company's (batch 74). The other remaining UTC
   days are read windows, not dates of a company: the metric watchers' and
   the model simulation's lowest fiscal year (`clock.Now(...).Year()` less
-  two or fourteen years).
+  two or fourteen years). `ledger.tax_code`'s end trigger keeps
+  `current_date`: nothing ends a tax code yet.
+- **The end of an address or a bank account (000344).** The database's
+  end trigger, `platform.end_validity`, refused a `valid_to` before
+  `current_date`, UTC's day, while partner ends addresses and bank
+  accounts on partner's day: from 19:00 in Toronto, ending one "today"
+  (replacing an order desk address, an approved bank account change) was
+  refused as in the past. The trigger now takes an argument,
+  `company_day`, on `partner.address` and `partner.bank_account`, which
+  allows the day before `current_date`: no zone is more than a day behind
+  UTC, as 000198's `current_date + 1` reasons the other way, and
+  partner's own check on partner's day stays the exact rule. Identity's
+  tables keep `current_date`. Evidence: `db.TestPartnerValidityCompanyDay`
+  (found in round 1 of hdates' review).
 
 ## Alternatives
 - **Cash position and forecast inside payments.** Fewer packages, but

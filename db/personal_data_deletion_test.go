@@ -73,7 +73,7 @@ func TestPersonalDataDeleted(t *testing.T) {
 			return []stmt{step(address, s.tenant, s.row, s.partner), step(block, s.partner), step(deleted, s.partner), step(`UPDATE partner.address SET line1 = '[deleted]', city = '[deleted]', line2 = '[deleted]', valid_to = current_date, ended_by = $2 WHERE id = $1`, s.row, s.tenant)}
 		}, "address_personal_fixed"},
 		{"an address blanked and moved", func(s scene) []stmt {
-			return []stmt{step(address, s.tenant, s.row, s.partner), step(`UPDATE partner.address SET line1 = '[deleted]', city = '[deleted]', valid_to = current_date - 1,
+			return []stmt{step(address, s.tenant, s.row, s.partner), step(`UPDATE partner.address SET line1 = '[deleted]', city = '[deleted]', valid_to = current_date - 2,
 				ended_by = $2 WHERE id = $1`, s.row, s.tenant)}
 		}, "validity cannot be ended in the past"},
 		{"a bank account blanked", func(s scene) []stmt {
