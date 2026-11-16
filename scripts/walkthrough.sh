@@ -9754,7 +9754,7 @@ regulatory_draft() {
 # T108c (support_fix): an invoice held by the price tolerance diagnosed
 # configuration; once Alex accepts it, erp agent support-fix drafts the
 # change request raising the tolerance and has it simulated; nobody
-# submits it and Ada withdraws it.
+# submits it, and the step withdraws it as its author, the agent.
 step_support_agent() {
   heading "Step 88 — The support agent: asked how an invoice above the tolerance is released, it names the operation from the contract and the tenant's tolerance from the active configuration; an operation it made up refused; nothing changed; an invoice whose posting a closed period refused diagnosed closed_period from its audit events; an invoice held by the price tolerance diagnosed configuration, and the fix drafted as a change request of one setting and simulated, for a person to submit"
   local role version pct abs question got session
@@ -9868,8 +9868,9 @@ support_diagnosis() {
 # agent support-fix drafts the change request raising the percentage
 # tolerance, one setting (a draft that also changes the absolute one is
 # refused by the run), has it simulated as a preview and recommends
-# ready_to_submit on it. Nobody submits it: Ada withdraws it, the active
-# version is as it was; Alex cancels the invoice and Ben reverses the
+# ready_to_submit on it. Nobody submits it: only its author withdraws it,
+# so the step withdraws it with the agent's own token, outside its session
+# (no tool of the agent's withdraws); the active version is as it was; Alex cancels the invoice and Ben reverses the
 # receipt and closes the order, so nothing of it is left open for the
 # steps after.
 support_fix() {
@@ -9978,8 +9979,13 @@ support_fix() {
   QUIET=1 api 200 '' listRecommendations -p "object_id=$cr"
   expect "the agent's recommendation on the draft" "$(field '[.items[] | "\(.kind) \(.outcome // "open")"] | join(", ")')" "ready_to_submit open"
   expect "its first line, the draft's one change" "$(field '.items[0].content | split("\n")[0]')" "Change: \`$path\` from \`$pct\` to \`10\`"
+  say "Nobody submits it: Alex keeps the tolerance. Only a change request's author withdraws it (config.not_author),"
+  say "so the step withdraws the agent's draft with the agent's own token, outside its session: no tool of the agent's"
+  say "withdraws. The active version is as it was."
   as ada
-  say "Nobody submits it: Ada keeps the tolerance and withdraws the draft. The active version is as it was."
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  refused 403 config.not_author withdrawChangeRequest -p "id=$cr" -if-match "$ETAG" -body '{"reason": "The tolerance stays"}'
+  as support-agent
   QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
   api 200 '"  change request \(.number): \(.status)"' withdrawChangeRequest -p "id=$cr" -if-match "$ETAG" -body '{"reason": "The tolerance stays; the lamp invoice is handled on its own"}'
   expect "the draft withdrawn" "$(field .status)" withdrawn

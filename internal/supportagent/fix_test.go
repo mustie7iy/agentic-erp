@@ -209,8 +209,11 @@ func TestFixRefusals(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			res, err := (&supportagent.Agent{LLM: llmtest.New(t, llmtest.Final("Nothing drafted.")).Runner(), API: fixClient(t, c.api)}).Fix(context.Background(), diagnosisID)
 			if c.want == "" {
-				if err != nil || res.Session == "" {
-					t.Errorf("a class ending in a full stop: got %v, session %q; want a session", err, res.Session)
+				if err != nil {
+					t.Fatalf("a class ending in a full stop: got %v, want no error", err)
+				}
+				if res.Session == "" {
+					t.Error("a class ending in a full stop: got no session, want one")
 				}
 				return
 			}

@@ -1,6 +1,7 @@
 package savingsagent
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math/big"
@@ -20,6 +21,7 @@ type opportunity struct {
 	form                  string   // the first line's form, as the prompt gives it
 	first                 string   // the first line itself
 	amounts               []string // the amounts of the first line, each a tool returns as money
+	currency              string   // an order's, which orders are ranked by first
 }
 
 // scan is what the run reads before its session to find the
@@ -31,8 +33,12 @@ type scan struct {
 
 // opportunities are the company's in the period: suppliers with spend off
 // contract, accounts with spend from several suppliers in one currency,
-// and orders priced above an active contract of their supplier, each kind
-// the largest spend first.
+// and orders priced above an active contract of their supplier; each kind
+// by the currency of its first amount, in code order, and the largest
+// spend first within a currency: amounts of two currencies are never
+// ranked against each other. A spend query answers at most 500 rows (a
+// known limit of the first version: a supplier or an account beyond them
+// is not found).
 func (s *scan) opportunities(ctx context.Context) ([]opportunity, error) {
 	suppliers, err := s.offContract(ctx)
 	if err != nil {
@@ -64,10 +70,11 @@ func (c cell) text() string {
 }
 
 // query runs the spend metrics of the company in the period by the
-// dimensions, the largest first, and returns its rows by column name.
+// dimensions and returns its rows by column name, by currency and the
+// largest first within one.
 func (s *scan) query(ctx context.Context, measure string, by ...string) ([]map[string]cell, error) {
 	body := map[string]any{"measures": []string{measure}, "by": slices.Concat(by, []string{"currency"}), "companies": []string{s.company},
-		"where": []any{map[string]any{"dim": "posting_date", "op": "between", "values": []string{s.from, s.to}}}, "order_by": measure, "desc": true, "limit": 500}
+		"where": []any{map[string]any{"dim": "posting_date", "op": "between", "values": []string{s.from, s.to}}}, "limit": 500}
 	resp, err := s.api.Do(ctx, http.MethodPost, "/v1/analytics-queries", nil, body, "")
 	var answer struct {
 		Columns []struct {
@@ -90,6 +97,11 @@ func (s *scan) query(ctx context.Context, measure string, by ...string) ([]map[s
 			}
 		}
 	}
+	// Amounts of different currencies are never ranked against each
+	// other: by currency, then the largest first within it.
+	slices.SortStableFunc(rows, func(a, b map[string]cell) int {
+		return cmp.Or(strings.Compare(a["currency"].text(), b["currency"].text()), compare(b[measure].text(), a[measure].text()))
+	})
 	return rows, nil
 }
 
@@ -275,11 +287,13 @@ func (s *scan) aboveContract(ctx context.Context) ([]opportunity, error) {
 		}
 		if c, item, ok := cheaper(o, contracts); ok {
 			out = append(out, opportunity{id: o.ID, object: OrderObject, name: o.Number, form: "Ordered <amount> " + o.Total.Currency,
-				first: "Ordered " + o.Total.Amount + " " + o.Total.Currency, amounts: []string{o.Total.Amount},
+				first: "Ordered " + o.Total.Amount + " " + o.Total.Currency, amounts: []string{o.Total.Amount}, currency: o.Total.Currency,
 				why: fmt.Sprintf("order %s (purchase order %s) has item %d above item %d of contract %s: %s", o.Number, o.ID, item, c.itemNo, c.number, UseContractPrice)})
 		}
 	}
-	slices.SortStableFunc(out, func(a, b opportunity) int { return compare(b.amounts[0], a.amounts[0]) })
+	slices.SortStableFunc(out, func(a, b opportunity) int {
+		return cmp.Or(strings.Compare(a.currency, b.currency), compare(b.amounts[0], a.amounts[0]))
+	})
 	return out, nil
 }
 

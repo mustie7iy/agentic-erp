@@ -901,8 +901,12 @@ A later slice adds its row here and its section under "As built".
   `config.change.propose`; the agent's first draft, changing both the
   percentage and the absolute tolerance, is refused by the run; it drafts
   the percentage alone (2 to 10), has the draft simulated and recommends
-  `ready_to_submit` with the change on its first line; nobody submits it
-  and Ada withdraws it; the active version is as it was. Alex cancels the
+  `ready_to_submit` with the change on its first line; nobody submits it.
+  Only a change request's author withdraws it (`config.not_author`: Ada's
+  withdrawal is refused, 403), so the step withdraws the draft with the
+  agent's own token, outside its session (decided by default: no tool of
+  the agent's withdraws, and a draft is left to its author); the active
+  version is as it was. Alex cancels the
   invoice and Ben reverses the receipt and closes the order, so nothing
   of the lamp is left open for the steps after.
 - No migration, no new operation, permission, event or problem code.
@@ -1099,7 +1103,9 @@ A later slice adds its row here and its section under "As built".
     material priced above the item of an active contract of the same
     supplier valid on the order's date, in the same currency per the same
     quantity. At most ten a run by default (`-max`), suppliers first, then
-    accounts, then orders, each the largest spend first. The period
+    accounts, then orders, each by currency (in code order) and the largest
+    spend first within a currency, never ranked across currencies; a spend
+    query answers at most 500 rows, a known limit. The period
     defaults to the year to today (UTC). The first line is the spend the
     opportunity covers as a tool returned it (the spend off contract, the
     account's spend, the order's total), per currency, never summed

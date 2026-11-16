@@ -13,14 +13,14 @@ import (
 // text are amounts: every number a content writes must be one the run
 // read. A number with a decimal fraction must be an amount: a Money's
 // amount (the text under the key amount), a money measure's cell of
-// runAnalyticsQuery (the text under the key value beside a currency) or
-// a JSON number with a
-// fraction under any key of an answer (a rate, a percentage). A whole number
-// must be written somewhere in an answer or in the run's prompt (a count,
-// a day of a date, a document number). No number the read's own input
-// wrote is read from that read's answer, though the answer gives it
-// back: the model could otherwise have any number it made up returned to
-// it. Numbers are kept as written, without their sign.
+// runAnalyticsQuery (the text under the key value beside a currency) or a
+// JSON number with a fraction under any key of an answer (a rate, a
+// percentage). A whole number must be written somewhere in an answer or
+// in the run's prompt (a count, a day of a date, a document number). No
+// number the read's own input wrote is read from that read's answer,
+// though the answer gives it back: the model could otherwise have any
+// number it made up returned to it. Numbers are kept as written, without
+// their sign.
 type Figures struct {
 	money   map[string]bool // Money amounts
 	amounts map[string]bool // Money amounts and the answers' numbers with a fraction

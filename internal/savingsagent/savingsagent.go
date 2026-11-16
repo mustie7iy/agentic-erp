@@ -48,8 +48,8 @@ const (
 
 // MaxOpportunities is the default of the most recommendations a run
 // makes (Agent.Max): its opportunities, bring_under_contract first, then
-// consolidate_suppliers, then use_contract_price, each the largest spend
-// first.
+// consolidate_suppliers, then use_contract_price, each by currency and
+// the largest spend first within a currency.
 const MaxOpportunities = 10
 
 // Reads are the operations the agent reads with (ADR-0072 As built,
@@ -191,7 +191,7 @@ func Tools() []string { return agent(0).Tools() }
 // tools' to return.
 func prompt(company, le, from, to string, found []opportunity, limit int) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Company %s (legal entity %s); the period is %s to %s. The run found %s; you recommend on the first %s, at most %s a run.\n",
+	fmt.Fprintf(&b, "Company %s (legal entity %s); the period is %s to %s. The run found %s; you recommend on %s of them, at most %s a run.\n",
 		company, le, from, to, count(len(found)), count(min(limit, len(found))), count(limit))
 	for _, o := range found[:min(limit, len(found))] {
 		fmt.Fprintf(&b, "%s: %s; the first line is %q with the amounts a tool returns.\n", o.name, o.why, o.form)

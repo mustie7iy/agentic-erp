@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -26,6 +27,7 @@ const (
 	le       = "01a1aa00-0000-7000-8000-000000000b01"
 	tyrell   = "01a1aa00-0000-7000-8000-000000000c01"
 	acme     = "01a1aa00-0000-7000-8000-000000000c02"
+	initech  = "01a1aa00-0000-7000-8000-000000000c03"
 	office   = "01a1aa00-0000-7000-8000-000000000d01" // account 6000
 	order    = "01a1aa00-0000-7000-8000-000000000e01" // above its contract's price
 	material = "01a1aa00-0000-7000-8000-000000000f01"
@@ -79,6 +81,8 @@ type fakeAPI struct {
 	status map[string]int
 	empty  map[string]bool
 	made   int
+	// suppliers answers the spend by supplier; "": bySupplier.
+	suppliers string
 }
 
 func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -104,9 +108,13 @@ func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/v1/legal-entities":
 		answer(200, `{"items": [{"id": "`+le+`", "code": "3000"}]}`)
 	case "/v1/analytics-queries":
+		if strings.Contains(string(b), "vendor_name") && a.suppliers != "" {
+			answer(200, a.suppliers)
+			return
+		}
 		answer(200, spend(b))
 	case "/v1/business-partners":
-		answer(200, map[string]string{"100001": `{"items": [{"id": "` + tyrell + `"}]}`, "100002": `{"items": [{"id": "` + acme + `"}]}`}[r.URL.Query().Get("number")])
+		answer(200, map[string]string{"100001": `{"items": [{"id": "` + tyrell + `"}]}`, "100002": `{"items": [{"id": "` + acme + `"}]}`, "100003": `{"items": [{"id": "` + initech + `"}]}`}[r.URL.Query().Get("number")])
 	case "/v1/accounts":
 		answer(200, `{"items": [{"id": "`+office+`"}]}`)
 	case "/v1/contracts":
@@ -230,10 +238,10 @@ func TestAdvise(t *testing.T) {
 	if res.Refused != 5 {
 		t.Errorf("refused: got %d, want 5", res.Refused)
 	}
-	if got := res.Names[tyrell] + "; " + res.Names[office] + "; " + res.Names[order]; got != "100001 Tyrell; 6000 Office supplies; 4500000007" {
-		t.Errorf("names: got %q", got)
+	if got, want := res.Names[tyrell]+"; "+res.Names[office]+"; "+res.Names[order], "100001 Tyrell; 6000 Office supplies; 4500000007"; got != want {
+		t.Errorf("names: got %q, want %q", got, want)
 	}
-	told(t, model.Requests[:1], "the period is 2026-01-01 to 2026-11-15. The run found 4 opportunities; you recommend on the first 4 opportunities, at most 10 opportunities a run.",
+	told(t, model.Requests[:1], "the period is 2026-01-01 to 2026-11-15. The run found 4 opportunities; you recommend on 4 opportunities of them, at most 10 opportunities a run.",
 		`the first line is "Spend off contract <amount> CAD, <amount> USD"`, `"Spend <amount> CAD"`, `"Ordered <amount> CAD"`,
 		"has item 1 above item 1 of contract 4600000001: use_contract_price")
 	told(t, model.Requests, savingsagent.ErrSpend.Error(), "4700.00 is no amount a tool of the run returned", savingsagent.ErrSaving.Error(),
@@ -250,10 +258,33 @@ func TestAdviseMax(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Names) != 1 || res.Names[tyrell] == "" || res.Refused != 1 {
-		t.Errorf("got names %v, %d refused; want Tyrell alone and the account refused", res.Names, res.Refused)
+	if got, want := slices.Collect(maps.Keys(res.Names)), []string{tyrell}; !slices.Equal(got, want) {
+		t.Errorf("the objects: got %v, want %v", got, want)
 	}
-	told(t, model.Requests[:1], "the period is 2025-11-17 to 2026-11-16.", "you recommend on the first one opportunity, at most one opportunity a run.")
+	if res.Refused != 1 {
+		t.Errorf("refused: got %d, want 1 (the account, not an object of the run)", res.Refused)
+	}
+	told(t, model.Requests[:1], "the period is 2025-11-17 to 2026-11-16.", "you recommend on one opportunity of them, at most one opportunity a run.")
+}
+
+// TestAdviseCurrencies: amounts of two currencies are never ranked
+// against each other: the suppliers are ranked by currency, then the
+// largest spend first within one, so a large amount in yen does not push
+// a supplier in Canadian dollars past the run's maximum.
+func TestAdviseCurrencies(t *testing.T) {
+	a := &fakeAPI{suppliers: `{"columns": [{"name": "vendor"}, {"name": "vendor_name"}, {"name": "currency"}, {"name": "spend_off_contract"}], "rows": [
+		[{"value": "100003"}, {"value": "Initech"}, {"value": "JPY"}, {"value": "600000", "currency": "JPY"}],
+		[{"value": "100002"}, {"value": "Acme"}, {"value": "CAD"}, {"value": "300.00", "currency": "CAD"}],
+		[{"value": "100001"}, {"value": "Tyrell"}, {"value": "CAD"}, {"value": "4500.00", "currency": "CAD"}]]}`}
+	res, err := (&savingsagent.Agent{LLM: llmtest.New(t, llmtest.Final("None.")).Runner(), API: client(t, a), Max: 2}).Advise(context.Background(), "3000", period)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]bool{tyrell: true, acme: true, initech: false} {
+		if _, got := res.Names[id]; got != want {
+			t.Errorf("supplier %s among the run's objects: got %v, want %v", id, got, want)
+		}
+	}
 }
 
 // TestAdviseNone: a period without spend off contract, accounts bought
@@ -262,8 +293,14 @@ func TestAdviseMax(t *testing.T) {
 func TestAdviseNone(t *testing.T) {
 	a := &fakeAPI{empty: map[string]bool{"/v1/analytics-queries": true, "/v1/contracts": true}}
 	res, err := (&savingsagent.Agent{LLM: llmtest.New(t).Runner(), API: client(t, a)}).Advise(context.Background(), "3000", period)
-	if err != nil || res.Session != "" || !strings.Contains(res.Reply, "No savings opportunity in company 3000's purchasing from 2026-01-01 to 2026-11-15") {
-		t.Errorf("got %v, session %q, reply %q; want no session and why", err, res.Session, res.Reply)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Session != "" {
+		t.Errorf("session: got %q, want none", res.Session)
+	}
+	if want := "No savings opportunity in company 3000's purchasing from 2026-01-01 to 2026-11-15"; !strings.Contains(res.Reply, want) {
+		t.Errorf("reply: got %q, want it to say %q", res.Reply, want)
 	}
 	if a.sent("/v1/purchase-orders") != 0 {
 		t.Error("orders read without an active contract")
