@@ -898,7 +898,8 @@ A later slice adds its row here and its section under "As built".
   CAD 110.00 is matched and held (`price_variance`); the agent diagnoses
   `configuration`, citing the match's event and the company's price
   tolerance; Alex accepts; Ada grants the agent's role
-  `config.change.propose`; the agent's first draft, changing both the
+  `config.change.propose` and `config.change.read` (its reads of the
+  draft); the agent's first draft, changing both the
   percentage and the absolute tolerance, is refused by the run; it drafts
   the percentage alone (2 to 10), has the draft simulated and recommends
   `ready_to_submit` with the change on its first line; nobody submits it.

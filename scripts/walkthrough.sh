@@ -9930,9 +9930,9 @@ support_fix() {
   say "Alex accepts it, which changes nothing by itself:"
   api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" -body '{"outcome": "accepted"}'
   as ada
-  say "Ada lets the support agent draft a fix (T108c): its role may now propose a change; the same permission submits a"
+  say "Ada lets the support agent draft a fix (T108c): its role may now read and propose a change; the same permission submits a"
   say "draft, which the agent has no tool for."
-  grant "$role" config.change.propose
+  grant "$role" config.change.propose config.change.read
   QUIET=1 api 200 '' listConfigVersions -p is_active=true
   jq --arg cc "$CC" '.items[0].document | .companies |= map(if .code == $cc then .invoice_tolerance.price_percent = 10 else . end)' "$WORK/last.json" >"$WORK/proposed.json"
   jq --arg cc "$CC" '.companies |= map(if .code == $cc then .invoice_tolerance.price_absolute = "20.00" else . end)' "$WORK/proposed.json" >"$WORK/outside.json"
