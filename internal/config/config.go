@@ -3,7 +3,8 @@
 // diffed by tier. The configuration context (03-data-model §3.5) keeps its
 // versions and change requests; who may do what belongs to the identity
 // context, so the document names roles (in approval steps) but does not
-// define them.
+// define them. It holds the custom fields and rules the configuration
+// governs (ADR-0009, ADR-0046) and the country packs it merges (ADR-0048).
 package config
 
 import (

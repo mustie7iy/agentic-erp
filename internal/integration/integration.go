@@ -13,7 +13,9 @@
 // overlapping scope skips what is already there. Reconciliation recomputes
 // the controls from the SAP data and from the platform independently. A
 // rehearsal loads and reconciles in a savepoint that is rolled back, so
-// only its report remains.
+// only its report remains. A run is long-running work behind an operation
+// (ADR-0012), and a connector names its credentials by reference
+// (ADR-0017).
 package integration
 
 import (

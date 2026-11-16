@@ -1,6 +1,6 @@
 // Package pagination implements cursor pagination (04-api-design §4.5):
 // opaque, signed page tokens that encode the sort keys of the last row and
-// are bound to the filters and order they were issued for.
+// are bound to the filters and order they were issued for (ADR-0013).
 package pagination
 
 import (

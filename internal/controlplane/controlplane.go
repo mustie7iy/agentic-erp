@@ -1,5 +1,5 @@
 // Package controlplane is the operators' API for tenants (T11, 04-api-design
-// §4.15): list and read the cell's tenants, provision one, suspend, resume
+// §4.15, ADR-0015, operator roles ADR-0027): list and read the cell's tenants, provision one, suspend, resume
 // and offboard. It is served on the admin listener, not the public API, and
 // its callers are platform operators, not principals of any tenant: they
 // authenticate with tokens from the operator issuers (ERP_OPERATOR_ISSUERS)

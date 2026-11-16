@@ -1,5 +1,6 @@
 // Package apitools gives agents the public API as their tools (04-api-design
-// §4.13): one tool per operation of the contract, named after its
+// §4.13, ADR-0036; the same tools an MCP host gets, ADR-0081): one tool per
+// operation of the contract, named after its
 // operationId, with the operation's parameters and request body as the
 // tool's input schema. An agent can therefore do nothing the API does not
 // let its principal do, and every call it makes carries the API's

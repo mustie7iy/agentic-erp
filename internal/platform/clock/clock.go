@@ -2,7 +2,8 @@
 // services hold a Now field, nil in production, that tests set to a fixed or
 // advancing time instead of sleeping (the fake clock of
 // 06-engineering-process §6.6; CLAUDE.md, tests). It replaces the
-// `if x.Now != nil` fallback each of them used to repeat.
+// `if x.Now != nil` fallback each of them used to repeat. The workers it
+// serves are ADR-0012's.
 package clock
 
 import "time"

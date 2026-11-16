@@ -1,6 +1,6 @@
 // Package problem is the platform's error model: RFC 9457 Problem Details
 // with a stable, documented `code` that clients branch on (04-api-design
-// §4.6). Every error that leaves the service is a *Problem; database errors
+// §4.6, ADR-0013, ADR-0014). Every error that leaves the service is a *Problem; database errors
 // are translated here so raw database messages never reach a client.
 //
 // A problem is one request's answer, never a shared value: a refusal that
