@@ -260,3 +260,14 @@ traces, and CPU and memory saturation.
   it. Beyond 768 values, or past 75,000 series, the labels an
   operation's metrics carry are this ADR's to revisit, a cost question
   for the product owner.
+
+## As built: the agent_kind label's ceiling (T105f, T105g)
+
+- Decided by default: the control monitoring and risk agents bring
+  `autonomy.Kinds` to 18 values (16 types, "untyped" and "none"), over
+  the `agent_kind` ceiling of 16. The ceiling is 24, room for the agent
+  slices of week 3 still to come, and `MaxSeries` 65,000: the catalog's
+  worst case at 24, computed by `TestMetricsCatalog`'s `Check`, is
+  62,137 series, and 65,000 is the smallest multiple of 5,000 that
+  holds it, under the 75,000 above which the labels are a cost question
+  for the product owner.
