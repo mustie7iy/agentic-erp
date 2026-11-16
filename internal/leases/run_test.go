@@ -13,6 +13,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -41,7 +42,7 @@ func (e env) lineAmounts(t *testing.T, id string, first, last int) (interest, de
 }
 
 // minor prints an amount in minor units as the API gives a EUR amount.
-func minor(m int64) string { return fmt.Sprintf("%d.%02d EUR", m/100, m%100) }
+func minor(m int64) string { return money.Minor(m).Plain(2) + " EUR" }
 
 // runEntry is the entry's lines as "account amount date center", by
 // account number, center "-" for a line without one and "lease" for
@@ -81,8 +82,10 @@ func TestRunPosted(t *testing.T) {
 	p := postings[0]
 	fields(t, p, map[string]any{"lease_contract_id": monthly, "lessor_id": e.Supplier.String(), "cost_center_id": e.center.String(), "cost_center_code": "CC-LEASE",
 		"first_line_no": float64(1), "last_line_no": float64(1), "journal_entry_year": float64(2026)})
-	if p["lessor_number"] == "" || p["lessor_name"] == "" || p["journal_entry_number"] == "" {
-		t.Errorf("posting's lessor and entry: got %v, want the lessor's number and name and the entry's number", p)
+	for _, field := range []string{"lessor_number", "lessor_name", "journal_entry_number"} {
+		if p[field] == nil || p[field] == "" {
+			t.Errorf("posting's %s: got %v, want one", field, p[field])
+		}
 	}
 	want := fmt.Sprintf("161000 %d 2026-01-31 -, 260000 %d 2026-01-31 -, 672000 %d 2026-01-31 lease, 673000 %d 2026-01-31 lease",
 		-depreciation, -interest, interest, depreciation)
