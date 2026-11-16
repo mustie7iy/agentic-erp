@@ -991,9 +991,11 @@ type Handler interface {
 	// none, 422 `request.validation_failed` names `legal_entity_ids`. The period is one day to 371 days,
 	// `to` not before `from` (422 `request.validation_failed`). Each request is a new export. The exporter
 	// refuses a requester blocked or deprovisioned since (the export fails with
-	// `identity.principal_blocked`). 503 while the server has no object storage to write the files to.
-	// Audited (`audit.evidence_export.request`); the completion is audited and published as
-	// AuditEvidenceExported. Human-only (`x-agent: false`).
+	// `identity.principal_blocked`), and a period whose audit events, or whose companies' journal lines,
+	// number more than 200,000 (`audit.evidence_too_large`: the files are built and downloaded whole). 503
+	// while the server has no object storage to write the files to. Audited
+	// (`audit.evidence_export.request`); the completion is audited and published as AuditEvidenceExported.
+	// Human-only (`x-agent: false`).
 	//
 	// POST /v1/audit-evidence-exports
 	CreateAuditEvidenceExport(ctx context.Context, req *AuditEvidenceExportCreate, params CreateAuditEvidenceExportParams) (CreateAuditEvidenceExportRes, error)
@@ -3664,10 +3666,11 @@ type Handler interface {
 	// time and the kind of actor that did it (`person`, `agent` or `system`, never who), by time and then
 	// by the audit trail's sequence number, at any time up to the read. ADR-0080 lists the activities and
 	// the audit actions each comes from. The cases are by date and id, paged by case (`page_size` cases,
-	// the default 50, at most 500); `case_count` counts every case of the log. As JSON (`format=json`, the
+	// the default 50, at most 500); `case_count` counts every case of the log. The period is one day to
+	// 371 days (422 `request.validation_failed` naming `to` otherwise). As JSON (`format=json`, the
 	// default) or as CSV (`format=csv`): a header row, then a row per event of the page's cases with its
 	// case, the next page's token in the `Next-Page-Token` header. A company the caller cannot act in is
-	// 404, as one that does not exist; `to` before `from` is 422 `request.validation_failed`.
+	// 404, as one that does not exist.
 	//
 	// GET /v1/process-event-logs
 	GetProcessEventLog(ctx context.Context, params GetProcessEventLogParams) (GetProcessEventLogRes, error)

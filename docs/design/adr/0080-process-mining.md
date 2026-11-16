@@ -72,7 +72,7 @@ be computed on read, without storing anything.
    answers one page of cases by date and id with their events, as JSON
    (the default) or CSV (a row per event, the next page's token in the
    `Next-Page-Token` header), and `case_count`, the cases of the whole
-   log. A company the caller cannot act in is not found. Budget: 3 s at
+   log. The period is one day to 371 days, the longest fiscal year. A company the caller cannot act in is not found. Budget: 3 s at
    p95 for a page at 4,000 orders a month of one company (01 §1.3's 20
    million invoices a year over 500 companies), measured at about 0.2 s.
 

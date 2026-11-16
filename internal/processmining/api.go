@@ -39,7 +39,7 @@ func (e *Endpoints) GetProcessEventLog(ctx context.Context, params gen.GetProces
 // logToAPI is a page of the log in the API's JSON form.
 func logToAPI(l Log) gen.ProcessEventLog {
 	out := gen.ProcessEventLog{Process: l.Process, LegalEntityID: l.LegalEntity, CompanyCode: l.CompanyCode, From: l.From, To: l.To,
-		CaseCount: int32(l.CaseCount), Cases: make([]gen.ProcessCase, len(l.Cases)), NextPageToken: apitypes.OptText(l.NextPageToken)} // #nosec G115 -- a company's documents of at most 371 days
+		CaseCount: int32(l.CaseCount), Cases: make([]gen.ProcessCase, len(l.Cases)), NextPageToken: apitypes.OptText(l.NextPageToken)} // #nosec G115 -- a count of one company's documents of at most 371 days
 	for i, c := range l.Cases {
 		events := make([]gen.ProcessEvent, len(c.Events))
 		for j, ev := range c.Events {

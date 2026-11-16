@@ -18,6 +18,10 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 )
 
+// maxPeriodDays is the most days a log's period ends after its first: the
+// longest fiscal year, 53 weeks.
+const maxPeriodDays = 370
+
 // PurchaseToPay is the first process with an event log.
 const PurchaseToPay = "purchase_to_pay"
 
@@ -140,9 +144,9 @@ func (e *Endpoints) Read(ctx context.Context, q Query) (Log, error) {
 		return Log{}, problem.Unprocessable("request.validation_failed", "The request is not valid: the first process is purchase_to_pay.",
 			problem.FieldError{Field: "process", Code: "invalid", Message: PurchaseToPay})
 	}
-	if q.To.Before(q.From) {
-		return Log{}, problem.Unprocessable("request.validation_failed", "The request is not valid: the period's last day is before its first.",
-			problem.FieldError{Field: "to", Code: "out_of_range", Message: "from <= to"})
+	if q.To.Before(q.From) || q.To.Sub(q.From) > maxPeriodDays*24*time.Hour {
+		return Log{}, problem.Unprocessable("request.validation_failed", "The request is not valid: the period's last day is not before its first and at most "+
+			"370 days after it.", problem.FieldError{Field: "to", Code: "out_of_range", Message: "from <= to <= from + 370 days"})
 	}
 	size, err := pagination.Size(q.Size, q.SizeSet)
 	if err != nil {

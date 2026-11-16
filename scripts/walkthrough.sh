@@ -3341,7 +3341,7 @@ audit_evidence() {
   local from to export manifest events token ledger listed
   say "Aldo, the external auditor, gets a role of his own: audit evidence exports, the audit trail and the journal."
   QUIET=1 api 201 '' createRole -body '{"code": "external_auditor", "name": "External auditor"}'
-  grant "$(field .id)" audit.evidence.export audit.event.read ledger.entry.read
+  grant "$(field .id)" audit.evidence.export audit.event.read ledger.entry.read ledger.account.read
   QUIET=1 api 200 '' listRoles -p page_size=100
   cp "$WORK/last.json" "$WORK/roles.json"
   person aldo "Aldo Auditor" external_auditor

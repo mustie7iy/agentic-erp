@@ -207,11 +207,14 @@ func TestEventLogRefused(t *testing.T) {
 		"another process": {"&process=order_to_cash", "process"},
 		"another format":  {"&process=purchase_to_pay&format=xes", "format"},
 		"ending earlier":  {"&process=purchase_to_pay&to=2026-02-01", "to"},
+		"too long":        {"to=2027-03-07", "to"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			path := base + c.query
 			if c.field == "to" {
-				path = "/v1/process-event-logs?process=purchase_to_pay&legal_entity_id=" + e.DE.String() + "&from=2026-03-01&to=2026-02-01"
+				to := strings.TrimPrefix(c.query, "&process=purchase_to_pay&to=")
+				to = strings.TrimPrefix(to, "to=")
+				path = "/v1/process-event-logs?process=purchase_to_pay&legal_entity_id=" + e.DE.String() + "&from=2026-03-01&to=" + to
 			}
 			if p := e.In(t).Problem(422, "request.validation_failed", "GET", path, "", ""); !strings.Contains(fmt.Sprint(p["errors"]), c.field) {
 				t.Errorf("got %v, want %s named", p, c.field)

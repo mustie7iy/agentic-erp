@@ -145,6 +145,37 @@ func (l *lines) add(v any) {
 	_ = l.enc.Encode(v) // every record is strings, numbers, ids and JSON the database or json.Marshal gave: it always encodes
 }
 
+// MaxEvidenceRecords is the most audit events, and apart from them the
+// most journal lines, an export holds: its files are built in memory and
+// downloaded whole, so a larger export is refused rather than let fill a
+// replica's memory and fail on every replica that claims it again
+// (ADR-0011 As built; at about 500 bytes a record, some 100 MB a file).
+const MaxEvidenceRecords = 200_000
+
+// bounded refuses an export whose period holds more audit events, or
+// whose companies' entries of the period more lines, than an export
+// holds, before anything is read into memory.
+func (e *Endpoints) bounded(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, x Export) error {
+	var events int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND occurred_at >= $2 AND occurred_at < $3`,
+		tenant, x.From.UTC(), x.To.UTC().AddDate(0, 0, 1)).Scan(&events); err != nil {
+		return fmt.Errorf("audit: count the audit events of evidence export %s: %w", x.ID, err)
+	}
+	lines := 0
+	for _, c := range x.Companies {
+		n, err := e.Journal.LinesBetween(ctx, c.ID, x.From, x.To)
+		if err != nil {
+			return fmt.Errorf("audit: count the journal lines of evidence export %s: %w", x.ID, err)
+		}
+		lines += n
+	}
+	if events > MaxEvidenceRecords || lines > MaxEvidenceRecords {
+		return problem.Unprocessable("audit.evidence_too_large", fmt.Sprintf("The period holds %d audit events and the companies' entries %d journal lines; "+
+			"an export holds at most %d of each: ask for a shorter period or fewer companies.", events, lines, MaxEvidenceRecords))
+	}
+	return nil
+}
+
 // build writes the export's files and manifest: the chain's verification
 // to its head, the period's audit events up to that head, the companies'
 // journal entries and the decisions on their source documents.

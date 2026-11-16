@@ -244,8 +244,7 @@ func New(cfg Config) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	upload := uploads(cfg)
-	loopback := loopbackOf(cfg)
+	upload, loopback := uploads(cfg), loopbackOf(cfg)
 	// The seed of every tenant's semantic model until a change request
 	// gives it its own: unreadable, the API does not start.
 	if _, err := governedModel(); err != nil {

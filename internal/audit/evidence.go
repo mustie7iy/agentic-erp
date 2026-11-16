@@ -40,6 +40,7 @@ type LegalEntities interface {
 // ledger, with their lines (ledger context, ledger.Archive).
 type Journal interface {
 	EntriesBetween(ctx context.Context, legalEntity uuid.UUID, from, to time.Time, fn func(ledger.ArchivedEntry) error) error
+	LinesBetween(ctx context.Context, legalEntity uuid.UUID, from, to time.Time) (int, error)
 }
 
 // Approvals reads the approval requests about documents with their
@@ -296,8 +297,8 @@ func (e *Endpoints) named(ctx context.Context, xs []Export) error {
 	codes := map[uuid.UUID]string{}
 	for i, x := range xs {
 		xs[i].RequestedByName = names[x.RequestedBy]
-		xs[i].Companies = make([]Company, len(x.LegalEntities))
-		for j, id := range x.LegalEntities {
+		xs[i].Companies = make([]Company, 0, len(x.LegalEntities))
+		for _, id := range x.LegalEntities {
 			if _, ok := codes[id]; !ok {
 				le, found, err := e.LegalEntities.Entity(ctx, id)
 				if err != nil {
@@ -308,7 +309,7 @@ func (e *Endpoints) named(ctx context.Context, xs []Export) error {
 				}
 				codes[id] = le.Code
 			}
-			xs[i].Companies[j] = Company{ID: id, Code: codes[id]}
+			xs[i].Companies = append(xs[i].Companies, Company{ID: id, Code: codes[id]})
 		}
 	}
 	return nil

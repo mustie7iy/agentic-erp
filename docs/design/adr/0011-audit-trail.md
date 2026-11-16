@@ -116,7 +116,13 @@ and download their files.
    export's to download.
 4. **The run.** The exporter refuses a requester blocked or deprovisioned
    since (the export fails with `identity.principal_blocked`, PO
-   2026-11-03), and fails an export whose kept manifest is not its own;
+   2026-11-03), refuses, before reading anything into memory, a period
+   holding more than 200,000 audit events or whose companies' entries hold
+   more than 200,000 journal lines (`audit.evidence_too_large`,
+   `audit.MaxEvidenceRecords`: the files are built in memory and
+   downloaded whole, some 100 MB each at most, so a larger export would
+   fill a replica's memory and, never failed, crash every replica that
+   claimed it again), and fails an export whose kept manifest is not its own;
    the store or a port not answering leaves it queued. It acts as the
    system principal `urn:agentic-erp:audit-evidence-exporter`.
 5. **Dependencies.** The audit context reads tenancy's legal entities,
@@ -141,6 +147,9 @@ and download their files.
    - The covered companies are fixed when the export is asked for; the
      exporter checks only that the requester is still active.
    - Files download as `application/octet-stream` whatever their name.
+   - An export holds at most 200,000 audit events and 200,000 journal
+     lines; a larger one is refused rather than streamed in parts (a
+     multipart write to the store and a streamed download are later).
 
 Later (plan-breadth-week3 §T101a): samples by the auditor's criteria,
 evidence per control, subledger documents and attachments, a time-limited

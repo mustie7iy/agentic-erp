@@ -159,6 +159,9 @@ func (w *EvidenceExporter) export(ctx context.Context, tx pgx.Tx, tenant uuid.UU
 		return err
 	}
 	x = xs[0]
+	if err := e.bounded(ctx, tx, tenant, x); err != nil {
+		return err
+	}
 	ev, err := e.build(ctx, tx, tenant, x)
 	if err != nil {
 		return err

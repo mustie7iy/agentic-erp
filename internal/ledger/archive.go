@@ -92,6 +92,23 @@ func (Archive) EntriesBetween(ctx context.Context, legalEntity uuid.UUID, from, 
 		fmt.Sprintf("%s from %s to %s", legalEntity, from.Format(time.DateOnly), to.Format(time.DateOnly)), fn, legalEntity, from, to)
 }
 
+// LinesBetween is how many journal lines the company's entries posted
+// from one date to another, both included, hold, in every ledger: what
+// EntriesBetween would read.
+func (Archive) LinesBetween(ctx context.Context, legalEntity uuid.UUID, from, to time.Time) (int, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM ledger.journal_entry e
+		JOIN ledger.journal_line jl ON jl.tenant_id = e.tenant_id AND jl.fiscal_year = e.fiscal_year AND jl.journal_entry_id = e.id
+		WHERE e.legal_entity_id = $1 AND e.posting_date BETWEEN $2 AND $3`, legalEntity, from, to).Scan(&n); err != nil {
+		return 0, fmt.Errorf("ledger: count the journal lines of %s from %s: %w", legalEntity, from.Format(time.DateOnly), err)
+	}
+	return n, nil
+}
+
 // entries calls fn with each journal entry the condition selects, with
 // its lines, by posting date and then id.
 func entries(ctx context.Context, where, what string, fn func(ArchivedEntry) error, args ...any) error {

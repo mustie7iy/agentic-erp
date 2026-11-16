@@ -34,8 +34,11 @@ import (
 func TestEvidenceExporterRefuses(t *testing.T) {
 	for name, c := range map[string]struct {
 		before func(t *testing.T, e evidenceEnv, id string)
+		change func(w *audit.EvidenceExporter)
 		want   string
 	}{
+		"more journal lines than an export holds": {before: func(*testing.T, evidenceEnv, string) {},
+			change: func(w *audit.EvidenceExporter) { w.Endpoints.Journal = journal{lines: audit.MaxEvidenceRecords + 1} }, want: "failed audit.evidence_too_large"},
 		"the requester blocked": {before: func(t *testing.T, e evidenceEnv, _ string) {
 			t.Helper()
 			pgtest.Exec(t, `UPDATE identity.principal SET status = 'blocked', version = version + 1 WHERE id = $1`, e.Tenant.Human.ID)
@@ -54,6 +57,9 @@ func TestEvidenceExporterRefuses(t *testing.T) {
 			c.before(t, e, id)
 			w := e.exporter(t)
 			w.Log = slog.New(slog.NewTextHandler(io.Discard, nil))
+			if c.change != nil {
+				c.change(w)
+			}
 			if _, err := w.RunOnce(context.Background()); err != nil {
 				t.Fatal(err)
 			}
@@ -89,9 +95,10 @@ func TestEvidenceExporterWaits(t *testing.T) {
 		"the store not returning the manifest it holds": func(w *audit.EvidenceExporter) {
 			w.Endpoints.Objects = evidenceStore{Store: e.objects, put: blobstore.ErrExists, suffix: "manifest.json", get: down}
 		},
-		"no company":           func(w *audit.EvidenceExporter) { w.Endpoints.LegalEntities = companies{} },
-		"the company not read": func(w *audit.EvidenceExporter) { w.Endpoints.LegalEntities = companies{err: down} },
-		"the journal not read": func(w *audit.EvidenceExporter) { w.Endpoints.Journal = journal{err: down} },
+		"no company":                    func(w *audit.EvidenceExporter) { w.Endpoints.LegalEntities = companies{} },
+		"the company not read":          func(w *audit.EvidenceExporter) { w.Endpoints.LegalEntities = companies{err: down} },
+		"the journal not read":          func(w *audit.EvidenceExporter) { w.Endpoints.Journal = journal{err: down} },
+		"the journal lines not counted": func(w *audit.EvidenceExporter) { w.Endpoints.Journal = journal{countErr: down} },
 		"the approvals not read": func(w *audit.EvidenceExporter) {
 			w.Endpoints.Approvals = approvalsDown{}
 		},
@@ -122,11 +129,19 @@ func (x companies) Entity(context.Context, uuid.UUID) (tenancy.Entity, bool, err
 	return tenancy.Entity{}, false, x.err
 }
 
-// journal is a ledger whose journal cannot be read.
-type journal struct{ err error }
+// journal is a ledger whose journal cannot be read, or whose lines are
+// counted as lines, or not counted.
+type journal struct {
+	err, countErr error
+	lines         int
+}
 
 func (x journal) EntriesBetween(context.Context, uuid.UUID, time.Time, time.Time, func(ledger.ArchivedEntry) error) error {
 	return x.err
+}
+
+func (x journal) LinesBetween(context.Context, uuid.UUID, time.Time, time.Time) (int, error) {
+	return x.lines, x.countErr
 }
 
 // approvalsDown is an approvals context that cannot be read.
@@ -362,6 +377,10 @@ func TestEvidenceExportBrokenChain(t *testing.T) {
 // company asked for.
 type unsourced struct{}
 
+func (unsourced) LinesBetween(context.Context, uuid.UUID, time.Time, time.Time) (int, error) {
+	return 2, nil
+}
+
 func (unsourced) EntriesBetween(_ context.Context, _ uuid.UUID, _, _ time.Time, fn func(ledger.ArchivedEntry) error) error {
 	return fn(ledger.ArchivedEntry{ID: uuid.Must(uuid.NewV7()), Currency: "EUR", LocalCurrency: "EUR", GroupCurrency: "EUR"})
 }
@@ -384,6 +403,9 @@ func TestEvidenceManifestWithoutAFile(t *testing.T) {
 	}
 	for _, name := range []string{"audit_events.jsonl", "journal_entries.jsonl"} {
 		e.as(t).Problem(409, "audit.evidence_changed", "GET", "/v1/audit-evidence-exports/"+id+"/files/"+name, "", "")
+	}
+	if _, err := (ledger.Archive{}).LinesBetween(context.Background(), e.DE, time.Now(), time.Now()); err == nil {
+		t.Error("journal lines outside a unit of work: got nil error")
 	}
 	if _, err := (approvals.Evidence{}).About(context.Background(), nil); err == nil {
 		t.Error("approval requests outside a unit of work: got nil error")

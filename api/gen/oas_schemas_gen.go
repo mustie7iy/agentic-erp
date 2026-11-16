@@ -12418,6 +12418,7 @@ type AuditEvidenceExport struct {
 	ApprovalDecisionCount OptInt32              `json:"approval_decision_count"`
 	Chain                 OptAuditEvidenceChain `json:"chain"`
 	// Failed: the problem code that stopped the export (`identity.principal_blocked`,
+	// `audit.evidence_too_large` when the period holds more than 200,000 audit events or journal lines,
 	// `audit.evidence_changed` when the file store holds other bytes under the export's manifest).
 	FailureCode OptString `json:"failure_code"`
 	// When the exporter completed it.
