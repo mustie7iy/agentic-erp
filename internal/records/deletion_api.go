@@ -59,7 +59,7 @@ func subjectsToAPI(ss []Subject) []gen.PersonalDataDeletionSubject {
 	out := make([]gen.PersonalDataDeletionSubject, len(ss))
 	for i, s := range ss {
 		out[i] = gen.PersonalDataDeletionSubject{PartnerID: s.PartnerID, PartnerNumber: s.Number, PersonalDataBlockedAt: s.BlockedAt,
-			RetentionYears: int32(s.Years), RetentionEnds: s.Ends, SettledAt: apitypes.OptDateTime(s.SettledAt)}
+			RetentionYears: int32(s.Years), RetentionEnds: s.Ends, SettledAt: apitypes.OptDateTime(s.SettledAt), SkipReason: apitypes.OptString(s.SkipReason)}
 		if s.Status != "" {
 			out[i].Status.SetTo(s.Status)
 		}

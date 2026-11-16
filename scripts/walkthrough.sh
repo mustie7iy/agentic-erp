@@ -8381,7 +8381,7 @@ privacy_delete() {
   run=$(field .id)
   wait_deletion "$run"
   api 200 '"  \(.status): \(.blanked_count) blanked, \(.skipped_count) skipped, \(.pending_count) pending of \(.subject_count)"' getPersonalDataDeletionRun -p "id=$run"
-  api 200 '.items[] | "  \(.partner_number) \(.status) at \(.settled_at)"' listPersonalDataDeletionSubjects -p "id=$run"
+  api 200 '.items[] | "  \(.partner_number) \(.status)\(if .skip_reason then " (\(.skip_reason))" else "" end) at \(.settled_at)"' listPersonalDataDeletionSubjects -p "id=$run"
   expect "Ivy blanked" "$(field "[.items[] | select(.partner_id == \"$IVY\") | .status] | first")" blanked
   say "Ivy's name, address and bank account are blanked, to everyone; the account is ended:"
   api 200 '"  \(.number) \(.name): \(.addresses[0].line1), \(.addresses[0].city), deleted at \(.personal_data_deleted_at)"' getBusinessPartner -p "id=$IVY"

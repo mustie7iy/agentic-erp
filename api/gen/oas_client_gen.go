@@ -5416,9 +5416,9 @@ type Invoker interface {
 	// The subjects of a deletion run (ADR-0079 §12, T100c), by partner number, a page at a time,
 	// optionally of one status: each business partner by id and number, never by name, with when its block
 	// began, the rule it was held to, and its status (`pending`, `blanked`, or `skipped` when its block
-	// was lifted or set again since, or an item of it was open) with when it was settled. It needs access
-	// to all companies (403 `records.all_companies_required`). A run the tenant does not have is 404.
-	// Human-only (`x-agent: false`). Sortable by: `partner_number` (default).
+	// was lifted or set again since, or an item of it was open) with when it was settled and, skipped, why
+	// (`skip_reason`). It needs access to all companies (403 `records.all_companies_required`). A run the
+	// tenant does not have is 404. Human-only (`x-agent: false`). Sortable by: `partner_number` (default).
 	//
 	// GET /v1/personal-data-deletion-runs/{id}/subjects
 	ListPersonalDataDeletionSubjects(ctx context.Context, params ListPersonalDataDeletionSubjectsParams) (ListPersonalDataDeletionSubjectsRes, error)
@@ -77757,9 +77757,9 @@ func (c *Client) sendListPeriodCloses(ctx context.Context, params ListPeriodClos
 // The subjects of a deletion run (ADR-0079 §12, T100c), by partner number, a page at a time,
 // optionally of one status: each business partner by id and number, never by name, with when its block
 // began, the rule it was held to, and its status (`pending`, `blanked`, or `skipped` when its block
-// was lifted or set again since, or an item of it was open) with when it was settled. It needs access
-// to all companies (403 `records.all_companies_required`). A run the tenant does not have is 404.
-// Human-only (`x-agent: false`). Sortable by: `partner_number` (default).
+// was lifted or set again since, or an item of it was open) with when it was settled and, skipped, why
+// (`skip_reason`). It needs access to all companies (403 `records.all_companies_required`). A run the
+// tenant does not have is 404. Human-only (`x-agent: false`). Sortable by: `partner_number` (default).
 //
 // GET /v1/personal-data-deletion-runs/{id}/subjects
 func (c *Client) ListPersonalDataDeletionSubjects(ctx context.Context, params ListPersonalDataDeletionSubjectsParams) (ListPersonalDataDeletionSubjectsRes, error) {

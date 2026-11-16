@@ -6340,9 +6340,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A deletion run's subjects carry no skip reason: a subject the run did not delete shows that it was skipped but not why (lane C, batch 74).",
-        "r": "records.deletion_run_subject · T100c · docs/design/adr/0079-retention-archiving-personal-data.md §12",
+        "r": "records.deletion_run_subject · T100c · docs/design/adr/0079-retention-archiving-personal-data.md §12 · migration 000344 skip_reason · partner.Privacy.Blank reasons · PersonalDataDeletionSubject.skip_reason",
         "src": "review:batch74",
         "c": []
        },

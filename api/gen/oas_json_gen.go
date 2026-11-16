@@ -189510,9 +189510,15 @@ func (s *PersonalDataDeletionSubject) encodeFields(e *jx.Encoder) {
 			s.SettledAt.Encode(e, json.EncodeDateTime)
 		}
 	}
+	{
+		if s.SkipReason.Set {
+			e.FieldStart("skip_reason")
+			s.SkipReason.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfPersonalDataDeletionSubject = [7]string{
+var jsonFieldsNameOfPersonalDataDeletionSubject = [8]string{
 	0: "partner_id",
 	1: "partner_number",
 	2: "personal_data_blocked_at",
@@ -189520,6 +189526,7 @@ var jsonFieldsNameOfPersonalDataDeletionSubject = [7]string{
 	4: "retention_ends",
 	5: "status",
 	6: "settled_at",
+	7: "skip_reason",
 }
 
 // Decode decodes PersonalDataDeletionSubject from json.
@@ -189610,6 +189617,16 @@ func (s *PersonalDataDeletionSubject) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"settled_at\"")
+			}
+		case "skip_reason":
+			if err := func() error {
+				s.SkipReason.Reset()
+				if err := s.SkipReason.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"skip_reason\"")
 			}
 		default:
 			return d.Skip()

@@ -5592,8 +5592,11 @@ records.deletion_run   (tenant_id, id, config_version, status, subject_count, fa
   (`deletion_run_one_queued`). Each subject
   (`records.deletion_run_subject (tenant_id, run_id, partner_id,
   partner_number, blocked_at, retention_years, retention_ends, status,
-  settled_at)`) is a partner by id and number, `pending`, then `blanked`
-  or `skipped` with its time, either its last change
+  settled_at, skip_reason)`) is a partner by id and number, `pending`, then `blanked`
+  or `skipped` with its time (a skipped one with the partner context's
+  reason, `deletion_run_subject_skip_reason_check` and
+  `deletion_run_subject_skip_reason_skipped_check`, 000344; none on one
+  skipped before), either its last change
   (`deletion_run_subject_settled_fixed`); the application writes only the
   settling columns and deletes nothing. The deleter reads the pending
   subjects by `deletion_run_subject_pending`.

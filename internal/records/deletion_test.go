@@ -119,8 +119,8 @@ func (e deletionEnv) read(t *testing.T, id uuid.UUID) records.DeletionRun {
 	return r
 }
 
-// subjects are a run's subjects as "number status", read a page of one
-// at a time, and its counts as "pending blanked skipped".
+// subjects are a run's subjects as "number status" (and a skipped one's
+// reason), read a page of one at a time, and its counts as "pending blanked skipped".
 func (e deletionEnv) subjects(t *testing.T, r records.DeletionRun) string {
 	t.Helper()
 	var out []string
@@ -134,7 +134,11 @@ func (e deletionEnv) subjects(t *testing.T, r records.DeletionRun) string {
 			t.Fatal(err)
 		}
 		for _, s := range page {
-			out = append(out, s.Number+" "+s.Status)
+			line := s.Number + " " + s.Status
+			if s.SkipReason != nil {
+				line += " " + *s.SkipReason
+			}
+			out = append(out, line)
 		}
 		if token == "" {
 			break
@@ -184,7 +188,8 @@ func TestDeletionEligible(t *testing.T) {
 
 // TestDeletionRun (T100c acceptance): the run lists the preview's
 // subjects; the deleter blanks each in a transaction of its own, audited
-// and published by ids only, skips one whose block was lifted since, and
+// and published by ids only, skips one whose block was lifted since and
+// says so, and
 // completes the run; a second request while it is queued answers it, and
 // once it completed there is nothing left to delete. A second round
 // changes nothing (run twice). Ledger documents and audit events stay.
@@ -217,7 +222,7 @@ func TestDeletionRun(t *testing.T) {
 		}
 	}
 	done := e.read(t, r.ID)
-	if got := fmt.Sprint(done.Status, " ", e.subjects(t, done), " ", done.CompletedAt != nil); got != "completed BP90000001 blanked, BP90000002 skipped (0 1 1) true" {
+	if got := fmt.Sprint(done.Status, " ", e.subjects(t, done), " ", done.CompletedAt != nil); got != "completed BP90000001 blanked, BP90000002 skipped block_lifted (0 1 1) true" {
 		t.Errorf("settled: got %s", got)
 	}
 	var name string
@@ -241,6 +246,11 @@ func TestDeletionRun(t *testing.T) {
 		'records.deletion_run.complete')`, []any{e.Tenant.ID}, &steps)
 	if steps != 3 {
 		t.Errorf("audit records of the run's steps: got %d, want 3", steps)
+	}
+	var reason string
+	pgtest.Scan(t, `SELECT detail->>'skip_reason' FROM audit.audit_event WHERE tenant_id = $1 AND action = 'records.deletion_run.skip'`, []any{e.Tenant.ID}, &reason)
+	if reason != partner.SkipBlockLifted {
+		t.Errorf("the skip's audit record: got reason %q, want %q", reason, partner.SkipBlockLifted)
 	}
 	if _, _, err := e.request(t); problem.From(err).Code != "records.nothing_to_delete" {
 		t.Errorf("after the run: got %v, want records.nothing_to_delete", err)
@@ -441,8 +451,8 @@ func (privacyDown) Blocked(context.Context) ([]partner.BlockedSubject, error) {
 	return nil, errors.New("partner down")
 }
 
-func (privacyDown) Blank(context.Context, uuid.UUID, time.Time) (bool, error) {
-	return false, errors.New("partner down")
+func (privacyDown) Blank(context.Context, uuid.UUID, time.Time) (string, error) {
+	return "", errors.New("partner down")
 }
 
 // deletionPorts: the partner, tenancy and identity contexts not answering

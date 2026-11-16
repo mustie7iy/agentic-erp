@@ -76783,6 +76783,12 @@ type PersonalDataDeletionSubject struct {
 	Status OptString `json:"status"`
 	// In a run: when it was blanked or skipped.
 	SettledAt OptDateTime `json:"settled_at"`
+	// Skipped: why: `already_deleted` (its personal data was blanked already), `block_lifted` (its block
+	// was lifted), `blocked_again` (its block was lifted and set again since the run was asked for) or
+	// `open_item` (it has an open item, which keeps its data until it is cleared); absent otherwise, and
+	// on a subject skipped before reasons were kept. Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	SkipReason OptString `json:"skip_reason"`
 }
 
 // GetPartnerID returns the value of PartnerID.
@@ -76820,6 +76826,11 @@ func (s *PersonalDataDeletionSubject) GetSettledAt() OptDateTime {
 	return s.SettledAt
 }
 
+// GetSkipReason returns the value of SkipReason.
+func (s *PersonalDataDeletionSubject) GetSkipReason() OptString {
+	return s.SkipReason
+}
+
 // SetPartnerID sets the value of PartnerID.
 func (s *PersonalDataDeletionSubject) SetPartnerID(val uuid.UUID) {
 	s.PartnerID = val
@@ -76853,6 +76864,11 @@ func (s *PersonalDataDeletionSubject) SetStatus(val OptString) {
 // SetSettledAt sets the value of SettledAt.
 func (s *PersonalDataDeletionSubject) SetSettledAt(val OptDateTime) {
 	s.SettledAt = val
+}
+
+// SetSkipReason sets the value of SkipReason.
+func (s *PersonalDataDeletionSubject) SetSkipReason(val OptString) {
+	s.SkipReason = val
 }
 
 // One page of a deletion run's subjects, by partner number.

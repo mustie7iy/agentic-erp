@@ -363,7 +363,10 @@ the next pending subject by number `FOR UPDATE`, and blanks it through
 `partner.Privacy.Blank`, which holds the partner `FOR UPDATE` (as a block
 and its lifting do) and blanks it only if its personal data is still
 blocked since the moment the run saw and it has no open item (§11):
-otherwise the subject is `skipped`.
+otherwise the subject is `skipped`, with the reason Blank gives
+(`skip_reason`: `already_deleted`, `block_lifted`, `blocked_again` or
+`open_item`), kept on the subject, listed with it and in its audit
+record (`records.deletion_run.skip`).
 A blanked subject is audited (`records.deletion_run.blank`) and published
 as PersonalDataDeleted, by ids only; with no subject pending the run
 completes. A step run again after a commit whose acknowledgement was lost
@@ -644,4 +647,17 @@ question for the legal specialists before any period is shipped (plan,
   ended, her invoice still reads and the ledger names her by number; her
   block can no longer be lifted.
 - Decided by default while building: the defaults 19 to 23 above.
+
+### Skip reasons (migration 000344, review:batch74)
+
+- Migration 000344: `records.deletion_run_subject.skip_reason`, one of
+  four (`deletion_run_subject_skip_reason_check`), on a skipped subject
+  only (`deletion_run_subject_skip_reason_skipped_check`), fixed with the
+  rest of a settled subject; expand-only, so a subject skipped before it
+  has none (`db/personal_data_deletion_test.go`).
+- `partner.Privacy.Blank` returns why it left a partner (`Skip*`
+  constants, "" for blanked) instead of a boolean; the deleter keeps it
+  on the subject and in the skip's audit detail; `skip_reason` on
+  `PersonalDataDeletionSubject` (open enumeration). Walkthrough
+  `privacy_delete` lists it with a skipped subject's status.
 

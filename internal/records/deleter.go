@@ -27,8 +27,9 @@ import (
 // replicas share the queue), checks that its requester may still act,
 // takes its next pending subject FOR UPDATE, blanks the partner through
 // the partner context's port, and marks the subject blanked (audited and
-// published as PersonalDataDeleted) or skipped when its block was lifted
-// or set again since; with no subject pending it completes the run. A
+// published as PersonalDataDeleted) or skipped, with the partner
+// context's reason, when its block was lifted or set again since, its
+// data was blanked already or it has an open item; with no subject pending it completes the run. A
 // round run again after a commit whose acknowledgement was lost finds the
 // subject settled and goes on with the next, so a subject is blanked and
 // published once. A business problem fails the run; any other error
@@ -158,20 +159,21 @@ func (w *Deleter) step(ctx context.Context, tx pgx.Tx, r DeletionRun) error {
 	if err != nil {
 		return fmt.Errorf("records: the next subject of deletion run %s: %w", r.ID, err)
 	}
-	blanked, err := w.Endpoints.Privacy.Blank(ctx, s.PartnerID, s.BlockedAt)
+	skip, err := w.Endpoints.Privacy.Blank(ctx, s.PartnerID, s.BlockedAt)
 	if err != nil {
 		return fmt.Errorf("records: blank business partner %s of deletion run %s: %w", s.Number, r.ID, err)
 	}
-	status, action := SubjectBlanked, "records.deletion_run.blank"
-	if !blanked {
-		status, action = SubjectSkipped, "records.deletion_run.skip"
+	status, action, reason := SubjectBlanked, "records.deletion_run.blank", (*string)(nil)
+	if skip != "" {
+		status, action, reason = SubjectSkipped, "records.deletion_run.skip", &skip
 	}
-	if _, err := tx.Exec(ctx, `UPDATE records.deletion_run_subject SET status = $3, settled_at = $4 WHERE run_id = $1 AND partner_id = $2`,
-		r.ID, s.PartnerID, status, clock.Now(w.Now)); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE records.deletion_run_subject SET status = $3, settled_at = $4, skip_reason = $5 WHERE run_id = $1 AND partner_id = $2`,
+		r.ID, s.PartnerID, status, clock.Now(w.Now), reason); err != nil {
 		return fmt.Errorf("records: settle business partner %s of deletion run %s: %w", s.Number, r.ID, err)
 	}
 	detail := map[string]any{"partner_id": s.PartnerID, "partner_number": s.Number, "requested_by": r.RequestedBy}
-	if !blanked {
+	if skip != "" {
+		detail["skip_reason"] = skip
 		return audit.Record(ctx, action, "records.deletion_run", r.ID, detail)
 	}
 	return audit.Record(ctx, action, "records.deletion_run", r.ID, detail,
