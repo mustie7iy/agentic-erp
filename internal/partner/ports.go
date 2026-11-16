@@ -137,9 +137,9 @@ func (PaymentTerms) Apply(ctx context.Context, doc *config.Config) error {
 
 // Suppliers answers procurement's and payables' questions about suppliers
 // in the request's transaction. Settings is the configuration whose
-// companies' time zones partner's day, which an account or an address is
-// valid on, is judged in (partnerDay); Now is the clock it is read at, nil
-// the transaction's start.
+// companies' time zones partner's day, which a payments account is valid
+// on, is judged in (partnerDay); Now is the clock it is read at, nil the
+// transaction's start. An order address's day is the caller's.
 type Suppliers struct {
 	Settings config.Documents
 	Now      func() time.Time
@@ -371,15 +371,13 @@ func (Suppliers) PaymentTerm(ctx context.Context, code string) (PaymentTerm, boo
 }
 
 // OrderAddress returns the address a purchase order is sent to: the
-// partner's order_from address valid today, else its legal one, or
-// ok = false when it holds neither (T72g, ADR-0054). Today is partner's
-// day (partnerDay), as for bank accounts: the document goes out now.
-func (s Suppliers) OrderAddress(ctx context.Context, partnerID uuid.UUID) (Address, bool, error) {
+// partner's order_from address valid on day, else its legal one, or
+// ok = false when it holds neither (T72g, ADR-0054). The caller gives the
+// day, the ordering company's in its time zone (ADR-0051 As built): the
+// document goes out from that company today, and partner's own day, the
+// earliest of all the tenant's companies', may still be yesterday there.
+func (Suppliers) OrderAddress(ctx context.Context, partnerID uuid.UUID, day time.Time) (Address, bool, error) {
 	tx, _, err := reqctx.Request(ctx)
-	if err != nil {
-		return Address{}, false, err
-	}
-	day, err := partnerDay(ctx, tx, s.Settings, s.Now)
 	if err != nil {
 		return Address{}, false, err
 	}

@@ -11476,9 +11476,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "suppliers.OrderAddress takes the tenant-wide day, not the company's: the supplier's order desk address in force on a date is chosen on UTC's (database.Today) day where the company's own day decides, the business date class of ADR-0051 (found in batch 75's integration).",
-      "r": "internal/suppliers OrderAddress · database.Today · ADR-0051 · ADR-0050 (business dates on the company's day)",
+      "r": "internal/suppliers OrderAddress · database.Today · ADR-0051 · ADR-0050 (business dates on the company's day) · done in hdates: partner ports.go Suppliers.OrderAddress takes the caller's day; procurement order_document.go documentOf passes the buyer company's config.CompanyDay · ADR-0051 as built (business dates swept), ADR-0054 §3 · TestOrderDocumentTimeZone · TestOrderDocumentZoneLost · TestOrderAddress",
       "src": "review:batch75",
       "c": []
      }

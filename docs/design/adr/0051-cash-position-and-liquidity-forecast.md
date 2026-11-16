@@ -2799,7 +2799,8 @@ walkthrough steps 91 and 97 failing 19:00-24:00 in Toronto):
   shorter for that company's runs. A payment control is security posture:
   the batch digest flags this default for the product owner. The order
   document's address (`Suppliers.OrderAddress`) is read on this tenant-wide
-  day too, not the ordering company's (left as it was; review:batch74).
+  day too, not the ordering company's (left as it was; review:batch74;
+  moved to the ordering company's day by the hdates step below).
 - **Its instant.** The transaction's start (`transaction_timestamp()`), as
   `current_date` was, so one request judges every date on one day even
   across midnight; tests inject `Now` (`Ports`, `Endpoints`, `Approvals`,
@@ -2826,6 +2827,20 @@ walkthrough steps 91 and 97 failing 19:00-24:00 in Toronto):
   the same day is refused as backdated. `partner.TestDay`,
   `partner.TestMigrationToday`, `integration.TestRunDayIsTheCompanysDay`.
   The full walkthrough passed inside the window, at 21:50 in Toronto.
+
+As built (business dates swept; hdates, review:batch75):
+- **The order document's address.** `Suppliers.OrderAddress` takes the
+  day it reads on from its caller, and procurement's order document passes
+  the buyer company's date in its time zone (`config.CompanyDay`, read
+  from the configuration the document already reads for the buyer's
+  postal address; UTC's when the configuration does not hold the company,
+  as for every company date). The document goes out from that company
+  now, and partner's tenant-wide day, the earliest of the companies', can
+  still be yesterday there (Dubai beside Toronto). A zone the build cannot
+  load fails the document rather than choosing on UTC's day. Evidence:
+  `procurement.TestOrderDocumentTimeZone` (an order desk moving on 11
+  March: the legal address at 22:30 on 10 March in Toronto, the new desk
+  at 01:00 on 11 March in Dubai), `TestOrderDocumentZoneLost`.
 
 ## Alternatives
 - **Cash position and forecast inside payments.** Fewer packages, but
