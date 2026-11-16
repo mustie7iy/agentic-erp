@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -164,7 +165,7 @@ func TestSuppliersPort(t *testing.T) {
 		"supplier": func(ctx context.Context) error { _, _, err := s.Supplier(ctx, f.Supplier, f.DE); return err },
 		"terms":    func(ctx context.Context) error { _, err := s.PaymentTermExists(ctx, "NT30"); return err },
 		"term":     func(ctx context.Context) error { _, _, err := s.PaymentTerm(ctx, "NT30"); return err },
-		"address":  func(ctx context.Context) error { _, _, err := s.OrderAddress(ctx, f.Supplier); return err },
+		"address":  func(ctx context.Context) error { _, _, err := s.OrderAddress(ctx, f.Supplier, time.Now()); return err },
 	} {
 		t.Run(name, func(t *testing.T) {
 			if call(context.Background()) == nil {
@@ -176,23 +177,24 @@ func TestSuppliersPort(t *testing.T) {
 }
 
 // TestOrderAddress: an order goes to the supplier's order_from address
-// valid today, else its legal one; addresses ended or not yet valid, and
-// those of other purposes, are not used.
+// valid on the day the caller gives, else its legal one; addresses ended
+// or not yet valid on it, and those of other purposes, are not used.
 func TestOrderAddress(t *testing.T) {
 	f := fixture.New(t, perms...)
+	day := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
 	add := func(purpose, line1, from, to string) {
 		var until any // open-ended
 		if to != "" {
 			until = to
 		}
 		pgtest.Exec(t, `INSERT INTO partner.address (tenant_id, id, partner_id, purpose, line1, city, country_code, valid_from, valid_to, created_by)
-			VALUES ($1, gen_random_uuid(), $2, $3, $4, 'Springfield', 'US', current_date + $5::int, current_date + $6::int, $7)`,
-			f.Tenant.ID, f.Supplier, purpose, line1, from, until, f.Tenant.Human.ID)
+			VALUES ($1, gen_random_uuid(), $2, $3, $4, 'Springfield', 'US', $8::date + $5::int, $8::date + $6::int, $7)`,
+			f.Tenant.ID, f.Supplier, purpose, line1, from, until, f.Tenant.Human.ID, day)
 	}
 	read := func() string {
 		var got string
 		if err := apitest.InRequest(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) error {
-			a, ok, err := partner.Suppliers{Settings: configuration.Settings{}}.OrderAddress(ctx, f.Supplier)
+			a, ok, err := partner.Suppliers{}.OrderAddress(ctx, f.Supplier, day)
 			got = fmt.Sprintf("%s %s %v", a.Purpose, a.Line1, ok)
 			return err
 		}); err != nil {

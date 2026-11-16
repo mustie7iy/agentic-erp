@@ -40,7 +40,6 @@ type LegalEntities interface {
 // ledger, with their lines (ledger context, ledger.Archive).
 type Journal interface {
 	EntriesBetween(ctx context.Context, legalEntity uuid.UUID, from, to time.Time, fn func(ledger.ArchivedEntry) error) error
-	LinesBetween(ctx context.Context, legalEntity uuid.UUID, from, to time.Time) (int, error)
 }
 
 // Approvals reads the approval requests about documents with their
@@ -78,12 +77,15 @@ type Company struct {
 	Code string
 }
 
-// ExportFile is a file of a completed export, as its manifest names it.
+// ExportFile is a file of a completed export, or a part of one, as its
+// manifest names it: a part has its number, from 1, and the parts of a
+// file, in their order, are the file.
 type ExportFile struct {
 	Name      string `json:"name"`
 	SHA256    string `json:"sha256"`
 	SizeBytes int64  `json:"size_bytes"`
 	Records   int32  `json:"records"`
+	Part      int32  `json:"part,omitempty"`
 }
 
 // Export is an audit evidence export. A completed one has its manifest's
@@ -316,9 +318,9 @@ func (e *Endpoints) named(ctx context.Context, xs []Export) error {
 	return nil
 }
 
-// File is a file of a completed export as the store holds it, once its
-// hash is the one recorded: the manifest's the export's, any other file's
-// the manifest's. The audit events of an export with client addresses
+// File is a file, or a part of one, of a completed export as the store
+// holds it, once its hash is the one recorded: the manifest's the
+// export's, any other file's the manifest's. The audit events of an export with client addresses
 // are handed only to a person who may read them on the trail.
 func (e *Endpoints) File(ctx context.Context, id uuid.UUID, name string) ([]byte, error) {
 	_, p, err := reqctx.Request(ctx)
@@ -329,8 +331,9 @@ func (e *Endpoints) File(ctx context.Context, id uuid.UUID, name string) ([]byte
 	if err != nil {
 		return nil, err
 	}
-	if name != manifestName && !slices.Contains(fileNames, name) {
-		return nil, problem.NotFound("An evidence export has no file " + name + "; its files are " + manifestName + " and " + strings.Join(fileNames, ", ") + ".")
+	if name != manifestName && !slices.Contains(fileNames, fileOf(name)) {
+		return nil, problem.NotFound("An evidence export has no file " + name + "; its files are " + manifestName + " and " + strings.Join(fileNames, ", ") +
+			", each of them maybe in parts.")
 	}
 	if x.Status != ExportCompleted {
 		return nil, problem.Conflict("audit.evidence_not_completed", "Evidence export "+id.String()+" is "+x.Status+"; only a completed export has files.")
@@ -338,7 +341,7 @@ func (e *Endpoints) File(ctx context.Context, id uuid.UUID, name string) ([]byte
 	if e.Objects == nil {
 		return nil, noObjects()
 	}
-	if name == auditEventsName && x.WithClientAddresses {
+	if fileOf(name) == auditEventsName && x.WithClientAddresses {
 		if err := mayReadAddresses(ctx); err != nil {
 			return nil, err
 		}

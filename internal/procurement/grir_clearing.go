@@ -342,7 +342,7 @@ func (h GRIRClearings) Approved(ctx context.Context, clearing, request uuid.UUID
 		clearing, request, entry.ID, entry.FiscalYear, entry.DocumentNumber, p.ID); err != nil {
 		return fmt.Errorf("procurement: post GR/IR clearing %s: %w", clearing, err)
 	}
-	return audit.Record(ctx, "procurement.gr_ir_clearing.post", "procurement.gr_ir_clearing", clearing,
+	return h.Endpoints.record(ctx, "procurement.gr_ir_clearing.post", "procurement.gr_ir_clearing", clearing,
 		map[string]any{"purchase_order_id": c.PurchaseOrderID, "approval_request_id": request, "journal_entry_id": entry.ID,
 			"journal_entry_year": entry.FiscalYear, "journal_entry_number": entry.DocumentNumber},
 		event("gr_ir_cleared", "gr_ir_clearing", clearing, clearedEvent(c, entry)))

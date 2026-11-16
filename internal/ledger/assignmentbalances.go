@@ -115,6 +115,19 @@ func planLocks(ctx context.Context, tx pgx.Tx, le uuid.UUID, year int16, costCen
 	return out, errs.Wrapf(err, "ledger: plan locks of the cost centers of %s in %d", le, year)
 }
 
+// CenterNames are the codes and names of the cost and profit centers
+// among ids, as AssetReads gives them: the controlling context names a
+// plan line's and a plan against actual's center by them (review:T105e).
+func (AssignmentBalances) CenterNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]CenterName, error) {
+	return AssetReads{}.CenterNames(ctx, ids)
+}
+
+// AccountNames are the numbers and names of the accounts among ids, as
+// AssetReads gives them, for the same rows' accounts.
+func (AssignmentBalances) AccountNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]AccountRef, error) {
+	return AssetReads{}.AccountNames(ctx, ids)
+}
+
 // CostCenterRef is a cost center as the controlling context names it on an
 // internal order (ADR-0064 §1): its company, its code and whether it is
 // active (approved, not pending or rejected).

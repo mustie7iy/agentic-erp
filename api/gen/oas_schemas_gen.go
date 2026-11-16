@@ -5970,6 +5970,10 @@ type ArchiveFile struct {
 	LineCount int32 `json:"line_count"`
 	// The sum of the lines' debits in the company's currency.
 	DebitTotal Money `json:"debit_total"`
+	// A file of more than 50,000 entries (or 32 MiB), written in parts: its parts, in order
+	// (`GET /v1/archiving-runs/{id}/file?part={part}` downloads each); `sha256` and `size_bytes` above are
+	// the whole file's, the parts' content in this order. Absent on a file within one part.
+	Parts []ArchiveFilePart `json:"parts"`
 }
 
 // GetName returns the value of Name.
@@ -6007,6 +6011,11 @@ func (s *ArchiveFile) GetDebitTotal() Money {
 	return s.DebitTotal
 }
 
+// GetParts returns the value of Parts.
+func (s *ArchiveFile) GetParts() []ArchiveFilePart {
+	return s.Parts
+}
+
 // SetName sets the value of Name.
 func (s *ArchiveFile) SetName(val string) {
 	s.Name = val
@@ -6040,6 +6049,76 @@ func (s *ArchiveFile) SetLineCount(val int32) {
 // SetDebitTotal sets the value of DebitTotal.
 func (s *ArchiveFile) SetDebitTotal(val Money) {
 	s.DebitTotal = val
+}
+
+// SetParts sets the value of Parts.
+func (s *ArchiveFile) SetParts(val []ArchiveFilePart) {
+	s.Parts = val
+}
+
+// A part of an archive file written in parts (ADR-0079 §7).
+// Ref: #/components/schemas/ArchiveFilePart
+type ArchiveFilePart struct {
+	// Its number, from 1.
+	Part int32 `json:"part"`
+	// Its name, `<run id>.part-<part>.jsonl`.
+	Name string `json:"name"`
+	// The SHA-256 of its content, in hexadecimal; the manifest names it too.
+	SHA256 string `json:"sha256"`
+	// Its size in bytes.
+	SizeBytes int64 `json:"size_bytes"`
+	// The journal entries in it, each whole.
+	EntryCount int32 `json:"entry_count"`
+}
+
+// GetPart returns the value of Part.
+func (s *ArchiveFilePart) GetPart() int32 {
+	return s.Part
+}
+
+// GetName returns the value of Name.
+func (s *ArchiveFilePart) GetName() string {
+	return s.Name
+}
+
+// GetSHA256 returns the value of SHA256.
+func (s *ArchiveFilePart) GetSHA256() string {
+	return s.SHA256
+}
+
+// GetSizeBytes returns the value of SizeBytes.
+func (s *ArchiveFilePart) GetSizeBytes() int64 {
+	return s.SizeBytes
+}
+
+// GetEntryCount returns the value of EntryCount.
+func (s *ArchiveFilePart) GetEntryCount() int32 {
+	return s.EntryCount
+}
+
+// SetPart sets the value of Part.
+func (s *ArchiveFilePart) SetPart(val int32) {
+	s.Part = val
+}
+
+// SetName sets the value of Name.
+func (s *ArchiveFilePart) SetName(val string) {
+	s.Name = val
+}
+
+// SetSHA256 sets the value of SHA256.
+func (s *ArchiveFilePart) SetSHA256(val string) {
+	s.SHA256 = val
+}
+
+// SetSizeBytes sets the value of SizeBytes.
+func (s *ArchiveFilePart) SetSizeBytes(val int64) {
+	s.SizeBytes = val
+}
+
+// SetEntryCount sets the value of EntryCount.
+func (s *ArchiveFilePart) SetEntryCount(val int32) {
+	s.EntryCount = val
 }
 
 // An archiving run (records, ADR-0079 §6-§8, T99b): a company's documents of one kind and fiscal
@@ -12727,9 +12806,9 @@ type AuditEvidenceExport struct {
 	// `queued` (until the exporter writes its files), `completed` or `failed`. Open enumeration: clients
 	// must accept and preserve values not listed here; values may be added within /v1.
 	Status string `json:"status"`
-	// Completed: the files the manifest names, in its order
-	// (`GET /v1/audit-evidence-exports/{id}/files/{name}` downloads each, and `manifest.json`); otherwise
-	// empty.
+	// Completed: the files the manifest names, in its order, a file of more records than a part holds as
+	// its parts in their order (`GET /v1/audit-evidence-exports/{id}/files/{name}` downloads each, and
+	// `manifest.json`); otherwise empty.
 	Files []AuditEvidenceFile `json:"files"`
 	// Completed: the SHA-256 of `manifest.json`, in hexadecimal.
 	ManifestSHA256 OptString `json:"manifest_sha256"`
@@ -12741,8 +12820,9 @@ type AuditEvidenceExport struct {
 	ApprovalDecisionCount OptInt32              `json:"approval_decision_count"`
 	Chain                 OptAuditEvidenceChain `json:"chain"`
 	// Failed: the problem code that stopped the export (`identity.principal_blocked`,
-	// `audit.evidence_too_large` when the period holds more than 200,000 audit events or journal lines,
-	// `audit.evidence_changed` when the file store holds other bytes under the export's manifest).
+	// `audit.evidence_changed` when the file store holds other bytes under the export's manifest;
+	// `audit.evidence_too_large` on an export failed before files were written in parts, when it held more
+	// than 200,000 audit events or journal lines).
 	FailureCode OptString `json:"failure_code"`
 	// When the exporter completed it.
 	CompletedAt OptDateTime `json:"completed_at"`
@@ -13048,11 +13128,15 @@ func (s *AuditEvidenceExportPage) SetNextPageToken(val OptString) {
 
 func (*AuditEvidenceExportPage) listAuditEvidenceExportsRes() {}
 
-// A file of a completed evidence export, as its manifest names it.
+// A file of a completed evidence export, or a part of one, as its manifest names it.
 // Ref: #/components/schemas/AuditEvidenceFile
 type AuditEvidenceFile struct {
-	// `audit_events.jsonl`, `journal_entries.jsonl` or `approval_decisions.jsonl`.
+	// `audit_events.jsonl`, `journal_entries.jsonl` or `approval_decisions.jsonl`; a part of one written
+	// in parts, `<file>.part-<n>.jsonl` (`audit_events.part-2.jsonl`).
 	Name string `json:"name"`
+	// A part of a file written in parts (one of more than 50,000 records or 32 MiB): its number, from 1;
+	// the parts' records, in this order, are the file's. Absent on a file within one part.
+	Part OptInt32 `json:"part"`
 	// The SHA-256 of the file's content, in hexadecimal.
 	SHA256 string `json:"sha256"`
 	// The file's size in bytes.
@@ -13064,6 +13148,11 @@ type AuditEvidenceFile struct {
 // GetName returns the value of Name.
 func (s *AuditEvidenceFile) GetName() string {
 	return s.Name
+}
+
+// GetPart returns the value of Part.
+func (s *AuditEvidenceFile) GetPart() OptInt32 {
+	return s.Part
 }
 
 // GetSHA256 returns the value of SHA256.
@@ -13084,6 +13173,11 @@ func (s *AuditEvidenceFile) GetRecords() int32 {
 // SetName sets the value of Name.
 func (s *AuditEvidenceFile) SetName(val string) {
 	s.Name = val
+}
+
+// SetPart sets the value of Part.
+func (s *AuditEvidenceFile) SetPart(val OptInt32) {
+	s.Part = val
 }
 
 // SetSHA256 sets the value of SHA256.
@@ -18396,6 +18490,10 @@ func (*CaptureSalesOrderBadRequest) captureSalesOrderRes() {}
 type CaptureSalesOrderForbidden Problem
 
 func (*CaptureSalesOrderForbidden) captureSalesOrderRes() {}
+
+type CaptureSalesOrderNotFound Problem
+
+func (*CaptureSalesOrderNotFound) captureSalesOrderRes() {}
 
 type CaptureSalesOrderPreconditionRequired Problem
 
@@ -32640,8 +32738,16 @@ type CostCenterPlanActual struct {
 	FiscalPeriodTo int32 `json:"fiscal_period_to"`
 	// The cost center.
 	CostCenterID uuid.UUID `json:"cost_center_id"`
+	// The cost center's code.
+	CostCenterCode string `json:"cost_center_code"`
+	// The cost center's name.
+	CostCenterName string `json:"cost_center_name"`
 	// The account.
 	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name.
+	AccountName string `json:"account_name"`
 	// The category's plan.
 	Plan Money `json:"plan"`
 	// The leading ledger's actual.
@@ -32683,9 +32789,29 @@ func (s *CostCenterPlanActual) GetCostCenterID() uuid.UUID {
 	return s.CostCenterID
 }
 
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *CostCenterPlanActual) GetCostCenterCode() string {
+	return s.CostCenterCode
+}
+
+// GetCostCenterName returns the value of CostCenterName.
+func (s *CostCenterPlanActual) GetCostCenterName() string {
+	return s.CostCenterName
+}
+
 // GetAccountID returns the value of AccountID.
 func (s *CostCenterPlanActual) GetAccountID() uuid.UUID {
 	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *CostCenterPlanActual) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *CostCenterPlanActual) GetAccountName() string {
+	return s.AccountName
 }
 
 // GetPlan returns the value of Plan.
@@ -32738,9 +32864,29 @@ func (s *CostCenterPlanActual) SetCostCenterID(val uuid.UUID) {
 	s.CostCenterID = val
 }
 
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *CostCenterPlanActual) SetCostCenterCode(val string) {
+	s.CostCenterCode = val
+}
+
+// SetCostCenterName sets the value of CostCenterName.
+func (s *CostCenterPlanActual) SetCostCenterName(val string) {
+	s.CostCenterName = val
+}
+
 // SetAccountID sets the value of AccountID.
 func (s *CostCenterPlanActual) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *CostCenterPlanActual) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *CostCenterPlanActual) SetAccountName(val string) {
+	s.AccountName = val
 }
 
 // SetPlan sets the value of Plan.
@@ -47818,7 +47964,33 @@ func (s GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlShe
 	return s.Data.Read(p)
 }
 
-func (*GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet) getReportRunRes() {
+// GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders wraps GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet with response headers.
+type GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders struct {
+	ResultTruncated OptBool
+	Response        GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet
+}
+
+// GetResultTruncated returns the value of ResultTruncated.
+func (s *GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders) GetResultTruncated() OptBool {
+	return s.ResultTruncated
+}
+
+// GetResponse returns the value of Response.
+func (s *GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders) GetResponse() GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet {
+	return s.Response
+}
+
+// SetResultTruncated sets the value of ResultTruncated.
+func (s *GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders) SetResultTruncated(val OptBool) {
+	s.ResultTruncated = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders) SetResponse(val GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet) {
+	s.Response = val
+}
+
+func (*GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders) getReportRunRes() {
 }
 
 // One result: a header row of column names, then its rows; UTF-8, lines ending in LF.
@@ -47836,7 +48008,33 @@ func (s GetReportRunOKTextCsv) Read(p []byte) (n int, err error) {
 	return s.Data.Read(p)
 }
 
-func (*GetReportRunOKTextCsv) getReportRunRes() {}
+// GetReportRunOKTextCsvHeaders wraps GetReportRunOKTextCsv with response headers.
+type GetReportRunOKTextCsvHeaders struct {
+	ResultTruncated OptBool
+	Response        GetReportRunOKTextCsv
+}
+
+// GetResultTruncated returns the value of ResultTruncated.
+func (s *GetReportRunOKTextCsvHeaders) GetResultTruncated() OptBool {
+	return s.ResultTruncated
+}
+
+// GetResponse returns the value of Response.
+func (s *GetReportRunOKTextCsvHeaders) GetResponse() GetReportRunOKTextCsv {
+	return s.Response
+}
+
+// SetResultTruncated sets the value of ResultTruncated.
+func (s *GetReportRunOKTextCsvHeaders) SetResultTruncated(val OptBool) {
+	s.ResultTruncated = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetReportRunOKTextCsvHeaders) SetResponse(val GetReportRunOKTextCsv) {
+	s.Response = val
+}
+
+func (*GetReportRunOKTextCsvHeaders) getReportRunRes() {}
 
 type GetReportRunUnprocessableEntity Problem
 
@@ -76783,6 +76981,12 @@ type PersonalDataDeletionSubject struct {
 	Status OptString `json:"status"`
 	// In a run: when it was blanked or skipped.
 	SettledAt OptDateTime `json:"settled_at"`
+	// Skipped: why: `already_deleted` (its personal data was blanked already), `block_lifted` (its block
+	// was lifted), `blocked_again` (its block was lifted and set again since the run was asked for) or
+	// `open_item` (it has an open item, which keeps its data until it is cleared); absent otherwise, and
+	// on a subject skipped before reasons were kept. Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	SkipReason OptString `json:"skip_reason"`
 }
 
 // GetPartnerID returns the value of PartnerID.
@@ -76820,6 +77024,11 @@ func (s *PersonalDataDeletionSubject) GetSettledAt() OptDateTime {
 	return s.SettledAt
 }
 
+// GetSkipReason returns the value of SkipReason.
+func (s *PersonalDataDeletionSubject) GetSkipReason() OptString {
+	return s.SkipReason
+}
+
 // SetPartnerID sets the value of PartnerID.
 func (s *PersonalDataDeletionSubject) SetPartnerID(val uuid.UUID) {
 	s.PartnerID = val
@@ -76853,6 +77062,11 @@ func (s *PersonalDataDeletionSubject) SetStatus(val OptString) {
 // SetSettledAt sets the value of SettledAt.
 func (s *PersonalDataDeletionSubject) SetSettledAt(val OptDateTime) {
 	s.SettledAt = val
+}
+
+// SetSkipReason sets the value of SkipReason.
+func (s *PersonalDataDeletionSubject) SetSkipReason(val OptString) {
+	s.SkipReason = val
 }
 
 // One page of a deletion run's subjects, by partner number.
@@ -77827,10 +78041,22 @@ type PlanLine struct {
 	FiscalPeriod int32 `json:"fiscal_period"`
 	// The cost center; absent on a profit center's line.
 	CostCenterID OptUUID `json:"cost_center_id"`
+	// The cost center's code; absent on a profit center's line.
+	CostCenterCode OptString `json:"cost_center_code"`
+	// The cost center's name; absent on a profit center's line.
+	CostCenterName OptString `json:"cost_center_name"`
 	// The profit center; absent on a cost center's line.
 	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// The profit center's code; absent on a cost center's line.
+	ProfitCenterCode OptString `json:"profit_center_code"`
+	// The profit center's name; absent on a cost center's line.
+	ProfitCenterName OptString `json:"profit_center_name"`
 	// The account.
 	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name.
+	AccountName string `json:"account_name"`
 	// The amount in the legal entity's local currency; debit positive.
 	Amount Money `json:"amount"`
 	// The quantity planned.
@@ -77876,14 +78102,44 @@ func (s *PlanLine) GetCostCenterID() OptUUID {
 	return s.CostCenterID
 }
 
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *PlanLine) GetCostCenterCode() OptString {
+	return s.CostCenterCode
+}
+
+// GetCostCenterName returns the value of CostCenterName.
+func (s *PlanLine) GetCostCenterName() OptString {
+	return s.CostCenterName
+}
+
 // GetProfitCenterID returns the value of ProfitCenterID.
 func (s *PlanLine) GetProfitCenterID() OptUUID {
 	return s.ProfitCenterID
 }
 
+// GetProfitCenterCode returns the value of ProfitCenterCode.
+func (s *PlanLine) GetProfitCenterCode() OptString {
+	return s.ProfitCenterCode
+}
+
+// GetProfitCenterName returns the value of ProfitCenterName.
+func (s *PlanLine) GetProfitCenterName() OptString {
+	return s.ProfitCenterName
+}
+
 // GetAccountID returns the value of AccountID.
 func (s *PlanLine) GetAccountID() uuid.UUID {
 	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *PlanLine) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *PlanLine) GetAccountName() string {
+	return s.AccountName
 }
 
 // GetAmount returns the value of Amount.
@@ -77941,14 +78197,44 @@ func (s *PlanLine) SetCostCenterID(val OptUUID) {
 	s.CostCenterID = val
 }
 
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *PlanLine) SetCostCenterCode(val OptString) {
+	s.CostCenterCode = val
+}
+
+// SetCostCenterName sets the value of CostCenterName.
+func (s *PlanLine) SetCostCenterName(val OptString) {
+	s.CostCenterName = val
+}
+
 // SetProfitCenterID sets the value of ProfitCenterID.
 func (s *PlanLine) SetProfitCenterID(val OptUUID) {
 	s.ProfitCenterID = val
 }
 
+// SetProfitCenterCode sets the value of ProfitCenterCode.
+func (s *PlanLine) SetProfitCenterCode(val OptString) {
+	s.ProfitCenterCode = val
+}
+
+// SetProfitCenterName sets the value of ProfitCenterName.
+func (s *PlanLine) SetProfitCenterName(val OptString) {
+	s.ProfitCenterName = val
+}
+
 // SetAccountID sets the value of AccountID.
 func (s *PlanLine) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *PlanLine) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *PlanLine) SetAccountName(val string) {
+	s.AccountName = val
 }
 
 // SetAmount sets the value of Amount.
@@ -80513,8 +80799,16 @@ type ProfitCenterPlanActual struct {
 	FiscalPeriodTo int32 `json:"fiscal_period_to"`
 	// The profit center.
 	ProfitCenterID uuid.UUID `json:"profit_center_id"`
+	// The profit center's code.
+	ProfitCenterCode string `json:"profit_center_code"`
+	// The profit center's name.
+	ProfitCenterName string `json:"profit_center_name"`
 	// The account.
 	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name.
+	AccountName string `json:"account_name"`
 	// The category's plan.
 	Plan Money `json:"plan"`
 	// The leading ledger's actual.
@@ -80556,9 +80850,29 @@ func (s *ProfitCenterPlanActual) GetProfitCenterID() uuid.UUID {
 	return s.ProfitCenterID
 }
 
+// GetProfitCenterCode returns the value of ProfitCenterCode.
+func (s *ProfitCenterPlanActual) GetProfitCenterCode() string {
+	return s.ProfitCenterCode
+}
+
+// GetProfitCenterName returns the value of ProfitCenterName.
+func (s *ProfitCenterPlanActual) GetProfitCenterName() string {
+	return s.ProfitCenterName
+}
+
 // GetAccountID returns the value of AccountID.
 func (s *ProfitCenterPlanActual) GetAccountID() uuid.UUID {
 	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *ProfitCenterPlanActual) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *ProfitCenterPlanActual) GetAccountName() string {
+	return s.AccountName
 }
 
 // GetPlan returns the value of Plan.
@@ -80611,9 +80925,29 @@ func (s *ProfitCenterPlanActual) SetProfitCenterID(val uuid.UUID) {
 	s.ProfitCenterID = val
 }
 
+// SetProfitCenterCode sets the value of ProfitCenterCode.
+func (s *ProfitCenterPlanActual) SetProfitCenterCode(val string) {
+	s.ProfitCenterCode = val
+}
+
+// SetProfitCenterName sets the value of ProfitCenterName.
+func (s *ProfitCenterPlanActual) SetProfitCenterName(val string) {
+	s.ProfitCenterName = val
+}
+
 // SetAccountID sets the value of AccountID.
 func (s *ProfitCenterPlanActual) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *ProfitCenterPlanActual) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *ProfitCenterPlanActual) SetAccountName(val string) {
+	s.AccountName = val
 }
 
 // SetPlan sets the value of Plan.
@@ -85746,8 +86080,6 @@ func (s *ReportRun) SetResults(val []AnalyticsResult) {
 	s.Results = val
 }
 
-func (*ReportRun) getReportRunRes() {}
-
 // The problem that failed a run.
 // Ref: #/components/schemas/ReportRunFailure
 type ReportRunFailure struct {
@@ -85776,6 +86108,34 @@ func (s *ReportRunFailure) SetCode(val string) {
 func (s *ReportRunFailure) SetDetail(val string) {
 	s.Detail = val
 }
+
+// ReportRunHeaders wraps ReportRun with response headers.
+type ReportRunHeaders struct {
+	ResultTruncated OptBool
+	Response        ReportRun
+}
+
+// GetResultTruncated returns the value of ResultTruncated.
+func (s *ReportRunHeaders) GetResultTruncated() OptBool {
+	return s.ResultTruncated
+}
+
+// GetResponse returns the value of Response.
+func (s *ReportRunHeaders) GetResponse() ReportRun {
+	return s.Response
+}
+
+// SetResultTruncated sets the value of ResultTruncated.
+func (s *ReportRunHeaders) SetResultTruncated(val OptBool) {
+	s.ResultTruncated = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ReportRunHeaders) SetResponse(val ReportRun) {
+	s.Response = val
+}
+
+func (*ReportRunHeaders) getReportRunRes() {}
 
 // One page of kept runs.
 // Ref: #/components/schemas/ReportRunPage
@@ -94973,9 +95333,10 @@ type SalesOrderCaptureRequest struct {
 	// The company that takes the order: one the caller may act in.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// A direct upload of the document (`createSalesOrderUpload`: purpose `sales_order`, a PDF or plain
-	// text, at most 50 MB), consumed by this capture. 422 `payables.upload_empty` when nothing was
-	// uploaded to it yet, `payables.upload_purpose` when it is for another purpose; captured again into
-	// the same company, it answers the order it gave; into another, 422 `payables.upload_used`.
+	// text, at most 50 MB), consumed by this capture. An upload that does not exist, or that another
+	// tenant started, is 404 `request.not_found`; 422 `payables.upload_empty` when nothing was uploaded to
+	// it yet, `payables.upload_purpose` when it is for another purpose; captured again into the same
+	// company, it answers the order it gave; into another, 422 `payables.upload_used`.
 	UploadID uuid.UUID `json:"upload_id"`
 	// The revenue account every item of the order is billed to (`GET /v1/accounts/{id}`): postable in the
 	// company (422 `sales.account_not_postable`).
@@ -98876,9 +99237,10 @@ type SupplierInvoiceCaptureMultipart struct {
 	// captured twice (409).
 	Document OptString `json:"document"`
 	// A direct upload of the document (purpose `supplier_invoice`, at most 50 MB), consumed by this
-	// capture. 422 `payables.upload_empty` when nothing was uploaded to it yet, `payables.upload_used`
-	// when it was consumed before, `payables.upload_purpose` when it is for another purpose (a customer's
-	// purchase order).
+	// capture. An upload that does not exist, or that another tenant started, is 404 `request.not_found`;
+	// 422 `payables.upload_empty` when nothing was uploaded to it yet, `payables.upload_used` when it was
+	// consumed before, `payables.upload_purpose` when it is for another purpose (a customer's purchase
+	// order).
 	UploadID OptUUID `json:"upload_id"`
 }
 

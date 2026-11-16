@@ -995,3 +995,14 @@ default:
   bytes and naming the new ones' hash, found through the fetch's list;
   the same bytes delivered once more
   are counted already recorded, the change named once.
+
+### The fetch's request audited (review:T106a)
+
+- `fetchEInvoices` audits its request in the caller's name
+  (`einvoicing.fetch.request`, its Operation the object, with the
+  connector) in the transaction that queues the fetch (ADR-0011), so the
+  trail shows who fetched; what the fetch then records it records as the
+  system, naming the Operation as `fetch_operation_id`. A scheduled fetch
+  has no requester and records no request. The access agent's
+  `accessagent.Unaudited`, which classed `einvoicing.einvoice.manage` as
+  "use not recorded" until then, is removed (ADR-0072).

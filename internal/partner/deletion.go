@@ -77,45 +77,69 @@ func (Privacy) Blocked(ctx context.Context) ([]BlockedSubject, error) {
 	return out, nil
 }
 
+// Why Blank left a partner as it is (ADR-0079 §12): its data was blanked
+// already, its block was lifted, its block was lifted and set again since
+// the run saw it, or it has an open item. "" is a partner blanked.
+const (
+	SkipAlreadyDeleted = "already_deleted"
+	SkipBlockLifted    = "block_lifted"
+	SkipBlockedAgain   = "blocked_again"
+	SkipOpenItem       = "open_item"
+)
+
 // Blank blanks the partner's personal data, in the caller's transaction,
-// and reports whether it did: a partner whose personal data is no longer
-// blocked since blockedAt (the block lifted, or lifted and set again, or
-// the data blanked already), or that has an open item, is left as it is.
-// It holds the partner FOR UPDATE first, as a block and its lifting do,
-// then writes its own rows and the possible duplicates other changes
-// copied of it.
-func (y Privacy) Blank(ctx context.Context, id uuid.UUID, blockedAt time.Time) (bool, error) {
+// and returns "" when it did, or why it left the partner as it is (one of
+// the Skip reasons): a partner whose personal data is no longer blocked
+// since blockedAt, or that has an open item. It holds the partner FOR
+// UPDATE first, as a block and its lifting do, then writes its own rows
+// and the possible duplicates other changes copied of it.
+func (y Privacy) Blank(ctx context.Context, id uuid.UUID, blockedAt time.Time) (string, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	var at *time.Time
 	var deleted bool
 	err = tx.QueryRow(ctx, `SELECT personal_data_blocked_at, personal_data_deleted_at IS NOT NULL FROM partner.business_partner WHERE id = $1 FOR UPDATE`,
 		id).Scan(&at, &deleted)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return false, fmt.Errorf("partner: blank business partner %s: there is none", id)
+		return "", fmt.Errorf("partner: blank business partner %s: there is none", id)
 	}
 	if err != nil {
-		return false, fmt.Errorf("partner: lock business partner %s to blank it: %w", id, err)
+		return "", fmt.Errorf("partner: lock business partner %s to blank it: %w", id, err)
 	}
-	if deleted || at == nil || !at.Equal(blockedAt) {
-		return false, nil
+	if skip := blockSkip(deleted, at, blockedAt); skip != "" {
+		return skip, nil
 	}
 	// A posting that passed its partner check before the block committed
 	// after it may have left an item open (ADR-0079 §11): such a partner
 	// keeps its data until the item is cleared.
 	open, err := y.OpenItems.OpenCompanies(ctx, id)
 	if err != nil {
-		return false, fmt.Errorf("partner: open items of business partner %s before blanking it: %w", id, err)
+		return "", fmt.Errorf("partner: open items of business partner %s before blanking it: %w", id, err)
 	}
 	if len(open) > 0 {
-		return false, nil
+		return SkipOpenItem, nil
 	}
 	if err := y.blankRows(ctx, tx, p, id); err != nil {
-		return false, err
+		return "", err
 	}
-	return true, blankChanges(ctx, tx, id)
+	return "", blankChanges(ctx, tx, id)
+}
+
+// blockSkip is why a partner's block does not let it be blanked now ("" when
+// it does): its data deleted already, its block lifted, or a block other
+// than the one the run saw.
+func blockSkip(deleted bool, at *time.Time, blockedAt time.Time) string {
+	switch {
+	case deleted:
+		return SkipAlreadyDeleted
+	case at == nil:
+		return SkipBlockLifted
+	case !at.Equal(blockedAt):
+		return SkipBlockedAgain
+	}
+	return ""
 }
 
 // blankRows blanks the partner's own rows: its names, addresses, bank

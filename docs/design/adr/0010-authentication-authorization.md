@@ -156,7 +156,8 @@ permissions only while the role is active:
   to it: steps resolve their role codes through `RoleByCode`, which
   already read active roles alone (422 `workflow.unknown_role`). Moving
   the step to another role is not built; the requester can still
-  withdraw the request (`approval-requests/{id}:cancel`).
+  withdraw the request (`approval-requests/{id}:cancel`). Kept by the
+  product owner on 2026-11-16: a step on a deactivated role waits.
 - **The callers.** Approvals (decision and inbox), the payment run's
   release role (`payments.Endpoints`, whose `RoleByCode` already refused
   an inactive role, so nothing changes there) and the reports a role is

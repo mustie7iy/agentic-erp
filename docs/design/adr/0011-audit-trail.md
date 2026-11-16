@@ -116,13 +116,7 @@ and download their files.
    export's to download.
 4. **The run.** The exporter refuses a requester blocked or deprovisioned
    since (the export fails with `identity.principal_blocked`, PO
-   2026-11-03), refuses, before reading anything into memory, a period
-   holding more than 200,000 audit events or whose companies' entries hold
-   more than 200,000 journal lines (`audit.evidence_too_large`,
-   `audit.MaxEvidenceRecords`: the files are built in memory and
-   downloaded whole, some 100 MB each at most, so a larger export would
-   fill a replica's memory and, never failed, crash every replica that
-   claimed it again), and fails an export whose kept manifest is not its own;
+   2026-11-03) and fails an export whose kept manifest is not its own;
    the store or a port not answering leaves it queued. It acts as the
    system principal `urn:agentic-erp:audit-evidence-exporter`.
 5. **Dependencies.** The audit context reads tenancy's legal entities,
@@ -147,10 +141,72 @@ and download their files.
    - The covered companies are fixed when the export is asked for; the
      exporter checks only that the requester is still active.
    - Files download as `application/octet-stream` whatever their name.
-   - An export holds at most 200,000 audit events and 200,000 journal
-     lines; a larger one is refused rather than streamed in parts (a
-     multipart write to the store and a streamed download are later).
+   - (Superseded 2026-11-16, below.) An export held at most 200,000 audit
+     events and 200,000 journal lines; a larger one was refused.
+
+7. **Files in parts (review:batch75, 2026-11-16).** Each file is written
+   a part at a time (`internal/platform/jsonl`): a part holds at most
+   50,000 records or 32 MiB (`audit.EvidencePartRecords`,
+   `EvidencePartBytes`) and is kept in the store as it fills, under its
+   content's SHA-256 like a whole file, so an export of any size holds one
+   part of each file in memory and completes. A file within one part keeps
+   its name; one of more is listed in the manifest and in `files` as its
+   parts, `audit_events.part-1.jsonl`, `…part-2.jsonl`, each with its
+   `part` number, SHA-256, size and records, whose records in that order
+   are the file's; each downloads by its name, checked as a file is, and
+   a part of the audit events is withheld as they are. The export's counts
+   add up the parts. The format stays `agentic-erp.audit.evidence.v1`:
+   an export within one part per file is as before. The 200,000-record
+   refusal (`audit.evidence_too_large`, `MaxEvidenceRecords`) and the
+   ledger's `LinesBetween` that served it are removed; an export that
+   failed with that code keeps it. Still held whole: the source documents'
+   ids (some 50 bytes an entry, by which the decisions are read) and the
+   approval requests about them.
 
 Later (plan-breadth-week3 §T101a): samples by the auditor's criteria,
 evidence per control, subledger documents and attachments, a time-limited
 auditor role, audit tools' formats, a signed manifest.
+
+## As built (review:batch74, 2026-11-16): refused writes audited
+
+A write the API refuses with a business outcome (409 or 422 without
+`Retry-After`) rolls its work back; the unit of work keeps the request's
+refusals (`audit.Refuse`, ADR-0046) and writes them with the stored
+answer. Until now only a validation rule's refusal and a refused supplier
+invoice posting were recorded, so the support agent's diagnosis (ADR-0072
+As built, T108b), which reads a document's audit events, could not show
+why any other write on it had not happened. The general mechanism:
+
+- `audit.RefuseProblem(ctx, entry, err)` records a business refusal as the
+  entry with outcome `refused` and detail `source: problem`, the problem's
+  `code` and its field errors' `field` and `code` (`errors`) beside the
+  entry's own detail. The problem's detail and messages are not recorded
+  (decided by default, the safer side; kept by the product owner on
+  2026-11-16): the trail is insert-only and
+  holds no personal data (ADR-0026), and a message may name a partner who
+  is a person, whose data a deletion run blanks everywhere but here. A
+  handler that knows its operation's detail names nobody adds it (the
+  supplier invoice posting does). It records nothing
+  for any other error, for a rule's refusal (audited by the rule) or when
+  a refusal of the same object is buffered already (the handler's own,
+  with more detail), and returns the error given.
+- The HTTP layer applies it to the writes listed in
+  `httpapi.RefusalsAudited` (an ogen middleware inside the unit of work):
+  each operation with the action its success is audited under and the
+  document it is about, its `{id}`, the operation's id in the detail. A
+  write on a document's part (a purchase order's change, a GR/IR
+  clearing, a delivery) is recorded on the document under the part's
+  action. Requests rejected before the write (400, 401, 403, 404, 412,
+  428) record nothing, nor does a body refused as invalid (422
+  `request.validation_failed`), which a handler may answer before it
+  reads the document, so its `{id}` may name none.
+- The list is every write on the documents the support agent diagnoses
+  (`supportagent.Documents`: supplier and customer invoices, journal
+  entries, purchase and sales orders, payment runs, change requests,
+  operations), held to the contract by `TestDiagnosedRefusalsAudited`.
+  `refusedPost` (payables) keeps its own record, which adds the problem's
+  detail and the posting date asked for.
+- Left, and recorded nowhere else: refusals of writes on other contexts'
+  objects, and of creates (they have no object yet). A reader that needs
+  them adds the operations to the list; a create's refusal needs an
+  object of its own first.

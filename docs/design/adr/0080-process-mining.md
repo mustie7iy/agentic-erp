@@ -110,6 +110,11 @@ be computed on read, without storing anything.
   `procurement.ProcessLog`, `payables.ProcessLog`, `payments.ProcessLog`,
   `audit.Trail`; migrations 000339 (permission), 000340 and 000341
   (indexes); `TestEventLogBudget`; walkthrough `step_process_mining`.
+- `getProcessEventLog` reads as of one database state (`x-snapshot`,
+  REPEATABLE READ) and is `x-slo-class: report` with a row in 01 §1.3,
+  as the map is (hnames, review:T103a): `case_count` and the page's
+  cases are separate statements, and a payment run completing between
+  them would have shown a count that disagrees with the page.
 
 ## As built (T103b, the process map)
 
@@ -143,7 +148,7 @@ be computed on read, without storing anything.
   Process mining tools commonly mark a case complete by its end activity
   (stated from memory, not checked against a source); which activities
   end a purchase-to-pay case is this product's choice, listed for the
-  product owner.
+  product owner. Kept by the product owner on 2026-11-16.
 - **Permission** (decided by default): the event log's,
   `processmining.log.read`: the map is that log summed, and whoever may
   read the log can compute it. No new permission, so no migration.

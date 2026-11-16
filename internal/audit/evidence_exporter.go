@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -147,8 +148,8 @@ func (w *EvidenceExporter) settle(ctx context.Context, tx pgx.Tx, x Export, err 
 		"code": p.Code, "detail": p.Detail, "requested_by": x.RequestedBy})
 }
 
-// export writes the export's files and manifest and completes it, once
-// its requester may still act.
+// export writes the export's files, a part at a time, and its manifest
+// and completes it, once its requester may still act.
 func (w *EvidenceExporter) export(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, x Export) error {
 	e := w.Endpoints
 	if err := w.Requesters.MayAct(ctx, tx, x.RequestedBy); err != nil {
@@ -159,21 +160,12 @@ func (w *EvidenceExporter) export(ctx context.Context, tx pgx.Tx, tenant uuid.UU
 		return err
 	}
 	x = xs[0]
-	if err := e.bounded(ctx, tx, tenant, x); err != nil {
-		return err
-	}
-	ev, err := e.build(ctx, tx, tenant, x)
+	built, err := e.build(ctx, tx, tenant, x)
 	if err != nil {
 		return err
 	}
-	for _, name := range fileNames {
-		content := ev.files[name]
-		if err := e.keep(ctx, blobstore.Key(tenant, blobstore.KindEvidence, fileKey(x.ID, name, sha256.Sum256(content))), content); err != nil {
-			return err
-		}
-	}
 	key := manifestKey(tenant, x.ID)
-	manifest, err := e.keepManifest(ctx, key, ev.manifest)
+	manifest, err := e.keepManifest(ctx, key, built)
 	if err != nil {
 		return err
 	}
@@ -212,13 +204,13 @@ func (e *Endpoints) keepManifest(ctx context.Context, key string, manifest []byt
 // audits and publishes it.
 func (w *EvidenceExporter) complete(ctx context.Context, tx pgx.Tx, x Export, key string, manifest []byte) error {
 	var m evidenceManifest
-	if err := json.Unmarshal(manifest, &m); err != nil || m.EvidenceExportID != x.ID || len(m.Files) != len(fileNames) {
+	if err := json.Unmarshal(manifest, &m); err != nil || m.EvidenceExportID != x.ID || !everyFile(m.Files) {
 		return evidenceChanged(key)
 	}
 	sum := sha256.Sum256(manifest)
 	counts := map[string]int32{}
 	for _, f := range m.Files {
-		counts[f.Name] = f.Records
+		counts[fileOf(f.Name)] += f.Records
 	}
 	var broken *int64
 	if m.Chain.FirstBrokenSeq != 0 {
@@ -237,4 +229,17 @@ func (w *EvidenceExporter) complete(ctx context.Context, tx pgx.Tx, x Export, ke
 		"with_client_addresses": x.WithClientAddresses, "requested_by": x.RequestedBy}
 	return trail.Record(ctx, "audit.evidence_export.complete", "audit.evidence_export", x.ID, figures,
 		outbox.Event{Context: "platform", Name: "audit_evidence_exported", AggregateType: "audit.evidence_export", AggregateID: x.ID, Payload: figures})
+}
+
+// everyFile tells whether the manifest's files are the export's: each of
+// them, whole or in parts, and nothing else.
+func everyFile(files []ExportFile) bool {
+	seen := map[string]bool{}
+	for _, f := range files {
+		if !slices.Contains(fileNames, fileOf(f.Name)) {
+			return false
+		}
+		seen[fileOf(f.Name)] = true
+	}
+	return len(seen) == len(fileNames)
 }

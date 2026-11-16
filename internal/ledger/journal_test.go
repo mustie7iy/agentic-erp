@@ -222,6 +222,16 @@ func TestReversalRules(t *testing.T) {
 	e.Problem(409, "ledger.already_reversed", "POST", path, "", now)
 	_, revTag := e.Must(200, "GET", "/v1/journal-entries/"+rev["id"].(string), "", "")
 	e.Problem(409, "ledger.cannot_reverse_reversal", "POST", "/v1/journal-entries/"+rev["id"].(string)+":reverse", "", revTag)
+	// Each refusal is audited on the entry, so its trail shows why it was
+	// not reversed (ADR-0011 As built, review:batch74); the requests the
+	// API rejected before the write (428, 412, 404) are not.
+	var refusals string
+	pgtest.Scan(t, `SELECT string_agg(action || ' ' || (detail->>'code') || ' ' || (detail->>'operation'), ', ' ORDER BY seq) FROM audit.audit_event
+		WHERE object_id = $1 AND outcome = 'refused'`, []any{je["id"]}, &refusals)
+	if want := "ledger.journal_entry.reverse ledger.period_not_open reverseJournalEntry, ledger.journal_entry.reverse ledger.account_not_postable " +
+		"reverseJournalEntry, ledger.journal_entry.reverse ledger.already_reversed reverseJournalEntry"; refusals != want {
+		t.Errorf("refusals audited: got %s, want %s", refusals, want)
+	}
 
 	// Quantities are negated both ways.
 	pos, posTag := e.Must(201, "POST", "/v1/journal-entries", strings.Replace(entry(e.de, "2026-04-02", "EUR", line{bank, "1.00", ""}, line{revenue, "-1.00", ""}),

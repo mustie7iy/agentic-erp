@@ -25,7 +25,7 @@ func TestItemAccountAssignment(t *testing.T) {
 			"requisition_item": func(f fixture, tx pgx.Tx) error {
 				r := id()
 				if err := exec(tx, `INSERT INTO procurement.requisition (tenant_id, id, document_number, legal_entity_id, requester_id, currency, status,
-					created_by, updated_by) VALUES ($1, $2, $3, $4, $5, 'USD', 'draft', $5, $5)`, f.tenant, r, r.String()[24:], f.entity, f.actor); err != nil {
+					requisition_date, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, 'USD', 'draft', '2026-03-10', $5, $5)`, f.tenant, r, r.String()[24:], f.entity, f.actor); err != nil {
 					return err
 				}
 				if err := exec(tx, `INSERT INTO procurement.requisition_item (tenant_id, requisition_id, item_no, description, quantity, uom_code, unit_price,

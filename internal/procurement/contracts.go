@@ -303,7 +303,7 @@ var (
 
 // changeContract applies a status transition; reason is recorded for
 // terminations.
-func changeContract(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, t contractTransition, reason string) (Contract, error) {
+func (e *Endpoints) changeContract(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, t contractTransition, reason string) (Contract, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Contract{}, err
@@ -333,5 +333,5 @@ func changeContract(ctx context.Context, id uuid.UUID, ifMatch func(int32) error
 	if reason != "" {
 		detail["reason"] = reason
 	}
-	return updated, audit.Record(ctx, "procurement.contract."+t.action, "procurement.contract", id, detail, event(t.event, "contract", id, payload))
+	return updated, e.record(ctx, "procurement.contract."+t.action, "procurement.contract", id, detail, event(t.event, "contract", id, payload))
 }

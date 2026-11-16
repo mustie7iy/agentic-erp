@@ -209,14 +209,14 @@ func (e *Endpoints) GetReportRun(ctx context.Context, params gen.GetReportRunPar
 		if one {
 			return nil, problem.Conflict("analytics.report_run_failed", "The run failed: it has no results.")
 		}
-		return e.oneRun(ctx, r, nil)
+		return e.answer(ctx, r, nil)
 	}
 	res, err := e.results(ctx, r)
 	if err != nil {
 		return nil, err
 	}
 	if !one {
-		return e.oneRun(ctx, r, &res)
+		return e.answer(ctx, r, &res)
 	}
 	picked, err := pickResult(res, params.QueryID)
 	if err != nil {
@@ -231,6 +231,15 @@ func (e *Endpoints) GetReportRun(ctx context.Context, params gen.GetReportRunPar
 			"The result was cut at the rows a query answers; a workbook could not say so. Read it as JSON, which does.")
 	}
 	return resultXLSX(picked), nil
+}
+
+// answer is the run as getReportRun answers it as JSON.
+func (e *Endpoints) answer(ctx context.Context, r Run, res *gen.ReportResults) (*gen.ReportRunHeaders, error) {
+	out, err := e.oneRun(ctx, r, res)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.ReportRunHeaders{Response: *out}, nil
 }
 
 // oneRun is a run as getReportRun gives it, with its results when it has
@@ -272,19 +281,26 @@ func pickResult(res gen.ReportResults, queryID gen.OptString) (*analytics.Result
 // resultCSV is a result as CSV: a header row of its columns' names, a
 // money measure followed by its currency's column (<name>_currency), then
 // its rows, a measure that cannot be computed empty (analytics.Records,
-// which the workbook lays out alike).
-func resultCSV(r *analytics.Result) *gen.GetReportRunOKTextCsv {
+// which the workbook lays out alike). A result cut at the rows a query
+// answers says so in Result-Truncated, as its JSON's truncated does: its
+// rows could not (review:T95d).
+func resultCSV(r *analytics.Result) *gen.GetReportRunOKTextCsvHeaders {
 	var b bytes.Buffer
 	w := csv.NewWriter(&b)
 	// A bytes.Buffer never fails a write, so neither does the CSV writer.
 	_ = w.WriteAll(analytics.Records(r))
-	return &gen.GetReportRunOKTextCsv{Data: &b}
+	out := &gen.GetReportRunOKTextCsvHeaders{Response: gen.GetReportRunOKTextCsv{Data: &b}}
+	if r.Truncated {
+		out.ResultTruncated.SetTo(true)
+	}
+	return out
 }
 
 // resultXLSX is a result as an Excel workbook (T95d, ADR-0076 §8).
-func resultXLSX(r *analytics.Result) *gen.GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet {
+func resultXLSX(r *analytics.Result) *gen.GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders {
 	var b bytes.Buffer
 	// A bytes.Buffer never fails a write, so neither does the workbook.
 	_ = analytics.WriteXLSX(&b, analytics.SheetReport, r)
-	return &gen.GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet{Data: &b}
+	return &gen.GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders{
+		Response: gen.GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet{Data: &b}}
 }

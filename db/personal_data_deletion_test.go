@@ -73,7 +73,7 @@ func TestPersonalDataDeleted(t *testing.T) {
 			return []stmt{step(address, s.tenant, s.row, s.partner), step(block, s.partner), step(deleted, s.partner), step(`UPDATE partner.address SET line1 = '[deleted]', city = '[deleted]', line2 = '[deleted]', valid_to = current_date, ended_by = $2 WHERE id = $1`, s.row, s.tenant)}
 		}, "address_personal_fixed"},
 		{"an address blanked and moved", func(s scene) []stmt {
-			return []stmt{step(address, s.tenant, s.row, s.partner), step(`UPDATE partner.address SET line1 = '[deleted]', city = '[deleted]', valid_to = current_date - 1,
+			return []stmt{step(address, s.tenant, s.row, s.partner), step(`UPDATE partner.address SET line1 = '[deleted]', city = '[deleted]', valid_to = current_date - 2,
 				ended_by = $2 WHERE id = $1`, s.row, s.tenant)}
 		}, "validity cannot be ended in the past"},
 		{"a bank account blanked", func(s scene) []stmt {
@@ -119,7 +119,8 @@ func TestPersonalDataDeleted(t *testing.T) {
 // TestDeletionRunRules (T100c, migration 000337; ADR-0079 §12): a run has
 // at least one subject and a configuration version; one queued run per
 // tenant; a completed run has its time and a failed one its code, and
-// neither changes again, nor does a settled subject; what a run and a
+// neither changes again, nor does a settled subject, its skip reason
+// among them (one of four, on a skipped subject only); what a run and a
 // subject are for never changes, and neither is deleted.
 func TestDeletionRunRules(t *testing.T) {
 	need(t)
@@ -175,6 +176,23 @@ func TestDeletionRunRules(t *testing.T) {
 		{"a blanked subject skipped, by the owner", func(s scene) []stmt {
 			return []stmt{queue(s), step(subject, s.tenant, s.run, id(), 0), step(blanked, s.run), step(`SET LOCAL ROLE erp_owner`),
 				step(`UPDATE records.deletion_run_subject SET status = 'skipped' WHERE run_id = $1`, s.run)}
+		}, "deletion_run_subject_settled_fixed"},
+		{"a subject skipped with its reason", func(s scene) []stmt {
+			return []stmt{queue(s), step(subject, s.tenant, s.run, id(), 0),
+				step(`UPDATE records.deletion_run_subject SET status = 'skipped', skip_reason = 'open_item', settled_at = now() WHERE run_id = $1`, s.run)}
+		}, ""},
+		{"an unknown skip reason", func(s scene) []stmt {
+			return []stmt{queue(s), step(subject, s.tenant, s.run, id(), 0),
+				step(`UPDATE records.deletion_run_subject SET status = 'skipped', skip_reason = 'tired', settled_at = now() WHERE run_id = $1`, s.run)}
+		}, "deletion_run_subject_skip_reason_check"},
+		{"a blanked subject with a skip reason", func(s scene) []stmt {
+			return []stmt{queue(s), step(subject, s.tenant, s.run, id(), 0),
+				step(`UPDATE records.deletion_run_subject SET status = 'blanked', skip_reason = 'open_item', settled_at = now() WHERE run_id = $1`, s.run)}
+		}, "deletion_run_subject_skip_reason_skipped_check"},
+		{"a skipped subject's reason changed, by the owner", func(s scene) []stmt {
+			return []stmt{queue(s), step(subject, s.tenant, s.run, id(), 0),
+				step(`UPDATE records.deletion_run_subject SET status = 'skipped', skip_reason = 'open_item', settled_at = now() WHERE run_id = $1`, s.run),
+				step(`SET LOCAL ROLE erp_owner`), step(`UPDATE records.deletion_run_subject SET skip_reason = 'block_lifted' WHERE run_id = $1`, s.run)}
 		}, "deletion_run_subject_settled_fixed"},
 		{"a subject's partner changed", func(s scene) []stmt {
 			return []stmt{queue(s), step(subject, s.tenant, s.run, id(), 0), step(`UPDATE records.deletion_run_subject SET partner_id = gen_random_uuid() WHERE run_id = $1`, s.run)}

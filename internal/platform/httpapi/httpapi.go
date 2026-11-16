@@ -86,7 +86,7 @@ type Pipeline struct {
 func New(h gen.Handler, p Pipeline) (http.Handler, error) {
 	srv, err := gen.NewServer(h, security{},
 		gen.WithErrorHandler(errorHandler(p.Log)),
-		gen.WithMiddleware(authorize(authz.New(api.MustOperations()))),
+		gen.WithMiddleware(authorize(authz.New(api.MustOperations())), auditRefusals(RefusalsAudited)),
 		gen.WithNotFound(func(w http.ResponseWriter, r *http.Request) {
 			problem.Write(w, r, problem.NotFound("No such endpoint."))
 		}),

@@ -434,11 +434,11 @@ func TestEvidenceExportFile(t *testing.T) {
 type evidenceStore struct {
 	blobstore.Store
 	put, get error
-	suffix   string // the keys whose writes fail; "": every key
+	suffix   string // what the keys whose writes fail hold; "": every key
 }
 
 func (s evidenceStore) Put(ctx context.Context, key string, content []byte, opts blobstore.PutOptions) error {
-	if s.put != nil && strings.HasSuffix(key, s.suffix) {
+	if s.put != nil && strings.Contains(key, s.suffix) {
 		return s.put
 	}
 	return s.Store.Put(ctx, key, content, opts)
@@ -449,4 +449,45 @@ func (s evidenceStore) Get(ctx context.Context, key string) ([]byte, string, err
 		return nil, "", s.get
 	}
 	return s.Store.Get(ctx, key)
+}
+
+// TestEvidenceExportInParts: a file of more records than a part holds is
+// written and served in parts, numbered from 1, whose records together
+// are the file's and whose counts add up to the export's; a file within
+// one part keeps its name; a name the manifest does not list is not found
+// (review:batch75).
+func TestEvidenceExportInParts(t *testing.T) {
+	e := setupEvidence(t)
+	id := e.queue(t)
+	w := e.exporter(t)
+	w.Endpoints.PartRecords = 1
+	if _, err := w.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := e.export(t, id)
+	var names []string
+	records := map[string]int{}
+	for _, f := range apitest.List(t, got, "files") {
+		f := f.(map[string]any)
+		name := f["name"].(string)
+		names = append(names, fmt.Sprint(name, " ", f["part"]))
+		code, content := e.file(t, id, name)
+		if code != http.StatusOK || len(jsonLines(t, content)) != int(f["records"].(float64)) {
+			t.Errorf("%s: got %d with %d records, want 200 with %v", name, code, len(jsonLines(t, content)), f["records"])
+		}
+		stem, _, _ := strings.Cut(name, ".")
+		records[stem] += len(jsonLines(t, content))
+	}
+	if want := "journal_entries.part-1.jsonl 1, journal_entries.part-2.jsonl 2, approval_decisions.jsonl <nil>"; !strings.HasSuffix(strings.Join(names, ", "), want) ||
+		!strings.HasPrefix(names[0], "audit_events.part-1.jsonl 1") {
+		t.Errorf("files: got %s, want the audit events and the entries in parts, then %s", strings.Join(names, ", "), want)
+	}
+	if fmt.Sprint(records["audit_events"], " ", records["journal_entries"], " ", records["approval_decisions"]) !=
+		fmt.Sprint(got["audit_event_count"], " ", got["journal_entry_count"], " ", got["approval_decision_count"]) {
+		t.Errorf("records in the parts: got %v, want the export's counts %v %v %v", records, got["audit_event_count"], got["journal_entry_count"],
+			got["approval_decision_count"])
+	}
+	for _, name := range []string{"journal_entries.jsonl", "journal_entries.part-3.jsonl"} {
+		e.as(t).Problem(404, "request.not_found", "GET", "/v1/audit-evidence-exports/"+id+"/files/"+name, "", "")
+	}
 }

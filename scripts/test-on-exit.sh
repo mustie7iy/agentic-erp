@@ -2,7 +2,8 @@
 # Tests scripts/lib/on-exit.sh, and that every script under scripts/ that
 # cleans up on exit does it through on_exit and says when it finished: a
 # bare `trap … EXIT` exits 0 after an unbound variable under macOS's bash
-# 3.2, which make walkthrough and make ci-local run on (review:T61j).
+# 3.2, which `#!/usr/bin/env bash` finds when Homebrew's bash 5 is not
+# first on PATH (review:T61j; make walkthrough refuses it, ci:batch75).
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"

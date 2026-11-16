@@ -135,7 +135,7 @@ func TestSnapshotOperations(t *testing.T) {
 	for id, want := range map[string]bool{"getCashPosition": true, "getAssetHistorySheet": true, "previewDepreciationRun": true,
 		"getAsset": true, "listAssets": true, "getAssetSchedule": true, "getAssetAcquisition": true, "listAssetAcquisitions": true,
 		"getAssetRetirement": true, "listAssetRetirements": true, "getAssetTransfer": true, "listAssetTransfers": true, "getDepreciationRun": true,
-		"listDepreciationRuns": true, "listAssetClearingItems": true,
+		"listDepreciationRuns": true, "listAssetClearingItems": true, "getProcessEventLog": true, "getProcessMap": true,
 		"getBankReconciliation": false, "listBalances": false, "listAssetMovements": false, "listAssetClasses": false} {
 		t.Run(id, func(t *testing.T) {
 			if got := ops[id].Snapshot; got != want {

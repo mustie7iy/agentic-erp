@@ -2671,9 +2671,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "fetchEInvoices audits its request in the caller's name (ADR-0011): starting the fetch records nothing for the person who asked, and what the fetch records it records as the system, so the audit trail does not show who fetched; the access agent classes einvoicing.einvoice.manage as use not recorded until then (accessagent.Unaudited, which then empties)",
-        "r": "internal/einvoicing/fetch.go FetchEInvoices · internal/accessagent Unaudited · ADR-0072 As built T106a",
+        "r": "internal/einvoicing/fetch.go FetchEInvoices · internal/accessagent Unaudited · ADR-0072 As built T106a · einvoicing.fetch.request audit record · accessagent.Unaudited removed · ADR-0061 As built",
         "src": "review:T106a",
         "c": []
        },
@@ -3669,9 +3669,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "CostCenterPlanActual and PlanLine give cost_center_id and account_id with no code, number or name: a consumer, the planning agent among them, has to read the cost centers and the accounts again to name a line (an identifier without the name its consumer needs, found in T105e's review).",
-        "r": "api/openapi.yaml CostCenterPlanActual, PlanLine · internal/planningagent (listAccounts, cost center reads)",
+        "r": "api/openapi.yaml CostCenterPlanActual, PlanLine · internal/planningagent (listAccounts, cost center reads) · done in hnames: PlanLine, CostCenterPlanActual and ProfitCenterPlanActual name centers by code and name and accounts by number and name (ledger AssignmentBalances.CenterNames, AccountNames; idref.Resolve); planactual_test, controlling_test; ADR-0050 as built",
         "src": "review:T105e",
         "c": []
        },
@@ -3922,9 +3922,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A purchase order's update, its changes' create, update and submit, and a requisition's and order's bodiless submit and release name their field errors by the request's fields: legal_entity_id (procurement common.go legalEntity on the stored order), items and items[i].<field> (order_change_apply.go invalidChange, assignment.go, ledger itemassign.go asItems) are fields those requests do not have (an API-consumer class, REVIEW.md)",
-      "r": "found in apinames4's sweep of the class (review:batch26 bootstrap leaf) · internal/procurement common.go :173, :178 from purchase_orders.go updateOrder (:478) and order_changes.go proposal (:280) · order_change_apply.go :34, :62 · assignment.go :36, :88 · purchase_orders.go :606 · ledger itemassign.go :78",
+      "r": "found in apinames4's sweep of the class (review:batch26 bootstrap leaf) · internal/procurement common.go :173, :178 from purchase_orders.go updateOrder (:478) and order_changes.go proposal (:280) · order_change_apply.go :34, :62 · assignment.go :36, :88 · purchase_orders.go :606 · ledger itemassign.go :78 · done in hnames by default (listed for the product owner): a refusal on an action over a stored document names the document's field as its GET returns it, which keeps the item or supplier refused and the reason code (ADR-0050); 04 §4.6 states the rule. Dropping those field errors was built and withdrawn in review round 1: it lost the locator and the reason",
       "src": "review:batch26",
       "c": []
      }
@@ -3957,7 +3957,7 @@
       "c": []
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "Expiry and renewal alerts",
       "r": "contracts/{id}:renew · procurement.ContractExpirer · migration 000066 · T47g",
       "c": [
@@ -3983,9 +3983,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Procurement's other events name the supplier by its number and name and the company by its code beside supplier_id and legal_entity_id, as ContractExpired and ContractExpiring do since batch 28: ContractActivated, ContractTerminated, ContractCancelled, RequisitionSubmitted and the purchase order events (Released, Changed, Cancelled, Closed) give both ids alone; the goods movement, requisition decision and GrIrCleared events give legal_entity_id alone",
-        "r": "api/asyncapi.yaml procurement channel · internal/procurement purchase_orders.go (orderEvent), order_change_apply.go, contracts.go, requisitions · expiry_names.go eventNames is the pattern (optional fields, eventcompat) · REVIEW.md API-consumer class: an identifier without the name its consumer needs · ADR-0034 as built (a contract's expiry events name the company and the supplier)",
+        "r": "api/asyncapi.yaml procurement channel · internal/procurement purchase_orders.go (orderEvent), order_change_apply.go, contracts.go, requisitions · expiry_names.go eventNames is the pattern (optional fields, eventcompat) · REVIEW.md API-consumer class: an identifier without the name its consumer needs · ADR-0034 as built (a contract's expiry events name the company and the supplier) · done in hnames: every listed event gives legal_entity_code and supplier_number (never supplier_name, product owner 2026-11-05), optional within v1, through Endpoints.record (event_names.go); TestNamedEvents; ADR-0034 as built (hnames)",
         "src": "review:batch28",
         "c": []
        }
@@ -4877,9 +4877,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Capture operations can answer 404 for an unknown upload id but declare no 404 in api/openapi.yaml for captureSalesOrder (pre-existing, found in batch 74 in T90a's lane).",
-        "r": "api/openapi.yaml captureSalesOrder · docs/design/adr/0067-sales-documents.md As built T90a",
+        "r": "api/openapi.yaml captureSalesOrder · docs/design/adr/0067-sales-documents.md As built T90a · done in hnames: captureSalesOrder declares 404, both captures' upload_id say an unknown upload is 404 request.not_found; TestCaptureOrderRefusals (an unknown upload)",
         "src": "review:batch74",
         "c": []
        },
@@ -6006,9 +6006,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The T99b archiver builds a whole fiscal year in memory before it writes its file: a company with a very large year holds all its rows at once (found in batch 75's integration; it should write the year in parts).",
-        "r": "internal/records archiving run · records.archiving_run · GET /v1/archiving-runs/{id}/file · ADR-0079",
+        "r": "internal/records archiving run · records.archiving_run · GET /v1/archiving-runs/{id}/file · ADR-0079 · written in parts (internal/platform/jsonl), migration 000345 parts, ArchiveFile.parts and ?part=",
         "src": "review:batch75",
         "c": []
        },
@@ -6340,9 +6340,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A deletion run's subjects carry no skip reason: a subject the run did not delete shows that it was skipped but not why (lane C, batch 74).",
-        "r": "records.deletion_run_subject · T100c · docs/design/adr/0079-retention-archiving-personal-data.md §12",
+        "r": "records.deletion_run_subject · T100c · docs/design/adr/0079-retention-archiving-personal-data.md §12 · migration 000344 skip_reason · partner.Privacy.Blank reasons · PersonalDataDeletionSubject.skip_reason",
         "src": "review:batch74",
         "c": []
        },
@@ -6751,9 +6751,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A CSV export says what its JSON says: erp query -csv (analytics.WriteCSV) writes a money measure without its currency's column, so a column mixing currencies has amounts without their currency, and getReportRun's CSV leaves out that a kept result was truncated (pre-existing findings on T95d's review; the workbook refuses a truncated result)",
-      "r": "internal/analytics/render.go WriteCSV · internal/analytics/reports/runs_api.go resultCSV · ADR-0076 §8",
+      "r": "internal/analytics/render.go WriteCSV · internal/analytics/reports/runs_api.go resultCSV · ADR-0076 §8 · done in hnames: WriteCSV writes analytics.Records (currency columns); getReportRun's CSV gives Result-Truncated: true for a truncated result; TestWriteCSV, failures_test 'a truncated result as CSV'; ADR-0076 as built",
       "src": "review:T95d",
       "c": []
      },
@@ -6902,9 +6902,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "getProcessEventLog has no x-snapshot, no x-slo-class report and no row in 01 §1.3: its case_count and its page are separate statements, so a page can disagree with the count beside it (found in T103a's review).",
-        "r": "api/openapi.yaml getProcessEventLog · internal/processmining · docs/design/01-requirements.md §1.3",
+        "r": "api/openapi.yaml getProcessEventLog · internal/processmining · docs/design/01-requirements.md §1.3 · done in hnames: x-snapshot and x-slo-class report on getProcessEventLog, 01 §1.3's row (TestEventLogBudget p95 0.1-0.28 s), TestSnapshotOperations, ADR-0080 as built",
         "src": "review:T103a",
         "c": []
        },
@@ -9850,16 +9850,16 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "An index on approval_request.object_id: the evidence export and the approvals read an object's requests by its id and, without the index, read the tenant's requests (found in batch 75's integration; a migration, expand-only, built concurrently).",
-        "r": "approvals.approval_request (object_id) · audit evidence export reads · 06 §6.4 (indexes built concurrently)",
+        "r": "approvals.approval_request (object_id) · audit evidence export reads · 06 §6.4 (indexes built concurrently) · migration 000343 approval_request_by_object · 03-data-model approvals",
         "src": "review:batch75",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "An evidence export cannot stream beyond its 200,000-row cap: an auditor whose company and period hold more rows is refused instead of served in parts, so the export has to be split by hand into periods (found in batch 75's integration).",
-        "r": "internal/audit evidence export · audit.evidence_export · GET /v1/audit-evidence-exports/{id}/file · ADR-0011 As built",
+        "r": "internal/audit evidence export · audit.evidence_export · GET /v1/audit-evidence-exports/{id}/file · ADR-0011 As built · files written and served in parts (internal/platform/jsonl, AuditEvidenceFile.part) · audit.evidence_too_large removed",
         "src": "review:batch75",
         "c": []
        },
@@ -10623,9 +10623,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Refusals of writes other than supplier invoice posting are not audited, so the support agent's diagnosis cannot show their cause: only a refused supplier invoice post leaves an audit record the diagnosis reads (lane D gap, found in batch 74).",
-        "r": "internal/supportagent Diagnose · audit capability (ADR-0011) · internal/payables (the one refused write audited)",
+        "r": "internal/supportagent Diagnose · audit capability (ADR-0011) · internal/payables (the one refused write audited) · audit.RefuseProblem · httpapi.RefusalsAudited (every write on supportagent.Documents) · ADR-0011 As built 2026-11-16",
         "src": "review:batch74",
         "c": []
        },
@@ -11339,9 +11339,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Contract procurement.requisition.requisition_date: drop its UTC default once no release before T72n5 runs, so an insert path that leaves the date out fails instead of dating the requisition in UTC",
-        "r": "found in T72n5 review round 1 · migration 000170 (the default bridges the previous release in a mixed cell, 06 §6.4 expand / contract) · ADR-0051 as built (T72n5)",
+        "r": "found in T72n5 review round 1 · migration 000170 (the default bridges the previous release in a mixed cell, 06 §6.4 expand / contract) · ADR-0051 as built (T72n5) · done in hdates: migration 000346 drops the default; the condition holds, no cell has been deployed (PO 2026-11-02, deployment last) · ADR-0051 as built (business dates swept) · TestRequisitionDate",
         "src": "review:batch26",
         "c": []
        },
@@ -11367,10 +11367,38 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Identity, grc and integration still call database.Today for business dates where the company's day belongs: a date they stamp or compare is UTC's, off by a day for a company in Toronto between 19:00 and 24:00 (found in batch 75's integration; the contexts T72n4 to T72n6 and batch 74 moved are not among them).",
-        "r": "internal/identity · internal/grc · internal/integration (database.Today) · ADR-0051 · tenancy.LegalEntities company day",
-        "src": "review:batch75",
+        "r": "internal/identity · internal/grc · internal/integration (database.Today) · ADR-0051 · tenancy.LegalEntities company day · checked in hdates: integration has dated by partner's day (partner.Migration.Today) and its cutover by each company's day since batch 74, no database.Today left; identity's grant and role-permission dates (grants.go, roles.go) are the dates authorization is judged on, which authz and directory read as current_date in SQL and the end_validity trigger (000001) enforces, tenant-wide with no one company; grc's tested_on and links' state follow identity's day (ADR-0078). Moving them is security posture: the product owner kept them on UTC's day on 2026-11-16 (ADR-0051 as built), nothing to build · the same class in the schema, fixed in hdates: platform.end_validity refused ending a partner address or bank account before UTC's current_date while partner ends them on partner's day; migration 000347 allows the day before for those two tables (trigger argument company_day) · TestPartnerValidityCompanyDay",
+        "src": "review:batch75 · po:2026-11-16",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "An evidence file asked whole when it was written in parts answers 404, while the archive asked whole answers 409: one answer for both (found in batch 76's integration).",
+        "r": "internal/audit evidence export · internal/records archiving run file · GET /v1/archiving-runs/{id}/file · ADR-0079 · internal/platform/jsonl parts",
+        "src": "review:batch76",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "archiving_run_completed does not carry the number of parts an archive was written in, so a consumer of the event cannot tell how many files to fetch.",
+        "r": "internal/records archiving run · archiving_run_completed (asyncapi) · migration 000345 parts · ADR-0079",
+        "src": "review:batch76",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "walkcheck's countsMatches misses a grep called as /usr/bin/grep, zgrep or `command grep`, so a substitution counting with them can end with status 1 unguarded.",
+        "r": "cmd/erp walkthrough_status_test.go countsMatches · scripts/walkthrough.sh · 06 §6.5",
+        "src": "review:batch76",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "PlanBatch (plan_category_id, legal_entity_id), SupplierCompany (legal_entity_id, reconciliation_account_id) and BusinessPartner's ids still give ids without a name or code beside them (pre-existing; found by the hnames sweep).",
+        "r": "api/openapi.yaml PlanBatch, BusinessPartner, SupplierCompany · ADR-0050 names beside ids · hnames sweep (review:batch26)",
+        "src": "review:batch76",
         "c": []
        },
        {
@@ -11476,9 +11504,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "suppliers.OrderAddress takes the tenant-wide day, not the company's: the supplier's order desk address in force on a date is chosen on UTC's (database.Today) day where the company's own day decides, the business date class of ADR-0051 (found in batch 75's integration).",
-      "r": "internal/suppliers OrderAddress · database.Today · ADR-0051 · ADR-0050 (business dates on the company's day)",
+      "r": "internal/suppliers OrderAddress · database.Today · ADR-0051 · ADR-0050 (business dates on the company's day) · done in hdates: partner ports.go Suppliers.OrderAddress takes the caller's day; procurement order_document.go documentOf passes the buyer company's config.CompanyDay · ADR-0051 as built (business dates swept), ADR-0054 §3 · TestOrderDocumentTimeZone · TestOrderDocumentZoneLost · TestOrderAddress",
       "src": "review:batch75",
       "c": []
      }

@@ -210,6 +210,14 @@ run written again writes the same bytes. The API gives the manifest's figures an
 its SHA-256 on the run; the manifest itself stays in object storage
 beside the file.
 
+The archiver writes the file a part at a time (review:batch75; As built
+"Archive files in parts"): a year of more than 50,000 entries or 32 MiB
+is kept as its parts, `<run id>.part-1.jsonl`, `…part-2.jsonl`, each
+entries whole, whose content in order is the file; the manifest and the
+run list them (`parts`: number, name, SHA-256, size, entries) while the
+file's SHA-256 and size stay the whole file's. A year within one part is
+one object, `<run id>.jsonl`, as before.
+
 ### 8. The API and its permission
 
 `POST /v1/archiving-runs` (201 queued, 200 for the run there already; 503
@@ -363,7 +371,10 @@ the next pending subject by number `FOR UPDATE`, and blanks it through
 `partner.Privacy.Blank`, which holds the partner `FOR UPDATE` (as a block
 and its lifting do) and blanks it only if its personal data is still
 blocked since the moment the run saw and it has no open item (§11):
-otherwise the subject is `skipped`.
+otherwise the subject is `skipped`, with the reason Blank gives
+(`skip_reason`: `already_deleted`, `block_lifted`, `blocked_again` or
+`open_item`), kept on the subject, listed with it and in its audit
+record (`records.deletion_run.skip`).
 A blanked subject is audited (`records.deletion_run.blank`) and published
 as PersonalDataDeleted, by ids only; with no subject pending the run
 completes. A step run again after a commit whose acknowledgement was lost
@@ -645,3 +656,39 @@ question for the legal specialists before any period is shipped (plan,
   block can no longer be lifted.
 - Decided by default while building: the defaults 19 to 23 above.
 
+### Skip reasons (migration 000344, review:batch74)
+
+- Migration 000344: `records.deletion_run_subject.skip_reason`, one of
+  four (`deletion_run_subject_skip_reason_check`), on a skipped subject
+  only (`deletion_run_subject_skip_reason_skipped_check`), fixed with the
+  rest of a settled subject; expand-only, so a subject skipped before it
+  has none (`db/personal_data_deletion_test.go`).
+- `partner.Privacy.Blank` returns why it left a partner (`Skip*`
+  constants, "" for blanked) instead of a boolean; the deleter keeps it
+  on the subject and in the skip's audit detail; `skip_reason` on
+  `PersonalDataDeletionSubject` (open enumeration). Walkthrough
+  `privacy_delete` lists it with a skipped subject's status.
+
+### Archive files in parts (migration 000345, review:batch75)
+
+- The archiver no longer builds a year in memory: it encodes entries
+  through `internal/platform/jsonl` into parts of at most 50,000 entries
+  or 32 MiB (`records.ArchivePartEntries`, `ArchivePartBytes`), hashing
+  the whole file as it goes, and holds the first part until a second
+  shows the file needs parts, so at most two parts are in memory. A year
+  within one part is written whole under `<run id>.jsonl`, as before; a
+  larger one as `<run id>.part-<n>.jsonl`, each kept write-once (the same
+  bytes again are taken as written, a run again after a lost commit).
+- Migration 000345: `records.archiving_run.parts` (jsonb, two or more,
+  only on a run with a file, `archiving_run_parts_check`;
+  `db/records_test.go`); `object_key` names the first part.
+- API: `ArchiveFile.parts` (`ArchiveFilePart`: part, name, SHA-256, size,
+  entries) and `part` on `GET /v1/archiving-runs/{id}/file`, each part
+  checked against its SHA-256; a file in parts is not handed out whole
+  (409 `records.archive_in_parts`), since a response is held whole until
+  its transaction ends; a part it does not have is 404. A file within one
+  part is its part 1.
+- Decided by default: the parts are the stored form, not a transport (the
+  manifest names them, so an auditor checks each part and the whole);
+  the format stays `agentic-erp.records.journal_entry.v1`, a manifest of a
+  file in parts adding `parts`.

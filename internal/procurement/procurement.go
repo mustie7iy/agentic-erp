@@ -48,7 +48,7 @@ type Suppliers interface {
 	PaymentTermExists(ctx context.Context, code string) (bool, error)
 	// PaymentTerm and OrderAddress fill the order document (ADR-0054).
 	PaymentTerm(ctx context.Context, code string) (partner.PaymentTerm, bool, error)
-	OrderAddress(ctx context.Context, partnerID uuid.UUID) (partner.Address, bool, error)
+	OrderAddress(ctx context.Context, partnerID uuid.UUID, day time.Time) (partner.Address, bool, error)
 }
 
 // SupplierNames reads suppliers' numbers and names (partner context), for
@@ -193,23 +193,24 @@ type Invoices interface {
 	Invoiced(ctx context.Context, purchaseOrder uuid.UUID) (map[int32]string, error)
 }
 
-// Approvals moves requisitions on when their approval requests complete.
-type Approvals struct{}
+// Approvals moves requisitions on when their approval requests complete;
+// Endpoints names the company in the events of the decision.
+type Approvals struct{ Endpoints *Endpoints }
 
 // Approved approves the requisition.
-func (Approvals) Approved(ctx context.Context, requisition, _ uuid.UUID) error {
-	return decide(ctx, requisition, Approved, "requisition_approved")
+func (h Approvals) Approved(ctx context.Context, requisition, _ uuid.UUID) error {
+	return h.Endpoints.decide(ctx, requisition, Approved, "requisition_approved")
 }
 
 // Rejected rejects the requisition.
-func (Approvals) Rejected(ctx context.Context, requisition, _ uuid.UUID, _ string) error {
-	return decide(ctx, requisition, Rejected, "requisition_rejected")
+func (h Approvals) Rejected(ctx context.Context, requisition, _ uuid.UUID, _ string) error {
+	return h.Endpoints.decide(ctx, requisition, Rejected, "requisition_rejected")
 }
 
 // Cancelled returns the requisition to draft: its requester withdrew the
 // approval request to change it.
-func (Approvals) Cancelled(ctx context.Context, requisition, _ uuid.UUID, _ string) error {
-	return decide(ctx, requisition, Draft, "")
+func (h Approvals) Cancelled(ctx context.Context, requisition, _ uuid.UUID, _ string) error {
+	return h.Endpoints.decide(ctx, requisition, Draft, "")
 }
 
 // OrderReleases moves a purchase order on when its purchase_order approval

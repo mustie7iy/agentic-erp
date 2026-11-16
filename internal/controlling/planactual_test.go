@@ -73,11 +73,22 @@ func (c compared) compareBy(t *testing.T, kind, query string) []string {
 		if !ok {
 			pct = "-"
 		}
-		center := c.code(r[kind+"_center_id"].(string))
-		if center == c.pc2.String() {
-			center = "PC2"
+		// The row names its center and account beside their ids
+		// (review:T105e), as the fixture's labels give them.
+		center, account := r[kind+"_center_code"].(string), r["account_number"].(string)
+		if label := c.code(r[kind+"_center_id"].(string)); label != center && center != "PC2" {
+			t.Errorf("center code: got %s, want %s", center, label)
 		}
-		out = append(out, fmt.Sprintf("%s/%s %v %v %v %s", center, c.code(r["account_id"].(string)), amount("plan"),
+		if label := c.code(r["account_id"].(string)); label != account {
+			t.Errorf("account number: got %s, want %s", account, label)
+		}
+		if want := map[string]string{"cost": "CC " + center, "profit": strings.Replace(center, "PC", "PC ", 1)}[kind]; r[kind+"_center_name"] != want {
+			t.Errorf("center name: got %v, want %s", r[kind+"_center_name"], want)
+		}
+		if name, _ := r["account_name"].(string); name == "" {
+			t.Errorf("account name: got none for %s", account)
+		}
+		out = append(out, fmt.Sprintf("%s/%s %v %v %v %s", center, account, amount("plan"),
 			amount("actual"), amount("variance"), pct))
 	}
 	if tok, ok := page["next_page_token"].(string); ok {

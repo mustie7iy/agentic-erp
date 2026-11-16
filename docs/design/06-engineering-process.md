@@ -615,6 +615,20 @@ larger or self-hosted ones:
     longer cancelled by a newer one, and `merge-pr.sh` reads a full run's
     jobs when GitHub does not call it a success (the red-`main` rule
     above).
+  - 2026-11-16 (ci:batch75): batch 75's pull request stopped in the
+    walkthrough on GitHub after `make walkthrough` passed locally: macOS's
+    `/bin/bash` 3.2 runs a lone simple command in `$(…)` without the ERR
+    trap (and without the substitution's EXIT trap), so `stop_unseen` missed
+    `$(grep -c …)` ending with status 1 for a count of 0, which bash 5 on
+    the runners stops on. Layer: the machine checks, which ran the
+    walkthrough under a different bash on each side. Changed:
+    `scripts/walkthrough.sh` refuses a bash older than 5 (what the runners have), naming
+    `brew install bash` (`TestWalkthroughRefusesOldBash`, run where
+    `/bin/bash` is that old), and `TestWalkthroughToleratedStatus` refuses a
+    substitution in the walkthrough's scripts holding `grep -c`, or a lone
+    `grep`, `diff` or `cmp`, without `|| true` inside it; the fifteen it
+    found say so, and the approvers' permissions fail by name when none is
+    found.
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only
   documentation changed (`docs/`, Markdown) since the base: a pull

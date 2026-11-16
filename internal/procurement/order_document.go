@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -78,7 +79,13 @@ func (e *Endpoints) documentOf(ctx context.Context, tx pgx.Tx, o PurchaseOrder) 
 	if d.supplier, ok, err = e.Suppliers.Supplier(ctx, o.SupplierID, o.LegalEntityID); err != nil || !ok {
 		return d, missing(err, ok, "supplier "+o.SupplierID.String(), o.ID)
 	}
-	a, ok, err := e.Suppliers.OrderAddress(ctx, o.SupplierID)
+	// The document goes out today from the buyer's company: its address
+	// is chosen on that company's date, in its time zone (ADR-0051).
+	today, err := doc.CompanyDay(d.buyer.Code, clock.Now(e.Now))
+	if err != nil {
+		return d, fmt.Errorf("procurement: document of purchase order %s: %w", o.ID, err)
+	}
+	a, ok, err := e.Suppliers.OrderAddress(ctx, o.SupplierID, today.Date)
 	if err != nil {
 		return d, fmt.Errorf("procurement: document of purchase order %s: %w", o.ID, err)
 	}
@@ -176,7 +183,7 @@ func (d orderDocument) buyerBlock(b *strings.Builder) {
 }
 
 // supplierBlock writes the supplier with its order_from address valid
-// today, else its legal one (ADR-0054 §3).
+// on the buyer company's date today, else its legal one (ADR-0054 §3).
 func (d orderDocument) supplierBlock(b *strings.Builder) {
 	b.WriteString("\nSupplier\n")
 	line(b, "  %s (supplier %s)", d.supplier.Name, d.supplier.Number)

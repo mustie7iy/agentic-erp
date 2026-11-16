@@ -599,6 +599,34 @@ fiscal year. Tracked as the item that follows this one.
   writes both (`eventNames.publish`), in the round's transaction, until
   2027-11-05. The partner read stays, for `supplier_number` and for `.v1`.
 
+## As built (hnames): procurement's other events name the company and the supplier (review:batch28)
+
+- **Decision.** The events that still gave the company and the supplier by
+  id alone now give `legal_entity_code` beside `legal_entity_id` and
+  `supplier_number` beside `supplier_id`, as the expiry events, the RFQ
+  events and `ScheduleLineChanged` do: `RequisitionSubmitted` (the
+  suggested supplier's number when one is suggested), the requisition's
+  decisions, cancellation and ordering, `PurchaseOrderReleased`,
+  `PurchaseOrderChanged`, `PurchaseOrderCancelled`, `PurchaseOrderClosed`,
+  `ContractActivated`, `ContractTerminated`, `ContractCancelled`, the goods
+  movements (`GoodsReceived`, `GoodsReturned`, `GoodsReceiptReversed`),
+  `GrIrCleared` and `CatalogItemChanged` (which gave the supplier's number
+  already). Never the supplier's name: these events are offered to
+  webhooks, and the product owner refused supplier names there on
+  2026-11-05 (ADR-0041 as built), so the leaf's "number and name" is built
+  as the number alone. Optional within `.v1`, as the expiry events' were.
+  Kept by the product owner on 2026-11-16: procurement events carry the
+  supplier number only.
+- **Where.** One place: `Endpoints.record` (`event_names.go`) names every
+  event a procurement write publishes before `audit.Record` writes it to
+  the outbox, from the payload's own `legal_entity_id` and `supplier_id`,
+  through the directory (`LegalEntities.Entity`) and the partner context
+  (`Partners.Names`, `idref.Resolve`); a payload that names them already
+  is left as it is. A company or supplier the directory does not hold, or
+  either failing, fails the write rather than publishing an unnamed event.
+  The requisition's approval port (`Approvals`) now carries the
+  endpoints, as `OrderReleases` and `GRIRClearings` do.
+
 ## As built (apqty): a receipt's reversal is held to what is invoiced
 
 - **Decision.** A goods receipt's reversal (102) is refused (409

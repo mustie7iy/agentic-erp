@@ -19061,19 +19061,29 @@ paths:
       tags:
         - records
       summary: Download an archiving run's file
-      description: "The archive file of a completed archiving run (ADR-0079 §7, T99b), byte for byte as the archiver wrote it to object storage, in JSON Lines (`application/x-ndjson`): one journal entry of the year per line, of every ledger, by posting date, each with its lines, in the form ADR-0079 §7 documents. Its SHA-256 is the run's `sha256`, checked before it is handed out (409 `records.archive_changed` when the stored file no longer matches). A run not completed has no file (409 `records.archive_not_completed`). The file holds every entry of the year whole, so besides `records.archive.run` the caller needs `ledger.entry.read` (`x-also-permissions`). Human-only (`x-agent: false`). 503 while the server has no object storage or the store does not answer. A run of a legal entity the caller cannot act in is not found."
+      description: "The archive file of a completed archiving run (ADR-0079 §7, T99b), byte for byte as the archiver wrote it to object storage, in JSON Lines (`application/x-ndjson`): one journal entry of the year per line, of every ledger, by posting date, each with its lines, in the form ADR-0079 §7 documents. Its SHA-256 is the run's `sha256`, checked before it is handed out (409 `records.archive_changed` when the stored file no longer matches). A file of more than 50,000 entries (or 32 MiB) is written in parts, which `file.parts` lists: each downloads with `part` (from 1), checked against its own SHA-256, and the parts in order are the file; such a file is not handed out whole (409 `records.archive_in_parts`), and a part it does not have is not found. A run not completed has no file (409 `records.archive_not_completed`). The file holds every entry of the year whole, so besides `records.archive.run` the caller needs `ledger.entry.read` (`x-also-permissions`). Human-only (`x-agent: false`). 503 while the server has no object storage or the store does not answer. A run of a legal entity the caller cannot act in is not found."
       x-permission: records.archive.run
       x-also-permissions:
         - ledger.entry.read
       x-agent: false
       x-problem-codes:
         - records.archive_changed
+        - records.archive_in_parts
         - records.archive_not_completed
       parameters:
         - $ref: "#/components/parameters/Id"
+        - name: part
+          in: query
+          required: false
+          description: "A part of a file written in parts, its number from 1 (`file.parts`); a file within one part is its part 1."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100000
       responses:
         "200":
-          description: The archive file.
+          description: The archive file, or the part asked for.
           content:
             application/x-ndjson:
               schema:
@@ -19220,7 +19230,7 @@ paths:
       tags:
         - records
       summary: List a deletion run's subjects
-      description: "The subjects of a deletion run (ADR-0079 §12, T100c), by partner number, a page at a time, optionally of one status: each business partner by id and number, never by name, with when its block began, the rule it was held to, and its status (`pending`, `blanked`, or `skipped` when its block was lifted or set again since, or an item of it was open) with when it was settled. It needs access to all companies (403 `records.all_companies_required`). A run the tenant does not have is 404. Human-only (`x-agent: false`). Sortable by: `partner_number` (default)."
+      description: "The subjects of a deletion run (ADR-0079 §12, T100c), by partner number, a page at a time, optionally of one status: each business partner by id and number, never by name, with when its block began, the rule it was held to, and its status (`pending`, `blanked`, or `skipped` when its block was lifted or set again since, or an item of it was open) with when it was settled and, skipped, why (`skip_reason`). It needs access to all companies (403 `records.all_companies_required`). A run the tenant does not have is 404. Human-only (`x-agent: false`). Sortable by: `partner_number` (default)."
       x-permission: records.privacy.delete
       x-agent: false
       x-problem-codes:
@@ -20306,6 +20316,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
         "422":
@@ -22837,7 +22849,7 @@ paths:
       tags:
         - einvoicing
       summary: Fetch e-invoices from the provider now
-      description: "Fetches, now, the documents the tenant's accredited e-invoicing provider holds for the companies of an `einvoice_provider` connector (ADR-0061 §4, T65a; SAP Document and Reporting Compliance's inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`) and carried out as the workflow `FetchEInvoices`, or in process in a cell without a workflow engine, as a system principal acting for the connector's companies. It lists the documents the provider has not had acknowledged, and records each once per connector and the provider's message id: its bytes kept write-once in object storage under their SHA-256, the document `received` with its company (the connector's company whose participant identifier the provider listed it for; none when it names none of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged; after that commit the provider is told the document is kept (its acknowledgement), and `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement is sent again, so an acknowledgement lost is repaired by the next fetch. A message delivered again under its id with other bytes (T65b) is not recorded again either: the document keeps its first bytes, the legal original, and records the new bytes' SHA-256 as `changed_sha256` with `changed_at`, with an audit record and EInvoiceChanged once per different bytes, so the same changed bytes delivered again change nothing more. Its acknowledgement moves the document's version without an event. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a message found with other bytes) and its `resource` the list of the documents it recorded or found changed (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its `changed_fetch_operation_id`); a message not recorded fails the Operation with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the store or the database failed (after five tries in the workflow engine, one in process), which the next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10 MiB, not recorded until validation records it refused, T65c), which the next fetch meets again. A provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is not an active `einvoice_provider` connector with credentials that resolve is refused before anything is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422 `integration.secret_required`, `integration.invalid_settings`, `integration.secret_unavailable`); so is, in production, the provider's stand-in (422 `integration.adapter_not_certified`), the only adapter until a provider is chosen. A server without object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint for the provider to call. Besides fetches on demand, a cell with a workflow engine fetches from every active `einvoice_provider` connector of an active tenant once per `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch an Operation of the same kind created by the fetcher, carried out as the workflow `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`)."
+      description: "Fetches, now, the documents the tenant's accredited e-invoicing provider holds for the companies of an `einvoice_provider` connector (ADR-0061 §4, T65a; SAP Document and Reporting Compliance's inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`), the request audited in the caller's name (`einvoicing.fetch.request`, the Operation its object, with the connector), and carried out as the workflow `FetchEInvoices`, or in process in a cell without a workflow engine, as a system principal acting for the connector's companies. It lists the documents the provider has not had acknowledged, and records each once per connector and the provider's message id: its bytes kept write-once in object storage under their SHA-256, the document `received` with its company (the connector's company whose participant identifier the provider listed it for; none when it names none of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged; after that commit the provider is told the document is kept (its acknowledgement), and `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement is sent again, so an acknowledgement lost is repaired by the next fetch. A message delivered again under its id with other bytes (T65b) is not recorded again either: the document keeps its first bytes, the legal original, and records the new bytes' SHA-256 as `changed_sha256` with `changed_at`, with an audit record and EInvoiceChanged once per different bytes, so the same changed bytes delivered again change nothing more. Its acknowledgement moves the document's version without an event. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a message found with other bytes) and its `resource` the list of the documents it recorded or found changed (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its `changed_fetch_operation_id`); a message not recorded fails the Operation with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the store or the database failed (after five tries in the workflow engine, one in process), which the next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10 MiB, not recorded until validation records it refused, T65c), which the next fetch meets again. A provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is not an active `einvoice_provider` connector with credentials that resolve is refused before anything is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422 `integration.secret_required`, `integration.invalid_settings`, `integration.secret_unavailable`); so is, in production, the provider's stand-in (422 `integration.adapter_not_certified`), the only adapter until a provider is chosen. A server without object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint for the provider to call. Besides fetches on demand, a cell with a workflow engine fetches from every active `einvoice_provider` connector of an active tenant once per `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch an Operation of the same kind created by the fetcher, carried out as the workflow `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`)."
       x-permission: einvoicing.einvoice.manage
       x-agent: false
       x-problem-codes:
@@ -29758,7 +29770,7 @@ paths:
       tags:
         - audit
       summary: Request an audit evidence export
-      description: "Requests the audit evidence of companies and a period (ADR-0011 As built, T101a), written by the evidence exporter in the background to object storage as files with a manifest (`getAuditEvidenceExport` then shows it `completed`, or `failed` with the problem code that stopped it): `audit_events.jsonl`, the tenant's audit events that occurred in the period (from `from` at 00:00 UTC to the end of `to` in UTC) up to the chain's head when the exporter read it, their details as stored and, only when the requester holds `audit.event.read` (the permission that reads them on `listAuditEvents`), their client addresses (`with_client_addresses`); `journal_entries.jsonl`, the journal entries of the companies posted in the period, of every ledger, with their lines; `approval_decisions.jsonl`, the decisions on the approval requests about those entries' source documents, with who decided; and `manifest.json`, each file's record count and SHA-256 and the result of verifying the audit chain from its first event to that head against its hashes and anchors. The audit trail is the tenant's (one chain per tenant), not a company's. The export covers the companies asked for that the caller may act in, in the order of their codes; when it covers none, 422 `request.validation_failed` names `legal_entity_ids`. The period is one day to 371 days, `to` not before `from` (422 `request.validation_failed`). Each request is a new export. The exporter refuses a requester blocked or deprovisioned since (the export fails with `identity.principal_blocked`), and a period whose audit events, or whose companies' journal lines, number more than 200,000 (`audit.evidence_too_large`: the files are built and downloaded whole). 503 while the server has no object storage to write the files to. Audited (`audit.evidence_export.request`); the completion is audited and published as AuditEvidenceExported. Human-only (`x-agent: false`)."
+      description: "Requests the audit evidence of companies and a period (ADR-0011 As built, T101a), written by the evidence exporter in the background to object storage as files with a manifest (`getAuditEvidenceExport` then shows it `completed`, or `failed` with the problem code that stopped it): `audit_events.jsonl`, the tenant's audit events that occurred in the period (from `from` at 00:00 UTC to the end of `to` in UTC) up to the chain's head when the exporter read it, their details as stored and, only when the requester holds `audit.event.read` (the permission that reads them on `listAuditEvents`), their client addresses (`with_client_addresses`); `journal_entries.jsonl`, the journal entries of the companies posted in the period, of every ledger, with their lines; `approval_decisions.jsonl`, the decisions on the approval requests about those entries' source documents, with who decided; and `manifest.json`, each file's record count and SHA-256 and the result of verifying the audit chain from its first event to that head against its hashes and anchors. The audit trail is the tenant's (one chain per tenant), not a company's. The export covers the companies asked for that the caller may act in, in the order of their codes; when it covers none, 422 `request.validation_failed` names `legal_entity_ids`. The period is one day to 371 days, `to` not before `from` (422 `request.validation_failed`). Each request is a new export. The exporter refuses a requester blocked or deprovisioned since (the export fails with `identity.principal_blocked`). A file of more than 50,000 records (or 32 MiB) is written and served in parts, each listed in `files` with its `part` number, so an export of any size completes; a file within one part keeps its name. 503 while the server has no object storage to write the files to. Audited (`audit.evidence_export.request`); the completion is audited and published as AuditEvidenceExported. Human-only (`x-agent: false`)."
       x-permission: audit.evidence.export
       x-agent: false
       x-problem-codes:
@@ -29881,7 +29893,7 @@ paths:
       tags:
         - audit
       summary: Download a file of an audit evidence export
-      description: "A file of a completed audit evidence export (T101a), byte for byte as the exporter wrote it to object storage: `manifest.json` (JSON), or one of the files it names, `audit_events.jsonl`, `journal_entries.jsonl` or `approval_decisions.jsonl` (JSON Lines, one record per line, in the form ADR-0011's As built documents). The manifest's SHA-256 is the export's `manifest_sha256`, and each other file's is the one the manifest names; both are checked before the file is handed out (409 `audit.evidence_changed` when the stored bytes no longer match). An export not completed has no files (409 `audit.evidence_not_completed`); another name is not found. The audit events of an export made `with_client_addresses` hold people's client addresses, so that file is handed only to a caller who holds `audit.event.read` too (403 `audit.client_addresses_withheld` otherwise). Human-only (`x-agent: false`). 503 while the server has no object storage or the store does not answer. An export covering a company the caller cannot act in is not found."
+      description: "A file of a completed audit evidence export (T101a), byte for byte as the exporter wrote it to object storage: `manifest.json` (JSON), or one of the files it names, `audit_events.jsonl`, `journal_entries.jsonl` or `approval_decisions.jsonl`, or a part of one written in parts (`audit_events.part-2.jsonl`; JSON Lines, one record per line, in the form ADR-0011's As built documents). The manifest's SHA-256 is the export's `manifest_sha256`, and each other file's is the one the manifest names; both are checked before the file is handed out (409 `audit.evidence_changed` when the stored bytes no longer match). An export not completed has no files (409 `audit.evidence_not_completed`); another name is not found. The audit events of an export made `with_client_addresses` hold people's client addresses, so that file, and each of its parts, is handed only to a caller who holds `audit.event.read` too (403 `audit.client_addresses_withheld` otherwise). Human-only (`x-agent: false`). 503 while the server has no object storage or the store does not answer. An export covering a company the caller cannot act in is not found."
       x-permission: audit.evidence.export
       x-agent: false
       x-problem-codes:
@@ -29893,7 +29905,7 @@ paths:
         - name: name
           in: path
           required: true
-          description: "The file's name: `manifest.json`, `audit_events.jsonl`, `journal_entries.jsonl` or `approval_decisions.jsonl`."
+          description: "The file's name: `manifest.json`, `audit_events.jsonl`, `journal_entries.jsonl` or `approval_decisions.jsonl`, or a part's as `files` lists it."
           schema:
             type: string
             minLength: 1
@@ -29927,8 +29939,10 @@ paths:
       tags:
         - processmining
       summary: Read the event log of a business process
-      description: "The event log of a business process for a company and a period (ADR-0080, T103a), computed on read from the documents' links and the audit trail; nothing is stored. The first process is `purchase_to_pay` (another is 422 `request.validation_failed`): a case is a purchase order dated in the period (`from`, `to`, both included), or a supplier document on no order dated in it, a case of its own; its events are the activities of the order, the requisition it was made from, its goods movements, the supplier documents on it and the released payment runs that paid them, each with its time and the kind of actor that did it (`person`, `agent` or `system`, never who), by time and then by the audit trail's sequence number, at any time up to the read. ADR-0080 lists the activities and the audit actions each comes from. The cases are by date and id, paged by case (`page_size` cases, the default 50, at most 500); `case_count` counts every case of the log. The period is one day to 371 days (422 `request.validation_failed` naming `to` otherwise). As JSON (`format=json`, the default) or as CSV (`format=csv`): a header row, then a row per event of the page's cases with its case, the next page's token in the `Next-Page-Token` header. A company the caller cannot act in is 404, as one that does not exist."
+      description: "The event log of a business process for a company and a period (ADR-0080, T103a), computed on read from the documents' links and the audit trail; nothing is stored. The first process is `purchase_to_pay` (another is 422 `request.validation_failed`): a case is a purchase order dated in the period (`from`, `to`, both included), or a supplier document on no order dated in it, a case of its own; its events are the activities of the order, the requisition it was made from, its goods movements, the supplier documents on it and the released payment runs that paid them, each with its time and the kind of actor that did it (`person`, `agent` or `system`, never who), by time and then by the audit trail's sequence number, at any time up to the read. ADR-0080 lists the activities and the audit actions each comes from. The cases are by date and id, paged by case (`page_size` cases, the default 50, at most 500); `case_count` counts every case of the log; the count and the page are read as of one database state (`x-snapshot`), so they agree. The period is one day to 371 days (422 `request.validation_failed` naming `to` otherwise). As JSON (`format=json`, the default) or as CSV (`format=csv`): a header row, then a row per event of the page's cases with its case, the next page's token in the `Next-Page-Token` header. A company the caller cannot act in is 404, as one that does not exist."
       x-permission: processmining.log.read
+      x-slo-class: report
+      x-snapshot: true
       x-problem-codes:
         - request.invalid_page_size
         - request.invalid_page_token
@@ -31178,7 +31192,7 @@ paths:
       tags:
         - analytics
       summary: Get a kept run of a report you read
-      description: "One kept run of a report the caller reads, their own or one shared with them (ADR-0076 §6-§7; T95b, T95c), when the caller's company access today covers every company the run covered and they may use every permission its queries read their data with (`permissions`; held and not barred by a segregation-of-duties rule), as a run of theirs would need (403 `analytics.report_run_access` otherwise, or the segregation-of-duties problem; and for a run kept before T95c, which names neither, to all but its report's owner): as JSON (`format=json`, the default) the run with its specification and every query's result as the run kept them, read back from object storage, whose bytes are compared with the SHA-256 recorded (409 `analytics.report_run_changed` when they differ); as CSV (`format=csv`) one result, a header row of its columns' names then a row per result row, each measure an exact decimal and a money measure followed by its currency's column (`<name>_currency`), a measure that cannot be computed empty, the result named by `query_id` (422 `analytics.unknown_query` when the run has no such result, or when the run has several and none is named); as an Excel workbook (`format=xlsx`, T95d, ADR-0076 §8) the same result as `runAnalyticsQuery`'s workbook writes it, on a sheet named `Report`, the result named as for CSV, and a result cut at the rows a query answers (`truncated`) refused (422 `analytics.result_truncated`). A failed run has no results (409 `analytics.report_run_failed` for its CSV or workbook); a format the contract does not list is 422 `request.validation_failed`; 503 while the server has no object storage."
+      description: "One kept run of a report the caller reads, their own or one shared with them (ADR-0076 §6-§7; T95b, T95c), when the caller's company access today covers every company the run covered and they may use every permission its queries read their data with (`permissions`; held and not barred by a segregation-of-duties rule), as a run of theirs would need (403 `analytics.report_run_access` otherwise, or the segregation-of-duties problem; and for a run kept before T95c, which names neither, to all but its report's owner): as JSON (`format=json`, the default) the run with its specification and every query's result as the run kept them, read back from object storage, whose bytes are compared with the SHA-256 recorded (409 `analytics.report_run_changed` when they differ); as CSV (`format=csv`) one result, a header row of its columns' names then a row per result row, `Result-Truncated: true` when the result was cut at the rows a query answers (`truncated`), each measure an exact decimal and a money measure followed by its currency's column (`<name>_currency`), a measure that cannot be computed empty, the result named by `query_id` (422 `analytics.unknown_query` when the run has no such result, or when the run has several and none is named); as an Excel workbook (`format=xlsx`, T95d, ADR-0076 §8) the same result as `runAnalyticsQuery`'s workbook writes it, on a sheet named `Report`, the result named as for CSV, and a result cut at the rows a query answers (`truncated`) refused (422 `analytics.result_truncated`). A failed run has no results (409 `analytics.report_run_failed` for its CSV or workbook); a format the contract does not list is 422 `request.validation_failed`; 503 while the server has no object storage."
       x-permission: analytics.report.read
       x-problem-codes:
         - analytics.report_run_access
@@ -31211,6 +31225,11 @@ paths:
       responses:
         "200":
           description: The run, or one of its results as CSV or an Excel workbook.
+          headers:
+            Result-Truncated:
+              description: "`true` on a result's CSV when the result was cut at the rows a query answers, as its JSON's `truncated` says (a CSV's rows could not say so); absent otherwise."
+              schema:
+                type: boolean
           content:
             application/json:
               schema:
@@ -45140,6 +45159,8 @@ components:
         - fiscal_year
         - fiscal_period
         - account_id
+        - account_number
+        - account_name
         - amount
         - created_at
         - created_by
@@ -45179,15 +45200,39 @@ components:
           format: uuid
           description: The cost center; absent on a profit center's line.
           readOnly: true
+        cost_center_code:
+          type: string
+          description: "The cost center's code; absent on a profit center's line."
+          readOnly: true
+        cost_center_name:
+          type: string
+          description: "The cost center's name; absent on a profit center's line."
+          readOnly: true
         profit_center_id:
           type: string
           format: uuid
           description: The profit center; absent on a cost center's line.
           readOnly: true
+        profit_center_code:
+          type: string
+          description: "The profit center's code; absent on a cost center's line."
+          readOnly: true
+        profit_center_name:
+          type: string
+          description: "The profit center's name; absent on a cost center's line."
+          readOnly: true
         account_id:
           type: string
           format: uuid
           description: The account.
+          readOnly: true
+        account_number:
+          type: string
+          description: "The account's number."
+          readOnly: true
+        account_name:
+          type: string
+          description: "The account's name."
           readOnly: true
         amount:
           $ref: "#/components/schemas/Money"
@@ -45216,7 +45261,11 @@ components:
           fiscal_year: 2027
           fiscal_period: 1
           cost_center_id: "0192a000-0000-7000-8000-000000000201"
+          cost_center_code: CC-1000
+          cost_center_name: Administration
           account_id: "0192a000-0000-7000-8000-000000000501"
+          account_number: "640000"
+          account_name: Office supplies
           amount:
             amount: "12000.00"
             currency: EUR
@@ -45253,6 +45302,10 @@ components:
         - fiscal_period_to
         - cost_center_id
         - account_id
+        - cost_center_code
+        - cost_center_name
+        - account_number
+        - account_name
         - plan
         - actual
         - variance
@@ -45287,10 +45340,26 @@ components:
           format: uuid
           description: The cost center.
           readOnly: true
+        cost_center_code:
+          type: string
+          description: "The cost center's code."
+          readOnly: true
+        cost_center_name:
+          type: string
+          description: "The cost center's name."
+          readOnly: true
         account_id:
           type: string
           format: uuid
           description: The account.
+          readOnly: true
+        account_number:
+          type: string
+          description: "The account's number."
+          readOnly: true
+        account_name:
+          type: string
+          description: "The account's name."
           readOnly: true
         plan:
           $ref: "#/components/schemas/Money"
@@ -45316,7 +45385,11 @@ components:
           fiscal_period_from: 1
           fiscal_period_to: 3
           cost_center_id: "0192a000-0000-7000-8000-000000000201"
+          cost_center_code: CC-1000
+          cost_center_name: Administration
           account_id: "0192a000-0000-7000-8000-000000000501"
+          account_number: "640000"
+          account_name: Office supplies
           plan:
             amount: "36000.00"
             currency: EUR
@@ -45353,6 +45426,10 @@ components:
         - fiscal_period_to
         - profit_center_id
         - account_id
+        - profit_center_code
+        - profit_center_name
+        - account_number
+        - account_name
         - plan
         - actual
         - variance
@@ -45387,10 +45464,26 @@ components:
           format: uuid
           description: The profit center.
           readOnly: true
+        profit_center_code:
+          type: string
+          description: "The profit center's code."
+          readOnly: true
+        profit_center_name:
+          type: string
+          description: "The profit center's name."
+          readOnly: true
         account_id:
           type: string
           format: uuid
           description: The account.
+          readOnly: true
+        account_number:
+          type: string
+          description: "The account's number."
+          readOnly: true
+        account_name:
+          type: string
+          description: "The account's name."
           readOnly: true
         plan:
           $ref: "#/components/schemas/Money"
@@ -45416,7 +45509,11 @@ components:
           fiscal_period_from: 1
           fiscal_period_to: 3
           profit_center_id: "0192a000-0000-7000-8000-000000000301"
+          profit_center_code: PC-NORTH
+          profit_center_name: North
           account_id: "0192a000-0000-7000-8000-000000000501"
+          account_number: "640000"
+          account_name: Office supplies
           plan:
             amount: "36000.00"
             currency: EUR
@@ -49115,7 +49212,7 @@ components:
         upload_id:
           type: string
           format: uuid
-          description: "A direct upload of the document (purpose `supplier_invoice`, at most 50 MB), consumed by this capture. 422 `payables.upload_empty` when nothing was uploaded to it yet, `payables.upload_used` when it was consumed before, `payables.upload_purpose` when it is for another purpose (a customer's purchase order)."
+          description: "A direct upload of the document (purpose `supplier_invoice`, at most 50 MB), consumed by this capture. An upload that does not exist, or that another tenant started, is 404 `request.not_found`; 422 `payables.upload_empty` when nothing was uploaded to it yet, `payables.upload_used` when it was consumed before, `payables.upload_purpose` when it is for another purpose (a customer's purchase order)."
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
           document: JVBERi0xLjcK
@@ -55545,7 +55642,7 @@ components:
       additionalProperties: false
       properties:
         legal_entity_id: {type: string, format: uuid, description: "The company that takes the order: one the caller may act in."}
-        upload_id: {type: string, format: uuid, description: "A direct upload of the document (`createSalesOrderUpload`: purpose `sales_order`, a PDF or plain text, at most 50 MB), consumed by this capture. 422 `payables.upload_empty` when nothing was uploaded to it yet, `payables.upload_purpose` when it is for another purpose; captured again into the same company, it answers the order it gave; into another, 422 `payables.upload_used`."}
+        upload_id: {type: string, format: uuid, description: "A direct upload of the document (`createSalesOrderUpload`: purpose `sales_order`, a PDF or plain text, at most 50 MB), consumed by this capture. An upload that does not exist, or that another tenant started, is 404 `request.not_found`; 422 `payables.upload_empty` when nothing was uploaded to it yet, `payables.upload_purpose` when it is for another purpose; captured again into the same company, it answers the order it gave; into another, 422 `payables.upload_used`."}
         account_id: {type: string, format: uuid, description: "The revenue account every item of the order is billed to (`GET /v1/accounts/{id}`): postable in the company (422 `sales.account_not_postable`)."}
         tax_code: {type: string, maxLength: 20, description: "The output tax code every item is billed with: an output tax code of the company in force on the order's date (422 `sales.unknown_tax_code`); absent, the items have none."}
       examples:
@@ -57613,6 +57710,22 @@ components:
         entry_count: {type: integer, format: int32, minimum: 0, description: "The journal entries in the file: every entry of the company's fiscal year, of every ledger.", readOnly: true}
         line_count: {type: integer, format: int32, minimum: 0, description: "Their lines.", readOnly: true}
         debit_total: {$ref: "#/components/schemas/Money", description: "The sum of the lines' debits in the company's currency."}
+        parts:
+          type: array
+          items: {$ref: "#/components/schemas/ArchiveFilePart"}
+          description: "A file of more than 50,000 entries (or 32 MiB), written in parts: its parts, in order (`GET /v1/archiving-runs/{id}/file?part={part}` downloads each); `sha256` and `size_bytes` above are the whole file's, the parts' content in this order. Absent on a file within one part."
+          readOnly: true
+    ArchiveFilePart:
+      type: object
+      description: "A part of an archive file written in parts (ADR-0079 §7)."
+      required: [part, name, sha256, size_bytes, entry_count]
+      readOnly: true
+      properties:
+        part: {type: integer, format: int32, minimum: 1, description: "Its number, from 1.", readOnly: true}
+        name: {type: string, description: "Its name, `<run id>.part-<part>.jsonl`.", readOnly: true}
+        sha256: {type: string, pattern: '^[0-9a-f]{64}$', description: "The SHA-256 of its content, in hexadecimal; the manifest names it too.", readOnly: true}
+        size_bytes: {type: integer, format: int64, minimum: 0, description: "Its size in bytes.", readOnly: true}
+        entry_count: {type: integer, format: int32, minimum: 0, description: "The journal entries in it, each whole.", readOnly: true}
     ArchivingRunPage:
       type: object
       description: One page of archiving runs, newest first.
@@ -57666,6 +57779,11 @@ components:
           x-extensible-enum: [pending, blanked, skipped]
           readOnly: true
         settled_at: {type: string, format: date-time, description: "In a run: when it was blanked or skipped.", readOnly: true}
+        skip_reason:
+          type: string
+          description: "Skipped: why: `already_deleted` (its personal data was blanked already), `block_lifted` (its block was lifted), `blocked_again` (its block was lifted and set again since the run was asked for) or `open_item` (it has an open item, which keeps its data until it is cleared); absent otherwise, and on a subject skipped before reasons were kept. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [already_deleted, block_lifted, blocked_again, open_item]
+          readOnly: true
     PersonalDataDeletionSubjectPage:
       type: object
       description: One page of a deletion run's subjects, by partner number.
@@ -62918,7 +63036,7 @@ components:
         files:
           type: array
           items: {$ref: "#/components/schemas/AuditEvidenceFile"}
-          description: "Completed: the files the manifest names, in its order (`GET /v1/audit-evidence-exports/{id}/files/{name}` downloads each, and `manifest.json`); otherwise empty."
+          description: "Completed: the files the manifest names, in its order, a file of more records than a part holds as its parts in their order (`GET /v1/audit-evidence-exports/{id}/files/{name}` downloads each, and `manifest.json`); otherwise empty."
           readOnly: true
         manifest_sha256: {type: string, pattern: '^[0-9a-f]{64}$', description: "Completed: the SHA-256 of `manifest.json`, in hexadecimal.", readOnly: true}
         audit_event_count: {type: integer, format: int32, minimum: 0, description: "Completed: the audit events exported.", readOnly: true}
@@ -62926,7 +63044,7 @@ components:
         approval_decision_count: {type: integer, format: int32, minimum: 0, description: "Completed: the approval decisions exported.", readOnly: true}
         chain:
           $ref: "#/components/schemas/AuditEvidenceChain"
-        failure_code: {type: string, description: "Failed: the problem code that stopped the export (`identity.principal_blocked`, `audit.evidence_too_large` when the period holds more than 200,000 audit events or journal lines, `audit.evidence_changed` when the file store holds other bytes under the export's manifest).", readOnly: true}
+        failure_code: {type: string, description: "Failed: the problem code that stopped the export (`identity.principal_blocked`, `audit.evidence_changed` when the file store holds other bytes under the export's manifest; `audit.evidence_too_large` on an export failed before files were written in parts, when it held more than 200,000 audit events or journal lines).", readOnly: true}
         completed_at: {type: string, format: date-time, description: "When the exporter completed it.", readOnly: true}
         requested_by: {type: string, format: uuid, description: "Who asked for the export.", readOnly: true}
         requested_by_name: {type: string, description: "Their name, as the identity context gives it now.", readOnly: true}
@@ -62964,11 +63082,12 @@ components:
         company_code: {type: string, description: "Its code.", readOnly: true}
     AuditEvidenceFile:
       type: object
-      description: "A file of a completed evidence export, as its manifest names it."
+      description: "A file of a completed evidence export, or a part of one, as its manifest names it."
       required: [name, sha256, size_bytes, records]
       readOnly: true
       properties:
-        name: {type: string, description: "`audit_events.jsonl`, `journal_entries.jsonl` or `approval_decisions.jsonl`.", readOnly: true}
+        name: {type: string, description: "`audit_events.jsonl`, `journal_entries.jsonl` or `approval_decisions.jsonl`; a part of one written in parts, `<file>.part-<n>.jsonl` (`audit_events.part-2.jsonl`).", readOnly: true}
+        part: {type: integer, format: int32, minimum: 1, description: "A part of a file written in parts (one of more than 50,000 records or 32 MiB): its number, from 1; the parts' records, in this order, are the file's. Absent on a file within one part.", readOnly: true}
         sha256: {type: string, pattern: '^[0-9a-f]{64}$', description: "The SHA-256 of the file's content, in hexadecimal.", readOnly: true}
         size_bytes: {type: integer, format: int64, minimum: 0, description: "The file's size in bytes.", readOnly: true}
         records: {type: integer, format: int32, minimum: 0, description: "Its lines: one record each.", readOnly: true}

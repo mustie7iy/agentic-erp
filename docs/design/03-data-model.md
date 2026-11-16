@@ -70,7 +70,10 @@ Values that change over time and must be known historically use
 constraint preventing overlaps: bank accounts, role permissions, role
 assignments, company access, SoD rules, tax codes, approval policies.
 Assignments are ended, never rewritten: `platform.end_validity()` permits only
-setting or shortening `valid_to` (not into the past) with `ended_by`, and the
+setting or shortening `valid_to` (not into the past: before the database's
+date, or for a partner's addresses and bank accounts before the day before
+it, since partner ends them on its companies' days, migration 000347) with
+`ended_by`, and the
 application role may update only those columns. Exchange rates are
 insert-only; a new rate is a new row with a later `valid_from`. A rate is
 `numeric(28,12)`, and recording one refuses more than 16 integer digits or
@@ -305,7 +308,8 @@ ended, never deleted or rewritten. `platform.end_validity()` allows exactly
 one change: setting `valid_to` (or bringing it forward), not into the past,
 with `ended_by`; `ended_at` is stamped by the database. The access a
 principal had on any past date can therefore be reconstructed for audit.
-Partner bank accounts follow the same pattern.
+Partner bank accounts and addresses follow the same pattern, ended no
+earlier than the database's yesterday (partner's day, ADR-0051; migration 000347).
 
 ## 3.5 Configuration (`config`)
 
@@ -3208,7 +3212,10 @@ the decision trigger); decisions are insert-only. The inbox
 through the partial index `approval_request_pending (tenant_id,
 created_at, id) WHERE status = 'pending'` (000151); a principal's own
 requests (`requested_by=me`, T73d2) through `approval_request_by_requester
-(tenant_id, requester_id, created_at, id)` (000183).
+(tenant_id, requester_id, created_at, id)` (000183); the requests about a
+document (the audit evidence export's `approvals.Evidence.About` and
+`object_id=` on the list, review:batch75) through `approval_request_by_object
+(tenant_id, object_id, created_at, id)` (000343, built concurrently).
 
 A `manual_entry` request (T35) is opened for a parked manual journal entry
 whose debits, converted exactly into its company's currency at the average
@@ -3245,7 +3252,7 @@ activate, and orders under them are refused.
 | `chain_head` | `tenant_id` | Last sequence and hash per tenant |
 | `anchor` | `(tenant_id, seq)` | Chain heads written to write-once storage |
 | `verification` | `(tenant_id, verified_at)` | Insert-only; one row per scheduled verification round: head, events and anchors checked, the first broken sequence (ADR-0025) |
-| `evidence_export` | `(tenant_id, id)` | An auditor's evidence export (T101a, 000338; ADR-0011 As built): the companies it covers (`legal_entity_ids`, one to 100, those of the companies asked for the requester could act in, by code), the period (`period_from`..`period_to`, one day to 371), `with_client_addresses` (the requester held `audit.event.read`), its requester; `queued`, then `completed` with the manifest's key and SHA-256, its files (`files`, jsonb: name, SHA-256, size, records), the counts of audit events, journal entries and approval decisions and the chain's verification (`chain_verified`, `chain_last_seq`, `chain_checked`, `chain_anchors_checked`, `chain_broken_seq` when it did not verify), or `failed` with a problem code; either is its last change (`evidence_export_settled_fixed`), and the application changes only the settling columns and deletes none. Kept with the trail when a tenant is erased: ids, dates and counts, no personal data. The worker role reads `tenant_id` and `status` to find the tenants with queued exports. Permission `audit.evidence.export` |
+| `evidence_export` | `(tenant_id, id)` | An auditor's evidence export (T101a, 000338; ADR-0011 As built): the companies it covers (`legal_entity_ids`, one to 100, those of the companies asked for the requester could act in, by code), the period (`period_from`..`period_to`, one day to 371), `with_client_addresses` (the requester held `audit.event.read`), its requester; `queued`, then `completed` with the manifest's key and SHA-256, its files (`files`, jsonb: name, SHA-256, size, records, and a part's number when a file is written in parts), the counts of audit events, journal entries and approval decisions and the chain's verification (`chain_verified`, `chain_last_seq`, `chain_checked`, `chain_anchors_checked`, `chain_broken_seq` when it did not verify), or `failed` with a problem code; either is its last change (`evidence_export_settled_fixed`), and the application changes only the settling columns and deletes none. Kept with the trail when a tenant is erased: ids, dates and counts, no personal data. The worker role reads `tenant_id` and `status` to find the tenants with queued exports. Permission `audit.evidence.export` |
 
 ## 3.13 Integration (`integration`)
 
@@ -5543,7 +5550,7 @@ the archiving runs and the context's outbox and inbox.
 ```
 records.archiving_run  (tenant_id, id, legal_entity_id, document_kind, fiscal_year, retention_years, config_version,
                         status, object_key, manifest_key, sha256, manifest_sha256, size_bytes, entry_count, line_count,
-                        debit_total, currency, failure_code, completed_at, requested_by, created_at, updated_at, version)
+                        debit_total, currency, failure_code, completed_at, requested_by, created_at, updated_at, version, parts)
 records.deletion_run   (tenant_id, id, config_version, status, subject_count, failure_code, completed_at, requested_by,
                         created_at, updated_at, version)
 ```
@@ -5566,7 +5573,13 @@ records.deletion_run   (tenant_id, id, config_version, status, subject_count, fa
   lines' debits in the company's currency, minor units, never negative, and
   when it completed; a run that is not completed has none of them
   (`archiving_run_completed_check`, `archiving_run_file_check`). A failed
-  run has its problem code (`archiving_run_failed_check`).
+  run has its problem code (`archiving_run_failed_check`). A file written
+  in parts (000345, review:batch75: more than 50,000 entries or 32 MiB)
+  lists them in `parts` (jsonb, at least two: number, name
+  `<run id>.part-<n>.jsonl`, SHA-256, size, entries; only on a run with a
+  file, `archiving_run_parts_check`), `object_key` the first part's, and
+  `sha256` and `size_bytes` the whole file's; a file within one part has
+  none.
 - The archiver claims a tenant's queued runs by `archiving_run_queued`
   (`FOR UPDATE SKIP LOCKED`); the worker role reads `tenant_id` and `status`
   across tenants to find them. The list reads `archiving_run_by_created`.
@@ -5589,8 +5602,11 @@ records.deletion_run   (tenant_id, id, config_version, status, subject_count, fa
   (`deletion_run_one_queued`). Each subject
   (`records.deletion_run_subject (tenant_id, run_id, partner_id,
   partner_number, blocked_at, retention_years, retention_ends, status,
-  settled_at)`) is a partner by id and number, `pending`, then `blanked`
-  or `skipped` with its time, either its last change
+  settled_at, skip_reason)`) is a partner by id and number, `pending`, then `blanked`
+  or `skipped` with its time (a skipped one with the partner context's
+  reason, `deletion_run_subject_skip_reason_check` and
+  `deletion_run_subject_skip_reason_skipped_check`, 000344; none on one
+  skipped before), either its last change
   (`deletion_run_subject_settled_fixed`); the application writes only the
   settling columns and deletes nothing. The deleter reads the pending
   subjects by `deletion_run_subject_pending`.

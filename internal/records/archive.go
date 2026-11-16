@@ -1,12 +1,12 @@
 package records
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -55,18 +55,19 @@ type Run struct {
 	RequestedBy                uuid.UUID
 	CreatedAt, UpdatedAt       time.Time
 	RequestedByName            string
-	exp                        int // the minor-unit digits of Currency
+	Parts                      []ArchivePart // a file written in parts; none for a file within one part
+	exp                        int           // the minor-unit digits of Currency
 }
 
 const runSelect = `SELECT id, legal_entity_id, document_kind, fiscal_year, retention_years, config_version, status, object_key, manifest_key,
-		sha256, manifest_sha256, size_bytes, entry_count, line_count, debit_total, currency, failure_code, completed_at, requested_by, created_at, updated_at
+		sha256, manifest_sha256, size_bytes, entry_count, line_count, debit_total, currency, failure_code, completed_at, requested_by, created_at, updated_at, parts
 	FROM records.archiving_run`
 
 func scanRun(row pgx.Row) (Run, error) {
 	var r Run
 	err := row.Scan(&r.ID, &r.LegalEntity, &r.Kind, &r.FiscalYear, &r.RetentionYears, &r.ConfigVersion, &r.Status, &r.ObjectKey, &r.ManifestKey,
 		&r.SHA256, &r.ManifestSHA256, &r.SizeBytes, &r.EntryCount, &r.LineCount, &r.DebitTotal, &r.Currency, &r.FailureCode, &r.CompletedAt,
-		&r.RequestedBy, &r.CreatedAt, &r.UpdatedAt)
+		&r.RequestedBy, &r.CreatedAt, &r.UpdatedAt, &r.Parts)
 	return r, errs.Wrapf(err, "records: scan archiving run")
 }
 
@@ -292,9 +293,11 @@ func (e *Endpoints) named(ctx context.Context, tx pgx.Tx, rs []Run) error {
 	return nil
 }
 
-// File is a completed run's archive file, as the store holds it, once its
-// hash is the one the run recorded.
-func (e *Endpoints) File(ctx context.Context, id uuid.UUID) ([]byte, error) {
+// File is a completed run's archive file, or its part (from 1) when part
+// is given, as the store holds it, once its hash is the one the run
+// recorded. A file written in parts is handed out a part at a time; a
+// file within one part is its part 1.
+func (e *Endpoints) File(ctx context.Context, id uuid.UUID, part *int32) ([]byte, error) {
 	r, err := e.Run(ctx, id)
 	if err != nil {
 		return nil, err
@@ -305,14 +308,35 @@ func (e *Endpoints) File(ctx context.Context, id uuid.UUID) ([]byte, error) {
 	if e.Objects == nil {
 		return nil, noObjects()
 	}
-	content, _, err := e.Objects.Get(ctx, *r.ObjectKey)
+	key, sum, err := fileOrPart(r, part)
+	if err != nil {
+		return nil, err
+	}
+	content, _, err := e.Objects.Get(ctx, key)
 	if err != nil {
 		return nil, problem.Unavailable("The file store did not return the archive file; try again.", 30).WithCause(err)
 	}
-	if sum := sha256.Sum256(content); !bytes.Equal(sum[:], r.SHA256) {
-		return nil, archiveChanged(*r.ObjectKey)
+	if got := sha256.Sum256(content); hexOf(got[:]) != sum {
+		return nil, archiveChanged(key)
 	}
 	return content, nil
+}
+
+// fileOrPart is the key and SHA-256 of the run's file, or of its part:
+// the file's part 1 is the file when it has no parts; a file in parts is
+// handed out by part only.
+func fileOrPart(r Run, part *int32) (string, string, error) {
+	switch {
+	case len(r.Parts) == 0 && (part == nil || *part == 1):
+		return *r.ObjectKey, hexOf(r.SHA256), nil
+	case len(r.Parts) > 0 && part == nil:
+		return "", "", problem.Conflict("records.archive_in_parts", fmt.Sprintf("The archive file of run %s is written in %d parts; download each with "+
+			"part=1 to part=%d (file.parts).", r.ID, len(r.Parts), len(r.Parts)))
+	case len(r.Parts) > 0 && *part <= int32(len(r.Parts)): // #nosec G115 -- a run's parts, at most a year's entries
+		p := r.Parts[*part-1]
+		return strings.TrimSuffix(*r.ObjectKey, r.Parts[0].Name) + p.Name, p.SHA256, nil
+	}
+	return "", "", problem.NotFound(fmt.Sprintf("The archive file of run %s has no part %d.", r.ID, *part))
 }
 
 // archiveChanged refuses a stored file that is not the run's.

@@ -9,6 +9,7 @@ tracked in `docs/tracker.json` (T-numbers).
 ## Commands
 
 ```bash
+# bash 5 is required locally (on macOS: brew install bash, Homebrew's bin first on PATH); scripts/walkthrough.sh refuses macOS's /bin/bash 3.2
 make db-up                    # PostgreSQL 17 in Docker on :55432 (needed by most tests)
 export DATABASE_URL='postgres://postgres:dev@localhost:55432/postgres?sslmode=disable'
 go build ./...

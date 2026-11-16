@@ -692,33 +692,14 @@ func sortedKeysMap[V any](m map[string]V) []string {
 	return out
 }
 
-// WriteCSV exports a result with machine-readable values.
+// WriteCSV exports a result with machine-readable values, laid out as
+// the run's CSV and the workbook are (Records): a money measure followed
+// by its currency's column, so a column mixing currencies says which each
+// amount is in (review:T95d).
 func WriteCSV(w io.Writer, r *Result) error {
 	cw := csv.NewWriter(w)
-	head := make([]string, len(r.Columns))
-	for i, c := range r.Columns {
-		head[i] = c.Name
-	}
-	if err := cw.Write(head); err != nil {
-		return fmt.Errorf("analytics: write csv header: %w", err)
-	}
-	for _, row := range r.Rows {
-		rec := make([]string, len(row))
-		for i, v := range row {
-			switch x := v.(type) {
-			case string:
-				rec[i] = x
-			case Value:
-				rec[i] = x.String() // exact, with the value's own digits
-			}
-		}
-		if err := cw.Write(rec); err != nil {
-			return fmt.Errorf("analytics: write csv row: %w", err)
-		}
-	}
-	cw.Flush()
-	if err := cw.Error(); err != nil {
-		return fmt.Errorf("analytics: flush csv: %w", err)
+	if err := cw.WriteAll(Records(r)); err != nil {
+		return fmt.Errorf("analytics: write csv: %w", err)
 	}
 	return nil
 }

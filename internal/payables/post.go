@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -90,28 +89,20 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 }
 
 // refusedPost audits a posting of the invoice the API refuses with a
-// business outcome (409 or 422, as the unit of work keeps one; ADR-0046):
-// the action of a posting with outcome refused, the problem's code and
-// detail and the posting date asked for, if any, so whoever reads the
-// invoice's audit trail sees why it is still parked (ADR-0072 As built,
-// T108b: the support agent's evidence). The refusal of a rule is audited
-// by the rule already (request.rule_refused); anything else, an invoice
-// not found among them, records nothing. It returns err, or the audit's
-// own failure.
+// business outcome (audit.RefuseProblem: 409 or 422, as the unit of work
+// keeps one; ADR-0046) with the problem's detail, which for this
+// operation names no person (codes, ids, dates and amounts), and the
+// posting date asked for, if any, so whoever reads the invoice's audit
+// trail sees why it is still parked (ADR-0072 As built, T108b: the support
+// agent's evidence). The API's other refused writes on the invoice are
+// audited by the HTTP layer without the detail (httpapi.RefusalsAudited).
 func refusedPost(ctx context.Context, id uuid.UUID, postingDate *time.Time, err error) error {
-	p := problem.From(err)
-	if (p.Status != http.StatusConflict && p.Status != http.StatusUnprocessableEntity) || p.Code == "request.rule_refused" {
-		return err
-	}
-	detail := map[string]any{"source": "problem", "code": p.Code, "detail": p.Detail}
+	detail := map[string]any{"detail": problem.From(err).Detail}
 	if postingDate != nil {
 		detail["posting_date"] = postingDate.Format(time.DateOnly)
 	}
-	if aerr := audit.Refuse(ctx, audit.Entry{Action: "payables.supplier_invoice.post", ObjectType: "payables.supplier_invoice", ObjectID: id,
-		Outcome: "refused", Detail: detail}); aerr != nil {
-		return fmt.Errorf("payables: audit the refused posting of invoice %s: %w", id, aerr)
-	}
-	return err
+	return audit.RefuseProblem(ctx, audit.Entry{Action: "payables.supplier_invoice.post", ObjectType: "payables.supplier_invoice", ObjectID: id,
+		Detail: detail}, err)
 }
 
 // postable judges an invoice's custom fields and rules before it posts. A

@@ -424,7 +424,7 @@ func Payments(cfg Config) *payments.Endpoints {
 // API reads them (approvals.Locator).
 func approvalHandlers(cfg Config) map[string]approvals.Handler {
 	return map[string]approvals.Handler{
-		approvals.Requisition:       procurement.Approvals{},
+		approvals.Requisition:       procurement.Approvals{Endpoints: procurementEndpoints(cfg)},
 		approvals.PartnerChange:     partner.Approvals{Schemas: configuration.Settings{}},
 		approvals.ConfigChange:      configuration.Approvals{},
 		approvals.InvoiceException:  payables.Approvals{},

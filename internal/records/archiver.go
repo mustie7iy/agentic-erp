@@ -146,8 +146,9 @@ func (w *Archiver) settle(ctx context.Context, tx pgx.Tx, r Run, err error) erro
 		"document_kind": r.Kind, "fiscal_year": r.FiscalYear, "code": p.Code, "detail": p.Detail, "requested_by": r.RequestedBy})
 }
 
-// archive writes the run's file and manifest and completes it: once its
-// requester may still act and its year is still closed.
+// archive writes the run's file, a part at a time, and its manifest and
+// completes it: once its requester may still act and its year is still
+// closed.
 func (w *Archiver) archive(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, r Run) error {
 	e := w.Endpoints
 	if err := w.Requesters.MayAct(ctx, tx, r.RequestedBy); err != nil {
@@ -169,9 +170,6 @@ func (w *Archiver) archive(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, r R
 	}
 	a, err := e.build(ctx, tx, tenant, r, le)
 	if err != nil {
-		return err
-	}
-	if err := e.keep(ctx, a.key, a.content, "application/x-ndjson"); err != nil {
 		return err
 	}
 	if err := e.keep(ctx, a.metaKey, a.manifest, "application/json"); err != nil {
@@ -204,9 +202,13 @@ func (e *Endpoints) keep(ctx context.Context, key string, content []byte, conten
 // complete marks the run completed with its file's figures, audits and
 // publishes it.
 func (w *Archiver) complete(ctx context.Context, tx pgx.Tx, r Run, company string, a archive) error {
+	var parts []ArchivePart // null: a file within one part
+	if len(a.parts) > 0 {
+		parts = a.parts
+	}
 	if _, err := tx.Exec(ctx, `UPDATE records.archiving_run SET status = 'completed', object_key = $2, manifest_key = $3, sha256 = $4, manifest_sha256 = $5,
-		size_bytes = $6, entry_count = $7, line_count = $8, debit_total = $9, currency = $10, completed_at = $11, version = version + 1 WHERE id = $1`,
-		r.ID, a.key, a.metaKey, a.sum[:], a.manifestSum[:], len(a.content), a.entries, a.lines, a.debits, a.currency, clock.Now(w.Now)); err != nil {
+		size_bytes = $6, entry_count = $7, line_count = $8, debit_total = $9, currency = $10, completed_at = $11, parts = $12, version = version + 1 WHERE id = $1`,
+		r.ID, a.key, a.metaKey, a.sum[:], a.manifestSum[:], a.size, a.entries, a.lines, a.debits, a.currency, clock.Now(w.Now), parts); err != nil {
 		return fmt.Errorf("records: complete archiving run %s: %w", r.ID, err)
 	}
 	exp, err := currency.Exponent(ctx, tx, a.currency, nil)
@@ -216,9 +218,9 @@ func (w *Archiver) complete(ctx context.Context, tx pgx.Tx, r Run, company strin
 	sum, meta := hexOf(a.sum[:]), hexOf(a.manifestSum[:])
 	return audit.Record(ctx, "records.archiving_run.complete", "records.archiving_run", r.ID, map[string]any{"legal_entity_id": r.LegalEntity,
 		"document_kind": r.Kind, "fiscal_year": r.FiscalYear, "file_name": fileName(r.ID), "sha256": sum, "manifest_sha256": meta,
-		"size_bytes": len(a.content), "entry_count": a.entries, "line_count": a.lines, "requested_by": r.RequestedBy},
+		"size_bytes": a.size, "entry_count": a.entries, "line_count": a.lines, "parts": len(a.parts), "requested_by": r.RequestedBy},
 		outbox.Event{Context: "records", Name: "archiving_run_completed", AggregateType: "records.archiving_run", AggregateID: r.ID,
 			Payload: map[string]any{"archiving_run_id": r.ID, "legal_entity_id": r.LegalEntity, "legal_entity_code": company, "document_kind": r.Kind,
-				"fiscal_year": r.FiscalYear, "file_name": fileName(r.ID), "sha256": sum, "size_bytes": len(a.content), "manifest_sha256": meta,
+				"fiscal_year": r.FiscalYear, "file_name": fileName(r.ID), "sha256": sum, "size_bytes": a.size, "manifest_sha256": meta,
 				"entry_count": a.entries, "line_count": a.lines, "debit_total": money.EventAmount(a.debits, a.currency, exp), "requested_by": r.RequestedBy}})
 }

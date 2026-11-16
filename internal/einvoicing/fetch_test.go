@@ -136,7 +136,8 @@ func (s *scene) stored(t *testing.T, message string) string {
 }
 
 // TestFetchEInvoicesQueues: a fetch from an active einvoice_provider
-// connector is queued as its Operation, the connector its resource; one
+// connector is queued as its Operation, the connector its resource, and
+// audited in the caller's name (ADR-0011); one
 // that cannot be fetched from is refused before anything is queued
 // (ADR-0061 §4), and a server without object storage refuses every fetch.
 func TestFetchEInvoicesQueues(t *testing.T) {
@@ -146,6 +147,12 @@ func TestFetchEInvoicesQueues(t *testing.T) {
 	pgtest.Scan(t, `SELECT kind, status, resource FROM platform.operation WHERE id = $1`, []any{op}, &kind, &status, &resource)
 	if got := kind + " " + status + " " + resource; got != "einvoicing.fetch queued /v1/connectors/"+s.connector.String() {
 		t.Errorf("the Operation: got %s, want a queued einvoicing.fetch of the connector", got)
+	}
+	var actor, connector string
+	pgtest.Scan(t, `SELECT actor_id::text, detail->>'connector_id' FROM audit.audit_event WHERE tenant_id = $1 AND action = 'einvoicing.fetch.request'
+		AND object_type = 'platform.operation' AND object_id = $2`, []any{s.f.Tenant.ID, op}, &actor, &connector)
+	if got, want := actor+" "+connector, s.f.Tenant.Human.ID.String()+" "+s.connector.String(); got != want {
+		t.Errorf("the request's audit record: got actor and connector %s, want %s (the caller's name)", got, want)
 	}
 	sap := uuid.Must(uuid.NewV7())
 	pgtest.Exec(t, `INSERT INTO integration.connector (tenant_id, id, kind, name, settings, status, created_by, updated_by)

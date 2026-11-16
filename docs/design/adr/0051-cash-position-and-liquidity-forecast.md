@@ -1107,7 +1107,8 @@ company's time zone):
   were routed, `created_at`'s date in UTC, without touching their version
   or `updated_at`; the previous release's inserts in a mixed cell take the
   column's default, its own UTC rule; the not-null rule is validated in
-  000171.
+  000171. The default was dropped in 000346 (the contract step; hdates,
+  below): an insert that leaves the date out now fails.
 - **Not this rule.** Procurement's other dates are different decisions,
   each read on the company's date by its own step: a goods movement
   reversal's default posting date since 2026-10-31 (below), and a
@@ -2799,7 +2800,8 @@ walkthrough steps 91 and 97 failing 19:00-24:00 in Toronto):
   shorter for that company's runs. A payment control is security posture:
   the batch digest flags this default for the product owner. The order
   document's address (`Suppliers.OrderAddress`) is read on this tenant-wide
-  day too, not the ordering company's (left as it was; review:batch74).
+  day too, not the ordering company's (left as it was; review:batch74;
+  moved to the ordering company's day by the hdates step below).
 - **Its instant.** The transaction's start (`transaction_timestamp()`), as
   `current_date` was, so one request judges every date on one day even
   across midnight; tests inject `Now` (`Ports`, `Endpoints`, `Approvals`,
@@ -2826,6 +2828,54 @@ walkthrough steps 91 and 97 failing 19:00-24:00 in Toronto):
   the same day is refused as backdated. `partner.TestDay`,
   `partner.TestMigrationToday`, `integration.TestRunDayIsTheCompanysDay`.
   The full walkthrough passed inside the window, at 21:50 in Toronto.
+
+As built (business dates swept; hdates, review:batch75):
+- **The order document's address.** `Suppliers.OrderAddress` takes the
+  day it reads on from its caller, and procurement's order document passes
+  the buyer company's date in its time zone (`config.CompanyDay`, read
+  from the configuration the document already reads for the buyer's
+  postal address; UTC's when the configuration does not hold the company,
+  as for every company date). The document goes out from that company
+  now, and partner's tenant-wide day, the earliest of the companies', can
+  still be yesterday there (Dubai beside Toronto). A zone the build cannot
+  load fails the document rather than choosing on UTC's day. Evidence:
+  `procurement.TestOrderDocumentTimeZone` (an order desk moving on 11
+  March: the legal address at 22:30 on 10 March in Toronto, the new desk
+  at 01:00 on 11 March in Dubai), `TestOrderDocumentZoneLost`.
+- **The requisition date's default dropped (000346).** The contract step
+  T72n5's review asked for once no release before T72n5 runs: none does,
+  since no cell has been deployed (the product owner put deployment last,
+  2026-11-02), so the first deployed release is past T72n5 and has no
+  previous release without the column. An insert that leaves the date out
+  fails `requisition_dated` instead of dating the requisition on UTC's
+  day. Evidence: `db.TestRequisitionDate`.
+- **Left on the database's day (product owner 2026-11-16: kept).** Identity's
+  role assignments and role permissions are dated and ended on the
+  database's day (`database.Today`), the day authorization judges them on
+  (`authz`, `identity`'s directory: `current_date` in SQL) and the
+  `end_validity` trigger (000001) enforces; they are the tenant's, not any
+  one company's. grc's test dates and links' state follow identity's day
+  (ADR-0078). Moving the day access starts and ends on is security
+  posture, so nothing is changed; the product owner kept it on
+  2026-11-16 and the leaf is closed with that reason. The
+  integration context has no UTC day left: its runs date on partner's day
+  and its cutover on each company's (batch 74). The other remaining UTC
+  days are read windows, not dates of a company: the metric watchers' and
+  the model simulation's lowest fiscal year (`clock.Now(...).Year()` less
+  two or fourteen years). `ledger.tax_code`'s end trigger keeps
+  `current_date`: nothing ends a tax code yet.
+- **The end of an address or a bank account (000347).** The database's
+  end trigger, `platform.end_validity`, refused a `valid_to` before
+  `current_date`, UTC's day, while partner ends addresses and bank
+  accounts on partner's day: from 19:00 in Toronto, ending one "today"
+  (replacing an order desk address, an approved bank account change) was
+  refused as in the past. The trigger now takes an argument,
+  `company_day`, on `partner.address` and `partner.bank_account`, which
+  allows the day before `current_date`: no zone is more than a day behind
+  UTC, as 000198's `current_date + 1` reasons the other way, and
+  partner's own check on partner's day stays the exact rule. Identity's
+  tables keep `current_date`. Evidence: `db.TestPartnerValidityCompanyDay`
+  (found in round 1 of hdates' review).
 
 ## Alternatives
 - **Cash position and forecast inside payments.** Fewer packages, but
