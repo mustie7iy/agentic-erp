@@ -59,11 +59,8 @@ func (e *Endpoints) FetchEInvoices(ctx context.Context, req *gen.EInvoiceFetch, 
 	if err != nil {
 		return nil, fmt.Errorf("einvoicing: operation of a fetch from connector %s: %w", req.ConnectorID, err)
 	}
-	if err := audit.Record(ctx, "einvoicing.fetch.request", "platform.operation", op.ID, map[string]any{"connector_id": req.ConnectorID,
-		"operation_id": op.ID}); err != nil {
-		return nil, err
-	}
-	return &gen.OperationHeaders{Location: gen.NewOptString("/v1/operations/" + op.ID.String()), Response: op}, nil
+	return &gen.OperationHeaders{Location: gen.NewOptString("/v1/operations/" + op.ID.String()), Response: op},
+		audit.Record(ctx, "einvoicing.fetch.request", "platform.operation", op.ID, map[string]any{"connector_id": req.ConnectorID, "operation_id": op.ID})
 }
 
 // noStore refuses work on a server without object storage, where an
