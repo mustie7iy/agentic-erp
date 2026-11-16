@@ -2,7 +2,10 @@ package records_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"math"
@@ -136,6 +139,33 @@ func (huge) Entries(_ context.Context, _ uuid.UUID, _ int16, fn func(ledger.Arch
 		Lines: []ledger.ArchivedLine{{LineNo: 1, AmountLocal: math.MaxInt64}, {LineNo: 2, AmountLocal: 1}}})
 }
 
+// TestArchiverLastPartWaits: the store not taking a file's last part,
+// written when the year's entries end, leaves the run queued.
+func TestArchiverLastPartWaits(t *testing.T) {
+	e := setupArchive(t, false)
+	id := e.queue(t)
+	w := e.archiver()
+	w.Endpoints.Objects, w.Endpoints.PartEntries, w.Endpoints.Journal = store{Store: e.objects, put: errors.New("store down"), suffix: ".part-2.jsonl"}, 2, three{}
+	if _, err := w.RunOnce(context.Background()); err == nil {
+		t.Error("got no error, want the round to fail")
+	}
+	if got := settled(t, id); got != records.RunQueued {
+		t.Errorf("got %s, want queued", got)
+	}
+}
+
+// three is a journal of three entries without lines.
+type three struct{ ledger.Archive }
+
+func (three) Entries(_ context.Context, _ uuid.UUID, _ int16, fn func(ledger.ArchivedEntry) error) error {
+	for range 3 {
+		if err := fn(ledger.ArchivedEntry{ID: uuid.Must(uuid.NewV7()), Currency: "EUR", LocalCurrency: "EUR", GroupCurrency: "EUR"}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // TestArchiverWaits: the store not taking or not returning the file, and
 // a company the tenancy context no longer answers for, leave the run
 // queued for the next round, which completes it once they answer.
@@ -150,6 +180,12 @@ func TestArchiverWaits(t *testing.T) {
 		},
 		"the store refusing the manifest": func(w *records.Archiver) {
 			w.Endpoints.Objects = store{Store: e.objects, put: down, suffix: ".manifest.json"}
+		},
+		"the store refusing a file's first part": func(w *records.Archiver) {
+			w.Endpoints.Objects, w.Endpoints.PartEntries = store{Store: e.objects, put: down, suffix: ".part-1.jsonl"}, 1
+		},
+		"the store refusing a later part": func(w *records.Archiver) {
+			w.Endpoints.Objects, w.Endpoints.PartEntries = store{Store: e.objects, put: down, suffix: ".part-2.jsonl"}, 1
 		},
 		"no company":           func(w *records.Archiver) { w.Endpoints.LegalEntities = entities{} },
 		"the company not read": func(w *records.Archiver) { w.Endpoints.LegalEntities = entities{err: down} },
@@ -300,7 +336,51 @@ func TestArchivingRunFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.as().Problem(409, "records.archive_changed", "GET", "/v1/archiving-runs/"+id+"/file", "", "")
+	e.as().Problem(409, "records.archive_changed", "GET", "/v1/archiving-runs/"+id+"/file?part=1", "", "")
+	e.as().Problem(404, "request.not_found", "GET", "/v1/archiving-runs/"+id+"/file?part=2", "", "")
 	e.as().Problem(404, "request.not_found", "GET", "/v1/archiving-runs/"+uuid.Must(uuid.NewV7()).String()+"/file", "", "")
+}
+
+// TestArchiveInParts: a year of more entries than a part holds is written
+// in parts, each an object of its own named by its number, listed on the
+// run with its SHA-256, size and entries; the parts in order are the
+// file, whose SHA-256 and size the run gives as a whole file's. The file
+// is handed out by part only; a part it does not have is not found
+// (review:batch75).
+func TestArchiveInParts(t *testing.T) {
+	e := setupArchive(t, false)
+	id := e.queue(t)
+	w := e.archiver()
+	w.Endpoints.PartEntries = 1
+	if _, err := w.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f := apitest.Object(t, e.run(t, id), "file")
+	parts := apitest.List(t, f, "parts")
+	if len(parts) != 2 {
+		t.Fatalf("parts: got %v, want two", parts)
+	}
+	e.as().Problem(409, "records.archive_in_parts", "GET", "/v1/archiving-runs/"+id+"/file", "", "")
+	var whole []byte
+	for i, p := range parts {
+		p := p.(map[string]any)
+		r := e.api.Do(apitest.Req{Method: http.MethodGet, Path: fmt.Sprintf("/v1/archiving-runs/%s/file?part=%d", id, i+1), Tenant: e.Tenant.ID, As: e.Tenant.Human})
+		sum := sha256.Sum256(r.Body.Bytes())
+		if got := fmt.Sprint(r.Code, " ", p["part"], " ", p["name"], " ", p["entry_count"], " ", p["sha256"] == hex.EncodeToString(sum[:])); got !=
+			fmt.Sprintf("200 %d %s.part-%d.jsonl 1 true", i+1, id, i+1) {
+			t.Errorf("part %d: got %s", i+1, got)
+		}
+		whole = append(whole, r.Body.Bytes()...)
+	}
+	sum := sha256.Sum256(whole)
+	if hex.EncodeToString(sum[:]) != f["sha256"] || float64(len(whole)) != f["size_bytes"] || f["entry_count"] != float64(2) {
+		t.Errorf("the parts together: got %d bytes, want the file's %v bytes, its SHA-256 and two entries (%v)", len(whole), f["size_bytes"], f)
+	}
+	checkLines(t, whole)
+	e.as().Problem(404, "request.not_found", "GET", "/v1/archiving-runs/"+id+"/file?part=3", "", "")
+	if objects := e.objectsIn(t); len(objects) != 3 {
+		t.Errorf("objects: got %v, want the two parts and the manifest", objects)
+	}
 }
 
 // TestArchivingRunsListed: the runs of the companies the caller may act

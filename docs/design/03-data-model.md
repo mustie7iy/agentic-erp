@@ -5546,7 +5546,7 @@ the archiving runs and the context's outbox and inbox.
 ```
 records.archiving_run  (tenant_id, id, legal_entity_id, document_kind, fiscal_year, retention_years, config_version,
                         status, object_key, manifest_key, sha256, manifest_sha256, size_bytes, entry_count, line_count,
-                        debit_total, currency, failure_code, completed_at, requested_by, created_at, updated_at, version)
+                        debit_total, currency, failure_code, completed_at, requested_by, created_at, updated_at, version, parts)
 records.deletion_run   (tenant_id, id, config_version, status, subject_count, failure_code, completed_at, requested_by,
                         created_at, updated_at, version)
 ```
@@ -5569,7 +5569,13 @@ records.deletion_run   (tenant_id, id, config_version, status, subject_count, fa
   lines' debits in the company's currency, minor units, never negative, and
   when it completed; a run that is not completed has none of them
   (`archiving_run_completed_check`, `archiving_run_file_check`). A failed
-  run has its problem code (`archiving_run_failed_check`).
+  run has its problem code (`archiving_run_failed_check`). A file written
+  in parts (000345, review:batch75: more than 50,000 entries or 32 MiB)
+  lists them in `parts` (jsonb, at least two: number, name
+  `<run id>.part-<n>.jsonl`, SHA-256, size, entries; only on a run with a
+  file, `archiving_run_parts_check`), `object_key` the first part's, and
+  `sha256` and `size_bytes` the whole file's; a file within one part has
+  none.
 - The archiver claims a tenant's queued runs by `archiving_run_queued`
   (`FOR UPDATE SKIP LOCKED`); the worker role reads `tenant_id` and `status`
   across tenants to find them. The list reads `archiving_run_by_created`.

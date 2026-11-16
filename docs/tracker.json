@@ -6006,9 +6006,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The T99b archiver builds a whole fiscal year in memory before it writes its file: a company with a very large year holds all its rows at once (found in batch 75's integration; it should write the year in parts).",
-        "r": "internal/records archiving run · records.archiving_run · GET /v1/archiving-runs/{id}/file · ADR-0079",
+        "r": "internal/records archiving run · records.archiving_run · GET /v1/archiving-runs/{id}/file · ADR-0079 · written in parts (internal/platform/jsonl), migration 000345 parts, ArchiveFile.parts and ?part=",
         "src": "review:batch75",
         "c": []
        },

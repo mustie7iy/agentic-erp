@@ -3079,8 +3079,11 @@ func (UnimplementedHandler) GetArchivingRun(ctx context.Context, params GetArchi
 // wrote it to object storage, in JSON Lines (`application/x-ndjson`): one journal entry of the year
 // per line, of every ledger, by posting date, each with its lines, in the form ADR-0079 §7 documents.
 // Its SHA-256 is the run's `sha256`, checked before it is handed out (409 `records.archive_changed`
-// when the stored file no longer matches). A run not completed has no file (409
-// `records.archive_not_completed`). The file holds every entry of the year whole, so besides
+// when the stored file no longer matches). A file of more than 50,000 entries (or 32 MiB) is written
+// in parts, which `file.parts` lists: each downloads with `part` (from 1), checked against its own
+// SHA-256, and the parts in order are the file; such a file is not handed out whole (409
+// `records.archive_in_parts`), and a part it does not have is not found. A run not completed has no
+// file (409 `records.archive_not_completed`). The file holds every entry of the year whole, so besides
 // `records.archive.run` the caller needs `ledger.entry.read` (`x-also-permissions`). Human-only
 // (`x-agent: false`). 503 while the server has no object storage or the store does not answer. A run
 // of a legal entity the caller cannot act in is not found.

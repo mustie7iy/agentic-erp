@@ -19061,19 +19061,29 @@ paths:
       tags:
         - records
       summary: Download an archiving run's file
-      description: "The archive file of a completed archiving run (ADR-0079 §7, T99b), byte for byte as the archiver wrote it to object storage, in JSON Lines (`application/x-ndjson`): one journal entry of the year per line, of every ledger, by posting date, each with its lines, in the form ADR-0079 §7 documents. Its SHA-256 is the run's `sha256`, checked before it is handed out (409 `records.archive_changed` when the stored file no longer matches). A run not completed has no file (409 `records.archive_not_completed`). The file holds every entry of the year whole, so besides `records.archive.run` the caller needs `ledger.entry.read` (`x-also-permissions`). Human-only (`x-agent: false`). 503 while the server has no object storage or the store does not answer. A run of a legal entity the caller cannot act in is not found."
+      description: "The archive file of a completed archiving run (ADR-0079 §7, T99b), byte for byte as the archiver wrote it to object storage, in JSON Lines (`application/x-ndjson`): one journal entry of the year per line, of every ledger, by posting date, each with its lines, in the form ADR-0079 §7 documents. Its SHA-256 is the run's `sha256`, checked before it is handed out (409 `records.archive_changed` when the stored file no longer matches). A file of more than 50,000 entries (or 32 MiB) is written in parts, which `file.parts` lists: each downloads with `part` (from 1), checked against its own SHA-256, and the parts in order are the file; such a file is not handed out whole (409 `records.archive_in_parts`), and a part it does not have is not found. A run not completed has no file (409 `records.archive_not_completed`). The file holds every entry of the year whole, so besides `records.archive.run` the caller needs `ledger.entry.read` (`x-also-permissions`). Human-only (`x-agent: false`). 503 while the server has no object storage or the store does not answer. A run of a legal entity the caller cannot act in is not found."
       x-permission: records.archive.run
       x-also-permissions:
         - ledger.entry.read
       x-agent: false
       x-problem-codes:
         - records.archive_changed
+        - records.archive_in_parts
         - records.archive_not_completed
       parameters:
         - $ref: "#/components/parameters/Id"
+        - name: part
+          in: query
+          required: false
+          description: "A part of a file written in parts, its number from 1 (`file.parts`); a file within one part is its part 1."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100000
       responses:
         "200":
-          description: The archive file.
+          description: The archive file, or the part asked for.
           content:
             application/x-ndjson:
               schema:
@@ -57613,6 +57623,22 @@ components:
         entry_count: {type: integer, format: int32, minimum: 0, description: "The journal entries in the file: every entry of the company's fiscal year, of every ledger.", readOnly: true}
         line_count: {type: integer, format: int32, minimum: 0, description: "Their lines.", readOnly: true}
         debit_total: {$ref: "#/components/schemas/Money", description: "The sum of the lines' debits in the company's currency."}
+        parts:
+          type: array
+          items: {$ref: "#/components/schemas/ArchiveFilePart"}
+          description: "A file of more than 50,000 entries (or 32 MiB), written in parts: its parts, in order (`GET /v1/archiving-runs/{id}/file?part={part}` downloads each); `sha256` and `size_bytes` above are the whole file's, the parts' content in this order. Absent on a file within one part."
+          readOnly: true
+    ArchiveFilePart:
+      type: object
+      description: "A part of an archive file written in parts (ADR-0079 §7)."
+      required: [part, name, sha256, size_bytes, entry_count]
+      readOnly: true
+      properties:
+        part: {type: integer, format: int32, minimum: 1, description: "Its number, from 1.", readOnly: true}
+        name: {type: string, description: "Its name, `<run id>.part-<part>.jsonl`.", readOnly: true}
+        sha256: {type: string, pattern: '^[0-9a-f]{64}$', description: "The SHA-256 of its content, in hexadecimal; the manifest names it too.", readOnly: true}
+        size_bytes: {type: integer, format: int64, minimum: 0, description: "Its size in bytes.", readOnly: true}
+        entry_count: {type: integer, format: int32, minimum: 0, description: "The journal entries in it, each whole.", readOnly: true}
     ArchivingRunPage:
       type: object
       description: One page of archiving runs, newest first.

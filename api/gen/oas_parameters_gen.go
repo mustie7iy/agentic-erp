@@ -22072,6 +22072,9 @@ func decodeGetArchivingRunParams(args [1]string, argsEscaped bool, r *http.Reque
 type GetArchivingRunFileParams struct {
 	// Resource identifier (UUIDv7).
 	ID uuid.UUID
+	// A part of a file written in parts, its number from 1 (`file.parts`); a file within one part is its
+	// part 1.
+	Part OptInt32 `json:",omitempty,omitzero"`
 }
 
 func unpackGetArchivingRunFileParams(packed middleware.Parameters) (params GetArchivingRunFileParams) {
@@ -22082,10 +22085,20 @@ func unpackGetArchivingRunFileParams(packed middleware.Parameters) (params GetAr
 		}
 		params.ID = packed[key].(uuid.UUID)
 	}
+	{
+		key := middleware.ParameterKey{
+			Name: "part",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Part = v.(OptInt32)
+		}
+	}
 	return params
 }
 
 func decodeGetArchivingRunFileParams(args [1]string, argsEscaped bool, r *http.Request) (params GetArchivingRunFileParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
 	// Decode path: id.
 	if err := func() error {
 		param := args[0]
@@ -22128,6 +22141,72 @@ func decodeGetArchivingRunFileParams(args [1]string, argsEscaped bool, r *http.R
 		return params, &ogenerrors.DecodeParamError{
 			Name: "id",
 			In:   "path",
+			Err:  err,
+		}
+	}
+	// Decode query: part.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "part",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotPartVal int32
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToInt32(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotPartVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Part.SetTo(paramsDotPartVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.Part.Get(); ok {
+					if err := func() error {
+						if err := (validate.Int{
+							MinSet:        true,
+							Min:           1,
+							MaxSet:        true,
+							Max:           100000,
+							MinExclusive:  false,
+							MaxExclusive:  false,
+							MultipleOfSet: false,
+							MultipleOf:    0,
+							Pattern:       nil,
+						}).Validate(int64(value)); err != nil {
+							return errors.Wrap(err, "int")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "part",
+			In:   "query",
 			Err:  err,
 		}
 	}

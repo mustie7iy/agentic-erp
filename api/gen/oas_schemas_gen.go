@@ -5970,6 +5970,10 @@ type ArchiveFile struct {
 	LineCount int32 `json:"line_count"`
 	// The sum of the lines' debits in the company's currency.
 	DebitTotal Money `json:"debit_total"`
+	// A file of more than 50,000 entries (or 32 MiB), written in parts: its parts, in order
+	// (`GET /v1/archiving-runs/{id}/file?part={part}` downloads each); `sha256` and `size_bytes` above are
+	// the whole file's, the parts' content in this order. Absent on a file within one part.
+	Parts []ArchiveFilePart `json:"parts"`
 }
 
 // GetName returns the value of Name.
@@ -6007,6 +6011,11 @@ func (s *ArchiveFile) GetDebitTotal() Money {
 	return s.DebitTotal
 }
 
+// GetParts returns the value of Parts.
+func (s *ArchiveFile) GetParts() []ArchiveFilePart {
+	return s.Parts
+}
+
 // SetName sets the value of Name.
 func (s *ArchiveFile) SetName(val string) {
 	s.Name = val
@@ -6040,6 +6049,76 @@ func (s *ArchiveFile) SetLineCount(val int32) {
 // SetDebitTotal sets the value of DebitTotal.
 func (s *ArchiveFile) SetDebitTotal(val Money) {
 	s.DebitTotal = val
+}
+
+// SetParts sets the value of Parts.
+func (s *ArchiveFile) SetParts(val []ArchiveFilePart) {
+	s.Parts = val
+}
+
+// A part of an archive file written in parts (ADR-0079 §7).
+// Ref: #/components/schemas/ArchiveFilePart
+type ArchiveFilePart struct {
+	// Its number, from 1.
+	Part int32 `json:"part"`
+	// Its name, `<run id>.part-<part>.jsonl`.
+	Name string `json:"name"`
+	// The SHA-256 of its content, in hexadecimal; the manifest names it too.
+	SHA256 string `json:"sha256"`
+	// Its size in bytes.
+	SizeBytes int64 `json:"size_bytes"`
+	// The journal entries in it, each whole.
+	EntryCount int32 `json:"entry_count"`
+}
+
+// GetPart returns the value of Part.
+func (s *ArchiveFilePart) GetPart() int32 {
+	return s.Part
+}
+
+// GetName returns the value of Name.
+func (s *ArchiveFilePart) GetName() string {
+	return s.Name
+}
+
+// GetSHA256 returns the value of SHA256.
+func (s *ArchiveFilePart) GetSHA256() string {
+	return s.SHA256
+}
+
+// GetSizeBytes returns the value of SizeBytes.
+func (s *ArchiveFilePart) GetSizeBytes() int64 {
+	return s.SizeBytes
+}
+
+// GetEntryCount returns the value of EntryCount.
+func (s *ArchiveFilePart) GetEntryCount() int32 {
+	return s.EntryCount
+}
+
+// SetPart sets the value of Part.
+func (s *ArchiveFilePart) SetPart(val int32) {
+	s.Part = val
+}
+
+// SetName sets the value of Name.
+func (s *ArchiveFilePart) SetName(val string) {
+	s.Name = val
+}
+
+// SetSHA256 sets the value of SHA256.
+func (s *ArchiveFilePart) SetSHA256(val string) {
+	s.SHA256 = val
+}
+
+// SetSizeBytes sets the value of SizeBytes.
+func (s *ArchiveFilePart) SetSizeBytes(val int64) {
+	s.SizeBytes = val
+}
+
+// SetEntryCount sets the value of EntryCount.
+func (s *ArchiveFilePart) SetEntryCount(val int32) {
+	s.EntryCount = val
 }
 
 // An archiving run (records, ADR-0079 §6-§8, T99b): a company's documents of one kind and fiscal
