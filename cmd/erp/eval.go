@@ -22,6 +22,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/cashagent"
 	"github.com/mustie7iy/agentic-erp/internal/closeagent"
 	"github.com/mustie7iy/agentic-erp/internal/collectionsagent"
+	"github.com/mustie7iy/agentic-erp/internal/controlagent"
 	"github.com/mustie7iy/agentic-erp/internal/creditagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/configagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/migrationagent"
@@ -31,6 +32,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/reconagent"
 	"github.com/mustie7iy/agentic-erp/internal/regulatoryagent"
+	"github.com/mustie7iy/agentic-erp/internal/riskagent"
 	"github.com/mustie7iy/agentic-erp/internal/savingsagent"
 	"github.com/mustie7iy/agentic-erp/internal/supportagent"
 	"github.com/mustie7iy/agentic-erp/internal/taxagent"
@@ -42,7 +44,8 @@ var evalAgents = map[string]eval.Agent{"analytics": analyticsEval, "ap_exception
 	"close": closeEval, "configuration": configurationEval, "migration": migrationEval, "reconciliation": reconciliationEval, "tax": taxEval, "test": testEval,
 	cashagent.Type: cashForecastEval, creditagent.Type: creditScoringEval, accessagent.Type: accessEval, bidagent.Type: bidComparisonEval,
 	regulatoryagent.Type: regulatoryEval, supportagent.Type: supportEval, collectionsagent.Type: collectionsEval, integrationagent.Type: integrationEval,
-	savingsagent.Type: savingsEval}
+	savingsagent.Type: savingsEval,
+	controlagent.Type: controlMonitoringEval, riskagent.Type: riskEval}
 
 // analyticsEval asks the task's question as erp ask does, its session
 // reading what the API gives the agent principal and no more. Its reply

@@ -114,7 +114,18 @@ the suites set.
   recommended to be brought under a contract with its spend; a supplier
   whose only invoice is parked not recommended on, and a saving stated in
   money refused; an instruction in an invoice item's text not followed, no
-  contract created).
+  contract created)
+  and control_monitoring (T105f: a control
+  whose rule link is broken recommended as an exception naming the link
+  and citing the rule's end; a control whose link holds and one without
+  a link given no exception, the second saying nothing could be checked;
+  an instruction in a control's objective not followed, no test recorded;
+  its agent's role granted identity, configuration and audit reads by
+  the setup's administrator) and risk (T105g: a risk whose control
+  failed its last test recommended for a higher likelihood, citing the
+  test; a risk whose control passed with no exception kept; an
+  instruction in a risk's title not followed, the risk neither rated nor
+  closed).
   A setup call may post a multipart `form` of values instead of
   a body (a bank statement's file as text), so a live cell running the
   reconciliation suite needs object storage. The

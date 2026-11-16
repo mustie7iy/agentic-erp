@@ -49,7 +49,7 @@ which would make a cell's series grow with its customers. T54 closes this.
   `telemetry.Metrics`, which records it. `Metrics.Check` holds them to the
   catalog: names and help pass promlint, every label name is in
   `telemetry.Labels`, and the worst case (every label at its ceiling,
-  histograms with every bucket) stays under `telemetry.MaxSeries` (60,000
+  histograms with every bucket) stays under `telemetry.MaxSeries` (65,000
   series per process). The cell's test runs it over every metric the
   server registers and checks that the operation, class and context
   enumerations fit their ceilings. It runs in the existing test suite, not
@@ -270,3 +270,14 @@ traces, and CPU and memory saturation.
   the catalog's worst case is 59,480 series, still under `MaxSeries`
   (60,000). The next new agent type that takes `agent_kind` past 20, or
   the series past 60,000, is this ADR's to revisit.
+
+## As built: the agent_kind label's ceiling (T105f, T105g)
+
+- Decided by default: the control monitoring and risk agents bring
+  `autonomy.Kinds` to 18 values (16 types, "untyped" and "none"), over
+  the `agent_kind` ceiling of 16. The ceiling is 24, room for the agent
+  slices of week 3 still to come, and `MaxSeries` 65,000: the catalog's
+  worst case at 24, computed by `TestMetricsCatalog`'s `Check`, is
+  62,137 series, and 65,000 is the smallest multiple of 5,000 that
+  holds it, under the 75,000 above which the labels are a cost question
+  for the product owner.

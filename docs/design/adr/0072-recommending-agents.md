@@ -212,6 +212,8 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `integration` | `internal/integrationagent`, `erp agent integration-monitor` | `listConnectors`, `getConnector`, `listWebhookSubscriptions`, `listWebhookDeliveries`, `getWebhookDelivery`, `listBankFiles`, `listOperations`, `getOperation`, `listMigrationRuns` | on `webhook_subscription`: `check_endpoint`, `investigate`, `redeliver`, `pause`; on `bank_file`: `retransmit`, `investigate`; on `connector`: `check_endpoint`, `investigate` | every write of connectors, webhook subscriptions and deliveries, bank files, migration runs and operations (enabling, disabling, pausing, resuming, redelivering, rotating a secret, transmitting a file, creating a connector among them) |
 | `support` (fix, T108c) | `erp agent support-fix -recommendation ID` | `getRecommendation`, `listConfigVersions`, `getConfigVersion`, `getChangeRequest`, `getOperation`; writes `createChangeRequest`, `updateChangeRequest`, `simulateChangeRequest` (`internal/changedraft`) | on `change_request`: `ready_to_submit`, `simulation_failed` | submitting, withdrawing or activating a change request, a decision on an approval or a recommendation, any write of master data or a document |
 | `savings` | `internal/savingsagent`, `erp agent savings -company CODE [-period FROM..TO] [-max N]` | `runAnalyticsQuery`, `getAnalyticsModel`, `listContracts`, `getContract`, `listCatalogItems`, `listPurchaseOrders`, `getPurchaseOrder`, `getBusinessPartner`, `listAccounts` | on `business_partner`: `bring_under_contract`; on `account`: `consolidate_suppliers`; on `purchase_order`: `use_contract_price` | `createRfq`, `publishRfq`, `createContract`, `releaseContract`, `createPurchaseOrder`, `releasePurchaseOrder` |
+| `control_monitoring` | `internal/controlagent`, `erp agent control-monitor [-process TEXT]` | `listControls`, `getControl`, `listControlTests`, `getControlMatrix`, `listAuditEvents`, `listSodRules`, `listRoleAssignments`, `listApprovalRequests` | on `control`: `exception_found`, `no_exception` | `createControl`, `updateControl`, `retireControl`, `createControlTest`, `createControlLink`, `removeControlLink` |
+| `risk` | `internal/riskagent`, `erp agent risk` | `listRisks`, `getRisk`, `listRiskRatings`, `listControls`, `getControl`, `listControlTests`, `getControlMatrix`, `listAuditEvents`, `listRecommendations` | on `risk`: `rate_again`, `keep`; on `tenant`: `new_risk` | `createRisk`, `updateRisk`, `closeRisk`, `createRiskRating` |
 
 A later slice adds its row here and its section under "As built".
 
@@ -1045,6 +1047,129 @@ A later slice adds its row here and its section under "As built".
   agent type `savings` added to the open enumeration of
   `agent_profile.agent_type`.
 
+
+### T105f, the control monitoring agent
+
+- `internal/controlagent`; agent type `control_monitoring`;
+  `recommend.Cited` (`internal/recommend/cited.go`), shared with the risk
+  agent (T105g): it keeps the identifiers the run's tool reads returned
+  under a label (`Cited.Keep`, an observer of the read naming the paths
+  of the answer, `items[].seq`), and `recommend.Cites` finds a content's
+  citations, a label followed by a UUID or a whole number ("audit event
+  1234"); a citation of what no tool read of the run returned is refused,
+  as a number no read returned is (§4). As with the figures, what the
+  agent's code read before the session does not count.
+- `erp agent control-monitor [-process TEXT]`. Before its session the
+  run reads the control matrix (`getControlMatrix`, every page; filtered
+  by the process's exact text when given): a matrix the agent may not
+  read stops it, and so do more than 100 controls (`MaxControls`; the
+  command asks for a process). A matrix without a control starts no
+  session and says so. The prompt gives each control (code, objective,
+  process, nature, frequency, last test) with its links, whether each
+  holds and why not. The run recommends once on each control (object type
+  `control`): `exception_found` or `no_exception`; the printer names each
+  control by its code (`recommend.Result.Names`).
+- Its check (`controlagent.monitored.check`):
+  - every number is one the run read (§4); every audit event cited, as
+    `audit event <seq>` (an audit event has a sequence number, no id), is
+    one a `listAuditEvents` of the run returned;
+  - a control with a broken link gets `exception_found` or nothing, and
+    its first line is `Broken links: ` and the ids of exactly its broken
+    links in the matrix's order: which links are broken is the matrix's,
+    read before the session, not the model's judgment;
+  - an `exception_found` on a control whose links all hold cites at least
+    one audit event (what shows the control did not work);
+  - a `no_exception` on a control with no link that cites no audit event
+    carries `Nothing could be checked: the control has no link and no
+    audit event was found.` (`controlagent.NothingChecked`).
+- Its never list is every write of the control library: recording,
+  changing and retiring a control, recording a test, making and removing
+  a link (`TestNever` keeps it whole against the contract's operations on
+  controls); `createControlTest` is `x-agent: false`. Its role holds
+  `grc.control.read` and `workflow.request.read`; the matrix also needs
+  `identity.access.read` and `config.version.read`, and the audit trail
+  `audit.event.read`, which a tenant's administrator grants.
+- `evals/control_monitoring`, version 1, replayed to level 2: a control
+  whose rule link is broken (the rule made from 2099-01-01 after the
+  administrator's assignment ends that day, then ended from 2099-01-02)
+  recommended as an exception naming the link and citing the rule's end;
+  a control whose link holds and one without a link given no exception,
+  the second saying nothing could be checked; an instruction in a
+  control's objective to record a test and retire it not followed. Not
+  run against a live model.
+- Walkthrough `step_control_agent` (step 105): Ada sets the agent up and
+  grants its role identity data, the configuration's versions and the
+  audit trail; she makes the rule *whoever manages the organisation does
+  not release payment runs* (`tenancy.org.manage` /
+  `payments.run.release`) from tomorrow; Olive records the control ORG-01
+  in the process "Access management" and links it to the rule; Ada ends
+  the rule from the day after it starts. The matrix shows the link
+  broken; the agent's `no_exception` is refused; it recommends
+  `exception_found` naming the link and citing the audit events of the
+  rule's creation and end; its own `createControlTest` is refused (403);
+  Olive accepts, which records no test. Step 76's control PAY-01 and the
+  rules of steps 77 and 83 are not touched.
+- No migration, no new operation, permission, event or problem code.
+
+### T105g, the risk agent
+
+- `internal/riskagent`; agent type `risk`; `erp agent risk`. Before its
+  session the run reads who the agent is (`/v1/me`, its tenant), the open
+  risks (`listRisks` with `status=open`, every page, up to 100,
+  `MaxRisks`), every control's last test (`listControls`) and the
+  recommendations on controls (`listRecommendations` with
+  `object_type=control`, newest first): a read the agent may not make
+  stops it there. The control monitoring agent's latest finding on a
+  control is its newest `exception_found` or `no_exception` there; an
+  exception is that finding being `exception_found` and not overridden or
+  ignored by a person.
+- It recommends once on each open risk (object type `risk`): `rate_again`
+  or `keep`, and at most once on the tenant (object type `tenant`, the
+  tenant's id): `new_risk`. The prompt gives each risk (title, category,
+  likelihood, impact, score) with its controls, each control's status,
+  last test and finding, and says which risks are clear. The printer
+  names each risk by its title, the tenant as "the tenant".
+- Its check (`riskagent.register.check`):
+  - a `rate_again`'s first line is `Rate: likelihood L, impact I`, each
+    1 to 5, other than the risk's rating now; a risk is **clear** when it
+    has at least one control and each is active, passed its last test and
+    has no exception, and a clear risk is kept (`rate_again` refused);
+  - a `new_risk`'s first line is `New risk: ` and its title, its second
+    `Category: ` and its category, as `createRisk` would take them (1 to
+    200 and 1 to 100 characters, no white space around them);
+  - a `rate_again` or a `new_risk` cites what shows it, and every
+    citation is of what a tool read of the run returned
+    (`recommend.Cited`, T105f): `control test <id>` (from
+    `listControlTests`, or a control's `last_test` in `listControls`,
+    `getControl` or the matrix), `audit event <seq>` (`listAuditEvents`)
+    or `recommendation <id>` (`listRecommendations`);
+  - every number of the reasons (beyond a rating's first line) is one
+    the run read (§4).
+- Its never list is every write of the register: `createRisk`,
+  `updateRisk`, `closeRisk`, `createRiskRating` (`TestNever` keeps it
+  whole against the contract's operations on risks). The register's
+  operations are open to agents (ADR-0078 §13), so it is the role, which
+  holds `grc.risk.read` and no `grc.risk.write`, and the tools that keep
+  the agent from writing; its role also holds `grc.control.read`, and a
+  tenant's administrator grants `identity.access.read`,
+  `config.version.read` (the matrix) and `audit.event.read`.
+- `evals/risk`, version 1, replayed to level 2: a risk whose control
+  failed its last test recommended for a higher likelihood, citing the
+  test; a risk whose control passed with no exception kept; an
+  instruction in a risk's title to close it and rate every risk 1 by 1
+  not followed. Not run against a live model.
+- Walkthrough `step_risk_agent` (step 106): Olive tests step 76's control
+  PAY-01 again and records it failed (its rule link of step 77 is not in
+  force); the agent's rating equal to the risk's is refused; it
+  recommends rating step 89's risk of duplicate payments again at
+  likelihood 2, citing the failed test, and, on the tenant, a new risk of
+  payment runs released by whoever manages the organisation, citing the
+  control monitoring agent's exception of step 98; its own rating is
+  refused (403 `identity.autonomy_insufficient`: a write needs level 2,
+  and its role holds no `grc.risk.write` either); Tara accepts the new rating
+  and rates the risk herself.
+- No migration, no new operation, permission, event or problem code.
+
 ## Defaults taken (for the product owner's digest)
 
 1. The shared run is a package, `internal/recommend`, not a copy per
@@ -1187,3 +1312,36 @@ A later slice adds its row here and its section under "As built".
     account's spend, the order's total), per currency, never summed
     across currencies; a saving stated with a figure is refused (a
     backstop: a saving stated in other words is not seen).
+23. (T105f) The plan's "a control with no link and no automated evidence"
+    is read as a control without a link on which the run cites no audit
+    event: it gets `no_exception` only with the statement that nothing
+    could be checked. A broken link is an exception by the matrix, not by
+    the model's judgment; an exception on a control whose links hold
+    needs an audit event to cite. Audit events are cited by their `seq`,
+    since they have no id.
+24. (T105f) A run covers the tenant's active controls, or one process's,
+    up to 100, one recommendation per control and run; a second run
+    recommends again, as every agent of the pattern does (plan "Later":
+    monitoring on a schedule).
+25. (T105f) The walkthrough's rule is ended, as the plan asks, but cannot
+    show `sod_rule_ended` today: the administrator holds every permission
+    today, so a rule starts tomorrow at the earliest (as step 77's), and
+    it ends after the day it starts. Its link is shown broken as
+    `sod_rule_not_started`, and the agent cites the audit event of the
+    end.
+26. (T105g) "A risk whose controls all passed their last test and has no
+    exception" is computed before the session: at least one control,
+    each active, its last test passed, and the control monitoring
+    agent's latest finding on it not an exception a person left standing
+    (open or accepted). A risk without a control is not clear: the model
+    judges it.
+27. (T105g) A `rate_again` must differ from the risk's rating now; a new
+    rating or a new risk cites at least one control test, audit event or
+    recommendation the run read. The tenant is one object, so a run
+    recommends at most one new risk (plan "Later": risks from outside
+    sources).
+28. (T105g) The plan's walkthrough reads "the failed control test of
+    `step_controls`", but step 76 records a passed test; Olive records
+    the failed one in `step_risk_agent` (a correction is another test,
+    ADR-0078 §3), on the evidence the matrix shows: PAY-01's rule link is
+    not in force today.

@@ -6217,13 +6217,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Continuous control monitoring agent",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The control monitoring agent reads the control library, the control matrix, the audit trail and the access data and recommends, per control, whether it found an exception, with the events it found, for the compliance officer to decide; it never records a test (erp agent control-monitor)",
-        "r": "T105f · docs/design/plan-breadth-week3.md §T105f",
+        "r": "T105f · docs/design/plan-breadth-week3.md §T105f · reads GET /v1/control-matrix (T98b) · internal/controlagent · recommend.Cited · agent type control_monitoring · erp agent control-monitor · evals/control_monitoring · walkthrough step_control_agent · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -6266,13 +6266,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Risk agent",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The risk agent reads the risk register, the controls and their tests and the audit trail and recommends new ratings and risks not yet in the register with its reasons for a risk owner to decide; it never changes the register (erp agent risk)",
-        "r": "T105g · docs/design/plan-breadth-week3.md §T105g",
+        "r": "T105g · docs/design/plan-breadth-week3.md §T105g · reads GET /v1/risks (T98c) and the control monitoring agent's recommendations (T105f) · internal/riskagent · agent type risk · erp agent risk · evals/risk · walkthrough step_risk_agent · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

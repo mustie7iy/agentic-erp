@@ -35214,6 +35214,8 @@ components:
             - collections
             - integration
             - savings
+            - control_monitoring
+            - risk
           maxLength: 50
         model:
           type: string

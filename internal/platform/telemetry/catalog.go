@@ -35,7 +35,7 @@ var Labels = map[string]int{
 // MaxSeries is the most series one process may expose when every label
 // takes all its values: the ceiling that keeps a cell's Prometheus small
 // whatever its tenants do (ADR-0043).
-const MaxSeries = 60_000
+const MaxSeries = 65_000
 
 // family is what the catalog knows of a registered metric.
 type family struct {
