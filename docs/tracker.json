@@ -7058,6 +7058,13 @@
           "r": "internal/offboarding/offboarding_test.go runningWorkerExportsATenantOffboardedMeanwhile",
           "src": "review:batch46",
           "c": []
+         },
+         {
+          "s": "D",
+          "t": "An export reads each table in its primary key's order: a resumed export keeps the parts an earlier round stored, so rows read in another order (a plan changed between the rounds) were exported twice or never, and the erasure that follows lost them for good (R2 B1 of the batch 76 review).",
+          "r": "internal/offboarding exportTable, tenantTable.order (primary key from pg_index; the row's text without one) · TestResumedExportReadsInKeyOrder · TestExportOrder · ADR-0021",
+          "src": "review:batch76",
+          "c": []
          }
         ]
        },

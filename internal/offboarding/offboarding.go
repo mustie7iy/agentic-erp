@@ -148,16 +148,36 @@ func (w *Worker) pending(ctx context.Context) (toExport, toErase []uuid.UUID, er
 	return toExport, toErase, nil
 }
 
-// tenantTable is a tenant table: the name an export records it under and
-// its schema and table, from which SQL's identifier is built.
+// tenantTable is a tenant table: the name an export records it under, its
+// schema and table, from which SQL's identifier is built, and its primary
+// key's columns in key order.
 type tenantTable struct {
 	Name   string // schema.table, as format('%I.%I') renders it
 	Schema string
 	Table  string
+	Key    []string
 }
 
 // ident is the table's quoted identifier for SQL.
 func (t tenantTable) ident() string { return pgx.Identifier{t.Schema, t.Table}.Sanitize() }
+
+// order is the ORDER BY list an export reads the table in: its primary key,
+// or the row's text (column 1 of the export's query) for a table without
+// one. Rows must come in the same order in every round, whatever plan the
+// database picks: a resumed export keeps the parts an earlier round stored
+// and writes the rest, so an order that changed between the rounds would
+// export some rows twice and others never, and the erasure that follows
+// would lose those for good.
+func (t tenantTable) order() string {
+	if len(t.Key) == 0 {
+		return "1"
+	}
+	cols := make([]string, len(t.Key))
+	for i, c := range t.Key {
+		cols[i] = "t." + pgx.Identifier{c}.Sanitize()
+	}
+	return strings.Join(cols, ", ")
+}
 
 // tenantTables lists the tenant tables: every table with a tenant_id
 // column, partitioned parents rather than their partitions. Export, import
@@ -165,7 +185,12 @@ func (t tenantTable) ident() string { return pgx.Identifier{t.Schema, t.Table}.S
 // list (ADR-0021, ADR-0030): an accepted exception to going through the
 // owning context (06 §6.7), since they move the tenant's data as data.
 func tenantTables(ctx context.Context, tx pgx.Tx) ([]tenantTable, error) {
-	rows, _ := tx.Query(ctx, `SELECT format('%I.%I', ns.nspname, c.relname), ns.nspname, c.relname FROM pg_class c
+	rows, _ := tx.Query(ctx, `SELECT format('%I.%I', ns.nspname, c.relname), ns.nspname, c.relname,
+		coalesce((SELECT array_agg(pk.attname::text ORDER BY k.ord) FROM pg_index i
+			CROSS JOIN LATERAL unnest(i.indkey::int2[]) WITH ORDINALITY k(attnum, ord)
+			JOIN pg_attribute pk ON pk.attrelid = i.indrelid AND pk.attnum = k.attnum
+			WHERE i.indrelid = c.oid AND i.indisprimary), '{}')
+		FROM pg_class c
 		JOIN pg_namespace ns ON ns.oid = c.relnamespace
 		JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped
 		WHERE c.relkind IN ('r', 'p') AND NOT c.relispartition AND ns.nspname NOT IN ('pg_catalog', 'information_schema')
@@ -304,7 +329,7 @@ func (w *Worker) exportTable(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, t
 	if chunk <= 0 {
 		chunk = 10000
 	}
-	rows, _ := tx.Query(ctx, `SELECT row_to_json(t)::text FROM `+t.ident()+` t WHERE tenant_id = $1`, tenant) // errors surface from ForEachRow
+	rows, _ := tx.Query(ctx, `SELECT row_to_json(t)::text FROM `+t.ident()+` t WHERE tenant_id = $1 ORDER BY `+t.order(), tenant) // errors surface from ForEachRow
 	var parts []exportedTable
 	var total int64
 	var buf strings.Builder

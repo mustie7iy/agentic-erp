@@ -77,3 +77,12 @@ are exported, imported and fingerprinted with it. Its sessions
 (`identity.session`) are not: they are ephemeral, end when the tenant moves,
 and their idle-time writes would change the fingerprint while a move is
 verified (ADR-0030). They are skipped like the outboxes.
+
+## As built (2026-11-16, batch 76 review)
+
+- **An export reads each table in its primary key's order** (the row's text
+  for a table without one, which none has today). A resumed export keeps the
+  parts an earlier round stored, so the rows behind part *n* must be the same
+  in every round: read in whatever order the plan of the day returned them, a
+  resumed export wrote some rows twice and others never, and the erasure
+  after it lost those for good.
