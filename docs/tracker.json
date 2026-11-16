@@ -10605,13 +10605,13 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Process docs from live configuration",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A process owner has the enablement agent write the description of a process (purchase to pay, or order to cash) from the tenant's active configuration and roles: who does what, with the limits and tolerances in force, every figure taken from the configuration (erp agent enablement-docs)",
-        "r": "T109a · docs/design/plan-breadth-week3.md §T109a",
+        "r": "T109a · docs/design/plan-breadth-week3.md §T109a · internal/enablementagent · agent type enablement · erp agent enablement-docs -process P [-out F] · process_document on the active config_version · config.Cited · evals/enablement · walkthrough step_enablement_agent · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

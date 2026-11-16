@@ -1023,7 +1023,12 @@ only: it reads the contract through a local search of its operations
 (`findOperations`: method, path, summary, description, permission,
 problem codes) and the active configuration, and its reply names only
 operations of the contract and cites settings as the active version
-holds them; it has no tool that writes.
+holds them; it has no tool that writes. The enablement agent
+(`erp agent enablement-docs -process P`, agent type `enablement`, T109a)
+describes a process (purchase to pay, order to cash) from the active
+configuration and the roles and recommends the description on the active
+`config_version` as `process_document`, every figure a setting cited as
+the version holds it and every role an active role.
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation
