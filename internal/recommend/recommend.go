@@ -60,7 +60,9 @@ type Agent struct {
 	// suite certifies it (ADR-0039): one of autonomy.Types.
 	Type string
 	// Reads are the operations the agent may call beside Proposer: reads
-	// (GET) of the contract that are open to agents.
+	// of the contract that are open to agents, a GET or an operation that
+	// changes nothing though it is not one (x-autonomy: read, a query run
+	// with its body).
 	Reads []string
 	// Writes are the operations beyond its reads and Proposer the agent
 	// may call (ADR-0072 §2, T107b): each is held by its run's guard of it
@@ -143,7 +145,7 @@ var ErrSecond = errors.New("recommend: this run has already recommended on the o
 
 // ErrNotARead refuses an agent whose declaration names, among its reads,
 // an operation that is not a read of the contract.
-var ErrNotARead = errors.New("recommend: an agent's reads are reads (GET) of the contract")
+var ErrNotARead = errors.New("recommend: an agent's reads are reads of the contract (a GET, or an operation marked x-autonomy: read)")
 
 // ErrUnguarded refuses a run that does not guard a write of its agent's.
 var ErrUnguarded = errors.New("recommend: every write of an agent's is held by its run's guard")
@@ -187,12 +189,13 @@ func (a Agent) Run(ctx context.Context, model *llm.Runner, client *apitools.Clie
 	return res, err
 }
 
-// readsOnly refuses a declaration with an operation that is not a GET of
-// the contract.
+// readsOnly refuses a declaration with an operation that is not a read of
+// the contract: a GET, or one marked x-autonomy: read, which changes no
+// business data though it takes a body (runAnalyticsQuery, T105e).
 func (a Agent) readsOnly() error {
 	ops, _ := api.Operations() // the embedded contract, which api's TestSpec keeps parsable; without it every read is refused below
 	for _, id := range a.Reads {
-		if op, ok := ops[id]; !ok || op.Method != http.MethodGet {
+		if op, ok := ops[id]; !ok || op.Method != http.MethodGet && !op.Reads {
 			return fmt.Errorf("%w: %s of agent type %s is none", ErrNotARead, id, a.Type)
 		}
 	}

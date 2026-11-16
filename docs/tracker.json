@@ -3658,13 +3658,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Planning agent",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The planning agent reads a company's plan and actual figures per center and account and recommends next year's plan lines with its reasons for a controller, who applies them as a plan batch; it never applies a plan (erp agent plan)",
-        "r": "T105e · docs/design/plan-breadth-week3.md §T105e",
+        "r": "T105e · docs/design/plan-breadth-week3.md §T105e · ADR-0072 §2, §7 and As built T105e · internal/planningagent (planningagent.Agent.Propose, proposal.check) · recommend reads include x-autonomy: read operations · erp agent plan -company -category -year (cmd/erp/planning.go) · evals/planning · TestPropose, TestProposeWithoutReads, TestNever, TestProposeRefusals, TestAgentPlan, TestPlanningAdapterFailures · walkthrough step_planning_agent (step 98) · 04-api-design · ADR-0039",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

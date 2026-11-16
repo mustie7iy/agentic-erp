@@ -8987,6 +8987,144 @@ step_plan_version() {
   say "FC plans 1050.00 CAD for CC-1100 and 350.00 CAD for CC-1300, copied from PLAN at 105 percent."
   passed
 }
+# step_planning_agent is T105e (ADR-0072, As built T105e): the planning
+# agent, erp agent plan through the model stand-in answering from a script
+# of turns (its suite's replay, evals/planning), reads the forecast FC of
+# step_plan_version (its plan lines, the plan against actual of this
+# month) and the cost centers, and proposes FC's plan of next year: a line
+# per cost center at the forecast's amount, and per center why, citing its
+# actual. A proposal at the forecast plus five percent, an amount it
+# computed, is refused by the run first. Its own plan batch is refused
+# (x-agent: false). Carla accepts, which changes nothing, and applies the
+# proposal's lines herself as a plan batch of next year. Next year's
+# periods, which a plan batch of that year needs, are set up first where
+# they are not (next_year_open does it in December).
+step_planning_agent() {
+  heading "Step 98 — The planning agent: next year's plan of the forecast proposed from this year's plan and actuals, a computed amount refused; the controller accepts and applies the lines as a plan batch"
+  local next=$((YEAR + 1)) month fc account admin sales role got session rec admin_actual sales_actual
+  month=$((10#${TODAY:5:2}))
+  planning_year "$next"
+  planning_agent_setup
+  as carla
+  accounts
+  account=$(account 6000)
+  QUIET=1 api 200 '' listPlanCategories -p code=FC
+  fc=$(field '.items[0].id')
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  admin=$(field '.items[0].id')
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1300
+  sales=$(field '.items[0].id')
+  QUIET=1 api 200 '' listCostCenterPlanActual -p "plan_category_id=$fc" -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" \
+    -p "fiscal_period_from=$month" -p "fiscal_period_to=$month" -p page_size=200
+  admin_actual=$(field '.items[] | select(.cost_center_id == "'"$admin"'" and .account_id == "'"$account"'") | .actual.amount')
+  sales_actual=$(field '.items[] | select(.cost_center_id == "'"$sales"'" and .account_id == "'"$account"'") | .actual.amount')
+  say "The agent runs: erp agent plan starts a session on erp-default, reads FC's plan lines of $YEAR, its plan against"
+  say "actual of this month and the cost centers through its tools, and proposes FC's plan of $next. The model is the"
+  say "stand-in, answering from a script of turns as the agent's evaluation suite replays them (evals/planning): it first"
+  say "proposes the forecast plus five percent, 1102.50 CAD, an amount no read returned (refused by the run: the agent"
+  say "computes no amount), then CC-1100 and CC-1300 at the forecast's amounts, each with its actual of this month."
+  jq -n --arg fc "$fc" --arg le "$LE" --arg admin "$admin" --arg sales "$sales" --arg account "$account" --argjson month "$month" \
+    --argjson year "$YEAR" --arg aa "$admin_actual" --arg sa "$sales_actual" --arg next "$next" '
+    {session_id: "{{session}}", object_type: "plan_category", object_id: $fc, kind: "plan_proposal"} as $on |
+    "Line \($admin) account \($account) period \($month): " as $a | "Line \($sales) account \($account) period \($month): " as $s |
+    "\nWhy CC-1100: its actual of period \($month) of \($year) is \($aa) CAD against the forecast of 1050.00 CAD; the plan of \($next) keeps the forecast." as $why_a |
+    "\nWhy CC-1300: its actual is \($sa) CAD against the forecast of 350.00 CAD; the plan keeps the forecast." as $why_s |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "listCostCenters", input: {legal_entity_id: $le}},
+      {tool: "listPlanLines", input: {legal_entity_id: $le, fiscal_year: $year, plan_category_id: $fc}},
+      {tool: "listCostCenterPlanActual", input: {plan_category_id: $fc, legal_entity_id: $le, fiscal_year: $year, fiscal_period_from: $month, fiscal_period_to: $month}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "\($a)1102.50 CAD\n\($s)350.00 CAD\($why_a)\($why_s)"})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "\($a)1050.00 CAD\n\($s)350.00 CAD\($why_a)\($why_s)"})}},
+      {final: "Proposed the plan of FC for \($next), CC-1100 and CC-1300; the controller decides, and applies it as a plan batch."}]}' >"$WORK/model-script.json"
+  show ERP_AGENT_TOKEN=… erp agent plan -company "$CC" -category FC -year "$next"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/planning-agent") "$ERP" agent plan -company "$CC" -category FC -year "$next" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent plan failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): plan_proposal on plan_category $fc\$/\1/p")
+  [ -n "$rec" ] || fail "erp agent plan printed no plan proposal on the category FC"
+  say "Carla reads the proposal on the forecast category:"
+  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)"))' listRecommendations -p "object_id=$fc"
+  expect "the recommendations on FC, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "made in its session" "$(field '.items[0].session_id')" "$session"
+  expect "its lines" "$(field '[.items[0].content | split("\n")[] | select(startswith("Line "))] | join("; ")')" \
+    "Line $admin account $account period $month: 1050.00 CAD; Line $sales account $account period $month: 350.00 CAD"
+  as planning-agent
+  say "Proposing is all it may do: a plan batch is a person's (x-agent: false), erp agent builds it no tool for it, and"
+  say "the API refuses its own call:"
+  refused 403 identity.agent_not_allowed applyPlanBatch -body "{\"plan_category_id\": \"$fc\", \"legal_entity_id\": \"$LE\", \"fiscal_year\": $next, \"batch_key\": \"agent-$next\", \"lines\": [
+      {\"cost_center_id\": \"$admin\", \"account_id\": \"$account\", \"fiscal_period\": $month, \"amount\": {\"amount\": \"1050.00\", \"currency\": \"CAD\"}}]}"
+  api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "listCostCenters listPlanLines listCostCenterPlanActual createRecommendation createRecommendation"
+  as carla
+  say "Carla accepts the proposal. Accepting changes nothing: FC has no plan of $next until she applies the lines herself,"
+  say "as a plan batch, through the normal operation:"
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  jq '{plan_category_id: .object_id, legal_entity_id: "'"$LE"'", fiscal_year: '"$next"', batch_key: "agent-proposal-'"$next"'",
+    lines: [.content | split("\n")[] | capture("^Line (?<c>[0-9a-f-]{36}) account (?<a>[0-9a-f-]{36}) period (?<p>[0-9]+): (?<amount>-?[0-9.]+) (?<currency>[A-Z]{3})$")?
+      | {cost_center_id: .c, account_id: .a, fiscal_period: (.p | tonumber), amount: {amount, currency}}]}' "$WORK/last.json" >"$WORK/plan-proposal.json"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "The forecast it is; I apply the lines."}'
+  expect "the recommendation's outcome" "$(field .outcome)" accepted
+  QUIET=1 api 200 '' listPlanLines -p "legal_entity_id=$LE" -p "fiscal_year=$next" -p "plan_category_id=$fc"
+  expect "FC's plan of $next after the acceptance" "$(field '.items | length')" 0
+  api 200 '"plan batch \(.batch_key) of FC for \(.fiscal_year): \(.line_count) lines written, \(.replaced_count) replaced"' applyPlanBatch -body @plan-proposal.json
+  expect "the batch's lines" "$(field .line_count)" 2
+  api 200 '.items[] | "  FC \(.fiscal_year) period \(.fiscal_period): \(.amount.amount) \(.amount.currency)"' listPlanLines \
+    -p "legal_entity_id=$LE" -p "fiscal_year=$next" -p "plan_category_id=$fc"
+  expect "FC's plan of $next, the proposal's" \
+    "$(field '[.items[] | "\(.cost_center_id) \(.account_id) \(.fiscal_period) \(.amount.amount)"] | sort | join("; ")')" \
+    "$(printf '%s\n' "$admin $account $month 1050.00" "$sales $account $month 350.00" | sort | paste -sd';' - | sed 's/;/; /g')"
+  say "FC plans 1050.00 CAD for CC-1100 and 350.00 CAD for CC-1300 in period $month of $next, as the agent proposed."
+  passed
+}
+
+# planning_year sets up fiscal year NEXT where it is not, so a plan batch
+# of it is taken: Ada adds a journal number range of the company for it,
+# which creates its periods, closed, as next_year_open does in December.
+planning_year() {
+  local next=$1 base cr
+  as carla
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$next" -p page_size=1
+  [ "$(field '.items | length')" = 0 ] || return 0
+  as ada
+  say "A plan of $next needs its periods: Ada sets $next up, a journal number range of $CC for it."
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Fiscal year $next\", rationale: \"The plan of $next (ADR-0050 §8)\", base_version: $base,
+    proposed: (.items[0].document | .number_ranges += [.number_ranges[] | select(.company == \"$CC\" and .document_type == \"journal_sa\" and .fiscal_year == $YEAR)
+      | .fiscal_year = $next])}" "$WORK/last.json" >"$WORK/next-year-sa.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @next-year-sa.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+}
+
+# planning_agent_setup has Ada set up the planning agent (ADR-0072): an
+# agent principal of type planning at autonomy level 1, whose role reads
+# the companies, the plan, the ledger's actuals, the cost centers and the
+# governed metrics, and records its sessions and recommendations; none of
+# its permissions writes a plan.
+planning_agent_setup() {
+  local role
+  as ada
+  say "Ada sets up the planning agent (ADR-0072): an agent principal of type planning at autonomy level 1 on"
+  say "erp-default. Its role reads the companies, the plan, the actuals, the cost centers and the governed metrics, and"
+  say "records its sessions and recommendations; it holds no permission that writes a plan."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "planning_agent", "name": "Planning agent"}'
+  role=$(field .id)
+  grant "$role" tenancy.org.read controlling.plan.read ledger.entry.read ledger.cost_center.read analytics.query.run \
+    agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model), budget \(.agent_profile.monthly_budget.amount) \(.agent_profile.monthly_budget.currency) a month"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "planning-agent", "display_name": "Planning agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "planning", "model": "erp-default", "description": "Proposes plans for a controller to decide (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token planning-agent "Planning agent"
+}
+
 # step_drill_through is T94b (ADR-0044 As built T94b): Carla drills from
 # the month's revenue, a row of a governed query, to the journal entries
 # behind it, a page at a time; their amounts add up to the figure, and
@@ -12270,7 +12408,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_planning_agent step_close'
 
 main() {
   stop_unseen

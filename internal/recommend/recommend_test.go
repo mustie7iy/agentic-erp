@@ -336,7 +336,7 @@ func TestRunRefusals(t *testing.T) {
 		session bool
 	}{
 		"a write among the reads":        {[]string{"getCreditExposure", "updateCreditLimit"}, 0, "updateCreditLimit of agent type credit_scoring is none", false},
-		"the proposer among the reads":   {[]string{"createRecommendation"}, 0, "reads (GET) of the contract", false},
+		"the proposer among the reads":   {[]string{"createRecommendation"}, 0, "reads of the contract (a GET, or an operation marked x-autonomy: read)", false},
 		"an operation not in a contract": {[]string{"noSuchOperation"}, 0, "noSuchOperation", false},
 		"a session not started":          {agent.Reads, 403, "identity.permission_missing", false},
 		"a read closed to agents":        {[]string{"getAiPolicy"}, 0, "not open to agents", true},
@@ -359,6 +359,10 @@ func TestRunRefusals(t *testing.T) {
 	}
 	if _, err := (recommend.Agent{Reads: []string{"updateCreditLimit"}}).Run(context.Background(), model.Runner(), client(t, &fakeAPI{}), recommend.Task{}); !errors.Is(err, recommend.ErrNotARead) {
 		t.Errorf("a write among the reads: got %v, want ErrNotARead", err)
+	}
+	// A query run with a body changes nothing (x-autonomy: read): a read.
+	if _, err := (recommend.Agent{Reads: []string{"runAnalyticsQuery"}}).Run(context.Background(), model.Runner(), client(t, &fakeAPI{start: 403}), recommend.Task{}); errors.Is(err, recommend.ErrNotARead) {
+		t.Errorf("a query run among the reads: got %v, want it admitted as a read", err)
 	}
 }
 

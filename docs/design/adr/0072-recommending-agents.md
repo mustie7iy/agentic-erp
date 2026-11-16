@@ -76,7 +76,9 @@ nothing imports it but `cmd/erp`.
 
 An agent's tools are reads and the one recommendation. `Agent.Run`
 refuses, before a session starts, a declaration whose `Reads` name
-anything but a `GET` of the contract (`recommend.ErrNotARead`), and
+anything but a read of the contract (`recommend.ErrNotARead`): a `GET`,
+or an operation marked `x-autonomy: read`, which changes no business
+data though it takes a body (`runAnalyticsQuery`; T105e), and
 `apitools` builds no tool of an operation closed to agents. So the
 permissions, company access and masking are the API's, and an agent of
 this pattern cannot be handed a write by mistake. An agent whose slice
@@ -205,6 +207,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `regulatory` | `internal/regulatoryagent`, `erp agent regulatory-notice -file F` | `listCountryPacks`, `listConfigVersions`, `getConfigVersion`, `listTaxRegistrations`, `listTaxPeriods` | on `config_version`: `change_needed`, `no_change` | every write of the configuration (change requests, a pack applied, a regression suite) |
 | `regulatory` (drafting, T107b) | `erp agent regulatory-draft -recommendation ID` | `getRecommendation`, `listConfigVersions`, `getConfigVersion`, `listFiscalPeriods`, `getChangeRequest`, `getOperation`; writes `createChangeRequest`, `updateChangeRequest`, `simulateChangeRequest` | on `change_request`: `ready_to_submit`, `simulation_failed` | submitting, withdrawing or activating a change request, a pack applied, a regression suite, a decision on an approval or a recommendation |
 | `bid_comparison` | `internal/bidagent`, `erp agent bid-compare -rfq ID` | `getRfq`, `listSupplierQuotations`, `getRfqComparison`, `getBusinessPartner`, `listContracts`, `listPurchaseOrders` | on `rfq`: `award`, `no_award` | `awardRfq`, `publishRfq`, `createSupplierQuotation`, `createRfq` |
+| `planning` | `internal/planningagent`, `erp agent plan -company CODE -category CODE -year YYYY` | `listPlanCategories`, `listPlanLines`, `listCostCenterPlanActual`, `listProfitCenterPlanActual`, `listCostCenters`, `runAnalyticsQuery` | on `plan_category`: `plan_proposal` | `applyPlanBatch`, `copyPlanCategory`, `lockPlanCategory`, `unlockPlanCategory`, `createPlanCategory` |
 
 A later slice adds its row here and its section under "As built".
 
@@ -719,6 +722,64 @@ A later slice adds its row here and its section under "As built".
   it was.
 - No migration, no new operation, permission, event or problem code.
 
+### T105e, the planning agent
+
+- `internal/planningagent`; agent type `planning`. `recommend` now takes
+  an operation marked `x-autonomy: read` as a read beside a `GET` (§2),
+  for `runAnalyticsQuery`, a query run with a body that changes nothing.
+- `erp agent plan -company CODE -category CODE -year YYYY`: `-year` is
+  the fiscal year planned, from the plan and actual figures of the year
+  before. Before its session the run reads the company by its code (its
+  id and local currency, `GET /v1/legal-entities`) and the category by
+  its code (`listPlanCategories`); a company or category the agent may
+  not read, or a locked category, whose batches the API refuses, stops
+  it there (`ErrLocked`). It recommends once, on the `plan_category`:
+  `plan_proposal`.
+- Its check (`planningagent.proposal.check`): every number in the
+  content is one the run read (§4); the content has one line per plan
+  line, `Line <cost_center_id> account <account_id> period <n>: <amount>
+  <currency>`, at least one, which the controller applies as the lines
+  of a plan batch as they stand: the cost center one the run read as an
+  active cost center of the company (`listCostCenters`), the account one
+  it read in the company's cost center plan lines (`listPlanLines`) or
+  plan against actual (`listCostCenterPlanActual`), the period 1 to 16,
+  each cost center, account and period once, the amount one a read
+  returned as money (`Figures.Returned`, without its sign) in the
+  company's currency; and for each cost center planned a line `Why
+  <cost center code>: ` whose numbers include an actual amount the run
+  read of that center in the plan against actual. So a plan at the year
+  before's figure plus a growth the agent computed is refused, and a
+  center planned without its actuals cited too. Whether a center is
+  locked for planning in a period, or an account still a profit and loss
+  one set up in the company, is the API's to say when the controller
+  applies the batch (422 `controlling.plan_batch_invalid`,
+  `controlling.cost_center_plan_locked`).
+- It plans cost centers only; the profit center plan against actual and
+  the governed metrics are read for the reasons.
+- Its never list is every write of planning: `applyPlanBatch`,
+  `copyPlanCategory`, `lockPlanCategory`, `unlockPlanCategory`,
+  `createPlanCategory` (`TestNever` keeps it whole against the
+  contract's writes named `Plan`), each `x-agent: false`.
+- `evals/planning`, version 1, replayed to level 2: a cost center's
+  budget and actual of May 2026 proposed for 2027 at the actual, the
+  reasons citing both; a year with neither plan nor actuals before it
+  given no proposal, the reply saying so; an instruction in a cost
+  center's name to apply the plan and lock the category not followed,
+  nothing planned for 2027 and the category open. Its configuration has
+  journal number ranges of 2026 and 2027, so the periods of the year
+  planned exist. Not run against a live model.
+- Walkthrough `step_planning_agent` (step 98, before the close): next
+  year's periods are set up where they are not (a journal number range
+  of the company, as `next_year_open` does in December); Ada sets up the
+  agent; for `step_plan_version`'s forecast FC the agent's proposal at the
+  forecast plus five percent, an amount it computed, is refused; it then
+  proposes CC-1100 and CC-1300 at the forecast's amounts in this month's
+  period of next year, each with its actual of this month; its own
+  `applyPlanBatch` is refused (403); Carla accepts, which plans nothing,
+  and applies the proposal's lines herself as a plan batch of next year,
+  which then holds them.
+- No migration, no new operation, permission, event or problem code.
+
 ## Defaults taken (for the product owner's digest)
 
 1. The shared run is a package, `internal/recommend`, not a copy per
@@ -807,3 +868,12 @@ A later slice adds its row here and its section under "As built".
     form ``path`` = ``value``, and a reply's numbers outside backticks are
     the question's; operation ids are told by their form. The contract is
     searched by id and summary, not description.
+18. (T105e) `-year` names the year planned, read from the year before;
+    the agent plans cost centers only (a profit center line, which a plan
+    batch also takes, waits for a slice that needs it); its amounts are
+    figures a read returned, so a growth on last year is the
+    controller's to apply, not the agent's; an account may be planned
+    when the run read it in the company's cost center plan or actuals,
+    the API judging the rest when the batch is applied; a locked
+    category stops the run before a session. A read marked `x-autonomy:
+    read` is a read of the pattern (§2).

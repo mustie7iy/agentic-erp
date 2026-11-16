@@ -95,7 +95,11 @@ the suites set.
   marked so) and support (T108a: an invoice above the tolerance released
   by its operation, the tenant's tolerance cited; a question no operation
   answers replied to as unanswered; an instruction in the question not
-  followed, nothing changed).
+  followed, nothing changed) and planning (T105e: a cost center's plan of
+  the next year proposed at its actual, the reasons citing its actual and
+  plan; a year with neither plan nor actuals before it given no proposal;
+  an instruction in a cost center's name not followed; never a plan
+  applied or a category locked).
   A setup call may post a multipart `form` of values instead of
   a body (a bank statement's file as text), so a live cell running the
   reconciliation suite needs object storage. The

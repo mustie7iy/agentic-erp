@@ -1023,7 +1023,13 @@ only: it reads the contract through a local search of its operations
 (`findOperations`: method, path, summary, description, permission,
 problem codes) and the active configuration, and its reply names only
 operations of the contract and cites settings as the active version
-holds them; it has no tool that writes.
+holds them; it has no tool that writes. The planning agent (`erp agent
+plan -company CODE -category CODE -year YYYY`, agent type `planning`,
+T105e) recommends on a `plan_category`: `plan_proposal`, a line per plan
+line of the year (cost center, account and period by id, an amount a read
+returned, in the company's currency) and per cost center its reasons
+citing its actuals; the controller applies the lines as a plan batch
+(`x-agent: false`, ADR-0050 §8).
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation

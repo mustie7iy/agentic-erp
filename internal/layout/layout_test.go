@@ -85,6 +85,7 @@ var allowed = map[string][]string{
 	"accessagent":             {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration, what it reads before its session and its check
 	"agent":                   {"apitools", "llm"},
 	"bidagent":                {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration and its check
+	"planningagent":           {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration, what it reads before its session and its check
 	"analytics":               {"apitools", "config", "configuration"},
 	"apitools":                {"llm"},
 	"app":                     {"countrypack"}, // apitest releases a test's own country packs
