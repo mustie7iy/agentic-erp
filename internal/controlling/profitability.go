@@ -245,14 +245,7 @@ func (e *Endpoints) regularRange(ctx context.Context, le uuid.UUID, params gen.G
 		if !n.Set {
 			return fallback, nil
 		}
-		for _, p := range periods {
-			if int32(p.Number) == n.Value {
-				return p, nil
-			}
-		}
-		return ledger.FiscalPeriod{}, problem.Unprocessable("controlling.period_not_regular",
-			fmt.Sprintf("Fiscal period %d is not a regular posting period of the legal entity's fiscal year %d.", n.Value, params.FiscalYear),
-			problem.FieldError{Field: field, Code: "not_regular", Message: fmt.Sprintf("a regular posting period of %d, 1 to %d", params.FiscalYear, len(periods))})
+		return ledger.PeriodNumbered(periods, params.FiscalYear, n.Value, "controlling.period_not_regular", field)
 	}
 	if from, err = find(params.FiscalPeriodFrom, "fiscal_period_from", periods[0]); err != nil {
 		return from, to, err

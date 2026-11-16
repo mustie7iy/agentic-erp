@@ -156,14 +156,7 @@ func (e *Endpoints) regularPeriod(ctx context.Context, le uuid.UUID, year, numbe
 	if err != nil {
 		return ledger.FiscalPeriod{}, fmt.Errorf("revenue: periods of %s in %d: %w", le, year, err)
 	}
-	for _, p := range periods {
-		if int32(p.Number) == number {
-			return p, nil
-		}
-	}
-	return ledger.FiscalPeriod{}, problem.Unprocessable("revenue.period_not_regular",
-		fmt.Sprintf("Fiscal period %d is not a regular posting period of the company's fiscal year %d.", number, year),
-		problem.FieldError{Field: "fiscal_period", Code: "not_regular", Message: fmt.Sprintf("a regular posting period of %d, 1 to %d", year, len(periods))})
+	return ledger.PeriodNumbered(periods, year, number, "revenue.period_not_regular", "fiscal_period")
 }
 
 // contractAccounts are the company's contract asset and contract

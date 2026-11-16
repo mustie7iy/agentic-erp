@@ -840,14 +840,24 @@ func (c Calendar) RegularPeriod(ctx context.Context, legalEntity uuid.UUID, year
 	if err != nil {
 		return FiscalPeriod{}, err
 	}
+	return PeriodNumbered(periods, year, number, "ledger.period_not_regular", "fiscal_period")
+}
+
+// PeriodNumbered is the period with the number among a fiscal year's
+// regular periods (Calendar.Periods), or a 422 with code naming field when
+// none has it: a special period, or one past the year's last. Contexts
+// that read the periods through their own port refuse with their own code
+// (revenue.period_not_regular, controlling.period_not_regular), which
+// their consumers already match, so the code is the caller's.
+func PeriodNumbered(periods []FiscalPeriod, year, number int32, code, field string) (FiscalPeriod, error) {
 	for _, p := range periods {
 		if int32(p.Number) == number {
 			return p, nil
 		}
 	}
-	return FiscalPeriod{}, problem.Unprocessable("ledger.period_not_regular",
+	return FiscalPeriod{}, problem.Unprocessable(code,
 		fmt.Sprintf("Fiscal period %d is not a regular posting period of the company's fiscal year %d.", number, year),
-		problem.FieldError{Field: "fiscal_period", Code: "not_regular", Message: fmt.Sprintf("a regular posting period of %d, 1 to %d", year, len(periods))})
+		problem.FieldError{Field: field, Code: "not_regular", Message: fmt.Sprintf("a regular posting period of %d, 1 to %d", year, len(periods))})
 }
 
 // FiscalYearSpan is a set-up fiscal year with the first day of its first
