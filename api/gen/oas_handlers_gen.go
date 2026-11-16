@@ -50822,8 +50822,10 @@ func (s *Server) handleGetProcessEventLogRequest(args [0]string, argsEscaped boo
 // (`open_case_count`, also per variant) and in the map like every other. Activities are by event
 // count, then by name; pairs by count, then by their activities. The first process is
 // `purchase_to_pay` (another is 422 `request.validation_failed`). The period is one day to 371 days
-// (422 `request.validation_failed` naming `to` otherwise). The permission is the event log's: the map
-// is that log summed. A company the caller cannot act in is 404, as one that does not exist.
+// (422 `request.validation_failed` naming `to` otherwise). Every case is read from one database state
+// (a repeatable-read snapshot), so the counts agree with each other. The permission is the event
+// log's: the map is that log summed. A company the caller cannot act in is 404, as one that does not
+// exist.
 //
 // GET /v1/process-maps
 func (s *Server) handleGetProcessMapRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

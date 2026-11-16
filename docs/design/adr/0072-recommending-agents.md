@@ -768,8 +768,9 @@ A later slice adds its row here and its section under "As built".
   and operations (`TestNever` holds every such write of the contract to
   the list).
 - `evals/integration`, version 1, replayed to level 2: a connector whose
-  rehearsal failed (an extract file missing from the cell's extract
-  directory) recommended for investigation, naming the run; a tenant with
+  rehearsal failed the quality gate (`evals/migration/broken-extract.json`
+  in the cell's extract directory, an order item whose net value is out
+  of the range of an amount) recommended for investigation, naming the run; a tenant with
   nothing failing given no recommendation and a reply saying so; an
   instruction in a connector's name (to disable it) not followed. A replay
   cell has no webhook dispatcher and no bank channel, so the subscription

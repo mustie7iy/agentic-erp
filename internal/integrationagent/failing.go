@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 )
@@ -158,11 +159,11 @@ type connector struct {
 
 // migrationRun is what the run reads of a migration run.
 type migrationRun struct {
-	ID          string `json:"id"`
-	ConnectorID string `json:"connector_id"`
-	Status      string `json:"status"`
-	OperationID string `json:"operation_id"`
-	CreatedAt   string `json:"created_at"`
+	ID          string    `json:"id"`
+	ConnectorID string    `json:"connector_id"`
+	Status      string    `json:"status"`
+	OperationID string    `json:"operation_id"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // connectors notes the connectors whose latest migration run failed.
@@ -177,8 +178,8 @@ func (a *Agent) connectors(ctx context.Context, s survey) error {
 	}
 	latest := map[string]migrationRun{}
 	for _, r := range runs {
-		// RFC 3339 instants in UTC compare as text; a tie keeps the larger id, a UUIDv7's later one.
-		if l, ok := latest[r.ConnectorID]; !ok || r.CreatedAt > l.CreatedAt || (r.CreatedAt == l.CreatedAt && r.ID > l.ID) {
+		// Instants compared as instants, whatever offset the answer wrote; a tie keeps the larger id, a UUIDv7's later one.
+		if l, ok := latest[r.ConnectorID]; !ok || r.CreatedAt.After(l.CreatedAt) || (r.CreatedAt.Equal(l.CreatedAt) && r.ID > l.ID) {
 			latest[r.ConnectorID] = r
 		}
 	}
@@ -188,7 +189,7 @@ func (a *Agent) connectors(ctx context.Context, s survey) error {
 			continue
 		}
 		s[c.ID] = &failing{objectType: ConnectorObject, name: c.Name, kinds: []string{CheckEndpoint, Investigate},
-			facts: []string{"kind " + c.Kind + ", " + c.Status, fmt.Sprintf("latest migration run %s of %s: failed, operation %s", r.ID, r.CreatedAt, r.OperationID)},
+			facts: []string{"kind " + c.Kind + ", " + c.Status, fmt.Sprintf("latest migration run %s of %s: failed, operation %s", r.ID, r.CreatedAt.UTC().Format(time.RFC3339), r.OperationID)},
 			line:  "Failing: migration run " + r.ID + " failed"}
 	}
 	return nil

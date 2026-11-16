@@ -148,7 +148,10 @@ be computed on read, without storing anything.
   `processmining.log.read`: the map is that log summed, and whoever may
   read the log can compute it. No new permission, so no migration.
 - **Size**: the period is the log's, up to 371 days; a map reads every
-  case of it. `TestProcessMapBudget` (3 s at p95) measures a month of
+  case of it, from one database state: the operation is `x-snapshot`
+  (REPEATABLE READ), so a payment run completing between two chunks does
+  not show some of its cases paid and others not, and `x-slo-class:
+  report` (01 §1.3's row). `TestProcessMapBudget` (3 s at p95) measures a month of
   4,000 orders of one company, 01 §1.3's volume, at a median of 0.94 s and
   a p95 of 1.7 s on a loaded machine (load 13); the time grows with the
   cases, so a year of the largest company's 40,000 orders takes about

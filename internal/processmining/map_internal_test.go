@@ -42,8 +42,13 @@ func TestTopVariants(t *testing.T) {
 		got = append(got, fmt.Sprintf("%s %d %s", v.Activities[0], v.CaseCount, v.SharePercent))
 	}
 	want := "A02 3 12.50, A05 3 12.50, A08 3 12.50, A11 3 12.50, A01 2 8.33, A04 2 8.33, A07 2 8.33, A10 2 8.33, A00 1 4.17, A03 1 4.17"
-	if s := strings.Join(got, ", "); s != want || m.VariantCount != 12 || m.CaseCount != 24 || m.Open != 0 {
-		t.Errorf("got %s of %d variants, %d cases, %d open; want %s of 12, 24, 0", s, m.VariantCount, m.CaseCount, m.Open, want)
+	if s := strings.Join(got, ", "); s != want {
+		t.Errorf("variants: got %s, want %s", s, want)
+	}
+	for name, c := range map[string]struct{ got, want int }{"variants": {m.VariantCount, 12}, "cases": {m.CaseCount, 24}, "open cases": {m.Open, 0}} {
+		if c.got != c.want {
+			t.Errorf("%s: got %d, want %d", name, c.got, c.want)
+		}
 	}
 	if p := m.Pairs[0]; p.From != "A02" || p.Count != 3 || p.MedianSeconds != 2 {
 		t.Errorf("the first pair: got %+v, want A02 thrice, 2 s", p)

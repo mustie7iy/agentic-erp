@@ -219,8 +219,10 @@ func TestMonitor(t *testing.T) {
 	refusedWith(t, model.Requests, integrationagent.ErrKind)
 	refusedWith(t, model.Requests, integrationagent.ErrLine)
 	refusedWith(t, model.Requests, integrationagent.ErrUnread)
-	if res.Names[refusing] != "Treasury events" || res.Names[refused] != "pain.001.001.03 from RBC" || res.Names[sap] != "SAP ECC" {
-		t.Errorf("names: got %v", res.Names)
+	for id, want := range map[string]string{refusing: "Treasury events", refused: "pain.001.001.03 from RBC", sap: "SAP ECC"} {
+		if got := res.Names[id]; got != want {
+			t.Errorf("the name of %s: got %q, want %q", id, got, want)
+		}
 	}
 }
 
@@ -234,11 +236,35 @@ func TestMonitorEvidenceBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	line := regexp.MustCompile(`Line for ` + refusing + `: ([^\\]*)`).FindStringSubmatch(model.Requests[0])
-	if line == nil || strings.Count(line[1], "01a1aa00-") != integrationagent.MaxEvidence || strings.Contains(line[1], "0000000110") {
-		t.Errorf("the line: got %v, want the first %d deliveries", line, integrationagent.MaxEvidence)
+	if line == nil {
+		t.Fatalf("prompt: got %s, want a line for %s", model.Requests[0], refusing)
+	}
+	if got := strings.Count(line[1], "01a1aa00-"); got != integrationagent.MaxEvidence {
+		t.Errorf("the deliveries the line names: got %d, want %d", got, integrationagent.MaxEvidence)
+	}
+	if strings.Contains(line[1], "0000000110") {
+		t.Errorf("the line: got %s, want the eleventh delivery left out", line[1])
 	}
 	if got := a.sent(refusing + "/deliveries?pending"); len(got) != 0 {
 		t.Errorf("waiting deliveries read: got %v, want none", got)
+	}
+}
+
+// TestMonitorIterations: an agent whose MaxIterations is unset may make
+// thirty requests in a run, also with few failing objects: reading
+// further before recommending does not run out of turns.
+func TestMonitorIterations(t *testing.T) {
+	var steps []llmtest.Step
+	for range 20 {
+		steps = append(steps, llmtest.Tool("listBankFiles", map[string]any{"status": "failed"}))
+	}
+	model := llmtest.New(t, append(steps, llmtest.Final("Read everything; nothing more to recommend."))...)
+	res, err := (&integrationagent.Agent{LLM: model.Runner(), API: client(t, &fakeAPI{})}).Monitor(context.Background())
+	if err != nil {
+		t.Fatalf("twenty-one requests with five failing objects: got %v, want the run to finish", err)
+	}
+	if res.Reply != "Read everything; nothing more to recommend." {
+		t.Errorf("reply: got %q", res.Reply)
 	}
 }
 
@@ -250,8 +276,14 @@ func TestMonitorNothingFailing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Session != "" || len(res.Recommendations) != 0 || !strings.HasPrefix(res.Reply, "Nothing is failing") {
-		t.Errorf("got %+v, want no session, no recommendation and a reply saying nothing fails", res)
+	if res.Session != "" {
+		t.Errorf("session: got %s, want none", res.Session)
+	}
+	if len(res.Recommendations) != 0 {
+		t.Errorf("recommendations: got %v, want none", res.Recommendations)
+	}
+	if !strings.HasPrefix(res.Reply, "Nothing is failing") {
+		t.Errorf("reply: got %q, want it to say nothing is failing", res.Reply)
 	}
 	if got := a.sent("agent-sessions"); len(got) != 0 {
 		t.Errorf("sessions: got %v, want none", got)

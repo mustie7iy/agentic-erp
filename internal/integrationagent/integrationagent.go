@@ -149,7 +149,11 @@ func (a *Agent) Monitor(ctx context.Context) (recommend.Result, error) {
 		objects[id], names[id] = s[id].objectType, s[id].name
 	}
 	task := recommend.Task{Purpose: "Recommend what to do about the failing integrations", Prompt: s.prompt(ids), Objects: objects, Check: s.check}
-	res, err := agent(max(a.MaxIterations, len(ids)+10)).Run(ctx, a.LLM, a.API, task)
+	iterations := a.MaxIterations
+	if iterations <= 0 {
+		iterations = 30
+	}
+	res, err := agent(max(iterations, len(ids)+10)).Run(ctx, a.LLM, a.API, task)
 	res.Names = names
 	return res, err
 }
