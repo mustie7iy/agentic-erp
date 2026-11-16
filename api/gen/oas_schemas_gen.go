@@ -47803,6 +47803,24 @@ type GetReportRunNotFound Problem
 
 func (*GetReportRunNotFound) getReportRunRes() {}
 
+// One result as an Excel workbook (Office Open XML, ECMA-376): one sheet named `Report`.
+type GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+func (*GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet) getReportRunRes() {
+}
+
 // One result: a header row of column names, then its rows; UTF-8, lines ending in LF.
 type GetReportRunOKTextCsv struct {
 	Data io.Reader
@@ -93891,6 +93909,50 @@ func (*RunAnalyticsQueryBadRequest) runAnalyticsQueryRes() {}
 type RunAnalyticsQueryForbidden Problem
 
 func (*RunAnalyticsQueryForbidden) runAnalyticsQueryRes() {}
+
+// The result as an Excel workbook (Office Open XML, ECMA-376): one sheet named `Query`.
+type RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+// RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders wraps RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet with response headers.
+type RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders struct {
+	IdempotentReplayed OptBool
+	Response           RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders) GetResponse() RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders) SetResponse(val RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet) {
+	s.Response = val
+}
+
+func (*RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders) runAnalyticsQueryRes() {
+}
 
 type RunAnalyticsQueryPreconditionRequired Problem
 

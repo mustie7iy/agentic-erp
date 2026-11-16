@@ -159948,6 +159948,15 @@ func decodeGetReportRunResponse(resp *http.Response) (res GetReportRunRes, _ err
 				return res, errors.Wrap(err, "validate")
 			}
 			return &response, nil
+		case ct == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+			reader := resp.Body
+			b, err := io.ReadAll(reader)
+			if err != nil {
+				return res, err
+			}
+
+			response := GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet{Data: bytes.NewReader(b)}
+			return &response, nil
 		case ct == "text/csv":
 			reader := resp.Body
 			b, err := io.ReadAll(reader)
@@ -290706,6 +290715,55 @@ func decodeRunAnalyticsQueryResponse(resp *http.Response) (res RunAnalyticsQuery
 				return res, errors.Wrap(err, "validate")
 			}
 			var wrapper AnalyticsResultHeaders
+			wrapper.Response = response
+			h := uri.NewHeaderDecoder(resp.Header)
+			// Parse "Idempotent-Replayed" header.
+			{
+				cfg := uri.HeaderParameterDecodingConfig{
+					Name:    "Idempotent-Replayed",
+					Explode: false,
+				}
+				if err := func() error {
+					if err := h.HasParam(cfg); err == nil {
+						if err := h.DecodeParam(cfg, func(d uri.Decoder) error {
+							var wrapperDotIdempotentReplayedVal bool
+							if err := func() error {
+								val, err := d.DecodeValue()
+								if err != nil {
+									return err
+								}
+
+								c, err := conv.ToBool(val)
+								if err != nil {
+									return err
+								}
+
+								wrapperDotIdempotentReplayedVal = c
+								return nil
+							}(); err != nil {
+								return err
+							}
+							wrapper.IdempotentReplayed.SetTo(wrapperDotIdempotentReplayedVal)
+							return nil
+						}); err != nil {
+							return err
+						}
+					}
+					return nil
+				}(); err != nil {
+					return res, errors.Wrap(err, "parse Idempotent-Replayed header")
+				}
+			}
+			return &wrapper, nil
+		case ct == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+			reader := resp.Body
+			b, err := io.ReadAll(reader)
+			if err != nil {
+				return res, err
+			}
+
+			response := RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet{Data: bytes.NewReader(b)}
+			var wrapper RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders
 			wrapper.Response = response
 			h := uri.NewHeaderDecoder(resp.Header)
 			// Parse "Idempotent-Replayed" header.

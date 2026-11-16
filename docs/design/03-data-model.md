@@ -3305,7 +3305,7 @@ line or reservation. An agent's budget is identity's
 
 | Table | Purpose |
 |---|---|
-| `platform.idempotency_key` | Key, request hash, stored response; kept 7 days (ADR-0008), expired by a batched cleanup job on `expires_at` (partition by day if delete volume ever hurts; the key does not change) |
+| `platform.idempotency_key` | Key, request hash, stored response (JSON in `response_body`, or bytes in `response_bytes` for an answer whose media type is not JSON, an Excel workbook (T95d); never both: `idempotency_key_one_body`); kept 7 days (ADR-0008), expired by a batched cleanup job on `expires_at` (partition by day if delete volume ever hurts; the key does not change) |
 | `platform.operation` | Long-running operations (ADR-0012): kind, status, `progress_done` / `progress_total` (null while unknown), `resource` path, result or error. Only a `queued` or `running` operation finishes or takes progress; a succeeded, failed or cancelled one is final |
 | `<context>.outbox` | Domain events awaiting publication, one table per context schema |
 | `<context>.inbox` | Event ids already processed by that context's consumers |

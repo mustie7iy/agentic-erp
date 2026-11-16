@@ -64,7 +64,7 @@ func (r Remote) RunReport(ctx context.Context, id string) (*Report, map[string]*
 	rep := &Report{ID: id, Question: out.Spec.Question, Spec: out.Spec, Queries: map[string]Query{}}
 	results := map[string]*Result{}
 	for _, raw := range out.Results {
-		res, err := decodeResult(raw)
+		res, err := DecodeResult(raw)
 		if err != nil {
 			return nil, nil, "", fmt.Errorf("analytics: report %s: %w", id, err)
 		}

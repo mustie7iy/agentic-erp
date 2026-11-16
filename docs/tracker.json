@@ -6738,12 +6738,19 @@
      },
      {
       "s": "T",
+      "t": "A CSV export says what its JSON says: erp query -csv (analytics.WriteCSV) writes a money measure without its currency's column, so a column mixing currencies has amounts without their currency, and getReportRun's CSV leaves out that a kept result was truncated (pre-existing findings on T95d's review; the workbook refuses a truncated result)",
+      "r": "internal/analytics/render.go WriteCSV · internal/analytics/reports/runs_api.go resultCSV · ADR-0076 §8",
+      "src": "review:T95d",
+      "c": []
+     },
+     {
+      "s": "P",
       "t": "Excel export",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An analyst downloads a query's result or a kept report run as an Excel workbook, amounts as numbers with their currency's decimals (the workbook media type on POST /v1/analytics-queries and GET /v1/report-runs/{id}; erp query -xlsx)",
-        "r": "T95d · docs/design/plan-breadth-week3.md §T95d",
+        "r": "T95d · docs/design/plan-breadth-week3.md §T95d · docs/design/specs/xlsx-minimal.md · analytics.WriteXLSX, analytics.Records · format=xlsx on runAnalyticsQuery and getReportRun · erp query -xlsx · db/migrations/000331 · platform.idempotency_key.response_bytes · walkthrough step_reports, step_saved_report · ADR-0076 §8 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -8996,13 +9003,13 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "MCP servers so agents use the same governed APIs",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An agent host connects to erp mcp and uses the API's operations open to agents as tools, with the caller's token, permissions and autonomy level (erp mcp, over standard input and output)",
-        "r": "T102a · docs/design/plan-breadth-week3.md §T102a",
+        "r": "T102a · docs/design/plan-breadth-week3.md §T102a · docs/design/specs/mcp · internal/mcp · apitools.Agent, apitools.Offered, Tool.Invoke · erp mcp · MCP 2026-07-28 and 2025-11-25 · walkthrough step_mcp · ADR-0081",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

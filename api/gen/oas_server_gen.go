@@ -3987,9 +3987,12 @@ type Handler interface {
 	// measure an exact decimal and a money measure followed by its currency's column (`<name>_currency`),
 	// a measure that cannot be computed empty, the result named by `query_id` (422
 	// `analytics.unknown_query` when the run has no such result, or when the run has several and none is
-	// named). A failed run has no results (409 `analytics.report_run_failed` for its CSV); a format the
-	// contract does not list is 422 `request.validation_failed`; 503 while the server has no object
-	// storage.
+	// named); as an Excel workbook (`format=xlsx`, T95d, ADR-0076 §8) the same result as
+	// `runAnalyticsQuery`'s workbook writes it, on a sheet named `Report`, the result named as for CSV,
+	// and a result cut at the rows a query answers (`truncated`) refused (422
+	// `analytics.result_truncated`). A failed run has no results (409 `analytics.report_run_failed` for
+	// its CSV or workbook); a format the contract does not list is 422 `request.validation_failed`; 503
+	// while the server has no object storage.
 	//
 	// GET /v1/report-runs/{id}
 	GetReportRun(ctx context.Context, params GetReportRunParams) (GetReportRunRes, error)
@@ -7206,7 +7209,14 @@ type Handler interface {
 	// `partner.supplier.read` and `ledger.account.read` for the names. A tenant without a configuration is
 	// 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a
 	// filter it cannot apply, amounts of two currencies summed) is 422 `analytics.invalid_query`; too many
-	// queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. Changes nothing:
+	// queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. The result is
+	// JSON (`format=json`, the default) or an Excel workbook (`format=xlsx`, T95d, ADR-0076 §8): one
+	// sheet, a header row of the columns' names, a money measure followed by its currency's column
+	// (`<name>_currency`) as `getReportRun`'s CSV has it, then a row per result row; a measure is a number
+	// written from its exact decimal, with as many decimals shown as it has digits, and every other cell
+	// is text, never a formula. A result cut at the rows a query answers (`truncated`) is not written as a
+	// workbook, which could not say so (422 `analytics.result_truncated`: narrow the query or give it a
+	// `limit`). A format the contract does not list is 422 `request.validation_failed`. Changes nothing:
 	// agents of any autonomy level may run it.
 	//
 	// POST /v1/analytics-queries

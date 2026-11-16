@@ -30067,17 +30067,29 @@ paths:
       tags:
         - analytics
       summary: Run a semantic analytics query
-      description: "Answers governed metrics (the semantic model in the active configuration version's `analytics` section, `semantic.yaml` until a change request adds one; metric definitions change only through change requests), broken down by its dimensions and filtered on them, for the companies the principal may read. A query names metrics and dimensions, never SQL. It is answered from the analytical store when the tenant's store was found current within the freshness target and no earlier than `as_of`, else from the database; `source` and `as_of` say which (ADR-0044). The database answers through the API's own reads as the caller, so a metric over data the caller may not read is 403 as that read is, and the store answers only a caller who holds the permissions of those reads; the cash actuals (metric `actual`, ADR-0051 §11) are read as `getCashActuals` classifies them, with `cash.forecast.read`, and name no supplier, so a query of them alone needs no `partner.supplier.read`; so are the forecast's metrics (`forecast_lag_0`, `forecast_lag_7`, `forecast_lag_30`, ADR-0051 §6), each value date's flows as the company's snapshot taken that many days before it kept them (its daily snapshot, else the last taken on demand that day; at document level, blocked suppliers' flows left out), so a week or a month adds days of different snapshots, unlike `getLiquidityForecastVariance`, which compares one snapshot over its period, each flow's source the dimension `flow_source`; and so are the forecast's variance and accuracy (`variance_lag_N`, `absolute_variance_lag_N`, `absolute_forecast_lag_N`, `accuracy_lag_N` for N of 0, 7 and 30, ADR-0051 §11), in cells of a company's value date, currency and liquidity item compared as that report compares them (days passed, of a snapshot taken the lag before): the accuracy is 1 less the weighted absolute percentage error, the cells' absolute variances over their absolute forecasts, rounded as that report's `variance_percent` first, so one cell's is 100% less its `variance_percent`, and null where nothing was forecast; actuals adding up to more than an amount can hold are 422 `cash.amount_too_large`. The sales metrics (`order_intake`, `billed_value`, `billing_document_count`, T91a) are the net amounts of the items of confirmed sales orders by order date and of posted billing documents by billing date, each in its document's currency and never converted, by the customer's number (`customer`) and name (`customer_name`), the item key (`item_key`) and `currency`; a draft order and a billing document not posted are not counted. They are read as `listSalesOrders` and `listBillingDocuments` list them, so they need `sales.order.read` and `sales.billing.read` both, and, since they name customers, `partner.supplier.read` as the vendors' names do. The spend metrics (`spend`, `spend_under_contract`, `spend_off_contract`, `off_contract_share`, T91b) are the net amounts of the items of posted supplier invoices by posting date, less those of posted credit memos (a subsequent debit adds, a subsequent credit reduces; a document parked, on hold, rejected, cancelled or reversed is not counted), each in its document's currency and never converted, by `vendor` and `vendor_name`, `account` and `account_name`, `cost_center` (its code), `contract` (the document number of the contract the item's purchase order was made on) and `currency`; an item on a purchase order has the order item's account and cost center, and is under contract when the order was made on a contract, while an item on no order, or on an order made on no contract, is off contract; `off_contract_share` is the part off contract over spend, null where there is none. They are read as `listSupplierInvoices`, `listPurchaseOrders`, `listContracts` and `listCostCenters` list them, so they need `payables.invoice.read`, `procurement.order.read`, `procurement.contract.read` and `ledger.cost_center.read`, with `partner.supplier.read` and `ledger.account.read` for the names. A tenant without a configuration is 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a filter it cannot apply, amounts of two currencies summed) is 422 `analytics.invalid_query`; too many queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. Changes nothing: agents of any autonomy level may run it."
+      description: "Answers governed metrics (the semantic model in the active configuration version's `analytics` section, `semantic.yaml` until a change request adds one; metric definitions change only through change requests), broken down by its dimensions and filtered on them, for the companies the principal may read. A query names metrics and dimensions, never SQL. It is answered from the analytical store when the tenant's store was found current within the freshness target and no earlier than `as_of`, else from the database; `source` and `as_of` say which (ADR-0044). The database answers through the API's own reads as the caller, so a metric over data the caller may not read is 403 as that read is, and the store answers only a caller who holds the permissions of those reads; the cash actuals (metric `actual`, ADR-0051 §11) are read as `getCashActuals` classifies them, with `cash.forecast.read`, and name no supplier, so a query of them alone needs no `partner.supplier.read`; so are the forecast's metrics (`forecast_lag_0`, `forecast_lag_7`, `forecast_lag_30`, ADR-0051 §6), each value date's flows as the company's snapshot taken that many days before it kept them (its daily snapshot, else the last taken on demand that day; at document level, blocked suppliers' flows left out), so a week or a month adds days of different snapshots, unlike `getLiquidityForecastVariance`, which compares one snapshot over its period, each flow's source the dimension `flow_source`; and so are the forecast's variance and accuracy (`variance_lag_N`, `absolute_variance_lag_N`, `absolute_forecast_lag_N`, `accuracy_lag_N` for N of 0, 7 and 30, ADR-0051 §11), in cells of a company's value date, currency and liquidity item compared as that report compares them (days passed, of a snapshot taken the lag before): the accuracy is 1 less the weighted absolute percentage error, the cells' absolute variances over their absolute forecasts, rounded as that report's `variance_percent` first, so one cell's is 100% less its `variance_percent`, and null where nothing was forecast; actuals adding up to more than an amount can hold are 422 `cash.amount_too_large`. The sales metrics (`order_intake`, `billed_value`, `billing_document_count`, T91a) are the net amounts of the items of confirmed sales orders by order date and of posted billing documents by billing date, each in its document's currency and never converted, by the customer's number (`customer`) and name (`customer_name`), the item key (`item_key`) and `currency`; a draft order and a billing document not posted are not counted. They are read as `listSalesOrders` and `listBillingDocuments` list them, so they need `sales.order.read` and `sales.billing.read` both, and, since they name customers, `partner.supplier.read` as the vendors' names do. The spend metrics (`spend`, `spend_under_contract`, `spend_off_contract`, `off_contract_share`, T91b) are the net amounts of the items of posted supplier invoices by posting date, less those of posted credit memos (a subsequent debit adds, a subsequent credit reduces; a document parked, on hold, rejected, cancelled or reversed is not counted), each in its document's currency and never converted, by `vendor` and `vendor_name`, `account` and `account_name`, `cost_center` (its code), `contract` (the document number of the contract the item's purchase order was made on) and `currency`; an item on a purchase order has the order item's account and cost center, and is under contract when the order was made on a contract, while an item on no order, or on an order made on no contract, is off contract; `off_contract_share` is the part off contract over spend, null where there is none. They are read as `listSupplierInvoices`, `listPurchaseOrders`, `listContracts` and `listCostCenters` list them, so they need `payables.invoice.read`, `procurement.order.read`, `procurement.contract.read` and `ledger.cost_center.read`, with `partner.supplier.read` and `ledger.account.read` for the names. A tenant without a configuration is 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a filter it cannot apply, amounts of two currencies summed) is 422 `analytics.invalid_query`; too many queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. The result is JSON (`format=json`, the default) or an Excel workbook (`format=xlsx`, T95d, ADR-0076 §8): one sheet, a header row of the columns' names, a money measure followed by its currency's column (`<name>_currency`) as `getReportRun`'s CSV has it, then a row per result row; a measure is a number written from its exact decimal, with as many decimals shown as it has digits, and every other cell is text, never a formula. A result cut at the rows a query answers (`truncated`) is not written as a workbook, which could not say so (422 `analytics.result_truncated`: narrow the query or give it a `limit`). A format the contract does not list is 422 `request.validation_failed`. Changes nothing: agents of any autonomy level may run it."
       x-permission: analytics.query.run
       x-autonomy: read
       x-problem-codes:
         - analytics.busy
         - analytics.invalid_query
+        - analytics.result_truncated
         - cash.amount_too_large
         - config.not_bootstrapped
         - config.unknown_version
+        - request.validation_failed
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
+        - name: format
+          in: query
+          required: false
+          description: "`json` (default): the result as JSON; `xlsx`: the result as an Excel workbook."
+          schema:
+            type: string
+            description: "`json` or `xlsx`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - json
+              - xlsx
       requestBody:
         description: The semantic query.
         required: true
@@ -30095,6 +30107,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AnalyticsResult"
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+                description: "The result as an Excel workbook (Office Open XML, ECMA-376): one sheet named `Query`."
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -31161,12 +31178,13 @@ paths:
       tags:
         - analytics
       summary: Get a kept run of a report you read
-      description: "One kept run of a report the caller reads, their own or one shared with them (ADR-0076 §6-§7; T95b, T95c), when the caller's company access today covers every company the run covered and they may use every permission its queries read their data with (`permissions`; held and not barred by a segregation-of-duties rule), as a run of theirs would need (403 `analytics.report_run_access` otherwise, or the segregation-of-duties problem; and for a run kept before T95c, which names neither, to all but its report's owner): as JSON (`format=json`, the default) the run with its specification and every query's result as the run kept them, read back from object storage, whose bytes are compared with the SHA-256 recorded (409 `analytics.report_run_changed` when they differ); as CSV (`format=csv`) one result, a header row of its columns' names then a row per result row, each measure an exact decimal and a money measure followed by its currency's column (`<name>_currency`), a measure that cannot be computed empty, the result named by `query_id` (422 `analytics.unknown_query` when the run has no such result, or when the run has several and none is named). A failed run has no results (409 `analytics.report_run_failed` for its CSV); a format the contract does not list is 422 `request.validation_failed`; 503 while the server has no object storage."
+      description: "One kept run of a report the caller reads, their own or one shared with them (ADR-0076 §6-§7; T95b, T95c), when the caller's company access today covers every company the run covered and they may use every permission its queries read their data with (`permissions`; held and not barred by a segregation-of-duties rule), as a run of theirs would need (403 `analytics.report_run_access` otherwise, or the segregation-of-duties problem; and for a run kept before T95c, which names neither, to all but its report's owner): as JSON (`format=json`, the default) the run with its specification and every query's result as the run kept them, read back from object storage, whose bytes are compared with the SHA-256 recorded (409 `analytics.report_run_changed` when they differ); as CSV (`format=csv`) one result, a header row of its columns' names then a row per result row, each measure an exact decimal and a money measure followed by its currency's column (`<name>_currency`), a measure that cannot be computed empty, the result named by `query_id` (422 `analytics.unknown_query` when the run has no such result, or when the run has several and none is named); as an Excel workbook (`format=xlsx`, T95d, ADR-0076 §8) the same result as `runAnalyticsQuery`'s workbook writes it, on a sheet named `Report`, the result named as for CSV, and a result cut at the rows a query answers (`truncated`) refused (422 `analytics.result_truncated`). A failed run has no results (409 `analytics.report_run_failed` for its CSV or workbook); a format the contract does not list is 422 `request.validation_failed`; 503 while the server has no object storage."
       x-permission: analytics.report.read
       x-problem-codes:
         - analytics.report_run_access
         - analytics.report_run_changed
         - analytics.report_run_failed
+        - analytics.result_truncated
         - analytics.unknown_query
         - request.validation_failed
       parameters:
@@ -31174,24 +31192,25 @@ paths:
         - name: format
           in: query
           required: false
-          description: "`json` (default): the run with its results; `csv`: one result."
+          description: "`json` (default): the run with its results; `csv`: one result; `xlsx`: one result as an Excel workbook."
           schema:
             type: string
-            description: "`json` or `csv`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            description: "`json`, `csv` or `xlsx`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
             x-extensible-enum:
               - json
               - csv
+              - xlsx
         - name: query_id
           in: query
           required: false
-          description: "For `csv`: the result's `query_id`; needed when the run has more than one."
+          description: "For `csv` and `xlsx`: the result's `query_id`; needed when the run has more than one."
           schema:
             type: string
             minLength: 1
             maxLength: 100
       responses:
         "200":
-          description: The run, or one of its results as CSV.
+          description: The run, or one of its results as CSV or an Excel workbook.
           content:
             application/json:
               schema:
@@ -31201,6 +31220,11 @@ paths:
                 type: string
                 format: binary
                 description: "One result: a header row of column names, then its rows; UTF-8, lines ending in LF."
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+                description: "One result as an Excel workbook (Office Open XML, ECMA-376): one sheet named `Report`."
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":

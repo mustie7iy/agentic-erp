@@ -128,6 +128,7 @@ var allowed = map[string][]string{
 	"revenue":                 {"config", "ledger", "partner", "sales", "tenancy"},                                // a leaf (ADR-0068 §1): the sales context's orders (sales.Orders), partners' names, tenancy, the ledger's calendar and the configuration through its ports
 	"processmining":           {"audit", "payables", "payments", "procurement", "tenancy"},                        // a leaf (ADR-0080 §1): tenancy's legal entities, procurement's orders, payables' documents, payments' runs and the audit trail through its ports
 	"records":                 {"config", "ledger", "partner", "tenancy"},                                         // a leaf (ADR-0079 §1): tenancy's legal entities, the configuration's retention rules, the ledger's fiscal years and journal and the partner context's blocked personal data (§12) through its ports
+	"mcp":                     {"apitools"},                                                                       // the API as MCP tools for an agent host (ADR-0081)
 	"leases":                  {"config", "ledger", "partner", "tenancy"},                                         // a leaf (ADR-0073 §1): tenancy, the partner context's suppliers and names, the ledger's cost centers, calendar and postings and the configuration through its ports
 	"reconagent":              {"apitools", "llm"},
 	"recommend":               {"apitools", "llm"},                        // the recommending agents' one pattern (ADR-0072): every such agent imports it, and it no agent

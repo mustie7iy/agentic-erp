@@ -14,6 +14,7 @@ import (
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 
+	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
@@ -211,8 +212,8 @@ func TestToolsCallTheAPIInASession(t *testing.T) {
 	if err := s.End(ctx, "completed", anthropic.BetaUsage{}); err == nil {
 		t.Fatal("ended twice")
 	}
-	if _, err := tools[1].Execute(ctx, json.RawMessage(`{"id": "`+id+`"}`)); err == nil {
-		t.Fatal("recorded into an ended session")
+	if _, err := tools[1].Execute(ctx, json.RawMessage(`{"id": "`+id+`"}`)); !errors.Is(err, apitools.ErrNotRecorded) {
+		t.Fatalf("recorded into an ended session: got %v, want ErrNotRecorded", err)
 	}
 	// Transport failures surface as errors.
 	down := &apitools.Client{BaseURL: "http://127.0.0.1:1", Token: "x"}
@@ -325,6 +326,49 @@ func TestRunOffersTheToolsOfTheLevel(t *testing.T) {
 				t.Errorf("offered: got %v, want %v", got, c.want)
 			}
 		})
+	}
+}
+
+// TestAgentTools (T102a): Agent builds a tool of every operation open to
+// agents and of none marked x-agent: false, in the order of their names;
+// Offered narrows them to a level, and a read says so.
+func TestAgentTools(t *testing.T) {
+	ops, err := api.Operations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	for id, op := range ops {
+		if op.AgentAllowed {
+			want = append(want, id)
+		}
+	}
+	slices.Sort(want)
+	tools := apitools.Agent(nil, nil)
+	var got []string
+	for _, tool := range tools {
+		got = append(got, tool.Name())
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("tools: got %d, want the %d operations open to agents", len(got), len(want))
+	}
+	if slices.Contains(got, "createPrincipal") || !slices.Contains(got, "listLegalEntities") {
+		t.Errorf("tools: got createPrincipal (x-agent: false) or no listLegalEntities")
+	}
+	for _, tool := range apitools.Offered(tools, 0) {
+		if !tool.Reads() {
+			t.Errorf("%s: offered at level 0, but it writes", tool.Name())
+		}
+	}
+	if n := len(apitools.Offered(tools, 2)); n != len(tools) || len(apitools.Offered(tools, 0)) >= n {
+		t.Errorf("offered at level 2: got %d of %d, want all, and fewer at level 0", n, len(tools))
+	}
+	byName := map[string]*apitools.Tool{}
+	for _, tool := range tools {
+		byName[tool.Name()] = tool
+	}
+	if r := byName["getLegalEntity"].Required(); !slices.Equal(r, []string{"id"}) {
+		t.Errorf("getLegalEntity's required inputs: got %v, want [id]", r)
 	}
 }
 

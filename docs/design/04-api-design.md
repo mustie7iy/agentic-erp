@@ -907,6 +907,11 @@ agent call carries the same permission, company and SoD checks and the same
 audit record. Operations marked `x-agent: false` (approval decisions, user
 and role administration) are never exposed as agent tools.
 
+An agent host outside the platform reaches the same tools through `erp mcp`
+(ADR-0081, T102a): the Model Context Protocol over standard input and output
+with the agent's token, the tools those its autonomy level performs, each
+call made by the API and recorded in the agent's session.
+
 Agents reach models only through their cell's **model gateway**, a third
 small contract, [`api/model.yaml`](../../api/model.yaml) (ADR-0036): the
 provider's Messages API at `POST /v1/model/v1/messages`, so an agent's SDK
