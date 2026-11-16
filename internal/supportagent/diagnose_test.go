@@ -16,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
 	"github.com/mustie7iy/agentic-erp/internal/recommend"
 	"github.com/mustie7iy/agentic-erp/internal/supportagent"
 )
@@ -228,5 +229,25 @@ func TestDiagnoseTools(t *testing.T) {
 	}
 	if _, err := apitools.Tools(&apitools.Client{}, nil, slices.DeleteFunc(slices.Clone(tools), func(id string) bool { return id == apitools.FindOperations })...); err != nil {
 		t.Errorf("the tools as the pattern builds them: %v", err)
+	}
+}
+
+// TestDiagnosedRefusalsAudited: every write of the contract on a document
+// the agent diagnoses (at its read's path, or below it) has its refusals
+// audited on the document (httpapi.RefusalsAudited, ADR-0011 As built),
+// so the events the agent reads show why a write did not happen
+// (review:batch74).
+func TestDiagnosedRefusalsAudited(t *testing.T) {
+	ops := api.MustOperations()
+	for kind, read := range supportagent.Documents {
+		at := ops[read].Path
+		for id, op := range ops {
+			if op.Method == http.MethodGet || op.Reads || (op.Path != at && !strings.HasPrefix(op.Path, at+":") && !strings.HasPrefix(op.Path, at+"/")) {
+				continue
+			}
+			if _, ok := httpapi.RefusalsAudited[id]; !ok {
+				t.Errorf("%s, a write on a %s: its refusals are not audited (httpapi.RefusalsAudited)", id, kind)
+			}
+		}
 	}
 }

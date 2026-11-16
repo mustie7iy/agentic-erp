@@ -32,7 +32,8 @@ func TestRecordsPermissions(t *testing.T) {
 // is of journal entries, a fiscal year and a rule's years in range, at a
 // configuration version; one queued or completed run per company, kind
 // and year, a failed one leaving room for another; a completed run names
-// its file and manifest with their figures, a failed one its code, and
+// its file and manifest with their figures (and its parts, two or more,
+// when written in parts: migration 000345), a failed one its code, and
 // neither is changed again; what a run is for and who asked never
 // change, and no run is deleted.
 func TestArchivingRunRules(t *testing.T) {
@@ -87,6 +88,22 @@ func TestArchivingRunRules(t *testing.T) {
 			return []stmt{queue(s), step(`UPDATE records.archiving_run SET status = 'completed', object_key = 'k', manifest_key = 'm', sha256 = sha256('f'),
 				manifest_sha256 = sha256('m'), size_bytes = 1, entry_count = 1, line_count = 2, debit_total = -1, currency = 'EUR', completed_at = now(), version = version + 1 WHERE id = $1`, s.run)}
 		}, "archiving_run_file_check"},
+		{"completed in parts", func(s scene) []stmt {
+			return []stmt{queue(s), step(strings.Replace(complete, "completed_at = now()", `parts = '[{"part": 1}, {"part": 2}]', completed_at = now()`, 1), s.run)}
+		}, ""},
+		{"in one part", func(s scene) []stmt {
+			return []stmt{queue(s), step(strings.Replace(complete, "completed_at = now()", `parts = '[{"part": 1}]', completed_at = now()`, 1), s.run)}
+		}, "archiving_run_parts_check"},
+		{"parts not an array", func(s scene) []stmt {
+			return []stmt{queue(s), step(strings.Replace(complete, "completed_at = now()", `parts = '{"part": 1}', completed_at = now()`, 1), s.run)}
+		}, "archiving_run_parts_check"},
+		{"parts of a queued run", func(s scene) []stmt {
+			return []stmt{queue(s), step(`UPDATE records.archiving_run SET parts = '[{"part": 1}, {"part": 2}]', version = version + 1 WHERE id = $1`, s.run)}
+		}, "archiving_run_parts_check"},
+		{"the parts of a completed run changed, by the owner", func(s scene) []stmt {
+			return []stmt{queue(s), step(complete, s.run), step(`SET LOCAL ROLE erp_owner`),
+				step(`UPDATE records.archiving_run SET parts = '[{"part": 1}, {"part": 2}]' WHERE id = $1`, s.run)}
+		}, "archiving_run_settled_fixed"},
 		{"failed", func(s scene) []stmt { return []stmt{queue(s), step(fail, s.run)} }, ""},
 		{"failed without a code", func(s scene) []stmt {
 			return []stmt{queue(s), step(`UPDATE records.archiving_run SET status = 'failed', version = version + 1 WHERE id = $1`, s.run)}

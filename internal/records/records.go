@@ -73,6 +73,9 @@ type Endpoints struct {
 	People        People
 	Privacy       Privacy // the partner context's blocked personal data (T100c)
 	Pages         *pagination.Codec
-	Objects       blobstore.Store  // archive files; nil: no run is asked for and no file is read
-	Now           func() time.Time // nil: the wall clock
+	Objects       blobstore.Store // archive files; nil: no run is asked for and no file is read
+	// PartEntries is the most entries a part of an archive file holds; 0
+	// is ArchivePartEntries (tests write parts of a few).
+	PartEntries int
+	Now         func() time.Time // nil: the wall clock
 }

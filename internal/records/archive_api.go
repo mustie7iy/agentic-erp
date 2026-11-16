@@ -47,7 +47,7 @@ func (e *Endpoints) ListArchivingRuns(ctx context.Context, params gen.ListArchiv
 
 // GetArchivingRunFile implements GET /v1/archiving-runs/{id}/file.
 func (e *Endpoints) GetArchivingRunFile(ctx context.Context, params gen.GetArchivingRunFileParams) (gen.GetArchivingRunFileRes, error) {
-	content, err := e.File(ctx, params.ID)
+	content, err := e.File(ctx, params.ID, apitypes.Ptr[int32](params.Part))
 	if err != nil {
 		return nil, err
 	}
@@ -64,8 +64,18 @@ func runsToAPI(rs []Run) []gen.ArchivingRun {
 			CompletedAt: apitypes.OptDateTime(r.CompletedAt), RequestedBy: r.RequestedBy, RequestedByName: r.RequestedByName, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
 		if r.ObjectKey != nil { // a completed run: the database check sets every figure with the key
 			out[i].File.SetTo(gen.ArchiveFile{Name: fileName(r.ID), SHA256: hexOf(r.SHA256), SizeBytes: *r.SizeBytes, ManifestSHA256: hexOf(r.ManifestSHA256),
-				EntryCount: *r.EntryCount, LineCount: *r.LineCount, DebitTotal: apitypes.Money(*r.DebitTotal, *r.Currency, r.exp)})
+				EntryCount: *r.EntryCount, LineCount: *r.LineCount, DebitTotal: apitypes.Money(*r.DebitTotal, *r.Currency, r.exp), Parts: partsToAPI(r.Parts)})
 		}
+	}
+	return out
+}
+
+// partsToAPI gives a file's parts in the API's form; none for a file
+// within one part.
+func partsToAPI(ps []ArchivePart) []gen.ArchiveFilePart {
+	var out []gen.ArchiveFilePart
+	for _, p := range ps {
+		out = append(out, gen.ArchiveFilePart{Part: p.Part, Name: p.Name, SHA256: p.SHA256, SizeBytes: p.SizeBytes, EntryCount: p.EntryCount})
 	}
 	return out
 }

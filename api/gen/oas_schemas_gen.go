@@ -5970,6 +5970,10 @@ type ArchiveFile struct {
 	LineCount int32 `json:"line_count"`
 	// The sum of the lines' debits in the company's currency.
 	DebitTotal Money `json:"debit_total"`
+	// A file of more than 50,000 entries (or 32 MiB), written in parts: its parts, in order
+	// (`GET /v1/archiving-runs/{id}/file?part={part}` downloads each); `sha256` and `size_bytes` above are
+	// the whole file's, the parts' content in this order. Absent on a file within one part.
+	Parts []ArchiveFilePart `json:"parts"`
 }
 
 // GetName returns the value of Name.
@@ -6007,6 +6011,11 @@ func (s *ArchiveFile) GetDebitTotal() Money {
 	return s.DebitTotal
 }
 
+// GetParts returns the value of Parts.
+func (s *ArchiveFile) GetParts() []ArchiveFilePart {
+	return s.Parts
+}
+
 // SetName sets the value of Name.
 func (s *ArchiveFile) SetName(val string) {
 	s.Name = val
@@ -6040,6 +6049,76 @@ func (s *ArchiveFile) SetLineCount(val int32) {
 // SetDebitTotal sets the value of DebitTotal.
 func (s *ArchiveFile) SetDebitTotal(val Money) {
 	s.DebitTotal = val
+}
+
+// SetParts sets the value of Parts.
+func (s *ArchiveFile) SetParts(val []ArchiveFilePart) {
+	s.Parts = val
+}
+
+// A part of an archive file written in parts (ADR-0079 §7).
+// Ref: #/components/schemas/ArchiveFilePart
+type ArchiveFilePart struct {
+	// Its number, from 1.
+	Part int32 `json:"part"`
+	// Its name, `<run id>.part-<part>.jsonl`.
+	Name string `json:"name"`
+	// The SHA-256 of its content, in hexadecimal; the manifest names it too.
+	SHA256 string `json:"sha256"`
+	// Its size in bytes.
+	SizeBytes int64 `json:"size_bytes"`
+	// The journal entries in it, each whole.
+	EntryCount int32 `json:"entry_count"`
+}
+
+// GetPart returns the value of Part.
+func (s *ArchiveFilePart) GetPart() int32 {
+	return s.Part
+}
+
+// GetName returns the value of Name.
+func (s *ArchiveFilePart) GetName() string {
+	return s.Name
+}
+
+// GetSHA256 returns the value of SHA256.
+func (s *ArchiveFilePart) GetSHA256() string {
+	return s.SHA256
+}
+
+// GetSizeBytes returns the value of SizeBytes.
+func (s *ArchiveFilePart) GetSizeBytes() int64 {
+	return s.SizeBytes
+}
+
+// GetEntryCount returns the value of EntryCount.
+func (s *ArchiveFilePart) GetEntryCount() int32 {
+	return s.EntryCount
+}
+
+// SetPart sets the value of Part.
+func (s *ArchiveFilePart) SetPart(val int32) {
+	s.Part = val
+}
+
+// SetName sets the value of Name.
+func (s *ArchiveFilePart) SetName(val string) {
+	s.Name = val
+}
+
+// SetSHA256 sets the value of SHA256.
+func (s *ArchiveFilePart) SetSHA256(val string) {
+	s.SHA256 = val
+}
+
+// SetSizeBytes sets the value of SizeBytes.
+func (s *ArchiveFilePart) SetSizeBytes(val int64) {
+	s.SizeBytes = val
+}
+
+// SetEntryCount sets the value of EntryCount.
+func (s *ArchiveFilePart) SetEntryCount(val int32) {
+	s.EntryCount = val
 }
 
 // An archiving run (records, ADR-0079 §6-§8, T99b): a company's documents of one kind and fiscal
@@ -12727,9 +12806,9 @@ type AuditEvidenceExport struct {
 	// `queued` (until the exporter writes its files), `completed` or `failed`. Open enumeration: clients
 	// must accept and preserve values not listed here; values may be added within /v1.
 	Status string `json:"status"`
-	// Completed: the files the manifest names, in its order
-	// (`GET /v1/audit-evidence-exports/{id}/files/{name}` downloads each, and `manifest.json`); otherwise
-	// empty.
+	// Completed: the files the manifest names, in its order, a file of more records than a part holds as
+	// its parts in their order (`GET /v1/audit-evidence-exports/{id}/files/{name}` downloads each, and
+	// `manifest.json`); otherwise empty.
 	Files []AuditEvidenceFile `json:"files"`
 	// Completed: the SHA-256 of `manifest.json`, in hexadecimal.
 	ManifestSHA256 OptString `json:"manifest_sha256"`
@@ -12741,8 +12820,9 @@ type AuditEvidenceExport struct {
 	ApprovalDecisionCount OptInt32              `json:"approval_decision_count"`
 	Chain                 OptAuditEvidenceChain `json:"chain"`
 	// Failed: the problem code that stopped the export (`identity.principal_blocked`,
-	// `audit.evidence_too_large` when the period holds more than 200,000 audit events or journal lines,
-	// `audit.evidence_changed` when the file store holds other bytes under the export's manifest).
+	// `audit.evidence_changed` when the file store holds other bytes under the export's manifest;
+	// `audit.evidence_too_large` on an export failed before files were written in parts, when it held more
+	// than 200,000 audit events or journal lines).
 	FailureCode OptString `json:"failure_code"`
 	// When the exporter completed it.
 	CompletedAt OptDateTime `json:"completed_at"`
@@ -13048,11 +13128,15 @@ func (s *AuditEvidenceExportPage) SetNextPageToken(val OptString) {
 
 func (*AuditEvidenceExportPage) listAuditEvidenceExportsRes() {}
 
-// A file of a completed evidence export, as its manifest names it.
+// A file of a completed evidence export, or a part of one, as its manifest names it.
 // Ref: #/components/schemas/AuditEvidenceFile
 type AuditEvidenceFile struct {
-	// `audit_events.jsonl`, `journal_entries.jsonl` or `approval_decisions.jsonl`.
+	// `audit_events.jsonl`, `journal_entries.jsonl` or `approval_decisions.jsonl`; a part of one written
+	// in parts, `<file>.part-<n>.jsonl` (`audit_events.part-2.jsonl`).
 	Name string `json:"name"`
+	// A part of a file written in parts (one of more than 50,000 records or 32 MiB): its number, from 1;
+	// the parts' records, in this order, are the file's. Absent on a file within one part.
+	Part OptInt32 `json:"part"`
 	// The SHA-256 of the file's content, in hexadecimal.
 	SHA256 string `json:"sha256"`
 	// The file's size in bytes.
@@ -13064,6 +13148,11 @@ type AuditEvidenceFile struct {
 // GetName returns the value of Name.
 func (s *AuditEvidenceFile) GetName() string {
 	return s.Name
+}
+
+// GetPart returns the value of Part.
+func (s *AuditEvidenceFile) GetPart() OptInt32 {
+	return s.Part
 }
 
 // GetSHA256 returns the value of SHA256.
@@ -13084,6 +13173,11 @@ func (s *AuditEvidenceFile) GetRecords() int32 {
 // SetName sets the value of Name.
 func (s *AuditEvidenceFile) SetName(val string) {
 	s.Name = val
+}
+
+// SetPart sets the value of Part.
+func (s *AuditEvidenceFile) SetPart(val OptInt32) {
+	s.Part = val
 }
 
 // SetSHA256 sets the value of SHA256.
@@ -76887,6 +76981,12 @@ type PersonalDataDeletionSubject struct {
 	Status OptString `json:"status"`
 	// In a run: when it was blanked or skipped.
 	SettledAt OptDateTime `json:"settled_at"`
+	// Skipped: why: `already_deleted` (its personal data was blanked already), `block_lifted` (its block
+	// was lifted), `blocked_again` (its block was lifted and set again since the run was asked for) or
+	// `open_item` (it has an open item, which keeps its data until it is cleared); absent otherwise, and
+	// on a subject skipped before reasons were kept. Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	SkipReason OptString `json:"skip_reason"`
 }
 
 // GetPartnerID returns the value of PartnerID.
@@ -76924,6 +77024,11 @@ func (s *PersonalDataDeletionSubject) GetSettledAt() OptDateTime {
 	return s.SettledAt
 }
 
+// GetSkipReason returns the value of SkipReason.
+func (s *PersonalDataDeletionSubject) GetSkipReason() OptString {
+	return s.SkipReason
+}
+
 // SetPartnerID sets the value of PartnerID.
 func (s *PersonalDataDeletionSubject) SetPartnerID(val uuid.UUID) {
 	s.PartnerID = val
@@ -76957,6 +77062,11 @@ func (s *PersonalDataDeletionSubject) SetStatus(val OptString) {
 // SetSettledAt sets the value of SettledAt.
 func (s *PersonalDataDeletionSubject) SetSettledAt(val OptDateTime) {
 	s.SettledAt = val
+}
+
+// SetSkipReason sets the value of SkipReason.
+func (s *PersonalDataDeletionSubject) SetSkipReason(val OptString) {
+	s.SkipReason = val
 }
 
 // One page of a deletion run's subjects, by partner number.

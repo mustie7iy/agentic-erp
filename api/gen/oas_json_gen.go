@@ -14968,9 +14968,19 @@ func (s *ArchiveFile) encodeFields(e *jx.Encoder) {
 		e.FieldStart("debit_total")
 		s.DebitTotal.Encode(e)
 	}
+	{
+		if s.Parts != nil {
+			e.FieldStart("parts")
+			e.ArrStart()
+			for _, elem := range s.Parts {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfArchiveFile = [7]string{
+var jsonFieldsNameOfArchiveFile = [8]string{
 	0: "name",
 	1: "sha256",
 	2: "size_bytes",
@@ -14978,6 +14988,7 @@ var jsonFieldsNameOfArchiveFile = [7]string{
 	4: "entry_count",
 	5: "line_count",
 	6: "debit_total",
+	7: "parts",
 }
 
 // Decode decodes ArchiveFile from json.
@@ -15071,6 +15082,23 @@ func (s *ArchiveFile) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"debit_total\"")
 			}
+		case "parts":
+			if err := func() error {
+				s.Parts = make([]ArchiveFilePart, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem ArchiveFilePart
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Parts = append(s.Parts, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"parts\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -15123,6 +15151,170 @@ func (s *ArchiveFile) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *ArchiveFile) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *ArchiveFilePart) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *ArchiveFilePart) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("part")
+		e.Int32(s.Part)
+	}
+	{
+		e.FieldStart("name")
+		e.Str(s.Name)
+	}
+	{
+		e.FieldStart("sha256")
+		e.Str(s.SHA256)
+	}
+	{
+		e.FieldStart("size_bytes")
+		e.Int64(s.SizeBytes)
+	}
+	{
+		e.FieldStart("entry_count")
+		e.Int32(s.EntryCount)
+	}
+}
+
+var jsonFieldsNameOfArchiveFilePart = [5]string{
+	0: "part",
+	1: "name",
+	2: "sha256",
+	3: "size_bytes",
+	4: "entry_count",
+}
+
+// Decode decodes ArchiveFilePart from json.
+func (s *ArchiveFilePart) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ArchiveFilePart to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "part":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Int32()
+				s.Part = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"part\"")
+			}
+		case "name":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Name = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"name\"")
+			}
+		case "sha256":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.SHA256 = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"sha256\"")
+			}
+		case "size_bytes":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Int64()
+				s.SizeBytes = int64(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"size_bytes\"")
+			}
+		case "entry_count":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := d.Int32()
+				s.EntryCount = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"entry_count\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode ArchiveFilePart")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00011111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfArchiveFilePart) {
+					name = jsonFieldsNameOfArchiveFilePart[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ArchiveFilePart) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ArchiveFilePart) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -29691,6 +29883,12 @@ func (s *AuditEvidenceFile) encodeFields(e *jx.Encoder) {
 		e.Str(s.Name)
 	}
 	{
+		if s.Part.Set {
+			e.FieldStart("part")
+			s.Part.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("sha256")
 		e.Str(s.SHA256)
 	}
@@ -29704,11 +29902,12 @@ func (s *AuditEvidenceFile) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfAuditEvidenceFile = [4]string{
+var jsonFieldsNameOfAuditEvidenceFile = [5]string{
 	0: "name",
-	1: "sha256",
-	2: "size_bytes",
-	3: "records",
+	1: "part",
+	2: "sha256",
+	3: "size_bytes",
+	4: "records",
 }
 
 // Decode decodes AuditEvidenceFile from json.
@@ -29732,8 +29931,18 @@ func (s *AuditEvidenceFile) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"name\"")
 			}
+		case "part":
+			if err := func() error {
+				s.Part.Reset()
+				if err := s.Part.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"part\"")
+			}
 		case "sha256":
-			requiredBitSet[0] |= 1 << 1
+			requiredBitSet[0] |= 1 << 2
 			if err := func() error {
 				v, err := d.Str()
 				s.SHA256 = string(v)
@@ -29745,7 +29954,7 @@ func (s *AuditEvidenceFile) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"sha256\"")
 			}
 		case "size_bytes":
-			requiredBitSet[0] |= 1 << 2
+			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
 				v, err := d.Int64()
 				s.SizeBytes = int64(v)
@@ -29757,7 +29966,7 @@ func (s *AuditEvidenceFile) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"size_bytes\"")
 			}
 		case "records":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				v, err := d.Int32()
 				s.Records = int32(v)
@@ -29778,7 +29987,7 @@ func (s *AuditEvidenceFile) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00001111,
+		0b00011101,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -189616,9 +189825,15 @@ func (s *PersonalDataDeletionSubject) encodeFields(e *jx.Encoder) {
 			s.SettledAt.Encode(e, json.EncodeDateTime)
 		}
 	}
+	{
+		if s.SkipReason.Set {
+			e.FieldStart("skip_reason")
+			s.SkipReason.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfPersonalDataDeletionSubject = [7]string{
+var jsonFieldsNameOfPersonalDataDeletionSubject = [8]string{
 	0: "partner_id",
 	1: "partner_number",
 	2: "personal_data_blocked_at",
@@ -189626,6 +189841,7 @@ var jsonFieldsNameOfPersonalDataDeletionSubject = [7]string{
 	4: "retention_ends",
 	5: "status",
 	6: "settled_at",
+	7: "skip_reason",
 }
 
 // Decode decodes PersonalDataDeletionSubject from json.
@@ -189716,6 +189932,16 @@ func (s *PersonalDataDeletionSubject) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"settled_at\"")
+			}
+		case "skip_reason":
+			if err := func() error {
+				s.SkipReason.Reset()
+				if err := s.SkipReason.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"skip_reason\"")
 			}
 		default:
 			return d.Skip()

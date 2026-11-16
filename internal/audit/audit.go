@@ -40,7 +40,10 @@ type Endpoints struct {
 	Journal       Journal
 	Approvals     Approvals
 	People        People
-	Now           func() time.Time // nil: the wall clock
+	// PartRecords is the most records a part of an export's file holds;
+	// 0 is EvidencePartRecords (tests write parts of a few).
+	PartRecords int
+	Now         func() time.Time // nil: the wall clock
 }
 
 // Event is a row of audit.audit_event without its hashes.

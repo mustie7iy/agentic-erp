@@ -24,17 +24,17 @@ func blockedAt(t *testing.T, p map[string]any) time.Time {
 }
 
 // blank blanks the partner as a deletion run does, committed, and
-// reports whether it did.
-func (e env) blank(t *testing.T, p map[string]any, at time.Time) bool {
+// returns why it did not ("" when it did).
+func (e env) blank(t *testing.T, p map[string]any, at time.Time) string {
 	t.Helper()
-	var did bool
+	var skip string
 	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
-		did, err = partner.Privacy{Keys: apitest.FieldKeys(), OpenItems: openItems{}, Settings: configuration.Settings{}}.Blank(ctx, uuid.MustParse(id(p)), at)
+		skip, err = partner.Privacy{Keys: apitest.FieldKeys(), OpenItems: openItems{}, Settings: configuration.Settings{}}.Blank(ctx, uuid.MustParse(id(p)), at)
 		return err
 	}); err != nil {
 		t.Fatal(err)
 	}
-	return did
+	return skip
 }
 
 // TestBlank (T100c, ADR-0079 §12): blanking replaces the partner's names,
@@ -52,13 +52,13 @@ func TestBlank(t *testing.T) {
 	_, other := e.create(t, e.supplier("Other", 0)) // lists Zelda as a possible duplicate
 	e.blockPersonal(t, z)
 	at := blockedAt(t, z)
-	if e.blank(t, z, at.Add(time.Second)) {
-		t.Error("a block other than the run's: got blanked, want left")
+	if got := e.blank(t, z, at.Add(time.Second)); got != partner.SkipBlockedAgain {
+		t.Errorf("a block other than the run's: got %q, want %q", got, partner.SkipBlockedAgain)
 	}
 	if err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
-		did, err := partner.Privacy{Keys: apitest.FieldKeys(), OpenItems: openItems{e.le}, Settings: configuration.Settings{}}.Blank(ctx, uuid.MustParse(id(z)), at)
-		if did {
-			t.Error("with an open item: got blanked, want left")
+		skip, err := partner.Privacy{Keys: apitest.FieldKeys(), OpenItems: openItems{e.le}, Settings: configuration.Settings{}}.Blank(ctx, uuid.MustParse(id(z)), at)
+		if skip != partner.SkipOpenItem {
+			t.Errorf("with an open item: got %q, want %q", skip, partner.SkipOpenItem)
 		}
 		return err
 	}); err != nil {
@@ -70,11 +70,11 @@ func TestBlank(t *testing.T) {
 	}); err == nil || !strings.Contains(err.Error(), "ledger down") {
 		t.Errorf("a ledger that does not answer: got %v, want its error", err)
 	}
-	if !e.blank(t, z, at) {
-		t.Fatal("blanked: got false")
+	if got := e.blank(t, z, at); got != "" {
+		t.Fatalf("blanked: got skipped %q", got)
 	}
-	if e.blank(t, z, at) {
-		t.Error("blanked again: got true, want nothing done")
+	if got := e.blank(t, z, at); got != partner.SkipAlreadyDeleted {
+		t.Errorf("blanked again: got %q, want %q", got, partner.SkipAlreadyDeleted)
 	}
 	got, tag := e.Must(200, "GET", "/v1/business-partners/"+id(z), "", "")
 	addr := got["addresses"].([]any)[0].(map[string]any)
@@ -121,8 +121,8 @@ func TestBlankCanadian(t *testing.T) {
 	pgtest.Unguarded(t, `UPDATE partner.bank_account SET valid_to = valid_from + 1, ended_by = $2 WHERE partner_id = $1`, id(p), e.ten.Human.ID)
 	var before time.Time
 	pgtest.Scan(t, `SELECT valid_to FROM partner.bank_account WHERE partner_id = $1`, []any{id(p)}, &before)
-	if !e.blank(t, p, blockedAt(t, p)) {
-		t.Fatal("blanked: got false")
+	if got := e.blank(t, p, blockedAt(t, p)); got != "" {
+		t.Fatalf("blanked: got skipped %q", got)
 	}
 	var institution, transit string
 	var after time.Time
@@ -133,13 +133,22 @@ func TestBlankCanadian(t *testing.T) {
 }
 
 // TestBlocked (T100c): the partners whose personal data is blocked and
-// not deleted, by number, with the companies they have data in.
+// not deleted, by number, with the companies they have data in; one whose
+// block was lifted is not blanked, and Blank says so.
 func TestBlocked(t *testing.T) {
 	e := privacyEnv(t)
 	a, b := e.active(t, "A", 0), e.active(t, "B", 0)
 	e.blockPersonal(t, a)
 	e.blockPersonal(t, b)
 	e.blank(t, b, blockedAt(t, b))
+	c := e.active(t, "C", 0)
+	e.blockPersonal(t, c)
+	at := blockedAt(t, c)
+	_, tag := e.Must(200, "GET", "/v1/business-partners/"+id(c), "", "")
+	e.Must(200, "POST", "/v1/business-partners/"+id(c)+":unblockPersonalData", `{"reason": "Block lifted"}`, tag)
+	if got := e.blank(t, c, at); got != partner.SkipBlockLifted {
+		t.Errorf("a block lifted: got %q, want %q", got, partner.SkipBlockLifted)
+	}
 	var got []partner.BlockedSubject
 	if err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
 		got, err = partner.Privacy{}.Blocked(ctx)

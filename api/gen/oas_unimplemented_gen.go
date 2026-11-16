@@ -1229,11 +1229,11 @@ func (UnimplementedHandler) CreateAssetTransfer(ctx context.Context, req *AssetT
 // none, 422 `request.validation_failed` names `legal_entity_ids`. The period is one day to 371 days,
 // `to` not before `from` (422 `request.validation_failed`). Each request is a new export. The exporter
 // refuses a requester blocked or deprovisioned since (the export fails with
-// `identity.principal_blocked`), and a period whose audit events, or whose companies' journal lines,
-// number more than 200,000 (`audit.evidence_too_large`: the files are built and downloaded whole). 503
-// while the server has no object storage to write the files to. Audited
-// (`audit.evidence_export.request`); the completion is audited and published as AuditEvidenceExported.
-// Human-only (`x-agent: false`).
+// `identity.principal_blocked`). A file of more than 50,000 records (or 32 MiB) is written and served
+// in parts, each listed in `files` with its `part` number, so an export of any size completes; a file
+// within one part keeps its name. 503 while the server has no object storage to write the files to.
+// Audited (`audit.evidence_export.request`); the completion is audited and published as
+// AuditEvidenceExported. Human-only (`x-agent: false`).
 //
 // POST /v1/audit-evidence-exports
 func (UnimplementedHandler) CreateAuditEvidenceExport(ctx context.Context, req *AuditEvidenceExportCreate, params CreateAuditEvidenceExportParams) (r CreateAuditEvidenceExportRes, _ error) {
@@ -2869,29 +2869,31 @@ func (UnimplementedHandler) ExcludeBankStatementLine(ctx context.Context, req *R
 //
 // Fetches, now, the documents the tenant's accredited e-invoicing provider holds for the companies of
 // an `einvoice_provider` connector (ADR-0061 §4, T65a; SAP Document and Reporting Compliance's
-// inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`) and carried out
-// as the workflow `FetchEInvoices`, or in process in a cell without a workflow engine, as a system
-// principal acting for the connector's companies. It lists the documents the provider has not had
-// acknowledged, and records each once per connector and the provider's message id: its bytes kept
-// write-once in object storage under their SHA-256, the document `received` with its company (the
-// connector's company whose participant identifier the provider listed it for; none when it names none
-// of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged;
-// after that commit the provider is told the document is kept (its acknowledgement), and
-// `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement
-// is sent again, so an acknowledgement lost is repaired by the next fetch. A message delivered again
-// under its id with other bytes (T65b) is not recorded again either: the document keeps its first
-// bytes, the legal original, and records the new bytes' SHA-256 as `changed_sha256` with `changed_at`,
-// with an audit record and EInvoiceChanged once per different bytes, so the same changed bytes
-// delivered again change nothing more. Its acknowledgement moves the document's version without an
-// event. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`,
-// `already_recorded`, `changed`: a message found with other bytes) and its `resource` the list of the
-// documents it recorded or found changed (`/v1/e-invoices?fetch_operation_id={id}`; a changed one
-// names the fetch as its `changed_fetch_operation_id`); a message not recorded fails the Operation
-// with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a
-// field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider,
-// the store or the database failed (after five tries in the workflow engine, one in process), which
-// the next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above
-// 10 MiB, not recorded until validation records it refused, T65c), which the next fetch meets again. A
+// inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`), the request
+// audited in the caller's name (`einvoicing.fetch.request`, the Operation its object, with the
+// connector), and carried out as the workflow `FetchEInvoices`, or in process in a cell without a
+// workflow engine, as a system principal acting for the connector's companies. It lists the documents
+// the provider has not had acknowledged, and records each once per connector and the provider's
+// message id: its bytes kept write-once in object storage under their SHA-256, the document `received`
+// with its company (the connector's company whose participant identifier the provider listed it for;
+// none when it names none of them), the fetch's Operation as its `fetch_operation_id`, an audit record
+// and EInvoiceChanged; after that commit the provider is told the document is kept (its
+// acknowledgement), and `acknowledged_at` is set. A document already recorded is not recorded again
+// and its acknowledgement is sent again, so an acknowledgement lost is repaired by the next fetch. A
+// message delivered again under its id with other bytes (T65b) is not recorded again either: the
+// document keeps its first bytes, the legal original, and records the new bytes' SHA-256 as
+// `changed_sha256` with `changed_at`, with an audit record and EInvoiceChanged once per different
+// bytes, so the same changed bytes delivered again change nothing more. Its acknowledgement moves the
+// document's version without an event. When the fetch is done its Operation succeeds with the counts
+// in its `result` (`recorded`, `already_recorded`, `changed`: a message found with other bytes) and
+// its `resource` the list of the documents it recorded or found changed
+// (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its
+// `changed_fetch_operation_id`); a message not recorded fails the Operation with
+// `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field
+// error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the
+// store or the database failed (after five tries in the workflow engine, one in process), which the
+// next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10
+// MiB, not recorded until validation records it refused, T65c), which the next fetch meets again. A
 // provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is
 // not an active `einvoice_provider` connector with credentials that resolve is refused before anything
 // is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409
@@ -3077,8 +3079,11 @@ func (UnimplementedHandler) GetArchivingRun(ctx context.Context, params GetArchi
 // wrote it to object storage, in JSON Lines (`application/x-ndjson`): one journal entry of the year
 // per line, of every ledger, by posting date, each with its lines, in the form ADR-0079 §7 documents.
 // Its SHA-256 is the run's `sha256`, checked before it is handed out (409 `records.archive_changed`
-// when the stored file no longer matches). A run not completed has no file (409
-// `records.archive_not_completed`). The file holds every entry of the year whole, so besides
+// when the stored file no longer matches). A file of more than 50,000 entries (or 32 MiB) is written
+// in parts, which `file.parts` lists: each downloads with `part` (from 1), checked against its own
+// SHA-256, and the parts in order are the file; such a file is not handed out whole (409
+// `records.archive_in_parts`), and a part it does not have is not found. A run not completed has no
+// file (409 `records.archive_not_completed`). The file holds every entry of the year whole, so besides
 // `records.archive.run` the caller needs `ledger.entry.read` (`x-also-permissions`). Human-only
 // (`x-agent: false`). 503 while the server has no object storage or the store does not answer. A run
 // of a legal entity the caller cannot act in is not found.
@@ -3283,15 +3288,16 @@ func (UnimplementedHandler) GetAuditEvidenceExport(ctx context.Context, params G
 //
 // A file of a completed audit evidence export (T101a), byte for byte as the exporter wrote it to
 // object storage: `manifest.json` (JSON), or one of the files it names, `audit_events.jsonl`,
-// `journal_entries.jsonl` or `approval_decisions.jsonl` (JSON Lines, one record per line, in the form
-// ADR-0011's As built documents). The manifest's SHA-256 is the export's `manifest_sha256`, and each
-// other file's is the one the manifest names; both are checked before the file is handed out (409
-// `audit.evidence_changed` when the stored bytes no longer match). An export not completed has no
-// files (409 `audit.evidence_not_completed`); another name is not found. The audit events of an export
-// made `with_client_addresses` hold people's client addresses, so that file is handed only to a caller
-// who holds `audit.event.read` too (403 `audit.client_addresses_withheld` otherwise). Human-only
-// (`x-agent: false`). 503 while the server has no object storage or the store does not answer. An
-// export covering a company the caller cannot act in is not found.
+// `journal_entries.jsonl` or `approval_decisions.jsonl`, or a part of one written in parts
+// (`audit_events.part-2.jsonl`; JSON Lines, one record per line, in the form ADR-0011's As built
+// documents). The manifest's SHA-256 is the export's `manifest_sha256`, and each other file's is the
+// one the manifest names; both are checked before the file is handed out (409 `audit.evidence_changed`
+// when the stored bytes no longer match). An export not completed has no files (409
+// `audit.evidence_not_completed`); another name is not found. The audit events of an export made
+// `with_client_addresses` hold people's client addresses, so that file, and each of its parts, is
+// handed only to a caller who holds `audit.event.read` too (403 `audit.client_addresses_withheld`
+// otherwise). Human-only (`x-agent: false`). 503 while the server has no object storage or the store
+// does not answer. An export covering a company the caller cannot act in is not found.
 //
 // GET /v1/audit-evidence-exports/{id}/files/{name}
 func (UnimplementedHandler) GetAuditEvidenceExportFile(ctx context.Context, params GetAuditEvidenceExportFileParams) (r GetAuditEvidenceExportFileRes, _ error) {
@@ -6599,9 +6605,9 @@ func (UnimplementedHandler) ListPeriodCloses(ctx context.Context, params ListPer
 // The subjects of a deletion run (ADR-0079 §12, T100c), by partner number, a page at a time,
 // optionally of one status: each business partner by id and number, never by name, with when its block
 // began, the rule it was held to, and its status (`pending`, `blanked`, or `skipped` when its block
-// was lifted or set again since, or an item of it was open) with when it was settled. It needs access
-// to all companies (403 `records.all_companies_required`). A run the tenant does not have is 404.
-// Human-only (`x-agent: false`). Sortable by: `partner_number` (default).
+// was lifted or set again since, or an item of it was open) with when it was settled and, skipped, why
+// (`skip_reason`). It needs access to all companies (403 `records.all_companies_required`). A run the
+// tenant does not have is 404. Human-only (`x-agent: false`). Sortable by: `partner_number` (default).
 //
 // GET /v1/personal-data-deletion-runs/{id}/subjects
 func (UnimplementedHandler) ListPersonalDataDeletionSubjects(ctx context.Context, params ListPersonalDataDeletionSubjectsParams) (r ListPersonalDataDeletionSubjectsRes, _ error) {

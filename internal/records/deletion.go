@@ -31,7 +31,7 @@ import (
 // partners whose personal data is blocked, and blanking one.
 type Privacy interface {
 	Blocked(ctx context.Context) ([]partnerctx.BlockedSubject, error)
-	Blank(ctx context.Context, id uuid.UUID, blockedAt time.Time) (bool, error)
+	Blank(ctx context.Context, id uuid.UUID, blockedAt time.Time) (string, error)
 }
 
 // Statuses of a deletion run's subject.
@@ -43,15 +43,18 @@ const (
 
 // Subject is a business partner a deletion run blanks: by id and number,
 // when its block began, the longest rule it is held to and the day that
-// rule's years ended; in a run, its status and when it was settled.
+// rule's years ended; in a run, its status, when it was settled and, when
+// skipped, why (the partner context's reason; none on a subject skipped
+// before reasons were kept).
 type Subject struct {
-	PartnerID uuid.UUID
-	Number    string
-	BlockedAt time.Time
-	Years     int16
-	Ends      time.Time
-	Status    string
-	SettledAt *time.Time
+	PartnerID  uuid.UUID
+	Number     string
+	BlockedAt  time.Time
+	Years      int16
+	Ends       time.Time
+	Status     string
+	SettledAt  *time.Time
+	SkipReason *string
 }
 
 // DeletionRun is a deletion run with its subjects by number.
@@ -315,13 +318,14 @@ func (e *Endpoints) Subjects(ctx context.Context, run uuid.UUID, status string, 
 		return nil, "", deletionRunNotFound()
 	}
 	// The subject's partner is its id in the keyset's tie-break.
-	q, args := ks.SQL(`SELECT id, partner_number, blocked_at, retention_years, retention_ends, status, settled_at FROM (SELECT partner_id AS id, partner_number,
-		blocked_at, retention_years, retention_ends, status, settled_at FROM records.deletion_run_subject WHERE run_id = $1) s WHERE ($2 = '' OR status = $2)`,
+	q, args := ks.SQL(`SELECT id, partner_number, blocked_at, retention_years, retention_ends, status, settled_at, skip_reason FROM (SELECT partner_id AS id,
+		partner_number, blocked_at, retention_years, retention_ends, status, settled_at, skip_reason FROM records.deletion_run_subject WHERE run_id = $1) s
+		WHERE ($2 = '' OR status = $2)`,
 		[]any{run, status})
 	rows, _ := tx.Query(ctx, q, args...)
 	ss, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Subject, error) {
 		var s Subject
-		return s, row.Scan(&s.PartnerID, &s.Number, &s.BlockedAt, &s.Years, &s.Ends, &s.Status, &s.SettledAt)
+		return s, row.Scan(&s.PartnerID, &s.Number, &s.BlockedAt, &s.Years, &s.Ends, &s.Status, &s.SettledAt, &s.SkipReason)
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("records: subjects of deletion run %s: %w", run, err)

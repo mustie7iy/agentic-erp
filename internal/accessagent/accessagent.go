@@ -74,14 +74,6 @@ var Reads = []string{"listRoles", "getRole", "listRolePermissions", "listRoleAss
 var Never = []string{"createPrincipal", "updatePrincipal", "blockPrincipal", "createRole", "updateRole", "grantRolePermission", "endRolePermission",
 	"createRoleAssignment", "endRoleAssignment", "createCompanyAccess", "endCompanyAccess", "createSodRule", "endSodRule"}
 
-// Unaudited are the permissions whose operations change something and
-// leave no audit record in the caller's name, so that a holder using one
-// shows no event: their use is not recorded, and they are never unused.
-// fetchEInvoices only starts an operation, and what the fetch records it
-// records as the system (tracked, review:T106a); the list is empty once
-// it audits its request.
-var Unaudited = []string{"einvoicing.einvoice.manage"}
-
 // MaxEvents is the most audit events a run reads unless its agent says
 // otherwise: beyond it the period is too long to review in one run.
 const MaxEvents = 100000
@@ -332,11 +324,11 @@ func (rv *review) contract() {
 // recorded when a read needs it, since a read leaves no audit event (a
 // holder may use it every day and show none), and when no operation of
 // the contract names it in x-permission or x-also-permissions (the
-// approval permissions, named by the object decided), and when its
-// operations leave no audit record in the caller's name (Unaudited). Of
-// the others,
-// needed by operations that change something only, one is used when a
-// holder acted in a context such an operation's audit record carries:
+// approval permissions, named by the object decided); every operation
+// that changes something audits in its caller's name (fetchEInvoices
+// too, since review:T106a). Of the others, needed by operations that
+// change something only, one is used when a holder acted in a context
+// such an operation's audit record carries:
 // the permission's own, and that of the x-permission of each operation
 // that needs it beside its own (a close's accrual needs the ledger's
 // parking and is audited as closing's). It is unused otherwise.
@@ -348,7 +340,7 @@ func (rv *review) sort(codes []string) {
 	}
 	for _, code := range codes {
 		switch {
-		case rv.reads[code] || len(rv.operations[code]) == 0 || slices.Contains(Unaudited, code):
+		case rv.reads[code] || len(rv.operations[code]) == 0:
 			rv.unrecorded = append(rv.unrecorded, code)
 		case slices.ContainsFunc(rv.contexts[code], func(c string) bool { return acted[c] }):
 			rv.used = append(rv.used, code)
