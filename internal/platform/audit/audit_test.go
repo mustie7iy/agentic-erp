@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -458,4 +459,71 @@ func TestClientAddress(t *testing.T) {
 	if res := verify(t, pool, ten.ID); res.Checked != 2 || res.BrokenAt != 0 {
 		t.Errorf("chain after the addresses were blanked: got %+v, want 2 checked, intact", res)
 	}
+}
+
+// TestRefuseProblem: a write refused with a business outcome (409 or 422
+// without Retry-After) is recorded once on its object, refused, with the
+// problem's code and its field errors' fields and codes (never its detail
+// or messages) beside the entry's own detail; another error,
+// a rule's refusal, a retryable answer and a second refusal of the object
+// record nothing, and each answer is the error given.
+func TestRefuseProblem(t *testing.T) {
+	object := uuid.New()
+	entry := func() audit.Entry {
+		return audit.Entry{Action: "test.thing.post", ObjectType: "test.thing", ObjectID: object, Detail: map[string]any{"operation": "postThing"}}
+	}
+	ctx, buf := audit.WithBuffer(context.Background())
+	for name, err := range map[string]error{
+		"not a problem":     errors.New("database down"),
+		"not found":         problem.NotFound("No thing."),
+		"a rule's refusal":  problem.Unprocessable("request.rule_refused", "A rule refuses it."),
+		"retryable":         busy(),
+		"a request refused": problem.BadRequest("request.invalid_body", "Bad."),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := audit.RefuseProblem(ctx, entry(), err); got != err {
+				t.Errorf("answer: got %v, want %v", got, err)
+			}
+			if buf.Len() != 0 {
+				t.Errorf("recorded: got %d entries, want none", buf.Len())
+			}
+		})
+	}
+	refused := problem.Conflict("test.thing_closed", "The thing is closed.")
+	if got := audit.RefuseProblem(ctx, entry(), refused); got != refused {
+		t.Errorf("answer: got %v, want %v", got, refused)
+	}
+	if got := audit.RefuseProblem(ctx, entry(), refused); got != refused || buf.Len() != 1 {
+		t.Errorf("refused again: got %v and %d entries, want the error and one entry", got, buf.Len())
+	}
+	if err := audit.RefuseProblem(context.Background(), entry(), refused); !errors.Is(err, audit.ErrNoBuffer) {
+		t.Errorf("outside a unit of work: got %v, want %v", err, audit.ErrNoBuffer)
+	}
+	pool := pgtest.Pool(t)
+	ten := pgtest.NewTenant(t)
+	if err := asApp(t, pool, ten.ID, func(ctx context.Context, tx pgx.Tx) error {
+		ctx, buf := audit.WithBuffer(reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), actor(ten)))
+		_ = audit.RefuseProblem(ctx, entry(), problem.Unprocessable("test.thing_invalid", "Ada Lovelace's thing is not valid.", // the problem, returned as given
+			problem.FieldError{Field: "name", Code: "invalid", Message: "Ada Lovelace"}))
+		if err := buf.FlushRefusals(ctx, tx, actor(ten), "", time.Now()); err != nil {
+			return err
+		}
+		var got string
+		if err := tx.QueryRow(ctx, `SELECT outcome || ' ' || detail::text FROM audit.audit_event WHERE tenant_id = $1 AND object_id = $2`, ten.ID, object).Scan(&got); err != nil {
+			return err
+		}
+		if want := `refused {"code": "test.thing_invalid", "errors": [{"code": "invalid", "field": "name"}], "source": "problem", "operation": "postThing"}`; got != want {
+			t.Errorf("recorded: got %q, want %q", got, want)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// busy is a 409 that invites a retry, as a lock timeout's is.
+func busy() *problem.Problem {
+	p := problem.Conflict("request.in_progress", "Busy.")
+	p.RetryAfter = 1
+	return p
 }

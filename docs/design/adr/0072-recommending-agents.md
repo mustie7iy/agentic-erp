@@ -833,8 +833,10 @@ A later slice adds its row here and its section under "As built".
   insert-only trail, so a problem detail of that operation names no
   person (today they carry codes, ids, dates and amounts). Without it the
   trail of a parked invoice shows no
-  cause; refusals of other documents' writes are not audited yet (a gap
-  listed for the product owner).
+  cause. Refusals of the other writes on the documents the agent
+  diagnoses are audited since by the HTTP layer
+  (`httpapi.RefusalsAudited`, ADR-0011 As built 2026-11-16), with the
+  problem's code and field errors but not its detail.
 - Its role needs, beside T108a's, the reads of the documents it
   diagnoses, `platform.operation.read`, `workflow.request.read` and
   `audit.event.read`, which the tenant's administrator grants (§6).

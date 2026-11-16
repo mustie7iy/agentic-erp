@@ -154,3 +154,44 @@ and download their files.
 Later (plan-breadth-week3 §T101a): samples by the auditor's criteria,
 evidence per control, subledger documents and attachments, a time-limited
 auditor role, audit tools' formats, a signed manifest.
+
+## As built (review:batch74, 2026-11-16): refused writes audited
+
+A write the API refuses with a business outcome (409 or 422 without
+`Retry-After`) rolls its work back; the unit of work keeps the request's
+refusals (`audit.Refuse`, ADR-0046) and writes them with the stored
+answer. Until now only a validation rule's refusal and a refused supplier
+invoice posting were recorded, so the support agent's diagnosis (ADR-0072
+As built, T108b), which reads a document's audit events, could not show
+why any other write on it had not happened. The general mechanism:
+
+- `audit.RefuseProblem(ctx, entry, err)` records a business refusal as the
+  entry with outcome `refused` and detail `source: problem`, the problem's
+  `code` and its field errors' `field` and `code` (`errors`) beside the
+  entry's own detail. The problem's detail and messages are not recorded
+  (decided by default, the safer side): the trail is insert-only and
+  holds no personal data (ADR-0026), and a message may name a partner who
+  is a person, whose data a deletion run blanks everywhere but here. A
+  handler that knows its operation's detail names nobody adds it (the
+  supplier invoice posting does). It records nothing
+  for any other error, for a rule's refusal (audited by the rule) or when
+  a refusal of the same object is buffered already (the handler's own,
+  with more detail), and returns the error given.
+- The HTTP layer applies it to the writes listed in
+  `httpapi.RefusalsAudited` (an ogen middleware inside the unit of work):
+  each operation with the action its success is audited under and the
+  document it is about, its `{id}`, the operation's id in the detail. A
+  write on a document's part (a purchase order's change, a GR/IR
+  clearing, a delivery) is recorded on the document under the part's
+  action. Requests rejected before the write (400, 401, 403, 404, 412,
+  428) record nothing: no write was attempted on a known object.
+- The list is every write on the documents the support agent diagnoses
+  (`supportagent.Documents`: supplier and customer invoices, journal
+  entries, purchase and sales orders, payment runs, change requests,
+  operations), held to the contract by `TestDiagnosedRefusalsAudited`.
+  `refusedPost` (payables) keeps its own record, which adds the problem's
+  detail and the posting date asked for.
+- Left, and recorded nowhere else: refusals of writes on other contexts'
+  objects, and of creates (they have no object yet). A reader that needs
+  them adds the operations to the list; a create's refusal needs an
+  object of its own first.

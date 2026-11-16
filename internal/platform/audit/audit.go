@@ -14,6 +14,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"net/http"
 	"net/netip"
 	"regexp"
 	"slices"
@@ -24,6 +26,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -94,6 +97,43 @@ func Refuse(ctx context.Context, e Entry) error {
 	}
 	b.refusals = append(b.refusals, e)
 	return nil
+}
+
+// RefuseProblem records a write the API refuses with a business outcome
+// (409 or 422 without Retry-After, which the unit of work keeps with its
+// refusals; ADR-0046) as the entry e with outcome refused, the problem's
+// code and its field errors' fields and codes added to e's detail under
+// source problem, so whoever reads the object's audit trail sees why the
+// write did not happen (ADR-0011 As built; the support agent's evidence,
+// ADR-0072). The problem's detail and messages are not recorded: the
+// trail is insert-only and holds no personal data (ADR-0026), and a
+// message may name a partner; a caller that knows its operation's detail
+// names nobody adds it to e. It records nothing for any other error, for
+// a rule's refusal (request.rule_refused, audited by the rule), or when a
+// refusal of e's object is buffered already (the handler's own). It
+// returns err, or the audit's own failure.
+func RefuseProblem(ctx context.Context, e Entry, err error) error {
+	p := problem.From(err)
+	if (p.Status != http.StatusConflict && p.Status != http.StatusUnprocessableEntity) || p.RetryAfter > 0 || p.Code == "request.rule_refused" {
+		return err
+	}
+	if b, ok := ctx.Value(bufferKey{}).(*Buffer); ok && slices.ContainsFunc(b.refusals, func(r Entry) bool { return r.ObjectID == e.ObjectID }) {
+		return err
+	}
+	detail := map[string]any{"source": "problem", "code": p.Code}
+	if len(p.Errors) > 0 {
+		fields := make([]map[string]string, len(p.Errors))
+		for i, f := range p.Errors {
+			fields[i] = map[string]string{"field": f.Field, "code": f.Code}
+		}
+		detail["errors"] = fields
+	}
+	maps.Copy(detail, e.Detail)
+	e.Outcome, e.Detail = "refused", detail
+	if aerr := Refuse(ctx, e); aerr != nil {
+		return fmt.Errorf("audit: the refusal of %s %s: %w", e.Action, e.ObjectID, aerr)
+	}
+	return err
 }
 
 // Mark is how many entries the request has buffered: the point

@@ -10623,9 +10623,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Refusals of writes other than supplier invoice posting are not audited, so the support agent's diagnosis cannot show their cause: only a refused supplier invoice post leaves an audit record the diagnosis reads (lane D gap, found in batch 74).",
-        "r": "internal/supportagent Diagnose · audit capability (ADR-0011) · internal/payables (the one refused write audited)",
+        "r": "internal/supportagent Diagnose · audit capability (ADR-0011) · internal/payables (the one refused write audited) · audit.RefuseProblem · httpapi.RefusalsAudited (every write on supportagent.Documents) · ADR-0011 As built 2026-11-16",
         "src": "review:batch74",
         "c": []
        },
