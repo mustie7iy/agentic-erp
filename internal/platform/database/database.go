@@ -267,5 +267,9 @@ func Tenants(ctx context.Context, pool *Pool, begin BeginFunc, role, query strin
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
 	rows, _ := tx.Query(ctx, query, args...)
-	return pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return nil, fmt.Errorf("database: read the tenants: %w", err)
+	}
+	return tenants, nil
 }
