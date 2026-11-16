@@ -98,15 +98,10 @@ func (w *SimulationWorker) begin(ctx context.Context, s database.Scope) (pgx.Tx,
 
 // tenants returns the tenants with queued simulations.
 func (w *SimulationWorker) tenants(ctx context.Context) ([]uuid.UUID, error) {
-	tx, err := w.begin(ctx, database.Scope{Role: w.WorkerRole, ReadOnly: true})
+	tenants, err := database.Tenants(ctx, w.Pool, w.Begin, w.WorkerRole,
+		`SELECT DISTINCT tenant_id FROM platform.operation WHERE kind = $1 AND status = 'queued' AND tenant_id IN `+database.ActiveTenants, SimulateKind)
 	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM platform.operation WHERE kind = $1 AND status = 'queued' AND tenant_id IN `+database.ActiveTenants, SimulateKind)
-	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
-	if err != nil {
-		return tenants, fmt.Errorf("configuration: list the tenants with queued simulations: %w", err)
+		return nil, fmt.Errorf("configuration: list the tenants with queued simulations: %w", err)
 	}
 	return tenants, nil
 }
@@ -430,34 +425,14 @@ func route(ctx context.Context, deps Dependencies, c ChangeRequest, tier config.
 
 // RunOnce runs every queued simulation and returns how many it ran. A
 // tenant whose job fails is left for the next round; the others go on.
-func (w *SimulationWorker) RunOnce(ctx context.Context) (int, error) {
-	tenants, err := w.tenants(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("simulation worker: %w", err)
-	}
-	n := 0
-	var errs []error
-	for _, t := range tenants {
-		for {
-			did, err := w.one(ctx, t)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("simulation worker: tenant %s: %w", t, err))
-				break
-			}
-			if !did {
-				break
-			}
-			n++
-		}
-	}
-	return n, errors.Join(errs...)
+func (w *SimulationWorker) RunOnce(ctx context.Context) (int, error) { return w.queue().RunOnce(ctx) }
+
+func (w *SimulationWorker) queue() worker.Queue {
+	return worker.Queue{Name: "simulation worker", Tenants: w.tenants, One: w.one}
 }
 
 // Run simulates until ctx ends; errors are logged and retried after the
 // interval.
 func (w *SimulationWorker) Run(ctx context.Context) {
-	worker.Loop(ctx, w.Interval, time.Second, func(ctx context.Context) (bool, error) {
-		_, err := w.RunOnce(ctx)
-		return false, err
-	}, w.Log, "simulation failed")
+	worker.Loop(ctx, w.Interval, time.Second, w.queue().Round, w.Log, "simulation failed")
 }

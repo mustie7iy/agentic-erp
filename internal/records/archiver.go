@@ -60,52 +60,27 @@ func (w *Archiver) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) 
 
 // tenants returns the tenants with queued runs.
 func (w *Archiver) tenants(ctx context.Context) ([]uuid.UUID, error) {
-	tx, err := w.begin(ctx, database.Scope{Role: w.WorkerRole, ReadOnly: true})
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM records.archiving_run WHERE status = 'queued' AND tenant_id IN `+database.ActiveTenants)
-	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	tenants, err := database.Tenants(ctx, w.Pool, w.Begin, w.WorkerRole,
+		`SELECT DISTINCT tenant_id FROM records.archiving_run WHERE status = 'queued' AND tenant_id IN `+database.ActiveTenants)
 	if err != nil {
 		return nil, fmt.Errorf("records: list the tenants with queued archiving runs: %w", err)
 	}
 	return tenants, nil
 }
 
+func (w *Archiver) queue() worker.Queue {
+	return worker.Queue{Name: "records archiver", Tenants: w.tenants, One: w.one}
+}
+
 // RunOnce writes every queued run and returns how many it settled. A
 // tenant whose run fails on the machinery is left for the next round;
 // the others go on.
-func (w *Archiver) RunOnce(ctx context.Context) (int, error) {
-	tenants, err := w.tenants(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("records archiver: %w", err)
-	}
-	n := 0
-	var errs []error
-	for _, t := range tenants {
-		for ctx.Err() == nil { // a stopping worker claims nothing more
-			did, err := w.one(ctx, t)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("records archiver: tenant %s: %w", t, err))
-				break
-			}
-			if !did {
-				break
-			}
-			n++
-		}
-	}
-	return n, errors.Join(errs...)
-}
+func (w *Archiver) RunOnce(ctx context.Context) (int, error) { return w.queue().RunOnce(ctx) }
 
 // Run writes runs until ctx ends; errors are logged and retried after the
 // interval.
 func (w *Archiver) Run(ctx context.Context) {
-	worker.Loop(ctx, w.Interval, 5*time.Second, func(ctx context.Context) (bool, error) {
-		_, err := w.RunOnce(ctx)
-		return false, err
-	}, w.Log, "records archiving failed")
+	worker.Loop(ctx, w.Interval, 5*time.Second, w.queue().Round, w.Log, "records archiving failed")
 }
 
 // one settles the tenant's next queued run and reports whether there was

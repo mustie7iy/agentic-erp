@@ -62,52 +62,27 @@ func (w *EvidenceExporter) begin(ctx context.Context, s database.Scope) (pgx.Tx,
 
 // queuedTenants returns the tenants with queued exports.
 func (w *EvidenceExporter) queuedTenants(ctx context.Context) ([]uuid.UUID, error) {
-	tx, err := w.begin(ctx, database.Scope{Role: w.WorkerRole, ReadOnly: true})
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM audit.evidence_export WHERE status = 'queued' AND tenant_id IN `+database.ActiveTenants)
-	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	tenants, err := database.Tenants(ctx, w.Pool, w.Begin, w.WorkerRole,
+		`SELECT DISTINCT tenant_id FROM audit.evidence_export WHERE status = 'queued' AND tenant_id IN `+database.ActiveTenants)
 	if err != nil {
 		return nil, fmt.Errorf("audit: list the tenants with queued evidence exports: %w", err)
 	}
 	return tenants, nil
 }
 
+func (w *EvidenceExporter) queue() worker.Queue {
+	return worker.Queue{Name: "evidence exporter", Tenants: w.queuedTenants, One: w.one}
+}
+
 // RunOnce writes every queued export and returns how many it settled. A
 // tenant whose export fails on the machinery is left for the next round;
 // the others go on.
-func (w *EvidenceExporter) RunOnce(ctx context.Context) (int, error) {
-	tenants, err := w.queuedTenants(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("evidence exporter: %w", err)
-	}
-	n := 0
-	var failed []error
-	for _, t := range tenants {
-		for ctx.Err() == nil { // a stopping worker claims nothing more
-			did, err := w.one(ctx, t)
-			if err != nil {
-				failed = append(failed, fmt.Errorf("evidence exporter: tenant %s: %w", t, err))
-				break
-			}
-			if !did {
-				break
-			}
-			n++
-		}
-	}
-	return n, errors.Join(failed...)
-}
+func (w *EvidenceExporter) RunOnce(ctx context.Context) (int, error) { return w.queue().RunOnce(ctx) }
 
 // Run writes exports until ctx ends; errors are logged and retried after
 // the interval.
 func (w *EvidenceExporter) Run(ctx context.Context) {
-	worker.Loop(ctx, w.Interval, 5*time.Second, func(ctx context.Context) (bool, error) {
-		_, err := w.RunOnce(ctx)
-		return false, err
-	}, w.Log, "audit evidence export failed")
+	worker.Loop(ctx, w.Interval, 5*time.Second, w.queue().Round, w.Log, "audit evidence export failed")
 }
 
 // one settles the tenant's next queued export and reports whether there
