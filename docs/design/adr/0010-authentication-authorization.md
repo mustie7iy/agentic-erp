@@ -132,3 +132,36 @@ against the actor's full permission set") and `Authorize` as built:
   expansions (expperm); their callers there (ledger's entry partners and
   revaluation names, `authz.Expansions` in procurement and payables) were
   already SoD-aware.
+
+## As built: an inactive role gives its holders nothing anywhere (review:T95c, 2026-11-16)
+Decided by default under ADR-0053 §d, from step (1) here ("permission
+from roles") and `authz.Permissions` as built, which grants a role's
+permissions only while the role is active:
+- **Where a role's holders are resolved, the role's status counts.**
+  `identity.Directory.HoldsRole` and `RolesHeld` read an assignment only
+  of an active role, as `authz.Permissions` and the segregation-of-duties
+  check (`identity.sodConflict`) already did. T95c's review found both
+  ignored the status, so the approvals inbox (`decidable_by=me`) listed,
+  and `approveApprovalRequest` / `rejectApprovalRequest` let decide, a
+  step of a role made inactive after the request was routed to it, while
+  authz granted that role nothing.
+- **A step already routed to a role made inactive** stays on that role
+  (the request records it, `workflow.approval_step.role_id`) and is
+  decided only by holders of it once it is active again: until then every
+  approval or rejection is 403 `workflow.role_missing`, as for a person
+  without the role, and no inbox lists it. A new request is not routed
+  to it: steps resolve their role codes through `RoleByCode`, which
+  already read active roles alone (422 `workflow.unknown_role`). Moving
+  the step to another role is not built; the requester can still
+  withdraw the request (`approval-requests/{id}:cancel`).
+- **The callers.** Approvals (decision and inbox), the payment run's
+  release role (`payments.Endpoints`, whose `RoleByCode` already refused
+  an inactive role, so nothing changes there) and the reports a role is
+  shared with (`app.reportGrantees.RolesHeld`, which filtered the status
+  itself and now takes `RolesHeld` as it is; ADR-0076 §7).
+- **Not changed.** The agent-approval trigger
+  (`identity.check_agent_approvals`, migration 000013) still counts an
+  inactive role's grants: it refuses an agent an approval permission it
+  would hold once the role is active again, the safer reading. The
+  segregation-of-duties check's limit to one role's holders reads every
+  assignment of the role, but judges only active roles' permissions.
