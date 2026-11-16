@@ -10298,7 +10298,7 @@ step_expense_report() {
 # kind of actor that did it and never who, as JSON and as CSV.
 step_process_mining() {
   heading "Step 98 — The purchase-to-pay event log: the order of step 4 as a case, its activities from the requisition's creation to the payment, by time, each with the kind of actor; as JSON and as CSV"
-  local from to token found csv
+  local from to token found csv rows
   as ada
   person pia "Pia Process Analyst" finance_staff
   as pia
@@ -10326,13 +10326,14 @@ step_process_mining() {
     "$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events | (map(.activity) | index("Post invoice")) < (map(.activity) | index("Pay invoice"))] | first')" true
   expect "the events in order of time" "$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events | map(.occurred_at) | . == sort] | first')" true
   expect "actors by kind alone" "$(field '[.cases[].events[] | keys[] | select(test("actor_id|name"))] | length')" 0
+  rows=$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events[]] | length')
   say "The same page as CSV, a row per event:"
   csv="$WORK/event-log.csv"
   api 200 '' getProcessEventLog -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$from" -p "to=$to" -p page_size=500 \
     ${token:+-p "page_token=$token"} -p format=csv -out "$csv"
   head -1 "$csv" | sed 's/^/  /'
   grep "^$PO," "$csv" | head -3 | sed 's/^/  /'
-  expect "the order's rows" "$(grep -c "^$PO," "$csv")" "$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events[]] | length')"
+  expect "the order's rows" "$(grep -c "^$PO," "$csv")" "$rows"
   passed
 }
 
