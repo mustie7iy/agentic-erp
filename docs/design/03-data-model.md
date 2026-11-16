@@ -2085,6 +2085,8 @@ leaves `catalog_item_id` as it was sets it to null (trigger
 of a draft's items does not name the column, and would otherwise leave a
 described item naming the catalog item of the row it replaced.
 
+The purchase-to-pay event log (T103a, ADR-0080) pages a company's orders by date and id through `purchase_order_by_date` (`tenant_id, legal_entity_id, order_date, id`; migration 000333).
+
 ## 3.9 Accounts payable (`payables`)
 
 ```mermaid
@@ -2528,6 +2530,8 @@ the employee's open item, which a payment run pays. Entering and posting
 need `payables.expense.write` and `payables.expense.post`, reading
 `payables.expense.read`; each is audited and publishes
 `ExpenseReportChanged`.
+
+The purchase-to-pay event log (T103a, ADR-0080) pages a company's supplier documents on no order by date and id through `supplier_invoice_without_order` (`tenant_id, legal_entity_id, invoice_date, id` where `purchase_order_id` is null; migration 000334).
 
 ## 3.10 Payments (`payments`)
 

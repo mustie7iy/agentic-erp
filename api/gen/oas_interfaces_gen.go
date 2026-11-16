@@ -981,6 +981,10 @@ type GetPrincipalRes interface {
 	getPrincipalRes()
 }
 
+type GetProcessEventLogRes interface {
+	getProcessEventLogRes()
+}
+
 type GetProfitCenterRes interface {
 	getProfitCenterRes()
 }

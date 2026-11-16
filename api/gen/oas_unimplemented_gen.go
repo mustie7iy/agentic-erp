@@ -4393,6 +4393,27 @@ func (UnimplementedHandler) GetPrincipal(ctx context.Context, params GetPrincipa
 	return r, ht.ErrNotImplemented
 }
 
+// GetProcessEventLog implements getProcessEventLog operation.
+//
+// The event log of a business process for a company and a period (ADR-0080, T103a), computed on read
+// from the documents' links and the audit trail; nothing is stored. The first process is
+// `purchase_to_pay` (another is 422 `request.validation_failed`): a case is a purchase order dated in
+// the period (`from`, `to`, both included), or a supplier document on no order dated in it, a case of
+// its own; its events are the activities of the order, the requisition it was made from, its goods
+// movements, the supplier documents on it and the released payment runs that paid them, each with its
+// time and the kind of actor that did it (`person`, `agent` or `system`, never who), by time and then
+// by the audit trail's sequence number, at any time up to the read. ADR-0080 lists the activities and
+// the audit actions each comes from. The cases are by date and id, paged by case (`page_size` cases,
+// the default 50, at most 500); `case_count` counts every case of the log. As JSON (`format=json`, the
+// default) or as CSV (`format=csv`): a header row, then a row per event of the page's cases with its
+// case, the next page's token in the `Next-Page-Token` header. A company the caller cannot act in is
+// 404, as one that does not exist; `to` before `from` is 422 `request.validation_failed`.
+//
+// GET /v1/process-event-logs
+func (UnimplementedHandler) GetProcessEventLog(ctx context.Context, params GetProcessEventLogParams) (r GetProcessEventLogRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetProfitCenter implements getProfitCenter operation.
 //
 // Returns one profit center with its companies and active periods.

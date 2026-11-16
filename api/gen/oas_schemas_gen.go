@@ -46825,6 +46825,67 @@ func (s *GetPrincipalOKHeaders) SetResponse(val Principal) {
 
 func (*GetPrincipalOKHeaders) getPrincipalRes() {}
 
+type GetProcessEventLogBadRequest Problem
+
+func (*GetProcessEventLogBadRequest) getProcessEventLogRes() {}
+
+type GetProcessEventLogForbidden Problem
+
+func (*GetProcessEventLogForbidden) getProcessEventLogRes() {}
+
+type GetProcessEventLogNotFound Problem
+
+func (*GetProcessEventLogNotFound) getProcessEventLogRes() {}
+
+// A header row
+// `case_id,case_kind,case_document_number,activity,occurred_at,actor_kind,object_type,object_id,object_document_number,seq`,
+// then a row per event, by case and then in the case's order; UTF-8, lines ending in LF.
+type GetProcessEventLogOKTextCsv struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetProcessEventLogOKTextCsv) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+// GetProcessEventLogOKTextCsvHeaders wraps GetProcessEventLogOKTextCsv with response headers.
+type GetProcessEventLogOKTextCsvHeaders struct {
+	NextPageToken OptString
+	Response      GetProcessEventLogOKTextCsv
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *GetProcessEventLogOKTextCsvHeaders) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetResponse returns the value of Response.
+func (s *GetProcessEventLogOKTextCsvHeaders) GetResponse() GetProcessEventLogOKTextCsv {
+	return s.Response
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *GetProcessEventLogOKTextCsvHeaders) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetProcessEventLogOKTextCsvHeaders) SetResponse(val GetProcessEventLogOKTextCsv) {
+	s.Response = val
+}
+
+func (*GetProcessEventLogOKTextCsvHeaders) getProcessEventLogRes() {}
+
+type GetProcessEventLogUnprocessableEntity Problem
+
+func (*GetProcessEventLogUnprocessableEntity) getProcessEventLogRes() {}
+
 type GetProfitCenterBadRequest Problem
 
 func (*GetProfitCenterBadRequest) getProfitCenterRes() {}
@@ -77391,6 +77452,289 @@ func (s *Problem) SetCreditLimit(val OptCreditLimit) {
 
 func (*Problem) getPersonalDataInventoryRes() {}
 
+// A case of an event log: the document that is it, with its events.
+// Ref: #/components/schemas/ProcessCase
+type ProcessCase struct {
+	// The purchase order's id, or the supplier document's for one on no order.
+	CaseID uuid.UUID `json:"case_id"`
+	// `purchase_order` or `supplier_invoice`. Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	CaseKind string `json:"case_kind"`
+	// The document's number.
+	DocumentNumber string `json:"document_number"`
+	// Its date: the order date, or the invoice date.
+	DocumentDate time.Time `json:"document_date"`
+	// Its events, by time and then sequence number.
+	Events []ProcessEvent `json:"events"`
+}
+
+// GetCaseID returns the value of CaseID.
+func (s *ProcessCase) GetCaseID() uuid.UUID {
+	return s.CaseID
+}
+
+// GetCaseKind returns the value of CaseKind.
+func (s *ProcessCase) GetCaseKind() string {
+	return s.CaseKind
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *ProcessCase) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetDocumentDate returns the value of DocumentDate.
+func (s *ProcessCase) GetDocumentDate() time.Time {
+	return s.DocumentDate
+}
+
+// GetEvents returns the value of Events.
+func (s *ProcessCase) GetEvents() []ProcessEvent {
+	return s.Events
+}
+
+// SetCaseID sets the value of CaseID.
+func (s *ProcessCase) SetCaseID(val uuid.UUID) {
+	s.CaseID = val
+}
+
+// SetCaseKind sets the value of CaseKind.
+func (s *ProcessCase) SetCaseKind(val string) {
+	s.CaseKind = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *ProcessCase) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetDocumentDate sets the value of DocumentDate.
+func (s *ProcessCase) SetDocumentDate(val time.Time) {
+	s.DocumentDate = val
+}
+
+// SetEvents sets the value of Events.
+func (s *ProcessCase) SetEvents(val []ProcessEvent) {
+	s.Events = val
+}
+
+// An event of a case: an activity on a document, when and by what kind of actor.
+// Ref: #/components/schemas/ProcessEvent
+type ProcessEvent struct {
+	// The activity, as ADR-0080 lists them. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Activity   string    `json:"activity"`
+	OccurredAt time.Time `json:"occurred_at"`
+	// `person`, `agent` or `system` (a service or the platform's own work). Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	ActorKind string `json:"actor_kind"`
+	// The document's type, as the audit trail names it.
+	ObjectType string    `json:"object_type"`
+	ObjectID   uuid.UUID `json:"object_id"`
+	// The document's number.
+	DocumentNumber string `json:"document_number"`
+	// The audit event's sequence number.
+	Seq int64 `json:"seq"`
+}
+
+// GetActivity returns the value of Activity.
+func (s *ProcessEvent) GetActivity() string {
+	return s.Activity
+}
+
+// GetOccurredAt returns the value of OccurredAt.
+func (s *ProcessEvent) GetOccurredAt() time.Time {
+	return s.OccurredAt
+}
+
+// GetActorKind returns the value of ActorKind.
+func (s *ProcessEvent) GetActorKind() string {
+	return s.ActorKind
+}
+
+// GetObjectType returns the value of ObjectType.
+func (s *ProcessEvent) GetObjectType() string {
+	return s.ObjectType
+}
+
+// GetObjectID returns the value of ObjectID.
+func (s *ProcessEvent) GetObjectID() uuid.UUID {
+	return s.ObjectID
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *ProcessEvent) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetSeq returns the value of Seq.
+func (s *ProcessEvent) GetSeq() int64 {
+	return s.Seq
+}
+
+// SetActivity sets the value of Activity.
+func (s *ProcessEvent) SetActivity(val string) {
+	s.Activity = val
+}
+
+// SetOccurredAt sets the value of OccurredAt.
+func (s *ProcessEvent) SetOccurredAt(val time.Time) {
+	s.OccurredAt = val
+}
+
+// SetActorKind sets the value of ActorKind.
+func (s *ProcessEvent) SetActorKind(val string) {
+	s.ActorKind = val
+}
+
+// SetObjectType sets the value of ObjectType.
+func (s *ProcessEvent) SetObjectType(val string) {
+	s.ObjectType = val
+}
+
+// SetObjectID sets the value of ObjectID.
+func (s *ProcessEvent) SetObjectID(val uuid.UUID) {
+	s.ObjectID = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *ProcessEvent) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetSeq sets the value of Seq.
+func (s *ProcessEvent) SetSeq(val int64) {
+	s.Seq = val
+}
+
+// One page of an event log (processmining, ADR-0080, T103a): the cases with their events.
+// Ref: #/components/schemas/ProcessEventLog
+type ProcessEventLog struct {
+	// The process. Open enumeration: clients must accept and preserve values not listed here; values may
+	// be added within /v1.
+	Process string `json:"process"`
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Its code.
+	CompanyCode string    `json:"company_code"`
+	From        time.Time `json:"from"`
+	To          time.Time `json:"to"`
+	// The cases of the whole log, on every page.
+	CaseCount int32 `json:"case_count"`
+	// This page's cases, by date and id.
+	Cases []ProcessCase `json:"cases"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetProcess returns the value of Process.
+func (s *ProcessEventLog) GetProcess() string {
+	return s.Process
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ProcessEventLog) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ProcessEventLog) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetFrom returns the value of From.
+func (s *ProcessEventLog) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *ProcessEventLog) GetTo() time.Time {
+	return s.To
+}
+
+// GetCaseCount returns the value of CaseCount.
+func (s *ProcessEventLog) GetCaseCount() int32 {
+	return s.CaseCount
+}
+
+// GetCases returns the value of Cases.
+func (s *ProcessEventLog) GetCases() []ProcessCase {
+	return s.Cases
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ProcessEventLog) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetProcess sets the value of Process.
+func (s *ProcessEventLog) SetProcess(val string) {
+	s.Process = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ProcessEventLog) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ProcessEventLog) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetFrom sets the value of From.
+func (s *ProcessEventLog) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *ProcessEventLog) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetCaseCount sets the value of CaseCount.
+func (s *ProcessEventLog) SetCaseCount(val int32) {
+	s.CaseCount = val
+}
+
+// SetCases sets the value of Cases.
+func (s *ProcessEventLog) SetCases(val []ProcessCase) {
+	s.Cases = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ProcessEventLog) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// ProcessEventLogHeaders wraps ProcessEventLog with response headers.
+type ProcessEventLogHeaders struct {
+	NextPageToken OptString
+	Response      ProcessEventLog
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ProcessEventLogHeaders) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetResponse returns the value of Response.
+func (s *ProcessEventLogHeaders) GetResponse() ProcessEventLog {
+	return s.Response
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ProcessEventLogHeaders) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ProcessEventLogHeaders) SetResponse(val ProcessEventLog) {
+	s.Response = val
+}
+
+func (*ProcessEventLogHeaders) getProcessEventLogRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/ProfitCenter
 type ProfitCenter struct {
@@ -99252,6 +99596,7 @@ func (*TooManyRequestsHeaders) getPersonalDataInventoryRes()              {}
 func (*TooManyRequestsHeaders) getPersonalDataSubjectRes()                {}
 func (*TooManyRequestsHeaders) getPlanCategoryRes()                       {}
 func (*TooManyRequestsHeaders) getPrincipalRes()                          {}
+func (*TooManyRequestsHeaders) getProcessEventLogRes()                    {}
 func (*TooManyRequestsHeaders) getProfitCenterRes()                       {}
 func (*TooManyRequestsHeaders) getPurchaseOrderChangeRes()                {}
 func (*TooManyRequestsHeaders) getPurchaseOrderDocumentRes()              {}
@@ -100125,6 +100470,7 @@ func (*UnauthorizedHeaders) getPersonalDataInventoryRes()              {}
 func (*UnauthorizedHeaders) getPersonalDataSubjectRes()                {}
 func (*UnauthorizedHeaders) getPlanCategoryRes()                       {}
 func (*UnauthorizedHeaders) getPrincipalRes()                          {}
+func (*UnauthorizedHeaders) getProcessEventLogRes()                    {}
 func (*UnauthorizedHeaders) getProfitCenterRes()                       {}
 func (*UnauthorizedHeaders) getPurchaseOrderChangeRes()                {}
 func (*UnauthorizedHeaders) getPurchaseOrderDocumentRes()              {}

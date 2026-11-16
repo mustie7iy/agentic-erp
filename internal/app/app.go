@@ -64,6 +64,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
+	"github.com/mustie7iy/agentic-erp/internal/processmining"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/receivables"
 	"github.com/mustie7iy/agentic-erp/internal/records"
@@ -97,6 +98,7 @@ type (
 	creditAPI      = credit.Endpoints
 	grcAPI         = grc.Endpoints
 	recordsAPI     = records.Endpoints
+	miningAPI      = processmining.Endpoints
 	leasesAPI      = leases.Endpoints
 	paymentsAPI    = payments.Endpoints
 	auditAPI       = audit.Endpoints
@@ -133,6 +135,7 @@ type handler struct {
 	*creditAPI
 	*grcAPI
 	*recordsAPI
+	*miningAPI
 	*leasesAPI
 	*paymentsAPI
 	*auditAPI
@@ -272,6 +275,7 @@ func New(cfg Config) (http.Handler, error) {
 		creditAPI:      crediting,
 		grcAPI:         GRC(cfg),
 		recordsAPI:     Records(cfg),
+		miningAPI:      ProcessMining(cfg),
 		leasesAPI:      Leases(cfg),
 		paymentsAPI:    Payments(cfg),
 		auditAPI:       Audit(cfg),
@@ -559,6 +563,15 @@ func Collections(cfg Config) *collections.Endpoints {
 func Audit(cfg Config) *audit.Endpoints {
 	return &audit.Endpoints{Pages: cfg.Pages, Objects: cfg.Objects, LegalEntities: tenancy.Directory{}, Journal: ledger.Archive{},
 		Approvals: approvals.Evidence{}, People: LedgerPeople{}, Now: cfg.Now}
+}
+
+// ProcessMining is the process mining context as the API wires it
+// (ADR-0080 §1): a leaf that reads tenancy's legal entities, procurement's
+// orders, payables' documents, payments' runs and the audit trail through
+// its ports.
+func ProcessMining(cfg Config) *processmining.Endpoints {
+	return &processmining.Endpoints{LegalEntities: tenancy.Directory{}, Orders: procurement.ProcessLog{}, Invoices: payables.ProcessLog{},
+		Payments: payments.ProcessLog{}, Trail: audit.Trail{}, Pages: cfg.Pages}
 }
 
 // Records is the records management context as the API wires it

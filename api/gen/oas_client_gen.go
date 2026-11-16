@@ -3674,6 +3674,24 @@ type Invoker interface {
 	//
 	// GET /v1/principals/{id}
 	GetPrincipal(ctx context.Context, params GetPrincipalParams) (GetPrincipalRes, error)
+	// GetProcessEventLog invokes getProcessEventLog operation.
+	//
+	// The event log of a business process for a company and a period (ADR-0080, T103a), computed on read
+	// from the documents' links and the audit trail; nothing is stored. The first process is
+	// `purchase_to_pay` (another is 422 `request.validation_failed`): a case is a purchase order dated in
+	// the period (`from`, `to`, both included), or a supplier document on no order dated in it, a case of
+	// its own; its events are the activities of the order, the requisition it was made from, its goods
+	// movements, the supplier documents on it and the released payment runs that paid them, each with its
+	// time and the kind of actor that did it (`person`, `agent` or `system`, never who), by time and then
+	// by the audit trail's sequence number, at any time up to the read. ADR-0080 lists the activities and
+	// the audit actions each comes from. The cases are by date and id, paged by case (`page_size` cases,
+	// the default 50, at most 500); `case_count` counts every case of the log. As JSON (`format=json`, the
+	// default) or as CSV (`format=csv`): a header row, then a row per event of the page's cases with its
+	// case, the next page's token in the `Next-Page-Token` header. A company the caller cannot act in is
+	// 404, as one that does not exist; `to` before `from` is 422 `request.validation_failed`.
+	//
+	// GET /v1/process-event-logs
+	GetProcessEventLog(ctx context.Context, params GetProcessEventLogParams) (GetProcessEventLogRes, error)
 	// GetProfitCenter invokes getProfitCenter operation.
 	//
 	// Returns one profit center with its companies and active periods.
@@ -45211,6 +45229,242 @@ func (c *Client) sendGetPrincipal(ctx context.Context, params GetPrincipalParams
 
 	stage = "DecodeResponse"
 	result, err := decodeGetPrincipalResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetProcessEventLog invokes getProcessEventLog operation.
+//
+// The event log of a business process for a company and a period (ADR-0080, T103a), computed on read
+// from the documents' links and the audit trail; nothing is stored. The first process is
+// `purchase_to_pay` (another is 422 `request.validation_failed`): a case is a purchase order dated in
+// the period (`from`, `to`, both included), or a supplier document on no order dated in it, a case of
+// its own; its events are the activities of the order, the requisition it was made from, its goods
+// movements, the supplier documents on it and the released payment runs that paid them, each with its
+// time and the kind of actor that did it (`person`, `agent` or `system`, never who), by time and then
+// by the audit trail's sequence number, at any time up to the read. ADR-0080 lists the activities and
+// the audit actions each comes from. The cases are by date and id, paged by case (`page_size` cases,
+// the default 50, at most 500); `case_count` counts every case of the log. As JSON (`format=json`, the
+// default) or as CSV (`format=csv`): a header row, then a row per event of the page's cases with its
+// case, the next page's token in the `Next-Page-Token` header. A company the caller cannot act in is
+// 404, as one that does not exist; `to` before `from` is 422 `request.validation_failed`.
+//
+// GET /v1/process-event-logs
+func (c *Client) GetProcessEventLog(ctx context.Context, params GetProcessEventLogParams) (GetProcessEventLogRes, error) {
+	res, err := c.sendGetProcessEventLog(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetProcessEventLog(ctx context.Context, params GetProcessEventLogParams) (res GetProcessEventLogRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getProcessEventLog"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/process-event-logs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetProcessEventLogOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/process-event-logs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "process" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "process",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.Process))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.From))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.To))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "format" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "format",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Format.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetProcessEventLogOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetProcessEventLogResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

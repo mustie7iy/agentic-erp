@@ -251,6 +251,7 @@ const (
 	GetPersonalDataSubjectOperation                OperationName = "GetPersonalDataSubject"
 	GetPlanCategoryOperation                       OperationName = "GetPlanCategory"
 	GetPrincipalOperation                          OperationName = "GetPrincipal"
+	GetProcessEventLogOperation                    OperationName = "GetProcessEventLog"
 	GetProfitCenterOperation                       OperationName = "GetProfitCenter"
 	GetPurchaseOrderOperation                      OperationName = "GetPurchaseOrder"
 	GetPurchaseOrderChangeOperation                OperationName = "GetPurchaseOrderChange"

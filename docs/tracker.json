@@ -6849,13 +6849,13 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Event logs from SAP and core document flows",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A process analyst reads the event log of the purchase-to-pay flow for a company and a period: per purchase order each activity with its time and whether a person, an agent or the system did it, from requisition to payment, as JSON or CSV (GET /v1/process-event-logs)",
-        "r": "T103a · docs/design/plan-breadth-week3.md §T103a",
+        "r": "T103a · docs/design/plan-breadth-week3.md §T103a · internal/processmining · db/migrations/000332-000334 · GET /v1/process-event-logs · processmining.log.read · procurement.ProcessLog, payables.ProcessLog, payments.ProcessLog, audit.Trail · TestEventLogBudget · walkthrough step_process_mining · ADR-0080",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

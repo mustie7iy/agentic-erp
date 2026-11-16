@@ -297,6 +297,7 @@ var operationRolesOidc = map[string][]string{
 	GetPersonalDataSubjectOperation:                []string{},
 	GetPlanCategoryOperation:                       []string{},
 	GetPrincipalOperation:                          []string{},
+	GetProcessEventLogOperation:                    []string{},
 	GetProfitCenterOperation:                       []string{},
 	GetPurchaseOrderOperation:                      []string{},
 	GetPurchaseOrderChangeOperation:                []string{},

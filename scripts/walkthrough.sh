@@ -10291,6 +10291,51 @@ step_expense_report() {
   passed
 }
 
+# step_process_mining is T103a (ADR-0080): Paula, the process analyst,
+# reads the purchase-to-pay event log of the company's current month and
+# finds the case of the order of step_procure: its activities in order of
+# time, from the requisition's creation to the payment, each with the
+# kind of actor that did it and never who, as JSON and as CSV.
+step_process_mining() {
+  heading "Step 98 — The purchase-to-pay event log: the order of step 4 as a case, its activities from the requisition's creation to the payment, by time, each with the kind of actor; as JSON and as CSV"
+  local from to token found csv
+  as ada
+  person paula "Paula Process Analyst" finance_staff
+  as paula
+  from="${TODAY:0:7}-01" to=$(month_end)
+  say "Paula reads the purchase-to-pay event log of $CC for $from to $to, a page of cases at a time, and finds the order of step 4:"
+  token='' found=''
+  while :; do
+    QUIET=1 api 200 '' getProcessEventLog -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$from" -p "to=$to" -p page_size=500 \
+      ${token:+-p "page_token=$token"}
+    if [ -n "$(field ".cases[] | select(.case_id == \"$PO\") | .case_id")" ]; then
+      found=1
+      break
+    fi
+    token=$(field '.next_page_token // ""')
+    [ -n "$token" ] || break
+  done
+  [ -n "$found" ] || fail "the order $PO is no case of the log"
+  show erp call getProcessEventLog -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$from" -p "to=$to"
+  excerpt '"\(.process) of \(.company_code), \(.from) to \(.to): \(.case_count) cases"'
+  excerpt '.cases[] | select(.case_id == "'"$PO"'") | "case \(.case_kind) \(.document_number) of \(.document_date):", (.events[] | "  \(.occurred_at)  \(.activity) (\(.document_number)), by a \(.actor_kind)")'
+  expect "the case's first activity" "$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events[0].activity] | first')" "Create requisition"
+  expect "the activities from the requisition to the payment" \
+    "$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events[].activity | select(. == "Create requisition" or . == "Create purchase order" or . == "Receive goods" or . == "Post invoice" or . == "Pay invoice")] | unique_by(.) | length')" 5
+  expect "the payment after the invoice's posting" \
+    "$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events | (map(.activity) | index("Post invoice")) < (map(.activity) | index("Pay invoice"))] | first')" true
+  expect "the events in order of time" "$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events | map(.occurred_at) | . == sort] | first')" true
+  expect "actors by kind alone" "$(field '[.cases[].events[] | keys[] | select(test("actor_id|name"))] | length')" 0
+  say "The same page as CSV, a row per event:"
+  csv="$WORK/event-log.csv"
+  api 200 '' getProcessEventLog -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$from" -p "to=$to" -p page_size=500 \
+    ${token:+-p "page_token=$token"} -p format=csv -out "$csv"
+  head -1 "$csv" | sed 's/^/  /'
+  grep "^$PO," "$csv" | head -3 | sed 's/^/  /'
+  expect "the order's rows" "$(grep -c "^$PO," "$csv")" "$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events[]] | length')"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -12315,7 +12360,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_process_mining step_close'
 
 main() {
   stop_unseen

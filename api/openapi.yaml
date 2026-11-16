@@ -71,6 +71,8 @@ tags:
     description: "Lease accounting as lessee (ADR-0073): lease contracts with their payment schedules."
   - name: records
     description: "Records management (ADR-0079): retention rules' status per fiscal year, archiving runs and the personal data inventory."
+  - name: processmining
+    description: "Process mining (ADR-0080): event logs of business processes, computed on read from the documents' links and the audit trail."
   - name: payments
     description: Payment runs, payments and bank files.
   - name: cash
@@ -29215,6 +29217,85 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/process-event-logs:
+    get:
+      operationId: getProcessEventLog
+      tags:
+        - processmining
+      summary: Read the event log of a business process
+      description: "The event log of a business process for a company and a period (ADR-0080, T103a), computed on read from the documents' links and the audit trail; nothing is stored. The first process is `purchase_to_pay` (another is 422 `request.validation_failed`): a case is a purchase order dated in the period (`from`, `to`, both included), or a supplier document on no order dated in it, a case of its own; its events are the activities of the order, the requisition it was made from, its goods movements, the supplier documents on it and the released payment runs that paid them, each with its time and the kind of actor that did it (`person`, `agent` or `system`, never who), by time and then by the audit trail's sequence number, at any time up to the read. ADR-0080 lists the activities and the audit actions each comes from. The cases are by date and id, paged by case (`page_size` cases, the default 50, at most 500); `case_count` counts every case of the log. As JSON (`format=json`, the default) or as CSV (`format=csv`): a header row, then a row per event of the page's cases with its case, the next page's token in the `Next-Page-Token` header. A company the caller cannot act in is 404, as one that does not exist; `to` before `from` is 422 `request.validation_failed`."
+      x-permission: processmining.log.read
+      x-problem-codes:
+        - request.invalid_page_size
+        - request.invalid_page_token
+        - request.validation_failed
+      parameters:
+        - name: process
+          in: query
+          required: true
+          description: "The process: `purchase_to_pay`."
+          schema:
+            type: string
+            description: "A business process. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [purchase_to_pay]
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: The company.
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: true
+          description: "The period's first day: cases from documents dated on or after it."
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          description: "The period's last day."
+          schema:
+            type: string
+            format: date
+        - name: format
+          in: query
+          required: false
+          description: "`json` (default) or `csv`."
+          schema:
+            type: string
+            description: "`json` or `csv`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [json, csv]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the log's cases with their events.
+          headers:
+            Next-Page-Token:
+              $ref: "#/components/headers/NextPageToken"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcessEventLog"
+            text/csv:
+              schema:
+                type: string
+                format: binary
+                description: "A header row `case_id,case_kind,case_document_number,activity,occurred_at,actor_kind,object_type,object_id,object_document_number,seq`, then a row per event, by case and then in the case's order; UTF-8, lines ending in LF."
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/analytics-queries:
     post:
       operationId: runAnalyticsQuery
@@ -32666,6 +32747,11 @@ components:
       description: "`true` when this response is a stored replay of an earlier request with the same `Idempotency-Key`."
       schema:
         type: boolean
+    NextPageToken:
+      description: "Opaque cursor for the next page of a CSV answer; absent on the last page."
+      schema:
+        type: string
+        maxLength: 2048
     RetryAfter:
       description: Seconds to wait before retrying.
       schema:
@@ -61326,6 +61412,87 @@ components:
       additionalProperties: false
       examples:
         - from_seq: 1
+    ProcessEventLog:
+      type: object
+      description: "One page of an event log (processmining, ADR-0080, T103a): the cases with their events."
+      required: [process, legal_entity_id, company_code, from, to, case_count, cases]
+      properties:
+        process:
+          type: string
+          description: "The process. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [purchase_to_pay]
+          readOnly: true
+        legal_entity_id: {type: string, format: uuid, description: "The company.", readOnly: true}
+        company_code: {type: string, description: "Its code.", readOnly: true}
+        from: {type: string, format: date, readOnly: true}
+        to: {type: string, format: date, readOnly: true}
+        case_count: {type: integer, format: int32, minimum: 0, description: "The cases of the whole log, on every page.", readOnly: true}
+        cases:
+          type: array
+          items: {$ref: "#/components/schemas/ProcessCase"}
+          description: "This page's cases, by date and id."
+          readOnly: true
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+          readOnly: true
+      examples:
+        - process: purchase_to_pay
+          legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "3000"
+          from: "2026-11-01"
+          to: "2026-11-30"
+          case_count: 1
+          cases:
+            - case_id: 0192a000-0000-7000-8000-000000000501
+              case_kind: purchase_order
+              document_number: "4500000012"
+              document_date: "2026-11-03"
+              events:
+                - {activity: Create requisition, occurred_at: "2026-11-02T09:00:00Z", actor_kind: person, object_type: procurement.requisition, object_id: 0192a000-0000-7000-8000-000000000401, document_number: "1000000007", seq: 812}
+                - {activity: Create purchase order, occurred_at: "2026-11-03T10:00:00Z", actor_kind: person, object_type: procurement.purchase_order, object_id: 0192a000-0000-7000-8000-000000000501, document_number: "4500000012", seq: 840}
+                - {activity: Pay invoice, occurred_at: "2026-11-20T06:00:00Z", actor_kind: system, object_type: payments.payment_run, object_id: 0192a000-0000-7000-8000-000000000901, document_number: "PR000004", seq: 1203}
+    ProcessCase:
+      type: object
+      description: "A case of an event log: the document that is it, with its events."
+      required: [case_id, case_kind, document_number, document_date, events]
+      readOnly: true
+      properties:
+        case_id: {type: string, format: uuid, description: "The purchase order's id, or the supplier document's for one on no order.", readOnly: true}
+        case_kind:
+          type: string
+          description: "`purchase_order` or `supplier_invoice`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [purchase_order, supplier_invoice]
+          readOnly: true
+        document_number: {type: string, description: "The document's number.", readOnly: true}
+        document_date: {type: string, format: date, description: "Its date: the order date, or the invoice date.", readOnly: true}
+        events:
+          type: array
+          items: {$ref: "#/components/schemas/ProcessEvent"}
+          description: "Its events, by time and then sequence number."
+          readOnly: true
+    ProcessEvent:
+      type: object
+      description: "An event of a case: an activity on a document, when and by what kind of actor."
+      required: [activity, occurred_at, actor_kind, object_type, object_id, document_number, seq]
+      readOnly: true
+      properties:
+        activity:
+          type: string
+          description: "The activity, as ADR-0080 lists them. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [Create requisition, Submit requisition, Approve requisition, Reject requisition, Create purchase order, Submit purchase order, Release purchase order, Close purchase order, Cancel purchase order, Receive goods, Return goods, Reverse goods receipt, Enter invoice, Post invoice, Hold invoice, Release invoice, Reverse invoice, Pay invoice]
+          readOnly: true
+        occurred_at: {type: string, format: date-time, readOnly: true}
+        actor_kind:
+          type: string
+          description: "`person`, `agent` or `system` (a service or the platform's own work). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [person, agent, system]
+          readOnly: true
+        object_type: {type: string, description: "The document's type, as the audit trail names it.", readOnly: true}
+        object_id: {type: string, format: uuid, readOnly: true}
+        document_number: {type: string, description: "The document's number.", readOnly: true}
+        seq: {type: integer, format: int64, description: "The audit event's sequence number.", readOnly: true}
     AuditEvidenceExportCreate:
       type: object
       description: "An audit evidence export to request (T101a): the companies and the period."
