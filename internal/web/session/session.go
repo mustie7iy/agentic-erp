@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
@@ -100,12 +101,30 @@ func or(d, def time.Duration) time.Duration {
 	return def
 }
 
-func (st *Store) inTx(ctx context.Context, readOnly bool, fn func(context.Context, pgx.Tx) error) error {
+// querier is what the store's statements use of their transaction.
+// Declared here, its errors leave the package through inTx alone, which
+// wraps each once with what the store was doing.
+type querier interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// inTx runs fn in a transaction as erp_web and wraps its error, or the
+// transaction's, as "session: <what>: ..."; the store's sentinel errors
+// (ErrNoSession, ErrChanged) stay matchable with errors.Is.
+func (st *Store) inTx(ctx context.Context, readOnly bool, what string, fn func(context.Context, querier) error) error {
 	scope := database.Scope{Role: Role, ReadOnly: readOnly}
+	run := func(ctx context.Context, tx pgx.Tx) error { return fn(ctx, tx) }
+	var err error
 	if st.InTx != nil {
-		return st.InTx(ctx, scope, fn)
+		err = st.InTx(ctx, scope, run)
+	} else {
+		err = st.Pool.InTx(ctx, scope, run)
 	}
-	return st.Pool.InTx(ctx, scope, fn)
+	if err != nil {
+		return fmt.Errorf("session: %s: %w", what, err)
+	}
+	return nil
 }
 
 // Hash is what the store keeps of a session id.
@@ -146,13 +165,13 @@ func (st *Store) Create(ctx context.Context, s Session) (Session, error) {
 	s.ID, s.CSRF = NewSecret(), NewSecret()
 	s.Created, s.LastSeen, s.Expires, s.Version = now, now, now.Add(or(st.MaxAge, DefaultMaxAge)), 1
 	hash := Hash(s.ID)
-	err := st.inTx(ctx, false, func(ctx context.Context, tx pgx.Tx) error {
+	err := st.inTx(ctx, false, "create", func(ctx context.Context, tx querier) error {
 		_, err := tx.Exec(ctx, `INSERT INTO web.session (id_hash, tenant_id, issuer, subject, login_code, created_at, last_seen_at, expires_at, sealed)
 			VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8)`, hash, s.TenantID, s.Issuer, s.Subject, s.LoginCode, now, s.Expires, st.seal(hash, s.Secrets))
-		return err //nolint:wrapcheck // wrapped below
+		return err
 	})
 	if err != nil {
-		return Session{}, fmt.Errorf("session: create: %w", err)
+		return Session{}, err
 	}
 	return s, nil
 }
@@ -163,7 +182,7 @@ func (st *Store) scan(row pgx.Row, id string, more ...any) (Session, error) {
 	s := Session{ID: id}
 	var sealed []byte
 	if err := row.Scan(append([]any{&s.TenantID, &s.Issuer, &s.Subject, &s.LoginCode, &s.Created, &s.LastSeen, &s.Expires, &s.Version, &sealed}, more...)...); err != nil {
-		return s, err //nolint:wrapcheck // callers wrap
+		return s, fmt.Errorf("read the session: %w", err)
 	}
 	var err error
 	s.Secrets, err = st.open(Hash(id), sealed)
@@ -181,7 +200,7 @@ func (st *Store) Load(ctx context.Context, id string) (Session, error) {
 	now, hash := st.now(), Hash(id)
 	var s Session
 	ended := false
-	err := st.inTx(ctx, false, func(ctx context.Context, tx pgx.Tx) error {
+	err := st.inTx(ctx, false, "load", func(ctx context.Context, tx querier) error {
 		var err error
 		s, err = st.scan(tx.QueryRow(ctx, `SELECT `+columns+` FROM web.session WHERE id_hash = $1`, hash), id)
 		switch {
@@ -195,13 +214,13 @@ func (st *Store) Load(ctx context.Context, id string) (Session, error) {
 			s.LastSeen = now
 			_, err = tx.Exec(ctx, `UPDATE web.session SET last_seen_at = $2 WHERE id_hash = $1 AND last_seen_at < $2`, hash, now)
 		}
-		return err //nolint:wrapcheck // wrapped below
+		return err
 	})
 	switch {
 	case errors.Is(err, ErrNoSession):
-		return Session{}, err
+		return Session{}, ErrNoSession
 	case err != nil:
-		return Session{}, fmt.Errorf("session: load: %w", err)
+		return Session{}, err
 	case ended:
 		return Session{}, ErrNoSession
 	}
@@ -269,7 +288,7 @@ func (st *Store) claimRenewal(ctx context.Context, id string) (Session, *time.Ti
 	hash := Hash(id)
 	var s Session
 	var claim *time.Time
-	err := st.inTx(ctx, false, func(ctx context.Context, tx pgx.Tx) error {
+	err := st.inTx(ctx, false, "renew", func(ctx context.Context, tx querier) error {
 		var until time.Time
 		var err error
 		s, err = st.scan(tx.QueryRow(ctx, `UPDATE web.session SET renewing_until = clock_timestamp() + make_interval(secs => $2)
@@ -288,7 +307,7 @@ func (st *Store) claimRenewal(ctx context.Context, id string) (Session, *time.Ti
 		return err
 	})
 	if err != nil {
-		return Session{}, nil, fmt.Errorf("session: renew: %w", err)
+		return Session{}, nil, err
 	}
 	return s, claim, nil
 }
@@ -325,13 +344,13 @@ func (st *Store) writeRenewed(ctx context.Context, s Session, claim time.Time, s
 	ctx, cancel := context.WithTimeout(ctx, writeTimeout)
 	defer cancel()
 	hash := Hash(s.ID)
-	return st.inTx(ctx, false, func(ctx context.Context, tx pgx.Tx) error {
+	return st.inTx(ctx, false, "write a renewal", func(ctx context.Context, tx querier) error {
 		tag, err := tx.Exec(ctx, `UPDATE web.session SET sealed = $3, version = version + 1, renewing_until = NULL
 			WHERE id_hash = $1 AND version = $2 AND renewing_until = $4`, hash, s.Version, st.seal(hash, sec), claim)
 		if err == nil && tag.RowsAffected() == 0 {
 			return ErrChanged
 		}
-		return err //nolint:wrapcheck // wrapped by the caller
+		return err
 	})
 }
 
@@ -340,26 +359,18 @@ const writeTimeout = 5 * time.Second
 
 // release gives this request's renewal claim up, and no newer one.
 func (st *Store) release(ctx context.Context, id string, claim time.Time) error {
-	err := st.inTx(ctx, false, func(ctx context.Context, tx pgx.Tx) error {
+	return st.inTx(ctx, false, "release a renewal", func(ctx context.Context, tx querier) error {
 		_, err := tx.Exec(ctx, `UPDATE web.session SET renewing_until = NULL WHERE id_hash = $1 AND renewing_until = $2`, Hash(id), claim)
-		return err //nolint:wrapcheck // wrapped below
+		return err
 	})
-	if err != nil {
-		return fmt.Errorf("session: release a renewal: %w", err)
-	}
-	return nil
 }
 
 // Delete ends the session with the id; one already gone is no error.
 func (st *Store) Delete(ctx context.Context, id string) error {
-	err := st.inTx(ctx, false, func(ctx context.Context, tx pgx.Tx) error {
+	return st.inTx(ctx, false, "delete", func(ctx context.Context, tx querier) error {
 		_, err := tx.Exec(ctx, `DELETE FROM web.session WHERE id_hash = $1`, Hash(id))
-		return err //nolint:wrapcheck // wrapped below
+		return err
 	})
-	if err != nil {
-		return fmt.Errorf("session: delete: %w", err)
-	}
-	return nil
 }
 
 // Sweep deletes the sessions past their lifetime or idle longer than Idle,
@@ -368,13 +379,13 @@ func (st *Store) Delete(ctx context.Context, id string) error {
 func (st *Store) Sweep(ctx context.Context) (int64, error) {
 	now := st.now()
 	var n int64
-	err := st.inTx(ctx, false, func(ctx context.Context, tx pgx.Tx) error {
+	err := st.inTx(ctx, false, "sweep", func(ctx context.Context, tx querier) error {
 		tag, err := tx.Exec(ctx, `DELETE FROM web.session WHERE expires_at <= $1 OR last_seen_at <= $2`, now, now.Add(-or(st.Idle, DefaultIdle)))
 		n = tag.RowsAffected()
-		return err //nolint:wrapcheck // wrapped below
+		return err
 	})
 	if err != nil {
-		return 0, fmt.Errorf("session: sweep: %w", err)
+		return 0, err
 	}
 	return n, nil
 }
@@ -384,14 +395,10 @@ func (st *Store) Sweep(ctx context.Context) (int64, error) {
 // yet set up, erp-router setup-directory) fails startup rather than the
 // first sign-in.
 func (st *Store) Check(ctx context.Context) error {
-	err := st.inTx(ctx, true, func(ctx context.Context, tx pgx.Tx) error {
+	return st.inTx(ctx, true, "the web schema of the directory database", func(ctx context.Context, tx querier) error {
 		_, err := tx.Exec(ctx, `SELECT FROM web.session LIMIT 0; SELECT FROM web.login_client LIMIT 0`)
-		return err //nolint:wrapcheck // wrapped below
+		return err
 	})
-	if err != nil {
-		return fmt.Errorf("session: the web schema of the directory database: %w", err)
-	}
-	return nil
 }
 
 // Open connects to the directory database with url, asking password for
