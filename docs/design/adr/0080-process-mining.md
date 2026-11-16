@@ -148,7 +148,7 @@ be computed on read, without storing anything.
   Process mining tools commonly mark a case complete by its end activity
   (stated from memory, not checked against a source); which activities
   end a purchase-to-pay case is this product's choice, listed for the
-  product owner.
+  product owner. Kept by the product owner on 2026-11-16.
 - **Permission** (decided by default): the event log's,
   `processmining.log.read`: the map is that log summed, and whoever may
   read the log can compute it. No new permission, so no migration.

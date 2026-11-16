@@ -203,7 +203,7 @@ something neither the request nor the document has as a field carries no
 field error, and its `detail` says what is refused (ADR-0004 as built for
 a missing number range). Decided by default in hnames (review:batch26):
 dropping the document's field errors was tried and lost the locator and
-the reason code.
+the reason code. Kept by the product owner on 2026-11-16.
 A refusal whose figures a client must show carries them as fields of the
 problem, never only in `detail`: `payables.tax_mismatch` carries
 `calculated_tax` (the tax stated, the tax its codes' rates give, and each

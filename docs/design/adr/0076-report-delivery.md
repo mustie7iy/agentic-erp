@@ -425,4 +425,5 @@ bytes.
   (`truncated`) says so in a `Result-Truncated: true` header, as a CSV
   page's `Next-Page-Token` does for the event log, rather than being
   refused as the workbook is: the CSV was answered before, and refusing it
-  now would break a consumer (additive change only). Decided by default.
+  now would break a consumer (additive change only). Decided by default;
+  kept by the product owner on 2026-11-16.

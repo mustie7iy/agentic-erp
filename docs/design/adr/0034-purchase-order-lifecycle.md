@@ -615,6 +615,8 @@ fiscal year. Tracked as the item that follows this one.
   webhooks, and the product owner refused supplier names there on
   2026-11-05 (ADR-0041 as built), so the leaf's "number and name" is built
   as the number alone. Optional within `.v1`, as the expiry events' were.
+  Kept by the product owner on 2026-11-16: procurement events carry the
+  supplier number only.
 - **Where.** One place: `Endpoints.record` (`event_names.go`) names every
   event a procurement write publishes before `audit.Record` writes it to
   the outbox, from the payload's own `legal_entity_id` and `supplier_id`,

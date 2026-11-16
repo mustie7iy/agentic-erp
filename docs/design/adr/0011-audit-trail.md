@@ -181,7 +181,8 @@ why any other write on it had not happened. The general mechanism:
   entry with outcome `refused` and detail `source: problem`, the problem's
   `code` and its field errors' `field` and `code` (`errors`) beside the
   entry's own detail. The problem's detail and messages are not recorded
-  (decided by default, the safer side): the trail is insert-only and
+  (decided by default, the safer side; kept by the product owner on
+  2026-11-16): the trail is insert-only and
   holds no personal data (ADR-0026), and a message may name a partner who
   is a person, whose data a deletion run blanks everywhere but here. A
   handler that knows its operation's detail names nobody adds it (the

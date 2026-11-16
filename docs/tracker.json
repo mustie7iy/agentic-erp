@@ -11367,10 +11367,38 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Identity, grc and integration still call database.Today for business dates where the company's day belongs: a date they stamp or compare is UTC's, off by a day for a company in Toronto between 19:00 and 24:00 (found in batch 75's integration; the contexts T72n4 to T72n6 and batch 74 moved are not among them).",
-        "r": "internal/identity · internal/grc · internal/integration (database.Today) · ADR-0051 · tenancy.LegalEntities company day · checked in hdates: integration has dated by partner's day (partner.Migration.Today) and its cutover by each company's day since batch 74, no database.Today left; identity's grant and role-permission dates (grants.go, roles.go) are the dates authorization is judged on, which authz and directory read as current_date in SQL and the end_validity trigger (000001) enforces, tenant-wide with no one company; grc's tested_on and links' state follow identity's day (ADR-0078). Moving them is security posture: waiting for the product owner (hdates report), nothing built · the same class in the schema, fixed in hdates: platform.end_validity refused ending a partner address or bank account before UTC's current_date while partner ends them on partner's day; migration 000347 allows the day before for those two tables (trigger argument company_day) · TestPartnerValidityCompanyDay",
-        "src": "review:batch75",
+        "r": "internal/identity · internal/grc · internal/integration (database.Today) · ADR-0051 · tenancy.LegalEntities company day · checked in hdates: integration has dated by partner's day (partner.Migration.Today) and its cutover by each company's day since batch 74, no database.Today left; identity's grant and role-permission dates (grants.go, roles.go) are the dates authorization is judged on, which authz and directory read as current_date in SQL and the end_validity trigger (000001) enforces, tenant-wide with no one company; grc's tested_on and links' state follow identity's day (ADR-0078). Moving them is security posture: the product owner kept them on UTC's day on 2026-11-16 (ADR-0051 as built), nothing to build · the same class in the schema, fixed in hdates: platform.end_validity refused ending a partner address or bank account before UTC's current_date while partner ends them on partner's day; migration 000347 allows the day before for those two tables (trigger argument company_day) · TestPartnerValidityCompanyDay",
+        "src": "review:batch75 · po:2026-11-16",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "An evidence file asked whole when it was written in parts answers 404, while the archive asked whole answers 409: one answer for both (found in batch 76's integration).",
+        "r": "internal/audit evidence export \u00b7 internal/records archiving run file \u00b7 GET /v1/archiving-runs/{id}/file \u00b7 ADR-0079 \u00b7 internal/platform/jsonl parts",
+        "src": "review:batch76",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "archiving_run_completed does not carry the number of parts an archive was written in, so a consumer of the event cannot tell how many files to fetch.",
+        "r": "internal/records archiving run \u00b7 archiving_run_completed (asyncapi) \u00b7 migration 000345 parts \u00b7 ADR-0079",
+        "src": "review:batch76",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "walkcheck's countsMatches misses a grep called as /usr/bin/grep, zgrep or `command grep`, so a substitution counting with them can end with status 1 unguarded.",
+        "r": "cmd/erp walkthrough_status_test.go countsMatches \u00b7 scripts/walkthrough.sh \u00b7 06 \u00a76.5",
+        "src": "review:batch76",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "PlanBatch and BusinessPartner/SupplierCompany still give ids without a name beside them (pre-existing; found by the hnames sweep).",
+        "r": "api/openapi.yaml PlanBatch, BusinessPartner, SupplierCompany \u00b7 ADR-0050 names beside ids \u00b7 hnames sweep (review:batch26)",
+        "src": "review:batch76",
         "c": []
        },
        {
