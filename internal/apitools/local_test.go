@@ -103,3 +103,18 @@ func TestActiveConfig(t *testing.T) {
 		t.Errorf("none active: got %v, want no active version", err)
 	}
 }
+
+// TestExplain: the compiled contract explains an operation's field and
+// its problem codes, and refuses what it does not have.
+func TestExplain(t *testing.T) {
+	e, err := apitools.Explain("createSupplierInvoice", "gross_amount", "")
+	if err != nil || e.Operation.ID != "createSupplierInvoice" || e.FieldDescription != "Gross amount; all amounts must share one currency." {
+		t.Errorf("a field: got %+v (%v), want createSupplierInvoice's gross amount described", e, err)
+	}
+	if e, err := apitools.Explain("postSupplierInvoice", "", "payables.match_required"); err != nil || e.Problem != "payables.match_required" {
+		t.Errorf("a problem code: got %+v (%v), want payables.match_required", e, err)
+	}
+	if _, err := apitools.Explain("postSupplierInvoice", "", "payables.no_such_code"); !errors.Is(err, apitools.ErrNotInContract) {
+		t.Errorf("a problem code not listed: got %v, want ErrNotInContract", err)
+	}
+}

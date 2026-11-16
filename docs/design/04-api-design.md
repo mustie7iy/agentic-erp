@@ -907,6 +907,11 @@ agent call carries the same permission, company and SoD checks and the same
 audit record. Operations marked `x-agent: false` (approval decisions, user
 and role administration) are never exposed as agent tools.
 
+An agent host outside the platform reaches the same tools through `erp mcp`
+(ADR-0081, T102a): the Model Context Protocol over standard input and output
+with the agent's token, the tools those its autonomy level performs, each
+call made by the API and recorded in the agent's session.
+
 Agents reach models only through their cell's **model gateway**, a third
 small contract, [`api/model.yaml`](../../api/model.yaml) (ADR-0036): the
 provider's Messages API at `POST /v1/model/v1/messages`, so an agent's SDK
@@ -1043,7 +1048,12 @@ on the document its `root_cause`, the class on the first line
 `permission`, `unknown`), citing the document's audit events by seq as
 the API returned them; a refused posting of a supplier invoice is
 audited on the invoice (outcome `refused`, the problem's code and
-detail). The collections agent
+detail). From such a cause of the class `configuration` that a user
+accepted (`erp agent support-fix -recommendation ID`, T108c) it drafts
+the change request of one setting the cause cites, has the draft
+simulated and recommends `ready_to_submit` or `simulation_failed` on the
+`change_request`, as the regulatory agent drafts (`internal/changedraft`);
+a person submits it. The collections agent
 (`erp agent collections -company CODE [-key-date D]`, agent type
 `collections`, T105b) recommends on each `business_partner` of a
 company's collection worklist (the first 20, the largest overdue amount
@@ -1053,6 +1063,54 @@ returned it, a contact ending with a draft message; a customer whose
 every overdue item has an open dispute case is never contacted; running
 dunning and working a dispute case stay people's (`x-agent: false`), and
 nothing sends a message to a customer.
+The integration agent
+(`erp agent integration-monitor`, agent type `integration`, T110a) finds
+the failing webhook subscriptions, bank files and connectors before its
+session and recommends on each (`check_endpoint`, `investigate`,
+`redeliver`, `pause`, `retransmit`), its first line naming the failed
+deliveries, the file's status or the failed migration run; pausing,
+redelivering and the other writes stay the administrator's.
+The savings opportunity agent
+(`erp agent savings -company CODE [-period FROM..TO] [-max N]`, agent
+type `savings`, T105d) reads the spend metrics (`runAnalyticsQuery`,
+which a recommending agent may call as an `x-autonomy: read` operation),
+the contracts and the orders, and recommends `bring_under_contract` on a
+supplier with spend off contract, `consolidate_suppliers` on an account
+bought from several suppliers and `use_contract_price` on an order priced
+above its supplier's contract, each starting with the spend it covers as
+the API returned it; it states no saving and creates no RFQ, contract or
+order.
+The control monitoring agent
+(`erp agent control-monitor [-process TEXT]`, agent type
+`control_monitoring`, T105f) recommends on each active `control` of the
+matrix: `exception_found`, its content's first line naming exactly the
+control's broken links and citing the audit events it read by their
+`seq`, or `no_exception`; recording a test stays a person's (`x-agent:
+false`, ADR-0078 §3).
+The risk agent (`erp agent risk`, agent type `risk`, T105g) recommends on
+each open `risk`: `rate_again`, its first line the likelihood and impact
+it proposes, citing the control tests, audit events or recommendations
+that show it, or `keep`; and on the `tenant` a risk the register does not
+have (`new_risk`, its title and category first); its role holds no
+`grc.risk.write`, and the register's writes are no tools of its.
+The planning agent (`erp agent
+plan -company CODE -category CODE -year YYYY`, agent type `planning`,
+T105e) recommends on a `plan_category`: `plan_proposal`, a line per plan
+line of the year (cost center by id and code, account by id and number,
+period, a plan or actual amount of the company's a read returned, in its
+currency, sign included) and per cost center its reasons
+citing its actuals; the controller applies the lines as a plan batch
+(`x-agent: false`, ADR-0050 §8).
+The enablement agent
+(`erp agent enablement-docs -process P`, agent type `enablement`, T109a)
+describes a process (purchase to pay, order to cash) from the active
+configuration and the roles and recommends the description on the active
+`config_version` as `process_document`, every figure a setting cited as
+the version holds it and every role an active role; asked about a field
+or a problem code of an operation (`erp agent enablement-help`, T109b),
+it refuses one the contract does not have before any model call and
+replies quoting the contract's description and citing the settings in
+force.
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation
@@ -1083,6 +1141,7 @@ with the month's total against the tenant's cap.
 | grc | `controls` (the tenant's control library, none shipped: a control's code, objective, process, owner, frequency and nature, changed with `If-Match`; by code, filtered by process, status, owner and the last test's result, each with its owner's name and its last test) and their `tests` (the result of testing a control once, passed or failed with a note of the evidence, by a person: `x-agent: false`; never changed; the last test first; ADR-0078 §2-§4, T98a) and their `links` (to a permission, a segregation-of-duties rule or a configuration path that is there when the link is made; ADR-0078 §7, T98b); `control-matrix` (the active controls by code with their framework references, last test and links, each link with whether it holds and why not, filtered by process, framework reference and link state, with its totals; computed on read, `x-slo-class: report`, `x-snapshot: true`; it also needs `identity.access.read` and `config.version.read`; ADR-0078 §8, T98b); `risks` (the tenant's risk register, none shipped: a risk's title, category, owner and the controls that mitigate it, changed with `If-Match`, its likelihood, impact and score its latest rating's; by score, the highest first, then by title, in cursor pages after the last risk's score, title and id; filtered by status, category, owner and control) and their `ratings` (insert-only, the latest first; a rating moves the risk's version; ADR-0078 §10-§12, T98c) | `:retire` (an active control, once); a link's `:remove` (once, at the link's version; kept as removed: there is no `DELETE`, §4.3); a risk's `:close` (an open risk, once, with a reason) |
 | analytics | `analytics-queries` (governed semantic queries, ADR-0044), `analytics-forecasts` (a governed metric's history by fiscal period and its forecast by a moving average or the same period a year before, an arithmetic projection computed as the caller and stored nowhere, `x-autonomy: read`; ADR-0077 §7, T97a), `analytics-model`, `reports` (a person's or agent's saved dashboard specification and its queries, changed by its owner alone and read and run by them and the people it is shared with, each with their own access, `access` saying which, filtered by `shared`; ADR-0076 §1-§3, §7, T95a, T95c; with its schedule, §4, T95b) and their `shares` (with a person or a role, the earliest first, read by the owner; human-only; §7, T95c), `report-runs` (the kept runs of the scheduled reports one reads, the latest day first, filtered by report and status, each naming the companies it covered and listed and read only by a reader whose company access covers them, each read with its results as JSON or one result as CSV, §5-§7, T95b, T95c), `metric-watchers` (a person's watcher on a governed metric, its filters, one company or all they may read, a grain and a condition; read, evaluated and removed by its creator alone; by name, filtered by status and metric; ADR-0077 §1-§3, T96a), `metric-alerts` (the alerts watchers raised, through the API or after a refresh of the analytical store, to a caller whose access covers every company of one and who may read its metric's data; the latest first, filtered by status and watcher; ADR-0077 §4-§5, T96b) | `:run` (a report on current data as the caller, nothing kept), `:remove` (an active report, once), `:schedule`, `:unschedule` (no `PUT` or `DELETE`, §4); a share's `:end` (once, at the share's version; kept as ended: there is no `DELETE`, §4.3); a watcher's `:evaluate` (as its creator, at its version; one alert per watcher and period, answered with the evaluation) and `:remove` (once, at its version; kept as removed: there is no `DELETE`, §4.3); an alert's `:acknowledge` (once, at its version, by a person) |
 | records | `retention-status` (a company's fiscal years for a document kind, `journal_entry` or `personal_data`, each with the day its retention ends under the company's rule in the active configuration and whether it is past on the company's date, and whether a completed archiving run holds it; computed on read, read-only; ADR-0079 §2-§4, T99a, T99b), `archiving-runs` (a company's journal entries of a fiscal year past retention and closed, queued and written by the archiver to an archive file in object storage with a manifest; a second request answers the run queued or completed, 200; filtered by company, kind, fiscal year and status, newest first; with `{id}/file`, the JSON Lines file checked against its SHA-256, human-only, also needing `ledger.entry.read`; ADR-0079 §6-§8, T99b), `personal-data-inventory` (the declared columns holding personal data with category and purpose, unpaged; with `subjects/{kind}/{id}`, for a business partner or principal the rows of each entry naming it, counts only, tenant-wide so needing access to all companies; both human-only; ADR-0079 §9-§10, T100a) | none |
+| processmining | `process-event-logs` (the purchase-to-pay event log of a company and a period, computed on read, a page of cases with their activities, as JSON or CSV with the next token in `Next-Page-Token`; ADR-0080, T103a), `process-maps` (the log's process map: activities, directly-follows pairs with their counts and median seconds, the ten most frequent variants with their shares, open cases counted; T103b) | none |
 | leases | `lease-contracts` (entered `draft` by a person as lessee for a company the caller may act in: the lessor, the commencement date, the term in months, the payment in local currency and its frequency and timing, the annual discount rate as a decimal string and the cost center; numbered from the company's `lease_contract` range, with its payments written at creation; filtered by company, lessor and status, by number, without the payments in the list; human-only; ADR-0073 §3-§4, T88a) and their `schedule` (`lease-contracts/{id}/schedule`: the liability at commencement, the right-of-use asset and one line per payment interval with interest, closing liability and depreciation, with its totals; computed on read for a draft, stored for an active contract; ADR-0073 §8, T88b), `lease-runs` (run for a company and a regular fiscal period, posting each active contract's stored lines due and not yet posted, one entry each; once per company and period, each later than the last; human-only; the companies the caller may act in, filtered by company, fiscal year and period, the latest first, without the postings in the list; ADR-0073 §9, T88c) | `:activate` (a draft, once, at its version: posts the right-of-use asset against the lease liability on the commencement date and stores the schedule; human-only; ADR-0073 §7, T88b) |
 | sales | `quotations` (created `open` for a customer, dated the company's date and valid until a date, their items priced net of tax; the companies the caller may act in, filtered by company, customer, status and document number, ADR-0067 §2-§4, T78a), `sales-orders` (created `draft` from an accepted quotation, one per quotation, or directly, on the customer's payment term unless one is given, each item with its ordered, delivered and billed quantities; filtered by company, customer, status, credit block, document number and quotation, ADR-0067 §5, T78b; `credit_block` `none`, `blocked` or `released`, set by the credit check at confirmation, a blocked order taking no delivery, ADR-0066 and ADR-0067 As built T77b) with their `deliveries` (`sales-orders/{id}/deliveries`: a confirmation that quantities of a confirmed order's items were delivered on a date, written once, numbered within the order, listed by date; no stock and no posting, ADR-0067 §8, T78c), `billing-documents` (created `created` for one sales order, billing its delivered quantities not yet billed at the order's prices, dated the billing date given or the company's date; filtered by company, customer, sales order, status and document number; nothing posted until `:post`, after which it names its customer invoice and that invoice's journal entry, ADR-0067 §9, T79a, T79b), `sales-prices` (the price of an item key in a company, for every customer or for one, valid from a day, written once and never changed; a quotation or order item without a `unit_price` takes the one valid on its document's date, the customer's first, and says so in `price_source`; filtered by company, item key, customer, condition type and a day of validity, ADR-0067 §10, T80a; a record of a configured condition type of kind `discount_percent` is a discount, a `percent` of the item's value, and with a pricing procedure in the configuration an item lists the `conditions` applied, the price and each discount, with its net value after them, ADR-0067 §11, T80b; an item whose `unit_price` was entered has no discount, its price being the final net price, T80c) | `:accept`, `:decline` (the customer's answer, once; `:reject` is an approval decision's), `:confirm` (a draft order, once, with the credit check), `:releaseCreditBlock` (a blocked order, once, by `sales.order.credit_release`), `billing-documents/{id}:post` (a created billing document, once, as a customer invoice entered and posted in receivables in the same transaction, T79b), `sales-order-uploads` (a direct upload of a customer's purchase order, under `sales.order.capture`: an upload's permission follows its purpose), `sales-orders:capture` (a customer's purchase order from a direct upload of purpose `sales_order` read into a draft order, the customer by the number or tax registration number printed, each item at its printed price or its price record; one order per upload; an Operation; human-only; ADR-0067 As built T90a) |
 | revenue | `revenue-contracts` (the contract of a confirmed sales order in local currency, created `draft` by itself when the order is confirmed or on request for an order that has none, with one performance obligation per order item and the order's net value without tax as its transaction price; the companies the caller may act in, filtered by company, customer, sales order and status, ADR-0068 §3-§4, T81a; a draft's obligations changed with `PATCH`, each named by its number: timing, service period, the day a point-in-time obligation is satisfied on and stand-alone selling price, ADR-0068 §7-§8, T81b, T81c); `revenue-contracts/{id}/schedule` (an active contract's recognition schedule, computed at the read: per obligation and fiscal period the amount, split at the company's date today into recognized and planned, with what is not yet scheduled and the totals, ADR-0068 §8, T81c); `revenue-recognition-runs` (a run of a company and a fiscal period, created by `POST`, which posts it: one per company and period, each for a later period than the last; read with its totals and its postings, one per contract that moved, each naming its journal entry; listed latest first by company, fiscal year and period, ADR-0068 §9, T81d) | `:activate` (once: allocates the transaction price and fixes the contract, T81b) |
@@ -1093,7 +1152,7 @@ with the month's total against the tenant's cap.
 | controlling | `plan-categories`, `plan-batches` (by batch key), `plan-lines`, `cost-center-plan-actual`, `profit-center-plan-actual` (computed on read, ADR-0050 §8); `internal-orders` (ADR-0064 §1), `internal-order-balances` (computed on read, ADR-0064 §2), `internal-orders/{id}/budget`, `internal-orders/{id}/settlement-rule` (ADR-0064 §3); `margin-report` (a company's revenue, cost of sales and margin by profit center, computed on read, ADR-0075); `profitability-report` (net revenue by customer and item key from the posted sales documents, computed on read, ADR-0075 §6) | `:lock`, `:unlock`, `:copy` (a category's plan into another, scaled, T93a); `:release` |
 | tax | `tax-registrations` (from the configuration), `tax-registrations/{id}/periods`, `tax-registrations/{id}/draft-return` and its `items` (computed on read, ADR-0049 §10-§11), `tax-registrations/{id}/returns`, `tax-returns/{id}` | `:file`, `:withdraw` (T61i) |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |
-| audit | `audit-events` | `:verify` |
+| audit | `audit-events`, `audit-evidence-exports` (an auditor's export of companies and a period, queued and written by the evidence exporter to object storage: the period's audit events, the journal entries and the approval decisions on their source documents, with a manifest of each file's SHA-256 and the chain's verification; with `{id}/files/{name}`, each file checked against the manifest; human-only; ADR-0011 As built, T101a) | `:verify` |
 | integration | `migration-runs`, `connectors` (kinds include `bank_sftp` and, since T53h, `treasury_export`) | `:start`, `:reconcile`, `:enable`, `:disable` |
 | platform | `operations` | `:cancel` |
 

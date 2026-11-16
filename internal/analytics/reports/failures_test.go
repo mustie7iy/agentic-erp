@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -337,24 +338,60 @@ func TestRunsDatabaseFailures(t *testing.T) {
 			t.Errorf("list: got %v, want the names' failure", err)
 		}
 	})
+	// kept is a run's results of one result, its revenue the figure and
+	// truncated or not.
+	kept := func(figure string, truncated bool) string {
+		return `{"report_id": "` + id.String() + `", "title": "T", "data_through": "", "spec": {"title": "T"}, "results": [{"query_id": "q", ` +
+			`"columns": [{"name": "revenue", "label": "Revenue", "kind": "measure", "type": "money"}], "rows": [[{"value": "` + figure + `", "currency": "EUR"}]], ` +
+			`"source": "database", "as_of": "2026-01-01T00:00:00Z", "data_through": "", "config_version": 1, "definitions": [], "truncated": ` + fmt.Sprint(truncated) + `}]}`
+	}
 	t.Run("results that do not read", func(t *testing.T) {
-		body := []byte(`[`)
-		sum := sha256.Sum256(body)
-		key := blobstore.Key(e.Tenant.ID, blobstore.KindReportRuns, "broken.json")
-		if err := (blobstore.Dir{Root: e.root}).Put(context.Background(), key, body, blobstore.PutOptions{}); err != nil {
-			t.Fatal(err)
-		}
-		broken := uuid.Must(uuid.NewV7())
-		pgtest.Exec(t, `INSERT INTO analytics.report_run (tenant_id, id, report_id, run_date, status, run_as, object_key, sha256, data_through)
-			VALUES ($1, $2, $3, '2026-01-01', 'succeeded', $4, $5, $6, '')`, e.Tenant.ID, broken, id, e.Tenant.Human.ID, key, sum[:])
-		err := in(t, h, func(ctx context.Context, h *reports.Endpoints) error {
-			_, err := h.GetReportRun(ctx, gen.GetReportRunParams{ID: broken})
-			return err
-		})
-		if err == nil || problem.From(err).Status != 500 {
-			t.Errorf("got %v, want an error", err)
+		for name, c := range map[string]struct {
+			body, format, date, want string
+		}{
+			"not JSON": {`[`, "", "2026-01-01", "report run"},
+			// A figure that is not a decimal, kept with its SHA-256, fails
+			// rather than be served wrong.
+			"a figure that is not a decimal": {kept("5x", false), "csv", "2026-01-02", `"5x"`},
+		} {
+			t.Run(name, func(t *testing.T) {
+				err := in(t, h, keptRun(t, e, id, c.date, []byte(c.body), c.format))
+				if problem.From(err).Status != 500 || !strings.Contains(err.Error(), c.want) {
+					t.Errorf("got %v, want a failure naming %s", err, c.want)
+				}
+			})
 		}
 	})
+	// A result cut at the rows a query answers is refused as a workbook,
+	// which could not say so (T95d).
+	t.Run("a truncated result as a workbook", func(t *testing.T) {
+		err := in(t, h, keptRun(t, e, id, "2026-01-03", []byte(kept("5.00", true)), "xlsx"))
+		if p := problem.From(err); p.Code != "analytics.result_truncated" {
+			t.Errorf("got %v, want analytics.result_truncated", err)
+		}
+	})
+}
+
+// keptRun keeps a succeeded run of the report on the date with the body
+// as its results and reads it in the format.
+func keptRun(t *testing.T, e stored, report uuid.UUID, date string, body []byte, format string) func(ctx context.Context, h *reports.Endpoints) error {
+	t.Helper()
+	sum := sha256.Sum256(body)
+	run := uuid.Must(uuid.NewV7())
+	key := blobstore.Key(e.Tenant.ID, blobstore.KindReportRuns, run.String()+".json")
+	if err := (blobstore.Dir{Root: e.root}).Put(context.Background(), key, body, blobstore.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	pgtest.Exec(t, `INSERT INTO analytics.report_run (tenant_id, id, report_id, run_date, status, run_as, object_key, sha256, data_through)
+		VALUES ($1, $2, $3, $7, 'succeeded', $4, $5, $6, '')`, e.Tenant.ID, run, report, e.Tenant.Human.ID, key, sum[:], date)
+	return func(ctx context.Context, h *reports.Endpoints) error {
+		params := gen.GetReportRunParams{ID: run}
+		if format != "" {
+			params.Format = gen.NewOptString(format)
+		}
+		_, err := h.GetReportRun(ctx, params)
+		return err
+	}
 }
 
 // configs are a configuration port that fails, or answers a document.

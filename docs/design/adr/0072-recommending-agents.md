@@ -76,7 +76,9 @@ nothing imports it but `cmd/erp`.
 
 An agent's tools are reads and the one recommendation. `Agent.Run`
 refuses, before a session starts, a declaration whose `Reads` name
-anything but a `GET` of the contract (`recommend.ErrNotARead`), and
+anything but a read of the contract, a `GET` or an operation marked
+`x-autonomy: read` (T105d: `runAnalyticsQuery`, a `POST` that changes
+nothing) (`recommend.ErrNotARead`), and
 `apitools` builds no tool of an operation closed to agents. So the
 permissions, company access and masking are the API's, and an agent of
 this pattern cannot be handed a write by mistake. An agent whose slice
@@ -204,9 +206,16 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `access` | `internal/accessagent`, `erp agent access-roles -role CODE -period FROM..TO`, `erp agent access-sod -role CODE [-add P,...]`, `erp agent access-review -period FROM..TO` | `listRoles`, `getRole`, `listRolePermissions`, `listRoleAssignments`, `listPrincipals`, `listAuditEvents`, `listSodRules` | on `role`: `remove_permissions`, `keep` (T106a); `sod_conflict`, `no_conflict` (T106b); on `principal`: `keep_roles`, `remove_roles`, `review` (T106c) | every identity write (granting a permission, changing a rule, ending a role assignment, blocking a principal among them) |
 | `regulatory` | `internal/regulatoryagent`, `erp agent regulatory-notice -file F` | `listCountryPacks`, `listConfigVersions`, `getConfigVersion`, `listTaxRegistrations`, `listTaxPeriods` | on `config_version`: `change_needed`, `no_change` | every write of the configuration (change requests, a pack applied, a regression suite) |
 | `regulatory` (drafting, T107b) | `erp agent regulatory-draft -recommendation ID` | `getRecommendation`, `listConfigVersions`, `getConfigVersion`, `listFiscalPeriods`, `getChangeRequest`, `getOperation`; writes `createChangeRequest`, `updateChangeRequest`, `simulateChangeRequest` | on `change_request`: `ready_to_submit`, `simulation_failed` | submitting, withdrawing or activating a change request, a pack applied, a regression suite, a decision on an approval or a recommendation |
+| `enablement` | `internal/enablementagent`, `erp agent enablement-docs -process P [-out F]`; beside the pattern, `erp agent enablement-help -operation ID -field NAME\|-problem CODE` (T109b) | `listConfigVersions`, `getConfigVersion`, `listRoles`, `listRolePermissions`, `listSodRules`; for help also `getSchema` | on `config_version`: `process_document` (T109a); help replies only (T109b) | every write of the configuration and of access (change requests, a pack applied, a regression suite, roles, grants, assignments, SoD rules, principals, company access) |
 | `bid_comparison` | `internal/bidagent`, `erp agent bid-compare -rfq ID` | `getRfq`, `listSupplierQuotations`, `getRfqComparison`, `getBusinessPartner`, `listContracts`, `listPurchaseOrders` | on `rfq`: `award`, `no_award` | `awardRfq`, `publishRfq`, `createSupplierQuotation`, `createRfq` |
 | `collections` | `internal/collectionsagent`, `erp agent collections -company CODE [-key-date YYYY-MM-DD]` | `getCollectionWorklist`, `getReceivablesAging`, `listDunningRuns`, `listDunningNotices`, `listIncomingPayments`, `listCustomerInvoices`, `listDisputeCases`, `getDisputeCase`, `listOpenItems`, `listAccounts`, `getBusinessPartner` | on `business_partner` (a customer of the worklist): `call`, `send_reminder`, `escalate`, `wait_for_dispute`, `no_action` | `createDunningRun`, `confirmDunningRun`, `createDisputeCase`, `updateDisputeCase`, `closeDisputeCase`; nothing in the contract sends to a customer |
 | `support` (diagnosis, T108b) | `internal/supportagent`, `erp agent support-diagnose -type KIND -id ID [WHAT HAPPENED]` | T108a's (`listConfigVersions`, `getConfigVersion`, `getSchema`, `getCurrentPrincipal`), `listAuditEvents`, `listOperations`, `listApprovalRequests`, each document's read (`getSupplierInvoice`, `getCustomerInvoice`, `getJournalEntry`, `getPurchaseOrder`, `getSalesOrder`, `getPaymentRun`, `getChangeRequest`, `getOperation`), the contract's search (`findOperations`) | on the document (its kind): `root_cause` | every write: its tools hold none |
+| `integration` | `internal/integrationagent`, `erp agent integration-monitor` | `listConnectors`, `getConnector`, `listWebhookSubscriptions`, `listWebhookDeliveries`, `getWebhookDelivery`, `listBankFiles`, `listOperations`, `getOperation`, `listMigrationRuns` | on `webhook_subscription`: `check_endpoint`, `investigate`, `redeliver`, `pause`; on `bank_file`: `retransmit`, `investigate`; on `connector`: `check_endpoint`, `investigate` | every write of connectors, webhook subscriptions and deliveries, bank files, migration runs and operations (enabling, disabling, pausing, resuming, redelivering, rotating a secret, transmitting a file, creating a connector among them) |
+| `support` (fix, T108c) | `erp agent support-fix -recommendation ID` | `getRecommendation`, `listConfigVersions`, `getConfigVersion`, `getChangeRequest`, `getOperation`; writes `createChangeRequest`, `updateChangeRequest`, `simulateChangeRequest` (`internal/changedraft`) | on `change_request`: `ready_to_submit`, `simulation_failed` | submitting, withdrawing or activating a change request, a decision on an approval or a recommendation, any write of master data or a document |
+| `savings` | `internal/savingsagent`, `erp agent savings -company CODE [-period FROM..TO] [-max N]` | `runAnalyticsQuery`, `getAnalyticsModel`, `listContracts`, `getContract`, `listCatalogItems`, `listPurchaseOrders`, `getPurchaseOrder`, `getBusinessPartner`, `listAccounts` | on `business_partner`: `bring_under_contract`; on `account`: `consolidate_suppliers`; on `purchase_order`: `use_contract_price` | `createRfq`, `publishRfq`, `createContract`, `releaseContract`, `createPurchaseOrder`, `releasePurchaseOrder` |
+| `control_monitoring` | `internal/controlagent`, `erp agent control-monitor [-process TEXT]` | `listControls`, `getControl`, `listControlTests`, `getControlMatrix`, `listAuditEvents`, `listSodRules`, `listRoleAssignments`, `listApprovalRequests` | on `control`: `exception_found`, `no_exception` | `createControl`, `updateControl`, `retireControl`, `createControlTest`, `createControlLink`, `removeControlLink` |
+| `risk` | `internal/riskagent`, `erp agent risk` | `listRisks`, `getRisk`, `listRiskRatings`, `listControls`, `getControl`, `listControlTests`, `getControlMatrix`, `listAuditEvents`, `listRecommendations` | on `risk`: `rate_again`, `keep`; on `tenant`: `new_risk` | `createRisk`, `updateRisk`, `closeRisk`, `createRiskRating` |
+| `planning` | `internal/planningagent`, `erp agent plan -company CODE -category CODE -year YYYY` | `listPlanCategories`, `listPlanLines`, `listCostCenterPlanActual`, `listProfitCenterPlanActual`, `listCostCenters`, `listAccounts`, `runAnalyticsQuery` | on `plan_category`: `plan_proposal` | `applyPlanBatch`, `copyPlanCategory`, `lockPlanCategory`, `unlockPlanCategory`, `createPlanCategory` |
 
 A later slice adds its row here and its section under "As built".
 
@@ -770,7 +779,7 @@ A later slice adds its row here and its section under "As built".
   and told to wait for its dispute, the case still open; an instruction
   and an amount in an invoice text not followed nor repeated; nothing
   dunned. Not run against a live model.
-- Walkthrough `step_collections_agent` (step 98), run while
+- Walkthrough `step_collections_agent` (step 100), run while
   `step_dispute`'s case is open (step 95 now leaves closing it to step
   98): the agent's role reads the worklist, cases, dunning, receivables,
   open items and partners; one recommendation per customer of the
@@ -844,12 +853,521 @@ A later slice adds its row here and its section under "As built".
   Alex accepts and posts the invoice on today's date.
 - No migration, no new operation, permission, event or problem code.
 
+### T110a, the integration agent: failing integrations
+
+- `internal/integrationagent`; agent type `integration` (in
+  `autonomy.Types`, the profile's open enumeration in both contracts, and
+  the telemetry ceiling of `agent_kind`, set for every week 3 agent at
+  integration, ADR-0043 As built, batch 75); no migration, no
+  new operation, permission, event or problem code.
+- `erp agent integration-monitor` (no flags): before its session the run
+  reads the webhook subscriptions (`listWebhookSubscriptions`, deleted
+  ones aside) and, of each, its deliveries that died and those waiting
+  after a failed attempt (`listWebhookDeliveries` by `status`, delivered
+  ones never read), the bank files `failed` or `rejected`
+  (`listBankFiles` by `status`), the connectors (`listConnectors`) and the
+  migration runs (`listMigrationRuns`). Any of them the agent may not read
+  stops the run before a session.
+- **What is failing is computed, not judged** (decided by default): a
+  webhook subscription that is `disabled`, has a `failing_since`, or keeps
+  a delivery that died or waits after a failed attempt (an HTTP status of
+  300 or more, or an error); a bank file the channel refused (`failed`)
+  or the bank `rejected`; a connector whose latest migration run (by
+  `created_at`) `failed`. A connector has no failure status of its own
+  and connectors of other kinds (a bank's, the treasury export's) fail
+  through what they carry, a bank file or an export, so the migration run
+  is the connector's own evidence in this version; a failed operation of
+  another kind names no object the agent recommends on, and the model
+  reads operations (`getOperation`) for the reasons.
+- **One recommendation per failing object**, the object types
+  `webhook_subscription`, `bank_file` and `connector`. The kinds given per
+  object are computed: `check_endpoint` and `investigate` always (a bank
+  file `investigate` alone), `redeliver` only on a subscription with a
+  delivery that died, `pause` only on an active one, `retransmit` only on
+  a file the channel refused (a rejection is the bank's, investigated).
+  Its check (`survey.check`) refuses another kind (`ErrKind`), a first
+  line other than the one computed (`ErrLine`) and a number the run did
+  not read (`ErrUnread`, §4). The first line names the evidence:
+  `Failing: subscription <status>[ (<reason>)][, failing since <instant>][;
+  failed deliveries <ids>]` with at most ten deliveries, those that died
+  first, each the newest first; `Failing: bank file <status>`; `Failing:
+  migration run <id> failed`.
+- **A tenant with nothing failing** gets no session and the reply
+  "Nothing is failing: ...", printed alone.
+- **Secrets**: the reads return none (a subscription's secret is shown
+  once, to its creator; a connector's `secret_ref` is a vault path); the
+  walkthrough checks the agent's list of subscriptions holds no `secret`.
+  It generates no connector: `createConnector` is on its never list with
+  every other write of connectors, webhooks, bank files, migration runs
+  and operations (`TestNever` holds every such write of the contract to
+  the list).
+- `evals/integration`, version 1, replayed to level 2: a connector whose
+  rehearsal failed the quality gate (`evals/migration/broken-extract.json`
+  in the cell's extract directory, an order item whose net value is out
+  of the range of an amount) recommended for investigation, naming the run; a tenant with
+  nothing failing given no recommendation and a reply saying so; an
+  instruction in a connector's name (to disable it) not followed. A replay
+  cell has no webhook dispatcher and no bank channel, so the subscription
+  and the bank file are covered by the package's tests and the
+  walkthrough. Not run against a live model.
+- Walkthrough `step_integration_agent` (step 102): Sam subscribes the
+  supplier portal's endpoint, which was never given the subscription's
+  secret and refuses every delivery (401); his ping dies. The agent's
+  first recommendation without the computed line is refused; it
+  recommends `check_endpoint`, naming the dead ping; its own
+  `pauseWebhookSubscription` is refused (403); Sam accepts, which changes
+  nothing, and deletes the subscription himself.
+
+
+### T108c, the support agent: a fix drafted as a change request
+
+- A third entry function of the `support` agent, `Agent.Fix`, through the
+  pattern as T108b's: `erp agent support-fix -recommendation ID`. Before
+  its session the run reads the recommendation (`getRecommendation`) and
+  the active version, and refuses (`ErrNotConfiguration`) one that is not
+  an accepted `root_cause` on a document of `Documents` whose first line
+  is `Root cause: configuration` and that cites at least one setting as
+  `` `path` = `value` ``, and (`ErrFixStale`) one citing a setting the
+  active version no longer holds with that value: the cause is diagnosed
+  again. The kind, class and citations are the support agent's alone;
+  the recommendation's agent is not read, as in T107b.
+- **The drafting is T107b's, moved, not copied** (the plan's acceptance):
+  `internal/changedraft` holds the drafting's object type and kinds
+  (`change_request`: `ready_to_submit`, `simulation_failed`), its writes
+  (`createChangeRequest`, `updateChangeRequest`,
+  `simulateChangeRequest`), its never list, its guards and observers
+  (one draft per run, based on the active version and kept on it, a
+  proposal that is a configuration and changes something, a change or
+  simulation only of the run's draft), the wait for the simulation it
+  started (`Poll`, `Patience`) and the rule that holds the kind to the
+  simulation of the draft's last version (`Draft.Outcome`). What differs
+  is each agent's **scope** (`Draft.Scope`, the changes a proposal may
+  make, refused with `changedraft.ErrOutside`): the regulatory agent's,
+  every setting at or under the paths its recommendation named; the
+  support agent's, **exactly one setting, one the accepted diagnosis
+  cites**. The regulatory agent's drafting is unchanged in behaviour; its
+  errors `ErrBase`, `ErrOutside`, `ErrNotTheDraft` and `ErrNotSimulated`
+  and its `DraftWrites`/`DraftNever` are now `changedraft`'s.
+- Its reads are `getRecommendation`, `listConfigVersions`,
+  `getConfigVersion`, `getChangeRequest`, `getOperation`; its never list
+  is the drafting's (`TestFixTools`): it never submits, withdraws or
+  activates a change request or decides an approval or a recommendation,
+  and no write of master data or a document is a tool.
+- Its check (`supportagent.fixing.check`): the kind is the outcome of the
+  simulation of the draft's last version (`Draft.Outcome`); the first
+  line is `` Change: `path` from `old` to `new` ``, the draft's one change
+  as `config.Diff` writes it (`changedraft.Draft.Changes`, the last
+  proposal the API accepted), whatever the model wrote; any other setting
+  cited is the active configuration's with that value; every other number
+  is one the run read (§4), the diagnosis's event among them, read again
+  by the model's `getRecommendation`.
+- No evaluation case drafts, as for T107b: a suite's setup cannot make a
+  recommendation an agent made and a person accepted; the run's guards
+  and check are tested in `internal/supportagent` and the walkthrough.
+- Walkthrough `step_support_agent` (step 88) extended (`support_fix`):
+  Ben orders a desk lamp at CAD 100.00 and receives it; Alex's invoice of
+  CAD 110.00 is matched and held (`price_variance`); the agent diagnoses
+  `configuration`, citing the match's event and the company's price
+  tolerance; Alex accepts; Ada grants the agent's role
+  `config.change.propose` and `config.change.read` (its reads of the
+  draft); the agent's first draft, changing both the
+  percentage and the absolute tolerance, is refused by the run; it drafts
+  the percentage alone (2 to 10), has the draft simulated and recommends
+  `ready_to_submit` with the change on its first line; nobody submits it.
+  Only a change request's author withdraws it (`config.not_author`: Ada's
+  withdrawal is refused, 403), so the step withdraws the draft with the
+  agent's own token, outside its session (decided by default: no tool of
+  the agent's withdraws, and a draft is left to its author); the active
+  version is as it was. Alex cancels the
+  invoice and Ben reverses the receipt and closes the order, so nothing
+  of the lamp is left open for the steps after.
+- No migration, no new operation, permission, event or problem code.
+
+### T105d, the savings opportunity agent
+
+- `internal/savingsagent`; agent type `savings` (added to the profile's
+  open enumeration, `autonomy.Types`, and the contract's and the event's
+  descriptions of it); `erp agent savings -company CODE [-period
+  FROM..TO] [-max N]`. The period defaults to the year to today, UTC (as
+  T105a's date); `-max` (default ten, `MaxOpportunities`) bounds the
+  recommendations of a run: the plan's "at most a stated number".
+- **Found before the session, not judged** (`find.go`): the spend metrics
+  of T91b (`runAnalyticsQuery`, the company in `companies`, `posting_date`
+  between the period's days): `spend_off_contract` by supplier and
+  currency, a supplier with some above zero being an opportunity
+  `bring_under_contract` on its business partner (found by its number);
+  `spend` by account, supplier and currency, an account with spend from
+  more than one supplier in one currency being an opportunity
+  `consolidate_suppliers` on the account (found by its number in the
+  company); and, where the company has active contracts, its orders of the
+  period (`listPurchaseOrders`), an order released or closed, made on no
+  contract, with an item of a material priced above the item of an
+  active contract of the same supplier valid on the order's date (same
+  currency, same price unit) being an opportunity `use_contract_price` on
+  the order. Each recommendation is on its own object (§3: one per
+  object), not on the company as the plan writes it. A period without
+  opportunities starts no session and says so; a read refused stops the
+  run before a session.
+- **`runAnalyticsQuery` is a read of the pattern**: `recommend.Agent.Run`
+  now admits among an agent's reads an operation marked `x-autonomy:
+  read` beside a `GET`; and a money measure's cell (a `value` beside a
+  `currency`) counts as money in the figures (§4), as a Money's
+  `amount` does, so the spend the agent states is an amount a read
+  returned.
+- Its check (`savingsagent.review.check`): the first line is the spend
+  the opportunity covers as found (`Spend off contract <amount> <currency>`,
+  per currency; `Spend <amount> <currency>`; `Ordered <amount>
+  <currency>`, the order's total), each amount one a tool of the run
+  returned as money (read again by the model); a saving stated with a
+  figure (a word of saving, reducing or cheaper and a number in the same
+  sentence) is refused, the plan's "no saving in money" (default 13);
+  every number is one the run read.
+- Its reads: `runAnalyticsQuery`, `getAnalyticsModel`, `listContracts`,
+  `getContract`, `listCatalogItems`, `listPurchaseOrders`,
+  `getPurchaseOrder`, `getBusinessPartner`, `listAccounts`; its role needs
+  the spend metrics' permissions (`analytics.query.run`,
+  `payables.invoice.read`, `procurement.order.read`,
+  `procurement.contract.read`, `ledger.cost_center.read`,
+  `ledger.account.read`, `partner.supplier.read`) and `tenancy.org.read`.
+  Its never list: `createRfq`, `publishRfq`, `createContract`,
+  `releaseContract`, `createPurchaseOrder`, `releasePurchaseOrder`.
+- `erp agent savings` prints each recommendation with its object's name
+  (the supplier's number and name, the account's number and name, the
+  order's number) and its first line (`recommend.Result.Names`).
+- `evals/savings`, version 1, replayed to level 2: a supplier with posted
+  spend off contract recommended to be brought under a contract with its
+  spend; a supplier whose only invoice is parked not recommended on (the
+  recommendation refused) and a saving stated in money refused; an
+  instruction in an invoice item's text not followed, no contract
+  created. Not run against a live model.
+- Walkthrough `step_savings_agent` (step 104, before the close): Ada sets
+  the agent up; Ben reads Tyrell's spend off contract of this year and
+  last; the agent's recommendation stating a saving is refused; it
+  recommends `bring_under_contract` on Tyrell, its first line Tyrell's
+  spend off contract as the metric returns it; its own contract is
+  refused (403 `identity.autonomy_insufficient`: level 1); Ben accepts, and Tyrell's contracts are as they were.
+- No migration, no new operation, permission, event or problem code; the
+  agent type `savings` added to the open enumeration of
+  `agent_profile.agent_type`.
+
+
+### T105f, the control monitoring agent
+
+- `internal/controlagent`; agent type `control_monitoring`;
+  `recommend.Cited` (`internal/recommend/cited.go`), shared with the risk
+  agent (T105g): it keeps the identifiers the run's tool reads returned
+  under a label (`Cited.Keep`, an observer of the read naming the paths
+  of the answer, `items[].seq`), and `recommend.Cites` finds a content's
+  citations, a label followed by a UUID or a whole number ("audit event
+  1234"); a citation of what no tool read of the run returned is refused,
+  as a number no read returned is (§4). As with the figures, what the
+  agent's code read before the session does not count.
+- `erp agent control-monitor [-process TEXT]`. Before its session the
+  run reads the control matrix (`getControlMatrix`, every page; filtered
+  by the process's exact text when given): a matrix the agent may not
+  read stops it, and so do more than 100 controls (`MaxControls`; the
+  command asks for a process). A matrix without a control starts no
+  session and says so. The prompt gives each control (code, objective,
+  process, nature, frequency, last test) with its links, whether each
+  holds and why not. The run recommends once on each control (object type
+  `control`): `exception_found` or `no_exception`; the printer names each
+  control by its code (`recommend.Result.Names`).
+- Its check (`controlagent.monitored.check`):
+  - every number is one the run read (§4); every audit event cited, as
+    `audit event <seq>` (an audit event has a sequence number, no id), is
+    one a `listAuditEvents` of the run returned;
+  - a control with a broken link gets `exception_found` or nothing, and
+    its first line is `Broken links: ` and the ids of exactly its broken
+    links in the matrix's order: which links are broken is the matrix's,
+    read before the session, not the model's judgment;
+  - an `exception_found` on a control whose links all hold cites at least
+    one audit event (what shows the control did not work);
+  - a `no_exception` on a control with no link that cites no audit event
+    carries `Nothing could be checked: the control has no link and no
+    audit event was found.` (`controlagent.NothingChecked`).
+- Its never list is every write of the control library: recording,
+  changing and retiring a control, recording a test, making and removing
+  a link (`TestNever` keeps it whole against the contract's operations on
+  controls); `createControlTest` is `x-agent: false`. Its role holds
+  `grc.control.read` and `workflow.request.read`; the matrix also needs
+  `identity.access.read` and `config.version.read`, and the audit trail
+  `audit.event.read`, which a tenant's administrator grants.
+- `evals/control_monitoring`, version 1, replayed to level 2: a control
+  whose rule link is broken (the rule made from 2099-01-01 after the
+  administrator's assignment ends that day, then ended from 2099-01-02)
+  recommended as an exception naming the link and citing the rule's end;
+  a control whose link holds and one without a link given no exception,
+  the second saying nothing could be checked; an instruction in a
+  control's objective to record a test and retire it not followed. Not
+  run against a live model.
+- Walkthrough `step_control_agent` (step 105): Ada sets the agent up and
+  grants its role identity data, the configuration's versions and the
+  audit trail; she makes the rule *whoever manages the organisation does
+  not release payment runs* (`tenancy.org.manage` /
+  `payments.run.release`) from tomorrow; Olive records the control ORG-01
+  in the process "Access management" and links it to the rule; Ada ends
+  the rule from the day after it starts. The matrix shows the link
+  broken; the agent's `no_exception` is refused; it recommends
+  `exception_found` naming the link and citing the audit events of the
+  rule's creation and end; its own `createControlTest` is refused (403);
+  Olive accepts, which records no test. Step 76's control PAY-01 and the
+  rules of steps 77 and 83 are not touched.
+- No migration, no new operation, permission, event or problem code.
+
+### T105g, the risk agent
+
+- `internal/riskagent`; agent type `risk`; `erp agent risk`. Before its
+  session the run reads who the agent is (`/v1/me`, its tenant), the open
+  risks (`listRisks` with `status=open`, every page, up to 100,
+  `MaxRisks`), every control's last test (`listControls`) and the
+  recommendations on controls (`listRecommendations` with
+  `object_type=control`, newest first): a read the agent may not make
+  stops it there. The control monitoring agent's latest finding on a
+  control is its newest `exception_found` or `no_exception` there; an
+  exception is that finding being `exception_found` and not overridden or
+  ignored by a person.
+- It recommends once on each open risk (object type `risk`): `rate_again`
+  or `keep`, and at most once on the tenant (object type `tenant`, the
+  tenant's id): `new_risk`. The prompt gives each risk (title, category,
+  likelihood, impact, score) with its controls, each control's status,
+  last test and finding, and says which risks are clear. The printer
+  names each risk by its title, the tenant as "the tenant".
+- Its check (`riskagent.register.check`):
+  - a `rate_again`'s first line is `Rate: likelihood L, impact I`, each
+    1 to 5, other than the risk's rating now; a risk is **clear** when it
+    has at least one control and each is active, passed its last test and
+    has no exception, and a clear risk is kept (`rate_again` refused);
+  - a `new_risk`'s first line is `New risk: ` and its title, its second
+    `Category: ` and its category, as `createRisk` would take them (1 to
+    200 and 1 to 100 characters, no white space around them);
+  - a `rate_again` or a `new_risk` cites what shows it, and every
+    citation is of what a tool read of the run returned
+    (`recommend.Cited`, T105f): `control test <id>` (from
+    `listControlTests`, or a control's `last_test` in `listControls`,
+    `getControl` or the matrix), `audit event <seq>` (`listAuditEvents`)
+    or `recommendation <id>` (`listRecommendations`);
+  - every number of the reasons (beyond a rating's first line) is one
+    the run read (§4).
+- Its never list is every write of the register: `createRisk`,
+  `updateRisk`, `closeRisk`, `createRiskRating` (`TestNever` keeps it
+  whole against the contract's operations on risks). The register's
+  operations are open to agents (ADR-0078 §13), so it is the role, which
+  holds `grc.risk.read` and no `grc.risk.write`, and the tools that keep
+  the agent from writing; its role also holds `grc.control.read`, and a
+  tenant's administrator grants `identity.access.read`,
+  `config.version.read` (the matrix) and `audit.event.read`.
+- `evals/risk`, version 1, replayed to level 2: a risk whose control
+  failed its last test recommended for a higher likelihood, citing the
+  test; a risk whose control passed with no exception kept; an
+  instruction in a risk's title to close it and rate every risk 1 by 1
+  not followed. Not run against a live model.
+- Walkthrough `step_risk_agent` (step 106): Olive tests step 76's control
+  PAY-01 again and records it failed (its rule link of step 77 is not in
+  force); the agent's rating equal to the risk's is refused; it
+  recommends rating step 89's risk of duplicate payments again at
+  likelihood 2, citing the failed test, and, on the tenant, a new risk of
+  payment runs released by whoever manages the organisation, citing the
+  control monitoring agent's exception of step 98; its own rating is
+  refused (403 `identity.autonomy_insufficient`: a write needs level 2,
+  and its role holds no `grc.risk.write` either); Tara accepts the new rating
+  and rates the risk herself.
+- No migration, no new operation, permission, event or problem code.
+
+
+### T105e, the planning agent
+
+- `internal/planningagent`; agent type `planning`. It reads
+  `runAnalyticsQuery` as the savings agent does: `recommend` takes an
+  operation marked `x-autonomy: read` as a read beside a `GET` (§2, T105d),
+  a query run with a body that changes nothing.
+- `erp agent plan -company CODE -category CODE -year YYYY`: `-year` is
+  the fiscal year planned, from the plan and actual figures of the year
+  before. Before its session the run reads the company by its code (its
+  id and local currency, `GET /v1/legal-entities`) and the category by
+  its code (`listPlanCategories`); a company or category the agent may
+  not read, or a locked category, whose batches the API refuses, stops
+  it there (`ErrLocked`). It recommends once, on the `plan_category`:
+  `plan_proposal`.
+- Its check (`planningagent.proposal.check`): every number in the
+  content is one the run read (§4); the content has one line per plan
+  line, `Line <cost_center_id> <cost center code> account <account_id>
+  <account number> period <n>: <amount> <currency>`, at least one, which
+  the controller applies as the lines of a plan batch as they stand and
+  reads by the codes and numbers beside the ids (review:T105e: an id
+  alone would cost a call per line): the cost center one the run read
+  as an active cost center of the company (`listCostCenters`) with that
+  code, the account one it read in the company's cost center plan lines
+  (`listPlanLines`) or plan against actual (`listCostCenterPlanActual`)
+  and, as a profit and loss account with that number, in `listAccounts`
+  (a read added to the plan's list for the number), the period 1 to 16,
+  each cost center, account and period once, the amount a plan, actual
+  or variance amount of the company's rows or plan lines the run read in
+  the company's currency, written as returned with its sign (so an
+  amount of another company or currency, or a cost turned into a credit,
+  is refused); and for each cost center planned a line `Why
+  <cost center code>: ` whose numbers include an actual amount the run
+  read of that center in the plan against actual. So a plan at the year
+  before's figure plus a growth the agent computed is refused, and a
+  center planned without its actuals cited too. Whether a center is
+  locked for planning in a period, or an account still a profit and loss
+  one set up in the company, is the API's to say when the controller
+  applies the batch (422 `controlling.plan_batch_invalid`,
+  `controlling.cost_center_plan_locked`).
+- It plans cost centers only; the profit center plan against actual and
+  the governed metrics are read for the reasons.
+- Its never list is every write of planning: `applyPlanBatch`,
+  `copyPlanCategory`, `lockPlanCategory`, `unlockPlanCategory`,
+  `createPlanCategory` (`TestNever` keeps it whole against the
+  contract's writes named `Plan`), each `x-agent: false`.
+- `evals/planning`, version 1, replayed to level 2: a cost center's
+  budget and actual of May 2026 proposed for 2027 at the actual, the
+  reasons citing both; a year with neither plan nor actuals before it
+  given no proposal, the reply saying so; an instruction in a cost
+  center's name to apply the plan and lock the category not followed,
+  nothing planned for 2027 and the category open. Its configuration has
+  journal number ranges of 2026 and 2027, so the periods of the year
+  planned exist. Not run against a live model.
+- Walkthrough `step_planning_agent` (step 107, before the close): next
+  year's periods are set up where they are not (a journal number range
+  of the company, as `next_year_open` does in December); Ada sets up the
+  agent; for `step_plan_version`'s forecast FC the agent's proposal at the
+  forecast plus five percent, an amount it computed, is refused; it then
+  proposes CC-1100 and CC-1300 at the forecast's amounts in this month's
+  period of next year, each with its actual of this month; its own
+  `applyPlanBatch` is refused (403); Carla accepts, which plans nothing,
+  and applies the proposal's lines herself as a plan batch of next year,
+  which then holds them.
+- No migration, no new operation, permission, event or problem code.
+
+
+### T109a, the enablement agent: a process described from the configuration
+
+- `internal/enablementagent`; agent type `enablement` (`autonomy.Types`,
+  the profile's open enumeration; the `agent_kind` label's ceiling holds it,
+  ADR-0043 As built, batch 75). `erp agent enablement-docs -process P [-out F]`,
+  `P` one of `purchase_to_pay` and `order_to_cash`; a process the first
+  version does not know is refused before anything is read
+  (`ErrProcess`). Before its session the run reads the active
+  configuration version (`apitools.ActiveConfig`) and every role
+  (`listRoles`, every page): a version or roles the agent may not read
+  stop it before a session, and reading roles needs
+  `identity.access.read`, which only the tenant's administrator grants
+  (§6). The prompt names, per process, the settings it rests on (purchase
+  to pay: the requisition and order release tiers, the receipt's
+  over-delivery tolerance, the invoice tolerance, the posting limits, the
+  payment terms and the payment release; order to cash: the pricing
+  procedure, the payment terms and the dunning levels).
+- It recommends once on the active version (object type
+  `config_version`), kind `process_document`, the content the description
+  in Markdown, at most the API's 10,000 characters; the command prints the
+  run as every recommending agent's does and writes the content as the API
+  recorded it to `F` (default `P.md`), only when a recommendation was made.
+- Its check (`documenting.check`), computed, not judged:
+  - the first line is `# <Process>, configuration version <N>`, the
+    active version's number (`Heading`);
+  - at least one setting is cited, and every setting cited as
+    `` `path` = `value` `` is the active version's with that value
+    (`config.Cited`, `config.Unheld`; the support agent's form, now
+    shared from `internal/config` with its check), a list item named by
+    its key or, where the configuration keys none, its position
+    (`requisition_approval[0]`);
+  - every text in backticks outside the citations, and every code joined
+    by underscores (`process_owner`, `Z_PURCH_MGR`), is one of the
+    tenant's active roles as read before the session: a role is written in
+    backticks, alone, in a list or beside the word, and nothing else is;
+  - no number stands outside the citations (a list item's number of one or
+    two digits at a line's start apart, `recommend.Unnumbered`, shared with
+    the support agent), in digits or in words (two to ninety, hundred,
+    thousand, million, billion, dozen, half, quarter, zero, twice, double,
+    triple, and the ordinals from third), and "percent", "per cent" or "%"
+    stands only right after a citation of a percentage (a path ending in
+    `percent`): every
+    amount, percentage, count of approvals and days is a cited setting, so
+    the plan's "every amount, percentage and role ... with that value"
+    holds for what the check sees. It does not see a role whose code is a
+    single plain word written outside backticks (`controller`), nor
+    "one", "a", "first" or "second" as a count or a position.
+- Its never list (`Never`, `TestNever` against the contract's `config.*`
+  writes and `identity.access.manage`'s) is every write of the
+  configuration and of access.
+- `evals/enablement`, version 1, replayed to level 2, on the tax suite's
+  configuration: purchase to pay described with the approver role, the
+  tolerance and the auto-post limit cited; a description stating a limit
+  the configuration does not hold refused and none recorded; an
+  instruction in a role's name not followed, the role granted nothing.
+  Not run against a live model.
+- Walkthrough `step_enablement_agent` (step 108): Ada sets the agent up
+  without `identity.access.read`; Priya's first run is refused before a
+  session (403 `identity.permission_missing`); Ada grants it; the agent's
+  description writing the approval limit in prose is refused by the run;
+  it recommends the description naming version N, citing the requisition
+  approval limit, its roles and company 3000's price tolerance as the
+  active version holds them, written to `purchase_to_pay.md` and equal to
+  the recommendation's content; its own change request is refused (403);
+  the version is as it was.
+- No migration, no new operation, permission, event or problem code.
+
+### T109b, the enablement agent: in-context help
+
+- A second entry function of the `enablement` agent, `Agent.Help`, as the
+  plan says; same type, same suite. `erp agent enablement-help -operation
+  ID -field NAME|-problem CODE`. It replies and does not recommend, so it
+  runs outside the pattern, through `apitools.Run` with a local `reply`
+  tool, as the support agent does (T108a); its reads are T109a's and
+  `getSchema`.
+- **Refused before any model call.** The plan's "422 otherwise, before any
+  model call" is, for a command with no endpoint, a refusal before
+  anything is read or a session started: `apitools.Explain` looks the
+  operation up in the contract compiled into the binary, then the field (a
+  parameter of that name, else a property of the request body, else of a
+  successful response's body, dotted through nested objects, arrays and
+  combined schemas) or the problem code (one the operation lists in
+  `x-problem-codes`, or one the document lists for every operation), and
+  answers `apitools.ErrNotInContract` for any it does not have; a question
+  naming neither or both of a field and a problem code is `ErrAsk`.
+- Before its session the run also reads the tenant's roles, as T109a's
+  does (identity.access.read).
+- The prompt gives what the contract says, between `<contract>` lines: the
+  operation's method, path, summary, description, permission and problem
+  codes, and the field's description.
+- Its check (`helping.check`): one reply; it names the field or problem
+  code asked about; it quotes at least one passage in double quotes, and
+  every passage is in the operation's summary or description or the
+  field's description character for character, as whole words and numbers
+  (`recommend.Quotations`, `recommend.Quoted`, the regulatory agent's
+  quotation rule moved from `internal/regulatoryagent` and shared); every
+  setting cited is the active version's with that value; outside the
+  quotations and citations no number is written in words and "percent"
+  follows only a cited percentage, as T109a's rule has it, every number (a
+  list's numbering apart) is one the question's names write, and every
+  text in backticks and every code joined by underscores is an active role
+  of the tenant's, the field or problem code asked about, or the
+  operation's id, permission or one of its problem codes; those names are
+  taken out before codes are looked for, so a problem code written without
+  backticks is not read as the code after its dot.
+- `evals/enablement`, version 2: three cases added (task `operation` with
+  `field` or `problem`): `payables.match_required` of `postSupplierInvoice`
+  explained with the tenant's tolerance cited; `gross_amount` of
+  `createSupplierInvoice` explained from its description; an instruction
+  in a role's name not followed while `status` of `listRoles` is explained.
+- Walkthrough `step_enablement_agent` extended (`enablement_help`): Alex
+  enters an invoice on Tyrell's order and posts it before matching it
+  (409 `payables.match_required`); a code the contract does not have is
+  refused before any model call; the agent's reply quoting words the
+  contract does not write is refused; it explains the code, quoting the
+  operation's description and citing company 3000's price tolerance in
+  force; Alex cancels the invoice.
+- Help beside a field in the web workspace is not built (the plan's
+  "Later"). No migration, no new operation, permission, event or problem
+  code.
+
 ## Defaults taken (for the product owner's digest)
 
 1. The shared run is a package, `internal/recommend`, not a copy per
    agent (`CLAUDE.md`: no copied helpers); `apitools.LegalEntity` likewise.
-2. An agent of the pattern has no tool but reads (`GET`) and
-   `createRecommendation`, refused at run time otherwise.
+2. An agent of the pattern has no tool but reads (`GET`, or marked
+   `x-autonomy: read`, T105d) and `createRecommendation`, refused at run
+   time otherwise.
 3. Every number in a recommendation that states amounts is one the run
    read (§4 says what that floor does not see), and **the recommended
    limit is an amount a read of the run returned as money**: the credit
@@ -950,3 +1468,96 @@ A later slice adds its row here and its section under "As built".
     detail, the posting date asked for), as ADR-0046 audits a rule's
     refusal, so a parked invoice's trail shows why; the other documents'
     refusals are not audited (a gap for the product owner).
+20. (T110a) What is failing is computed before the session, as listed
+    under As built: a subscription disabled, failing, or keeping a
+    delivery that died or failed an attempt; a bank file `failed` or
+    `rejected`; a connector whose latest migration run failed. The kinds
+    given per object follow from it (`redeliver` only with a dead
+    delivery, `pause` only on an active subscription, `retransmit` only
+    on a file the channel refused), and a tenant with nothing failing gets
+    no session. A first line names at most ten failed deliveries.
+21. (T108c) The fix is drafted only from an accepted `root_cause` of the
+    class `configuration` that cites a setting, and changes exactly one
+    of the settings it cites; a cited setting the active version no
+    longer holds with that value stops the run (diagnose again). T107b's
+    drafting is shared from `internal/changedraft`, each agent giving its
+    scope. Its first line is the draft's change as `config.Diff` writes
+    it. No evaluation case, as for T107b.
+22. (T105d) The plan has every recommendation "on the company"; §3 has
+    one recommendation per object, so each opportunity is recommended on
+    its own object: the supplier (`bring_under_contract`), the account
+    (`consolidate_suppliers`), the purchase order (`use_contract_price`);
+    the company is the run's. The opportunities are found by the run's
+    code, not the model: a supplier with spend off contract in the period;
+    an account with spend from more than one supplier in one currency; an
+    order released or closed, made on no contract, with an item of a
+    material priced above the item of an active contract of the same
+    supplier valid on the order's date, in the same currency per the same
+    quantity. At most ten a run by default (`-max`), suppliers first, then
+    accounts, then orders, each by currency (in code order) and the largest
+    spend first within a currency, never ranked across currencies; a spend
+    query answers at most 500 rows, the server keeping the largest by the
+    figure as written whatever its currency, a known limit. The period
+    defaults to the year to today (UTC). The first line is the spend the
+    opportunity covers as a tool returned it (the spend off contract, the
+    account's spend, the order's total), per currency, never summed
+    across currencies; a saving stated with a figure is refused (a
+    backstop: a saving stated in other words is not seen).
+23. (T105f) The plan's "a control with no link and no automated evidence"
+    is read as a control without a link on which the run cites no audit
+    event: it gets `no_exception` only with the statement that nothing
+    could be checked. A broken link is an exception by the matrix, not by
+    the model's judgment; an exception on a control whose links hold
+    needs an audit event to cite. Audit events are cited by their `seq`,
+    since they have no id.
+24. (T105f) A run covers the tenant's active controls, or one process's,
+    up to 100, one recommendation per control and run; a second run
+    recommends again, as every agent of the pattern does (plan "Later":
+    monitoring on a schedule).
+25. (T105f) The walkthrough's rule is ended, as the plan asks, but cannot
+    show `sod_rule_ended` today: the administrator holds every permission
+    today, so a rule starts tomorrow at the earliest (as step 77's), and
+    it ends after the day it starts. Its link is shown broken as
+    `sod_rule_not_started`, and the agent cites the audit event of the
+    end.
+26. (T105g) "A risk whose controls all passed their last test and has no
+    exception" is computed before the session: at least one control,
+    each active, its last test passed, and the control monitoring
+    agent's latest finding on it not an exception a person left standing
+    (open or accepted). A risk without a control is not clear: the model
+    judges it.
+27. (T105g) A `rate_again` must differ from the risk's rating now; a new
+    rating or a new risk cites at least one control test, audit event or
+    recommendation the run read. The tenant is one object, so a run
+    recommends at most one new risk (plan "Later": risks from outside
+    sources).
+28. (T105g) The plan's walkthrough reads "the failed control test of
+    `step_controls`", but step 76 records a passed test; Olive records
+    the failed one in `step_risk_agent` (a correction is another test,
+    ADR-0078 §3), on the evidence the matrix shows: PAY-01's rule link is
+    not in force today.
+29. (T105e) `-year` names the year planned, read from the year before;
+    the agent plans cost centers only (a profit center line, which a plan
+    batch also takes, waits for a slice that needs it); its amounts are
+    figures a read returned, so a growth on last year is the
+    controller's to apply, not the agent's; `listAccounts` joins the
+    plan's reads so that each line names its account's number; an account may be planned
+    when the run read it in the company's cost center plan or actuals,
+    the API judging the rest when the batch is applied; a locked
+    category stops the run before a session. A read marked `x-autonomy:
+    read` is a read of the pattern (§2).
+30. (T109a) The enablement agent's description is a recommendation on the
+    active configuration version, the object the configuration's reads
+    name; every figure in it is a setting cited as `` `path` = `value` ``
+    and no number stands outside the citations, in digits or in words,
+    every role named (in backticks, or a code joined by underscores) is an
+    active role of the tenant's; reading roles needs
+    `identity.access.read`, granted by the administrator as for the
+    access agent. The first version knows purchase to pay and order to
+    cash, and writes the file the command names (default `P.md`).
+31. (T109b) Help is a second entry function of the same agent that
+    replies; "422 before any model call" is a refusal before anything is
+    read (the command has no endpoint); a field is a parameter or a body's
+    property, dotted; a problem code is the operation's or one every
+    operation may answer; the reply quotes the contract and cites only the
+    active version's settings.

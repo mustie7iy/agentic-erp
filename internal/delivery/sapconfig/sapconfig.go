@@ -100,29 +100,38 @@ var documentTypes = map[string]string{"journal_sa": "", "journal_ab": "", "journ
 
 // Generate builds a draft configuration; validate it before proposing it.
 func Generate(e *sap.Extract, opts Options) (*config.Config, []Note) {
-	g := &gen{e: e, opts: opts, areas: areasOf(e)}
-	g.decimals, g.problems = sap.CurrencyDecimals(e.TCURX)
+	g := newGen(e, opts)
+	return g.generate(), g.notes
+}
+
+func newGen(e *sap.Extract, opts Options) *gen {
+	return &gen{e: e, opts: opts, areas: areasOf(e)}
+}
+
+func (g *gen) generate() *config.Config {
+	opts := g.opts
+	g.decimals, g.problems = sap.CurrencyDecimals(g.e.TCURX)
 	g.tcurxNotes()
 	c := &config.Config{Version: 1, Output: config.Output{PurchaseOrderChannel: "email"}}
-	for _, t := range e.T001 {
+	for _, t := range g.e.T001 {
 		c.Companies = append(c.Companies, g.company(t))
 	}
 	c.PaymentTerms = g.paymentTerms()
 	approver := opts.RequisitionApprover
-	g.note("purchasing.requisition_approval", "SAP release strategies are not in the extract; generated two tiers (up to 10,000: "+approver+
+	g.note(none, "purchasing.requisition_approval", "SAP release strategies are not in the extract; generated two tiers (up to 10,000: "+approver+
 		"; above: "+approver+" then process_owner)")
 	tiers := []config.ApprovalTier{
 		{UpTo: "10000.00", Steps: []config.ApprovalStep{{Role: approver, Approvals: 1}}},
 		{Steps: []config.ApprovalStep{{Role: approver, Approvals: 1}, {Role: "process_owner", Approvals: 1}}},
 	}
-	g.note("purchasing.order_release_approval", "SAP release strategies for purchase orders are not in the extract; generated the requisition tiers")
-	g.note("purchasing.contract_expiry_notice_days", "no SAP equivalent in the extract; contracts are alerted 30 days before they end")
+	g.note(none, "purchasing.order_release_approval", "SAP release strategies for purchase orders are not in the extract; generated the requisition tiers")
+	g.note(none, "purchasing.contract_expiry_notice_days", "no SAP equivalent in the extract; contracts are alerted 30 days before they end")
 	c.Purchasing = config.Purchasing{RequisitionApproval: tiers, OrderReleaseApproval: slices.Clone(tiers), ContractExpiryNoticeDays: 30}
 	c.Payments = config.Payments{ReleaseRole: opts.ReleaseRole, ReleaseApprovals: 1, BankChangeHoldDays: 5, VendorApproverRole: opts.VendorApproverRole}
-	g.note("payments.bank_change_hold_days", "no SAP equivalent; payments to a vendor are held for 5 days after a bank change")
+	g.note(none, "payments.bank_change_hold_days", "no SAP equivalent; payments to a vendor are held for 5 days after a bank change")
 	c.NumberRanges = g.numberRanges()
 	g.roles(c)
-	return c, g.notes
+	return c
 }
 
 type gen struct {
@@ -134,9 +143,11 @@ type gen struct {
 	// problems its rows the conversion cannot use (sap.CurrencyDecimals).
 	decimals map[string]int
 	problems []sap.TCURXProblem
+	// objects are the customizing objects read, and defaults the notes on
+	// settings no SAP object gives, for the fit-gap report (fitgap.go).
+	objects  map[objRef]*object
+	defaults []Note
 }
-
-func (g *gen) note(path, msg string) { g.notes = append(g.notes, Note{Path: path, Message: msg}) }
 
 // unknownDays marks a payment term whose SAP days could not be read. Any
 // guess would be wrong in a way that pays early or late (0 days would
@@ -154,7 +165,7 @@ func (g *gen) paymentTerms() []config.PaymentTerm {
 	}
 	if len(out) == 0 {
 		out = []config.PaymentTerm{{Key: "NT30", Description: "Net 30 days", NetDays: 30}}
-		g.note("payment_terms", "T052 not in extract; added NT30 as a placeholder")
+		g.note(none, "payment_terms", "T052 not in extract; added NT30 as a placeholder")
 	}
 	return out
 }
@@ -172,12 +183,13 @@ func (g *gen) paymentTerms() []config.PaymentTerm {
 func (g *gen) paymentTerm(t sap.T052) config.PaymentTerm {
 	p := "payment_terms[" + t.ZTERM + "]"
 	term := config.PaymentTerm{Key: t.ZTERM, Description: t.TEXT1, NetDays: unknownDays}
+	o := g.named(g.read("T052", t.ZTERM), t.TEXT1)
 	if _, err := strconv.Atoi(strings.TrimSpace(t.ZTAG1)); err != nil {
-		g.note(p+".net_days", fmt.Sprintf("T052 days %q are not a whole number; set the term's days (left at %d, which fails validation)", t.ZTAG1, unknownDays))
+		g.note(o, p+".net_days", fmt.Sprintf("T052 days %q are not a whole number; set the term's days (left at %d, which fails validation)", t.ZTAG1, unknownDays))
 		return term
 	}
 	if calendar := strings.Trim(t.ZMONA1+t.ZFAEL1+t.ZMONA2+t.ZFAEL2+t.ZMONA3+t.ZFAEL3, "0 "); calendar != "" {
-		g.note(p, fmt.Sprintf("T052 counts in months or fixed days (ZMONA/ZFAEL), which the configuration's days cannot hold; set the term (net days left at %d, which fails validation)",
+		g.note(o, p, fmt.Sprintf("T052 counts in months or fixed days (ZMONA/ZFAEL), which the configuration's days cannot hold; set the term (net days left at %d, which fails validation)",
 			unknownDays))
 		return term
 	}
@@ -191,11 +203,11 @@ positions:
 			if i == 2 {
 				field = ".net_days"
 			}
-			g.note(p+field, fmt.Sprintf("T052 ZTAG%d/ZPRZ%d %q/%q are not whole days and a percent; set the term (net days left at %d, which fails validation)",
+			g.note(o, p+field, fmt.Sprintf("T052 ZTAG%d/ZPRZ%d %q/%q are not whole days and a percent; set the term (net days left at %d, which fails validation)",
 				i+1, i+1, pos[0], pos[1], unknownDays))
 			return term
 		case i > 0 && days == 0:
-			return g.netUntilDiscount(p, term)
+			return g.netUntilDiscount(o, p, term)
 		case pct == "": // ZTAG3 carries none, so the loop always ends here
 			term.NetDays = days
 			break positions
@@ -208,10 +220,10 @@ positions:
 // netUntilDiscount is a term whose last discount runs to its net due
 // date (SAP's "within 14 days 2%"): its net days are the tier's, which
 // fails validation, with a note, until a reviewer sets them.
-func (g *gen) netUntilDiscount(p string, term config.PaymentTerm) config.PaymentTerm {
+func (g *gen) netUntilDiscount(o objRef, p string, term config.PaymentTerm) config.PaymentTerm {
 	last := term.Discounts[len(term.Discounts)-1]
 	term.NetDays = last.Days
-	g.note(p+".net_days", fmt.Sprintf("T052 grants %s%% until the net due date (day %d); the net days must come after the last discount: set them",
+	g.note(o, p+".net_days", fmt.Sprintf("T052 grants %s%% until the net due date (day %d); the net days must come after the last discount: set them",
 		last.Percent, last.Days))
 	return term
 }
@@ -268,55 +280,86 @@ func (g *gen) company(t sap.T001) config.Company {
 		Code: t.BUKRS, Name: t.BUTXT, Currency: t.WAERS, Country: t.LAND1, FiscalYearStartMonth: 1,
 		AutoPostLimit: g.opts.AutoPostLimit, ManualEntryApprovalLimit: g.opts.ManualEntryApprovalLimit, OverDeliveryPercent: 0,
 	}
-	g.note(p+".fiscal_year_start_month", "fiscal year variant not in extract; assumed calendar year (K4)")
-	g.timeZone(p, &co)
-	g.note(p+".auto_post_limit", "no SAP equivalent; invoices above "+g.opts.AutoPostLimit+" always go to a person")
-	g.note(p+".manual_entry_approval_limit", "SAP releases parked documents by amount in its FI workflow, not in the extract; manual entries above "+
+	o := g.named(g.read("T001", t.BUKRS), t.BUTXT)
+	g.note(o, p+".fiscal_year_start_month", "fiscal year variant not in extract; assumed calendar year (K4)")
+	g.timeZone(o, p, &co)
+	g.note(o, p+".auto_post_limit", "no SAP equivalent; invoices above "+g.opts.AutoPostLimit+" always go to a person")
+	g.note(o, p+".manual_entry_approval_limit", "SAP releases parked documents by amount in its FI workflow, not in the extract; manual entries above "+
 		g.opts.ManualEntryApprovalLimit+" need the controller's approval")
 	co.ChartOfAccounts = g.chartOfAccounts(p, t.BUKRS)
-	g.costElements(p, t.BUKRS, co.ChartOfAccounts)
-	for _, r := range g.e.T030 {
-		if r.BUKRS != t.BUKRS {
-			continue
-		}
-		switch r.KTOSL {
-		case "VST":
-			co.AccountDetermination.InputTax = sap.Alpha(r.KONTS)
-		case "BNK":
-			co.AccountDetermination.Bank = sap.Alpha(r.KONTS)
-		case "WRX":
-			co.AccountDetermination.GRIR = g.oneAccount(p+".account_determination.gr_ir", r, co.AccountDetermination.GRIR)
-		case "PRD":
-			co.AccountDetermination.PriceDifference = g.oneAccount(p+".account_determination.price_difference", r, co.AccountDetermination.PriceDifference)
-		case "SKE":
-			co.AccountDetermination.CashDiscount = g.oneAccount(p+".account_determination.cash_discount", r, co.AccountDetermination.CashDiscount)
-		}
-	}
-	co.AccountDetermination.APReconciliation = g.apReconciliation(p, t.BUKRS)
+	g.costElements(o, p, t.BUKRS, co.ChartOfAccounts)
+	g.accountDetermination(p, &co)
+	co.AccountDetermination.APReconciliation = g.apReconciliation(o, p, t.BUKRS)
 	co.AccountDetermination.DownPayment = g.downPayment(p+".account_determination.down_payment", t.BUKRS)
 	for _, tx := range g.e.T007A {
 		if tx.BUKRS == t.BUKRS {
+			g.named(g.read("T007A", tx.BUKRS+"/"+tx.MWSKZ), tx.TEXT1)
 			co.TaxCodes = append(co.TaxCodes, config.TaxCode{Code: tx.MWSKZ, Description: tx.TEXT1, RatePercent: tx.KBETR, Account: sap.Alpha(tx.KONTS)})
 		}
 	}
-	co.InvoiceTolerance = g.invoiceTolerance(p, t.BUKRS, t.WAERS)
+	co.InvoiceTolerance = g.invoiceTolerance(o, p, t.BUKRS, t.WAERS)
 	co.HouseBank, co.HouseBanks = g.houseBanks(p, &co)
-	co.PaymentMethods = g.paymentMethods(p, t.LAND1, &co)
+	co.PaymentMethods = g.paymentMethods(o, p, t.LAND1, &co)
 	g.defaultAssignments(p, &co)
 	return co
+}
+
+// accountDetermination takes the company's T030 rows: of VST and BNK the
+// last row's account (an earlier row naming another is left out), of WRX,
+// PRD and SKE the first's (oneAccount). A row of any other transaction key
+// is read and left out: the configuration's account determination holds
+// none of its kind.
+func (g *gen) accountDetermination(p string, co *config.Company) {
+	ad := &co.AccountDetermination
+	type row struct {
+		o       objRef
+		account string
+	}
+	taken := map[string][]row{} // VST and BNK: their rows in order
+	for _, r := range g.e.T030 {
+		if r.BUKRS != co.Code {
+			continue
+		}
+		account := sap.Alpha(r.KONTS)
+		o := g.read("T030", r.BUKRS+"/"+r.KTOSL+"/"+account)
+		switch r.KTOSL {
+		case "VST":
+			ad.InputTax, taken[r.KTOSL] = account, append(taken[r.KTOSL], row{o, account})
+		case "BNK":
+			ad.Bank, taken[r.KTOSL] = account, append(taken[r.KTOSL], row{o, account})
+		case "WRX":
+			ad.GRIR = g.oneAccount(o, p+".account_determination.gr_ir", r, ad.GRIR)
+		case "PRD":
+			ad.PriceDifference = g.oneAccount(o, p+".account_determination.price_difference", r, ad.PriceDifference)
+		case "SKE":
+			ad.CashDiscount = g.oneAccount(o, p+".account_determination.cash_discount", r, ad.CashDiscount)
+		default:
+			g.gap(o, p+".account_determination", "T030 transaction key "+r.KTOSL+" is none the configuration's account determination holds "+
+				"(it takes VST, BNK, WRX, PRD and SKE); left out")
+		}
+	}
+	for _, key := range sortedKeys(taken) {
+		rows := taken[key]
+		last := rows[len(rows)-1].account
+		for _, r := range rows {
+			if r.account != last {
+				g.gap(r.o, p+".account_determination", "a later T030 "+key+" row names account "+last+", which is taken; left out")
+			}
+		}
+	}
 }
 
 // timeZone sets the company's zone from the options, or notes that the
 // draft lacks it: the extract has none to take, and a guess from the
 // country would be wrong for a country of several zones (Canada).
-func (g *gen) timeZone(p string, co *config.Company) {
+func (g *gen) timeZone(o objRef, p string, co *config.Company) {
 	co.TimeZone = g.opts.TimeZones[co.Code]
 	if co.TimeZone == "" {
-		g.note(p+".time_zone", "not in the SAP extract and not given (erp config generate -time-zone "+co.Code+
+		g.note(o, p+".time_zone", "not in the SAP extract and not given (erp config generate -time-zone "+co.Code+
 			"=ZONE); set the IANA zone the company's business dates are in: the draft does not validate without it")
 		return
 	}
-	g.note(p+".time_zone", co.TimeZone+", as given: the SAP extract has no time zone for the company code")
+	g.note(o, p+".time_zone", co.TimeZone+", as given: the SAP extract has no time zone for the company code")
 }
 
 // houseBanks is the company's main house bank, its first T012K row, and
@@ -330,21 +373,23 @@ func (g *gen) houseBanks(p string, co *config.Company) (config.HouseBank, []conf
 	var main config.HouseBank
 	var further []config.HouseBank
 	ad := &co.AccountDetermination
-	seen := map[string]bool{}
+	rows := map[string]int{} // T012K rows read per house bank
 	for _, b := range g.e.T012K {
 		if b.BUKRS != co.Code {
 			continue
 		}
+		rows[b.HBKID]++
+		o := g.read("T012K", houseBankKey(b, rows[b.HBKID]))
 		hb := config.HouseBank{Name: b.HBKID, IBAN: b.IBAN, BIC: b.SWIFT, GLAccount: sap.Alpha(b.HKONT)}
-		g.canadianAccount(p+".house_banks["+b.HBKID+"]", b, &hb)
-		if !seen[b.HBKID] { // a dropped account's currency is not the bank's
-			g.houseBankCurrency(p+".house_banks["+b.HBKID+"]", b, co.Currency, &hb)
+		g.canadianAccount(o, p+".house_banks["+b.HBKID+"]", b, &hb)
+		if rows[b.HBKID] == 1 { // a dropped account's currency is not the bank's
+			g.houseBankCurrency(o, p+".house_banks["+b.HBKID+"]", b, co.Currency, &hb)
 		}
 		switch {
-		case seen[b.HBKID]:
-			g.note(p+".house_banks["+b.HBKID+"]", "house bank "+b.HBKID+" has several accounts in T012K; only the first is taken")
+		case rows[b.HBKID] > 1:
+			g.leaveOut(o, p+".house_banks["+b.HBKID+"]", "house bank "+b.HBKID+" has several accounts in T012K; only the first is taken")
 			continue
-		case len(seen) > 0:
+		case len(rows) > 1:
 			further = append(further, hb)
 		case ad.Bank == "":
 			ad.Bank, hb.GLAccount = hb.GLAccount, ""
@@ -355,9 +400,19 @@ func (g *gen) houseBanks(p string, co *config.Company) (config.HouseBank, []conf
 			}
 			main = hb
 		}
-		seen[b.HBKID] = true
 	}
 	return main, further
+}
+
+// houseBankKey is a T012K row's key in the fit-gap report: company code
+// and house bank, and for a further account of the bank its place among
+// the bank's rows, as the extract gives no account ID (HKTID).
+func houseBankKey(b sap.T012K, n int) string {
+	key := b.BUKRS + "/" + b.HBKID
+	if n > 1 {
+		key += fmt.Sprintf(" (account %d)", n)
+	}
+	return key
 }
 
 // unknownCurrency marks a house bank whose T012K row has no currency
@@ -379,24 +434,24 @@ const unknownCurrency = "UNKNOWN"
 // noted, when neither gives one, even for a company without a currency of
 // its own, which must not make an account without one look like the
 // company's.
-func (g *gen) houseBankCurrency(path string, b sap.T012K, companyCurrency string, hb *config.HouseBank) {
+func (g *gen) houseBankCurrency(o objRef, path string, b sap.T012K, companyCurrency string, hb *config.HouseBank) {
 	waers, from := strings.TrimSpace(b.WAERS), "T012K WAERS"
 	if waers == "" {
 		if waers = g.ledgerCurrency(b.BUKRS, b.HKONT); waers == "" {
 			hb.Currency = unknownCurrency
-			g.note(path+".currency", "T012K gives the account no currency (WAERS), nor does its G/L account "+sap.Alpha(b.HKONT)+
+			g.note(o, path+".currency", "T012K gives the account no currency (WAERS), nor does its G/L account "+sap.Alpha(b.HKONT)+
 				" (SKB1 WAERS); set it (left at "+unknownCurrency+", which fails validation): a bank's currency never changes once it is created")
 			return
 		}
 		from = "SKB1 WAERS of its G/L account " + sap.Alpha(b.HKONT)
-		g.note(path+".currency", fmt.Sprintf("T012K gives the account no currency (WAERS), so SAP does not restrict it and its G/L account's "+
+		g.note(o, path+".currency", fmt.Sprintf("T012K gives the account no currency (WAERS), so SAP does not restrict it and its G/L account's "+
 			"binds it: %s, from %s (SAP specialist, to verify on the pilot system; FI-BAM's account master FCLM_BAM_AMD may cross-check it)", waers, from))
 	}
 	if waers == strings.TrimSpace(companyCurrency) {
 		return
 	}
 	hb.Currency = waers
-	g.note(path+".currency", fmt.Sprintf("the account is in %s (%s), not the company's %s: flag the bank's ledger accounts "+
+	g.note(o, path+".currency", fmt.Sprintf("the account is in %s (%s), not the company's %s: flag the bank's ledger accounts "+
 		"revalue_foreign_currency and give each its unrealised gain and loss accounts in fx_valuation.accounts (SAP's valuation "+
 		"accounts are not in the extract); the draft does not validate until then", waers, from, companyCurrency))
 }
@@ -419,14 +474,14 @@ func (g *gen) ledgerCurrency(company, account string) string {
 // paper form transit-institution (cabank.SplitBankKey; po:2026-11-09, A6).
 // A bank key in another form is left out with a note, and validation then
 // refuses the bank until a reviewer enters the routing.
-func (g *gen) canadianAccount(path string, b sap.T012K, hb *config.HouseBank) {
+func (g *gen) canadianAccount(o objRef, path string, b sap.T012K, hb *config.HouseBank) {
 	if b.IBAN != "" || b.BANKS != "CA" {
 		return
 	}
 	hb.AccountNumber = b.BANKN
 	institution, transit, ok := cabank.SplitBankKey(b.BANKL)
 	if !ok {
-		g.note(path, fmt.Sprintf("bank key %q is not a Canadian routing number as 0 + institution (3 digits) + transit (5 digits), or transit-institution "+
+		g.note(o, path, fmt.Sprintf("bank key %q is not a Canadian routing number as 0 + institution (3 digits) + transit (5 digits), or transit-institution "+
 			"(12345-001); enter institution_number and transit_number", b.BANKL))
 		return
 	}
@@ -442,9 +497,10 @@ func (g *gen) chartOfAccounts(p, company string) []config.Account {
 			continue
 		}
 		num := sap.Alpha(a.SAKNR)
+		o := g.named(g.read("SKB1", company+"/"+num), a.TXT50)
 		typ, err := g.opts.accountType(num)
 		if err != nil {
-			g.note(p+".chart_of_accounts["+num+"]", err.Error())
+			g.leaveOut(o, p+".chart_of_accounts["+num+"]", err.Error())
 			continue
 		}
 		out = append(out, config.Account{Number: num, Name: a.TXT50, Type: typ, VendorReconciliation: a.MITKZ == "K"})
@@ -455,13 +511,13 @@ func (g *gen) chartOfAccounts(p, company string) []config.Account {
 // oneAccount is the account of the first T030 row of a transaction key:
 // SAP keeps WRX and PRD per valuation modifier and class, the
 // configuration one per company, so rows naming another account are noted.
-func (g *gen) oneAccount(path string, r sap.T030, taken string) string {
+func (g *gen) oneAccount(o objRef, path string, r sap.T030, taken string) string {
 	account := sap.Alpha(r.KONTS)
 	if taken == "" {
 		return account
 	}
 	if account != taken {
-		g.note(path, fmt.Sprintf("T030 %s names accounts %s and %s; %s taken", r.KTOSL, taken, account, taken))
+		g.leaveOut(o, path, fmt.Sprintf("T030 %s names accounts %s and %s; %s taken", r.KTOSL, taken, account, taken))
 	}
 	return taken
 }
@@ -473,7 +529,12 @@ func (g *gen) oneAccount(path string, r sap.T030, taken string) string {
 func (g *gen) downPayment(path, company string) string {
 	taken := ""
 	for _, r := range g.e.T074 {
-		if r.BUKRS != company || r.KOART != "K" || r.UMSKZ != "A" {
+		if r.BUKRS != company {
+			continue
+		}
+		o := g.read("T074", r.BUKRS+"/"+r.KOART+"/"+r.UMSKZ+"/"+sap.Alpha(r.HKONT))
+		if r.KOART != "K" || r.UMSKZ != "A" {
+			g.gap(o, path, "T074 account type "+r.KOART+", special G/L indicator "+r.UMSKZ+": only vendor down payments (K, A) are taken; left out")
 			continue
 		}
 		account := sap.Alpha(r.SKONT)
@@ -481,14 +542,14 @@ func (g *gen) downPayment(path, company string) string {
 		case taken == "":
 			taken = account
 		case account != taken:
-			g.note(path, fmt.Sprintf("T074 names down payment accounts %s and %s; %s taken", taken, account, taken))
+			g.leaveOut(o, path, fmt.Sprintf("T074 names down payment accounts %s and %s; %s taken", taken, account, taken))
 		}
 	}
 	return taken
 }
 
 // apReconciliation is the account most vendors in this company post to.
-func (g *gen) apReconciliation(p, company string) string {
+func (g *gen) apReconciliation(o objRef, p, company string) string {
 	counts := map[string]int{}
 	for _, v := range g.e.LFB1 {
 		if v.BUKRS == company {
@@ -502,7 +563,7 @@ func (g *gen) apReconciliation(p, company string) string {
 		}
 	}
 	if len(counts) > 1 {
-		g.note(p+".account_determination.ap_reconciliation", fmt.Sprintf("vendors use %d reconciliation accounts; %s is the most common", len(counts), best))
+		g.note(o, p+".account_determination.ap_reconciliation", fmt.Sprintf("vendors use %d reconciliation accounts; %s is the most common", len(counts), best))
 	}
 	return best
 }
@@ -512,31 +573,36 @@ func (g *gen) apReconciliation(p, company string) string {
 // keeps the 2% default and one with a fraction is cut to whole percent,
 // and an amount that cannot be converted from SAP's internal form keeps
 // the 5.00 default, each with a note.
-func (g *gen) invoiceTolerance(p, company, cur string) config.Tolerance {
+func (g *gen) invoiceTolerance(co objRef, p, company, cur string) config.Tolerance {
 	tolerance := config.Tolerance{PricePercent: 2, PriceAbsolute: "5.00"}
 	found := false
 	for _, tol := range g.e.T169G {
-		if tol.BUKRS != company || tol.TOLSL != "PP" {
+		if tol.BUKRS != company {
+			continue
+		}
+		o := g.read("T169G", tol.BUKRS+"/"+tol.TOLSL)
+		if tol.TOLSL != "PP" {
+			g.gap(o, p+".invoice_tolerance", "T169G tolerance key "+tol.TOLSL+": the configuration takes the price tolerance, key PP, alone; left out")
 			continue
 		}
 		tolerance, found = config.Tolerance{PricePercent: 2, PriceAbsolute: "5.00"}, true
 		if werto, problem := g.amount(tol.WERTO, cur); problem != "" {
-			g.note(p+".invoice_tolerance.price_absolute", fmt.Sprintf("T169G key PP amount %q %s; used 5.00", tol.WERTO, problem))
+			g.note(o, p+".invoice_tolerance.price_absolute", fmt.Sprintf("T169G key PP amount %q %s; used 5.00", tol.WERTO, problem))
 		} else {
 			tolerance.PriceAbsolute = werto
 		}
 		pct, exact, problem := wholePercent(tol.PROZ)
 		switch {
 		case problem != "":
-			g.note(p+".invoice_tolerance.price_percent", fmt.Sprintf("T169G key PP percentage %q %s; used 2%%", tol.PROZ, problem))
+			g.note(o, p+".invoice_tolerance.price_percent", fmt.Sprintf("T169G key PP percentage %q %s; used 2%%", tol.PROZ, problem))
 			continue
 		case !exact:
-			g.note(p+".invoice_tolerance.price_percent", fmt.Sprintf("T169G key PP percentage %q is not a whole percent; used %d%%", tol.PROZ, pct))
+			g.note(o, p+".invoice_tolerance.price_percent", fmt.Sprintf("T169G key PP percentage %q is not a whole percent; used %d%%", tol.PROZ, pct))
 		}
 		tolerance.PricePercent = pct
 	}
 	if !found {
-		g.note(p+".invoice_tolerance", "T169G key PP not found; used 2% / 5.00")
+		g.note(co, p+".invoice_tolerance", "T169G key PP not found; used 2% / 5.00")
 	}
 	return tolerance
 }
@@ -558,7 +624,7 @@ func (g *gen) numberRanges() []config.NumberRange {
 		types["journal_"+strings.ToLower(l.BLART)] = ""
 	}
 	if len(years) == 0 {
-		g.note("number_ranges", "the extract has no journal; add number ranges for the fiscal years to migrate")
+		g.note(none, "number_ranges", "the extract has no journal; add number ranges for the fiscal years to migrate")
 	}
 	var out []config.NumberRange
 	sorted := sortedKeys(years)
@@ -580,7 +646,7 @@ func (g *gen) numberRanges() []config.NumberRange {
 // roles notes the roles the document routes approvals to, and the SAP
 // roles with their users, to provision in the identity context.
 func (g *gen) roles(c *config.Config) {
-	g.note("roles", "provision these identity roles before activating: "+strings.Join(c.RoleNames(), ", "))
+	g.note(none, "roles", "provision these identity roles before activating: "+strings.Join(c.RoleNames(), ", "))
 	users := map[string][]string{}
 	for _, u := range g.e.AGR_USERS {
 		if !slices.Contains(users[u.AGR_NAME], u.UNAME) {
@@ -588,7 +654,7 @@ func (g *gen) roles(c *config.Config) {
 		}
 	}
 	for _, d := range g.e.AGR_DEFINE {
-		g.note("roles["+d.AGR_NAME+"]", fmt.Sprintf("SAP role %q (users: %s): map its permissions in identity", d.TEXT, strings.Join(users[d.AGR_NAME], ", ")))
+		g.leaveOut(g.named(g.read("AGR_DEFINE", d.AGR_NAME), d.TEXT), "roles["+d.AGR_NAME+"]", fmt.Sprintf("SAP role %q (users: %s): map its permissions in identity", d.TEXT, strings.Join(users[d.AGR_NAME], ", ")))
 	}
 }
 

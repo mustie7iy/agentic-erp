@@ -21,6 +21,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
@@ -69,12 +70,17 @@ what it needs, and cite each setting that applies as its path and its value, eac
 count is written in words. When no operation of the contract does what is asked, name none and say: ` + Unanswered + `
 You change nothing and have no tool that writes. After the reply, end with one short sentence.`
 
-// Agent answers how-to questions.
+// Agent answers how-to questions, diagnoses a document and drafts the fix
+// of a cause in the configuration.
 type Agent struct {
 	LLM *llm.Runner
 	API *apitools.Client
 	// MaxIterations bounds the model's requests in one run; default 20.
 	MaxIterations int
+	// Poll is how often a fix's run reads a simulation it waits for
+	// (T108c), and Patience how long it waits; defaults one second and
+	// two minutes (changedraft).
+	Poll, Patience time.Duration
 }
 
 // Result is what a run did: its session, the reply its check admitted
@@ -180,12 +186,8 @@ var (
 	// operationRe is a word that has the form of an operation id: lower
 	// case, then words joined by capitals (releaseSupplierInvoice).
 	operationRe = regexp.MustCompile(`\b[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)+\b`)
-	// citationRe is a setting cited as `path` = `value`.
-	citationRe = regexp.MustCompile("`([^`\\s]+)` = `([^`]*)`")
 	// codeRe is a text in backticks.
 	codeRe = regexp.MustCompile("`[^`]*`")
-	// listRe is a list item's number at a line's start.
-	listRe = regexp.MustCompile(`(?m)^\s*\d+[.)]\s`)
 )
 
 // check is the agent's rule on a reply (T108a): it names only the
@@ -206,13 +208,11 @@ func (r *replying) check(text string) error {
 	if len(named) == 0 && !strings.Contains(text, Unanswered) {
 		return ErrUnanswered
 	}
-	for _, m := range citationRe.FindAllStringSubmatch(text, -1) {
-		if v, ok := config.Setting(r.active, m[1]); !ok || v != m[2] {
-			return fmt.Errorf("%w: not %s = %s", ErrSetting, m[1], m[2])
-		}
+	if c, unheld := config.Unheld(r.active, text); unheld {
+		return fmt.Errorf("%w: not %s = %s", ErrSetting, c.Path, c.Value)
 	}
 	asked := recommend.Numbers(r.question)
-	prose := listRe.ReplaceAllString(codeRe.ReplaceAllString(text, " "), " ")
+	prose := recommend.Unnumbered(codeRe.ReplaceAllString(text, " "))
 	for _, n := range recommend.Numbers(prose) {
 		if !slices.Contains(asked, n) {
 			return fmt.Errorf("%w: not %s", ErrNumber, n)

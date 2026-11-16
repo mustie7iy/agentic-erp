@@ -22,34 +22,36 @@ import (
 // amount limits, T042I's bank subaccounts) is noted; a value SAP does not
 // give (a method's name, its ranking) is left empty with a note, which
 // validation refuses until a reviewer sets it.
-func (g *gen) paymentMethods(p, country string, co *config.Company) []config.PaymentMethod {
+func (g *gen) paymentMethods(company objRef, p, country string, co *config.Company) []config.PaymentMethod {
 	var out []config.PaymentMethod
 	seen := map[string]bool{}
 	for _, e := range g.e.T042E {
 		if e.ZBUKR != co.Code || seen[e.ZLSCH] {
-			continue
+			continue // a second row of a method is the same object
 		}
 		seen[e.ZLSCH] = true
 		mp := p + ".payment_methods[" + e.ZLSCH + "]"
-		g.amountLimits(mp, e, co.Currency)
-		out = append(out, config.PaymentMethod{Code: e.ZLSCH, Description: g.methodName(mp, country, e.ZLSCH), Ranking: g.ranking(mp, co, e.ZLSCH)})
-		g.subaccounts(mp, co, e.ZLSCH)
+		o := g.read("T042E", e.ZBUKR+"/"+e.ZLSCH)
+		g.amountLimits(o, mp, e, co.Currency)
+		out = append(out, config.PaymentMethod{Code: e.ZLSCH, Description: g.methodName(o, mp, country, e.ZLSCH), Ranking: g.ranking(o, mp, co, e.ZLSCH)})
+		g.subaccounts(o, mp, co, e.ZLSCH)
+		g.named(o, out[len(out)-1].Description)
 	}
 	for _, a := range g.e.T042A {
 		if a.ZBUKR == co.Code && !seen[a.ZLSCH] {
 			seen[a.ZLSCH] = true
-			g.note(p+".payment_methods", fmt.Sprintf("T042A ranks house banks for payment method %s, which T042E does not set up for the company: left out", a.ZLSCH))
+			g.leaveOut(g.read("T042A", a.ZBUKR+"/"+a.ZLSCH), p+".payment_methods", fmt.Sprintf("T042A ranks house banks for payment method %s, which T042E does not set up for the company: left out", a.ZLSCH))
 		}
 	}
 	if len(out) > 1 {
 		// SAP specialist, po:2026-11-09, A4(c) [M]: the run's parameters,
 		// not T042E or the vendor's ZWELS, order the methods.
-		g.note(p+".payment_methods", "a payment run tries the methods in the order listed here, T042E's as extracted; SAP's payment run (F110) takes the "+
+		g.note(company, p+".payment_methods", "a payment run tries the methods in the order listed here, T042E's as extracted; SAP's payment run (F110) takes the "+
 			"order from its own parameters per company code, which the extract does not carry: list the methods in the order the company's "+
 			"runs name them, or give each its order")
 	}
 	if len(out) == 0 {
-		g.note(p+".payment_methods", "T042E sets up no payment method for the company: a payment run then needs a house bank, and the migration refuses "+
+		g.note(company, p+".payment_methods", "T042E sets up no payment method for the company: a payment run then needs a house bank, and the migration refuses "+
 			"a supplier whose company data lists one (LFB1-ZWELS)")
 	}
 	return out
@@ -58,7 +60,7 @@ func (g *gen) paymentMethods(p, country string, co *config.Company) []config.Pay
 // methodName is the method's name in the company's country (T042Z, set
 // up per country), or empty with a note when T042Z has none: validation
 // refuses a method without a description.
-func (g *gen) methodName(mp, country, code string) string {
+func (g *gen) methodName(o objRef, mp, country, code string) string {
 	for _, z := range g.e.T042Z {
 		if z.LAND1 == country && z.ZLSCH == code {
 			if name := strings.TrimSpace(z.TEXT1); name != "" {
@@ -66,7 +68,7 @@ func (g *gen) methodName(mp, country, code string) string {
 			}
 		}
 	}
-	g.note(mp+".description", fmt.Sprintf("T042Z names no payment method %s for the company's country %s; describe it (left empty, which fails validation)", code, country))
+	g.note(o, mp+".description", fmt.Sprintf("T042Z names no payment method %s for the company's country %s; describe it (left empty, which fails validation)", code, country))
 	return ""
 }
 
@@ -74,11 +76,11 @@ func (g *gen) methodName(mp, country, code string) string {
 // the method, in the company's currency: the configuration has none per
 // method (ADR-0038 keeps amount limits out of scope), so a proposal would
 // pay any amount by it.
-func (g *gen) amountLimits(mp string, e sap.T042E, cur string) {
+func (g *gen) amountLimits(o objRef, mp string, e sap.T042E, cur string) {
 	if strings.Trim(e.VONBT+e.BISBT, "0., ") == "" {
 		return
 	}
-	g.note(mp, fmt.Sprintf("SAP pays by the method only from %s to %s (T042E VONBT/BISBT); the configuration has no amount limits per method, "+
+	g.note(o, mp, fmt.Sprintf("SAP pays by the method only from %s to %s (T042E VONBT/BISBT); the configuration has no amount limits per method, "+
 		"so payment proposals would pay any amount by it", g.shown(e.VONBT, cur), g.shown(e.BISBT, cur)))
 }
 
@@ -115,7 +117,7 @@ func ranked(mp string, a sap.T042A, note func(path, msg string)) int {
 // one ranked for another currency than its account's, or one ranked twice
 // is kept and noted: validation refuses it until a reviewer corrects the
 // ranking.
-func (g *gen) ranking(mp string, co *config.Company, code string) []config.BankRanking {
+func (g *gen) ranking(o objRef, mp string, co *config.Company, code string) []config.BankRanking {
 	banks := map[string]string{} // house bank -> its currency
 	for _, hb := range co.AllHouseBanks() {
 		if hb.Name != "" {
@@ -129,26 +131,26 @@ func (g *gen) ranking(mp string, co *config.Company, code string) []config.BankR
 	var rows []row
 	for _, a := range g.e.T042A {
 		if a.ZBUKR == co.Code && a.ZLSCH == code {
-			rows = append(rows, row{ranked(mp, a, g.note), a})
+			rows = append(rows, row{ranked(mp, a, func(path, msg string) { g.note(o, path, msg) }), a})
 		}
 	}
 	if len(rows) == 0 {
-		g.note(mp+".ranking", "T042A ranks no house bank for the method; rank the banks that pay with it (validation refuses a method without a ranking)")
+		g.note(o, mp+".ranking", "T042A ranks no house bank for the method; rank the banks that pay with it (validation refuses a method without a ranking)")
 		return nil
 	}
 	slices.SortStableFunc(rows, func(x, y row) int { return cmp.Compare(x.order, y.order) })
 	byCurrency := map[string][]string{} // "": the rows without a currency
 	for _, r := range rows {
 		bank, currency := r.a.HBKID, strings.TrimSpace(r.a.WAERS) // HBKID as T012K's, which names the house banks
-		g.rankedBank(mp, bank, currency, banks)
+		g.rankedBank(o, mp, bank, currency, banks)
 		if slices.Contains(byCurrency[currency], bank) {
-			g.note(mp+".ranking", fmt.Sprintf("T042A ranks house bank %s twice %s; rank it once (validation refuses it)", bank, rowsFor(currency)))
+			g.note(o, mp+".ranking", fmt.Sprintf("T042A ranks house bank %s twice %s; rank it once (validation refuses it)", bank, rowsFor(currency)))
 		}
 		byCurrency[currency] = append(byCurrency[currency], bank)
 	}
 	anyCurrency := byCurrency[""]
 	delete(byCurrency, "")
-	g.withoutCurrency(mp, co.Currency, anyCurrency, banks, byCurrency)
+	g.withoutCurrency(o, mp, co.Currency, anyCurrency, banks, byCurrency)
 	out := make([]config.BankRanking, 0, len(byCurrency))
 	for _, currency := range sortedKeys(byCurrency) {
 		out = append(out, config.BankRanking{Currency: currency, HouseBanks: byCurrency[currency]})
@@ -166,13 +168,13 @@ func rowsFor(currency string) string {
 
 // rankedBank notes a T042A row validation will refuse: a bank the company
 // does not have, or one ranked for another currency than its account's.
-func (g *gen) rankedBank(mp, bank, currency string, banks map[string]string) {
+func (g *gen) rankedBank(o objRef, mp, bank, currency string, banks map[string]string) {
 	own, ok := banks[bank]
 	switch {
 	case !ok:
-		g.note(mp+".ranking", fmt.Sprintf("T042A ranks house bank %s, which T012K does not give the company: drop it or add the bank (validation refuses it)", bank))
+		g.note(o, mp+".ranking", fmt.Sprintf("T042A ranks house bank %s, which T012K does not give the company: drop it or add the bank (validation refuses it)", bank))
 	case currency != "" && currency != own:
-		g.note(mp+".ranking["+currency+"]", fmt.Sprintf("T042A ranks house bank %s, an account in %s, for payments in %s; a house bank pays only in its own currency "+
+		g.note(o, mp+".ranking["+currency+"]", fmt.Sprintf("T042A ranks house bank %s, an account in %s, for payments in %s; a house bank pays only in its own currency "+
 			"(ADR-0051 §3): rank another bank (validation refuses it)", bank, own, currency))
 	}
 }
@@ -181,7 +183,7 @@ func (g *gen) rankedBank(mp, bank, currency string, banks map[string]string) {
 // for its account's currency (the company's for a bank the company does
 // not have, which validation refuses), unless the method ranks that
 // currency with rows of its own, which SAP would take instead.
-func (g *gen) withoutCurrency(mp, companyCurrency string, unranked []string, banks map[string]string, byCurrency map[string][]string) {
+func (g *gen) withoutCurrency(o objRef, mp, companyCurrency string, unranked []string, banks map[string]string, byCurrency map[string][]string) {
 	if len(unranked) == 0 {
 		return
 	}
@@ -192,13 +194,13 @@ func (g *gen) withoutCurrency(mp, companyCurrency string, unranked []string, ban
 	for _, bank := range unranked {
 		currency := cmp.Or(banks[bank], companyCurrency)
 		if explicit[currency] {
-			g.note(mp+".ranking["+currency+"]", fmt.Sprintf("T042A ranks house bank %s without a currency, which SAP uses only where the method ranks "+
+			g.note(o, mp+".ranking["+currency+"]", fmt.Sprintf("T042A ranks house bank %s without a currency, which SAP uses only where the method ranks "+
 				"no bank for the currency; it ranks banks for %s, so %s is not ranked", bank, currency, bank))
 			continue
 		}
 		byCurrency[currency] = append(byCurrency[currency], bank)
 	}
-	g.note(mp+".ranking", "T042A ranks house banks without a currency, which SAP pays any currency through; a house bank pays only in its own "+
+	g.note(o, mp+".ranking", "T042A ranks house banks without a currency, which SAP pays any currency through; a house bank pays only in its own "+
 		"currency (ADR-0051 §3), so each is ranked for its account's")
 }
 
@@ -206,7 +208,7 @@ func (g *gen) withoutCurrency(mp, companyCurrency string, unranked []string, ban
 // bank's ledger account: SAP posts a payment by the method to the
 // subaccount, the platform credits the bank's one clearing account for
 // every method (ADR-0038).
-func (g *gen) subaccounts(mp string, co *config.Company, code string) {
+func (g *gen) subaccounts(o objRef, mp string, co *config.Company, code string) {
 	for _, i := range g.e.T042I {
 		if i.ZBUKR != co.Code || i.ZLSCH != code {
 			continue
@@ -217,7 +219,7 @@ func (g *gen) subaccounts(mp string, co *config.Company, code string) {
 		}
 		account, sub := co.HouseBankAccount(co.AllHouseBanks()[at]), sap.Alpha(strings.TrimSpace(i.UKONT))
 		if sub != "" && sub != account {
-			g.note(mp, fmt.Sprintf("SAP posts payments by the method from house bank %s in %q to its bank subaccount %s (T042I UKONT); the platform "+
+			g.note(o, mp, fmt.Sprintf("SAP posts payments by the method from house bank %s in %q to its bank subaccount %s (T042I UKONT); the platform "+
 				"credits the bank's one clearing account %s for every method: check it is the account SAP's outgoing payments clear", i.HBKID,
 				strings.TrimSpace(i.WAERS), sub, account))
 		}

@@ -30,9 +30,17 @@ import (
 // Endpoints implements the audit part of the generated API.
 type Endpoints struct {
 	Pages *pagination.Codec
-	// Anchors is the object storage the anchors were written to; nil checks
-	// anchors against the chain only.
-	Anchors blobstore.Store
+	// Objects is the object storage the anchors were written to and the
+	// evidence exports are (T101a); nil checks anchors against the chain
+	// only and takes no export.
+	Objects blobstore.Store
+	// The evidence exports' ports (T101a), which the composition root
+	// wires.
+	LegalEntities LegalEntities
+	Journal       Journal
+	Approvals     Approvals
+	People        People
+	Now           func() time.Time // nil: the wall clock
 }
 
 // Event is a row of audit.audit_event without its hashes.
@@ -197,16 +205,9 @@ func VerifyChain(ctx context.Context, store blobstore.Store, from, to *int64) (o
 	if err != nil {
 		return operations.Operation{}, err
 	}
-	res, err := trail.VerifyRange(ctx, tx, p.TenantID, first, last)
+	res, anchors, err := verified(ctx, tx, store, p.TenantID, first, last)
 	if err != nil {
 		return operations.Operation{}, err
-	}
-	anchors, brokenAnchor, err := checkAnchors(ctx, tx, store, p.TenantID, first, last)
-	if err != nil {
-		return operations.Operation{}, err
-	}
-	if brokenAnchor != 0 && (res.BrokenAt == 0 || brokenAnchor < res.BrokenAt) {
-		res.BrokenAt = brokenAnchor
 	}
 	result := map[string]any{"verified": res.BrokenAt == 0, "last_seq": res.LastSeq, "checked": res.Checked, "anchors_checked": anchors}
 	if res.BrokenAt != 0 {
@@ -234,7 +235,7 @@ func (e *Endpoints) VerifyAuditChain(ctx context.Context, req *gen.AuditVerify, 
 	if v, ok := req.ToSeq.Get(); ok {
 		to = &v
 	}
-	op, err := VerifyChain(ctx, e.Anchors, from, to)
+	op, err := VerifyChain(ctx, e.Objects, from, to)
 	if err != nil {
 		return nil, err
 	}

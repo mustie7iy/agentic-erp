@@ -245,6 +245,10 @@ type CreateAssetTransferRes interface {
 	createAssetTransferRes()
 }
 
+type CreateAuditEvidenceExportRes interface {
+	createAuditEvidenceExportRes()
+}
+
 type CreateBillingDocumentRes interface {
 	createBillingDocumentRes()
 }
@@ -673,6 +677,14 @@ type GetAssetTransferRes interface {
 	getAssetTransferRes()
 }
 
+type GetAuditEvidenceExportFileRes interface {
+	getAuditEvidenceExportFileRes()
+}
+
+type GetAuditEvidenceExportRes interface {
+	getAuditEvidenceExportRes()
+}
+
 type GetBalanceCarryForwardRes interface {
 	getBalanceCarryForwardRes()
 }
@@ -1001,6 +1013,14 @@ type GetPrincipalRes interface {
 	getPrincipalRes()
 }
 
+type GetProcessEventLogRes interface {
+	getProcessEventLogRes()
+}
+
+type GetProcessMapRes interface {
+	getProcessMapRes()
+}
+
 type GetProfitCenterRes interface {
 	getProfitCenterRes()
 }
@@ -1231,6 +1251,10 @@ type ListAssetsRes interface {
 
 type ListAuditEventsRes interface {
 	listAuditEventsRes()
+}
+
+type ListAuditEvidenceExportsRes interface {
+	listAuditEvidenceExportsRes()
 }
 
 type ListBalanceCarryForwardBalancesRes interface {

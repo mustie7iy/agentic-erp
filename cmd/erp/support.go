@@ -66,6 +66,28 @@ func agentSupportDiagnose(ctx context.Context, args []string) error {
 	return recommended("agent support-diagnose", res, runErr)
 }
 
+// agentSupportFix has the support agent draft the configuration change
+// request that fixes a root cause of the class configuration a user
+// accepted, and have it simulated (ADR-0072 As built, T108c): it prints
+// what it recommended on the draft and the model's reply, also when the
+// run failed after starting its session; a person submits the draft.
+func agentSupportFix(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("agent support-fix", flag.ContinueOnError)
+	rec := fs.String("recommendation", "", "the accepted root cause's recommendation id")
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	if *rec == "" {
+		return errors.New("agent support-fix: want -recommendation ID")
+	}
+	c, err := client("ERP_AGENT_TOKEN")
+	if err != nil {
+		return err
+	}
+	res, runErr := (&supportagent.Agent{LLM: newRunner(c), API: c}).Fix(ctx, *rec)
+	return recommended("agent support-fix", res, runErr)
+}
+
 // supportEval has the support agent answer the task's question as erp
 // agent support-ask does, or, with the task's run diagnose, find the root
 // cause of its document as erp agent support-diagnose does; its reply

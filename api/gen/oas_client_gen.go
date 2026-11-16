@@ -1044,6 +1044,32 @@ type Invoker interface {
 	//
 	// POST /v1/asset-transfers
 	CreateAssetTransfer(ctx context.Context, request *AssetTransferCreate, params CreateAssetTransferParams) (CreateAssetTransferRes, error)
+	// CreateAuditEvidenceExport invokes createAuditEvidenceExport operation.
+	//
+	// Requests the audit evidence of companies and a period (ADR-0011 As built, T101a), written by the
+	// evidence exporter in the background to object storage as files with a manifest
+	// (`getAuditEvidenceExport` then shows it `completed`, or `failed` with the problem code that stopped
+	// it): `audit_events.jsonl`, the tenant's audit events that occurred in the period (from `from` at
+	// 00:00 UTC to the end of `to` in UTC) up to the chain's head when the exporter read it, their details
+	// as stored and, only when the requester holds `audit.event.read` (the permission that reads them on
+	// `listAuditEvents`), their client addresses (`with_client_addresses`); `journal_entries.jsonl`, the
+	// journal entries of the companies posted in the period, of every ledger, with their lines;
+	// `approval_decisions.jsonl`, the decisions on the approval requests about those entries' source
+	// documents, with who decided; and `manifest.json`, each file's record count and SHA-256 and the
+	// result of verifying the audit chain from its first event to that head against its hashes and
+	// anchors. The audit trail is the tenant's (one chain per tenant), not a company's. The export covers
+	// the companies asked for that the caller may act in, in the order of their codes; when it covers
+	// none, 422 `request.validation_failed` names `legal_entity_ids`. The period is one day to 371 days,
+	// `to` not before `from` (422 `request.validation_failed`). Each request is a new export. The exporter
+	// refuses a requester blocked or deprovisioned since (the export fails with
+	// `identity.principal_blocked`), and a period whose audit events, or whose companies' journal lines,
+	// number more than 200,000 (`audit.evidence_too_large`: the files are built and downloaded whole). 503
+	// while the server has no object storage to write the files to. Audited
+	// (`audit.evidence_export.request`); the completion is audited and published as AuditEvidenceExported.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/audit-evidence-exports
+	CreateAuditEvidenceExport(ctx context.Context, request *AuditEvidenceExportCreate, params CreateAuditEvidenceExportParams) (CreateAuditEvidenceExportRes, error)
 	// CreateBillingDocument invokes createBillingDocument operation.
 	//
 	// Creates a billing document for one sales order (ADR-0067 §9, T79a): each of its items bills the
@@ -2750,6 +2776,31 @@ type Invoker interface {
 	//
 	// GET /v1/asset-transfers/{id}
 	GetAssetTransfer(ctx context.Context, params GetAssetTransferParams) (GetAssetTransferRes, error)
+	// GetAuditEvidenceExport invokes getAuditEvidenceExport operation.
+	//
+	// One audit evidence export (T101a): `queued` until the exporter writes its files, then `completed`
+	// with its files (name, SHA-256, size and record count), the manifest's SHA-256, its counts and the
+	// chain's verification, or `failed` with the problem code that stopped it. An export covering a
+	// company the caller cannot act in is not found. Human-only (`x-agent: false`).
+	//
+	// GET /v1/audit-evidence-exports/{id}
+	GetAuditEvidenceExport(ctx context.Context, params GetAuditEvidenceExportParams) (GetAuditEvidenceExportRes, error)
+	// GetAuditEvidenceExportFile invokes getAuditEvidenceExportFile operation.
+	//
+	// A file of a completed audit evidence export (T101a), byte for byte as the exporter wrote it to
+	// object storage: `manifest.json` (JSON), or one of the files it names, `audit_events.jsonl`,
+	// `journal_entries.jsonl` or `approval_decisions.jsonl` (JSON Lines, one record per line, in the form
+	// ADR-0011's As built documents). The manifest's SHA-256 is the export's `manifest_sha256`, and each
+	// other file's is the one the manifest names; both are checked before the file is handed out (409
+	// `audit.evidence_changed` when the stored bytes no longer match). An export not completed has no
+	// files (409 `audit.evidence_not_completed`); another name is not found. The audit events of an export
+	// made `with_client_addresses` hold people's client addresses, so that file is handed only to a caller
+	// who holds `audit.event.read` too (403 `audit.client_addresses_withheld` otherwise). Human-only
+	// (`x-agent: false`). 503 while the server has no object storage or the store does not answer. An
+	// export covering a company the caller cannot act in is not found.
+	//
+	// GET /v1/audit-evidence-exports/{id}/files/{name}
+	GetAuditEvidenceExportFile(ctx context.Context, params GetAuditEvidenceExportFileParams) (GetAuditEvidenceExportFileRes, error)
 	// GetBalanceCarryForward invokes getBalanceCarryForward operation.
 	//
 	// One carry-forward run (ADR-0060 §7) with its company, ledger, years, basis, retained earnings
@@ -3783,6 +3834,50 @@ type Invoker interface {
 	//
 	// GET /v1/principals/{id}
 	GetPrincipal(ctx context.Context, params GetPrincipalParams) (GetPrincipalRes, error)
+	// GetProcessEventLog invokes getProcessEventLog operation.
+	//
+	// The event log of a business process for a company and a period (ADR-0080, T103a), computed on read
+	// from the documents' links and the audit trail; nothing is stored. The first process is
+	// `purchase_to_pay` (another is 422 `request.validation_failed`): a case is a purchase order dated in
+	// the period (`from`, `to`, both included), or a supplier document on no order dated in it, a case of
+	// its own; its events are the activities of the order, the requisition it was made from, its goods
+	// movements, the supplier documents on it and the released payment runs that paid them, each with its
+	// time and the kind of actor that did it (`person`, `agent` or `system`, never who), by time and then
+	// by the audit trail's sequence number, at any time up to the read. ADR-0080 lists the activities and
+	// the audit actions each comes from. The cases are by date and id, paged by case (`page_size` cases,
+	// the default 50, at most 500); `case_count` counts every case of the log. The period is one day to
+	// 371 days (422 `request.validation_failed` naming `to` otherwise). As JSON (`format=json`, the
+	// default) or as CSV (`format=csv`): a header row, then a row per event of the page's cases with its
+	// case, the next page's token in the `Next-Page-Token` header. A company the caller cannot act in is
+	// 404, as one that does not exist.
+	//
+	// GET /v1/process-event-logs
+	GetProcessEventLog(ctx context.Context, params GetProcessEventLogParams) (GetProcessEventLogRes, error)
+	// GetProcessMap invokes getProcessMap operation.
+	//
+	// The process map of a business process for a company and a period (ADR-0080 As built, T103b),
+	// computed on read from every case of its event log (`getProcessEventLog`: the same cases, events and
+	// activities); nothing is stored and no model is involved. It gives the activities, each with how many
+	// events and cases have it; the directly-follows pairs, each with how many times its second activity
+	// directly follows its first within a case (`count`) and the median time between the two events in
+	// whole seconds (`median_seconds`, each time cut to whole seconds; for an even count the lower of the
+	// two middle values); and the ten most frequent variants, a variant being the sequence of a case's
+	// activities, with their cases and their share of the cases in percent (two decimals, rounded half
+	// away from zero), the most frequent first, equal ones by their activities. Every case is in exactly
+	// one variant: `variant_count` counts them all, and the cases of the variants not among the ten are
+	// `case_count` less theirs. A case is open while its last activity does not end it: `Pay invoice`,
+	// `Close purchase order` or `Cancel purchase order` end an order's case, `Pay invoice` or
+	// `Reverse invoice` a supplier document's, and a case without events is open; open cases are counted
+	// (`open_case_count`, also per variant) and in the map like every other. Activities are by event
+	// count, then by name; pairs by count, then by their activities. The first process is
+	// `purchase_to_pay` (another is 422 `request.validation_failed`). The period is one day to 371 days
+	// (422 `request.validation_failed` naming `to` otherwise). Every case is read from one database state
+	// (a repeatable-read snapshot), so the counts agree with each other. The permission is the event
+	// log's: the map is that log summed. A company the caller cannot act in is 404, as one that does not
+	// exist.
+	//
+	// GET /v1/process-maps
+	GetProcessMap(ctx context.Context, params GetProcessMapParams) (GetProcessMapRes, error)
 	// GetProfitCenter invokes getProfitCenter operation.
 	//
 	// Returns one profit center with its companies and active periods.
@@ -3913,9 +4008,12 @@ type Invoker interface {
 	// measure an exact decimal and a money measure followed by its currency's column (`<name>_currency`),
 	// a measure that cannot be computed empty, the result named by `query_id` (422
 	// `analytics.unknown_query` when the run has no such result, or when the run has several and none is
-	// named). A failed run has no results (409 `analytics.report_run_failed` for its CSV); a format the
-	// contract does not list is 422 `request.validation_failed`; 503 while the server has no object
-	// storage.
+	// named); as an Excel workbook (`format=xlsx`, T95d, ADR-0076 §8) the same result as
+	// `runAnalyticsQuery`'s workbook writes it, on a sheet named `Report`, the result named as for CSV,
+	// and a result cut at the rows a query answers (`truncated`) refused (422
+	// `analytics.result_truncated`). A failed run has no results (409 `analytics.report_run_failed` for
+	// its CSV or workbook); a format the contract does not list is 422 `request.validation_failed`; 503
+	// while the server has no object storage.
 	//
 	// GET /v1/report-runs/{id}
 	GetReportRun(ctx context.Context, params GetReportRunParams) (GetReportRunRes, error)
@@ -4418,6 +4516,14 @@ type Invoker interface {
 	//
 	// GET /v1/audit-events
 	ListAuditEvents(ctx context.Context, params ListAuditEventsParams) (ListAuditEventsRes, error)
+	// ListAuditEvidenceExports invokes listAuditEvidenceExports operation.
+	//
+	// The audit evidence exports (T101a) whose every company the caller may act in, newest first, filtered
+	// by a company they cover and by status. Sortable by: `created_at` (default descending). Human-only
+	// (`x-agent: false`).
+	//
+	// GET /v1/audit-evidence-exports
+	ListAuditEvidenceExports(ctx context.Context, params ListAuditEvidenceExportsParams) (ListAuditEvidenceExportsRes, error)
 	// ListBalanceCarryForwardBalances invokes listBalanceCarryForwardBalances operation.
 	//
 	// A carry-forward run's rows (ADR-0060 §7, T64m3), the opening balances of the next fiscal year: per
@@ -7124,7 +7230,14 @@ type Invoker interface {
 	// `partner.supplier.read` and `ledger.account.read` for the names. A tenant without a configuration is
 	// 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a
 	// filter it cannot apply, amounts of two currencies summed) is 422 `analytics.invalid_query`; too many
-	// queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. Changes nothing:
+	// queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. The result is
+	// JSON (`format=json`, the default) or an Excel workbook (`format=xlsx`, T95d, ADR-0076 §8): one
+	// sheet, a header row of the columns' names, a money measure followed by its currency's column
+	// (`<name>_currency`) as `getReportRun`'s CSV has it, then a row per result row; a measure is a number
+	// written from its exact decimal, with as many decimals shown as it has digits, and every other cell
+	// is text, never a formula. A result cut at the rows a query answers (`truncated`) is not written as a
+	// workbook, which could not say so (422 `analytics.result_truncated`: narrow the query or give it a
+	// `limit`). A format the contract does not list is 422 `request.validation_failed`. Changes nothing:
 	// agents of any autonomy level may run it.
 	//
 	// POST /v1/analytics-queries
@@ -18114,6 +18227,156 @@ func (c *Client) sendCreateAssetTransfer(ctx context.Context, request *AssetTran
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateAssetTransferResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateAuditEvidenceExport invokes createAuditEvidenceExport operation.
+//
+// Requests the audit evidence of companies and a period (ADR-0011 As built, T101a), written by the
+// evidence exporter in the background to object storage as files with a manifest
+// (`getAuditEvidenceExport` then shows it `completed`, or `failed` with the problem code that stopped
+// it): `audit_events.jsonl`, the tenant's audit events that occurred in the period (from `from` at
+// 00:00 UTC to the end of `to` in UTC) up to the chain's head when the exporter read it, their details
+// as stored and, only when the requester holds `audit.event.read` (the permission that reads them on
+// `listAuditEvents`), their client addresses (`with_client_addresses`); `journal_entries.jsonl`, the
+// journal entries of the companies posted in the period, of every ledger, with their lines;
+// `approval_decisions.jsonl`, the decisions on the approval requests about those entries' source
+// documents, with who decided; and `manifest.json`, each file's record count and SHA-256 and the
+// result of verifying the audit chain from its first event to that head against its hashes and
+// anchors. The audit trail is the tenant's (one chain per tenant), not a company's. The export covers
+// the companies asked for that the caller may act in, in the order of their codes; when it covers
+// none, 422 `request.validation_failed` names `legal_entity_ids`. The period is one day to 371 days,
+// `to` not before `from` (422 `request.validation_failed`). Each request is a new export. The exporter
+// refuses a requester blocked or deprovisioned since (the export fails with
+// `identity.principal_blocked`), and a period whose audit events, or whose companies' journal lines,
+// number more than 200,000 (`audit.evidence_too_large`: the files are built and downloaded whole). 503
+// while the server has no object storage to write the files to. Audited
+// (`audit.evidence_export.request`); the completion is audited and published as AuditEvidenceExported.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/audit-evidence-exports
+func (c *Client) CreateAuditEvidenceExport(ctx context.Context, request *AuditEvidenceExportCreate, params CreateAuditEvidenceExportParams) (CreateAuditEvidenceExportRes, error) {
+	res, err := c.sendCreateAuditEvidenceExport(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateAuditEvidenceExport(ctx context.Context, request *AuditEvidenceExportCreate, params CreateAuditEvidenceExportParams) (res CreateAuditEvidenceExportRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createAuditEvidenceExport"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/audit-evidence-exports"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateAuditEvidenceExportOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/audit-evidence-exports"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateAuditEvidenceExportRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateAuditEvidenceExportOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateAuditEvidenceExportResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -34037,6 +34300,300 @@ func (c *Client) sendGetAssetTransfer(ctx context.Context, params GetAssetTransf
 	return result, nil
 }
 
+// GetAuditEvidenceExport invokes getAuditEvidenceExport operation.
+//
+// One audit evidence export (T101a): `queued` until the exporter writes its files, then `completed`
+// with its files (name, SHA-256, size and record count), the manifest's SHA-256, its counts and the
+// chain's verification, or `failed` with the problem code that stopped it. An export covering a
+// company the caller cannot act in is not found. Human-only (`x-agent: false`).
+//
+// GET /v1/audit-evidence-exports/{id}
+func (c *Client) GetAuditEvidenceExport(ctx context.Context, params GetAuditEvidenceExportParams) (GetAuditEvidenceExportRes, error) {
+	res, err := c.sendGetAuditEvidenceExport(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetAuditEvidenceExport(ctx context.Context, params GetAuditEvidenceExportParams) (res GetAuditEvidenceExportRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAuditEvidenceExport"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/audit-evidence-exports/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetAuditEvidenceExportOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/audit-evidence-exports/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetAuditEvidenceExportOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetAuditEvidenceExportResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetAuditEvidenceExportFile invokes getAuditEvidenceExportFile operation.
+//
+// A file of a completed audit evidence export (T101a), byte for byte as the exporter wrote it to
+// object storage: `manifest.json` (JSON), or one of the files it names, `audit_events.jsonl`,
+// `journal_entries.jsonl` or `approval_decisions.jsonl` (JSON Lines, one record per line, in the form
+// ADR-0011's As built documents). The manifest's SHA-256 is the export's `manifest_sha256`, and each
+// other file's is the one the manifest names; both are checked before the file is handed out (409
+// `audit.evidence_changed` when the stored bytes no longer match). An export not completed has no
+// files (409 `audit.evidence_not_completed`); another name is not found. The audit events of an export
+// made `with_client_addresses` hold people's client addresses, so that file is handed only to a caller
+// who holds `audit.event.read` too (403 `audit.client_addresses_withheld` otherwise). Human-only
+// (`x-agent: false`). 503 while the server has no object storage or the store does not answer. An
+// export covering a company the caller cannot act in is not found.
+//
+// GET /v1/audit-evidence-exports/{id}/files/{name}
+func (c *Client) GetAuditEvidenceExportFile(ctx context.Context, params GetAuditEvidenceExportFileParams) (GetAuditEvidenceExportFileRes, error) {
+	res, err := c.sendGetAuditEvidenceExportFile(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetAuditEvidenceExportFile(ctx context.Context, params GetAuditEvidenceExportFileParams) (res GetAuditEvidenceExportFileRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAuditEvidenceExportFile"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/audit-evidence-exports/{id}/files/{name}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetAuditEvidenceExportFileOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [4]string
+	pathParts[0] = "/v1/audit-evidence-exports/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/files/"
+	{
+		// Encode "name" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "name",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Name))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetAuditEvidenceExportFileOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetAuditEvidenceExportFileResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetBalanceCarryForward invokes getBalanceCarryForward operation.
 //
 // One carry-forward run (ADR-0060 §7) with its company, ledger, years, basis, retained earnings
@@ -46170,6 +46727,435 @@ func (c *Client) sendGetPrincipal(ctx context.Context, params GetPrincipalParams
 	return result, nil
 }
 
+// GetProcessEventLog invokes getProcessEventLog operation.
+//
+// The event log of a business process for a company and a period (ADR-0080, T103a), computed on read
+// from the documents' links and the audit trail; nothing is stored. The first process is
+// `purchase_to_pay` (another is 422 `request.validation_failed`): a case is a purchase order dated in
+// the period (`from`, `to`, both included), or a supplier document on no order dated in it, a case of
+// its own; its events are the activities of the order, the requisition it was made from, its goods
+// movements, the supplier documents on it and the released payment runs that paid them, each with its
+// time and the kind of actor that did it (`person`, `agent` or `system`, never who), by time and then
+// by the audit trail's sequence number, at any time up to the read. ADR-0080 lists the activities and
+// the audit actions each comes from. The cases are by date and id, paged by case (`page_size` cases,
+// the default 50, at most 500); `case_count` counts every case of the log. The period is one day to
+// 371 days (422 `request.validation_failed` naming `to` otherwise). As JSON (`format=json`, the
+// default) or as CSV (`format=csv`): a header row, then a row per event of the page's cases with its
+// case, the next page's token in the `Next-Page-Token` header. A company the caller cannot act in is
+// 404, as one that does not exist.
+//
+// GET /v1/process-event-logs
+func (c *Client) GetProcessEventLog(ctx context.Context, params GetProcessEventLogParams) (GetProcessEventLogRes, error) {
+	res, err := c.sendGetProcessEventLog(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetProcessEventLog(ctx context.Context, params GetProcessEventLogParams) (res GetProcessEventLogRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getProcessEventLog"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/process-event-logs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetProcessEventLogOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/process-event-logs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "process" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "process",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.Process))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.From))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.To))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "format" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "format",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Format.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetProcessEventLogOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetProcessEventLogResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetProcessMap invokes getProcessMap operation.
+//
+// The process map of a business process for a company and a period (ADR-0080 As built, T103b),
+// computed on read from every case of its event log (`getProcessEventLog`: the same cases, events and
+// activities); nothing is stored and no model is involved. It gives the activities, each with how many
+// events and cases have it; the directly-follows pairs, each with how many times its second activity
+// directly follows its first within a case (`count`) and the median time between the two events in
+// whole seconds (`median_seconds`, each time cut to whole seconds; for an even count the lower of the
+// two middle values); and the ten most frequent variants, a variant being the sequence of a case's
+// activities, with their cases and their share of the cases in percent (two decimals, rounded half
+// away from zero), the most frequent first, equal ones by their activities. Every case is in exactly
+// one variant: `variant_count` counts them all, and the cases of the variants not among the ten are
+// `case_count` less theirs. A case is open while its last activity does not end it: `Pay invoice`,
+// `Close purchase order` or `Cancel purchase order` end an order's case, `Pay invoice` or
+// `Reverse invoice` a supplier document's, and a case without events is open; open cases are counted
+// (`open_case_count`, also per variant) and in the map like every other. Activities are by event
+// count, then by name; pairs by count, then by their activities. The first process is
+// `purchase_to_pay` (another is 422 `request.validation_failed`). The period is one day to 371 days
+// (422 `request.validation_failed` naming `to` otherwise). Every case is read from one database state
+// (a repeatable-read snapshot), so the counts agree with each other. The permission is the event
+// log's: the map is that log summed. A company the caller cannot act in is 404, as one that does not
+// exist.
+//
+// GET /v1/process-maps
+func (c *Client) GetProcessMap(ctx context.Context, params GetProcessMapParams) (GetProcessMapRes, error) {
+	res, err := c.sendGetProcessMap(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetProcessMap(ctx context.Context, params GetProcessMapParams) (res GetProcessMapRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getProcessMap"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/process-maps"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetProcessMapOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/process-maps"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "process" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "process",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.Process))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.From))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.To))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetProcessMapOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetProcessMapResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetProfitCenter invokes getProfitCenter operation.
 //
 // Returns one profit center with its companies and active periods.
@@ -47790,9 +48776,12 @@ func (c *Client) sendGetReport(ctx context.Context, params GetReportParams) (res
 // measure an exact decimal and a money measure followed by its currency's column (`<name>_currency`),
 // a measure that cannot be computed empty, the result named by `query_id` (422
 // `analytics.unknown_query` when the run has no such result, or when the run has several and none is
-// named). A failed run has no results (409 `analytics.report_run_failed` for its CSV); a format the
-// contract does not list is 422 `request.validation_failed`; 503 while the server has no object
-// storage.
+// named); as an Excel workbook (`format=xlsx`, T95d, ADR-0076 §8) the same result as
+// `runAnalyticsQuery`'s workbook writes it, on a sheet named `Report`, the result named as for CSV,
+// and a result cut at the rows a query answers (`truncated`) refused (422
+// `analytics.result_truncated`). A failed run has no results (409 `analytics.report_run_failed` for
+// its CSV or workbook); a format the contract does not list is 422 `request.validation_failed`; 503
+// while the server has no object storage.
 //
 // GET /v1/report-runs/{id}
 func (c *Client) GetReportRun(ctx context.Context, params GetReportRunParams) (GetReportRunRes, error) {
@@ -56252,6 +57241,210 @@ func (c *Client) sendListAuditEvents(ctx context.Context, params ListAuditEvents
 
 	stage = "DecodeResponse"
 	result, err := decodeListAuditEventsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListAuditEvidenceExports invokes listAuditEvidenceExports operation.
+//
+// The audit evidence exports (T101a) whose every company the caller may act in, newest first, filtered
+// by a company they cover and by status. Sortable by: `created_at` (default descending). Human-only
+// (`x-agent: false`).
+//
+// GET /v1/audit-evidence-exports
+func (c *Client) ListAuditEvidenceExports(ctx context.Context, params ListAuditEvidenceExportsParams) (ListAuditEvidenceExportsRes, error) {
+	res, err := c.sendListAuditEvidenceExports(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListAuditEvidenceExports(ctx context.Context, params ListAuditEvidenceExportsParams) (res ListAuditEvidenceExportsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listAuditEvidenceExports"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/audit-evidence-exports"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListAuditEvidenceExportsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/audit-evidence-exports"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListAuditEvidenceExportsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListAuditEvidenceExportsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -100839,7 +102032,14 @@ func (c *Client) sendRunAnalyticsForecast(ctx context.Context, request *Analytic
 // `partner.supplier.read` and `ledger.account.read` for the names. A tenant without a configuration is
 // 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a
 // filter it cannot apply, amounts of two currencies summed) is 422 `analytics.invalid_query`; too many
-// queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. Changes nothing:
+// queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. The result is
+// JSON (`format=json`, the default) or an Excel workbook (`format=xlsx`, T95d, ADR-0076 §8): one
+// sheet, a header row of the columns' names, a money measure followed by its currency's column
+// (`<name>_currency`) as `getReportRun`'s CSV has it, then a row per result row; a measure is a number
+// written from its exact decimal, with as many decimals shown as it has digits, and every other cell
+// is text, never a formula. A result cut at the rows a query answers (`truncated`) is not written as a
+// workbook, which could not say so (422 `analytics.result_truncated`: narrow the query or give it a
+// `limit`). A format the contract does not list is 422 `request.validation_failed`. Changes nothing:
 // agents of any autonomy level may run it.
 //
 // POST /v1/analytics-queries
@@ -100888,6 +102088,27 @@ func (c *Client) sendRunAnalyticsQuery(ctx context.Context, request *AnalyticsQu
 	var pathParts [1]string
 	pathParts[0] = "/v1/analytics-queries"
 	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "format" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "format",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Format.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
 
 	stage = "EncodeRequest"
 	r, err := ht.NewRequest(ctx, "POST", u)

@@ -12,13 +12,15 @@ import (
 // state (ADR-0072 §4). The check does not try to tell which numbers of a
 // text are amounts: every number a content writes must be one the run
 // read. A number with a decimal fraction must be an amount: a Money's
-// amount (the text under the key amount) or a JSON number with a
-// fraction under any key of an answer (a rate, a percentage). A whole number
-// must be written somewhere in an answer or in the run's prompt (a count,
-// a day of a date, a document number). No number the read's own input
-// wrote is read from that read's answer, though the answer gives it
-// back: the model could otherwise have any number it made up returned to
-// it. Numbers are kept as written, without their sign.
+// amount (the text under the key amount), a money measure's cell of
+// runAnalyticsQuery (the text under the key value beside a currency) or a
+// JSON number with a fraction under any key of an answer (a rate, a
+// percentage). A whole number must be written somewhere in an answer or
+// in the run's prompt (a count, a day of a date, a document number). No
+// number the read's own input wrote is read from that read's answer,
+// though the answer gives it back: the model could otherwise have any
+// number it made up returned to it. Numbers are kept as written, without
+// their sign.
 type Figures struct {
 	money   map[string]bool // Money amounts
 	amounts map[string]bool // Money amounts and the answers' numbers with a fraction
@@ -149,7 +151,13 @@ func (f *Figures) add(body []byte, in input) {
 func (f *Figures) walk(key string, v any, in input) {
 	switch x := v.(type) {
 	case map[string]any:
+		// A cell of a money measure (runAnalyticsQuery) is its value with
+		// its currency: an amount as a Money's is (T105d).
+		_, cell := x["currency"].(string)
 		for k, child := range x {
+			if cell && k == "value" {
+				k = "amount"
+			}
 			f.walk(k, child, in)
 		}
 	case []any:
@@ -207,3 +215,12 @@ func (f *Figures) Unread(text string) []string {
 	}
 	return out
 }
+
+// numbered is a list item's number at a line's start: one or two digits,
+// then a point or a parenthesis and a space.
+var numbered = regexp.MustCompile(`(?m)^\s*\d{1,2}[.)]\s`)
+
+// Unnumbered is a text without its list items' numbers, which an agent's
+// check does not hold to the figures it read (the support and enablement
+// agents' replies and descriptions).
+func Unnumbered(text string) string { return numbered.ReplaceAllString(text, " ") }

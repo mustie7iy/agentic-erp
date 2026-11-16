@@ -77,7 +77,7 @@ else
   B='' DIM='' RED='' GREEN='' YELLOW='' R=''
 fi
 
-for tool in jq curl ssh-keygen shasum; do
+for tool in jq curl ssh-keygen shasum unzip; do
   command -v "$tool" >/dev/null || { echo "walkthrough: $tool is needed (brew install $tool, apt-get install $tool)" >&2; exit 2; }
 done
 
@@ -852,6 +852,7 @@ migrated_default_assignment() {
 step_migrate() {
   heading "Step 3 — The company's SAP data is migrated and reconciled"
   as ada
+  migration_fit_gap
   say "The periods of $YEAR are opened in both ledgers, for SAP's documents and the pilot's."
   local p
   QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p page_size=100
@@ -945,6 +946,38 @@ step_migrate() {
   migrated_grir
   migrated_foreign_grir
   passed
+}
+
+# migration_fit_gap is the fit-gap report of SAP's customizing (T104a):
+# per object the configuration generator read, carried over, carried over
+# with a note or left out, computed by the generator, with every note it
+# returns. The draft beside it does not validate (step 1: the USD bank's
+# account is revalued by the reviewer), which leaves the report as it is.
+migration_fit_gap() {
+  say "Before the load, the delivery consultant reads the fit-gap report of SAP's customizing (T104a): per object the"
+  say "configuration generator read, whether the draft carried it over, carried it over with a note or left it out."
+  show erp config generate -source file:data/extract.json -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" -cutover "$YEAR-01-01" -out draft.yaml -fit-gap fit-gap.json -fit-gap-format json
+  rm -f "$WORK/fit-gap.json"
+  if "$ERP" config generate -source "file:$WORK/data/extract.json" -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" \
+    -cutover "$YEAR-01-01" -out "$WORK/fit-gap-draft.yaml" -fit-gap "$WORK/fit-gap.json" -fit-gap-format json >"$WORK/fit-gap.out" 2>&1; then
+    fail "the draft validated without the USD bank's account revalued"
+  fi
+  [ -s "$WORK/fit-gap.json" ] || { sed 's/^/     /' "$WORK/fit-gap.out"; fail "no fit-gap report was written"; }
+  grep '^Fit-gap report written' "$WORK/fit-gap.out" | sed 's/^/     /'
+  jq -r '"     \(.scope)"' "$WORK/fit-gap.json"
+  expect "the report's scope" "$(jq -r '.scope | test("customizing only.*not cover usage, changes or custom code")' "$WORK/fit-gap.json")" true
+  expect "the outcomes adding up to the objects read" \
+    "$(jq -r '.counts | "\(.carried_over + .carried_with_note + .left_out) \(.objects)"' "$WORK/fit-gap.json")" \
+    "$(jq -r '"\(.objects | length) \(.objects | length)"' "$WORK/fit-gap.json")"
+  say "The objects carried over with a note, with what the reviewers should read:"
+  jq -r '.objects[] | select(.outcome == "carried_with_note") | "     \(.table) \(.key):", (.notes[] | "       \(.path): \(.message | .[0:150])")' "$WORK/fit-gap.json"
+  expect "the USD house bank's outcome" "$(jq -r --arg k "$CC/MUSD" '.objects[] | select(.table == "T012K" and .key == $k) | .outcome' "$WORK/fit-gap.json")" carried_with_note
+  say "Left out, by table (the SAP roles go to the identity context, OKB9's defaults wait for the loaded cost centers):"
+  jq -r '[.objects[] | select(.outcome == "left_out") | .table] | group_by(.) | .[] | "     \(.[0]): \(length)"' "$WORK/fit-gap.json"
+  jq -r '(.defaults[], .objects[].notes[]) | "\(.path): \(.message)"' "$WORK/fit-gap.json" >"$WORK/fit-gap-notes.txt"
+  sed -n '/^Notes for reviewers:$/,/^$/s/^  //p' "$WORK/fit-gap.out" >"$WORK/generator-notes.txt"
+  [ -s "$WORK/generator-notes.txt" ] || fail "the generator printed no notes"
+  expect "the generator's notes missing from the report" "$(grep -cvxFf "$WORK/fit-gap-notes.txt" "$WORK/generator-notes.txt" || true)" 0
 }
 
 # migration_group_company is the legal entity SAP's trading partner of
@@ -3197,7 +3230,29 @@ step_reports() {
     { sed 's/^/     /' "$WORK/query.out"; fail "the query failed"; }
   sed 's/^/     /' "$WORK/query.out"
   expect "the months' order" "$(awk -F, 'NR > 1 { printf "%s ", $1 }' "$WORK/months.csv")" "$(awk -F, 'NR > 1 { print $1 }' "$WORK/months.csv" | sort -n | tr '\n' ' ')"
+  say "Carla downloads the same query as an Excel workbook through the API (T95d): one sheet, a header row, then a row per"
+  say "month, each amount a number with its currency's decimals beside its currency, every other cell text, never a formula:"
+  api 200 '' runAnalyticsQuery -p format=xlsx -out "$WORK/months.xlsx" \
+    -body "{\"measures\": [\"expenses\"], \"by\": [\"fiscal_month\"], \"where\": [{\"dim\": \"fiscal_year\", \"op\": \"in\", \"values\": [\"$YEAR\"]}], \"companies\": [\"$CC\"]}"
+  sed 's/^/     /' "$WORK/last.json"
+  sheet_rows "$WORK/months.xlsx" >"$WORK/months.sheet" || fail "the workbook's sheet does not read"
+  sed 's/^/     /' "$WORK/months.sheet"
+  expect "the sheet's header" "$(sed -n 1p "$WORK/months.sheet")" "fiscal_month,expenses,expenses_currency"
+  expect "the sheet's months and amounts, against the CSV's" "$(awk -F, 'NR > 1 { print $1 "," $2 }' "$WORK/months.sheet")" "$(awk -F, 'NR > 1 { print $1 "," $2 }' "$WORK/months.csv")"
+  expect "the sheet's currencies" "$(awk -F, 'NR > 1 { print $3 }' "$WORK/months.sheet" | sort -u)" CAD
+  unzip -p "$WORK/months.xlsx" xl/worksheets/sheet1.xml >"$WORK/months.sheet.xml"
+  expect "number cells in the sheet's text columns" "$(grep -c '<c r="[AC][0-9]*" s=' "$WORK/months.sheet.xml" || true)" 0
+  expect "formulas in the sheet" "$(grep -c '<f>' "$WORK/months.sheet.xml" || true)" 0
   passed
+}
+
+# sheet_rows FILE prints a workbook's sheet as erp writes it (T95d), a line
+# per row, its cells' values (an inline string's text, a number's value)
+# separated by commas; a row without a cell between two is not expected.
+sheet_rows() {
+  unzip -p "$1" xl/worksheets/sheet1.xml | sed 's#<row #\
+<row #g' | sed -n -e '/^<row /!d' -e 's#<c [^>]*><is><t xml:space="preserve">\([^<]*\)</t></is></c>#\1,#g' \
+    -e 's#<c [^>]*><v>\([^<]*\)</v></c>#\1,#g' -e 's#^<row [^>]*>##' -e 's#,</row>.*##p'
 }
 
 # GR/IR position of an order as the balances list it.
@@ -3320,7 +3375,7 @@ step_downpayment() {
 }
 
 step_audit() {
-  heading "Step 17 — The audit trail: who did what to Tyrell's invoices"
+  heading "Step 17 — The audit trail: who did what to Tyrell's invoices; an external auditor's evidence export of the current period"
   as ada
   local inv
   for inv in "$INVOICE" "$DUPLICATE" "$CREDIT"; do
@@ -3333,7 +3388,85 @@ step_audit() {
   wait_op
   excerpt '"audit chain \(if .result.verified then "intact" else "BROKEN" end): \(.result.checked) records checked, \(.result.anchors_checked) anchors"'
   expect "audit chain verified" "$(field .result.verified)" true
+  audit_evidence
   passed
+}
+
+# audit_evidence is T101a (ADR-0011 As built): Aldo, the external
+# auditor, asks for the evidence of the company's current period; the
+# server's exporter writes the period's audit events, journal entries and
+# approval decisions with a manifest to object storage. The manifest
+# counts the period's audit events up to the chain's head and the
+# company's entries of the period, as the trail and the ledgers list
+# them, and names the chain as verified.
+audit_evidence() {
+  local from to export manifest events token ledger listed
+  say "Aldo, the external auditor, gets a role of his own: audit evidence exports, the audit trail and the journal."
+  QUIET=1 api 201 '' createRole -body '{"code": "external_auditor", "name": "External auditor"}'
+  grant "$(field .id)" audit.evidence.export audit.event.read ledger.entry.read ledger.account.read
+  QUIET=1 api 200 '' listRoles -p page_size=100
+  cp "$WORK/last.json" "$WORK/roles.json"
+  person aldo "Aldo Auditor" external_auditor
+  as aldo
+  from="${TODAY:0:7}-01" to=$(month_end)
+  say "He asks for the evidence of $CC for the current period, $from to $to. The export is queued and the"
+  say "server's exporter writes its files to object storage in the background:"
+  api 201 '"evidence export of \([.companies[].company_code] | join(", ")), \(.from) to \(.to): \(.status), client addresses \(.with_client_addresses)"' \
+    createAuditEvidenceExport -body "{\"legal_entity_ids\": [\"$LE\"], \"from\": \"$from\", \"to\": \"$to\"}"
+  export=$(field .id)
+  wait_evidence "$export"
+  excerpt '"  \(.status): \(.audit_event_count) audit events, \(.journal_entry_count) journal entries, \(.approval_decision_count) approval decisions; chain \(if .chain.verified then "verified" else "BROKEN" end) to \(.chain.last_seq), \(.chain.anchors_checked) anchors", (.files[] | "  \(.name): \(.records) records, SHA-256 \(.sha256[0:16])…")'
+  cp "$WORK/last.json" "$WORK/evidence.json"
+  manifest="$WORK/evidence-manifest.json"
+  say "Aldo downloads the manifest and checks it against the export, and each file against the manifest:"
+  api 200 '' getAuditEvidenceExportFile -p "id=$export" -p name=manifest.json -out "$manifest"
+  expect "the manifest's SHA-256, the export's" "$(shasum -a 256 "$manifest" | cut -d' ' -f1)" "$(jq -r .manifest_sha256 "$WORK/evidence.json")"
+  for name in audit_events.jsonl journal_entries.jsonl approval_decisions.jsonl; do
+    QUIET=1 api 200 '' getAuditEvidenceExportFile -p "id=$export" -p "name=$name" -out "$WORK/evidence-$name"
+    expect "$name's SHA-256, the manifest's" "$(shasum -a 256 "$WORK/evidence-$name" | cut -d' ' -f1)" \
+      "$(jq -r --arg n "$name" '.files[] | select(.name == $n) | .sha256' "$manifest")"
+  done
+  expect "the chain named verified" "$(jq -r '"\(.chain.verified) \(.chain.from_seq)"' "$manifest")" "true 1"
+  events=0 token=''
+  while :; do
+    QUIET=1 api 200 '' listAuditEvents -p "occurred_from=$(jq -r .audit_events_from "$manifest")" -p "occurred_to=$(jq -r .audit_events_before "$manifest")" \
+      -p order_by=occurred_at -p page_size=500 ${token:+-p "page_token=$token"}
+    events=$((events + $(field "[.items[] | select(.seq <= $(jq -r .chain.last_seq "$manifest") and .occurred_at < \"$(jq -r .audit_events_before "$manifest")\")] | length")))
+    token=$(field '.next_page_token // ""')
+    [ -n "$token" ] || break
+  done
+  say "  the trail lists $events events of the period up to the chain's head; the manifest counts $(jq -r '.files[0].records' "$manifest")"
+  expect "the manifest's audit events, the trail's" "$(jq -r '.files[] | select(.name == "audit_events.jsonl") | .records' "$manifest")" "$events"
+  listed=0
+  QUIET=1 api 200 '' listLedgers
+  for ledger in $(field '.items[].id'); do
+    token=''
+    while :; do
+      QUIET=1 api 200 '' listJournalEntries -p "legal_entity_id=$LE" -p "ledger_id=$ledger" -p "posting_date_from=$from" -p "posting_date_to=$to" \
+        -p page_size=500 ${token:+-p "page_token=$token"}
+      listed=$((listed + $(field '.items | length')))
+      token=$(field '.next_page_token // ""')
+      [ -n "$token" ] || break
+    done
+  done
+  say "  the ledgers list $listed journal entries of $CC in the period; the manifest counts $(jq -r '.files[1].records' "$manifest")"
+  expect "the manifest's journal entries, the ledgers'" "$(jq -r '.files[] | select(.name == "journal_entries.jsonl") | .records' "$manifest")" "$listed"
+  as ada
+}
+
+# wait_evidence ID waits for the exporter to settle an evidence export.
+wait_evidence() {
+  local status i
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' getAuditEvidenceExport -p "id=$1"
+    status=$(field .status)
+    case "$status" in
+    completed) return 0 ;;
+    failed) fail "evidence export $1 failed: $(field .failure_code)" ;;
+    esac
+    sleep 0.25
+  done
+  fail "evidence export $1 still $status after a minute (attempt $i)"
 }
 
 step_capture() {
@@ -8418,6 +8551,10 @@ step_saved_report() {
   expect "the run's CSV" "$(sed -n 2p "$WORK/last.json")" "$CC,$after,CAD"
   passed_runs=$(grep -c . "$WORK/last.json" || true)
   expect "the CSV's lines" "$passed_runs" 2
+  say "And as an Excel workbook (T95d): the same row, the amount a number with its currency's decimals:"
+  api 200 '' getReportRun -p "id=$run" -p format=xlsx -out "$WORK/run.xlsx"
+  sed 's/^/     /' "$WORK/last.json"
+  expect "the run's workbook" "$(sheet_rows "$WORK/run.xlsx" | sed -n 2p)" "$CC,$after,CAD"
   say "Carla shares her reports with Vera in reporting, who may act in $CC alone (ADR-0076 §7, T95c): Vera reads and runs"
   say "them with her own company access and permissions, never Carla's, and neither changes nor shares them."
   as ada
@@ -9093,6 +9230,146 @@ step_plan_version() {
   say "FC plans 1050.00 CAD for CC-1100 and 350.00 CAD for CC-1300, copied from PLAN at 105 percent."
   passed
 }
+# step_planning_agent is T105e (ADR-0072, As built T105e): the planning
+# agent, erp agent plan through the model stand-in answering from a script
+# of turns (its suite's replay, evals/planning), reads the forecast FC of
+# step_plan_version (its plan lines, the plan against actual of this
+# month) and the cost centers, and proposes FC's plan of next year: a line
+# per cost center at the forecast's amount, and per center why, citing its
+# actual. A proposal at the forecast plus five percent, an amount it
+# computed, is refused by the run first. Its own plan batch is refused
+# (x-agent: false). Carla accepts, which changes nothing, and applies the
+# proposal's lines herself as a plan batch of next year. Next year's
+# periods, which a plan batch of that year needs, are set up first where
+# they are not (next_year_open does it in December).
+step_planning_agent() {
+  heading "Step 107 — The planning agent: next year's plan of the forecast proposed from this year's plan and actuals, a computed amount refused; the controller accepts and applies the lines as a plan batch"
+  local next=$((YEAR + 1)) month fc account admin sales role got session rec admin_actual sales_actual
+  month=$((10#${TODAY:5:2}))
+  planning_year "$next"
+  planning_agent_setup
+  as carla
+  accounts
+  account=$(account 6000)
+  QUIET=1 api 200 '' listPlanCategories -p code=FC
+  fc=$(field '.items[0].id')
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  admin=$(field '.items[0].id')
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1300
+  sales=$(field '.items[0].id')
+  QUIET=1 api 200 '' listCostCenterPlanActual -p "plan_category_id=$fc" -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" \
+    -p "fiscal_period_from=$month" -p "fiscal_period_to=$month" -p page_size=200
+  admin_actual=$(field '.items[] | select(.cost_center_id == "'"$admin"'" and .account_id == "'"$account"'") | .actual.amount')
+  sales_actual=$(field '.items[] | select(.cost_center_id == "'"$sales"'" and .account_id == "'"$account"'") | .actual.amount')
+  say "The agent runs: erp agent plan starts a session on erp-default, reads FC's plan lines of $YEAR, its plan against"
+  say "actual of this month, the cost centers and the account through its tools, and proposes FC's plan of $next, each line"
+  say "naming its cost center and account by id and by code or number. The model is the"
+  say "stand-in, answering from a script of turns as the agent's evaluation suite replays them (evals/planning): it first"
+  say "proposes the forecast plus five percent, 1102.50 CAD, an amount no read returned (refused by the run: the agent"
+  say "computes no amount), then CC-1100 and CC-1300 at the forecast's amounts, each with its actual of this month."
+  jq -n --arg fc "$fc" --arg le "$LE" --arg admin "$admin" --arg sales "$sales" --arg account "$account" --argjson month "$month" \
+    --argjson year "$YEAR" --arg aa "$admin_actual" --arg sa "$sales_actual" --arg next "$next" '
+    {session_id: "{{session}}", object_type: "plan_category", object_id: $fc, kind: "plan_proposal"} as $on |
+    "Line \($admin) CC-1100 account \($account) 6000 period \($month): " as $a | "Line \($sales) CC-1300 account \($account) 6000 period \($month): " as $s |
+    "\nWhy CC-1100: its actual of period \($month) of \($year) is \($aa) CAD against the forecast of 1050.00 CAD; the plan of \($next) keeps the forecast." as $why_a |
+    "\nWhy CC-1300: its actual is \($sa) CAD against the forecast of 350.00 CAD; the plan keeps the forecast." as $why_s |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "listCostCenters", input: {legal_entity_id: $le}},
+      {tool: "listPlanLines", input: {legal_entity_id: $le, fiscal_year: $year, plan_category_id: $fc}},
+      {tool: "listCostCenterPlanActual", input: {plan_category_id: $fc, legal_entity_id: $le, fiscal_year: $year, fiscal_period_from: $month, fiscal_period_to: $month}},
+      {tool: "listAccounts", input: {legal_entity_id: $le, page_size: 500}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "\($a)1102.50 CAD\n\($s)350.00 CAD\($why_a)\($why_s)"})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "\($a)1050.00 CAD\n\($s)350.00 CAD\($why_a)\($why_s)"})}},
+      {final: "Proposed the plan of FC for \($next), CC-1100 and CC-1300; the controller decides, and applies it as a plan batch."}]}' >"$WORK/model-script.json"
+  show ERP_AGENT_TOKEN=… erp agent plan -company "$CC" -category FC -year "$next"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/planning-agent") "$ERP" agent plan -company "$CC" -category FC -year "$next" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent plan failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): plan_proposal on plan_category $fc\$/\1/p")
+  [ -n "$rec" ] || fail "erp agent plan printed no plan proposal on the category FC"
+  say "Carla reads the proposal on the forecast category:"
+  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)"))' listRecommendations -p "object_id=$fc"
+  expect "the recommendations on FC, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "made in its session" "$(field '.items[0].session_id')" "$session"
+  expect "its lines" "$(field '[.items[0].content | split("\n")[] | select(startswith("Line "))] | join("; ")')" \
+    "Line $admin CC-1100 account $account 6000 period $month: 1050.00 CAD; Line $sales CC-1300 account $account 6000 period $month: 350.00 CAD"
+  as planning-agent
+  say "Proposing is all it may do: a plan batch is a person's (x-agent: false), erp agent builds it no tool for it, and"
+  say "the API refuses its own call:"
+  refused 403 identity.agent_not_allowed applyPlanBatch -body "{\"plan_category_id\": \"$fc\", \"legal_entity_id\": \"$LE\", \"fiscal_year\": $next, \"batch_key\": \"agent-$next\", \"lines\": [
+      {\"cost_center_id\": \"$admin\", \"account_id\": \"$account\", \"fiscal_period\": $month, \"amount\": {\"amount\": \"1050.00\", \"currency\": \"CAD\"}}]}"
+  api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "listCostCenters listPlanLines listCostCenterPlanActual listAccounts createRecommendation createRecommendation"
+  as carla
+  say "Carla accepts the proposal. Accepting changes nothing: FC has no plan of $next until she applies the lines herself,"
+  say "as a plan batch, through the normal operation:"
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  jq '{plan_category_id: .object_id, legal_entity_id: "'"$LE"'", fiscal_year: '"$next"', batch_key: "agent-proposal-'"$next"'",
+    lines: [.content | split("\n")[] | capture("^Line (?<c>[0-9a-f-]{36}) [0-9A-Z_-]+ account (?<a>[0-9a-f-]{36}) [^ ]+ period (?<p>[0-9]+): (?<amount>-?[0-9.]+) (?<currency>[A-Z]{3})$")?
+      | {cost_center_id: .c, account_id: .a, fiscal_period: (.p | tonumber), amount: {amount, currency}}]}' "$WORK/last.json" >"$WORK/plan-proposal.json"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "The forecast it is; I apply the lines."}'
+  expect "the recommendation's outcome" "$(field .outcome)" accepted
+  QUIET=1 api 200 '' listPlanLines -p "legal_entity_id=$LE" -p "fiscal_year=$next" -p "plan_category_id=$fc"
+  expect "FC's plan of $next after the acceptance" "$(field '.items | length')" 0
+  api 200 '"plan batch \(.batch_key) of FC for \(.fiscal_year): \(.line_count) lines written, \(.replaced_count) replaced"' applyPlanBatch -body @plan-proposal.json
+  expect "the batch's lines" "$(field .line_count)" 2
+  api 200 '.items[] | "  FC \(.fiscal_year) period \(.fiscal_period): \(.amount.amount) \(.amount.currency)"' listPlanLines \
+    -p "legal_entity_id=$LE" -p "fiscal_year=$next" -p "plan_category_id=$fc"
+  expect "FC's plan of $next, the proposal's" \
+    "$(field '[.items[] | "\(.cost_center_id) \(.account_id) \(.fiscal_period) \(.amount.amount)"] | sort | join("; ")')" \
+    "$(printf '%s\n' "$admin $account $month 1050.00" "$sales $account $month 350.00" | sort | paste -sd';' - | sed 's/;/; /g')"
+  say "FC plans 1050.00 CAD for CC-1100 and 350.00 CAD for CC-1300 in period $month of $next, as the agent proposed."
+  passed
+}
+
+# planning_year sets up fiscal year NEXT where it is not, so a plan batch
+# of it is taken: Ada adds a journal number range of the company for it,
+# which creates its periods, closed, as next_year_open does in December.
+planning_year() {
+  local next=$1 base cr
+  as carla
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$next" -p page_size=1
+  [ "$(field '.items | length')" = 0 ] || return 0
+  as ada
+  say "A plan of $next needs its periods: Ada sets $next up, a journal number range of $CC for it."
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Fiscal year $next\", rationale: \"The plan of $next (ADR-0050 §8)\", base_version: $base,
+    proposed: (.items[0].document | .number_ranges += [.number_ranges[] | select(.company == \"$CC\" and .document_type == \"journal_sa\" and .fiscal_year == $YEAR)
+      | .fiscal_year = $next])}" "$WORK/last.json" >"$WORK/next-year-sa.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @next-year-sa.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+}
+
+# planning_agent_setup has Ada set up the planning agent (ADR-0072): an
+# agent principal of type planning at autonomy level 1, whose role reads
+# the companies, the plan, the ledger's actuals, the cost centers and the
+# governed metrics, and records its sessions and recommendations; none of
+# its permissions writes a plan.
+planning_agent_setup() {
+  local role
+  as ada
+  say "Ada sets up the planning agent (ADR-0072): an agent principal of type planning at autonomy level 1 on"
+  say "erp-default. Its role reads the companies, the plan, the actuals, the cost centers, the accounts and the governed metrics, and"
+  say "records its sessions and recommendations; it holds no permission that writes a plan."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "planning_agent", "name": "Planning agent"}'
+  role=$(field .id)
+  grant "$role" tenancy.org.read controlling.plan.read ledger.entry.read ledger.cost_center.read ledger.account.read analytics.query.run \
+    agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model), budget \(.agent_profile.monthly_budget.amount) \(.agent_profile.monthly_budget.currency) a month"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "planning-agent", "display_name": "Planning agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "planning", "model": "erp-default", "description": "Proposes plans for a controller to decide (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token planning-agent "Planning agent"
+}
+
 # step_drill_through is T94b (ADR-0044 As built T94b): Carla drills from
 # the month's revenue, a row of a governed query, to the journal entries
 # behind it, a page at a time; their amounts add up to the figure, and
@@ -9890,8 +10167,12 @@ regulatory_draft() {
 # events and recommends its root cause: a cause citing an event that is
 # not the invoice's is refused first, then closed_period, citing the
 # refusal's event and quoting it. Alex posts the invoice on today's date.
+# T108c (support_fix): an invoice held by the price tolerance diagnosed
+# configuration; once Alex accepts it, erp agent support-fix drafts the
+# change request raising the tolerance and has it simulated; nobody
+# submits it, and the step withdraws it as its author, the agent.
 step_support_agent() {
-  heading "Step 88 — The support agent: asked how an invoice above the tolerance is released, it names the operation from the contract and the tenant's tolerance from the active configuration; an operation it made up refused; nothing changed; an invoice whose posting a closed period refused diagnosed closed_period from its audit events"
+  heading "Step 88 — The support agent: asked how an invoice above the tolerance is released, it names the operation from the contract and the tenant's tolerance from the active configuration; an operation it made up refused; nothing changed; an invoice whose posting a closed period refused diagnosed closed_period from its audit events; an invoice held by the price tolerance diagnosed configuration, and the fix drafted as a change request of one setting and simulated, for a person to submit"
   local role version pct abs question got session
   as ada
   say "Ada sets up the support agent (ADR-0072): an agent principal of type support at autonomy level 1 on erp-default."
@@ -9938,6 +10219,7 @@ step_support_agent() {
   QUIET=1 api 200 '' listConfigVersions -p is_active=true
   expect "the active version" "$(field '.items[0].id')" "$version"
   support_diagnosis "$role"
+  support_fix "$role"
   passed
 }
 
@@ -9993,6 +10275,149 @@ support_diagnosis() {
   api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" -body '{"outcome": "accepted"}'
   api 200 '"\(.kind) \(.document_number): \(.status) on \(.posting_date)"' postSupplierInvoice -p "id=$invoice" -if-match "$tag" -body "{\"posting_date\": \"$TODAY\"}"
   expect "posted" "$(field .status)" posted
+}
+
+# support_fix ROLE is step 88's T108c: an invoice held because its price
+# is above the company's tolerance; the support agent of ROLE diagnoses
+# the cause as configuration, citing the match's audit event and the
+# tolerance; Alex accepts it; Ada lets the agent propose a change; erp
+# agent support-fix drafts the change request raising the percentage
+# tolerance, one setting (a draft that also changes the absolute one is
+# refused by the run), has it simulated as a preview and recommends
+# ready_to_submit on it. Nobody submits it: only its author withdraws it,
+# so the step withdraws it with the agent's own token, outside its session
+# (no tool of the agent's withdraws); the active version is as it was; Alex cancels the invoice and Ben reverses the
+# receipt and closes the order, so nothing of it is left open for the
+# steps after.
+support_fix() {
+  local role=$1 lamp po receipt invoice tag version number pct abs seq got session rec cr path
+  as ben
+  lamp="{\"description\": \"Desk lamp\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"100.00\", \"currency\": \"CAD\"}, \"account_id\": \"$(account 6000)\"}"
+  say "Ben orders a desk lamp from Tyrell at CAD 100.00 and receives it; Tyrell invoices CAD 110.00."
+  api 201 '"purchase order \(.document_number // .id): \(.status), \(.total_amount.amount) \(.total_amount.currency)"' \
+    createPurchaseOrder -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"payment_term_code\": \"NT30\", \"items\": [$lamp]}"
+  po=$(field .id)
+  api 200 '"\(.status)\(if .release_request_id then ": release request \(.release_request_id)" else "" end)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Budgeted lamp"
+    as ben
+    QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
+  fi
+  expect "order status" "$(field .status)" released
+  api 201 '"goods receipt \(.id), journal entry \(.journal_entry_id)"' postGoodsReceipt \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  receipt=$(field .id)
+  as alex
+  say "Alex enters and matches the invoice: CAD 10.00 above the order is above the company's tolerance, so the match holds it."
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"LAMP-${TODAY}\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"110.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"0.00\", \"currency\": \"CAD\"}, \"purchase_order_id\": \"$po\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"110.00\", \"currency\": \"CAD\"}}]}"
+  invoice=$(field .id)
+  api 200 "$MATCHED" matchSupplierInvoice -p "id=$invoice" -if-match '"1"'
+  expect "the match's issue" "$(field '[.issues[].code] | join(" ")')" price_variance
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$invoice"
+  expect "the invoice is held" "$(field .status)" on_hold
+  QUIET=1 api 200 '' listAuditEvents -p "object_id=$invoice"
+  seq=$(field '[.items[] | select(.action == "payables.supplier_invoice.match")][0].seq')
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  version=$(field '.items[0].id') number=$(field '.items[0].number')
+  pct=$(field ".items[0].document.companies[] | select(.code == \"$CC\") | .invoice_tolerance.price_percent")
+  abs=$(field ".items[0].document.companies[] | select(.code == \"$CC\") | .invoice_tolerance.price_absolute")
+  path="companies[$CC].invoice_tolerance.price_percent"
+  jq -n --arg inv "$invoice" --arg seq "$seq" --arg v "$version" --arg cc "$CC" --arg pct "$pct" --arg abs "$abs" '
+    {session_id: "{{session}}", object_type: "supplier_invoice", object_id: $inv, kind: "root_cause"} as $on |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "getSupplierInvoice", input: {id: $inv}},
+      {tool: "listAuditEvents", input: {object_id: $inv}},
+      {tool: "getConfigVersion", input: {id: $v}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Root cause: configuration\nIts match held it, event \($seq): the price is above `companies[\($cc)].invoice_tolerance.price_percent` = `\($pct)` and `companies[\($cc)].invoice_tolerance.price_absolute` = `\($abs)`."})}},
+      {final: "The invoice is held by the company'"'"'s price tolerance: event \($seq)."}]}' >"$WORK/model-script.json"
+  say "Alex asks the support agent why the invoice is held; through the stand-in's script it reads the invoice, its audit"
+  say "events and the configuration, and recommends the cause: the configuration, the match's event and the tolerance."
+  show ERP_AGENT_TOKEN=… erp agent support-diagnose -type supplier_invoice -id "$invoice"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/support-agent") "$ERP" agent support-diagnose -type supplier_invoice -id "$invoice" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent support-diagnose failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): root_cause on supplier_invoice $invoice\$/\1/p")
+  [ -n "$rec" ] || fail "erp agent support-diagnose printed no root cause on the held invoice"
+  api 200 '"  \(.kind) on the \(.object_type), \(.outcome // "open"): \(.content | split("\n") | join(" / "))"' getRecommendation -p "id=$rec"
+  expect "the cause, the configuration, with the match's event" "$(field ".content | startswith(\"Root cause: configuration\") and contains(\"event $seq\")")" true
+  say "Alex accepts it, which changes nothing by itself:"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" -body '{"outcome": "accepted"}'
+  as ada
+  say "Ada lets the support agent draft a fix (T108c): its role may now read and propose a change; the same permission submits a"
+  say "draft, which the agent has no tool for."
+  grant "$role" config.change.propose config.change.read
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  jq --arg cc "$CC" '.items[0].document | .companies |= map(if .code == $cc then .invoice_tolerance.price_percent = 10 else . end)' "$WORK/last.json" >"$WORK/proposed.json"
+  jq --arg cc "$CC" '.companies |= map(if .code == $cc then .invoice_tolerance.price_absolute = "20.00" else . end)' "$WORK/proposed.json" >"$WORK/outside.json"
+  # shellcheck disable=SC2016 # regular expressions, not expansions
+  jq -n --arg r "$rec" --arg v "$version" --argjson n "$number" --arg path "$path" --arg pct "$pct" --arg seq "$seq" \
+    --slurpfile p "$WORK/proposed.json" --slurpfile o "$WORK/outside.json" \
+    --arg cr '\\"body\\":\{\\"id\\":\\"([0-9a-f-]{36})\\",\\"version\\":1,\\"created_at' \
+    --arg op '\\"id\\":\\"([0-9a-f-]{36})\\",\\"kind\\":\\"config.simulate' '
+    {title: "Price tolerance of 10 percent", base_version: $n, rationale: "The match held an invoice, event \($seq), under the price tolerance."} as $req |
+    {vars: {session: "session id is ([0-9a-f-]{36})", cr: $cr, op: $op},
+     turns: [
+      {tool: "getRecommendation", input: {id: $r}},
+      {tool: "getConfigVersion", input: {id: $v}},
+      {tool: "createChangeRequest", input: {body: ($req + {proposed: $o[0]})}},
+      {tool: "createChangeRequest", input: {body: ($req + {proposed: $p[0]})}},
+      {tool: "simulateChangeRequest", input: {id: "{{cr}}", if_match: "\"1\""}},
+      {tool: "getOperation", input: {id: "{{op}}"}},
+      {tool: "createRecommendation", input: {body: {session_id: "{{session}}", object_type: "change_request", object_id: "{{cr}}", kind: "ready_to_submit",
+        content: ("Change: `\($path)` from `\($pct)` to `10`\nThe match held the invoice, event \($seq), under the price tolerance; the draft raises it and its simulation passed. A person submits it.")}}},
+      {final: "Drafted the fix of the price tolerance and had it simulated; it is ready for a person to submit."}]}' >"$WORK/model-script.json"
+  as alex
+  say "Alex has the agent draft the fix: erp agent support-fix reads the accepted cause and the active version, starts a"
+  say "session and, through the stand-in's script, first drafts a change of both tolerances (refused by the run: the fix"
+  say "changes one setting the cause cites), then the percentage alone; it has the draft simulated and recommends."
+  show ERP_AGENT_TOKEN=… erp agent support-fix -recommendation "$rec"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/support-agent") "$ERP" agent support-fix -recommendation "$rec" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent support-fix failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 0."
+  cr=$(printf '%s\n' "$got" | sed -nE 's/^  recommendation [0-9a-f-]{36}: ready_to_submit on change_request ([0-9a-f-]{36})$/\1/p')
+  [ -n "$cr" ] || fail "erp agent support-fix printed no ready_to_submit on a change request"
+  as support-agent
+  api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" \
+    "getRecommendation getConfigVersion createChangeRequest createChangeRequest simulateChangeRequest getOperation createRecommendation"
+  expect "the first draft refused" "$(field '[.items[] | select(.tool == "createChangeRequest") | .is_error] | join(" ")')" "true false"
+  as alex
+  say "Alex reads the draft: the agent's, still a draft, changing one setting, the percentage tolerance:"
+  api 200 '"  change request \(.number), \(.status): \(.title)", (.items[]? | "    \(.path)")' getChangeRequest -p "id=$cr"
+  expect "the draft" "$(field '"\(.status) \(.evidence | length)"')" "draft 0"
+  expect "the tolerance drafted" "$(field ".proposed.companies[] | select(.code == \"$CC\") | .invoice_tolerance | \"\(.price_percent) \(.price_absolute)\"")" "10 $abs"
+  QUIET=1 api 200 '' listRecommendations -p "object_id=$cr"
+  expect "the agent's recommendation on the draft" "$(field '[.items[] | "\(.kind) \(.outcome // "open")"] | join(", ")')" "ready_to_submit open"
+  expect "its first line, the draft's one change" "$(field '.items[0].content | split("\n")[0]')" "Change: \`$path\` from \`$pct\` to \`10\`"
+  say "Nobody submits it: Alex keeps the tolerance. Only a change request's author withdraws it (config.not_author),"
+  say "so the step withdraws the agent's draft with the agent's own token, outside its session: no tool of the agent's"
+  say "withdraws. The active version is as it was."
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  refused 403 config.not_author withdrawChangeRequest -p "id=$cr" -if-match "$ETAG" -body '{"reason": "The tolerance stays"}'
+  as support-agent
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"  change request \(.number): \(.status)"' withdrawChangeRequest -p "id=$cr" -if-match "$ETAG" -body '{"reason": "The tolerance stays; the lamp invoice is handled on its own"}'
+  expect "the draft withdrawn" "$(field .status)" withdrawn
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  expect "the active version and the tolerance" "$(field ".items[0] | \"\(.id) \(.document.companies[] | select(.code == \"$CC\") | .invoice_tolerance.price_percent)\"")" "$version $pct"
+  as alex
+  say "Alex cancels the lamp invoice; Ben reverses the receipt and closes the order, leaving nothing of it open."
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$invoice"
+  tag=$ETAG
+  api 200 '"\(.document_number): \(.status)"' cancelSupplierInvoice -p "id=$invoice" -if-match "$tag" -body '{"reason": "Tyrell credits the difference; a new invoice follows"}'
+  as ben
+  QUIET=1 api 200 '' getGoodsReceipt -p "id=$receipt"
+  api 200 '"goods receipt reversal \(.id)"' reverseGoodsReceipt -p "id=$receipt" -if-match "$ETAG" -body '{}'
+  QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
+  api 200 '"purchase order \(.document_number): \(.status)"' closePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  expect "order status" "$(field .status)" closed
 }
 
 # step_metric_forecast is T97a (ADR-0077 §7): Carla forecasts Maple's
@@ -10717,6 +11142,779 @@ step_order_capture() {
   api 200 '"sales order \(.document_number): \(.status), credit block \(.credit_block)"' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
   expect "the order confirmed" "$(field .status)" confirmed
   passed
+}
+
+# step_process_mining is T103a (ADR-0080): Pia, the process analyst,
+# reads the purchase-to-pay event log of the company's current month and
+# finds the case of the order of step_procure: its activities in order of
+# time, from the requisition's creation to the payment, each with the
+# kind of actor that did it and never who, as JSON and as CSV. Then the
+# process map of the month (T103b, process_map).
+step_process_mining() {
+  heading "Step 101 — The purchase-to-pay event log: the order of step 4 as a case, its activities from the requisition's creation to the payment, by time, each with the kind of actor; as JSON and as CSV; the month's process map, and a service order paid without a goods receipt as a variant of its own"
+  local from to token found csv rows
+  as ada
+  person pia "Pia Process Analyst" finance_staff
+  as pia
+  from="${TODAY:0:7}-01" to=$(month_end)
+  say "Pia reads the purchase-to-pay event log of $CC for $from to $to, a page of cases at a time, and finds the order of step 4:"
+  token='' found=''
+  while :; do
+    QUIET=1 api 200 '' getProcessEventLog -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$from" -p "to=$to" -p page_size=500 \
+      ${token:+-p "page_token=$token"}
+    if [ -n "$(field ".cases[] | select(.case_id == \"$PO\") | .case_id")" ]; then
+      found=1
+      break
+    fi
+    token=$(field '.next_page_token // ""')
+    [ -n "$token" ] || break
+  done
+  [ -n "$found" ] || fail "the order $PO is no case of the log"
+  show erp call getProcessEventLog -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$from" -p "to=$to"
+  excerpt '"\(.process) of \(.company_code), \(.from) to \(.to): \(.case_count) cases"'
+  excerpt '.cases[] | select(.case_id == "'"$PO"'") | "case \(.case_kind) \(.document_number) of \(.document_date):", (.events[] | "  \(.occurred_at)  \(.activity) (\(.document_number)), by a \(.actor_kind)")'
+  expect "the case's first activity" "$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events[0].activity] | first')" "Create requisition"
+  expect "the activities from the requisition to the payment" \
+    "$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events[].activity | select(. == "Create requisition" or . == "Create purchase order" or . == "Receive goods" or . == "Post invoice" or . == "Pay invoice")] | unique_by(.) | length')" 5
+  expect "the payment after the invoice's posting" \
+    "$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events | (map(.activity) | index("Post invoice")) < (map(.activity) | index("Pay invoice"))] | first')" true
+  expect "the events in order of time" "$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events | map(.occurred_at) | . == sort] | first')" true
+  expect "actors by kind alone" "$(field '[.cases[].events[] | keys[] | select(test("actor_id|name"))] | length')" 0
+  rows=$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events[]] | length')
+  field '[.cases[] | select(.case_id == "'"$PO"'") | .events[].activity]' >"$WORK/order-variant.json"
+  say "The same page as CSV, a row per event:"
+  csv="$WORK/event-log.csv"
+  api 200 '' getProcessEventLog -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$from" -p "to=$to" -p page_size=500 \
+    ${token:+-p "page_token=$token"} -p format=csv -out "$csv"
+  head -1 "$csv" | sed 's/^/  /'
+  grep "^$PO," "$csv" | head -3 | sed 's/^/  /'
+  expect "the order's rows" "$(grep -c "^$PO," "$csv")" "$rows"
+  process_map "$from" "$to"
+  passed
+}
+
+# process_map FROM TO is T103b (ADR-0080 As built): Pia reads the
+# process map of the month, computed from every case of the log: the
+# order of step 4 runs a variant of its own, from its requisition to its
+# payment. Ben then orders a service, which nobody receives: Alex's
+# invoice on it is held for want of a receipt, Priya approves the
+# exception and a payment run pays it. The map now shows that order's
+# variant beside the first, without a goods receipt, both of them ended
+# by the payment.
+process_map() {
+  local from=$1 to=$2 before
+  say "Pia reads the process map of the month: its activities, how often one directly follows another and the median"
+  say "time between them, and the variants by frequency, every case counted in exactly one:"
+  api 200 '"\(.case_count) cases, \(.open_case_count) open, \(.variant_count) variants", (.variants[] | "  \(.share_percent)% (\(.case_count), \(.open_case_count) open): \(.activities | join(" > "))"),
+    (.pairs[0:6][] | "  \(.from) > \(.to): \(.count) times, median \(.median_seconds) s")' getProcessMap \
+    -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$from" -p "to=$to"
+  map_counts
+  expect "the variant of the order of step 4, ended by its payment" \
+    "$(jq -r --slurpfile v "$WORK/order-variant.json" '[.variants[] | select(.activities == $v[0]) | .case_count >= 1] | first // false' "$WORK/last.json")" true
+  before=$(field .case_count)
+  service_order
+  as pia
+  say "Pia reads the log's case of the service order and the map again: the order's variant has no goods receipt,"
+  say "beside the variant of the order of step 4:"
+  log_case "$from" "$to" "$SERVICE_PO" >"$WORK/service-variant.json"
+  jq -r '"  " + join(" > ")' "$WORK/service-variant.json"
+  expect "no goods receipt in the service order's case" "$(jq -r 'index("Receive goods") == null' "$WORK/service-variant.json")" true
+  expect "the service order's case ended by its payment" "$(jq -r 'last' "$WORK/service-variant.json")" "Pay invoice"
+  api 200 '"\(.case_count) cases, \(.open_case_count) open, \(.variant_count) variants"' getProcessMap \
+    -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$from" -p "to=$to"
+  map_counts
+  expect "the two orders' variants in the map" \
+    "$(jq -r --slurpfile a "$WORK/order-variant.json" --slurpfile b "$WORK/service-variant.json" \
+      '[.variants[] | select(.activities == $a[0] or .activities == $b[0])] | length' "$WORK/last.json")" 2
+  expect "the cases, the service order one more" "$(field .case_count)" "$((before + 1))"
+}
+
+# map_counts checks that the map in the last answer adds up: its
+# variants' cases are at most its cases, all of them when no more than
+# ten variants exist, and the pairs' counts are at most the events'.
+map_counts() {
+  local listed
+  listed=$(field '[.variants[].case_count] | add // 0')
+  if [ "$(field .variant_count)" -le 10 ]; then
+    expect "the cases of the map's variants, every case in one" "$listed" "$(field .case_count)"
+  else
+    expect "the cases of the ten variants, at most the map's" "$(field "$listed <= .case_count")" true
+  fi
+  expect "the open cases, the variants' at most" "$(field '.open_case_count >= ([.variants[].open_case_count] | add // 0)')" true
+  expect "the pairs, fewer than the events" "$(field '([.pairs[].count] | add // 0) < ([.activities[].event_count] | add // 1)')" true
+}
+
+# log_case FROM TO ID prints the activities of the log's case ID as a
+# JSON array, reading the log a page at a time.
+log_case() {
+  local token='' found
+  while :; do
+    QUIET=1 api 200 '' getProcessEventLog -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$1" -p "to=$2" -p page_size=500 \
+      ${token:+-p "page_token=$token"}
+    found=$(field "[.cases[] | select(.case_id == \"$3\") | .events[].activity]")
+    if [ "$found" != "[]" ]; then
+      printf '%s\n' "$found"
+      return 0
+    fi
+    token=$(field '.next_page_token // ""')
+    [ -n "$token" ] || fail "the order $3 is no case of the log, or has no activity"
+  done
+}
+
+# service_order has Ben order a month's office cleaning from Tyrell, a
+# service nobody receives as goods. Alex's invoice on the order is held:
+# nothing was received. Priya approves the exception, Alex posts the
+# invoice and a payment run from RBC, released by Tara (with Fiona's
+# approval above the dual limit), pays it. SERVICE_PO is the order.
+service_order() {
+  local invoice request run etag entry total
+  as ben
+  say "Ben orders the month's office cleaning from Tyrell, CAD 300.00: a service, which nobody receives as goods."
+  api 201 '"purchase order \(.document_number): \(.status), \(.total_amount.amount) \(.total_amount.currency)"' createPurchaseOrder \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"payment_term_code\": \"NT30\", \"items\": [{\"description\": \"Office cleaning, one month\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}, \"account_id\": \"$(account 6000)\"}]}"
+  SERVICE_PO=$(field .id)
+  api 200 '"\(.status)\(if .release_request_id then ": release request \(.release_request_id)" else "" end)"' releasePurchaseOrder -p "id=$SERVICE_PO" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Cleaning contract"
+    as ben
+    QUIET=1 api 200 '' getPurchaseOrder -p "id=$SERVICE_PO"
+  fi
+  expect "the service order" "$(field .status)" released
+  as alex
+  say "Tyrell invoices the month. Matched, the invoice goes on hold: nothing was received on the order."
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TY-CLEAN-1\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"0.00\", \"currency\": \"CAD\"}, \"purchase_order_id\": \"$SERVICE_PO\", \"items\": [{\"purchase_order_id\": \"$SERVICE_PO\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}}]}"
+  invoice=$(field .id)
+  api 200 "$MATCHED" matchSupplierInvoice -p "id=$invoice" -if-match '"1"'
+  expect "the issue" "$(field '.issues[0].code')" quantity_exceeds_received
+  api 200 '"\(.document_number): \(.status), exception request \(.workflow_request_id)"' getSupplierInvoice -p "id=$invoice"
+  expect "the invoice on hold" "$(field .status)" on_hold
+  request=$(field .workflow_request_id)
+  say "The cleaning was done; Priya, the process owner, approves the exception, and Alex posts the invoice:"
+  approve priya "$request" "Service rendered, no goods to receive"
+  as alex
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$invoice"
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the invoice posted" "$(field .status)" posted
+  entry=$(field .journal_entry_id)
+  as tom
+  say "Tom proposes a run from RBC for what is due within 30 days; it pays the cleaning invoice:"
+  api 202 '"\(.kind) \(.status)"' proposePaymentRun \
+    -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBC\", \"currency\": \"CAD\", \"run_date\": \"$TODAY\", \"due_by\": \"$(date_add "$TODAY" 30)\"}"
+  wait_op
+  run=$(field .resource | sed 's|.*/||')
+  QUIET=1 api 200 '' listPayments -p "id=$run" -p page_size=100
+  expect "the cleaning invoice in the run" "$(field "[.items[].items[] | select(.journal_entry_id == \"$entry\")] | length")" 1
+  api 200 '"run \(.document_number): \(.status), \(.total_amount.amount) \(.total_amount.currency)"' getPaymentRun -p "id=$run"
+  etag=$ETAG total=$(field .total_amount.amount)
+  if [ "$(cents "$total")" -gt 400000 ]; then
+    as tara
+    api 200 '"run \(.document_number): release approval \(.release_approval.status)"' submitPaymentRun -p "id=$run" -if-match "$etag"
+    approve fiona "$(field .release_approval.request_id)" "Within the cash plan"
+    QUIET=1 api 200 '' getPaymentRun -p "id=$run"
+    etag=$ETAG
+  fi
+  as tara
+  api 202 '"\(.kind) \(.status)"' releasePaymentRun -p "id=$run" -if-match "$etag" -body '{"comment": "Cleaning and what is due"}'
+  wait_op
+  api 200 '"run \(.document_number): \(.status)"' getPaymentRun -p "id=$run"
+  expect "the run" "$(field .status)" released
+}
+
+# step_integration_agent is T110a (ADR-0072): the integration agent, erp
+# agent integration-monitor through the model stand-in answering from a
+# script of turns (its suite's replay, evals/integration), looks over
+# Maple's integrations. Sam subscribes the supplier portal's endpoint to
+# the cash events, but the portal was never given the subscription's
+# secret, so it refuses every delivery (401): his ping dies. The agent
+# finds the subscription failing before its session, with the ping as its
+# failed delivery, and recommends checking the endpoint, its first line
+# naming the delivery; a recommendation without that line is refused. It
+# reads no secret, and pausing the subscription is refused to it. Sam
+# accepts, which changes nothing, and deletes the subscription himself.
+step_integration_agent() {
+  heading "Step 102 — The integration agent: a webhook subscription whose endpoint refuses its deliveries; the agent recommends checking the endpoint and names the failed delivery; it reads no secret and may not pause the subscription; the administrator decides"
+  local role sub ping line got session rec i
+  as ada
+  say "Ada sets up the integration agent (ADR-0072): an agent principal of type integration at autonomy level 1. Its role"
+  say "reads connectors, webhooks, migration runs, payment files and operations, and records its sessions and"
+  say "recommendations; it holds no permission that changes an integration."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "integration_agent", "name": "Integration agent"}'
+  role=$(field .id)
+  grant "$role" integration.connector.read integration.webhook.read integration.migration.read payments.run.read platform.operation.read \
+    agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "integration-agent", "display_name": "Integration agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "integration", "model": "erp-default", "description": "Recommends what to do about failing integrations (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token integration-agent "Integration agent"
+  as sam
+  say "Sam subscribes the supplier portal's endpoint to the cash events. The portal was never given the subscription's"
+  say "secret, so it cannot verify a delivery and refuses each one. Sam pings it:"
+  api 201 '"subscription \(.description) at \(.url): \(.status)"' createWebhookSubscription \
+    -body "{\"url\": \"https://$HOOK_ADDR/portal/events\", \"description\": \"Supplier portal\", \"event_types\": [\"cash.*\"]}"
+  sub=$(field .id)
+  api 200 '"ping \(.id): \(.status)"' pingWebhookSubscription -p "id=$sub" -if-match "$ETAG"
+  ping=$(field .id)
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' getWebhookDelivery -p "id=$sub" -p "delivery_id=$ping"
+    [ "$(field .status)" = dead ] && break
+    sleep 0.25
+  done
+  excerpt '"  \(.type): \(.status) after \(.attempts) attempt(s), the endpoint answered \(.last_status)"'
+  expect "the ping, refused by the endpoint (after $i checks)" "$(field '"\(.status) \(.last_status)"')" "dead 401"
+  QUIET=1 api 200 '' getWebhookSubscription -p "id=$sub"
+  line="Failing: subscription $(field '.status + (if .disabled_reason then " (\(.disabled_reason))" else "" end) + (if .failing_since then ", failing since \(.failing_since)" else "" end)'); failed deliveries $ping"
+  as integration-agent
+  say "What the agent reads of the subscriptions: never a secret, which the API lists for nobody."
+  api 200 '.items[] | "  \(.description): \(.status), keys \(keys | join(" "))"' listWebhookSubscriptions
+  expect "a secret among the subscriptions read" "$(field '[.items[] | select(has("secret"))] | length')" 0
+  say "The agent runs: erp agent integration-monitor finds the failing integrations before its session and recommends"
+  say "on each. The stand-in reads the subscription's dead deliveries, recommends without the line the run computed"
+  say "(refused), then checking the endpoint, the line naming the failed delivery:"
+  integration_agent_script "$sub" "$line"
+  show ERP_AGENT_TOKEN=… erp agent integration-monitor
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/integration-agent") "$ERP" agent integration-monitor 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent integration-monitor failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): check_endpoint on webhook_subscription $sub .*/\1/p")
+  [ -n "$rec" ] || fail "erp agent integration-monitor printed no check_endpoint on the subscription $sub"
+  say "Pausing the subscription is the administrator's (x-agent: false), and the API refuses the agent its own call:"
+  QUIET=1 api 200 '' getWebhookSubscription -p "id=$sub"
+  as integration-agent
+  refused 403 identity.agent_not_allowed pauseWebhookSubscription -p "id=$sub" -if-match "$ETAG"
+  as sam
+  say "Sam reads the recommendation on the subscription:"
+  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"): \(.content)")' listRecommendations -p "object_id=$sub"
+  expect "the recommendations on the subscription, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "made in its session" "$(field '.items[0].session_id')" "$session"
+  expect "naming the failed delivery" "$(field '.items[0].content | split("\n") | first')" "$line"
+  say "Sam accepts it, which changes nothing: the portal will not take Maple's events for now, so he deletes the"
+  say "subscription himself."
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "The portal has no secret yet; the subscription goes until it has."}'
+  QUIET=1 api 200 '' getWebhookSubscription -p "id=$sub"
+  expect "the subscription as it was" "$(field .status)" active
+  api 200 '"  subscription \(.description): \(.status)"' deleteWebhookSubscription -p "id=$sub" -if-match "$ETAG"
+  passed
+}
+
+# integration_agent_script SUBSCRIPTION LINE writes the stand-in's turns
+# of the integration agent's run: the subscription's dead deliveries, a
+# recommendation without the line the run computed (refused) and one
+# checking the endpoint, starting with LINE.
+integration_agent_script() {
+  jq -n --arg sub "$1" --arg line "$2" '
+    {session_id: "{{session}}", object_type: "webhook_subscription", object_id: $sub, kind: "check_endpoint"} as $on |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "listWebhookDeliveries", input: {id: $sub, status: "dead"}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "The supplier portal refuses its deliveries."})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "\($line)\nThe endpoint answered HTTP 401 to the ping: it cannot verify the deliveries. Give the portal the subscription'"'"'s signing secret, or rotate it and give it the new one, then ping again."})}},
+      {final: "One failing integration: the supplier portal'"'"'s subscription, whose endpoint refuses its deliveries; recommended checking the endpoint."}]}' >"$WORK/model-script.json"
+}
+
+# step_mcp is T102a (ADR-0081): an agent host reaches the API through erp
+# mcp, the Model Context Protocol over standard input and output. A
+# scripted host, as the support agent of step 88, discovers the server,
+# lists its tools (the operations open to agents at its level, none closed
+# to agents), calls a read and is refused an operation closed to agents;
+# a host on the earlier protocol version is served after its handshake.
+# The calls are recorded in the agent's session, which ends when the host
+# closes the server's input.
+step_mcp() {
+  heading "Step 103 — An agent host uses the API through erp mcp: the tools open to the agent at its level, a read answered as the API answers it, an operation closed to agents refused, every call recorded in the agent's session"
+  local meta session
+  meta='"_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {}, "io.modelcontextprotocol/clientInfo": {"name": "walkthrough", "version": "1"}}'
+  say "A host launches erp mcp with the support agent's token (level 1) and sends it four requests on its input, one per line"
+  say "(MCP 2026-07-28: no handshake, the version in each request's _meta):"
+  {
+    printf '%s\n' '{"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {'"$meta"'}}'
+    printf '%s\n' '{"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {'"$meta"'}}'
+    printf '%s\n' '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "listConfigVersions", "arguments": {"is_active": true}, '"$meta"'}}'
+    printf '%s\n' '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "createPrincipal", "arguments": {"body": {"kind": "agent"}}, '"$meta"'}}'
+  } >"$WORK/mcp.in"
+  show "ERP_AGENT_TOKEN=… erp mcp <mcp.in >mcp.out"
+  ERP_AGENT_TOKEN=$(cat "$WORK/tokens/support-agent") "$ERP" mcp -purpose "The walkthrough's MCP host" <"$WORK/mcp.in" >"$WORK/mcp.out" 2>"$WORK/stderr" ||
+    fail "erp mcp failed ($(cat "$WORK/stderr"))"
+  expect "answers, one per request" "$(jq -s length "$WORK/mcp.out")" 4
+  jq -r 'select(.id == 1) | .result | "  server/discover: versions \(.supportedVersions | join(", ")), server \(._meta["io.modelcontextprotocol/serverInfo"].name)"' "$WORK/mcp.out"
+  expect "the version a request names" "$(jq -r 'select(.id == 1) | .result.supportedVersions | join(" ")' "$WORK/mcp.out")" "2026-07-28"
+  jq -r 'select(.id == 2) | .result | "  tools/list: \(.tools | length) tools, \([.tools[] | select(.annotations.readOnlyHint)] | length) of them reads; for example \([.tools[].name] | map(select(. == "listConfigVersions" or . == "createRecommendation")) | join(", "))"' "$WORK/mcp.out"
+  expect "an operation closed to agents among the tools" "$(jq -r 'select(.id == 2) | [.result.tools[].name | select(. == "createPrincipal" or . == "approveApprovalRequest")] | length' "$WORK/mcp.out")" 0
+  expect "a write above its level among the tools" "$(jq -r 'select(.id == 2) | [.result.tools[].name | select(. == "createConnector")] | length' "$WORK/mcp.out")" 0
+  expect "a proposal at its level among the tools" "$(jq -r 'select(.id == 2) | [.result.tools[].name | select(. == "createRecommendation")] | length' "$WORK/mcp.out")" 1
+  jq -r 'select(.id == 3) | .result | "  tools/call listConfigVersions: status \(.structuredContent.status), active version \(.structuredContent.body.items[0].number), isError \(.isError)"' "$WORK/mcp.out"
+  as alex
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  expect "the read, as the API answers it" "$(jq -r 'select(.id == 3) | .result.structuredContent.body.items[0].id' "$WORK/mcp.out")" "$(field '.items[0].id')"
+  jq -r 'select(.id == 4) | "  tools/call createPrincipal: error \(.error.code) \(.error.message)"' "$WORK/mcp.out"
+  expect "the operation closed to agents" "$(jq -r 'select(.id == 4) | "\(.error.code) \(.error.message)"' "$WORK/mcp.out")" "-32602 Unknown tool: createPrincipal"
+  say "A host on MCP 2025-11-25 opens with the handshake, then lists the same tools:"
+  printf '%s\n' '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "walkthrough", "version": "1"}}}' \
+    '{"jsonrpc": "2.0", "method": "notifications/initialized"}' '{"jsonrpc": "2.0", "id": 2, "method": "ping"}' '{"jsonrpc": "2.0", "id": 3, "method": "tools/list"}' >"$WORK/mcp-legacy.in"
+  ERP_AGENT_TOKEN=$(cat "$WORK/tokens/support-agent") "$ERP" mcp <"$WORK/mcp-legacy.in" >"$WORK/mcp-legacy.out" 2>"$WORK/stderr" ||
+    fail "erp mcp failed ($(cat "$WORK/stderr"))"
+  jq -r 'select(.id == 1) | "  initialize: version \(.result.protocolVersion)"' "$WORK/mcp-legacy.out"
+  expect "the legacy tools, the same" "$(jq -r 'select(.id == 3) | [.result.tools[].name] | join(" ")' "$WORK/mcp-legacy.out")" "$(jq -r 'select(.id == 2) | [.result.tools[].name] | join(" ")' "$WORK/mcp.out")"
+  say "The calls are recorded in the agent's session, which ended when the host closed erp mcp's input:"
+  as support-agent
+  QUIET=1 api 200 '' listAgentSessions -p page_size=10
+  session=$(field '[.items[] | select(.purpose == "The walkthrough'"'"'s MCP host")][0].id')
+  api 200 '"  session \(.purpose): \(.status)"' getAgentSession -p "id=$session"
+  expect "the session" "$(field .status)" completed
+  api 200 '"  its tool calls: \([.items[] | "\(.tool) \(.result_summary)"] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[] | "\(.tool) \(.result_summary)"] | join(", ")')" "listConfigVersions 200"
+  passed
+}
+
+# step_savings_agent is T105d (ADR-0072 As built): the savings
+# opportunity agent, erp agent savings through the model stand-in
+# answering from a script of turns (its suite's replay, evals/savings),
+# finds the opportunities in Maple's purchasing of this year and last: the
+# suppliers with spend off contract (all of them, as step_spend showed),
+# the accounts bought from several suppliers and the orders above a
+# contract's price; it recommends bringing Tyrell under a contract, naming
+# its spend off contract as the spend metric returns it. A recommendation
+# stating a saving with a figure is refused by the run first. Its own
+# contract is refused (403, its autonomy level); Ben accepts, which
+# creates nothing.
+step_savings_agent() {
+  heading "Step 104 — The savings opportunity agent: from the spend of step 71 it recommends bringing the off-contract supplier under a contract, naming its spend off contract; a saving stated in money refused; nothing created"
+  local role period number name q want got session rec contracts
+  as ada
+  say "Ada sets up the savings opportunity agent (ADR-0072): an agent principal of type savings at autonomy level 1 on"
+  say "erp-default. Its role reads the spend metrics and what they read (supplier invoices, orders, contracts, cost"
+  say "centers, accounts and suppliers) and records its sessions; it holds no permission that creates an RFQ, a contract or an order."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "savings_agent", "name": "Savings opportunity agent"}'
+  role=$(field .id)
+  grant "$role" tenancy.org.read analytics.query.run payables.invoice.read procurement.order.read procurement.contract.read \
+    ledger.cost_center.read ledger.account.read partner.supplier.read agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "savings-agent", "display_name": "Savings opportunity agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "savings", "model": "erp-default", "description": "Recommends savings opportunities in purchasing for a buyer to decide (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token savings-agent "Savings opportunity agent"
+  as ben
+  period="$PREV-01-01..$TODAY"
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$SUPPLIER"
+  number=$(field .number) name=$(field .name)
+  say "What the agent will read, as Ben reads it: Tyrell's spend off contract from $PREV-01-01 to today, by currency:"
+  q="{\"measures\": [\"spend_off_contract\"], \"by\": [\"vendor\", \"vendor_name\", \"currency\"], \"companies\": [\"$CC\"], \"where\": [{\"dim\": \"posting_date\", \"op\": \"between\", \"values\": [\"$PREV-01-01\", \"$TODAY\"]}], \"order_by\": \"spend_off_contract\", \"desc\": true}"
+  api 200 "(.rows[] | select(.[0].value == \"$number\") | \"  \\(.[1].value): \\(.[3].value) \\(.[2].value) off contract\")" runAnalyticsQuery -body "$q"
+  want="Spend off contract $(field "[.rows[] | select(.[0].value == \"$number\") | \"\(.[3].value) \(.[2].value)\"] | join(\", \")")"
+  [ "$want" != "Spend off contract " ] || fail "no spend of Tyrell off contract: step 71's invoices are not there"
+  jq -n --arg s "$SUPPLIER" --arg want "$want" --arg q "$q" --arg name "$name" '
+    {session_id: "{{session}}", object_type: "business_partner", object_id: $s, kind: "bring_under_contract"} as $on |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "runAnalyticsQuery", input: {body: ($q | fromjson)}},
+      {tool: "createRecommendation", input: {body: ($on + {content: ($want + "\nA contract with \($name) saves 10 percent of it.")})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: ($want + "\nNone of \($name)'"'"'s spend in the period is under a contract: no order of it was made on one. Negotiate a contract; the buyer judges what it would save.")})}},
+      {final: "Recommended bringing Tyrell under a contract; the other opportunities are left for another run."}]}' >"$WORK/model-script.json"
+  say "Ben runs the agent: erp agent savings finds the opportunities of the period before its session, then, through the"
+  say "stand-in's script (its suite's replay, evals/savings), reads the spend, states a saving (refused by the run: it"
+  say "states only the spend an opportunity covers) and recommends bringing Tyrell under a contract."
+  show ERP_AGENT_TOKEN=… erp agent savings -company "$CC" -period "$period" -max 20
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/savings-agent") "$ERP" agent savings -company "$CC" -period "$period" -max 20 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent savings failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): bring_under_contract on business_partner $SUPPLIER .*/\1/p")
+  [ -n "$rec" ] || fail "erp agent savings printed no bring_under_contract on Tyrell"
+  api 200 '"  \(.kind) on the \(.object_type), \(.outcome // "open"): \(.content | split("\n") | join(" / "))"' getRecommendation -p "id=$rec"
+  expect "naming Tyrell's spend off contract" "$(field '.content | split("\n")[0]')" "$want"
+  expect "made in its session" "$(field .session_id)" "$session"
+  as savings-agent
+  api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "runAnalyticsQuery createRecommendation createRecommendation"
+  say "Recommending is all it may do: at autonomy level 1 it performs nothing, so the API refuses its own contract:"
+  refused 403 identity.autonomy_insufficient createContract -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"valid_from\": \"$TODAY\", \"valid_to\": \"$TODAY\", \"target_value\": {\"amount\": \"1.00\", \"currency\": \"CAD\"}, \"items\": [{\"material_key\": \"CHAIR-ERGO\", \"description\": \"Ergonomic office chairs\", \"unit_price\": {\"amount\": \"450.00\", \"currency\": \"CAD\"}, \"uom_code\": \"EA\", \"account_id\": \"$(account 6000)\"}]}"
+  as ben
+  QUIET=1 api 200 '' listContracts -p "legal_entity_id=$LE" -p "supplier_id=$SUPPLIER" -p page_size=200
+  contracts=$(field '.items | length')
+  say "Ben accepts the recommendation, which creates nothing: he asks Tyrell for a contract himself."
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" -body '{"outcome": "accepted"}'
+  QUIET=1 api 200 '' listContracts -p "legal_entity_id=$LE" -p "supplier_id=$SUPPLIER" -p page_size=200
+  expect "Tyrell's contracts, as they were" "$(field '.items | length')" "$contracts"
+  passed
+}
+
+# step_control_agent is T105f (ADR-0072, ADR-0078): the control
+# monitoring agent, erp agent control-monitor through the model stand-in
+# answering from a script of turns (its suite's replay,
+# evals/control_monitoring), monitors the controls of a process against
+# the control matrix and the audit trail. Ada makes a segregation-of-
+# duties rule of her own, whoever manages the organisation does not
+# release payment runs; she holds every permission today, so the rule
+# starts tomorrow, as step 77's does. Olive records a control on it,
+# ORG-01, in the process "Access management", and links the control to
+# the rule. Ada then ends the rule, from the day after it starts, the
+# earliest end identity allows: the control is enforced by nothing, and
+# the matrix shows its link broken. The agent's role reads the control
+# library and records its sessions; Ada grants it identity data, the
+# configuration's versions and the audit trail, which nothing grants by
+# default (product owner, 2026-11-12). Its no_exception on the control is
+# refused by the run (the link is broken); it recommends an exception
+# naming the broken link and citing the audit events of the rule's
+# creation and of its end. Its own test of the control is refused; Olive
+# accepts, which records no test and changes nothing. Step 76's
+# propose-and-release rule and PAY-01 are not touched. CONTROL_AGENT_REC
+# is the recommendation, which the risk agent reads (step_risk_agent).
+step_control_agent() {
+  heading "Step 105 — The control monitoring agent: a control whose segregation-of-duties rule was ended found with an exception naming the broken link and citing the audit events of the rule; its no_exception refused; the compliance officer decides, no test recorded"
+  local role tomorrow after rule control link created ended got session rec
+  as ada
+  say "Ada sets up the control monitoring agent (ADR-0072): an agent principal of type control_monitoring at autonomy"
+  say "level 1 on erp-default. Its role reads the control library and approval requests and records its sessions and"
+  say "recommendations; it holds no permission that records a test or changes a control."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "control_agent", "name": "Control monitoring agent"}'
+  role=$(field .id)
+  grant "$role" grc.control.read workflow.request.read agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "control-agent", "display_name": "Control monitoring agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "control_monitoring", "model": "erp-default", "description": "Monitors controls for a compliance officer to decide (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token control-agent "Control monitoring agent"
+  say "The control matrix shows segregation-of-duties rules and configuration settings, and the agent cites the audit"
+  say "trail. Nothing gives an agent those by default; Ada grants its role identity data, the configuration's versions"
+  say "and the audit trail (product owner, 2026-11-12):"
+  for perm in identity.access.read config.version.read audit.event.read; do
+    api 201 '"  granted \(.permission_code) to the agent'"'"'s role"' grantRolePermission -p "id=$role" -body "{\"permission_code\": \"$perm\"}"
+  done
+  tomorrow=$(date_add "$(utc_day)" 1) after=$(date_add "$(utc_day)" 2)
+  say "Ada adds a rule: whoever manages the organisation does not release payment runs. She holds both permissions today"
+  say "and gives up releasing payment runs from tomorrow (step 77), so the rule starts tomorrow, $tomorrow:"
+  api 201 '"rule \(.permission_a) / \(.permission_b), valid from \(.valid_from): \(.description)"' createSodRule \
+    -body "{\"permission_a\": \"tenancy.org.manage\", \"permission_b\": \"payments.run.release\", \"description\": \"Whoever manages the organisation does not release payment runs.\", \"valid_from\": \"$tomorrow\"}"
+  rule=$(field .id)
+  as olive
+  say "Olive records the control that the rule enforces, owned by herself, and links it to the rule:"
+  api 201 '"control \(.code), \(.process), owned by \(.owner_name): \(.frequency), \(.nature), \(.status)"' createControl \
+    -body "{\"code\": \"ORG-01\", \"objective\": \"Whoever manages the organisation does not release payment runs.\", \"process\": \"Access management\", \"owner_id\": \"$(awk -F'\t' '$2 == "Olive Compliance Officer" { print $1 }' "$WORK/names")\", \"frequency\": \"continuous\", \"nature\": \"automated\"}"
+  control=$(field .id)
+  api 201 '"link of \(.control_code) to the \(.kind) \(.sod_rule.permission_a) / \(.sod_rule.permission_b): holds \(.holds)\(if .holds then "" else ", " + .broken_reason end)"' \
+    createControlLink -p "id=$control" -body "{\"kind\": \"sod_rule\", \"sod_rule_id\": \"$rule\"}"
+  link=$(field .id)
+  as ada
+  say "Ada, tidying the rules, ends the new one from $after, the earliest end identity allows (a rule ends after the"
+  say "day it starts): it would be in force for one day only. Nothing tells Olive."
+  QUIET=1 api 200 '' getSodRule -p "id=$rule"
+  api 200 '"rule \(.permission_a) / \(.permission_b): valid from \(.valid_from) to \(.valid_to)"' endSodRule -p "id=$rule" -if-match "$ETAG" -body "{\"valid_to\": \"$after\"}"
+  QUIET=1 api 200 '' listAuditEvents -p object_type=identity.sod_rule -p "object_id=$rule"
+  expect "the rule's audit trail, the latest first" "$(field '[.items[].action] | join(" ")')" "identity.sod_rule.end identity.sod_rule.create"
+  ended=$(field '.items[0].seq') created=$(field '.items[1].seq')
+  as olive
+  say "The control matrix of the process shows the control's one link broken:"
+  api 200 '(.items[] | "  \(.control.code): links \(.link_state)", (.links[] | "    \(.kind): \(if .holds then "holds" else "broken, " + .broken_reason end)"))' \
+    getControlMatrix -p "process=Access management"
+  expect "the control's row" "$(field '[.items[] | "\(.control.id) \(.link_state) \([.links[] | "\(.id) \(.holds)"] | join(","))"] | join(", ")')" "$control broken $link false"
+  jq -n --arg rule "$rule" --arg control "$control" --arg link "$link" --arg created "$created" --arg ended "$ended" --arg tomorrow "$tomorrow" --arg after "$after" '
+    {session_id: "{{session}}", object_type: "control", object_id: $control} as $on |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "listAuditEvents", input: {object_type: "identity.sod_rule", object_id: $rule}},
+      {tool: "createRecommendation", input: {body: ($on + {kind: "no_exception", content: "The control has its link; nothing shows it failed."})}},
+      {tool: "createRecommendation", input: {body: ($on + {kind: "exception_found",
+        content: "Broken links: \($link)\nThe segregation-of-duties rule that enforces the control, tenancy.org.manage / payments.run.release, is not in force: it was made to start on \($tomorrow) (audit event \($created)) and was then ended from \($after) (audit event \($ended)), so it holds for one day only and the control is enforced by nothing after it."})}},
+      {final: "One exception: ORG-01, whose rule was ended; the compliance officer decides."}]}' >"$WORK/model-script.json"
+  say "The agent runs: erp agent control-monitor reads the control matrix of the process and starts a session on"
+  say "erp-default. The model is the stand-in, answering from a script of turns as the agent's evaluation suite replays"
+  say "them (evals/control_monitoring): it reads the rule's audit events; recommends no exception (refused by the run:"
+  say "the control's link is broken), then an exception naming the broken link and citing the rule's two events."
+  show ERP_AGENT_TOKEN=… erp agent control-monitor -process "\"Access management\""
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/control-agent") "$ERP" agent control-monitor -process "Access management" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent control-monitor failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): exception_found on control $control \\(ORG-01\\): Broken links: $link\$/\\1/p")
+  [ -n "$rec" ] || fail "erp agent control-monitor printed no exception_found on ORG-01 naming its broken link"
+  say "Olive, the compliance officer, reads the recommendation on the control:"
+  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)"))' listRecommendations -p "object_id=$control"
+  expect "the recommendations on the control, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "made in its session" "$(field '.items[0].session_id')" "$session"
+  expect "citing the audit event of the rule's end" "$(field ".items[0].content | contains(\"audit event $ended\")")" true
+  as control-agent
+  say "Recommending is all it may do: recording a test is a person's statement (x-agent: false), erp agent builds it no"
+  say "tool for it, and the API refuses its own call:"
+  refused 403 identity.agent_not_allowed createControlTest -p "id=$control" -body "{\"tested_on\": \"$(utc_day)\", \"result\": \"failed\", \"note\": \"The rule was ended.\"}"
+  api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "listAuditEvents createRecommendation createRecommendation"
+  as olive
+  say "Olive accepts the recommendation. Accepting records no test and changes nothing: she acts through the normal"
+  say "operations, a test of her own or the rule made again."
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "The rule was ended by mistake; Ada makes it again."}'
+  expect "the recommendation's outcome" "$(field .outcome)" accepted
+  QUIET=1 api 200 '' getControl -p "id=$control"
+  expect "the control as it was, never tested" "$(field '"\(.status) \(.version) \(has("last_test"))"')" "active 1 false"
+  CONTROL_AGENT_REC=$rec
+  passed
+}
+
+# step_risk_agent is T105g (ADR-0072, ADR-0078): the risk agent, erp agent
+# risk through the model stand-in answering from a script of turns (its
+# suite's replay, evals/risk), reviews Maple's open risks. Olive tests
+# step 76's control PAY-01 again at quarter end and records it failed:
+# the rule that is to enforce it (step 77) is not in force, as the matrix
+# shows; a test is never changed, a correction is another test. The
+# agent's role reads the register and the control library and records
+# its sessions; Ada grants it identity data, the configuration's versions
+# and the audit trail. Its rating equal to the risk's is refused; it
+# recommends rating step 89's risk of duplicate payments again, more
+# likely, citing the failed test, and, on the tenant, a new risk of
+# payment runs released by whoever manages the organisation, citing the
+# control monitoring agent's exception of step 98 (CONTROL_AGENT_REC). Its
+# own rating is refused; Tara accepts the new rating and rates the risk
+# herself.
+step_risk_agent() {
+  heading "Step 106 — The risk agent: the risk mitigated by a control that failed its test recommended for a higher rating, citing the test; a new risk recommended from the control monitoring agent's exception; the risk owner decides and rates"
+  local role tenant risk test got session rec newrisk
+  [ -n "${CONTROL:-}" ] || fail "step 76's control is not there"
+  [ -n "${CONTROL_AGENT_REC:-}" ] || fail "step 98's exception is not there"
+  as ada
+  say "Ada sets up the risk agent (ADR-0072): an agent principal of type risk at autonomy level 1 on erp-default. Its"
+  say "role reads the risk register and the control library and records its sessions and recommendations; it holds"
+  say "no permission that records, rates or closes a risk."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "risk_agent", "name": "Risk agent"}'
+  role=$(field .id)
+  grant "$role" grc.risk.read grc.control.read agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "risk-agent", "display_name": "Risk agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "risk", "model": "erp-default", "description": "Reviews the risk register for a risk owner to decide (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token risk-agent "Risk agent"
+  say "As for the control monitoring agent, Ada grants its role identity data, the configuration's versions and the"
+  say "audit trail (product owner, 2026-11-12):"
+  for perm in identity.access.read config.version.read audit.event.read; do
+    api 201 '"  granted \(.permission_code) to the agent'"'"'s role"' grantRolePermission -p "id=$role" -body "{\"permission_code\": \"$perm\"}"
+  done
+  QUIET=1 api 200 '' getCurrentPrincipal
+  tenant=$(field .tenant_id)
+  as olive
+  say "Olive tests PAY-01 again at quarter end. The control matrix shows the rule that is to enforce it not in force"
+  say "yet (step 77), so she records the test as failed. A test is never changed: the correction is another test."
+  api 201 '"test of \(.control_code) on \(.tested_on): \(.result), by \(.tested_by_name)"' createControlTest -p "id=$CONTROL" \
+    -body "{\"tested_on\": \"$TODAY\", \"result\": \"failed\", \"note\": \"Quarter-end test: the segregation-of-duties rule linked to the control is not in force.\"}"
+  test=$(field .id)
+  as tara
+  QUIET=1 api 200 '' listRisks -p status=open
+  risk=$(field '.items[] | select(.title == "Duplicate payments to suppliers") | .id')
+  expect "the open register, the risk of step 89 at its rating" "$(field '[.items[] | "\(.id) \(.likelihood) \(.impact)"] | join(", ")')" "$risk 1 4"
+  jq -n --arg risk "$risk" --arg control "$CONTROL" --arg test "$test" --arg tenant "$tenant" --arg exception "$CONTROL_AGENT_REC" '
+    {session_id: "{{session}}", object_type: "risk", object_id: $risk, kind: "rate_again"} as $on |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "listControlTests", input: {id: $control}},
+      {tool: "listRecommendations", input: {object_type: "control"}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Rate: likelihood 1, impact 4\nAs rated."})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Rate: likelihood 2, impact 4\nPAY-01, the one control that mitigates the risk, failed its last test (control test \($test)): the rule that is to enforce it is not in force, so a duplicate payment is more likely than rated. The impact is as rated."})}},
+      {tool: "createRecommendation", input: {body: {session_id: "{{session}}", object_type: "tenant", object_id: $tenant, kind: "new_risk",
+        content: "New risk: Payment runs released by whoever manages the organisation\nCategory: Payments\nThe control monitoring agent found that the rule keeping whoever manages the organisation from releasing payment runs is not in force (recommendation \($exception)), and no risk of the register covers it."}}},
+      {final: "Recommended rating the risk of duplicate payments again and a new risk; the risk owner decides."}]}' >"$WORK/model-script.json"
+  say "The agent runs: erp agent risk reads the open register, the controls' last tests and the control monitoring"
+  say "agent's findings and starts a session on erp-default. The model is the stand-in, answering from a script of turns"
+  say "as the agent's evaluation suite replays them (evals/risk): it reads PAY-01's tests and the findings on controls;"
+  say "asks to rate the risk as it is (refused by the run: a new rating differs), then recommends a higher likelihood,"
+  say "citing the failed test, and a new risk, citing step 98's exception."
+  show ERP_AGENT_TOKEN=… erp agent risk
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/risk-agent") "$ERP" agent risk 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent risk failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 2, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): rate_again on risk $risk \\(Duplicate payments to suppliers\\): Rate: likelihood 2, impact 4\$/\\1/p")
+  [ -n "$rec" ] || fail "erp agent risk printed no rate_again on the risk of duplicate payments"
+  newrisk=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): new_risk on tenant $tenant \\(the tenant\\): New risk: Payment runs released by whoever manages the organisation\$/\\1/p")
+  [ -n "$newrisk" ] || fail "erp agent risk printed no new_risk on the tenant"
+  say "Tara, who owns the risk, reads the recommendation on it:"
+  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)"))' listRecommendations -p "object_id=$risk"
+  expect "the recommendations on the risk, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "made in its session" "$(field '.items[0].session_id')" "$session"
+  expect "citing the failed test" "$(field ".items[0].content | contains(\"control test $test\")")" true
+  as risk-agent
+  say "Recommending is all it may do: a rating is a write, which its autonomy level 1 does not reach, its role holds"
+  say "no permission to rate a risk, erp agent builds it no tool for it, and the API refuses its own call:"
+  refused 403 identity.autonomy_insufficient createRiskRating -p "id=$risk" -body '{"likelihood": 2, "impact": 4}'
+  api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "listControlTests listRecommendations createRecommendation createRecommendation createRecommendation"
+  as tara
+  say "Tara accepts the new rating. Accepting changes nothing; she rates the risk herself, through the normal operation:"
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "Until the rule is in force, duplicates are more likely."}'
+  QUIET=1 api 200 '' getRisk -p "id=$risk"
+  expect "the risk after the acceptance, as it was" "$(field '"\(.likelihood) \(.impact) \(.version)"')" "1 4 2"
+  api 201 '"  rating of the risk: likelihood \(.likelihood), impact \(.impact), score \(.score), by \(.rated_by_name)"' \
+    createRiskRating -p "id=$risk" -body '{"likelihood": 2, "impact": 4}'
+  expect "her rating" "$(field '"\(.likelihood) \(.impact) \(.score)"')" "2 4 8"
+  say "The new risk stays open for Tara to discuss with Ada; nobody recorded it."
+  QUIET=1 api 200 '' listRisks -p status=open
+  expect "the open register, no risk added" "$(field '[.items[].id] | join(" ")')" "$risk"
+  passed
+}
+
+# step_enablement_agent is T109a and T109b (ADR-0072 As built): Priya, the
+# process owner, has the enablement agent describe purchase to pay from
+# the active configuration and roles. Ada sets the agent up; its first
+# run is refused before a session, since reading the roles needs
+# identity.access.read, which nothing grants by default; Ada grants it.
+# Through the model stand-in (its suite's replay, evals/enablement), the
+# agent's description stating the approval limit in prose is refused by
+# the run; it then recommends the description, which names the
+# configuration version and cites the requisition approval limit and the
+# invoice tolerance as the active version holds them, and erp agent
+# enablement-docs writes it to a file. Its own change request is refused;
+# the version is as it was. Then (T109b, enablement_help) Alex's invoice
+# posted before a clean match is refused, and the agent explains the
+# problem code from the contract, naming the tolerance in force.
+step_enablement_agent() {
+  heading "Step 108 — The enablement agent: purchase to pay described from the configuration, every limit, tolerance and role as the active version and the roles hold them; the problem code of a refused invoice explained from the contract with the tolerance in force"
+  local role agent version number limit approver second pct abs release got session rec doc
+  as ada
+  say "Ada sets up the enablement agent (ADR-0072): an agent principal of type enablement at autonomy level 1 on"
+  say "erp-default. Its role reads the configuration and records its sessions; it holds no permission that changes anything."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "enablement_agent", "name": "Enablement agent"}'
+  role=$(field .id)
+  grant "$role" config.version.read agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "enablement-agent", "display_name": "Enablement agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "enablement", "model": "erp-default", "description": "Describes processes from the configuration and explains the contract (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  agent=$(field .id)
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$agent\", \"role_id\": \"$role\"}"
+  token enablement-agent "Enablement agent"
+  as priya
+  say "What the agent will read, as Priya reads it: the active version's requisition approval and company $CC's price tolerance:"
+  api 200 '.items[0] | "  version \(.number): requisitions up to \(.document.purchasing.requisition_approval[0].up_to) approved by \(.document.purchasing.requisition_approval[0].steps[0].role); company '"$CC"' tolerates \(.document.companies[] | select(.code == "'"$CC"'") | .invoice_tolerance | "\(.price_percent) percent or \(.price_absolute)")"' \
+    listConfigVersions -p is_active=true
+  version=$(field '.items[0].id') number=$(field '.items[0].number')
+  limit=$(field '.items[0].document.purchasing.requisition_approval[0].up_to')
+  approver=$(field '.items[0].document.purchasing.requisition_approval[0].steps[0].role')
+  second=$(field '.items[0].document.purchasing.requisition_approval[1].steps[1].role')
+  release=$(field '.items[0].document.payments.release_role')
+  pct=$(field ".items[0].document.companies[] | select(.code == \"$CC\") | .invoice_tolerance.price_percent")
+  abs=$(field ".items[0].document.companies[] | select(.code == \"$CC\") | .invoice_tolerance.price_absolute")
+  say "Priya asks for the description of purchase to pay. The agent reads the roles too, which nothing grants by default"
+  say "(ADR-0072 §6): its first run is refused before a session starts."
+  show ERP_AGENT_TOKEN=… erp agent enablement-docs -process purchase_to_pay -out purchase_to_pay.md
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/enablement-agent") "$ERP" agent enablement-docs -process purchase_to_pay -out "$WORK/purchase_to_pay.md" 2>&1 || true) # refused: checked below
+  printf '%s\n' "$got" | sed 's/^/     /'
+  expect "refused before a session" "$(printf '%s\n' "$got" | grep -c 'identity.permission_missing')" 1
+  as ada
+  say "Ada grants its role identity.access.read: it may read the roles, their permissions and the SoD rules."
+  grant "$role" identity.access.read
+  as priya
+  doc=$(jq -rn --argjson n "$number" '"# Purchase to pay, configuration version \($n)"')
+  # shellcheck disable=SC2016 # backticks of Markdown, not expansions
+  jq -n --arg v "$version" --arg doc "$doc" --arg cc "$CC" --arg limit "$limit" --arg approver "$approver" --arg second "$second" \
+    --arg release "$release" --arg pct "$pct" --arg abs "$abs" '
+    {session_id: "{{session}}", object_type: "config_version", object_id: $v, kind: "process_document"} as $on |
+    ("## Requisitions and purchase orders\n1. A requisition up to `purchasing.requisition_approval[0].up_to` = `\($limit)` is approved by role `\($approver)` (`purchasing.requisition_approval[0].steps[0].role` = `\($approver)`).\n2. Above it, role `\($approver)` and then role `\($second)` approve (`purchasing.requisition_approval[1].steps[1].role` = `\($second)`).\n## Supplier invoices\nAn invoice whose price is above `companies[\($cc)].invoice_tolerance.price_percent` = `\($pct)` percent or `companies[\($cc)].invoice_tolerance.price_absolute` = `\($abs)` of the order'"'"'s is held for review.\n## Payments\nRole `\($release)` releases payment runs (`payments.release_role` = `\($release)`).") as $body |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "getConfigVersion", input: {id: $v}},
+      {tool: "listRoles", input: {}},
+      {tool: "createRecommendation", input: {body: ($on + {content: ($doc + "\nRequisitions up to " + ($limit | split(".")[0]) + " CAD are approved by the purchasing manager.")})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: ($doc + "\n" + $body)})}},
+      {final: "Described purchase to pay from the active configuration; the process owner decides."}]}' >"$WORK/model-script.json"
+  say "The agent runs again: erp agent enablement-docs reads the active version and the roles, starts a session on"
+  say "erp-default and, through the stand-in's script (its suite's replay, evals/enablement), reads the version and the"
+  say "roles, writes the approval limit in prose (refused by the run: every figure is a setting cited from the"
+  say "configuration), then recommends the description, which the command also writes to a file."
+  show ERP_AGENT_TOKEN=… erp agent enablement-docs -process purchase_to_pay -out purchase_to_pay.md
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/enablement-agent") "$ERP" agent enablement-docs -process purchase_to_pay -out "$WORK/purchase_to_pay.md" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent enablement-docs failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed "s|$WORK/||; s/^/     /"
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): process_document on config_version $version\$/\1/p")
+  [ -n "$rec" ] || fail "erp agent enablement-docs printed no process_document on the version $version"
+  say "The description, as written to purchase_to_pay.md:"
+  sed 's/^/     | /' "$WORK/purchase_to_pay.md"
+  expect "it names the version it describes" "$(head -1 "$WORK/purchase_to_pay.md")" "$doc"
+  expect "the approval limit as configured" "$(grep -cF "\`purchasing.requisition_approval[0].up_to\` = \`$limit\`" "$WORK/purchase_to_pay.md")" 1
+  expect "the invoice tolerance as configured" "$(grep -cF "\`companies[$CC].invoice_tolerance.price_percent\` = \`$pct\`" "$WORK/purchase_to_pay.md")" 1
+  say "Priya reads the recommendation on the version: the same description, open for her decision."
+  api 200 '(.items[] | select(.kind == "process_document") | "  \(.kind) on the \(.object_type), \(.outcome // "open"), in session \(.session_id)")' listRecommendations -p "object_id=$version"
+  expect "the description, the one the agent printed" "$(field '[.items[] | select(.kind == "process_document") | .id] | join(" ")')" "$rec"
+  expect "the file is the recommendation" "$(field ".items[] | select(.id == \"$rec\") | .content")" "$(cat "$WORK/purchase_to_pay.md")"
+  as enablement-agent
+  say "Describing is all it may do: its role proposes no change, so the API refuses its own change request:"
+  refused 403 identity.permission_missing createChangeRequest -body "{\"title\": \"Raise the approval limit\", \"base_version\": $number, \"proposed\": {}}"
+  api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "getConfigVersion listRoles createRecommendation createRecommendation"
+  as priya
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  expect "the active version" "$(field '.items[0].id')" "$version"
+  enablement_help "$version" "$pct" "$abs"
+  passed
+}
+
+# enablement_help VERSION PCT ABS is T109b, step_enablement_agent's
+# second part: Alex enters an invoice on Tyrell's order and posts it
+# before matching it, which is refused (409 payables.match_required). He
+# asks the enablement agent what the code means: a code the contract does
+# not have is refused before any model call; erp agent enablement-help,
+# through the stand-in's script, reads the active version, quotes the
+# operation's description wrongly (refused by the run), then explains
+# the code, quoting the contract and naming the price tolerance in force.
+# Alex cancels the invoice; nothing else changed.
+enablement_help() {
+  local version=$1 pct=$2 abs=$3 order price inv got session passage
+  as alex
+  say "Alex enters an invoice on Tyrell's released order for one more unit of its first item and posts it at once,"
+  say "before matching it:"
+  QUIET=1 api 200 '' listPurchaseOrders -p "legal_entity_id=$LE" -p "supplier_id=$SUPPLIER" -p status=released -p page_size=1
+  order=$(field '.items[0].id')
+  [ -n "$order" ] && [ "$order" != null ] || fail "Tyrell has no released order to invoice"
+  QUIET=1 api 200 '' getPurchaseOrder -p "id=$order"
+  price=$(field '.items[] | select(.item_no == 1) | .unit_price.amount')
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TY-HELP-1\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"$price\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"0.00\", \"currency\": \"CAD\"}, \"purchase_order_id\": \"$order\", \"items\": [{\"purchase_order_id\": \"$order\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"$price\", \"currency\": \"CAD\"}}]}"
+  inv=$(field .id)
+  refused 409 payables.match_required postSupplierInvoice -p "id=$inv" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  say "He asks the enablement agent what the code means (T109b). A code the contract does not have is refused before any"
+  say "model call, as a field or an operation it does not have is:"
+  show ERP_AGENT_TOKEN=… erp agent enablement-help -operation postSupplierInvoice -problem payables.tolerance_exceeded
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/enablement-agent") "$ERP" agent enablement-help -operation postSupplierInvoice -problem payables.tolerance_exceeded 2>&1 || true) # refused: checked below
+  printf '%s\n' "$got" | sed 's/^/     /'
+  expect "refused as not in the contract" "$(printf '%s\n' "$got" | grep -c 'not in the contract: no problem code "payables.tolerance_exceeded"')" 1
+  passage="a clean latest match of the invoice as it now stands for PO-based invoices"
+  # shellcheck disable=SC2016 # backticks of Markdown, not expansions
+  jq -n --arg v "$version" --arg cc "$CC" --arg pct "$pct" --arg abs "$abs" --arg q "$passage" '
+    ("The match holds the invoice'"'"'s price to `companies[\($cc)].invoice_tolerance.price_percent` = `\($pct)` percent or `companies[\($cc)].invoice_tolerance.price_absolute` = `\($abs)` of the order'"'"'s; match the invoice, and post it once its match is clean.") as $tolerance |
+    {turns: [
+      {tool: "getConfigVersion", input: {id: $v}},
+      {tool: "reply", input: {text: ("`payables.match_required`: the contract says \"an invoice is matched within the tolerance\". " + $tolerance)}},
+      {tool: "reply", input: {text: ("`payables.match_required` refuses the posting: the contract requires \"" + $q + "\". " + $tolerance)}},
+      {final: "Explained payables.match_required with the tolerance in force."}]}' >"$WORK/model-script.json"
+  say "The agent explains the refusal's code: erp agent enablement-help reads the operation's description and problem codes"
+  say "from the contract compiled into it, the active version and the roles, starts a session and, through the stand-in's script,"
+  say "quotes words the contract does not write (refused by the run: every quotation is the contract's), then replies."
+  show ERP_AGENT_TOKEN=… erp agent enablement-help -operation postSupplierInvoice -problem payables.match_required
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/enablement-agent") "$ERP" agent enablement-help -operation postSupplierInvoice -problem payables.match_required 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent enablement-help failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent did" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "replies refused 1."
+  expect "quoting the contract" "$(printf '%s\n' "$got" | grep -cF "\"$passage\"")" 1
+  expect "naming the tolerance in force" "$(printf '%s\n' "$got" | grep -cF "\`companies[$CC].invoice_tolerance.price_percent\` = \`$pct\`")" 1
+  as enablement-agent
+  api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "getConfigVersion reply reply"
+  as alex
+  say "Alex cancels the invoice; he will match the next one before posting it."
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$inv"
+  api 200 '"\(.document_number): \(.status)"' cancelSupplierInvoice -p "id=$inv" -if-match "$ETAG" -body '{"reason": "Entered to ask about the refusal"}'
+  expect "the invoice" "$(field .status)" cancelled
 }
 
 # step_close is the financial close (ADR-0058), the story's last step: it
@@ -12743,7 +13941,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_close'
 
 main() {
   stop_unseen

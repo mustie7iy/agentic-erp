@@ -11,7 +11,8 @@
 //	erp invoices [-agent]          match parked invoices, post clean ones
 //	erp capture -legal-entity ID -file F   capture an invoice document (large ones through an upload)
 //	erp capture -order -legal-entity ID -file F -account ID   capture a customer's purchase order into a draft sales order
-//	erp agent invoices|config|migration|test|reconcile|cash-variance|credit-score|access-roles|access-sod|access-review|bid-compare|regulatory-notice|regulatory-draft|support-ask|support-diagnose|collections
+//	erp mcp                        the API as MCP tools for an agent host, over stdin and stdout
+//	erp agent invoices|config|migration|test|reconcile|cash-variance|credit-score|access-roles|access-sod|access-review|bid-compare|regulatory-notice|regulatory-draft|support-ask|support-diagnose|support-fix|collections|integration-monitor|savings|control-monitor|risk|plan|enablement-docs|enablement-help
 //	erp metrics | query | ask | report
 //	erp gen-mock-sap | config generate | config validate
 //	erp tenants list|get|create|suspend|resume|offboard   (operators: the control plane)
@@ -134,6 +135,7 @@ func init() {
 		"tenants":      tenantsCmd,
 		"version":      versionCmd,
 		"eval":         evalCmd,
+		"mcp":          mcpCmd,
 	}
 }
 
@@ -164,7 +166,18 @@ agents (ERP_AGENT_TOKEN; models through the cell's gateway, ERP_AGENT_MODEL an a
                  | regulatory-draft -recommendation ID
                  | support-ask QUESTION
                  | support-diagnose -type KIND -id ID [WHAT HAPPENED]
+                 | support-fix -recommendation ID
                  | collections -company CODE [-key-date YYYY-MM-DD]
+                 | integration-monitor
+                 | savings -company CODE [-period FROM..TO] [-max N]
+                 | control-monitor [-process TEXT]
+                 | risk
+                 | plan -company CODE -category CODE -year YYYY
+                 | enablement-docs -process purchase_to_pay|order_to_cash [-out F]
+                 | enablement-help -operation ID -field NAME|-problem CODE
+
+agent hosts (ERP_AGENT_TOKEN):
+  mcp            serve the API's operations open to agents as MCP tools over standard input and output
 
 agent evaluations (ADR-0039; live, on demand: they spend model money):
   eval run -suite evals/<agent>/suite.yaml [-repeats 3] [-max-cost 5.00] [-out evals/results]
@@ -469,7 +482,8 @@ func sapDate(d string) (string, error) {
 }
 
 // configGenerate drafts a configuration document from SAP customizing, for
-// a change request (erp agent config -draft, or erp call createChangeRequest).
+// a change request (erp agent config -draft, or erp call createChangeRequest),
+// and with -fit-gap writes the extract's fit-gap report beside it (T104a).
 func configGenerate(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("config generate", flag.ContinueOnError)
 	source := fs.String("source", "file:"+defaultExtract, `SAP source: "file:PATH" or "odata:URL"`)
@@ -479,41 +493,101 @@ func configGenerate(ctx context.Context, args []string) error {
 	zones := fs.String("time-zone", "", "comma-separated CODE=ZONE, each company's IANA time zone (e.g. 3000=America/Toronto); SAP's extract has none")
 	form := fs.String("amount-format", "", `the form of a file extract's amounts: "internal" (the default, SAP's stored form, converted with the extract's TCURX) or "external"; OData's are external`)
 	cutover := fs.String("cutover", "", "the cutover date (YYYY-MM-DD), at which each account's cost element is read from SAP's CSKB slice valid then; without it, the latest slice")
+	fitGap := fs.String("fit-gap", "", "where to write the fit-gap report of the extract's customizing: per object read, carried over, carried over with a note or left out")
+	fitGapFormat := fs.String("fit-gap-format", "", `the fit-gap report's form: "text" (the default) or "json"; with -fit-gap`)
 	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	if err := fitGapFlags(*fitGap, *fitGapFormat); err != nil {
 		return err
 	}
 	src, err := parseSource(*source)
 	if err != nil {
 		return err
 	}
-	opts := sapconfig.DefaultOptions()
-	if opts.ExternalAmounts, err = externalAmounts(src, *form); err != nil {
-		return err
-	}
-	if opts.TimeZones, err = parseZones(*zones); err != nil {
-		return err
-	}
-	if opts.Cutover, err = sapDate(*cutover); err != nil {
+	opts, err := generateOptions(src, *form, *zones, *cutover)
+	if err != nil {
 		return err
 	}
 	e, err := src.Extract(ctx, sap.Scope{CompanyCodes: strings.Split(*companies, ","), FiscalYear: *year})
 	if err != nil {
 		return err
 	}
-	cfg, notes := sapconfig.Generate(e, opts)
+	cfg, notes, report := sapconfig.FitGapReport(e, opts)
 	doc, _ := cfg.Marshal() // Config.Marshal cannot fail
 	if err := os.WriteFile(*outPath, doc, 0o600); err != nil {
 		return fmt.Errorf("config generate: write draft %s: %w", *outPath, err)
 	}
+	if *fitGap != "" {
+		if err := writeFitGap(*fitGap, *fitGapFormat, report); err != nil {
+			return err
+		}
+	}
+	if err := printGenerated(*outPath, *fitGap, notes, report.Counts); err != nil {
+		return err
+	}
+	return printFindings(config.Validate(cfg, currency.Seeded()))
+}
+
+// fitGapFlags refuses a fit-gap report's form other than text or JSON,
+// and a form given without -fit-gap, which would write nothing.
+func fitGapFlags(path, format string) error {
+	switch {
+	case format != "" && format != "text" && format != "json":
+		return fmt.Errorf(`invalid -fit-gap-format %q: want "text" or "json"`, format)
+	case format != "" && path == "":
+		return errors.New("-fit-gap-format needs -fit-gap PATH, where the report is written")
+	}
+	return nil
+}
+
+// printGenerated prints where the draft went, the fit-gap report's counts
+// when one was written, and the notes for the reviewers.
+func printGenerated(outPath, fitGap string, notes []sapconfig.Note, c sapconfig.FitGapCounts) error {
 	w := printer()
-	fmt.Fprintf(w, "Draft configuration written to %s\n\nNotes for reviewers:\n", *outPath)
+	fmt.Fprintf(w, "Draft configuration written to %s\n", outPath)
+	if fitGap != "" {
+		fmt.Fprintf(w, "Fit-gap report written to %s: %d objects read, %d carried over, %d carried over with a note, %d left out\n",
+			fitGap, c.Objects, c.CarriedOver, c.CarriedWithNote, c.LeftOut)
+	}
+	fmt.Fprintf(w, "\nNotes for reviewers:\n")
 	for _, n := range notes {
 		fmt.Fprintln(w, "  "+n.String())
 	}
 	if err := w.Flush(); err != nil {
 		return fmt.Errorf("config generate: print notes: %w", err)
 	}
-	return printFindings(config.Validate(cfg, currency.Seeded()))
+	return nil
+}
+
+// generateOptions are the generator's options from config generate's
+// flags.
+func generateOptions(src sap.Source, form, zones, cutover string) (sapconfig.Options, error) {
+	opts := sapconfig.DefaultOptions()
+	var err error
+	if opts.ExternalAmounts, err = externalAmounts(src, form); err != nil {
+		return opts, err
+	}
+	if opts.TimeZones, err = parseZones(zones); err != nil {
+		return opts, err
+	}
+	opts.Cutover, err = sapDate(cutover)
+	return opts, err
+}
+
+// writeFitGap writes the fit-gap report to path, as text or JSON.
+func writeFitGap(path, format string, r sapconfig.FitGap) error {
+	var b bytes.Buffer
+	if format == "json" {
+		doc, _ := json.MarshalIndent(r, "", "  ") // strings, ints and slices of them: it cannot fail
+		b.Write(append(doc, '\n'))
+	} else {
+		_ = r.WriteText(&b) // a bytes.Buffer's writes do not fail
+	}
+	if err := os.WriteFile(path, b.Bytes(), 0o600); err != nil {
+		return fmt.Errorf("config generate: write fit-gap report %s: %w", path, err)
+	}
+	return nil
 }
 
 // parseZones reads -time-zone: the zones are checked by the draft's

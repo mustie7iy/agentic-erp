@@ -12614,6 +12614,493 @@ func (s *AuditEventPage) SetTotalEstimate(val OptInt64) {
 
 func (*AuditEventPage) listAuditEventsRes() {}
 
+// Completed: the verification of the tenant's audit chain from its first event to its head when the
+// exporter read it, against the stored hashes and the write-once anchors, as `verifyAuditChain` does.
+// Ref: #/components/schemas/AuditEvidenceChain
+type AuditEvidenceChain struct {
+	// Whether every event and anchor verified.
+	Verified bool `json:"verified"`
+	// The head: the last sequence number verified, and the last an exported event may have.
+	LastSeq int64 `json:"last_seq"`
+	// The events checked.
+	Checked int64 `json:"checked"`
+	// The anchors checked.
+	AnchorsChecked int32 `json:"anchors_checked"`
+	// Not verified: the first sequence number that did not.
+	FirstBrokenSeq OptInt64 `json:"first_broken_seq"`
+}
+
+// GetVerified returns the value of Verified.
+func (s *AuditEvidenceChain) GetVerified() bool {
+	return s.Verified
+}
+
+// GetLastSeq returns the value of LastSeq.
+func (s *AuditEvidenceChain) GetLastSeq() int64 {
+	return s.LastSeq
+}
+
+// GetChecked returns the value of Checked.
+func (s *AuditEvidenceChain) GetChecked() int64 {
+	return s.Checked
+}
+
+// GetAnchorsChecked returns the value of AnchorsChecked.
+func (s *AuditEvidenceChain) GetAnchorsChecked() int32 {
+	return s.AnchorsChecked
+}
+
+// GetFirstBrokenSeq returns the value of FirstBrokenSeq.
+func (s *AuditEvidenceChain) GetFirstBrokenSeq() OptInt64 {
+	return s.FirstBrokenSeq
+}
+
+// SetVerified sets the value of Verified.
+func (s *AuditEvidenceChain) SetVerified(val bool) {
+	s.Verified = val
+}
+
+// SetLastSeq sets the value of LastSeq.
+func (s *AuditEvidenceChain) SetLastSeq(val int64) {
+	s.LastSeq = val
+}
+
+// SetChecked sets the value of Checked.
+func (s *AuditEvidenceChain) SetChecked(val int64) {
+	s.Checked = val
+}
+
+// SetAnchorsChecked sets the value of AnchorsChecked.
+func (s *AuditEvidenceChain) SetAnchorsChecked(val int32) {
+	s.AnchorsChecked = val
+}
+
+// SetFirstBrokenSeq sets the value of FirstBrokenSeq.
+func (s *AuditEvidenceChain) SetFirstBrokenSeq(val OptInt64) {
+	s.FirstBrokenSeq = val
+}
+
+// A company an evidence export covers.
+// Ref: #/components/schemas/AuditEvidenceCompany
+type AuditEvidenceCompany struct {
+	// The company (`GET /v1/legal-entities/{id}`).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Its code.
+	CompanyCode string `json:"company_code"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AuditEvidenceCompany) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *AuditEvidenceCompany) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AuditEvidenceCompany) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *AuditEvidenceCompany) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// An audit evidence export (audit, ADR-0011 As built, T101a): the evidence of companies and a period
+// written to object storage as files with a manifest.
+// Ref: #/components/schemas/AuditEvidenceExport
+type AuditEvidenceExport struct {
+	// Evidence export id.
+	ID uuid.UUID `json:"id"`
+	// The companies the export covers, in the order of their codes.
+	Companies []AuditEvidenceCompany `json:"companies"`
+	// The period's first day.
+	From time.Time `json:"from"`
+	// The period's last day.
+	To time.Time `json:"to"`
+	// Whether the audit events carry their client addresses: the requester held `audit.event.read` when
+	// asking.
+	WithClientAddresses bool `json:"with_client_addresses"`
+	// `queued` (until the exporter writes its files), `completed` or `failed`. Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// Completed: the files the manifest names, in its order
+	// (`GET /v1/audit-evidence-exports/{id}/files/{name}` downloads each, and `manifest.json`); otherwise
+	// empty.
+	Files []AuditEvidenceFile `json:"files"`
+	// Completed: the SHA-256 of `manifest.json`, in hexadecimal.
+	ManifestSHA256 OptString `json:"manifest_sha256"`
+	// Completed: the audit events exported.
+	AuditEventCount OptInt32 `json:"audit_event_count"`
+	// Completed: the journal entries exported.
+	JournalEntryCount OptInt32 `json:"journal_entry_count"`
+	// Completed: the approval decisions exported.
+	ApprovalDecisionCount OptInt32              `json:"approval_decision_count"`
+	Chain                 OptAuditEvidenceChain `json:"chain"`
+	// Failed: the problem code that stopped the export (`identity.principal_blocked`,
+	// `audit.evidence_too_large` when the period holds more than 200,000 audit events or journal lines,
+	// `audit.evidence_changed` when the file store holds other bytes under the export's manifest).
+	FailureCode OptString `json:"failure_code"`
+	// When the exporter completed it.
+	CompletedAt OptDateTime `json:"completed_at"`
+	// Who asked for the export.
+	RequestedBy uuid.UUID `json:"requested_by"`
+	// Their name, as the identity context gives it now.
+	RequestedByName string    `json:"requested_by_name"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *AuditEvidenceExport) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCompanies returns the value of Companies.
+func (s *AuditEvidenceExport) GetCompanies() []AuditEvidenceCompany {
+	return s.Companies
+}
+
+// GetFrom returns the value of From.
+func (s *AuditEvidenceExport) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *AuditEvidenceExport) GetTo() time.Time {
+	return s.To
+}
+
+// GetWithClientAddresses returns the value of WithClientAddresses.
+func (s *AuditEvidenceExport) GetWithClientAddresses() bool {
+	return s.WithClientAddresses
+}
+
+// GetStatus returns the value of Status.
+func (s *AuditEvidenceExport) GetStatus() string {
+	return s.Status
+}
+
+// GetFiles returns the value of Files.
+func (s *AuditEvidenceExport) GetFiles() []AuditEvidenceFile {
+	return s.Files
+}
+
+// GetManifestSHA256 returns the value of ManifestSHA256.
+func (s *AuditEvidenceExport) GetManifestSHA256() OptString {
+	return s.ManifestSHA256
+}
+
+// GetAuditEventCount returns the value of AuditEventCount.
+func (s *AuditEvidenceExport) GetAuditEventCount() OptInt32 {
+	return s.AuditEventCount
+}
+
+// GetJournalEntryCount returns the value of JournalEntryCount.
+func (s *AuditEvidenceExport) GetJournalEntryCount() OptInt32 {
+	return s.JournalEntryCount
+}
+
+// GetApprovalDecisionCount returns the value of ApprovalDecisionCount.
+func (s *AuditEvidenceExport) GetApprovalDecisionCount() OptInt32 {
+	return s.ApprovalDecisionCount
+}
+
+// GetChain returns the value of Chain.
+func (s *AuditEvidenceExport) GetChain() OptAuditEvidenceChain {
+	return s.Chain
+}
+
+// GetFailureCode returns the value of FailureCode.
+func (s *AuditEvidenceExport) GetFailureCode() OptString {
+	return s.FailureCode
+}
+
+// GetCompletedAt returns the value of CompletedAt.
+func (s *AuditEvidenceExport) GetCompletedAt() OptDateTime {
+	return s.CompletedAt
+}
+
+// GetRequestedBy returns the value of RequestedBy.
+func (s *AuditEvidenceExport) GetRequestedBy() uuid.UUID {
+	return s.RequestedBy
+}
+
+// GetRequestedByName returns the value of RequestedByName.
+func (s *AuditEvidenceExport) GetRequestedByName() string {
+	return s.RequestedByName
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *AuditEvidenceExport) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *AuditEvidenceExport) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *AuditEvidenceExport) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCompanies sets the value of Companies.
+func (s *AuditEvidenceExport) SetCompanies(val []AuditEvidenceCompany) {
+	s.Companies = val
+}
+
+// SetFrom sets the value of From.
+func (s *AuditEvidenceExport) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *AuditEvidenceExport) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetWithClientAddresses sets the value of WithClientAddresses.
+func (s *AuditEvidenceExport) SetWithClientAddresses(val bool) {
+	s.WithClientAddresses = val
+}
+
+// SetStatus sets the value of Status.
+func (s *AuditEvidenceExport) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetFiles sets the value of Files.
+func (s *AuditEvidenceExport) SetFiles(val []AuditEvidenceFile) {
+	s.Files = val
+}
+
+// SetManifestSHA256 sets the value of ManifestSHA256.
+func (s *AuditEvidenceExport) SetManifestSHA256(val OptString) {
+	s.ManifestSHA256 = val
+}
+
+// SetAuditEventCount sets the value of AuditEventCount.
+func (s *AuditEvidenceExport) SetAuditEventCount(val OptInt32) {
+	s.AuditEventCount = val
+}
+
+// SetJournalEntryCount sets the value of JournalEntryCount.
+func (s *AuditEvidenceExport) SetJournalEntryCount(val OptInt32) {
+	s.JournalEntryCount = val
+}
+
+// SetApprovalDecisionCount sets the value of ApprovalDecisionCount.
+func (s *AuditEvidenceExport) SetApprovalDecisionCount(val OptInt32) {
+	s.ApprovalDecisionCount = val
+}
+
+// SetChain sets the value of Chain.
+func (s *AuditEvidenceExport) SetChain(val OptAuditEvidenceChain) {
+	s.Chain = val
+}
+
+// SetFailureCode sets the value of FailureCode.
+func (s *AuditEvidenceExport) SetFailureCode(val OptString) {
+	s.FailureCode = val
+}
+
+// SetCompletedAt sets the value of CompletedAt.
+func (s *AuditEvidenceExport) SetCompletedAt(val OptDateTime) {
+	s.CompletedAt = val
+}
+
+// SetRequestedBy sets the value of RequestedBy.
+func (s *AuditEvidenceExport) SetRequestedBy(val uuid.UUID) {
+	s.RequestedBy = val
+}
+
+// SetRequestedByName sets the value of RequestedByName.
+func (s *AuditEvidenceExport) SetRequestedByName(val string) {
+	s.RequestedByName = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *AuditEvidenceExport) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *AuditEvidenceExport) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+func (*AuditEvidenceExport) getAuditEvidenceExportRes() {}
+
+// An audit evidence export to request (T101a): the companies and the period.
+// Ref: #/components/schemas/AuditEvidenceExportCreate
+type AuditEvidenceExportCreate struct {
+	// The companies whose journal entries and approval decisions are exported; the export covers those the
+	// caller may act in.
+	LegalEntityIds []uuid.UUID `json:"legal_entity_ids"`
+	// The period's first day: posting dates, and audit events from 00:00 UTC.
+	From time.Time `json:"from"`
+	// The period's last day, at most 370 days after `from`.
+	To time.Time `json:"to"`
+}
+
+// GetLegalEntityIds returns the value of LegalEntityIds.
+func (s *AuditEvidenceExportCreate) GetLegalEntityIds() []uuid.UUID {
+	return s.LegalEntityIds
+}
+
+// GetFrom returns the value of From.
+func (s *AuditEvidenceExportCreate) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *AuditEvidenceExportCreate) GetTo() time.Time {
+	return s.To
+}
+
+// SetLegalEntityIds sets the value of LegalEntityIds.
+func (s *AuditEvidenceExportCreate) SetLegalEntityIds(val []uuid.UUID) {
+	s.LegalEntityIds = val
+}
+
+// SetFrom sets the value of From.
+func (s *AuditEvidenceExportCreate) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *AuditEvidenceExportCreate) SetTo(val time.Time) {
+	s.To = val
+}
+
+// AuditEvidenceExportHeaders wraps AuditEvidenceExport with response headers.
+type AuditEvidenceExportHeaders struct {
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           AuditEvidenceExport
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AuditEvidenceExportHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *AuditEvidenceExportHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *AuditEvidenceExportHeaders) GetResponse() AuditEvidenceExport {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AuditEvidenceExportHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *AuditEvidenceExportHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AuditEvidenceExportHeaders) SetResponse(val AuditEvidenceExport) {
+	s.Response = val
+}
+
+func (*AuditEvidenceExportHeaders) createAuditEvidenceExportRes() {}
+
+// One page of audit evidence exports, newest first.
+// Ref: #/components/schemas/AuditEvidenceExportPage
+type AuditEvidenceExportPage struct {
+	// The exports on this page.
+	Items []AuditEvidenceExport `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *AuditEvidenceExportPage) GetItems() []AuditEvidenceExport {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AuditEvidenceExportPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *AuditEvidenceExportPage) SetItems(val []AuditEvidenceExport) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AuditEvidenceExportPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*AuditEvidenceExportPage) listAuditEvidenceExportsRes() {}
+
+// A file of a completed evidence export, as its manifest names it.
+// Ref: #/components/schemas/AuditEvidenceFile
+type AuditEvidenceFile struct {
+	// `audit_events.jsonl`, `journal_entries.jsonl` or `approval_decisions.jsonl`.
+	Name string `json:"name"`
+	// The SHA-256 of the file's content, in hexadecimal.
+	SHA256 string `json:"sha256"`
+	// The file's size in bytes.
+	SizeBytes int64 `json:"size_bytes"`
+	// Its lines: one record each.
+	Records int32 `json:"records"`
+}
+
+// GetName returns the value of Name.
+func (s *AuditEvidenceFile) GetName() string {
+	return s.Name
+}
+
+// GetSHA256 returns the value of SHA256.
+func (s *AuditEvidenceFile) GetSHA256() string {
+	return s.SHA256
+}
+
+// GetSizeBytes returns the value of SizeBytes.
+func (s *AuditEvidenceFile) GetSizeBytes() int64 {
+	return s.SizeBytes
+}
+
+// GetRecords returns the value of Records.
+func (s *AuditEvidenceFile) GetRecords() int32 {
+	return s.Records
+}
+
+// SetName sets the value of Name.
+func (s *AuditEvidenceFile) SetName(val string) {
+	s.Name = val
+}
+
+// SetSHA256 sets the value of SHA256.
+func (s *AuditEvidenceFile) SetSHA256(val string) {
+	s.SHA256 = val
+}
+
+// SetSizeBytes sets the value of SizeBytes.
+func (s *AuditEvidenceFile) SetSizeBytes(val int64) {
+	s.SizeBytes = val
+}
+
+// SetRecords sets the value of Records.
+func (s *AuditEvidenceFile) SetRecords(val int32) {
+	s.Records = val
+}
+
 // Range of the hash chain to verify. The Operation result reports `verified`, `last_seq`, `checked`,
 // `anchors_checked` (the write-once anchors in the range compared with the stored hashes and, when
 // object storage is configured, with the anchor objects) and, if broken, `first_broken_seq`.
@@ -26165,6 +26652,7 @@ func (*ConflictHeaders) createAssetAcquisitionRes()                {}
 func (*ConflictHeaders) createAssetRes()                           {}
 func (*ConflictHeaders) createAssetRetirementRes()                 {}
 func (*ConflictHeaders) createAssetTransferRes()                   {}
+func (*ConflictHeaders) createAuditEvidenceExportRes()             {}
 func (*ConflictHeaders) createBillingDocumentRes()                 {}
 func (*ConflictHeaders) createBusinessPartnerRes()                 {}
 func (*ConflictHeaders) createCashExportRes()                      {}
@@ -26254,6 +26742,7 @@ func (*ConflictHeaders) finalizeConsolidationRunRes()              {}
 func (*ConflictHeaders) getAccrualProposalRes()                    {}
 func (*ConflictHeaders) getAnalyticsModelRes()                     {}
 func (*ConflictHeaders) getArchivingRunFileRes()                   {}
+func (*ConflictHeaders) getAuditEvidenceExportFileRes()            {}
 func (*ConflictHeaders) getBankFileContentRes()                    {}
 func (*ConflictHeaders) getCloseCalendarRes()                      {}
 func (*ConflictHeaders) getConsolidatedStatementRes()              {}
@@ -32809,6 +33298,22 @@ func (*CreateAssetTransferUnprocessableEntity) createAssetTransferRes() {}
 type CreateAssetUnprocessableEntity Problem
 
 func (*CreateAssetUnprocessableEntity) createAssetRes() {}
+
+type CreateAuditEvidenceExportBadRequest Problem
+
+func (*CreateAuditEvidenceExportBadRequest) createAuditEvidenceExportRes() {}
+
+type CreateAuditEvidenceExportForbidden Problem
+
+func (*CreateAuditEvidenceExportForbidden) createAuditEvidenceExportRes() {}
+
+type CreateAuditEvidenceExportPreconditionRequired Problem
+
+func (*CreateAuditEvidenceExportPreconditionRequired) createAuditEvidenceExportRes() {}
+
+type CreateAuditEvidenceExportUnprocessableEntity Problem
+
+func (*CreateAuditEvidenceExportUnprocessableEntity) createAuditEvidenceExportRes() {}
 
 type CreateBillingDocumentBadRequest Problem
 
@@ -44784,6 +45289,47 @@ func (s *GetAssetTransferOKHeaders) SetResponse(val AssetTransfer) {
 
 func (*GetAssetTransferOKHeaders) getAssetTransferRes() {}
 
+type GetAuditEvidenceExportBadRequest Problem
+
+func (*GetAuditEvidenceExportBadRequest) getAuditEvidenceExportRes() {}
+
+type GetAuditEvidenceExportFileBadRequest Problem
+
+func (*GetAuditEvidenceExportFileBadRequest) getAuditEvidenceExportFileRes() {}
+
+type GetAuditEvidenceExportFileForbidden Problem
+
+func (*GetAuditEvidenceExportFileForbidden) getAuditEvidenceExportFileRes() {}
+
+type GetAuditEvidenceExportFileNotFound Problem
+
+func (*GetAuditEvidenceExportFileNotFound) getAuditEvidenceExportFileRes() {}
+
+// The file's bytes: JSON for `manifest.json`, JSON Lines for the others; UTF-8.
+type GetAuditEvidenceExportFileOK struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetAuditEvidenceExportFileOK) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+func (*GetAuditEvidenceExportFileOK) getAuditEvidenceExportFileRes() {}
+
+type GetAuditEvidenceExportForbidden Problem
+
+func (*GetAuditEvidenceExportForbidden) getAuditEvidenceExportRes() {}
+
+type GetAuditEvidenceExportNotFound Problem
+
+func (*GetAuditEvidenceExportNotFound) getAuditEvidenceExportRes() {}
+
 type GetBalanceCarryForwardBadRequest Problem
 
 func (*GetBalanceCarryForwardBadRequest) getBalanceCarryForwardRes() {}
@@ -46831,6 +47377,83 @@ func (s *GetPrincipalOKHeaders) SetResponse(val Principal) {
 
 func (*GetPrincipalOKHeaders) getPrincipalRes() {}
 
+type GetProcessEventLogBadRequest Problem
+
+func (*GetProcessEventLogBadRequest) getProcessEventLogRes() {}
+
+type GetProcessEventLogForbidden Problem
+
+func (*GetProcessEventLogForbidden) getProcessEventLogRes() {}
+
+type GetProcessEventLogNotFound Problem
+
+func (*GetProcessEventLogNotFound) getProcessEventLogRes() {}
+
+// A header row
+// `case_id,case_kind,case_document_number,activity,occurred_at,actor_kind,object_type,object_id,object_document_number,seq`,
+// then a row per event, by case and then in the case's order; UTF-8, lines ending in LF.
+type GetProcessEventLogOKTextCsv struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetProcessEventLogOKTextCsv) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+// GetProcessEventLogOKTextCsvHeaders wraps GetProcessEventLogOKTextCsv with response headers.
+type GetProcessEventLogOKTextCsvHeaders struct {
+	NextPageToken OptString
+	Response      GetProcessEventLogOKTextCsv
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *GetProcessEventLogOKTextCsvHeaders) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetResponse returns the value of Response.
+func (s *GetProcessEventLogOKTextCsvHeaders) GetResponse() GetProcessEventLogOKTextCsv {
+	return s.Response
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *GetProcessEventLogOKTextCsvHeaders) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetProcessEventLogOKTextCsvHeaders) SetResponse(val GetProcessEventLogOKTextCsv) {
+	s.Response = val
+}
+
+func (*GetProcessEventLogOKTextCsvHeaders) getProcessEventLogRes() {}
+
+type GetProcessEventLogUnprocessableEntity Problem
+
+func (*GetProcessEventLogUnprocessableEntity) getProcessEventLogRes() {}
+
+type GetProcessMapBadRequest Problem
+
+func (*GetProcessMapBadRequest) getProcessMapRes() {}
+
+type GetProcessMapForbidden Problem
+
+func (*GetProcessMapForbidden) getProcessMapRes() {}
+
+type GetProcessMapNotFound Problem
+
+func (*GetProcessMapNotFound) getProcessMapRes() {}
+
+type GetProcessMapUnprocessableEntity Problem
+
+func (*GetProcessMapUnprocessableEntity) getProcessMapRes() {}
+
 type GetProfitCenterBadRequest Problem
 
 func (*GetProfitCenterBadRequest) getProfitCenterRes() {}
@@ -47179,6 +47802,24 @@ func (*GetReportRunForbidden) getReportRunRes() {}
 type GetReportRunNotFound Problem
 
 func (*GetReportRunNotFound) getReportRunRes() {}
+
+// One result as an Excel workbook (Office Open XML, ECMA-376): one sheet named `Report`.
+type GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+func (*GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet) getReportRunRes() {
+}
 
 // One result: a header row of column names, then its rows; UTF-8, lines ending in LF.
 type GetReportRunOKTextCsv struct {
@@ -58882,6 +59523,14 @@ type ListAuditEventsForbidden Problem
 
 func (*ListAuditEventsForbidden) listAuditEventsRes() {}
 
+type ListAuditEvidenceExportsBadRequest Problem
+
+func (*ListAuditEvidenceExportsBadRequest) listAuditEvidenceExportsRes() {}
+
+type ListAuditEvidenceExportsForbidden Problem
+
+func (*ListAuditEvidenceExportsForbidden) listAuditEvidenceExportsRes() {}
+
 type ListBalanceCarryForwardBalancesBadRequest Problem
 
 func (*ListBalanceCarryForwardBalancesBadRequest) listBalanceCarryForwardBalancesRes() {}
@@ -66681,6 +67330,52 @@ func (o OptAssetTransferReversal) Get() (v AssetTransferReversal, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAssetTransferReversal) Or(d AssetTransferReversal) AssetTransferReversal {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAuditEvidenceChain returns new OptAuditEvidenceChain with value set to v.
+func NewOptAuditEvidenceChain(v AuditEvidenceChain) OptAuditEvidenceChain {
+	return OptAuditEvidenceChain{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAuditEvidenceChain is optional AuditEvidenceChain.
+type OptAuditEvidenceChain struct {
+	Value AuditEvidenceChain
+	Set   bool
+}
+
+// IsSet returns true if OptAuditEvidenceChain was set.
+func (o OptAuditEvidenceChain) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAuditEvidenceChain) Reset() {
+	var v AuditEvidenceChain
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAuditEvidenceChain) SetTo(v AuditEvidenceChain) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAuditEvidenceChain) Get() (v AuditEvidenceChain, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAuditEvidenceChain) Or(d AuditEvidenceChain) AuditEvidenceChain {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -78387,6 +79082,579 @@ func (s *Problem) SetCreditLimit(val OptCreditLimit) {
 
 func (*Problem) getPersonalDataDeletionPreviewRes() {}
 func (*Problem) getPersonalDataInventoryRes()       {}
+
+// A case of an event log: the document that is it, with its events.
+// Ref: #/components/schemas/ProcessCase
+type ProcessCase struct {
+	// The purchase order's id, or the supplier document's for one on no order.
+	CaseID uuid.UUID `json:"case_id"`
+	// `purchase_order` or `supplier_invoice`. Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	CaseKind string `json:"case_kind"`
+	// The document's number.
+	DocumentNumber string `json:"document_number"`
+	// Its date: the order date, or the invoice date.
+	DocumentDate time.Time `json:"document_date"`
+	// Its events, by time and then sequence number.
+	Events []ProcessEvent `json:"events"`
+}
+
+// GetCaseID returns the value of CaseID.
+func (s *ProcessCase) GetCaseID() uuid.UUID {
+	return s.CaseID
+}
+
+// GetCaseKind returns the value of CaseKind.
+func (s *ProcessCase) GetCaseKind() string {
+	return s.CaseKind
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *ProcessCase) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetDocumentDate returns the value of DocumentDate.
+func (s *ProcessCase) GetDocumentDate() time.Time {
+	return s.DocumentDate
+}
+
+// GetEvents returns the value of Events.
+func (s *ProcessCase) GetEvents() []ProcessEvent {
+	return s.Events
+}
+
+// SetCaseID sets the value of CaseID.
+func (s *ProcessCase) SetCaseID(val uuid.UUID) {
+	s.CaseID = val
+}
+
+// SetCaseKind sets the value of CaseKind.
+func (s *ProcessCase) SetCaseKind(val string) {
+	s.CaseKind = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *ProcessCase) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetDocumentDate sets the value of DocumentDate.
+func (s *ProcessCase) SetDocumentDate(val time.Time) {
+	s.DocumentDate = val
+}
+
+// SetEvents sets the value of Events.
+func (s *ProcessCase) SetEvents(val []ProcessEvent) {
+	s.Events = val
+}
+
+// An event of a case: an activity on a document, when and by what kind of actor.
+// Ref: #/components/schemas/ProcessEvent
+type ProcessEvent struct {
+	// The activity, as ADR-0080 lists them. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Activity   string    `json:"activity"`
+	OccurredAt time.Time `json:"occurred_at"`
+	// `person`, `agent` or `system` (a service or the platform's own work). Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	ActorKind string `json:"actor_kind"`
+	// The document's type, as the audit trail names it.
+	ObjectType string    `json:"object_type"`
+	ObjectID   uuid.UUID `json:"object_id"`
+	// The document's number.
+	DocumentNumber string `json:"document_number"`
+	// The audit event's sequence number.
+	Seq int64 `json:"seq"`
+}
+
+// GetActivity returns the value of Activity.
+func (s *ProcessEvent) GetActivity() string {
+	return s.Activity
+}
+
+// GetOccurredAt returns the value of OccurredAt.
+func (s *ProcessEvent) GetOccurredAt() time.Time {
+	return s.OccurredAt
+}
+
+// GetActorKind returns the value of ActorKind.
+func (s *ProcessEvent) GetActorKind() string {
+	return s.ActorKind
+}
+
+// GetObjectType returns the value of ObjectType.
+func (s *ProcessEvent) GetObjectType() string {
+	return s.ObjectType
+}
+
+// GetObjectID returns the value of ObjectID.
+func (s *ProcessEvent) GetObjectID() uuid.UUID {
+	return s.ObjectID
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *ProcessEvent) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetSeq returns the value of Seq.
+func (s *ProcessEvent) GetSeq() int64 {
+	return s.Seq
+}
+
+// SetActivity sets the value of Activity.
+func (s *ProcessEvent) SetActivity(val string) {
+	s.Activity = val
+}
+
+// SetOccurredAt sets the value of OccurredAt.
+func (s *ProcessEvent) SetOccurredAt(val time.Time) {
+	s.OccurredAt = val
+}
+
+// SetActorKind sets the value of ActorKind.
+func (s *ProcessEvent) SetActorKind(val string) {
+	s.ActorKind = val
+}
+
+// SetObjectType sets the value of ObjectType.
+func (s *ProcessEvent) SetObjectType(val string) {
+	s.ObjectType = val
+}
+
+// SetObjectID sets the value of ObjectID.
+func (s *ProcessEvent) SetObjectID(val uuid.UUID) {
+	s.ObjectID = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *ProcessEvent) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetSeq sets the value of Seq.
+func (s *ProcessEvent) SetSeq(val int64) {
+	s.Seq = val
+}
+
+// One page of an event log (processmining, ADR-0080, T103a): the cases with their events.
+// Ref: #/components/schemas/ProcessEventLog
+type ProcessEventLog struct {
+	// The process. Open enumeration: clients must accept and preserve values not listed here; values may
+	// be added within /v1.
+	Process string `json:"process"`
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Its code.
+	CompanyCode string    `json:"company_code"`
+	From        time.Time `json:"from"`
+	To          time.Time `json:"to"`
+	// The cases of the whole log, on every page.
+	CaseCount int32 `json:"case_count"`
+	// This page's cases, by date and id.
+	Cases []ProcessCase `json:"cases"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetProcess returns the value of Process.
+func (s *ProcessEventLog) GetProcess() string {
+	return s.Process
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ProcessEventLog) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ProcessEventLog) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetFrom returns the value of From.
+func (s *ProcessEventLog) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *ProcessEventLog) GetTo() time.Time {
+	return s.To
+}
+
+// GetCaseCount returns the value of CaseCount.
+func (s *ProcessEventLog) GetCaseCount() int32 {
+	return s.CaseCount
+}
+
+// GetCases returns the value of Cases.
+func (s *ProcessEventLog) GetCases() []ProcessCase {
+	return s.Cases
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ProcessEventLog) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetProcess sets the value of Process.
+func (s *ProcessEventLog) SetProcess(val string) {
+	s.Process = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ProcessEventLog) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ProcessEventLog) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetFrom sets the value of From.
+func (s *ProcessEventLog) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *ProcessEventLog) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetCaseCount sets the value of CaseCount.
+func (s *ProcessEventLog) SetCaseCount(val int32) {
+	s.CaseCount = val
+}
+
+// SetCases sets the value of Cases.
+func (s *ProcessEventLog) SetCases(val []ProcessCase) {
+	s.Cases = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ProcessEventLog) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// ProcessEventLogHeaders wraps ProcessEventLog with response headers.
+type ProcessEventLogHeaders struct {
+	NextPageToken OptString
+	Response      ProcessEventLog
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ProcessEventLogHeaders) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetResponse returns the value of Response.
+func (s *ProcessEventLogHeaders) GetResponse() ProcessEventLog {
+	return s.Response
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ProcessEventLogHeaders) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ProcessEventLogHeaders) SetResponse(val ProcessEventLog) {
+	s.Response = val
+}
+
+func (*ProcessEventLogHeaders) getProcessEventLogRes() {}
+
+// The process map of a business process for a company and a period (processmining, ADR-0080, T103b),
+// computed from every case of its event log.
+// Ref: #/components/schemas/ProcessMap
+type ProcessMap struct {
+	// The process. Open enumeration: clients must accept and preserve values not listed here; values may
+	// be added within /v1.
+	Process string `json:"process"`
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Its code.
+	CompanyCode string    `json:"company_code"`
+	From        time.Time `json:"from"`
+	To          time.Time `json:"to"`
+	// The cases of the period.
+	CaseCount int32 `json:"case_count"`
+	// Of them, those still open: no activity has ended them.
+	OpenCaseCount int32 `json:"open_case_count"`
+	// The variants of all the cases, also those not among the ten given.
+	VariantCount int32 `json:"variant_count"`
+	// Every activity of the cases, by event count, then by name.
+	Activities []ProcessMapActivity `json:"activities"`
+	// Every directly-follows pair of the cases, by count, then by their activities.
+	Pairs []ProcessMapPair `json:"pairs"`
+	// The ten most frequent variants, by case count, then by their activities.
+	Variants []ProcessMapVariant `json:"variants"`
+}
+
+// GetProcess returns the value of Process.
+func (s *ProcessMap) GetProcess() string {
+	return s.Process
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ProcessMap) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ProcessMap) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetFrom returns the value of From.
+func (s *ProcessMap) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *ProcessMap) GetTo() time.Time {
+	return s.To
+}
+
+// GetCaseCount returns the value of CaseCount.
+func (s *ProcessMap) GetCaseCount() int32 {
+	return s.CaseCount
+}
+
+// GetOpenCaseCount returns the value of OpenCaseCount.
+func (s *ProcessMap) GetOpenCaseCount() int32 {
+	return s.OpenCaseCount
+}
+
+// GetVariantCount returns the value of VariantCount.
+func (s *ProcessMap) GetVariantCount() int32 {
+	return s.VariantCount
+}
+
+// GetActivities returns the value of Activities.
+func (s *ProcessMap) GetActivities() []ProcessMapActivity {
+	return s.Activities
+}
+
+// GetPairs returns the value of Pairs.
+func (s *ProcessMap) GetPairs() []ProcessMapPair {
+	return s.Pairs
+}
+
+// GetVariants returns the value of Variants.
+func (s *ProcessMap) GetVariants() []ProcessMapVariant {
+	return s.Variants
+}
+
+// SetProcess sets the value of Process.
+func (s *ProcessMap) SetProcess(val string) {
+	s.Process = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ProcessMap) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ProcessMap) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetFrom sets the value of From.
+func (s *ProcessMap) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *ProcessMap) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetCaseCount sets the value of CaseCount.
+func (s *ProcessMap) SetCaseCount(val int32) {
+	s.CaseCount = val
+}
+
+// SetOpenCaseCount sets the value of OpenCaseCount.
+func (s *ProcessMap) SetOpenCaseCount(val int32) {
+	s.OpenCaseCount = val
+}
+
+// SetVariantCount sets the value of VariantCount.
+func (s *ProcessMap) SetVariantCount(val int32) {
+	s.VariantCount = val
+}
+
+// SetActivities sets the value of Activities.
+func (s *ProcessMap) SetActivities(val []ProcessMapActivity) {
+	s.Activities = val
+}
+
+// SetPairs sets the value of Pairs.
+func (s *ProcessMap) SetPairs(val []ProcessMapPair) {
+	s.Pairs = val
+}
+
+// SetVariants sets the value of Variants.
+func (s *ProcessMap) SetVariants(val []ProcessMapVariant) {
+	s.Variants = val
+}
+
+func (*ProcessMap) getProcessMapRes() {}
+
+// An activity of a process map: how many events and cases have it.
+// Ref: #/components/schemas/ProcessMapActivity
+type ProcessMapActivity struct {
+	// The activity, as ADR-0080 lists them. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Activity string `json:"activity"`
+	// Its events.
+	EventCount int32 `json:"event_count"`
+	// The cases with one of them or more.
+	CaseCount int32 `json:"case_count"`
+}
+
+// GetActivity returns the value of Activity.
+func (s *ProcessMapActivity) GetActivity() string {
+	return s.Activity
+}
+
+// GetEventCount returns the value of EventCount.
+func (s *ProcessMapActivity) GetEventCount() int32 {
+	return s.EventCount
+}
+
+// GetCaseCount returns the value of CaseCount.
+func (s *ProcessMapActivity) GetCaseCount() int32 {
+	return s.CaseCount
+}
+
+// SetActivity sets the value of Activity.
+func (s *ProcessMapActivity) SetActivity(val string) {
+	s.Activity = val
+}
+
+// SetEventCount sets the value of EventCount.
+func (s *ProcessMapActivity) SetEventCount(val int32) {
+	s.EventCount = val
+}
+
+// SetCaseCount sets the value of CaseCount.
+func (s *ProcessMapActivity) SetCaseCount(val int32) {
+	s.CaseCount = val
+}
+
+// A directly-follows pair of a process map: its second activity directly follows its first within a
+// case.
+// Ref: #/components/schemas/ProcessMapPair
+type ProcessMapPair struct {
+	// The first activity. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	From string `json:"from"`
+	// The activity directly after it. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	To string `json:"to"`
+	// How many times it directly follows it.
+	Count int32 `json:"count"`
+	// The median time between the two events, in whole seconds; for an even count the lower middle.
+	MedianSeconds int64 `json:"median_seconds"`
+}
+
+// GetFrom returns the value of From.
+func (s *ProcessMapPair) GetFrom() string {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *ProcessMapPair) GetTo() string {
+	return s.To
+}
+
+// GetCount returns the value of Count.
+func (s *ProcessMapPair) GetCount() int32 {
+	return s.Count
+}
+
+// GetMedianSeconds returns the value of MedianSeconds.
+func (s *ProcessMapPair) GetMedianSeconds() int64 {
+	return s.MedianSeconds
+}
+
+// SetFrom sets the value of From.
+func (s *ProcessMapPair) SetFrom(val string) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *ProcessMapPair) SetTo(val string) {
+	s.To = val
+}
+
+// SetCount sets the value of Count.
+func (s *ProcessMapPair) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetMedianSeconds sets the value of MedianSeconds.
+func (s *ProcessMapPair) SetMedianSeconds(val int64) {
+	s.MedianSeconds = val
+}
+
+// A variant of a process map: a sequence of activities and the cases that ran it.
+// Ref: #/components/schemas/ProcessMapVariant
+type ProcessMapVariant struct {
+	// The activities of its cases, in order; empty for cases without events.
+	Activities []string `json:"activities"`
+	// Its cases.
+	CaseCount int32 `json:"case_count"`
+	// Of them, those still open.
+	OpenCaseCount int32 `json:"open_case_count"`
+	// Its share of the map's cases in percent, two decimals, rounded half away from zero.
+	SharePercent string `json:"share_percent"`
+}
+
+// GetActivities returns the value of Activities.
+func (s *ProcessMapVariant) GetActivities() []string {
+	return s.Activities
+}
+
+// GetCaseCount returns the value of CaseCount.
+func (s *ProcessMapVariant) GetCaseCount() int32 {
+	return s.CaseCount
+}
+
+// GetOpenCaseCount returns the value of OpenCaseCount.
+func (s *ProcessMapVariant) GetOpenCaseCount() int32 {
+	return s.OpenCaseCount
+}
+
+// GetSharePercent returns the value of SharePercent.
+func (s *ProcessMapVariant) GetSharePercent() string {
+	return s.SharePercent
+}
+
+// SetActivities sets the value of Activities.
+func (s *ProcessMapVariant) SetActivities(val []string) {
+	s.Activities = val
+}
+
+// SetCaseCount sets the value of CaseCount.
+func (s *ProcessMapVariant) SetCaseCount(val int32) {
+	s.CaseCount = val
+}
+
+// SetOpenCaseCount sets the value of OpenCaseCount.
+func (s *ProcessMapVariant) SetOpenCaseCount(val int32) {
+	s.OpenCaseCount = val
+}
+
+// SetSharePercent sets the value of SharePercent.
+func (s *ProcessMapVariant) SetSharePercent(val string) {
+	s.SharePercent = val
+}
 
 // Merged schema.
 // Ref: #/components/schemas/ProfitCenter
@@ -92642,6 +93910,50 @@ type RunAnalyticsQueryForbidden Problem
 
 func (*RunAnalyticsQueryForbidden) runAnalyticsQueryRes() {}
 
+// The result as an Excel workbook (Office Open XML, ECMA-376): one sheet named `Query`.
+type RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+// RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders wraps RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet with response headers.
+type RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders struct {
+	IdempotentReplayed OptBool
+	Response           RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders) GetResponse() RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders) SetResponse(val RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet) {
+	s.Response = val
+}
+
+func (*RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders) runAnalyticsQueryRes() {
+}
+
 type RunAnalyticsQueryPreconditionRequired Problem
 
 func (*RunAnalyticsQueryPreconditionRequired) runAnalyticsQueryRes() {}
@@ -95508,6 +96820,7 @@ func (*ServiceUnavailableHeaders) createAssetAcquisitionRes()                {}
 func (*ServiceUnavailableHeaders) createAssetRes()                           {}
 func (*ServiceUnavailableHeaders) createAssetRetirementRes()                 {}
 func (*ServiceUnavailableHeaders) createAssetTransferRes()                   {}
+func (*ServiceUnavailableHeaders) createAuditEvidenceExportRes()             {}
 func (*ServiceUnavailableHeaders) createBusinessPartnerRes()                 {}
 func (*ServiceUnavailableHeaders) createCatalogItemRes()                     {}
 func (*ServiceUnavailableHeaders) createChangeRequestRes()                   {}
@@ -95568,6 +96881,7 @@ func (*ServiceUnavailableHeaders) excludeBankStatementLineRes()              {}
 func (*ServiceUnavailableHeaders) fetchEInvoicesRes()                        {}
 func (*ServiceUnavailableHeaders) fileTaxReturnRes()                         {}
 func (*ServiceUnavailableHeaders) getArchivingRunFileRes()                   {}
+func (*ServiceUnavailableHeaders) getAuditEvidenceExportFileRes()            {}
 func (*ServiceUnavailableHeaders) getBankStatementFileRes()                  {}
 func (*ServiceUnavailableHeaders) getEInvoiceContentRes()                    {}
 func (*ServiceUnavailableHeaders) getReportRunRes()                          {}
@@ -100649,6 +101963,7 @@ func (*TooManyRequestsHeaders) createAssetAcquisitionRes()                {}
 func (*TooManyRequestsHeaders) createAssetRes()                           {}
 func (*TooManyRequestsHeaders) createAssetRetirementRes()                 {}
 func (*TooManyRequestsHeaders) createAssetTransferRes()                   {}
+func (*TooManyRequestsHeaders) createAuditEvidenceExportRes()             {}
 func (*TooManyRequestsHeaders) createBillingDocumentRes()                 {}
 func (*TooManyRequestsHeaders) createBusinessPartnerRes()                 {}
 func (*TooManyRequestsHeaders) createCashExportRes()                      {}
@@ -100756,6 +102071,8 @@ func (*TooManyRequestsHeaders) getAssetRes()                              {}
 func (*TooManyRequestsHeaders) getAssetRetirementRes()                    {}
 func (*TooManyRequestsHeaders) getAssetScheduleRes()                      {}
 func (*TooManyRequestsHeaders) getAssetTransferRes()                      {}
+func (*TooManyRequestsHeaders) getAuditEvidenceExportFileRes()            {}
+func (*TooManyRequestsHeaders) getAuditEvidenceExportRes()                {}
 func (*TooManyRequestsHeaders) getBalanceCarryForwardRes()                {}
 func (*TooManyRequestsHeaders) getBankAccountRes()                        {}
 func (*TooManyRequestsHeaders) getBankFileContentRes()                    {}
@@ -100838,6 +102155,8 @@ func (*TooManyRequestsHeaders) getPersonalDataInventoryRes()              {}
 func (*TooManyRequestsHeaders) getPersonalDataSubjectRes()                {}
 func (*TooManyRequestsHeaders) getPlanCategoryRes()                       {}
 func (*TooManyRequestsHeaders) getPrincipalRes()                          {}
+func (*TooManyRequestsHeaders) getProcessEventLogRes()                    {}
+func (*TooManyRequestsHeaders) getProcessMapRes()                         {}
 func (*TooManyRequestsHeaders) getProfitCenterRes()                       {}
 func (*TooManyRequestsHeaders) getProfitabilityReportRes()                {}
 func (*TooManyRequestsHeaders) getPurchaseOrderChangeRes()                {}
@@ -100896,6 +102215,7 @@ func (*TooManyRequestsHeaders) listAssetRetirementsRes()                  {}
 func (*TooManyRequestsHeaders) listAssetTransfersRes()                    {}
 func (*TooManyRequestsHeaders) listAssetsRes()                            {}
 func (*TooManyRequestsHeaders) listAuditEventsRes()                       {}
+func (*TooManyRequestsHeaders) listAuditEvidenceExportsRes()              {}
 func (*TooManyRequestsHeaders) listBalanceCarryForwardBalancesRes()       {}
 func (*TooManyRequestsHeaders) listBalanceCarryForwardsRes()              {}
 func (*TooManyRequestsHeaders) listBalancesRes()                          {}
@@ -101531,6 +102851,7 @@ func (*UnauthorizedHeaders) createAssetAcquisitionRes()                {}
 func (*UnauthorizedHeaders) createAssetRes()                           {}
 func (*UnauthorizedHeaders) createAssetRetirementRes()                 {}
 func (*UnauthorizedHeaders) createAssetTransferRes()                   {}
+func (*UnauthorizedHeaders) createAuditEvidenceExportRes()             {}
 func (*UnauthorizedHeaders) createBillingDocumentRes()                 {}
 func (*UnauthorizedHeaders) createBusinessPartnerRes()                 {}
 func (*UnauthorizedHeaders) createCashExportRes()                      {}
@@ -101638,6 +102959,8 @@ func (*UnauthorizedHeaders) getAssetRes()                              {}
 func (*UnauthorizedHeaders) getAssetRetirementRes()                    {}
 func (*UnauthorizedHeaders) getAssetScheduleRes()                      {}
 func (*UnauthorizedHeaders) getAssetTransferRes()                      {}
+func (*UnauthorizedHeaders) getAuditEvidenceExportFileRes()            {}
+func (*UnauthorizedHeaders) getAuditEvidenceExportRes()                {}
 func (*UnauthorizedHeaders) getBalanceCarryForwardRes()                {}
 func (*UnauthorizedHeaders) getBankAccountRes()                        {}
 func (*UnauthorizedHeaders) getBankFileContentRes()                    {}
@@ -101720,6 +103043,8 @@ func (*UnauthorizedHeaders) getPersonalDataInventoryRes()              {}
 func (*UnauthorizedHeaders) getPersonalDataSubjectRes()                {}
 func (*UnauthorizedHeaders) getPlanCategoryRes()                       {}
 func (*UnauthorizedHeaders) getPrincipalRes()                          {}
+func (*UnauthorizedHeaders) getProcessEventLogRes()                    {}
+func (*UnauthorizedHeaders) getProcessMapRes()                         {}
 func (*UnauthorizedHeaders) getProfitCenterRes()                       {}
 func (*UnauthorizedHeaders) getProfitabilityReportRes()                {}
 func (*UnauthorizedHeaders) getPurchaseOrderChangeRes()                {}
@@ -101778,6 +103103,7 @@ func (*UnauthorizedHeaders) listAssetRetirementsRes()                  {}
 func (*UnauthorizedHeaders) listAssetTransfersRes()                    {}
 func (*UnauthorizedHeaders) listAssetsRes()                            {}
 func (*UnauthorizedHeaders) listAuditEventsRes()                       {}
+func (*UnauthorizedHeaders) listAuditEvidenceExportsRes()              {}
 func (*UnauthorizedHeaders) listBalanceCarryForwardBalancesRes()       {}
 func (*UnauthorizedHeaders) listBalanceCarryForwardsRes()              {}
 func (*UnauthorizedHeaders) listBalancesRes()                          {}

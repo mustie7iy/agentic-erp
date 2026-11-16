@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	trail "github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
@@ -178,6 +179,26 @@ type storedAnchor struct {
 	ObjectRef  string
 	AnchoredAt time.Time
 	EventHash  []byte // the chain's hash at seq; nil when the event is gone
+}
+
+// verified recomputes the tenant's chain from from to to (0: the head)
+// and compares the anchors in the range with it and, with a store, with
+// their objects: the result names the first sequence number that does
+// not verify, of the events or the anchors, and how many anchors were
+// checked.
+func verified(ctx context.Context, tx pgx.Tx, store blobstore.Store, tenant uuid.UUID, from, to int64) (trail.Result, int, error) {
+	res, err := trail.VerifyRange(ctx, tx, tenant, from, to)
+	if err != nil {
+		return trail.Result{}, 0, err
+	}
+	anchors, brokenAnchor, err := checkAnchors(ctx, tx, store, tenant, from, to)
+	if err != nil {
+		return trail.Result{}, 0, err
+	}
+	if brokenAnchor != 0 && (res.BrokenAt == 0 || brokenAnchor < res.BrokenAt) {
+		res.BrokenAt = brokenAnchor
+	}
+	return res, anchors, nil
 }
 
 // checkAnchors compares every anchor in the range with the chain and, with

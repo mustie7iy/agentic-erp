@@ -1,6 +1,7 @@
 package uow_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -151,6 +152,10 @@ func newApp(t *testing.T, pool *database.Pool, also ...*authntest.Issuer) *app {
 	mux.HandleFunc("POST /secret-array", func(w http.ResponseWriter, r *http.Request) {
 		uow.OmitOnReplay(r.Context(), "secret")
 		w.Write([]byte(`["whsec_shown_once"]`))
+	})
+	mux.HandleFunc("POST /workbook", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+		w.Write(workbookBytes)
 	})
 	mux.HandleFunc("POST /not-json", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("plain text"))
@@ -845,6 +850,33 @@ func TestInjectedDatabaseFailures(t *testing.T) {
 	a.mw.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errInjected }
 	if r := a.do(call{method: "GET", path: "/read", tenant: ten.ID, subject: ten.Human.Subject}); r.Code != 500 {
 		t.Fatalf("begin failure: %d", r.Code)
+	}
+}
+
+// workbookBytes stand for an Excel workbook: bytes that are not UTF-8.
+var workbookBytes = []byte("PK\x03\x04\xff\x00 not JSON")
+
+// TestBytesReplayed (T95d): an answer whose media type is not JSON is kept
+// as its bytes, and a replay answers them and the media type unchanged.
+func TestBytesReplayed(t *testing.T) {
+	a := newApp(t, pgtest.Pool(t))
+	ten := pgtest.NewTenant(t)
+	c := call{method: "POST", path: "/workbook", key: "key-workbook1", tenant: ten.ID, subject: ten.Human.Subject}
+	if first := a.do(c); first.Code != 200 || !bytes.Equal(first.Body.Bytes(), workbookBytes) {
+		t.Fatalf("first answer: got %d %q, want 200 and the workbook", first.Code, first.Body)
+	}
+	if n := count(t, `SELECT count(*) FROM platform.idempotency_key WHERE tenant_id = $1 AND response_bytes = $2 AND response_body IS NULL`, ten.ID, workbookBytes); n != 1 {
+		t.Errorf("answers kept as bytes: got %d, want 1", n)
+	}
+	replay := a.do(c)
+	if replay.Code != 200 || replay.Header().Get("Idempotent-Replayed") != "true" {
+		t.Fatalf("replay: got %d %v, want a replayed 200", replay.Code, replay.Header())
+	}
+	if !bytes.Equal(replay.Body.Bytes(), workbookBytes) {
+		t.Errorf("replayed body: got %q, want %q", replay.Body, workbookBytes)
+	}
+	if got, want := replay.Header().Get("Content-Type"), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"; got != want {
+		t.Errorf("replayed Content-Type: got %q, want %q", got, want)
 	}
 }
 

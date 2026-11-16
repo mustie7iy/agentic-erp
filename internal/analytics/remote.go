@@ -65,7 +65,7 @@ func (r Remote) Query(ctx context.Context, q Query) (*Result, error) {
 	if err := resp.Err(); err != nil {
 		return nil, fmt.Errorf("analytics: %w", err)
 	}
-	res, err := decodeResult(resp.Body)
+	res, err := DecodeResult(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -73,8 +73,9 @@ func (r Remote) Query(ctx context.Context, q Query) (*Result, error) {
 	return res, nil
 }
 
-// decodeResult is a result as the endpoint writes it (AnalyticsResult).
-func decodeResult(body []byte) (*Result, error) {
+// DecodeResult is a result as the endpoint writes it (AnalyticsResult): a
+// report run's kept results are read back as its CSV and workbook with it.
+func DecodeResult(body []byte) (*Result, error) {
 	var out remoteResult
 	if err := json.Unmarshal(body, &out); err != nil {
 		return nil, fmt.Errorf("analytics: decode the result: %w", err)

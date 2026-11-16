@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/collectionsagent"
 	"github.com/mustie7iy/agentic-erp/internal/creditagent"
 	"github.com/mustie7iy/agentic-erp/internal/eval"
+	"github.com/mustie7iy/agentic-erp/internal/integrationagent"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/recommend"
 	"github.com/mustie7iy/agentic-erp/internal/regulatoryagent"
@@ -353,6 +354,35 @@ func collectionsEval(ctx context.Context, env eval.Env) error {
 	res, err := (&collectionsagent.Agent{LLM: env.LLM, API: env.Agent}).Advise(ctx, t["company"], t["key_date"])
 	if err != nil {
 		return fmt.Errorf("collections: %w", err)
+	}
+	graded(env, res)
+	return nil
+}
+
+// agentIntegrationMonitor has the integration agent look over the
+// tenant's integrations (ADR-0072, T110a): an integration administrator
+// reads its recommendation on each failing connector, webhook
+// subscription or bank file and decides it, and acts, or not.
+func agentIntegrationMonitor(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("agent integration-monitor", flag.ContinueOnError)
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	c, err := client("ERP_AGENT_TOKEN")
+	if err != nil {
+		return err
+	}
+	res, runErr := (&integrationagent.Agent{LLM: newRunner(c), API: c}).Monitor(ctx)
+	return recommended("agent integration-monitor", res, runErr)
+}
+
+// integrationEval has the integration agent look over the case's tenant
+// as erp agent integration-monitor does; what it recommended is the
+// checks' to judge, and its reply theirs too.
+func integrationEval(ctx context.Context, env eval.Env) error {
+	res, err := (&integrationagent.Agent{LLM: env.LLM, API: env.Agent}).Monitor(ctx)
+	if err != nil {
+		return fmt.Errorf("integration: %w", err)
 	}
 	graded(env, res)
 	return nil

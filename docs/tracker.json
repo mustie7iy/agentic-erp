@@ -3658,14 +3658,21 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Planning agent",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The planning agent reads a company's plan and actual figures per center and account and recommends next year's plan lines with its reasons for a controller, who applies them as a plan batch; it never applies a plan (erp agent plan)",
-        "r": "T105e · docs/design/plan-breadth-week3.md §T105e",
+        "r": "T105e · docs/design/plan-breadth-week3.md §T105e · ADR-0072 §2, §7 and As built T105e · internal/planningagent (planningagent.Agent.Propose, proposal.check) · recommend reads include x-autonomy: read operations · erp agent plan -company -category -year (cmd/erp/planning.go) · evals/planning · TestPropose, TestProposeWithoutReads, TestNever, TestProposeRefusals (review round 1: each line names its codes, its amount is a figure of the company in its currency with its sign), TestAgentPlan, TestPlanningAdapterFailures · walkthrough step_planning_agent (step 98) · 04-api-design · ADR-0039",
         "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "CostCenterPlanActual and PlanLine give cost_center_id and account_id with no code, number or name: a consumer, the planning agent among them, has to read the cost centers and the accounts again to name a line (an identifier without the name its consumer needs, found in T105e's review).",
+        "r": "api/openapi.yaml CostCenterPlanActual, PlanLine · internal/planningagent (listAccounts, cost center reads)",
+        "src": "review:T105e",
         "c": []
        },
        {
@@ -4623,13 +4630,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Savings opportunity agent",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The savings opportunity agent reads the spend cube, contracts and catalog items and recommends savings opportunities (spend outside a contract, several suppliers for one account, prices above a contract's) with the figures behind each for a buyer to decide (erp agent savings)",
-        "r": "T105d · docs/design/plan-breadth-week3.md §T105d",
+        "r": "T105d · docs/design/plan-breadth-week3.md §T105d · internal/savingsagent · agent type savings · erp agent savings -company CODE [-period FROM..TO] [-max N] · runAnalyticsQuery a read of the pattern (x-autonomy: read) · evals/savings · walkthrough step_savings_agent · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -6000,6 +6007,13 @@
        },
        {
         "s": "T",
+        "t": "The T99b archiver builds a whole fiscal year in memory before it writes its file: a company with a very large year holds all its rows at once (found in batch 75's integration; it should write the year in parts).",
+        "r": "internal/records archiving run · records.archiving_run · GET /v1/archiving-runs/{id}/file · ADR-0079",
+        "src": "review:batch75",
+        "c": []
+       },
+       {
+        "s": "T",
         "t": "later: archiving run variants: deleting archived documents from the database (needs the product owner: the ledger and the audit trail are append-only), reading a document back from the archive, archiving on a schedule, document kinds beyond journal entries, archive formats an auditor's tools read, destroying an archive at the end of its retention (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week3.md §T99b, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
@@ -6217,13 +6231,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Continuous control monitoring agent",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The control monitoring agent reads the control library, the control matrix, the audit trail and the access data and recommends, per control, whether it found an exception, with the events it found, for the compliance officer to decide; it never records a test (erp agent control-monitor)",
-        "r": "T105f · docs/design/plan-breadth-week3.md §T105f",
+        "r": "T105f · docs/design/plan-breadth-week3.md §T105f · reads GET /v1/control-matrix (T98b) · internal/controlagent · recommend.Cited · agent type control_monitoring · erp agent control-monitor · evals/control_monitoring · walkthrough step_control_agent · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -6266,13 +6280,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Risk agent",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The risk agent reads the risk register, the controls and their tests and the audit trail and recommends new ratings and risks not yet in the register with its reasons for a risk owner to decide; it never changes the register (erp agent risk)",
-        "r": "T105g · docs/design/plan-breadth-week3.md §T105g",
+        "r": "T105g · docs/design/plan-breadth-week3.md §T105g · reads GET /v1/risks (T98c) and the control monitoring agent's recommendations (T105f) · internal/riskagent · agent type risk · erp agent risk · evals/risk · walkthrough step_risk_agent · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -6738,12 +6752,19 @@
      },
      {
       "s": "T",
+      "t": "A CSV export says what its JSON says: erp query -csv (analytics.WriteCSV) writes a money measure without its currency's column, so a column mixing currencies has amounts without their currency, and getReportRun's CSV leaves out that a kept result was truncated (pre-existing findings on T95d's review; the workbook refuses a truncated result)",
+      "r": "internal/analytics/render.go WriteCSV · internal/analytics/reports/runs_api.go resultCSV · ADR-0076 §8",
+      "src": "review:T95d",
+      "c": []
+     },
+     {
+      "s": "P",
       "t": "Excel export",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An analyst downloads a query's result or a kept report run as an Excel workbook, amounts as numbers with their currency's decimals (the workbook media type on POST /v1/analytics-queries and GET /v1/report-runs/{id}; erp query -xlsx)",
-        "r": "T95d · docs/design/plan-breadth-week3.md §T95d",
+        "r": "T95d · docs/design/plan-breadth-week3.md §T95d · docs/design/specs/xlsx-minimal.md · analytics.WriteXLSX, analytics.Records · format=xlsx on runAnalyticsQuery and getReportRun · erp query -xlsx · db/migrations/000342 · platform.idempotency_key.response_bytes · walkthrough step_reports, step_saved_report · ADR-0076 §8 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -6870,14 +6891,21 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Event logs from SAP and core document flows",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A process analyst reads the event log of the purchase-to-pay flow for a company and a period: per purchase order each activity with its time and whether a person, an agent or the system did it, from requisition to payment, as JSON or CSV (GET /v1/process-event-logs)",
-        "r": "T103a · docs/design/plan-breadth-week3.md §T103a",
+        "r": "T103a · docs/design/plan-breadth-week3.md §T103a · internal/processmining · db/migrations/000339-000341 · GET /v1/process-event-logs · processmining.log.read · procurement.ProcessLog, payables.ProcessLog, payments.ProcessLog, audit.Trail · TestEventLogBudget · walkthrough step_process_mining · ADR-0080",
         "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "getProcessEventLog has no x-snapshot, no x-slo-class report and no row in 01 §1.3: its case_count and its page are separate statements, so a page can disagree with the count beside it (found in T103a's review).",
+        "r": "api/openapi.yaml getProcessEventLog · internal/processmining · docs/design/01-requirements.md §1.3",
+        "src": "review:T103a",
         "c": []
        },
        {
@@ -6891,13 +6919,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T69"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Discovery agent process maps",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The analyst reads the process map of a flow for a period: its activities, how often each follows another, the median time between them and the variants by frequency (GET /v1/process-maps)",
-        "r": "T103b · docs/design/plan-breadth-week3.md §T103b",
+        "r": "T103b · docs/design/plan-breadth-week3.md §T103b · internal/processmining (ReadMap, GetProcessMap) · GET /v1/process-maps · processmining.log.read · TestProcessMapBudget · walkthrough step_process_mining (process_map) · ADR-0080 As built (T103b)",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -7120,9 +7148,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A holder of a deactivated role neither receives nor decides an approval step: identity.Directory.HoldsRole and RolesHeld ignore the role's status, so approvals route a step to the holder of a deactivated role and let that holder decide it, while authz grants that role nothing (pre-existing security finding on T95c's review)",
-      "r": "internal/identity/directory.go HoldsRole, RolesHeld · internal/approvals/approvals.go (step routing) · internal/approvals/inbox.go",
+      "r": "identity.Directory.HoldsRole, RolesHeld (active roles alone) · app.reportGrantees · TestInactiveStepRole · TestDirectoryInactiveRole · ADR-0010 As built 2026-11-16",
       "src": "review:T95c",
       "c": []
      }
@@ -8996,13 +9024,13 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "MCP servers so agents use the same governed APIs",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An agent host connects to erp mcp and uses the API's operations open to agents as tools, with the caller's token, permissions and autonomy level (erp mcp, over standard input and output)",
-        "r": "T102a · docs/design/plan-breadth-week3.md §T102a",
+        "r": "T102a · docs/design/plan-breadth-week3.md §T102a · docs/design/specs/mcp · internal/mcp · apitools.Agent, apitools.Offered, Tool.Invoke · erp mcp · MCP 2026-07-28 and 2025-11-25 · walkthrough step_mcp · ADR-0081",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -9811,14 +9839,28 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T66"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Audit evidence export for external auditors",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An auditor requests an evidence export for a company and a period: the audit events, the journal entries with their approval decisions and the result of verifying the audit chain, written as files with a manifest and SHA-256 to object storage and downloaded (POST /v1/audit-evidence-exports)",
-        "r": "T101a · docs/design/plan-breadth-week3.md §T101a",
+        "r": "T101a · docs/design/plan-breadth-week3.md §T101a · audit.evidence_export · db/migrations/000338 · POST/GET /v1/audit-evidence-exports, GET /v1/audit-evidence-exports/{id}, GET /v1/audit-evidence-exports/{id}/files/{name} · AuditEvidenceExported · audit.evidence.export · audit.EvidenceExporter · ledger.Archive.EntriesBetween, ledger.EntryRecord · approvals.Evidence · walkthrough step_audit · ADR-0011 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "An index on approval_request.object_id: the evidence export and the approvals read an object's requests by its id and, without the index, read the tenant's requests (found in batch 75's integration; a migration, expand-only, built concurrently).",
+        "r": "approvals.approval_request (object_id) · audit evidence export reads · 06 §6.4 (indexes built concurrently)",
+        "src": "review:batch75",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "An evidence export cannot stream beyond its 200,000-row cap: an auditor whose company and period hold more rows is refused instead of served in parts, so the export has to be split by hand into periods (found in batch 75's integration).",
+        "r": "internal/audit evidence export · audit.evidence_export · GET /v1/audit-evidence-exports/{id}/file · ADR-0011 As built",
+        "src": "review:batch75",
         "c": []
        },
        {
@@ -10339,13 +10381,13 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Fit-gap report",
       "c": [
        {
-        "s": "T",
-        "t": "A delivery consultant reads the fit-gap report of a SAP customizing extract: per customizing object the configuration generator reads, whether it was carried over, carried over with a note or left out, with the notes (erp delivery fit-gap)",
-        "r": "T104a · docs/design/plan-breadth-week3.md §T104a",
+        "s": "D",
+        "t": "A delivery consultant reads the fit-gap report of a SAP customizing extract: per customizing object the configuration generator reads, whether it was carried over, carried over with a note or left out, with the notes (erp config generate -fit-gap)",
+        "r": "T104a · docs/design/plan-breadth-week3.md §T104a · docs/migration.md (The fit-gap report) · sapconfig.FitGapReport, FitGap.WriteText (internal/delivery/sapconfig/fitgap.go) · erp config generate -fit-gap, -fit-gap-format · TestFitGapFromMockSAP, TestFitGapLeftOut, TestFitGapGapsAndDefaults, TestFitGapOtherExtracts, TestFitGapText, TestConfigFitGap · walkthrough step_migrate (migration_fit_gap)",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -10521,13 +10563,13 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Connector generation and monitoring",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The integration agent reads the tenant's connectors, webhook subscriptions and their deliveries, bank files and long-running operations and recommends what to do about each failing one with its evidence, for an integration administrator to decide; it never enables, disables or redelivers (erp agent integration-monitor)",
-        "r": "T110a · docs/design/plan-breadth-week3.md §T110a",
+        "r": "T110a · docs/design/plan-breadth-week3.md §T110a · internal/integrationagent · agent type integration · erp agent integration-monitor · evals/integration · walkthrough step_integration_agent · ADR-0072 As built (T110a)",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -10598,13 +10640,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Fixes as configuration change requests",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "When the root cause is a setting, the support agent drafts the configuration change request that fixes it and has it simulated, for a person to submit and approve; it never submits or activates (erp agent support-fix)",
-        "r": "T108c · docs/design/plan-breadth-week3.md §T108c",
+        "r": "T108c · docs/design/plan-breadth-week3.md §T108c · internal/supportagent Fix · internal/changedraft (T107b's drafting, moved and shared) · erp agent support-fix -recommendation ID · no evaluation case (as T107b) · walkthrough step_support_agent · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -10633,13 +10675,13 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Process docs from live configuration",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A process owner has the enablement agent write the description of a process (purchase to pay, or order to cash) from the tenant's active configuration and roles: who does what, with the limits and tolerances in force, every figure taken from the configuration (erp agent enablement-docs)",
-        "r": "T109a · docs/design/plan-breadth-week3.md §T109a",
+        "r": "T109a · docs/design/plan-breadth-week3.md §T109a · internal/enablementagent · agent type enablement · erp agent enablement-docs -process P [-out F] · process_document on the active config_version · config.Cited · evals/enablement · walkthrough step_enablement_agent · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -10654,13 +10696,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "In-context help",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A user asks the enablement agent what a field or a problem code of an operation means; it explains it from the API contract and the tenant's configuration (erp agent enablement-help)",
-        "r": "T109b · docs/design/plan-breadth-week3.md §T109b",
+        "r": "T109b · docs/design/plan-breadth-week3.md §T109b · enablementagent.Agent.Help · erp agent enablement-help -operation ID -field NAME|-problem CODE · apitools.Explain · recommend.Quotations, Quoted · evals/enablement version 2 · walkthrough step_enablement_agent (enablement_help) · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -11325,6 +11367,13 @@
         "c": []
        },
        {
+        "s": "T",
+        "t": "Identity, grc and integration still call database.Today for business dates where the company's day belongs: a date they stamp or compare is UTC's, off by a day for a company in Toronto between 19:00 and 24:00 (found in batch 75's integration; the contexts T72n4 to T72n6 and batch 74 moved are not among them).",
+        "r": "internal/identity · internal/grc · internal/integration (database.Today) · ADR-0051 · tenancy.LegalEntities company day",
+        "src": "review:batch75",
+        "c": []
+       },
+       {
         "s": "D",
         "t": "A migration run's new supplier may have its first bank account start on UTC's day minus one, so that on a cutover evening in Toronto a payment run dated on the company's day finds it; only partner.Migration.Create, for the partner that call creates, and never two days back; people, agents, the API and a later change to an existing partner keep the backdating control; the walkthrough dates its payment runs on the company's day and no longer stops on New Year's Eve",
         "r": "product owner 2026-11-02 (option A) · ADR-0051 as built (the migration's bank accounts on a cutover evening) · internal/partner migration.go backdating (unexported), Migration.Create → createPartner/applyChange · changes.go sealBanks, applyCreate/insertBank · internal/integration banks.go supplierBank · TestMigrationBackdating · TestCutoverEveningBankAccount · TestWalkthroughDates · 03-data-model (bank accounts) · docs/migration.md · walkthrough step 7 (run on the company's day)",
@@ -11424,6 +11473,13 @@
       "t": "The walkthrough reads UTC's day when step 4 asks for the supplier's order desk address, not when the run began (finding of the T57a review): a run crossing 00:00 UTC (19:00 or 20:00 in Toronto) sent the day before as the address's start and was refused partner.backdated_address, since a business partner's dates are judged on the database's day (database.Today, UTC); UTC's day is used nowhere else, and the company's days are Toronto's, which 00:00 UTC does not change",
       "r": "scripts/walkthrough.sh order_document · scripts/walkthrough/dates.sh utc_day",
       "src": "review:T57a",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "suppliers.OrderAddress takes the tenant-wide day, not the company's: the supplier's order desk address in force on a date is chosen on UTC's (database.Today) day where the company's own day decides, the business date class of ADR-0051 (found in batch 75's integration).",
+      "r": "internal/suppliers OrderAddress · database.Today · ADR-0051 · ADR-0050 (business dates on the company's day)",
+      "src": "review:batch75",
       "c": []
      }
     ]

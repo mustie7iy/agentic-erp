@@ -61,6 +61,50 @@ func (r recorder) Cancelled(_ context.Context, id, _ uuid.UUID, c string) error 
 	return nil
 }
 
+// TestInactiveStepRole: a step whose role was made inactive after the
+// request was routed to it leaves its holders' inboxes, and they may
+// neither approve nor reject it, as authz grants that role nothing; a new
+// request is not routed to the inactive role; active again, the role's
+// holders see and decide the step (ADR-0010 As built 2026-11-16).
+func TestInactiveStepRole(t *testing.T) {
+	f := setup(t)
+	r := partnerChange(t, f, "Retired Role Partner")
+	inInbox := func(a pgtest.Actor) bool {
+		t.Helper()
+		page, _ := f.As(a).Must(200, "GET", "/v1/approval-requests?decidable_by=me", "", "")
+		for _, it := range apitest.List(t, page, "items") {
+			if it.(map[string]any)["id"] == r["id"] {
+				return true
+			}
+		}
+		return false
+	}
+	setStatus := func(status string) {
+		pgtest.Exec(t, `UPDATE identity.role SET status = $2, version = version + 1 WHERE tenant_id = $1 AND code = 'vendor_master_approver'`,
+			f.Tenant.ID, status)
+	}
+	setStatus("inactive")
+	for name, a := range map[string]pgtest.Actor{"approver": f.Approver, "approver 2": f.Approver2} {
+		t.Run(name, func(t *testing.T) {
+			if inInbox(a) {
+				t.Errorf("inbox: got the request of the inactive role's step, want it left out")
+			}
+			f.As(a).Problem(403, "workflow.role_missing", "POST", path(r, "approve"), "", tag(r))
+			f.As(a).Problem(403, "workflow.role_missing", "POST", path(r, "reject"), `{"comment": "No"}`, tag(r))
+		})
+	}
+	f.Problem(422, "workflow.unknown_role", "POST", "/v1/business-partners",
+		`{"kind": "organization", "name": "Unrouted Partner", "country_code": "DE", "roles": ["customer"], "reason": "New"}`, "")
+
+	setStatus("active")
+	if !inInbox(f.Approver) {
+		t.Errorf("inbox with the role active again: got the request left out, want it listed")
+	}
+	if got, _ := f.As(f.Approver).Must(200, "POST", path(r, "approve"), "", tag(r)); got["status"] != "approved" {
+		t.Errorf("approved with the role active again: got status %v, want approved", got["status"])
+	}
+}
+
 func TestApproveThroughTheAPI(t *testing.T) {
 	f := setup(t)
 	r := partnerChange(t, f, "Approved Partner")

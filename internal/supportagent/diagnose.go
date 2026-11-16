@@ -205,16 +205,23 @@ func (d *diagnosis) read(resp apitools.Response) {
 // none).
 var eventRe = regexp.MustCompile(`(?i)\bevents?\s+(?:no\.?\s*|#\s*|seq\s+)?(\d+)\b(?:[^-/.,\d]|[.,](?:\s|$)|$)`)
 
+// classOf is the class a diagnosis's first line names, and whether it
+// names one of Classes.
+func classOf(content string) (string, bool) {
+	first, _, _ := strings.Cut(content, "\n")
+	class, ok := strings.CutPrefix(strings.TrimSpace(first), "Root cause: ")
+	class = strings.TrimSuffix(strings.TrimSpace(class), ".")
+	return class, ok && slices.Contains(Classes, class)
+}
+
 // check is the agent's rule on a diagnosis (T108b): its first line names
 // a class, every event it cites is the document's as read in the run, a
 // class other than unknown cites one, every setting it cites is the
 // active configuration's with that value, and every other number is one
 // the run read.
 func (d *diagnosis) check(p recommend.Proposed, f *recommend.Figures) error {
-	first, _, _ := strings.Cut(p.Content, "\n")
-	class, ok := strings.CutPrefix(strings.TrimSpace(first), "Root cause: ")
-	class = strings.TrimSuffix(strings.TrimSpace(class), ".")
-	if !ok || !slices.Contains(Classes, class) {
+	class, ok := classOf(p.Content)
+	if !ok {
 		return ErrClass
 	}
 	cited := eventRe.FindAllStringSubmatch(p.Content, -1)
@@ -226,14 +233,12 @@ func (d *diagnosis) check(p recommend.Proposed, f *recommend.Figures) error {
 	if class != Unknown && len(cited) == 0 {
 		return ErrNoEvent
 	}
-	for _, m := range citationRe.FindAllStringSubmatch(p.Content, -1) {
-		if v, ok := config.Setting(d.active, m[1]); !ok || v != m[2] {
-			return fmt.Errorf("%w: not %s = %s", ErrSetting, m[1], m[2])
-		}
+	if c, unheld := config.Unheld(d.active, p.Content); unheld {
+		return fmt.Errorf("%w: not %s = %s", ErrSetting, c.Path, c.Value)
 	}
 	// The settings cited were held to the configuration above; any other
 	// number, in backticks or not, is one the run read.
-	if unread := f.Unread(citationRe.ReplaceAllString(p.Content, " ")); len(unread) > 0 {
+	if unread := f.Unread(config.Uncited(p.Content)); len(unread) > 0 {
 		return fmt.Errorf("%w: not %s", ErrDiagnosisNumber, strings.Join(unread, ", "))
 	}
 	return nil

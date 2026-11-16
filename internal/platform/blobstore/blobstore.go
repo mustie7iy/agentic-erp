@@ -108,6 +108,10 @@ const (
 	// KindReportRuns are saved reports' scheduled runs' results, named by
 	// run id (ADR-0076 §5).
 	KindReportRuns = "report-runs"
+	// KindEvidence are the audit context's evidence exports, one directory
+	// per export id holding its manifest and the files it names (T101a):
+	// written once, never changed.
+	KindEvidence = "audit/evidence"
 )
 
 // Prefix is the first segment of every key.

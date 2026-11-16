@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
@@ -192,19 +193,20 @@ func (e *Endpoints) ListReportRuns(ctx context.Context, params gen.ListReportRun
 }
 
 // GetReportRun implements GET /v1/report-runs/{id}: the run with its
-// results, or one result as CSV; a format the contract does not list is
-// 422 request.validation_failed.
+// results, or one result as CSV or an Excel workbook; a format the
+// contract does not list is 422 request.validation_failed.
 func (e *Endpoints) GetReportRun(ctx context.Context, params gen.GetReportRunParams) (gen.GetReportRunRes, error) {
 	r, err := e.GetRun(ctx, params.ID)
 	if err != nil {
 		return nil, err
 	}
-	if f := params.Format.Value; f != "" && f != "json" && f != "csv" {
-		return nil, problem.Invalid("request.validation_failed", "format", "json or csv")
+	f := params.Format.Value
+	if f != "" && f != "json" && f != "csv" && f != "xlsx" {
+		return nil, problem.Invalid("request.validation_failed", "format", "json, csv or xlsx")
 	}
-	csv := params.Format.Value == "csv"
+	one := f == "csv" || f == "xlsx"
 	if r.Status != Succeeded {
-		if csv {
+		if one {
 			return nil, problem.Conflict("analytics.report_run_failed", "The run failed: it has no results.")
 		}
 		return e.oneRun(ctx, r, nil)
@@ -213,10 +215,22 @@ func (e *Endpoints) GetReportRun(ctx context.Context, params gen.GetReportRunPar
 	if err != nil {
 		return nil, err
 	}
-	if csv {
-		return resultCSV(res, params.QueryID)
+	if !one {
+		return e.oneRun(ctx, r, &res)
 	}
-	return e.oneRun(ctx, r, &res)
+	picked, err := pickResult(res, params.QueryID)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case f == "csv":
+		return resultCSV(picked), nil
+	case picked.Truncated:
+		// The workbook holds the rows alone and could not say they were cut.
+		return nil, problem.Unprocessable("analytics.result_truncated",
+			"The result was cut at the rows a query answers; a workbook could not say so. Read it as JSON, which does.")
+	}
+	return resultXLSX(picked), nil
 }
 
 // oneRun is a run as getReportRun gives it, with its results when it has
@@ -233,8 +247,9 @@ func (e *Endpoints) oneRun(ctx context.Context, r Run, res *gen.ReportResults) (
 	return &out, nil
 }
 
-// resultCSV is the result named, or the run's only one, as CSV.
-func resultCSV(res gen.ReportResults, queryID gen.OptString) (*gen.GetReportRunOKTextCsv, error) {
+// pickResult is the result named, or the run's only one, as the
+// analytics package reads a result (analytics.DecodeResult).
+func pickResult(res gen.ReportResults, queryID gen.OptString) (*analytics.Result, error) {
 	var picked *gen.AnalyticsResult
 	for i, r := range res.Results {
 		if (queryID.Set && r.QueryID == queryID.Value) || (!queryID.Set && len(res.Results) == 1) {
@@ -244,39 +259,32 @@ func resultCSV(res gen.ReportResults, queryID gen.OptString) (*gen.GetReportRunO
 	if picked == nil {
 		return nil, problem.Invalid("analytics.unknown_query", "query_id", "Name one of the run's results by its query_id.")
 	}
+	b, err := picked.MarshalJSON()
+	if err == nil {
+		var out *analytics.Result
+		if out, err = analytics.DecodeResult(b); err == nil {
+			return out, nil
+		}
+	}
+	return nil, fmt.Errorf("analytics: result %s of a report run: %w", picked.QueryID, err)
+}
+
+// resultCSV is a result as CSV: a header row of its columns' names, a
+// money measure followed by its currency's column (<name>_currency), then
+// its rows, a measure that cannot be computed empty (analytics.Records,
+// which the workbook lays out alike).
+func resultCSV(r *analytics.Result) *gen.GetReportRunOKTextCsv {
 	var b bytes.Buffer
 	w := csv.NewWriter(&b)
 	// A bytes.Buffer never fails a write, so neither does the CSV writer.
-	_ = w.Write(csvHeader(picked.Columns))
-	for _, row := range picked.Rows {
-		_ = w.Write(csvRow(picked.Columns, row))
-	}
-	w.Flush()
-	return &gen.GetReportRunOKTextCsv{Data: &b}, nil
+	_ = w.WriteAll(analytics.Records(r))
+	return &gen.GetReportRunOKTextCsv{Data: &b}
 }
 
-// csvHeader names a result's columns, a money measure followed by its
-// currency's column (<name>_currency): an amount is never without it.
-func csvHeader(cols []gen.AnalyticsColumn) []string {
-	var out []string
-	for _, c := range cols {
-		out = append(out, c.Name)
-		if c.Type.Value == "money" {
-			out = append(out, c.Name+"_currency")
-		}
-	}
-	return out
-}
-
-// csvRow is a row's cells as csvHeader names them; a measure that cannot
-// be computed is empty.
-func csvRow(cols []gen.AnalyticsColumn, row []gen.AnalyticsCell) []string {
-	var out []string
-	for i, c := range cols {
-		out = append(out, row[i].Value.Or(""))
-		if c.Type.Value == "money" {
-			out = append(out, row[i].Currency.Or(""))
-		}
-	}
-	return out
+// resultXLSX is a result as an Excel workbook (T95d, ADR-0076 §8).
+func resultXLSX(r *analytics.Result) *gen.GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet {
+	var b bytes.Buffer
+	// A bytes.Buffer never fails a write, so neither does the workbook.
+	_ = analytics.WriteXLSX(&b, analytics.SheetReport, r)
+	return &gen.GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet{Data: &b}
 }

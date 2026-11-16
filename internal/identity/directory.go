@@ -35,15 +35,19 @@ func (Directory) RoleByCode(ctx context.Context, code string) (uuid.UUID, bool, 
 	return id, true, nil
 }
 
-// HoldsRole reports whether the principal is assigned the role today.
+// HoldsRole reports whether the principal is assigned the role today and
+// the role is active: authz grants an inactive role's holders nothing, so
+// approvals neither list nor let them decide a step of it (ADR-0010 As
+// built 2026-11-16).
 func (Directory) HoldsRole(ctx context.Context, principal, role uuid.UUID) (bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return false, err
 	}
 	var ok bool
-	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM identity.principal_role
-		WHERE principal_id = $1 AND role_id = $2 AND valid_from <= current_date AND (valid_to IS NULL OR valid_to > current_date))`,
+	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM identity.principal_role pr
+		JOIN identity.role r ON r.tenant_id = pr.tenant_id AND r.id = pr.role_id AND r.status = 'active'
+		WHERE pr.principal_id = $1 AND pr.role_id = $2 AND pr.valid_from <= current_date AND (pr.valid_to IS NULL OR pr.valid_to > current_date))`,
 		principal, role).Scan(&ok)
 	if err != nil {
 		return ok, fmt.Errorf("identity: check role %s of principal %s: %w", role, principal, err)
@@ -51,17 +55,19 @@ func (Directory) HoldsRole(ctx context.Context, principal, role uuid.UUID) (bool
 	return ok, nil
 }
 
-// RolesHeld returns the roles the principal is assigned today, each as
-// HoldsRole decides it: the approval inbox (decidable_by=me) asks once
-// for all of them.
+// RolesHeld returns the active roles the principal is assigned today, each
+// as HoldsRole decides it: the approval inbox (decidable_by=me) asks once
+// for all of them, and a report shared with a role reaches its holders
+// while the role is active (ADR-0076 §7).
 func (Directory) RolesHeld(ctx context.Context, principal uuid.UUID) ([]uuid.UUID, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
 	// CollectRows below returns the query's error.
-	rows, _ := tx.Query(ctx, `SELECT DISTINCT role_id FROM identity.principal_role
-		WHERE principal_id = $1 AND valid_from <= current_date AND (valid_to IS NULL OR valid_to > current_date)`, principal)
+	rows, _ := tx.Query(ctx, `SELECT DISTINCT pr.role_id FROM identity.principal_role pr
+		JOIN identity.role r ON r.tenant_id = pr.tenant_id AND r.id = pr.role_id AND r.status = 'active'
+		WHERE pr.principal_id = $1 AND pr.valid_from <= current_date AND (pr.valid_to IS NULL OR pr.valid_to > current_date)`, principal)
 	roles, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
 		return nil, fmt.Errorf("identity: roles of principal %s: %w", principal, err)
