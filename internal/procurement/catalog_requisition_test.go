@@ -200,15 +200,14 @@ func TestRequisitionCatalogContract(t *testing.T) {
 	// or contract is refused, and clearing one takes it from the catalog
 	// items again.
 	_, tag := e.Must(200, "GET", path, "", "")
-	// The change gives no items, so the refusal names no field of them
-	// (review:batch26); its detail names the catalog item.
 	refusal := e.Problem(422, "procurement.catalog_item_supplier", "PATCH", path, fmt.Sprintf(`{"supplier_id": %q}`, e.Vendor), tag)
-	wantNoFields(t, refusal)
-	if d := apitest.String(t, refusal, "detail"); !strings.HasPrefix(d, "catalog item ") {
-		t.Errorf("detail of the supplier change: got %q, want it to name the catalog item", d)
+	if got := apitest.String(t, apitest.List(t, refusal, "errors")[0].(map[string]any), "field"); got != "items[0].catalog_item_id" {
+		t.Errorf("refused field of the supplier change: got %s, want items[0].catalog_item_id", got)
 	}
 	refusal = e.Problem(422, "procurement.catalog_item_contract", "PATCH", path, fmt.Sprintf(`{"contract_id": %q}`, id(other)), tag)
-	wantNoFields(t, refusal)
+	if got := apitest.String(t, apitest.List(t, refusal, "errors")[0].(map[string]any), "field"); got != "items[1].catalog_item_id" {
+		t.Errorf("refused field of the contract change: got %s, want items[1].catalog_item_id", got)
+	}
 	cleared, tag := e.Must(200, "PATCH", path, `{"supplier_id": null, "contract_id": null, "needed_by": "2026-12-01"}`, tag)
 	if cleared["contract_id"] != id(active) {
 		t.Errorf("contract after clearing: got %v, want the catalog item's %v", cleared["contract_id"], id(active))

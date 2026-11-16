@@ -196,7 +196,7 @@ func TestCallOffRefusals(t *testing.T) {
 		pgtest.Exec(t, `UPDATE partner.supplier_company SET is_posting_blocked = true, version = version + 1 WHERE partner_id = $1`, e.Supplier)
 		defer pgtest.Exec(t, `UPDATE partner.supplier_company SET is_posting_blocked = false, version = version + 1 WHERE partner_id = $1`, e.Supplier)
 		p := e.in(t).Problem(422, "procurement.supplier_not_usable", "POST", callOff(path, 1), "", "*")
-		wantNoFields(t, p)
+		wantField(t, p, "supplier_id", "invalid")
 	})
 	t.Run("without the permission to create orders", func(t *testing.T) {
 		pgtest.Exec(t, `DELETE FROM identity.role_permission WHERE tenant_id = $1 AND permission_code = 'procurement.order.create'`, e.Tenant.ID)

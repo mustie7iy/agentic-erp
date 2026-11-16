@@ -14,7 +14,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
-	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -127,7 +126,7 @@ func (e *Endpoints) ListCatalogItems(ctx context.Context, params gen.ListCatalog
 func (e *Endpoints) RetireCatalogItem(ctx context.Context, params gen.RetireCatalogItemParams) (gen.RetireCatalogItemRes, error) {
 	c, err := e.retireCatalogItem(ctx, params.ID, etag.IfMatch(params.IfMatch))
 	if err != nil {
-		return nil, problem.KeepFields(err)
+		return nil, err
 	}
 	out, err := e.catalogItemOut(ctx, c)
 	if err != nil {

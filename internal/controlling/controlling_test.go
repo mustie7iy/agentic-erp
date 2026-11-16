@@ -117,11 +117,17 @@ func (p plan) lines(t *testing.T, query string) []string {
 		}
 		// A line names its center and account beside their ids
 		// (review:T105e).
-		if label := p.code(center.(string)); (label != center && code != label) || name == "" {
-			t.Errorf("center: got %v %v, want %s with its name", code, name, label)
+		if label := p.code(center.(string)); label != center && code != label {
+			t.Errorf("center code: got %v, want %s", code, label)
 		}
-		if label := p.code(l["account_id"].(string)); l["account_number"] != label || l["account_name"] == "" {
-			t.Errorf("account: got %v %v, want %s with its name", l["account_number"], l["account_name"], label)
+		if n, _ := name.(string); n == "" {
+			t.Errorf("center name: got %v, want the center's", name)
+		}
+		if label := p.code(l["account_id"].(string)); l["account_number"] != label {
+			t.Errorf("account number: got %v, want %s", l["account_number"], label)
+		}
+		if n, _ := l["account_name"].(string); n == "" {
+			t.Errorf("account name: got %v, want the account's", l["account_name"])
 		}
 		q := ""
 		if qty, ok := l["quantity"].(map[string]any); ok {

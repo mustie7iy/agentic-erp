@@ -3924,7 +3924,7 @@
      {
       "s": "D",
       "t": "A purchase order's update, its changes' create, update and submit, and a requisition's and order's bodiless submit and release name their field errors by the request's fields: legal_entity_id (procurement common.go legalEntity on the stored order), items and items[i].<field> (order_change_apply.go invalidChange, assignment.go, ledger itemassign.go asItems) are fields those requests do not have (an API-consumer class, REVIEW.md)",
-      "r": "found in apinames4's sweep of the class (review:batch26 bootstrap leaf) · internal/procurement common.go :173, :178 from purchase_orders.go updateOrder (:478) and order_changes.go proposal (:280) · order_change_apply.go :34, :62 · assignment.go :36, :88 · purchase_orders.go :606 · ledger itemassign.go :78 · done in hnames: problem.KeepFields / KeepRequestFields drop field errors on fields the request does not give (rules.* kept) in every procurement action on a stored document (updates, changes, bodiless submit, release, cancel, close, publish, retire, call-off, award, quotation, GR/IR clearing); TestKeepFields, wantNoFields in the procurement tests; 04 §4.6",
+      "r": "found in apinames4's sweep of the class (review:batch26 bootstrap leaf) · internal/procurement common.go :173, :178 from purchase_orders.go updateOrder (:478) and order_changes.go proposal (:280) · order_change_apply.go :34, :62 · assignment.go :36, :88 · purchase_orders.go :606 · ledger itemassign.go :78 · done in hnames by default (listed for the product owner): a refusal on an action over a stored document names the document's field as its GET returns it, which keeps the item or supplier refused and the reason code (ADR-0050); 04 §4.6 states the rule. Dropping those field errors was built and withdrawn in review round 1: it lost the locator and the reason",
       "src": "review:batch26",
       "c": []
      }
@@ -6904,7 +6904,7 @@
        {
         "s": "D",
         "t": "getProcessEventLog has no x-snapshot, no x-slo-class report and no row in 01 §1.3: its case_count and its page are separate statements, so a page can disagree with the count beside it (found in T103a's review).",
-        "r": "api/openapi.yaml getProcessEventLog · internal/processmining · docs/design/01-requirements.md §1.3 · done in hnames: x-snapshot and x-slo-class report on getProcessEventLog, 01 §1.3's row (TestEventLogBudget p95 0.1-0.2 s), TestSnapshotOperations, ADR-0080 as built",
+        "r": "api/openapi.yaml getProcessEventLog · internal/processmining · docs/design/01-requirements.md §1.3 · done in hnames: x-snapshot and x-slo-class report on getProcessEventLog, 01 §1.3's row (TestEventLogBudget p95 0.1-0.28 s), TestSnapshotOperations, ADR-0080 as built",
         "src": "review:T103a",
         "c": []
        },

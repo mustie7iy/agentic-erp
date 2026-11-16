@@ -15,7 +15,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
-	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -121,7 +120,7 @@ func (e *Endpoints) ListRfqs(ctx context.Context, params gen.ListRfqsParams) (ge
 func (e *Endpoints) PublishRfq(ctx context.Context, params gen.PublishRfqParams) (gen.PublishRfqRes, error) {
 	r, err := e.publishRFQ(ctx, params.ID, etag.IfMatch(params.IfMatch))
 	if err != nil {
-		return nil, problem.KeepFields(err)
+		return nil, err
 	}
 	// The generator names the identical answer of :publish and :award after the first of them.
 	return &gen.AwardRfqOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: rfqToAPI(r)}, nil
@@ -157,7 +156,7 @@ func (e *Endpoints) CreateSupplierQuotation(ctx context.Context, req *gen.Suppli
 	}
 	r, q, err := e.recordQuotation(ctx, params.ID, in)
 	if err != nil {
-		return nil, problem.KeepRequestFields(err, req)
+		return nil, err
 	}
 	return &gen.SupplierQuotationHeaders{ETag: gen.NewOptString(etag.Format(q.Version)),
 		Location: gen.NewOptString("/v1/rfqs/" + r.ID.String() + "/quotations?supplier_id=" + q.SupplierID.String()), Response: quotationToAPI(r, q)}, nil
@@ -256,7 +255,7 @@ func (e *Endpoints) GetRfqComparison(ctx context.Context, params gen.GetRfqCompa
 func (e *Endpoints) AwardRfq(ctx context.Context, req *gen.RfqAward, params gen.AwardRfqParams) (gen.AwardRfqRes, error) {
 	r, err := e.awardRFQ(ctx, params.ID, etag.IfMatch(params.IfMatch), Award{QuotationID: req.QuotationID, ValidFrom: req.ValidFrom, ValidTo: req.ValidTo})
 	if err != nil {
-		return nil, problem.KeepRequestFields(err, req)
+		return nil, err
 	}
 	return &gen.AwardRfqOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: rfqToAPI(r)}, nil
 }

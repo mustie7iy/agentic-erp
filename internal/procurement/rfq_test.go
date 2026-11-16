@@ -263,8 +263,9 @@ func TestRFQPublishChecksAgain(t *testing.T) {
 	path := "/v1/rfqs/" + id(r)
 	pgtest.Exec(t, `UPDATE partner.supplier_company SET is_posting_blocked = true, version = version + 1 WHERE partner_id = $1`, e.Vendor)
 	p := e.Problem(422, "procurement.supplier_not_usable", "POST", path+":publish", "", `"1"`)
-	wantNoFields(t, p) // :publish has no body (review:batch26); the detail names the supplier
-
+	if errs, _ := p["errors"].([]any); len(errs) != 1 || errs[0].(map[string]any)["field"] != "suppliers[1].supplier_id" {
+		t.Errorf("field errors: got %v, want one on suppliers[1].supplier_id", p["errors"])
+	}
 	pgtest.Exec(t, `UPDATE partner.supplier_company SET is_posting_blocked = false, version = version + 1 WHERE partner_id = $1`, e.Vendor)
 	e.API = apitest.NewWith(t, func(cfg *app.Config) {
 		cfg.Now = func() time.Time { return time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC) }
