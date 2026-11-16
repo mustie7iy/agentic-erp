@@ -1,68 +1,44 @@
 // Package closing is the financial close context (ADR-0058; SAP's
-// Financial Closing cockpit): the close template, each company's close
-// calendar, and, as later slices add them, its period closes with their
-// checklists, sign-offs, accrual proposals and variance comments. It is
-// named closing, not close, Go's builtin. It is a leaf (ADR-0058 §2): it
-// reads the other contexts only through ports it declares, which the
-// composition root (internal/app) adapts and which run in the request's
-// transaction under row-level security (ADR-0003), and no context imports
-// it (internal/layout).
+// Financial Closing cockpit). It is named closing, not close, Go's
+// builtin. It is a leaf (ADR-0058 §2): it reads the other contexts only
+// through ports it declares, which the composition root (internal/app)
+// adapts and which run in the request's transaction under row-level
+// security (ADR-0003), and no context imports it (internal/layout).
 //
-// T64a builds the calendar: the close template (close.tasks) and each
-// company's weekend are configuration (ADR-0058 §3, internal/config), and
-// GetCloseCalendar plans each regular period's due dates from them on the
-// company's business days (config.Config.BusinessDay, the rule cash
-// counts working days by). T64b builds the period close (ADR-0058 §5,
-// §6): one per company and regular period, its checklist copied from the
-// template when it is opened, its manual tasks assigned, completed and
-// reopened under a lock on the close (ADR-0008), each change audited and
-// published through the closing outbox (ADR-0007, ADR-0011). T64c runs a
-// check task's check on demand (ADR-0058 §6): no parked entry left in the
-// period, and each covered ledger's revaluation posted, read through the
-// ledger's port, the result recorded on the task with what it found. T64d
-// signs a close off (ADR-0058 §7): every manual task done, every check
-// passing when run again, each covered period closed by a person; it then
-// locks each covered period through the ledger's period lock (T32) in the
-// order postings take them, and records the sign-off. A covered period
-// unlocked later reopens the close on its next write. T64h reports a
-// close's variances (ADR-0058 §9): each profit and loss account's actual
-// of the period against the prior period, the prior year's period or a
-// plan category (read through controlling's port), flagged by the
-// company's thresholds. T64i explains them (ADR-0058 §10): the close agent
-// proposes a comment on a row in its session, citing the journal entries
-// the row's figures are made of (checked through the ledger's port), and a
-// person accepts or rejects it, or writes one; a comment keeps the figures
-// it was written against and is stale once they change, and the check
-// variances_explained passes when every row requiring a comment has an
-// accepted one that is current. T64k adds the depreciation check (ADR-0058
-// §6): each covered ledger has a posted depreciation run of the period, or
-// nothing a run of it would select, read through the assets context's
-// port (ADR-0057 §7). T64e lets the close agent propose accruals
-// (ADR-0058 §8): one expense of the close's period the ledger does not
-// show yet, resting on posted supplier invoices, released purchase orders
-// or posted journal entries (read through the payables, procurement and
-// ledger contexts' ports), parked through the ledger as the agent, debiting
-// the expense and crediting the company's accrual account on the period's
-// last day, for a person to post in the ledger. T64f decides them
-// (ADR-0058 §6, §8): a proposal's status is derived at the read from its
-// parked entry (proposed, pending approval, posted and whether changed
-// before, reversed, rejected), read through the ledger's port; a person
-// rejects one, its entry cancelled under the ledger's owner rule; and two
-// checks find the close's proposals undecided and the previous close's
-// posted accruals not reversed. T64m4 opens a company's year close
-// (ADR-0060 §8): one per fiscal year, its checklist the configuration's
-// year tasks (close.year_tasks), covering each ledger's periods of the
-// year, stored apart from period closes and worked by the same code
-// (closeKind). T64m5 runs a year close's checks (ADR-0060 §8, §11): no
-// parked entry left in the year, special periods included; each covered
-// ledger's revaluation posted on the year's last day; T64k's depreciation
-// check passing in every regular period of each covered ledger; and each
-// covered ledger's balance carry-forward from the year current and not
-// stale, read through the ledger's port. T64m6 signs a year close off
-// (ADR-0060 §8): the period close's sign-off with the year's periods, read
-// FOR UPDATE through the ledger's port in the one order, every regular
-// period locked already and every special period closed, which it locks,
-// so that the whole year is locked; the signer's name is recorded.
+// What it holds:
+//
+//   - The close calendar (ADR-0058 §3): the close template (close.tasks)
+//     and each company's weekend are configuration; GetCloseCalendar plans
+//     each regular period's due dates on the company's business days
+//     (config.Config.BusinessDay).
+//   - Period closes (§5, §6): one per company and regular period, its
+//     checklist copied from the template when it is opened, its manual
+//     tasks assigned, completed and reopened under a lock on the close
+//     (ADR-0008), each change audited and published (ADR-0007, ADR-0011).
+//   - Checks (§6), run on demand and recorded on their task: no parked
+//     entry left in the period, each covered ledger's revaluation posted,
+//     a posted depreciation run or nothing one would select (ADR-0057 §7),
+//     variances explained, accrual proposals decided and the previous
+//     close's accruals reversed.
+//   - Sign-off (§7): every manual task done and every check passing when
+//     run again; it locks each covered period through the ledger's period
+//     lock in the order postings take them. A covered period unlocked
+//     later reopens the close on its next write.
+//   - Variances (§9, §10): each profit and loss account's actual against
+//     the prior period, the prior year's period or a plan category (from
+//     controlling), flagged by the company's thresholds; comments proposed
+//     by the close agent citing the entries behind a row, or written by a
+//     person, which go stale when the figures change.
+//   - Accrual proposals (§8): the close agent parks an expense of the
+//     period resting on posted invoices, released orders or posted entries,
+//     for a person to post or reject; the proposal's status is derived from
+//     its parked entry when read.
+//   - Year closes (ADR-0060 §8, §11): one per company and fiscal year, its
+//     checklist the configuration's year tasks, worked by the same code as
+//     a period close (closeKind), with the year's checks (special periods,
+//     the year-end revaluation, depreciation in every regular period, a
+//     current balance carry-forward) and a sign-off that locks the whole
+//     year, special periods included.
 package closing
 
 import (

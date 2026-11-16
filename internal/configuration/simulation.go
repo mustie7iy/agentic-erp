@@ -114,7 +114,8 @@ func (w *SimulationWorker) tenants(ctx context.Context) ([]uuid.UUID, error) {
 // is the operation itself.
 func QueuedSimulations(ctx context.Context, tx pgx.Tx) ([]operations.Waiting, error) {
 	rows, _ := tx.Query(ctx, `SELECT o.kind, o.tenant_id, o.id, o.id, '00000000-0000-0000-0000-000000000000'::uuid, cr.number,
-			(SELECT count(*) FROM platform.operation x WHERE x.tenant_id = o.tenant_id AND x.kind = o.kind AND x.request->>'change_request_id' = o.request->>'change_request_id' AND x.id <= o.id)
+			(SELECT count(*) FROM platform.operation x WHERE x.tenant_id = o.tenant_id AND x.kind = o.kind
+				AND x.request->>'change_request_id' = o.request->>'change_request_id' AND x.id <= o.id)
 			FROM platform.operation o
 			JOIN config.change_request cr ON cr.tenant_id = o.tenant_id AND cr.id = (o.request->>'change_request_id')::uuid
 			WHERE o.kind = $1 AND o.status = 'queued' AND o.workflow_id IS NULL AND o.tenant_id IN `+database.ActiveTenants+`
@@ -284,7 +285,8 @@ func assessed(ctx context.Context, tx pgx.Tx, c ChangeRequest) (*config.Config, 
 // regression suite are the evidence a tier needs (config.RequiredEvidence);
 // both use the base version's latest suite, the simulation its window. A
 // problem fails the operation and returns no detail: the job is done.
-func (w *SimulationWorker) evidence(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, c ChangeRequest, fail func(*problem.Problem) error) (bool, map[string]any, error) {
+func (w *SimulationWorker) evidence(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, c ChangeRequest,
+	fail func(*problem.Problem) error) (bool, map[string]any, error) {
 	base, proposed, err := assessed(ctx, tx, c)
 	if err != nil {
 		// A base or proposal this replica cannot read whole fails the
