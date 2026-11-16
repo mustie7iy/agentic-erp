@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 // lease is the terms and payments of a lease from 2026-01-01 of n
@@ -133,6 +134,22 @@ func TestScheduleOf360Periods(t *testing.T) {
 			}
 			if depreciation != s.RightOfUse || s.Lines[359].RightOfUseCarrying != 0 {
 				t.Errorf("depreciation: got %d ending at %d, want %d ending at 0", depreciation, s.Lines[359].RightOfUseCarrying, s.RightOfUse)
+			}
+		})
+	}
+}
+
+// TestRunTotals (T88c): a run's totals add up its postings' interest and
+// depreciation, and sums beyond an amount are refused.
+func TestRunTotals(t *testing.T) {
+	interest, depreciation, err := runTotals([]RunPosting{{Interest: 5, Depreciation: 7}, {Interest: -1, Depreciation: 3}})
+	if got := fmt.Sprint(int64(interest), " ", int64(depreciation), " ", err); got != "4 10 <nil>" {
+		t.Errorf("totals: got %s, want 4 10 <nil>", got)
+	}
+	for name, p := range map[string]RunPosting{"interest": {Interest: math.MaxInt64}, "depreciation": {Depreciation: math.MaxInt64}} {
+		t.Run(name, func(t *testing.T) {
+			if _, _, err := runTotals([]RunPosting{p, p}); problem.From(err).Code != "leases.amount_too_large" {
+				t.Errorf("got %v, want leases.amount_too_large", err)
 			}
 		})
 	}

@@ -2997,13 +2997,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Collections agent",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The collections agent reads a company's collection worklist, a customer's overdue items, dunning notices, payments and dispute cases and recommends the next action per customer with a draft message for a collections specialist to decide; it never contacts a customer (erp agent collections)",
-        "r": "T105b · docs/design/plan-breadth-week3.md §T105b",
+        "r": "T105b · docs/design/plan-breadth-week3.md §T105b · internal/collectionsagent · agent type collections · erp agent collections -company CODE [-key-date D] · evals/collections · walkthrough step_collections_agent · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -3071,9 +3071,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The lease accountant runs lease accounting for a company and a period: per active contract the period's interest and depreciation are posted (POST /v1/lease-runs)",
-        "r": "T88c · docs/design/plan-breadth-week3.md §T88c",
+        "r": "T88c · docs/design/plan-breadth-week3.md §T88c · db/migrations/000332, 000333 · leases.run · leases.run_posting · account determination lease_interest, right_of_use_depreciation, right_of_use_accumulated_depreciation · POST/GET /v1/lease-runs · GET /v1/lease-runs/{id} · LeaseRunPosted · leases.run.post · ledger.Calendar.RegularPeriod · walkthrough step_lease (lease_run) · ADR-0073 §9, As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -3566,13 +3566,13 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Profitability segments",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A controller reads net revenue by profitability segment (customer and item key) per period from posted billing documents: gross value, discounts, credit memos and net revenue (GET /v1/profitability-report)",
-        "r": "T92a · docs/design/plan-breadth-week3.md §T92a",
+        "r": "T92a · docs/design/plan-breadth-week3.md §T92a · ADR-0075 §6 · migration 000331 (controlling.profitability.read) · sales.Orders.Segments · controlling.Endpoints.GetProfitabilityReport (ports Sales, Partners) · TestProfitabilityReport, TestProfitabilityReportSelections, TestProfitabilityReportPages, TestProfitabilityReportRefusals, TestProfitabilityReportFails, TestProfitabilityDatabaseFailures, TestMarginReadPermission, TestProfitabilityReportBudget · walkthrough step_profitability · 01-requirements §1.3 · 03-data-model §3.19 · 04-api-design",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -4852,14 +4852,28 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Order capture agent",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A sales representative uploads a customer's purchase order document and order capture reads it into a draft sales order (the customer, the items with quantity, unit, item key or description and the printed price), which a person checks and confirms; capture never confirms (POST /v1/sales-orders:capture)",
-        "r": "T90a · docs/design/plan-breadth-week3.md §T90a",
+        "r": "T90a · docs/design/plan-breadth-week3.md §T90a · db/migrations/000334, 000335 · sales.sales_order capture, capture_upload_id · upload purpose sales_order · POST /v1/sales-orders:capture · sales.order.capture · internal/capture OrderExtractor · partner.Payees.FindCustomers · erp capture -order · evals/order_capture · walkthrough step_order_capture · ADR-0067 As built T90a, ADR-0020 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Tax-number fingerprints after a tenant key rotation need checking: the index tax_identifier_by_fingerprint holds fingerprints made with the key in force, and what a rotation does to them (a lookup by the printed number after the rotation) is not shown by a test (pre-existing, found in batch 74).",
+        "r": "db/migrations/000334_sales_order_capture · index tax_identifier_by_fingerprint · tenant key rotation",
+        "src": "review:batch74",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Capture operations can answer 404 for an unknown upload id but declare no 404 in api/openapi.yaml for captureSalesOrder (pre-existing, found in batch 74 in T90a's lane).",
+        "r": "api/openapi.yaml captureSalesOrder · docs/design/adr/0067-sales-documents.md As built T90a",
+        "src": "review:batch74",
         "c": []
        },
        {
@@ -6280,13 +6294,13 @@
     "ph": 9,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Personal data blocking",
       "c": [
        {
-        "s": "T",
-        "t": "The privacy officer blocks a business partner's personal data once nothing is open for it: the partner's own reads and the names other contexts take from the partner then answer its name, address and bank details masked, except to holders of a permission, and new documents for it are refused (POST /v1/business-partners/{id}:block-personal-data)",
-        "r": "T100b · docs/design/plan-breadth-week3.md §T100b",
+        "s": "D",
+        "t": "The privacy officer blocks a business partner's personal data once nothing is open for it: the partner's own reads and the names other contexts take from the partner then answer its name, address and bank details masked, except to holders of a permission, and new documents for it are refused (POST /v1/business-partners/{id}:blockPersonalData)",
+        "r": "T100b · docs/design/plan-breadth-week3.md §T100b · partner.business_partner.personal_data_blocked_at · db/migrations/000336 · POST /v1/business-partners/{id}:blockPersonalData, :unblockPersonalData · partner.privacy.block, partner.privacy.read_blocked · partner.Payees.Names and BankAccounts masked · ledger.OpenItems.OpenCompanies · partner_change.possible_duplicates inventoried and masked · BusinessPartnerUpdated personal_data_blocked_at · walkthrough step_privacy (privacy_block) · ADR-0079 §11 and As built · 03-data-model §3.6",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -6301,14 +6315,21 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Deletion runs",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The privacy officer previews and starts a deletion run: for each business partner blocked longer than the retention rule for personal data, its name, address and bank details are blanked; ledger documents and audit events stay (POST /v1/personal-data-deletion-runs)",
-        "r": "T100c · docs/design/plan-breadth-week3.md §T100c",
+        "r": "T100c · docs/design/plan-breadth-week3.md §T100c · records.deletion_run, records.deletion_run_subject, partner.business_partner.personal_data_deleted_at · db/migrations/000337 · GET /v1/personal-data-deletion-preview, POST /v1/personal-data-deletion-runs, GET /v1/personal-data-deletion-runs/{id}, GET /v1/personal-data-deletion-runs/{id}/subjects · PersonalDataDeleted · records.privacy.delete · records.Deleter · partner.Privacy.Blocked, Blank · walkthrough step_privacy (privacy_delete) · ADR-0079 §12 and As built · 03-data-model §3.6, §3.32",
         "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A deletion run's subjects carry no skip reason: a subject the run did not delete shows that it was skipped but not why (lane C, batch 74).",
+        "r": "records.deletion_run_subject · T100c · docs/design/adr/0079-retention-archiving-personal-data.md §12",
+        "src": "review:batch74",
         "c": []
        },
        {
@@ -6821,13 +6842,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Scenario modeling",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The analyst applies a scenario to a forecast (percentage changes per dimension value, such as a company or an account) and reads baseline and scenario side by side (scenario on POST /v1/analytics-forecasts)",
-        "r": "T97b · docs/design/plan-breadth-week3.md §T97b",
+        "r": "T97b · docs/design/plan-breadth-week3.md §T97b · ADR-0077 §8 and As built · scenario on POST /v1/analytics-forecasts (AnalyticsScenario, AnalyticsScenarioResult; 422 analytics.scenario_overlap; nothing stored) · internal/analytics scenario.go (Adjustment, Scenario) · TestScenario, TestScenarioRefusals, TestScenarioBounds, TestForecastScenario · walkthrough step_metric_forecast",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -10549,14 +10570,21 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Root cause from audit trail and logs",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A user gives the support agent a refused request or a stuck document; it reads the document, its audit events, its operation and the configuration and recommends the root cause with the events that show it (erp agent support-diagnose)",
-        "r": "T108b · docs/design/plan-breadth-week3.md §T108b",
+        "r": "T108b · docs/design/plan-breadth-week3.md §T108b · internal/supportagent Diagnose · recommend.Agent.Contract · payables refused posting audited · erp agent support-diagnose -type KIND -id ID · evals/support v2 · walkthrough step_support_agent · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Refusals of writes other than supplier invoice posting are not audited, so the support agent's diagnosis cannot show their cause: only a refused supplier invoice post leaves an audit record the diagnosis reads (lane D gap, found in batch 74).",
+        "r": "internal/supportagent Diagnose · audit capability (ADR-0011) · internal/payables (the one refused write audited)",
+        "src": "review:batch74",
         "c": []
        },
        {

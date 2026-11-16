@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 // Migration loads business partners for the integration context's
@@ -15,9 +17,9 @@ type Migration struct {
 	Ports Ports
 }
 
-// backdating is how many days before partner's own UTC day
-// (database.Today) a new bank account may start. It is unexported and no
-// input type holds it, so no request can set it: CreatePartner,
+// backdating is how many days before partner's day (partnerDay: the
+// earliest of the tenant's companies' days) a new bank account may start.
+// It is unexported and no input type holds it, so no request can set it: CreatePartner,
 // RequestBankAccount and ApplyChange always pass noBackdating, and only
 // Migration.Create passes migrationBackdating. The one route to it is a
 // migration run (integration.migration.run, a person's or an agent's),
@@ -27,13 +29,13 @@ type backdating int
 
 const (
 	// noBackdating is the backdating control
-	// (partner.backdated_bank_account): an account starts on UTC's day or
-	// later.
+	// (partner.backdated_bank_account): an account starts on partner's day
+	// or later.
 	noBackdating backdating = 0
 	// migrationBackdating lets the bank accounts of a partner a migration
-	// run creates start on UTC's previous day, so that on a cutover evening
-	// in Toronto, when UTC is already tomorrow, a payment run dated on the
-	// company's day finds them. One day, never more.
+	// run creates start on the day before partner's day, the day the run
+	// dates them (integration's supplierBank, product owner 2026-11-02):
+	// one day, never more.
 	migrationBackdating backdating = 1
 )
 
@@ -46,7 +48,7 @@ func (b backdating) allowed() string {
 	if b == noBackdating {
 		return "today or later"
 	}
-	return "yesterday (UTC) or later"
+	return "yesterday or later"
 }
 
 // Create creates the partner and applies its create change, the one this
@@ -61,8 +63,19 @@ func (m Migration) Create(ctx context.Context, in NewPartner) (uuid.UUID, error)
 	if err != nil {
 		return uuid.Nil, err
 	}
-	_, err = applyChange(ctx, m.Ports.Schemas, c.ID, migrationBackdating)
+	_, err = applyChange(ctx, m.Ports.Schemas, m.Ports.Now, c.ID, migrationBackdating)
 	return bp.ID, err
+}
+
+// Today is partner's day in the request (partnerDay), at the instant its
+// checks of the run's partners read it: the day a migration run dates the
+// addresses and bank accounts it loads by.
+func (m Migration) Today(ctx context.Context) (time.Time, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return partnerDay(ctx, tx, m.Ports.Schemas, m.Ports.Now)
 }
 
 // AddCompanies sets the partner up as a supplier of more legal entities.
@@ -71,7 +84,7 @@ func (m Migration) AddCompanies(ctx context.Context, id uuid.UUID, companies []S
 	if err != nil {
 		return err
 	}
-	_, err = ApplyChange(ctx, m.Ports.Schemas, c.ID)
+	_, err = ApplyChange(ctx, m.Ports.Schemas, m.Ports.Now, c.ID)
 	return err
 }
 

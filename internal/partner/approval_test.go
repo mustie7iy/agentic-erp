@@ -84,7 +84,7 @@ func TestRequestApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = apitest.InRequest(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) error {
-		applied, err := partner.RequestApproval(ctx, noApproval{}, configuration.Settings{}, c)
+		applied, err := partner.RequestApproval(ctx, noApproval{}, configuration.Settings{}, nil, c)
 		if err == nil && applied.Status != partner.ChangeApplied {
 			t.Errorf("without approval steps: %+v", applied)
 		}
@@ -93,18 +93,18 @@ func TestRequestApproval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := partner.RequestApproval(context.Background(), fixture.Approvals(), configuration.Settings{}, c); err == nil {
+	if _, err := partner.RequestApproval(context.Background(), fixture.Approvals(), configuration.Settings{}, nil, c); err == nil {
 		t.Error("outside a unit of work")
 	}
 	apitest.EveryFailure(t, f.Tenant, f.Tenant.Human, "request approval", func(ctx context.Context) error {
-		_, err := partner.RequestApproval(ctx, fixture.Approvals(), configuration.Settings{}, c)
+		_, err := partner.RequestApproval(ctx, fixture.Approvals(), configuration.Settings{}, nil, c)
 		return err
 	})
 }
 
 func TestSuppliersPort(t *testing.T) {
 	f := fixture.New(t, perms...)
-	s := partner.Suppliers{}
+	s := partner.Suppliers{Settings: configuration.Settings{}}
 	err := apitest.InRequest(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) error {
 		sup, ok, err := s.Supplier(ctx, f.Supplier, f.DE)
 		if err != nil || !ok {
@@ -192,7 +192,7 @@ func TestOrderAddress(t *testing.T) {
 	read := func() string {
 		var got string
 		if err := apitest.InRequest(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) error {
-			a, ok, err := partner.Suppliers{}.OrderAddress(ctx, f.Supplier)
+			a, ok, err := partner.Suppliers{Settings: configuration.Settings{}}.OrderAddress(ctx, f.Supplier)
 			got = fmt.Sprintf("%s %s %v", a.Purpose, a.Line1, ok)
 			return err
 		}); err != nil {

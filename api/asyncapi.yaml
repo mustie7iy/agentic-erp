@@ -501,19 +501,21 @@ channels:
   records:
     address: 'erp.{cell}.records.{tenant}.{event}'
     title: Records management events
-    description: Archiving runs of fiscal years past retention (ADR-0079 §6).
+    description: Archiving runs of fiscal years past retention (ADR-0079 §6) and deletion runs of blocked personal data (ADR-0079 §12).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       ArchivingRunCompleted: {$ref: '#/components/messages/ArchivingRunCompleted'}
+      PersonalDataDeleted: {$ref: '#/components/messages/PersonalDataDeleted'}
   leases:
     address: 'erp.{cell}.leases.{tenant}.{event}'
     title: Lease accounting events
-    description: Lease contracts entered as lessee (ADR-0073 §5).
+    description: Lease contracts entered as lessee (ADR-0073 §5) and the lease runs that post them (ADR-0073 §9).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       LeaseContractChanged: {$ref: '#/components/messages/LeaseContractChanged'}
+      LeaseRunPosted: {$ref: '#/components/messages/LeaseRunPosted'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -845,12 +847,14 @@ operations:
     channel: {$ref: '#/channels/records'}
     messages:
       - $ref: '#/channels/records/messages/ArchivingRunCompleted'
+      - $ref: '#/channels/records/messages/PersonalDataDeleted'
   publishLeasesEvents:
     action: send
     title: Lease accounting publishes
     channel: {$ref: '#/channels/leases'}
     messages:
       - $ref: '#/channels/leases/messages/LeaseContractChanged'
+      - $ref: '#/channels/leases/messages/LeaseRunPosted'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -2932,7 +2936,7 @@ components:
       name: BusinessPartnerUpdated
       title: Business partner updated
       summary: "An approved `update` change was applied to a business partner."
-      description: "Emitted when an `update` partner change is applied. `changed_fields` names every changed attribute (business partner columns, `roles`, `address.<purpose>`, `tax_identifier.<scheme>`, `supplier_company.<legal_entity_id>`, `customer_company.<legal_entity_id>`); the new values of the business partner's own non-sensitive columns are included when they changed. Tax identifiers and addresses are read through the API. Subject is the business partner id."
+      description: "Emitted when an `update` partner change is applied, and when a partner's personal data is blocked or the block is lifted (T100b; `changed_fields` then names `personal_data_blocked_at` alone and `partner_change_id` is the applied change of kind `block` or `unblock` recording it). `changed_fields` names every changed attribute (business partner columns, `roles`, `address.<purpose>`, `tax_identifier.<scheme>`, `supplier_company.<legal_entity_id>`, `customer_company.<legal_entity_id>`); the new values of the business partner's own non-sensitive columns are included when they changed. Tax identifiers and addresses are read through the API. Subject is the business partner id."
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -4530,6 +4534,29 @@ components:
         - name: completed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f72, source: /erp/eu-1/records, type: com.example.erp.records.archiving_run_completed.v1, subject: 0192a000-0000-7000-8000-000000000f71, time: '2026-11-25T10:00:04Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000f00}
           payload: {archiving_run_id: 0192a000-0000-7000-8000-000000000f71, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', document_kind: journal_entry, fiscal_year: 2025, file_name: 0192a000-0000-7000-8000-000000000f71.jsonl, sha256: 4f2c1e0b9a7d6c5b4a3928170615f4e3d2c1b0a99887766554433221100ffeed, size_bytes: 48213, manifest_sha256: 9b1d0e2f3a4c5b6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f, entry_count: 41, line_count: 118, debit_total: {amount: '1840522.17', currency: CAD}, requested_by: 0192a000-0000-7000-8000-000000000101}
+    PersonalDataDeleted:
+      name: PersonalDataDeleted
+      title: Personal data deleted
+      summary: A deletion run blanked a business partner's personal data.
+      description: |
+        Emitted when the deleter blanks one subject of a deletion run
+        (ADR-0079 §12, T100c): the business partner's name, addresses,
+        tax identifiers, bank accounts and changes now hold markers, and
+        its bank accounts are ended. It carries ids only, never a name or
+        a value: a consumer that copied the partner's personal data finds
+        it by `partner_id` and erases its copy. Not reversible. It is not
+        offered as a webhook event. Subject is the business partner id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.records.personal_data_deleted.v1}
+      payload: {$ref: '#/components/schemas/PersonalDataDeletedV1'}
+      examples:
+        - name: blanked
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f82, source: /erp/eu-1/records, type: com.example.erp.records.personal_data_deleted.v1, subject: 0192a000-0000-7000-8000-000000000301, time: '2026-11-15T10:05:02Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000f01}
+          payload: {deletion_run_id: 0192a000-0000-7000-8000-000000000f81, partner_id: 0192a000-0000-7000-8000-000000000301, requested_by: 0192a000-0000-7000-8000-000000000101}
     MetricAlertRaised:
       name: MetricAlertRaised
       title: Metric alert raised
@@ -4616,6 +4643,33 @@ components:
         - name: activated
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001102, source: /erp/eu-1/revenue, type: com.example.erp.revenue.revenue_contract_changed.v1, subject: 0192a000-0000-7000-8000-000000001111, time: '2026-11-20T11:30:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {revenue_contract_id: 0192a000-0000-7000-8000-000000001111, sales_order_id: 0192a000-0000-7000-8000-000000001021, sales_order_number: SO100002, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, transaction_price: {amount: '2700.00', currency: CAD}, obligation_count: 2, status: active, status_before: draft, version: 3}
+    LeaseRunPosted:
+      name: LeaseRunPosted
+      title: Lease run posted
+      summary: Lease accounting was run for a company and a fiscal period.
+      description: |
+        Emitted by `POST /v1/lease-runs` (ADR-0073 §9, T88c), once per run:
+        the company and the fiscal period run, the period's last day, on
+        which the entries are dated, the number of active contracts read
+        and of contracts posted, and the interest and the right-of-use
+        depreciation the run posted. Each contract posted has a journal
+        entry of its own, published by the ledger as JournalEntryPosted
+        with `source_context` `leases`; `GET /v1/lease-runs/{id}` returns
+        the run with its postings. A run that finds nothing to post is
+        emitted too, with `posting_count` 0. Not offered to webhooks until
+        a consumer asks (the plan's rule for week 3's events). Subject is
+        the run id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.leases.lease_run_posted.v1}
+      payload: {$ref: '#/components/schemas/LeaseRunPostedV1'}
+      examples:
+        - name: run
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001203, source: /erp/eu-1/leases, type: com.example.erp.leases.lease_run_posted.v1, subject: 0192a000-0000-7000-8000-000000001231, time: '2027-01-04T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {lease_run_id: 0192a000-0000-7000-8000-000000001231, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', fiscal_year: 2026, fiscal_period: 12, posting_date: '2026-12-31', contract_count: 1, posting_count: 1, interest_amount: {amount: '795.59', currency: CAD}, depreciation_amount: {amount: '4558.83', currency: CAD}}
     RevenueRecognized:
       name: RevenueRecognized
       title: Revenue recognized
@@ -5739,6 +5793,13 @@ components:
         line_count: {type: integer, description: Their lines.}
         debit_total: {$ref: '#/components/schemas/Money', description: "The sum of the lines' debits in the company's currency."}
         requested_by: {$ref: '#/components/schemas/Uuid', description: 'Who asked for the run: `identity.principal.id`.'}
+    PersonalDataDeletedV1:
+      type: object
+      required: [deletion_run_id, partner_id, requested_by]
+      properties:
+        deletion_run_id: {$ref: '#/components/schemas/Uuid', description: '`records.deletion_run.id`.'}
+        partner_id: {$ref: '#/components/schemas/Uuid', description: 'The business partner blanked: `partner.business_partner.id`.'}
+        requested_by: {$ref: '#/components/schemas/Uuid', description: 'Who asked for the run: `identity.principal.id`.'}
     MetricAlertRaisedV1:
       type: object
       required: [metric_alert_id, watcher_id, watcher_name, metric, condition, fiscal_year, fiscal_period, companies, findings, raised_as]
@@ -5816,6 +5877,20 @@ components:
         status: {type: string, description: "The contract's status after the change. Open enum: draft, active."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created, and `draft` again when a draft''s obligations were changed.'}
         version: {type: integer, description: "The contract's version after the change."}
+    LeaseRunPostedV1:
+      type: object
+      required: [lease_run_id, legal_entity_id, legal_entity_code, fiscal_year, fiscal_period, posting_date, contract_count, posting_count, interest_amount, depreciation_amount]
+      properties:
+        lease_run_id: {$ref: '#/components/schemas/Uuid', description: '`leases.run.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company run.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        fiscal_year: {type: integer, description: The fiscal year run.}
+        fiscal_period: {type: integer, description: The fiscal period run.}
+        posting_date: {$ref: '#/components/schemas/Date', description: "The period's last day: the schedule lines whose interval ends on or before it were posted, and the entries are dated it."}
+        contract_count: {type: integer, description: The active lease contracts of the company the run read.}
+        posting_count: {type: integer, description: 'The contracts with lines to post: the journal entries the run posted, one each.'}
+        interest_amount: {$ref: '#/components/schemas/Money', description: "The interest the run posted, in the company's local currency: debited to interest expense, credited to the lease liability."}
+        depreciation_amount: {$ref: '#/components/schemas/Money', description: 'The right-of-use depreciation the run posted: debited to depreciation expense, credited to accumulated depreciation.'}
     RevenueRecognizedV1:
       type: object
       required: [revenue_recognition_run_id, legal_entity_id, legal_entity_code, fiscal_year, fiscal_period, posting_date, contract_count, posting_count, recognized_amount, billed_amount, contract_asset_amount, contract_liability_amount, revenue_amount]
@@ -7343,7 +7418,7 @@ components:
         change: {"type": "string", "description": "Open enum: created, updated."}
         changed_fields: {"type": "array", "items": {"type": "string"}, "description": "Profile fields that changed (all fields on created)."}
         autonomy_level: {"type": "integer", "minimum": 0, "maximum": 3}
-        agent_type: {"type": ["string", "null"], "description": "The agent's type, whose certification bounds its level (ADR-0039); null: none named. Open enum: ap_exceptions, configuration, migration, test, analytics, reconciliation, close, cash_forecast, tax, credit_scoring, access, bid_comparison, regulatory, support."}
+        agent_type: {"type": ["string", "null"], "description": "The agent's type, whose certification bounds its level (ADR-0039); null: none named. Open enum: ap_exceptions, configuration, migration, test, analytics, reconciliation, close, cash_forecast, tax, credit_scoring, access, bid_comparison, regulatory, support, collections."}
         model: {"type": "string"}
         monthly_budget: {"oneOf": [{"$ref": "#/components/schemas/Money"}, {"type": "null"}], "description": "Null when unlimited."}
         description: {"type": "string"}
@@ -7451,6 +7526,7 @@ components:
         language: {"type": ["string", "null"], "pattern": "^[a-z]{2}$"}
         roles: {"type": "array", "items": {"type": "string", "description": "Open enum: supplier, customer."}}
         group_company_id: {"$ref": "#/components/schemas/NullableUuid", "description": "The group company the partner is linked to, null when unlinked, present when `changed_fields` names `group_company_id` (ADR-0059 §4). Added within v1 (T68c)."}
+        personal_data_blocked_at: {"type": ["string", "null"], "format": "date-time", "description": "When the partner's personal data was blocked, null when the block was lifted; present when `changed_fields` names `personal_data_blocked_at` (`blockPersonalData`, `unblockPersonalData`; ADR-0079 §11). Added within v1 (T100b)."}
     RequisitionApprovedV1:
       type: object
       required: ["requisition_id", "document_number", "legal_entity_id", "previous_status", "status"]

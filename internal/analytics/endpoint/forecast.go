@@ -10,10 +10,11 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
-// RunAnalyticsForecast implements POST /v1/analytics-forecasts (ADR-0076
-// §8, T97a): the metric's history by fiscal period, answered as
+// RunAnalyticsForecast implements POST /v1/analytics-forecasts (ADR-0077
+// §7, T97a): the metric's history by fiscal period, answered as
 // runAnalyticsQuery answers the caller, and its forecast by the method
-// named, an arithmetic projection stored nowhere.
+// named, an arithmetic projection stored nowhere; with a scenario
+// (ADR-0077 §8, T97b), its baseline and scenario side by side.
 func (e *Endpoints) RunAnalyticsForecast(ctx context.Context, req *gen.AnalyticsForecastRequest, _ gen.RunAnalyticsForecastParams) (gen.RunAnalyticsForecastRes, error) {
 	m, version, err := e.model(ctx, 0)
 	if err != nil {
@@ -23,6 +24,9 @@ func (e *Endpoints) RunAnalyticsForecast(ctx context.Context, req *gen.Analytics
 		Companies: req.Companies}
 	for _, f := range req.Where {
 		s.Where = append(s.Where, analytics.Filter{Dim: f.Dim, Op: f.Op, Values: f.Values})
+	}
+	for _, a := range req.Scenario.Value.Adjustments {
+		s.Scenario = append(s.Scenario, analytics.Adjustment{Dim: a.Dimension, Value: a.Value, Percent: a.Percent})
 	}
 	if err := s.Check(m); err != nil {
 		return nil, forecastProblem(err)
@@ -52,6 +56,8 @@ func forecastProblem(err error) error {
 		return problem.Unprocessable("analytics.forecast_history_short", fe.Detail)
 	case analytics.ForecastCurrencies:
 		return problem.Unprocessable("analytics.invalid_query", fe.Detail)
+	case analytics.ForecastOverlap:
+		return problem.Unprocessable("analytics.scenario_overlap", fe.Detail, problem.FieldError{Field: fe.Field, Code: "overlap", Message: fe.Detail})
 	}
 	return problem.Invalid("request.validation_failed", fe.Field, fe.Detail)
 }
@@ -75,6 +81,30 @@ func forecastToAPI(f *analytics.Forecast, res *analytics.Result, version int32) 
 	}
 	for _, pt := range f.Projection {
 		out.Forecast = append(out.Forecast, pointToAPI(f, pt))
+	}
+	if f.Scenario != nil {
+		out.Scenario = gen.NewOptAnalyticsScenarioResult(scenarioToAPI(f))
+	}
+	return out
+}
+
+// scenarioToAPI is a forecast's scenario as the contract writes it.
+func scenarioToAPI(f *analytics.Forecast) gen.AnalyticsScenarioResult {
+	sc := f.Scenario
+	out := gen.AnalyticsScenarioResult{BaselineTotal: sc.BaselineTotal.String(), ScenarioTotal: sc.ScenarioTotal.String(),
+		DifferenceTotal: sc.DifferenceTotal.String(), Adjustments: make([]gen.AnalyticsScenarioPart, len(sc.Parts)),
+		Periods: make([]gen.AnalyticsScenarioPoint, len(sc.Points))}
+	for i, p := range sc.Parts {
+		out.Adjustments[i] = gen.AnalyticsScenarioPart{Dimension: p.Adjustment.Dim, Value: p.Adjustment.Value, Percent: p.Adjustment.Percent,
+			BaselineTotal: p.BaselineTotal.String(), ScenarioTotal: p.Adjusted.String()}
+	}
+	for i, pt := range sc.Points {
+		base := pointToAPI(f, analytics.Point{Period: pt.Period})
+		out.Periods[i] = gen.AnalyticsScenarioPoint{FiscalYear: base.FiscalYear, Period: base.Period, Label: base.Label, Currency: base.Currency,
+			Baseline: pt.Baseline.String(), Scenario: pt.Scenario.String(), Difference: pt.Difference.String()}
+	}
+	if f.Currency != "" {
+		out.Currency = gen.NewOptString(f.Currency)
 	}
 	return out
 }

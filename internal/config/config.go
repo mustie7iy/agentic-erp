@@ -497,6 +497,15 @@ type AccountDetermination struct {
 	// reconciliation account. A company without both activates no lease.
 	RightOfUseAsset string `yaml:"right_of_use_asset,omitempty" json:"right_of_use_asset,omitempty"`
 	LeaseLiability  string `yaml:"lease_liability,omitempty" json:"lease_liability,omitempty"`
+	// LeaseInterest, RightOfUseDepreciation and
+	// RightOfUseAccumulatedDepreciation are the accounts a lease run posts
+	// to (ADR-0073 §9): the interest expense credited to the lease
+	// liability, and the depreciation expense credited to the accumulated
+	// depreciation, an asset that reconciles nothing. A company without the
+	// three runs no lease accounting.
+	LeaseInterest                     string `yaml:"lease_interest,omitempty" json:"lease_interest,omitempty"`
+	RightOfUseDepreciation            string `yaml:"right_of_use_depreciation,omitempty" json:"right_of_use_depreciation,omitempty"`
+	RightOfUseAccumulatedDepreciation string `yaml:"right_of_use_accumulated_depreciation,omitempty" json:"right_of_use_accumulated_depreciation,omitempty"`
 }
 
 // WithholdingTaxCode is a withholding tax deducted from what a supplier is

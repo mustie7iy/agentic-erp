@@ -24,7 +24,10 @@
 // amount or for an amount per item, and is approved or rejected once
 // (credit_memo.go; As built T85c); an approved request posts as a
 // customer credit memo through receivables, naming the billing
-// document's invoice (credit_post.go; As built T85d).
+// document's invoice (credit_post.go; As built T85d). Orders.Segments
+// adds the posted billing and credit memo items up by customer and item
+// key for net revenue by profitability segment (segments.go; ADR-0075
+// §6).
 //
 // A sales document carries net amounts and posts nothing itself: tax is
 // calculated when the order is billed, and a billing document posts
@@ -52,6 +55,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/capture"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
@@ -159,6 +163,12 @@ type Endpoints struct {
 	Rates         Rates
 	Credit        Credit
 	People        People
+	// Uploads, OrderExtractor and Finder serve order capture (T90a): the
+	// upload's document, the model that reads it (nil: capture answers
+	// 503) and the customer it names.
+	Uploads        Uploads
+	OrderExtractor capture.OrderExtractor
+	Finder         CustomerFinder
 	// Now is the clock a document is dated by and a quotation's validity
 	// is judged on, in the company's time zone; nil: the wall clock.
 	Now func() time.Time

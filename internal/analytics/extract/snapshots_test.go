@@ -50,9 +50,10 @@ type (
 		VendorRecon bool   `parquet:"vendor_recon"`
 	}
 	partnerRow struct {
-		Vendor   string `parquet:"vendor"`
-		Supplier bool   `parquet:"supplier"`
-		Customer bool   `parquet:"customer"`
+		Vendor     string `parquet:"vendor"`
+		VendorName string `parquet:"vendor_name"`
+		Supplier   bool   `parquet:"supplier"`
+		Customer   bool   `parquet:"customer"`
 	}
 	salesRow struct {
 		DocumentID    uuid.UUID `parquet:"document_id,uuid"`
@@ -298,6 +299,9 @@ func TestSnapshotDatasets(t *testing.T) {
 	po := e.order(t, "2026-03-05", "2.5", 199)
 	inv := e.invoice(t, "2026-04-01", 11900)
 	e.Customer(t, "BP90000009", "Customer")
+	// The vendor's personal data is blocked (ADR-0079 §11): its name is
+	// extracted masked.
+	pgtest.Exec(t, `UPDATE partner.business_partner SET status = 'blocked', personal_data_blocked_at = now(), version = version + 1 WHERE id = $1`, e.Vendor)
 	first := e.run(t)
 	m := e.manifest(t, first.ManifestKey)
 
@@ -329,6 +333,9 @@ func TestSnapshotDatasets(t *testing.T) {
 		if p, ok := partners[number]; !ok || p.Supplier != want[0] || p.Customer != want[1] {
 			t.Errorf("partner %s: got %+v (present %v), want supplier %v customer %v", number, p, ok, want[0], want[1])
 		}
+	}
+	if got := partners["BP90000002"].VendorName + ", " + partners["BP90000001"].VendorName; got != "[blocked], BP90000001" {
+		t.Errorf("partner names: got %s, want the blocked vendor's masked", got)
 	}
 	recon := map[string]bool{}
 	for _, a := range read[accountRow](t, e, m, "accounts") {

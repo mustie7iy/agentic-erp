@@ -5,6 +5,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/mustie7iy/agentic-erp/internal/eval"
@@ -41,10 +43,39 @@ func agentSupportAsk(ctx context.Context, args []string) error {
 	return errors.Join(runErr, errs.Wrapf(w.Flush(), "agent support-ask: print"))
 }
 
+// agentSupportDiagnose has the support agent find the root cause of a
+// stuck document or a refused request about it (ADR-0072 As built, T108b):
+// it prints what it recommended on the document and the model's reply,
+// also when the run failed after starting its session; the user decides
+// and acts through the normal operation.
+func agentSupportDiagnose(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("agent support-diagnose", flag.ContinueOnError)
+	kind := fs.String("type", "", "the document's kind: "+strings.Join(slices.Sorted(maps.Keys(supportagent.Documents)), ", "))
+	id := fs.String("id", "", "the document's id")
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	if *kind == "" || *id == "" {
+		return errors.New(`agent support-diagnose: want -type KIND -id ID [WHAT HAPPENED], e.g. -type supplier_invoice -id ID "posting it was refused"`)
+	}
+	c, err := client("ERP_AGENT_TOKEN")
+	if err != nil {
+		return err
+	}
+	res, runErr := (&supportagent.Agent{LLM: newRunner(c), API: c}).Diagnose(ctx, *kind, *id, strings.TrimSpace(strings.Join(fs.Args(), " ")))
+	return recommended("agent support-diagnose", res, runErr)
+}
+
 // supportEval has the support agent answer the task's question as erp
-// agent support-ask does; its reply ($reply.text) and how many replies
-// were refused (.refused) are the checks' to judge.
+// agent support-ask does, or, with the task's run diagnose, find the root
+// cause of its document as erp agent support-diagnose does; its reply
+// ($reply.text), how many replies or recommendations were refused
+// (.refused) and, for a diagnosis, how many it made are the checks' to
+// judge.
 func supportEval(ctx context.Context, env eval.Env) error {
+	if run, _ := env.Task["run"].(string); run == "diagnose" { // a task without a run asks a question
+		return supportDiagnoseEval(ctx, env)
+	}
 	t, err := tasked(env, "question")
 	if err != nil {
 		return err
@@ -54,5 +85,21 @@ func supportEval(ctx context.Context, env eval.Env) error {
 		return fmt.Errorf("support: %w", err)
 	}
 	env.Reply(map[string]any{"text": res.Reply, "refused": res.Refused})
+	return nil
+}
+
+// supportDiagnoseEval has the support agent diagnose the task's document
+// (type, id and what happened, which may be empty).
+func supportDiagnoseEval(ctx context.Context, env eval.Env) error {
+	t, err := tasked(env, "type", "id")
+	if err != nil {
+		return err
+	}
+	said, _ := env.Task["report"].(string) // none: nothing said
+	res, err := (&supportagent.Agent{LLM: env.LLM, API: env.Agent}).Diagnose(ctx, t["type"], t["id"], said)
+	if err != nil {
+		return fmt.Errorf("support: %w", err)
+	}
+	graded(env, res)
 	return nil
 }

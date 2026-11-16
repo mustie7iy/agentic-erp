@@ -187,7 +187,7 @@ func TestFinalizeConsolidationRun(t *testing.T) {
 		AND fiscal_year = 2026 AND period = 11`, e.Tenant.ID, e.US)
 	_, tag = e.Must(200, "GET", runsPath+"/"+before.String(), "", "")
 	if p = e.Problem(409, "consolidation.run_stale", "POST", runsPath+"/"+before.String()+":finalize", "", tag); !strings.Contains(p["detail"].(string),
-		"company 1000 (version") || !strings.Contains(p["detail"].(string), "pending") || strings.Contains(p["detail"].(string), "2000") {
+		"company 1000 (version") || !strings.Contains(p["detail"].(string), "pending") || strings.Contains(p["detail"].(string), "company 2000") {
 		t.Errorf("the run with a pending unlock request: got %s, want company 1000 alone named with the request", p["detail"])
 	}
 	pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'closed', unlock_request_id = NULL, version = version + 1 WHERE tenant_id = $1

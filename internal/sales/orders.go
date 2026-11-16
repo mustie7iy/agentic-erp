@@ -82,11 +82,14 @@ type Order struct {
 	CreditReleasedByName *string
 	CreditReleasedAt     *time.Time
 	Items                []OrderItem
-	Version              int32
-	CreatedAt            time.Time
-	CreatedBy            uuid.UUID
-	UpdatedAt            time.Time
-	UpdatedBy            uuid.UUID
+	// Capture is what order capture read, nil for an order created by
+	// hand (T90a).
+	Capture   *Captured
+	Version   int32
+	CreatedAt time.Time
+	CreatedBy uuid.UUID
+	UpdatedAt time.Time
+	UpdatedBy uuid.UUID
 }
 
 // OrderInput is a sales order as a client sends it: QuotationID alone, or
@@ -112,7 +115,7 @@ func orderQuery(extra string) string {
 		itemsJSON("sales_order_item", "sales_order_id", "o",
 			`, 'delivered_quantity', trim_scale(t.delivered_quantity)::text, 'billed_quantity', trim_scale(t.billed_quantity)::text,
 				'returned_quantity', trim_scale(t.returned_quantity)::text`+extra) + `,
-		o.version, o.created_at, o.created_by, o.updated_at, o.updated_by
+		o.capture, o.version, o.created_at, o.created_by, o.updated_at, o.updated_by
 	FROM sales.sales_order o JOIN ref.currency c ON c.code = o.currency`
 }
 
@@ -123,8 +126,9 @@ var orderSelect, publishedSelect = orderQuery(""), orderQuery(itemDeliveries + i
 
 func scanOrder(row pgx.Row) (Order, error) {
 	var o Order
-	err := row.Scan(&o.ID, &o.DocumentNumber, &o.LegalEntityID, &o.CustomerID, &o.QuotationID, &o.QuotationNumber, &o.OrderDate, &o.Currency,
-		&o.Exponent, &o.PaymentTermCode, &o.Net, &o.Status, &o.CreditBlock, &o.CreditReleasedBy, &o.CreditReleasedByName, &o.CreditReleasedAt, &o.Items, &o.Version, &o.CreatedAt, &o.CreatedBy, &o.UpdatedAt, &o.UpdatedBy)
+	header := []any{&o.ID, &o.DocumentNumber, &o.LegalEntityID, &o.CustomerID, &o.QuotationID, &o.QuotationNumber, &o.OrderDate, &o.Currency,
+		&o.Exponent, &o.PaymentTermCode, &o.Net, &o.Status, &o.CreditBlock, &o.CreditReleasedBy, &o.CreditReleasedByName, &o.CreditReleasedAt}
+	err := row.Scan(append(header, &o.Items, &o.Capture, &o.Version, &o.CreatedAt, &o.CreatedBy, &o.UpdatedAt, &o.UpdatedBy)...)
 	return o, errs.Wrapf(err, "scan sales order")
 }
 
@@ -220,6 +224,12 @@ type ordered struct {
 // range of that date's fiscal year. It publishes SalesOrderChanged with
 // its audit record. Nothing is posted.
 func (e *Endpoints) MakeOrder(ctx context.Context, in OrderInput) (Order, error) {
+	return e.makeOrder(ctx, in, nil)
+}
+
+// makeOrder is MakeOrder, for an order capture read with what it read
+// (nil: an order created by hand).
+func (e *Endpoints) makeOrder(ctx context.Context, in OrderInput, captured *Captured) (Order, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Order{}, err
@@ -241,10 +251,15 @@ func (e *Endpoints) MakeOrder(ctx context.Context, in OrderInput) (Order, error)
 		return Order{}, err
 	}
 	id := uuid.Must(uuid.NewV7())
+	var upload *uuid.UUID
+	if captured != nil {
+		upload = &captured.UploadID
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO sales.sales_order (tenant_id, id, document_number, legal_entity_id, customer_id, quotation_id, order_date,
-			currency, payment_term_code, net_amount, status, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)`,
-		p.TenantID, id, number, src.doc.le.ID, src.customer, src.quotation, src.doc.date, src.doc.currency, term, src.net, Draft, p.ID); err != nil {
+			currency, payment_term_code, net_amount, status, capture_upload_id, capture, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)`,
+		p.TenantID, id, number, src.doc.le.ID, src.customer, src.quotation, src.doc.date, src.doc.currency, term, src.net, Draft, upload, captured,
+		p.ID); err != nil {
 		return Order{}, fmt.Errorf("sales: insert sales order %s: %w", id, err)
 	}
 	if err := insertItems(ctx, tx, "sales_order_item", "sales_order_id", p.TenantID, id, src.items); err != nil {
@@ -429,6 +444,9 @@ func recordOrder(ctx context.Context, action string, o Order, le tenancy.Entity,
 		"status": o.Status, "status_before": before, "credit_block": o.CreditBlock, "version": o.Version}
 	detail := map[string]any{"document_number": o.DocumentNumber, "customer_id": o.CustomerID, "quotation_id": o.QuotationID, "status": o.Status,
 		"status_before": before, "payment_term_code": o.PaymentTermCode, "net_amount": net, "items": len(o.Items), "credit_block": o.CreditBlock}
+	if o.Capture != nil {
+		detail["capture_upload_id"] = o.Capture.UploadID
+	}
 	events := []outbox.Event{{Context: "sales", Name: "sales_order_changed", AggregateType: "sales.sales_order", AggregateID: o.ID, Payload: payload}}
 	if check != nil {
 		detail["credit_check"] = check.detail(le)

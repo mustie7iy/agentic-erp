@@ -207,8 +207,9 @@ func (u *uploadScenario) refusals(t *testing.T) {
 		body string
 		code string
 	}{
-		"purpose":      {`{"purpose":"photo","content_type":"application/pdf"}`, "payables.unknown_upload_purpose"},
-		"content type": {`{"purpose":"supplier_invoice","content_type":"text/plain"}`, "payables.unsupported_content_type"},
+		"purpose":            {`{"purpose":"photo","content_type":"application/pdf"}`, "payables.unknown_upload_purpose"},
+		"content type":       {`{"purpose":"supplier_invoice","content_type":"text/plain"}`, "payables.unsupported_content_type"},
+		"an order's purpose": {`{"purpose":"sales_order","content_type":"text/plain"}`, "payables.unknown_upload_purpose"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := e.API.Do(apitest.Req{Method: "POST", Path: "/v1/uploads", Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey(), Body: c.body})
@@ -235,6 +236,11 @@ func (u *uploadScenario) refusals(t *testing.T) {
 				t.Errorf("body: got %s, want it to contain payables.capture_needs_document", r.Body)
 			}
 		})
+	}
+	e.Tenant.Grant(t, "sales.order.capture", e.Tenant.Human)
+	order, _ := e.Must(201, "POST", "/v1/sales-order-uploads", `{"content_type":"text/plain"}`, "")
+	if res, code := u.capture(t, order["id"].(string)); code != 422 || res["code"] != "payables.upload_purpose" {
+		t.Errorf("an order's upload captured as an invoice: got %d %v, want 422 payables.upload_purpose", code, res)
 	}
 	if res, code := u.capture(t, uuid.NewString()); code != 404 {
 		t.Fatalf("unknown upload: %d %v", code, res)
@@ -470,6 +476,17 @@ func TestUploadsOutsideARequest(t *testing.T) {
 	})
 	t.Run("get", func(t *testing.T) {
 		if _, err := h.GetUpload(context.Background(), gen.GetUploadParams{ID: uuid.New()}); !errors.Is(err, reqctx.ErrOutsideRequest) {
+			t.Errorf("got %v, want reqctx.ErrOutsideRequest", err)
+		}
+	})
+	// Another context's take of an upload, and its closing (T90a).
+	t.Run("take", func(t *testing.T) {
+		if _, _, err := h.Uploads.Take(context.Background(), uuid.New(), payables.PurposeSalesOrder); !errors.Is(err, reqctx.ErrOutsideRequest) {
+			t.Errorf("got %v, want reqctx.ErrOutsideRequest", err)
+		}
+	})
+	t.Run("used", func(t *testing.T) {
+		if err := h.Uploads.Used(context.Background(), uuid.New(), nil, uuid.New()); !errors.Is(err, reqctx.ErrOutsideRequest) {
 			t.Errorf("got %v, want reqctx.ErrOutsideRequest", err)
 		}
 	})

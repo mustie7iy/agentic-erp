@@ -183,3 +183,76 @@ func TestCaptureReachesTheServer(t *testing.T) {
 		t.Errorf("extracted: got %q (%v), want the document", x.got, err)
 	}
 }
+
+// TestCaptureOrderCommand (T90a): erp capture -order uploads a customer's
+// purchase order for order capture and captures it with the revenue
+// account and tax code its items take, printing the Operation; an account
+// that is not an id, a missing token and the API's refusals are reported.
+func TestCaptureOrderCommand(t *testing.T) {
+	var mu sync.Mutex
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		body, _ := io.ReadAll(r.Body)
+		seen = append(seen, r.Method+" "+r.URL.Path+" "+string(body))
+		switch r.URL.Path {
+		case "/v1/sales-order-uploads":
+			w.WriteHeader(201)
+			w.Write([]byte(`{"id": "u9", "url": "/v1/uploads/u9/content?s=1", "method": "PUT", "headers": {"Content-Type": "text/plain"}}`))
+		case "/v1/uploads/u9/content":
+			w.WriteHeader(204)
+		case "/v1/sales-orders:capture":
+			switch {
+			case strings.Contains(string(body), "REFUSE"):
+				w.WriteHeader(422)
+				w.Write([]byte(`{"code": "sales.capture_customer_unknown", "detail": "No business partner."}`))
+			case strings.Contains(string(body), "GARBLE"):
+				w.WriteHeader(202)
+				w.Write([]byte(`not json`))
+			default:
+				w.WriteHeader(202)
+				w.Write([]byte(`{"id": "op9", "status": "succeeded", "resource": "/v1/sales-orders/o1"}`))
+			}
+		}
+	}))
+	defer srv.Close()
+	env := map[string]string{"ERP_API_URL": srv.URL, "ERP_TOKEN": "t"}
+	getenv = func(k string) string { return env[k] }
+	defer func() { getenv = os.Getenv }()
+	file := filepath.Join(t.TempDir(), "order.txt")
+	writeFile(t, file, []byte("Purchase order NW-4711"))
+	le, account := "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d11", "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d31"
+	args := []string{"capture", "-order", "-legal-entity", le, "-file", file, "-account", account, "-tax-code", "GO5"}
+	with := func(code string) []string { return append(append([]string{}, args[:len(args)-1]...), code) }
+	if code, out := cli(t, args...); code != 0 || !strings.Contains(out, `"op9"`) {
+		t.Fatalf("captured: got %d %s, want the operation", code, out)
+	}
+	mu.Lock()
+	got := strings.Join(seen, "\n")
+	mu.Unlock()
+	for _, want := range []string{"POST /v1/sales-order-uploads", `"content_type":"text/plain"`, "PUT /v1/uploads/u9/content Purchase order NW-4711",
+		`"account_id":"` + account + `"`, `"tax_code":"GO5"`, `"upload_id":"u9"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("requests: got\n%s\nwant one with %s", got, want)
+		}
+	}
+	for name, c := range map[string]struct {
+		args []string
+		env  map[string]string
+		want string
+	}{
+		"a refusal":             {with("REFUSE"), env, "sales.capture_customer_unknown"},
+		"an answer not JSON":    {with("GARBLE"), env, "decode"},
+		"an account not an id":  {[]string{"capture", "-order", "-legal-entity", le, "-file", file, "-account", "x"}, env, "is not an id"},
+		"without a token":       {args, map[string]string{"ERP_API_URL": srv.URL}, "ERP_TOKEN"},
+		"an upload not started": {args, map[string]string{"ERP_API_URL": "http://127.0.0.1:1", "ERP_TOKEN": "t"}, "upload"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			getenv = func(k string) string { return c.env[k] }
+			if code, out := cli(t, c.args...); code == 0 || !strings.Contains(out, c.want) {
+				t.Errorf("got %d %s, want a failure naming %s", code, out, c.want)
+			}
+		})
+	}
+}

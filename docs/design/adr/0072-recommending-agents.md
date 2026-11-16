@@ -205,6 +205,8 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `regulatory` | `internal/regulatoryagent`, `erp agent regulatory-notice -file F` | `listCountryPacks`, `listConfigVersions`, `getConfigVersion`, `listTaxRegistrations`, `listTaxPeriods` | on `config_version`: `change_needed`, `no_change` | every write of the configuration (change requests, a pack applied, a regression suite) |
 | `regulatory` (drafting, T107b) | `erp agent regulatory-draft -recommendation ID` | `getRecommendation`, `listConfigVersions`, `getConfigVersion`, `listFiscalPeriods`, `getChangeRequest`, `getOperation`; writes `createChangeRequest`, `updateChangeRequest`, `simulateChangeRequest` | on `change_request`: `ready_to_submit`, `simulation_failed` | submitting, withdrawing or activating a change request, a pack applied, a regression suite, a decision on an approval or a recommendation |
 | `bid_comparison` | `internal/bidagent`, `erp agent bid-compare -rfq ID` | `getRfq`, `listSupplierQuotations`, `getRfqComparison`, `getBusinessPartner`, `listContracts`, `listPurchaseOrders` | on `rfq`: `award`, `no_award` | `awardRfq`, `publishRfq`, `createSupplierQuotation`, `createRfq` |
+| `collections` | `internal/collectionsagent`, `erp agent collections -company CODE [-key-date YYYY-MM-DD]` | `getCollectionWorklist`, `getReceivablesAging`, `listDunningRuns`, `listDunningNotices`, `listIncomingPayments`, `listCustomerInvoices`, `listDisputeCases`, `getDisputeCase`, `listOpenItems`, `listAccounts`, `getBusinessPartner` | on `business_partner` (a customer of the worklist): `call`, `send_reminder`, `escalate`, `wait_for_dispute`, `no_action` | `createDunningRun`, `confirmDunningRun`, `createDisputeCase`, `updateDisputeCase`, `closeDisputeCase`; nothing in the contract sends to a customer |
+| `support` (diagnosis, T108b) | `internal/supportagent`, `erp agent support-diagnose -type KIND -id ID [WHAT HAPPENED]` | T108a's (`listConfigVersions`, `getConfigVersion`, `getSchema`, `getCurrentPrincipal`), `listAuditEvents`, `listOperations`, `listApprovalRequests`, each document's read (`getSupplierInvoice`, `getCustomerInvoice`, `getJournalEntry`, `getPurchaseOrder`, `getSalesOrder`, `getPaymentRun`, `getChangeRequest`, `getOperation`), the contract's search (`findOperations`) | on the document (its kind): `root_cause` | every write: its tools hold none |
 
 A later slice adds its row here and its section under "As built".
 
@@ -719,6 +721,129 @@ A later slice adds its row here and its section under "As built".
   it was.
 - No migration, no new operation, permission, event or problem code.
 
+### T105b, the collections agent
+
+- `internal/collectionsagent`; agent type `collections`; `erp agent
+  collections -company CODE [-key-date YYYY-MM-DD]` (the key date
+  defaults to today in UTC, as T105a's date). One recommendation per
+  customer of the company's collection worklist on the key date
+  (ADR-0065 §9), on the customer as a `business_partner`: `call`,
+  `send_reminder`, `escalate`, `wait_for_dispute` or `no_action`.
+- Before its session the run reads the worklist's first page of 20
+  customers (`MaxCustomers`, the largest overdue amount first: the run's
+  objects; the rest wait for a later run, and the prompt says how many the
+  worklist lists), and, for each customer with open dispute cases, those
+  cases and its open items on the company's customer reconciliation
+  accounts (`listDisputeCases`, `listOpenItems`, and `listAccounts` for
+  the accounts whose `reconciliation_kind` is `customer`: a partner that
+  also supplies has items on supplier accounts, which the worklist does
+  not count). A
+  worklist without customers starts no session and says so; a read
+  refused stops the run before a session.
+- **A customer whose every overdue item is disputed** (each open debit
+  item past its due date has an open case, as a dunning run leaves a
+  disputed item out whole, T86b) is never recommended a contact: its
+  check refuses `call`, `send_reminder` and `escalate` for it, and the
+  prompt names it. An item is overdue by its payment terms' net due date
+  or, posted without terms, by its posting date, which is never before
+  the document date the worklist takes: the run may see an item overdue a
+  few days late, and so hold back a contact the worklist would allow,
+  never the other way round. `wait_for_dispute` is refused for a customer
+  without an open case.
+- Its check (`collectionsagent.review.check`): the content starts
+  `Overdue <amount> <currency>`, the customer's overdue amount as the
+  worklist returned it, an amount a read of the run returned as money
+  (§4: read again by the model's own `getCollectionWorklist`); every
+  number of the content, the draft message's included, is one the run
+  read; a contact ends with a line `Draft message:` and the message. So
+  the draft states no figure the API did not return; a person sends it.
+- Its reads are the plan's, with `listDunningRuns` (a notice is read
+  under its run), `getDisputeCase`, `listOpenItems` and `listAccounts`,
+  which need `ledger.entry.read` and `ledger.account.read`; its never list is every write of dunning and of
+  dispute cases, all `x-agent: false`; nothing in the contract sends a
+  message to a customer.
+- `erp agent collections` prints each recommendation with the customer's
+  number and name and its first line (`recommend.Result.Names`).
+- `evals/collections`, version 1, replayed to level 2: a customer with an
+  overdue invoice and no dispute reminded with a draft; a customer whose
+  only overdue invoice is disputed not reminded (the reminder refused)
+  and told to wait for its dispute, the case still open; an instruction
+  and an amount in an invoice text not followed nor repeated; nothing
+  dunned. Not run against a live model.
+- Walkthrough `step_collections_agent` (step 98), run while
+  `step_dispute`'s case is open (step 95 now leaves closing it to step
+  98): the agent's role reads the worklist, cases, dunning, receivables,
+  open items and partners; one recommendation per customer of the
+  worklist of step 57's key date, Northwind's `wait_for_dispute` naming
+  its overdue and disputed amounts; a reminder whose draft names an amount
+  no read returned refused; the agent's own dunning run and case closing
+  refused (403); Ruth accepts, which changes nothing; she then closes the
+  case as rejected and a new run duns the invoice again.
+- No migration, no new operation, permission, event or problem code.
+
+### T108b, the support agent: root cause of a refusal or a stuck document
+
+- A second entry function of the `support` agent, `Agent.Diagnose`, and
+  unlike T108a's reply a recommendation through the pattern
+  (`internal/recommend`): `erp agent support-diagnose -type KIND -id ID
+  [WHAT HAPPENED]`. The kinds are the documents it reads
+  (`supportagent.Documents`): `supplier_invoice`, `customer_invoice`,
+  `journal_entry`, `purchase_order`, `sales_order`, `payment_run`,
+  `change_request` and `operation` (a long-running one), each with its
+  read operation; the kind is the recommendation's object type. What the
+  user says happened (UTF-8, at most 4,000 bytes) is passed between
+  `<report>` lines: data, never an instruction.
+- Before its session the run reads the document by its kind and the
+  active configuration version (`apitools.ActiveConfig`): either refused
+  stops the run before a session.
+- **The contract's search in the pattern.** `recommend.Agent.Contract`
+  offers an agent `findOperations` (T108a's local tool, a read answered by
+  the agent's own code) beside its reads; its answers' numbers count as
+  read, as any read's do. The diagnosis uses it for what a problem code
+  means.
+- One recommendation, kind `root_cause`, whose first line is `Root cause:
+  <class>`: `configuration`, `master_data`, `missing_approval`,
+  `closed_period`, `permission` or `unknown`. Its check
+  (`supportagent.diagnosis.check`): every event cited (`event <seq>`) is
+  one `listAuditEvents` returned in the run for that document (its
+  `object_id`); a class other than `unknown` cites at least one; every
+  setting cited as `` `path` = `value` `` is the active configuration's;
+  every other number, in backticks or not, is one the run read (§4). The
+  document's id is read as the API writes it (lower case), whatever case
+  it was given in. So a cause the events do
+  not show is `unknown`. The service's logs are not behind the API and
+  are not read.
+- **A refused posting of a supplier invoice is audited** on the invoice
+  (`payables.refusedPost`): a business refusal of `postSupplierInvoice`
+  (409 or 422, which the unit of work keeps, ADR-0046's `audit.Refuse`)
+  records the action `payables.supplier_invoice.post` with outcome
+  `refused`, the problem's code and detail and the posting date asked
+  for; a rule's refusal stays the rule's own record, and an invoice not
+  found records nothing. The problem's detail is written into the
+  insert-only trail, so a problem detail of that operation names no
+  person (today they carry codes, ids, dates and amounts). Without it the
+  trail of a parked invoice shows no
+  cause; refusals of other documents' writes are not audited yet (a gap
+  listed for the product owner).
+- Its role needs, beside T108a's, the reads of the documents it
+  diagnoses, `platform.operation.read`, `workflow.request.read` and
+  `audit.event.read`, which the tenant's administrator grants (§6).
+- `evals/support`, version 2: three diagnosis cases (task `run:
+  diagnose`) on its own configuration (the tax suite's with the supplier
+  invoice's number ranges; the periods closed): an invoice whose posting
+  a closed period refused diagnosed `closed_period` citing the refusal's
+  event; one whose trail shows no cause diagnosed `unknown`, a cause
+  citing no event refused; an instruction in an item's text not followed.
+  Not run against a live model.
+- Walkthrough `step_support_agent` (step 88) extended: Alex's invoice
+  dated today and posted on a day of last year, whose period is closed, is
+  refused (409 `ledger.period_not_open`) and stays parked; Ada grants the
+  agent's role the audit trail and supplier invoices; the agent's cause
+  citing an event that is not the invoice's is refused; it recommends
+  `closed_period`, citing the refusal's event and quoting its detail;
+  Alex accepts and posts the invoice on today's date.
+- No migration, no new operation, permission, event or problem code.
+
 ## Defaults taken (for the product owner's digest)
 
 1. The shared run is a package, `internal/recommend`, not a copy per
@@ -807,3 +932,21 @@ A later slice adds its row here and its section under "As built".
     form ``path`` = ``value``, and a reply's numbers outside backticks are
     the question's; operation ids are told by their form. The contract is
     searched by id and summary, not description.
+18. (T105b) The collections agent recommends on the first 20 customers of
+    the worklist, the largest overdue amount first; a customer with an
+    undisputed overdue item beside disputed ones may be contacted; "every
+    overdue item disputed" is told from the open items and open cases
+    before the session, an item without payment terms taken as due on its
+    posting date, and only items on customer reconciliation accounts
+    counted; its reads add `listDunningRuns`, `getDisputeCase`,
+    `listOpenItems` and `listAccounts` (so its role holds
+    `ledger.entry.read` and `ledger.account.read`) to the plan's;
+    a contact needs a draft message, `wait_for_dispute` an open case.
+19. (T108b) The diagnosis recommends on the document under its kind's
+    name as object type, kind `root_cause`, the class on the first line;
+    events are cited by their seq; a class other than `unknown` needs an
+    event of the document. A refused posting of a supplier invoice is now
+    audited on the invoice (outcome `refused`, the problem's code and
+    detail, the posting date asked for), as ADR-0046 audits a rule's
+    refusal, so a parked invoice's trail shows why; the other documents'
+    refusals are not audited (a gap for the product owner).

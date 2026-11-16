@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -135,8 +136,14 @@ func (PaymentTerms) Apply(ctx context.Context, doc *config.Config) error {
 }
 
 // Suppliers answers procurement's and payables' questions about suppliers
-// in the request's transaction.
-type Suppliers struct{}
+// in the request's transaction. Settings is the configuration whose
+// companies' time zones partner's day, which an account or an address is
+// valid on, is judged in (partnerDay); Now is the clock it is read at, nil
+// the transaction's start.
+type Suppliers struct {
+	Settings config.Documents
+	Now      func() time.Time
+}
 
 // Supplier is a business partner as a supplier of one legal entity.
 type Supplier struct {
@@ -291,16 +298,21 @@ type PaymentAccount struct {
 	Last4                            string
 }
 
-// PaymentAccounts returns the payments bank account valid today of each
-// partner that has one, keyed by partner id (T72d).
-func (Suppliers) PaymentAccounts(ctx context.Context, partners []uuid.UUID) (map[uuid.UUID]PaymentAccount, error) {
+// PaymentAccounts returns the payments bank account valid on partner's
+// day (partnerDay) of each partner that has one, keyed by partner id
+// (T72d).
+func (s Suppliers) PaymentAccounts(ctx context.Context, partners []uuid.UUID) (map[uuid.UUID]PaymentAccount, error) {
 	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	day, err := partnerDay(ctx, tx, s.Settings, s.Now)
 	if err != nil {
 		return nil, err
 	}
 	rows, _ := tx.Query(ctx, `SELECT partner_id, account_scheme, bank_country_code, coalesce(institution_number, ''), coalesce(transit_number, ''), account_last4
 		FROM partner.bank_account WHERE partner_id = ANY($1) AND purpose = 'payments'
-			AND valid_from <= current_date AND (valid_to IS NULL OR valid_to > current_date)`, partners)
+			AND valid_from <= $2 AND (valid_to IS NULL OR valid_to > $2)`, partners, day)
 	out := map[uuid.UUID]PaymentAccount{}
 	var id uuid.UUID
 	var a PaymentAccount
@@ -360,18 +372,22 @@ func (Suppliers) PaymentTerm(ctx context.Context, code string) (PaymentTerm, boo
 
 // OrderAddress returns the address a purchase order is sent to: the
 // partner's order_from address valid today, else its legal one, or
-// ok = false when it holds neither (T72g, ADR-0054). Today is the
-// database's day, as for bank accounts: the document goes out now.
-func (Suppliers) OrderAddress(ctx context.Context, partnerID uuid.UUID) (Address, bool, error) {
+// ok = false when it holds neither (T72g, ADR-0054). Today is partner's
+// day (partnerDay), as for bank accounts: the document goes out now.
+func (s Suppliers) OrderAddress(ctx context.Context, partnerID uuid.UUID) (Address, bool, error) {
 	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return Address{}, false, err
+	}
+	day, err := partnerDay(ctx, tx, s.Settings, s.Now)
 	if err != nil {
 		return Address{}, false, err
 	}
 	var a Address
 	err = tx.QueryRow(ctx, `SELECT id, purpose, line1, line2, city, postal_code, region, country_code, valid_from
 		FROM partner.address WHERE partner_id = $1 AND purpose IN ('order_from', 'legal')
-			AND valid_from <= current_date AND (valid_to IS NULL OR valid_to > current_date)
-		ORDER BY purpose = 'order_from' DESC LIMIT 1`, partnerID).
+			AND valid_from <= $2 AND (valid_to IS NULL OR valid_to > $2)
+		ORDER BY purpose = 'order_from' DESC LIMIT 1`, partnerID, day).
 		Scan(&a.ID, &a.Purpose, &a.Line1, &a.Line2, &a.City, &a.PostalCode, &a.Region, &a.CountryCode, &a.ValidFrom.Time)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Address{}, false, nil

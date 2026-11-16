@@ -32,6 +32,7 @@ type ForecastSpec struct {
 	Method    string // MovingAverage or SamePeriodLastYear
 	Window    int    // MovingAverage: the last periods it averages
 	Companies []string
+	Scenario  []Adjustment // none: no scenario (T97b)
 }
 
 // ForecastError is a forecast refused: Code names the problem and Field
@@ -77,16 +78,17 @@ func (s ForecastSpec) Check(m *Model) error {
 	if met := m.Metric(s.Metric); met != nil && met.Type == Ratio {
 		return &ForecastError{Code: ForecastRatio, Field: "metric", Detail: s.Metric + " is a ratio: the average of a ratio is not the ratio of its averages, so it is not forecast."}
 	}
-	return nil
+	return s.checkScenario(m)
 }
 
-// Query is the history's query: the metric by fiscal year and period.
+// Query is the history's query: the metric by fiscal year and period,
+// and by the dimensions a scenario's adjustments name.
 func (s ForecastSpec) Query() Query {
 	by := []string{"fiscal_year"}
 	if d := grains[s.Grain].dim; d != "" {
 		by = append(by, d)
 	}
-	return Query{Measures: []string{s.Metric}, By: by, Where: s.Where}
+	return Query{Measures: []string{s.Metric}, By: append(by, s.scenarioDims()...), Where: s.Where}
 }
 
 // Period is a fiscal period: a year and its month or quarter (0 for a
@@ -113,20 +115,34 @@ type Forecast struct {
 	Used            []Period
 	HistoryTotal    Value
 	ProjectionTotal Value
+	Scenario        *Scenario // with a scenario: the baseline, the scenario and their difference
 }
 
 // NewForecast forecasts the metric from its history, res (s.Query()'s
 // result): every period from the first with data through the last, one
-// without data counting as zero.
+// without data counting as zero. With a scenario, the forecast is the
+// baseline, its parts' forecasts summed (scenario.go).
 func NewForecast(m *Model, s ForecastSpec, res *Result) (*Forecast, error) {
 	met := m.Metric(s.Metric)
 	f := &Forecast{Spec: s, Label: met.Label, Type: met.Type}
+	var parts []map[Period]Value
+	if len(s.Scenario) > 0 {
+		var err error
+		if res, parts, err = s.split(res); err != nil {
+			return nil, err
+		}
+	}
 	history, zero, err := series(s, res)
 	if err != nil {
 		return nil, err
 	}
 	f.History, f.Currency = history, zero.Currency
-	if f.Projection, f.Used, err = project(s, history, zero); err != nil {
+	if parts != nil {
+		err = f.scenario(history, zero, parts)
+	} else {
+		f.Projection, f.Used, err = project(s, history, zero)
+	}
+	if err != nil {
 		return nil, err
 	}
 	if f.HistoryTotal, err = total(history, zero); err != nil {

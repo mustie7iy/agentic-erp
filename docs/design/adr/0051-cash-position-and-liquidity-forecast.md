@@ -2768,6 +2768,65 @@ owner 2026-11-02, option A, review:batch37):
   covers winter, summer and New Year's Eve. The walkthrough dates its
   payment runs on the company's day and no longer stops on 31 December.
 
+As built (partner's day is the companies', not UTC's; batch74 fix,
+walkthrough steps 91 and 97 failing 19:00-24:00 in Toronto):
+- **The gap.** Partner judged and defaulted every date of validity by the
+  database's `current_date`, UTC's day: the backdating controls
+  (`partner.backdated_bank_account`, `partner.backdated_address`), the end
+  of a bank account (`partner.invalid_end`), the apply clamp of a bank
+  account's and an address's first day, the accounts and addresses "valid
+  today" (`Suppliers.PaymentAccounts`, `Suppliers.OrderAddress`) and a
+  blanked account's end (`Privacy.Blank`). From 19:00 (20:00 in summer) in
+  Toronto UTC is already tomorrow: a supplier set up with an account from
+  the company's day was refused as backdated, and one dated on UTC's day
+  starts after the company's payment run date, which ignores it.
+- **The rule (decision by default, for the product owner to overrule).**
+  Partner's day is the earliest of the tenant's companies' days, each in
+  its configured time zone (`partner.Day`, over `config.CompanyDay`;
+  UTC's day when the configuration lists no company). It keeps the
+  2026-10-31 decision's principle: one rule for the whole partner, since a
+  partner and its bank accounts are the tenant's and every company may pay
+  to them, not any one company's zone; only its reference moves from UTC to
+  the companies' days (PO 2026-10-31: business dates are the company's
+  local date). For a tenant whose companies share a zone (the pilot) it is
+  exactly the company's day. Where zones differ, an account may start on
+  the westernmost company's day, which for an eastern company can be its
+  yesterday for some hours; UTC's rule already allowed that for every
+  company east of UTC, but the window widens from the company's offset to
+  UTC (4 hours for Dubai) to its gap to the westernmost company (9 hours
+  for Dubai beside Toronto), and for those hours the payment hold after a
+  bank change, which starts at the account's `valid_from`, is a day
+  shorter for that company's runs. A payment control is security posture:
+  the batch digest flags this default for the product owner. The order
+  document's address (`Suppliers.OrderAddress`) is read on this tenant-wide
+  day too, not the ordering company's (left as it was; review:batch74).
+- **Its instant.** The transaction's start (`transaction_timestamp()`), as
+  `current_date` was, so one request judges every date on one day even
+  across midnight; tests inject `Now` (`Ports`, `Endpoints`, `Approvals`,
+  `Suppliers`, `Privacy`). The configuration is read through the port that
+  already gave the custom field schemas: `partner.Settings` is
+  `extensions.Schemas` plus `config.Documents`, both of which
+  `configuration.Settings` implements, so no dependency changes.
+- **The migration.** A run dates what it loads by partner's day
+  (`partner.Migration.Today`, read in the run's transaction), no longer
+  `database.Today`: a supplier's address starts on it and its bank account
+  the day before (the 2026-11-02 exemption, unchanged in size: one day
+  before partner's day). The run's cutover days, each company's, are
+  unchanged.
+- **Supersedes.** The "Kept in UTC" bullet of 2026-10-31 and the UTC
+  wording of the 2026-11-02 section above for every date partner judges;
+  their decisions (one rule for the whole partner; the migration's one day)
+  stand. The walkthrough's order desk address (step 4) is dated on the
+  company's day, `TODAY`, no longer on UTC's.
+- **Evidence.** `partner.TestCompanyEveningBankAccount` at 02:30 UTC on 16
+  November 2026, 21:30 the evening before in Toronto: an account from
+  Toronto's day is accepted, approved with that first day and found by the
+  payee lookup of a payment run dated on it (it fails with UTC's day); at
+  00:30 the next day in Toronto, and with every company in UTC at 02:30,
+  the same day is refused as backdated. `partner.TestDay`,
+  `partner.TestMigrationToday`, `integration.TestRunDayIsTheCompanysDay`.
+  The full walkthrough passed inside the window, at 21:50 in Toronto.
+
 ## Alternatives
 - **Cash position and forecast inside payments.** Fewer packages, but
   payments would read procurement against today's direction, and phase 3

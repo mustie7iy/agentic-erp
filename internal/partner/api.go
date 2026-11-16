@@ -2,6 +2,7 @@ package partner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -50,6 +51,8 @@ func partnerToAPI(p Partner) gen.BusinessPartner {
 		out.GroupCompanyID = gen.NewOptUUID(*p.GroupCompanyID)
 		out.GroupCompany = gen.NewOptGroupCompany(gen.GroupCompany{ID: *p.GroupCompanyID})
 	}
+	out.PersonalDataBlockedAt = apitypes.OptDateTime(p.PersonalDataBlockedAt)
+	out.PersonalDataDeletedAt = apitypes.OptDateTime(p.PersonalDataDeletedAt)
 	return out
 }
 
@@ -121,11 +124,19 @@ func nameAccounts(ctx context.Context, accounts Accounts, reps ...*gen.BusinessP
 
 // partnerOut is the partner as the caller sees it: the company data of
 // the legal entities the caller may act in, the group company and the
-// customer data's reconciliation accounts named.
+// customer data's reconciliation accounts named, and its personal data
+// masked while it is blocked, unless the caller reads it in full.
 func (e *Endpoints) partnerOut(ctx context.Context, p Partner) (gen.BusinessPartner, error) {
 	access, err := authz.Companies(ctx)
 	if err != nil {
 		return gen.BusinessPartner{}, err
+	}
+	full, err := readsBlocked(ctx, p.maskable())
+	if err != nil {
+		return gen.BusinessPartner{}, err
+	}
+	if !full {
+		p = masked(p)
 	}
 	out := partnerToAPI(visible(p, access))
 	if err := nameGroupCompanies(ctx, e.LegalEntities, access, &out); err != nil {
@@ -238,7 +249,7 @@ func (e *Endpoints) CreateBusinessPartner(ctx context.Context, req *gen.Business
 	if err != nil {
 		return nil, err
 	}
-	if _, err := RequestApproval(ctx, e.Approvals, e.Schemas, c); err != nil {
+	if _, err := RequestApproval(ctx, e.Approvals, e.Schemas, e.Now, c); err != nil {
 		return nil, err
 	}
 	if p, err = getPartner(ctx, tx, p.ID, false); err != nil {
@@ -273,6 +284,30 @@ var partnerSort = pagination.Sort{Default: "number", Fields: []pagination.Field{
 	{Name: "number", Column: "number", Type: "text"}, {Name: "name", Column: "name", Type: "text"},
 }}
 
+// maskedSort is partnerSort for a caller who reads blocked personal data
+// masked: by name as it is answered, so neither the order nor the page
+// token carries a blocked partner's name (ADR-0079 §11).
+var maskedSort = pagination.Sort{Default: "number", Fields: []pagination.Field{
+	{Name: "number", Column: "number", Type: "text"},
+	{Name: "name", Column: "(CASE WHEN personal_data_blocked_at IS NOT NULL AND personal_data_deleted_at IS NULL THEN '" + MaskedText + "' ELSE name END)", Type: "text"},
+}}
+
+// partnerKeyset is the listing's keyset and whether the caller reads
+// blocked personal data in full: asked, once, when the listing searches or
+// orders by name; otherwise it is answered later, for the page.
+func (e *Endpoints) partnerKeyset(ctx context.Context, scope string, byName bool, page pagination.Request) (*pagination.Keyset, bool, error) {
+	full, err := readsBlocked(ctx, byName)
+	if err != nil {
+		return nil, false, err
+	}
+	sort := partnerSort
+	if !full {
+		sort, scope = maskedSort, scope+"|masked"
+	}
+	ks, err := e.Pages.Keyset(sort, scope, page)
+	return ks, full, err
+}
+
 // likePrefix escapes LIKE wildcards in a prefix.
 func likePrefix(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s) + "%"
@@ -290,7 +325,14 @@ func (e *Endpoints) ListBusinessPartners(ctx context.Context, params gen.ListBus
 	}
 	scope := "listBusinessPartners|" + params.Number.Value + "|" + params.NamePrefix.Value + "|" + params.Role.Value + "|" + params.Status.Value +
 		"|" + strings.Join(ids, ",")
-	ks, err := e.Pages.Keyset(partnerSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
+	prefix := ""
+	if params.NamePrefix.Set {
+		prefix = likePrefix(strings.ToUpper(strings.Join(strings.Fields(params.NamePrefix.Value), " ")))
+	}
+	// A search by name finds a partner whose personal data is blocked only
+	// for a caller who reads it in full: its name is not to be confirmed.
+	byName := prefix != "" || strings.HasPrefix(strings.TrimSpace(params.OrderBy.Value), "name")
+	ks, full, err := e.partnerKeyset(ctx, scope, byName, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
@@ -298,25 +340,32 @@ func (e *Endpoints) ListBusinessPartners(ctx context.Context, params gen.ListBus
 	if err != nil {
 		return nil, err
 	}
-	prefix := ""
-	if params.NamePrefix.Set {
-		prefix = likePrefix(strings.ToUpper(strings.Join(strings.Fields(params.NamePrefix.Value), " ")))
-	}
-	q, args := ks.SQL(partnerSelect+` WHERE ($1 = '' OR p.number = $1) AND ($2 = '' OR p.name_norm LIKE $2)
+	q, args := ks.SQL(partnerSelect+` WHERE ($1 = '' OR p.number = $1) AND ($2 = '' OR (p.name_norm LIKE $2 AND ($6 OR p.personal_data_blocked_at IS NULL OR p.personal_data_deleted_at IS NOT NULL)))
 		AND ($3 = '' OR EXISTS (SELECT FROM partner.partner_role r WHERE r.tenant_id = p.tenant_id AND r.partner_id = p.id AND r.role = $3))
 		AND ($4 = '' OR p.status = $4) AND ($5::uuid[] IS NULL OR p.id = ANY($5::uuid[]))`,
-		[]any{params.Number.Value, prefix, params.Role.Value, params.Status.Value, params.Ids})
+		[]any{params.Number.Value, prefix, params.Role.Value, params.Status.Value, params.Ids, full})
 	rows, _ := tx.Query(ctx, q, args...)
 	ps, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Partner, error) { return scanPartner(r) })
 	if err != nil {
 		return nil, fmt.Errorf("partner: list business partners: %w", err)
 	}
+	if full, err = pageReadsBlocked(ctx, ps, byName, full); err != nil {
+		return nil, err
+	}
 	items, next := apitypes.PageOf(ks, ps, func(p Partner) (string, uuid.UUID) {
-		if ks.Field() == "name" {
-			return p.Name, p.ID
+		switch {
+		case ks.Field() != "name":
+			return p.Number, p.ID
+		case !full && p.maskable():
+			return MaskedText, p.ID // the masked sort's key
 		}
-		return p.Number, p.ID
-	}, func(p Partner) gen.BusinessPartner { return partnerToAPI(visible(p, access)) })
+		return p.Name, p.ID
+	}, func(p Partner) gen.BusinessPartner {
+		if !full && p.maskable() {
+			p = masked(p)
+		}
+		return partnerToAPI(visible(p, access))
+	})
 	reps := make([]*gen.BusinessPartner, len(items))
 	for i := range items {
 		reps[i] = &items[i]
@@ -328,6 +377,47 @@ func (e *Endpoints) ListBusinessPartners(ctx context.Context, params gen.ListBus
 		return nil, err
 	}
 	return &gen.BusinessPartnerPage{Items: items, NextPageToken: next}, nil
+}
+
+// pageReadsBlocked reports whether the caller reads the page's blocked
+// personal data in full: asked is whether full is the answer read
+// already; otherwise the permission is read once for the page, when a
+// partner of it has its personal data blocked.
+func pageReadsBlocked(ctx context.Context, ps []Partner, asked, full bool) (bool, error) {
+	if asked {
+		return full, nil
+	}
+	blocked := false
+	for _, p := range ps {
+		blocked = blocked || p.maskable()
+	}
+	return readsBlocked(ctx, blocked)
+}
+
+// BlockPersonalData implements POST /v1/business-partners/{id}:blockPersonalData.
+func (e *Endpoints) BlockPersonalData(ctx context.Context, req *gen.ReasonInput, params gen.BlockPersonalDataParams) (gen.BlockPersonalDataRes, error) {
+	p, err := BlockPersonalData(ctx, e.OpenItems, e.LegalEntities, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
+	if err != nil {
+		return nil, err
+	}
+	out, err := e.partnerOut(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.BlockPersonalDataOKHeaders{ETag: gen.NewOptString(etag.Format(p.Version)), Response: out}, nil
+}
+
+// UnblockPersonalData implements POST /v1/business-partners/{id}:unblockPersonalData.
+func (e *Endpoints) UnblockPersonalData(ctx context.Context, req *gen.ReasonInput, params gen.UnblockPersonalDataParams) (gen.UnblockPersonalDataRes, error) {
+	p, err := UnblockPersonalData(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
+	if err != nil {
+		return nil, err
+	}
+	out, err := e.partnerOut(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.BlockPersonalDataOKHeaders{ETag: gen.NewOptString(etag.Format(p.Version)), Response: out}, nil
 }
 
 // BlockBusinessPartner implements POST /v1/business-partners/{id}:block.
@@ -343,7 +433,7 @@ func (e *Endpoints) BlockBusinessPartner(ctx context.Context, req *gen.ReasonInp
 func (e *Endpoints) UnblockBusinessPartner(ctx context.Context, req *gen.ReasonInput, params gen.UnblockBusinessPartnerParams) (gen.UnblockBusinessPartnerRes, error) {
 	c, err := Unblock(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
 	if err == nil {
-		c, err = RequestApproval(ctx, e.Approvals, e.Schemas, c)
+		c, err = RequestApproval(ctx, e.Approvals, e.Schemas, e.Now, c)
 	}
 	if err != nil {
 		return nil, err
@@ -362,7 +452,7 @@ func (e *Endpoints) CreatePartnerChange(ctx context.Context, req *gen.PartnerCha
 		Extensions: apitypes.DecodeObject(pl.Extensions.Or(nil)), GroupCompanyID: apitypes.OptNilUUID(pl.GroupCompanyID)}
 	c, err := RequestUpdate(ctx, e.ports(), req.PartnerID, ch, req.Reason)
 	if err == nil {
-		c, err = RequestApproval(ctx, e.Approvals, e.Schemas, c)
+		c, err = RequestApproval(ctx, e.Approvals, e.Schemas, e.Now, c)
 	}
 	if err != nil {
 		return nil, err
@@ -380,7 +470,11 @@ func (e *Endpoints) GetPartnerChange(ctx context.Context, params gen.GetPartnerC
 	if err != nil {
 		return nil, err
 	}
-	return &gen.GetPartnerChangeOKHeaders{ETag: changeTag(c), Response: changeToAPI(c)}, nil
+	cs := []Change{c}
+	if err := maskChanges(ctx, tx, cs); err != nil {
+		return nil, err
+	}
+	return &gen.GetPartnerChangeOKHeaders{ETag: changeTag(c), Response: changeToAPI(cs[0])}, nil
 }
 
 var changeSort = pagination.Sort{Default: "created_at", Fields: []pagination.Field{{Name: "created_at", Column: "created_at", Type: "timestamptz"}}}
@@ -407,6 +501,9 @@ func (e *Endpoints) ListPartnerChanges(ctx context.Context, params gen.ListPartn
 	if err != nil {
 		return nil, fmt.Errorf("partner: list partner changes: %w", err)
 	}
+	if err := maskChanges(ctx, tx, cs); err != nil {
+		return nil, err
+	}
 	items, next := apitypes.PageOf(ks, cs, func(c Change) (string, uuid.UUID) { return c.CreatedAt.Format(time.RFC3339Nano), c.ID }, changeToAPI)
 	return &gen.PartnerChangePage{Items: items, NextPageToken: next}, nil
 }
@@ -417,7 +514,7 @@ func (e *Endpoints) RequestBankAccountChange(ctx context.Context, req *gen.BankC
 		AccountScheme: req.AccountScheme, BIC: apitypes.Ptr[string](req.Bic), BankCountryCode: req.BankCountryCode, HolderName: req.HolderName,
 		ValidFrom: req.ValidFrom, InstitutionNumber: req.InstitutionNumber.Value, TransitNumber: req.TransitNumber.Value}, req.Reason)
 	if err == nil {
-		c, err = RequestApproval(ctx, e.Approvals, e.Schemas, c)
+		c, err = RequestApproval(ctx, e.Approvals, e.Schemas, e.Now, c)
 	}
 	if err != nil {
 		return nil, err
@@ -427,10 +524,10 @@ func (e *Endpoints) RequestBankAccountChange(ctx context.Context, req *gen.BankC
 
 // RequestBankAccountEnd implements POST /v1/business-partners/{id}/bank-accounts/{bank_account_id}:end.
 func (e *Endpoints) RequestBankAccountEnd(ctx context.Context, req *gen.BankAccountEnd, params gen.RequestBankAccountEndParams) (gen.RequestBankAccountEndRes, error) {
-	c, err := RequestBankAccountEnd(ctx, params.ID, params.BankAccountID, func(b BankAccount) error { return etag.Match(params.IfMatch, bankTag(b)) },
+	c, err := RequestBankAccountEnd(ctx, e.ports(), params.ID, params.BankAccountID, func(b BankAccount) error { return etag.Match(params.IfMatch, bankTag(b)) },
 		req.ValidTo, req.Reason)
 	if err == nil {
-		c, err = RequestApproval(ctx, e.Approvals, e.Schemas, c)
+		c, err = RequestApproval(ctx, e.Approvals, e.Schemas, e.Now, c)
 	}
 	if err != nil {
 		return nil, err
@@ -448,7 +545,21 @@ func (e *Endpoints) GetBankAccount(ctx context.Context, params gen.GetBankAccoun
 	if err != nil {
 		return nil, err
 	}
-	return &gen.BankAccountHeaders{ETag: gen.NewOptString(bankTag(b)), Response: bankToAPI(b)}, nil
+	blocked, err := blockedAmong(ctx, tx, []uuid.UUID{params.ID})
+	if err != nil {
+		return nil, err
+	}
+	full, err := readsBlocked(ctx, blocked[params.ID])
+	if err != nil {
+		return nil, err
+	}
+	// The ETag is the account's as stored, whoever reads it, as the end of
+	// the account matches it.
+	tag, out := bankTag(b), b
+	if !full {
+		out = maskedBank(b)
+	}
+	return &gen.BankAccountHeaders{ETag: gen.NewOptString(tag), Response: bankToAPI(out)}, nil
 }
 
 var bankSort = pagination.Sort{Default: "valid_from", Fields: []pagination.Field{{Name: "valid_from", Column: "valid_from", Type: "date"}}}
@@ -469,12 +580,18 @@ func (e *Endpoints) ListBankAccounts(ctx context.Context, params gen.ListBankAcc
 	if err != nil {
 		return nil, err
 	}
-	var exists bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM partner.business_partner WHERE id = $1)`, params.ID).Scan(&exists); err != nil {
+	var blocked bool
+	err = tx.QueryRow(ctx, `SELECT personal_data_blocked_at IS NOT NULL AND personal_data_deleted_at IS NULL FROM partner.business_partner WHERE id = $1`,
+		params.ID).Scan(&blocked)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, problem.NotFoundOf("business partner")
+	}
+	if err != nil {
 		return nil, fmt.Errorf("partner: find business partner %s: %w", params.ID, err)
 	}
-	if !exists {
-		return nil, problem.NotFoundOf("business partner")
+	full, err := readsBlocked(ctx, blocked)
+	if err != nil {
+		return nil, err
 	}
 	q, args := ks.SQL(`SELECT `+bankColumns+` FROM partner.bank_account WHERE partner_id = $1
 		AND ($2::date IS NULL OR (valid_from <= $2 AND (valid_to IS NULL OR valid_to > $2)))`, []any{params.ID, validOn})
@@ -483,6 +600,11 @@ func (e *Endpoints) ListBankAccounts(ctx context.Context, params gen.ListBankAcc
 	if err != nil {
 		return nil, fmt.Errorf("partner: list bank accounts of business partner %s: %w", params.ID, err)
 	}
-	items, next := apitypes.PageOf(ks, bs, func(b BankAccount) (string, uuid.UUID) { return b.ValidFrom.Format(time.DateOnly), b.ID }, bankToAPI)
+	items, next := apitypes.PageOf(ks, bs, func(b BankAccount) (string, uuid.UUID) { return b.ValidFrom.Format(time.DateOnly), b.ID }, func(b BankAccount) gen.BankAccount {
+		if !full {
+			b = maskedBank(b)
+		}
+		return bankToAPI(b)
+	})
 	return &gen.BankAccountPage{Items: items, NextPageToken: next}, nil
 }

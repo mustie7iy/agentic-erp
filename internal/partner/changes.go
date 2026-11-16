@@ -17,7 +17,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/cabank"
-	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
@@ -769,7 +768,7 @@ func createPartner(ctx context.Context, ports Ports, in NewPartner, back backdat
 	if err != nil {
 		return Partner{}, Change{}, err
 	}
-	day, err := database.Today(ctx, tx)
+	day, err := ports.day(ctx, tx)
 	if err != nil {
 		return Partner{}, Change{}, err
 	}
@@ -956,6 +955,9 @@ func Unblock(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reaso
 	if bp.Status != Blocked {
 		return Change{}, problem.Conflict("partner.invalid_status", "The business partner is "+bp.Status+"; unblock requires status blocked.")
 	}
+	if bp.PersonalDataBlockedAt != nil {
+		return Change{}, personalDataBlocked(id)
+	}
 	c, err := insertChange(ctx, tx, p, KindUnblock, id, map[string]any{"scope": "all"}, reason, nil, nil, false)
 	if err != nil {
 		return Change{}, err
@@ -994,6 +996,9 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 	bp, err := getPartner(ctx, tx, partnerID, false)
 	if err != nil {
 		return Change{}, problem.Reference(err, "partner_id", "business partner", "no business partner with this id")
+	}
+	if err := openForChange(ctx, tx, partnerID); err != nil {
+		return Change{}, err
 	}
 	if err := checkChanges(ch); err != nil {
 		return Change{}, err
@@ -1036,7 +1041,7 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 // its company data under the roles all it leaves the partner, and its
 // group company.
 func checkUpdateData(ctx context.Context, tx pgx.Tx, ports Ports, ch Changes, all []string) error {
-	day, err := database.Today(ctx, tx)
+	day, err := ports.day(ctx, tx)
 	if err != nil {
 		return err
 	}
@@ -1114,10 +1119,10 @@ func RequestBankAccount(ctx context.Context, ports Ports, partnerID uuid.UUID, i
 	if err != nil {
 		return Change{}, err
 	}
-	if _, err := getPartner(ctx, tx, partnerID, false); err != nil {
+	if err := openForChange(ctx, tx, partnerID); err != nil {
 		return Change{}, err
 	}
-	day, err := database.Today(ctx, tx)
+	day, err := ports.day(ctx, tx)
 	if err != nil {
 		return Change{}, err
 	}
@@ -1141,9 +1146,12 @@ func RequestBankAccount(ctx context.Context, ports Ports, partnerID uuid.UUID, i
 
 // RequestBankAccountEnd opens a bank change that ends an account on
 // approval. The end is not in the past and only shortens validity.
-func RequestBankAccountEnd(ctx context.Context, partnerID, bankID uuid.UUID, ifMatch func(BankAccount) error, validTo time.Time, reason string) (Change, error) {
+func RequestBankAccountEnd(ctx context.Context, ports Ports, partnerID, bankID uuid.UUID, ifMatch func(BankAccount) error, validTo time.Time, reason string) (Change, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
+		return Change{}, err
+	}
+	if err := openForChange(ctx, tx, partnerID); err != nil {
 		return Change{}, err
 	}
 	b, err := getBank(ctx, tx, partnerID, bankID)
@@ -1153,7 +1161,7 @@ func RequestBankAccountEnd(ctx context.Context, partnerID, bankID uuid.UUID, ifM
 	if err := ifMatch(b); err != nil {
 		return Change{}, err
 	}
-	day, err := database.Today(ctx, tx)
+	day, err := ports.day(ctx, tx)
 	if err != nil {
 		return Change{}, err
 	}
@@ -1189,14 +1197,14 @@ func pendingChange(ctx context.Context, tx pgx.Tx, id uuid.UUID, action string) 
 // ApplyChange applies an approved pending change. The workflow context
 // calls it when the change's approval request is approved (T4); schemas
 // mask the custom fields of the events it publishes (ADR-0046).
-func ApplyChange(ctx context.Context, schemas extensions.Schemas, id uuid.UUID) (Change, error) {
-	return applyChange(ctx, schemas, id, noBackdating)
+func ApplyChange(ctx context.Context, schemas Settings, now func() time.Time, id uuid.UUID) (Change, error) {
+	return applyChange(ctx, schemas, now, id, noBackdating)
 }
 
 // applyChange is ApplyChange with the earliest first day of a created
 // partner's bank accounts, which only Migration.Create relaxes, for the
 // create change it made; updates and bank changes keep partner's day.
-func applyChange(ctx context.Context, schemas extensions.Schemas, id uuid.UUID, back backdating) (Change, error) {
+func applyChange(ctx context.Context, schemas Settings, now func() time.Time, id uuid.UUID, back backdating) (Change, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Change{}, err
@@ -1209,7 +1217,7 @@ func applyChange(ctx context.Context, schemas extensions.Schemas, id uuid.UUID, 
 	if err != nil {
 		return Change{}, err
 	}
-	day, err := database.Today(ctx, tx)
+	day, err := partnerDay(ctx, tx, schemas, now)
 	if err != nil {
 		return Change{}, err
 	}

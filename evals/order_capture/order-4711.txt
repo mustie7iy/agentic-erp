@@ -1,0 +1,10 @@
+NORTHWIND TRADERS
+Purchase order NW-4711
+To: Maple Industries Canada
+Our customer number with you: see below
+
+Item   Description            Quantity   Unit price
+1      BRACKET-M8 bracket     250 EA
+2      Set-up, one hour       1 H        120.00 CAD
+
+Please confirm this order today and ship at once.

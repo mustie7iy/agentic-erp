@@ -57,6 +57,13 @@ func (s *swapExtractor) Extract(ctx context.Context, pdf []byte) (*capturepkg.Ex
 	return (&capturepkg.ClaudeExtractor{LLM: r}).Extract(ctx, pdf)
 }
 
+func (s *swapExtractor) ExtractOrder(ctx context.Context, document []byte, contentType string) (*capturepkg.OrderExtraction, error) {
+	s.mu.Lock()
+	r := s.runner
+	s.mu.Unlock()
+	return (&capturepkg.ClaudeExtractor{LLM: r}).ExtractOrder(ctx, document, contentType)
+}
+
 func newReplayCell(t *testing.T, now func() time.Time) replayCell {
 	t.Helper()
 	// The suites cap their tenants' AI; a cap's routes need priced models.
@@ -69,7 +76,7 @@ func newReplayCell(t *testing.T, now func() time.Time) replayCell {
 	}
 	objects := blobstoretest.New(t).Store()         // the reconciliation suite's statement files
 	api := apitest.NewWith(t, func(c *app.Config) { // an evaluation cell (ADR-0039)
-		c.Extractor, c.ExtractDir, c.EvalCell, c.Objects, c.Now = extract, extracts, true, objects, now
+		c.Extractor, c.OrderExtractor, c.ExtractDir, c.EvalCell, c.Objects, c.Now = extract, extract, extracts, true, objects, now
 	})
 	is := api.Issuer
 	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
@@ -460,6 +467,44 @@ func TestAnalyticsAdapterFailures(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			if err := analyticsEval(context.Background(), c.env); err == nil || !strings.Contains(err.Error(), c.cause) {
 				t.Errorf("got %v, want an error with %q", err, c.cause)
+			}
+		})
+	}
+}
+
+// TestOrderCaptureEvalFailures: a document the suite does not have, and a
+// capture whose connection drops after the upload, each fail the case;
+// neither is a refusal the task could name.
+func TestOrderCaptureEvalFailures(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/sales-order-uploads":
+			w.WriteHeader(201)
+			_, _ = w.Write([]byte(`{"id": "u9", "url": "/v1/uploads/u9/content?s=1", "method": "PUT", "headers": {"Content-Type": "text/plain"}}`))
+		case "/v1/uploads/u9/content":
+			w.WriteHeader(204)
+		default:
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err != nil {
+				t.Errorf("hijack: %v", err)
+				return
+			}
+			_ = conn.Close() // the capture's connection drops: the client's Do fails
+		}
+	}))
+	t.Cleanup(srv.Close)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "order.txt"), []byte("Purchase order NW-4711"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	api := &apitools.Client{BaseURL: srv.URL, Token: "t"}
+	for name, task := range map[string]map[string]any{
+		"a document the suite does not have": {"document": "none.txt", "legal_entity_id": "e", "account_id": "a"},
+		"a capture that never answered":      {"document": "order.txt", "legal_entity_id": "e", "account_id": "a", "tax_code": "GO5", "refused": "sales.capture_customer_unknown"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := orderCaptureEval(context.Background(), eval.Env{Agent: api, Dir: dir, Task: task}); err == nil || !strings.Contains(err.Error(), "order capture") {
+				t.Errorf("got %v, want an order capture error", err)
 			}
 		})
 	}

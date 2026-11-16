@@ -593,6 +593,8 @@ erDiagram
     char country_code
     text status
     uuid group_company_id "tenancy; T68c"
+    timestamptz personal_data_blocked_at "T100b"
+    timestamptz personal_data_deleted_at "T100c"
     int version }
   partner_role { uuid partner_id PK
     text role PK "supplier | customer" }
@@ -652,13 +654,14 @@ model). Company-specific supplier data lives in `supplier_company`, and a
 customer's in `customer_company` (below). Bank
 accounts are effective-dated; a change creates a new row with `valid_from`,
 which drives the payment hold after bank changes. "Today" for a bank
-account is UTC's day, one rule for the whole partner, which serves
-companies in several time zones, not any one company's: partner refuses a
-`valid_from` before it as backdated (product owner 2026-10-31, ADR-0051
-as built). There is one exemption. A partner a migration run creates
+account, and for an address, is partner's day: the earliest of the
+tenant's companies' days in their time zones (UTC's when none is
+configured), one rule for the whole partner, which serves companies in
+several time zones, not any one company's: partner refuses a `valid_from`
+before it as backdated (product owner 2026-10-31; ADR-0051 as built,
+batch 74). There is one exemption. A partner a migration run creates
 (`partner.Migration.Create`) may have its bank accounts start the day
-before, and the run dates them so: on a cutover evening in a zone behind
-UTC, a payment run dated on the company's day must find them. Two days
+before, and the run dates them so (product owner 2026-11-02). Two days
 before is refused there too. No request can set that date: only a
 migration run (`integration.migration.run`) reaches it, for the suppliers
 it creates. Every other request, and a later change to an existing
@@ -798,6 +801,36 @@ warning `partner.duplicate_tax_identifier` is kept. Decided by default
 the identifier's index is keyed; the check runs only when a partner is
 created ("Later": the check on a change of an existing partner, fuzzy
 matching, bank details, a run over existing partners, merging).
+
+**Personal data blocked (T100b, migration 000336; ADR-0079 §11; as
+built).** `personal_data_blocked_at` is when the privacy officer blocked
+the partner's personal data (`blockPersonalData`), null while it is not.
+A partner whose personal data is blocked is blocked itself
+(`business_partner_personal_data_blocked_check`: the column is set only
+with status `blocked`), so no document is entered or posted for it. The
+partner context's reads answer its name, legal name, addresses' lines,
+city, postal code and region, tax identifiers' last four characters and
+bank accounts' holder, last four characters and bank identifiers masked
+(`[blocked]`, `XXXX`) to a caller without `partner.privacy.read_blocked`,
+as do the names other contexts take from it (`partner.Payees.Names`) and a
+change's payload and possible duplicates naming it; nothing stored changes.
+Permissions `partner.privacy.block` and `partner.privacy.read_blocked`.
+
+**Personal data deleted (T100c, migration 000337; ADR-0079 §12; as
+built).** `personal_data_deleted_at` is when a deletion run blanked the
+partner's personal data; it is set only while the data is blocked
+(`business_partner_personal_data_deleted_check`), and once set neither it,
+the block, the status nor the names change again
+(`business_partner_personal_data_deleted_fixed`, for the owner too).
+Blanking writes the markers (`[deleted]`, `XXXX`, a Canadian account's
+`000`/`00000`) into the partner's names, addresses, tax identifiers, bank
+accounts (ended) and its changes; an address's or a bank account's
+personal columns change only to them (`address_personal_fixed`,
+`bank_account_personal_fixed`, with column grants) and only of a partner
+whose personal data is deleted (`personal_data_not_deleted`), and such a change
+alone passes the validity trigger (`address_end` and `bank_account_end`
+carry `WHEN (NOT partner.address_blanked(OLD, NEW))` and its bank account
+twin). No row is removed.
 
 ## 3.7 General ledger (`ledger`)
 
@@ -2460,7 +2493,10 @@ go to, where its URL sends them (`via`: `store`, a presigned URL of the
 store, or `api`, the API's own signed path, which streams them into the
 store; migration 000188, ADR-0020 As built 2026-11-01), until when, and its
 status (`open`, `received` through the API, `used` by the invoice in
-`used_by`, with size and hash once known).
+`used_by`, with size and hash once known). Its purpose is
+`supplier_invoice` or, since T90a (migrations 000334, 000335,
+`upload_purpose_check`), `sales_order`: a customer's purchase order that
+order capture consumes, `used_by` then naming the sales order.
 
 `down_payment_request` (T46b, ADR-0037) is a request to pay a supplier in
 advance of an invoice still to come (SAP F-47, special G/L F, a noted
@@ -3620,6 +3656,9 @@ ledger the secondary cost element and its two rules (§3.7). Migration
 000308 adds the permission `controlling.margin.read` of the margin report
 (ADR-0075, T92b), which has no table. Migration 000309 adds the origin of
 a plan batch written by a copy of another category's plan (T93a).
+Migration 000331 adds the permission `controlling.profitability.read` of
+net revenue by profitability segment (ADR-0075 §6, T92a), which has no
+table either.
 
 ```mermaid
 erDiagram
@@ -3738,6 +3777,14 @@ balance reads them (`ledger.period_balance`) and the profit centers' as
 the profit center report does (`ledger.assignment_balance`), each with
 the lines of entries not yet projected, so the figures are of one
 database state and exact at the read.
+
+Net revenue by profitability segment (`GET /v1/profitability-report`,
+ADR-0075 §6, T92a) stores nothing: the sales context adds up its posted
+billing documents' items and credit memo requests' items by customer and
+the order item's `item_key` (`sales.Orders.Segments`), a billing item's
+gross value being its net value and its share of the order item's
+discount (the order item's price condition, `conditions[0]`, less its net
+value), and controlling names the customers and pages the segments.
 
 ## 3.20 Tax filing (`tax`)
 
@@ -4955,6 +5002,16 @@ erDiagram
   `blocked`, and a blocked order released, once; the application may
   also update these four columns. The credit exposure reads a
   customer's confirmed, unblocked orders by `sales_order_by_customer`.
+  T90a (migration 000334) adds order capture: `capture_upload_id`, the
+  payables context's upload an order was captured from, and `capture`,
+  what was read (the customer's own order number, how the customer was
+  found, the confidence and per item what was printed and where its
+  price came from), a JSON object, both or neither
+  (`sales_order_capture_check`), one order per upload
+  (`sales_order_one_per_upload`); written when the order is created and
+  never changed. The same migration indexes `partner.tax_identifier` by
+  `(tenant_id, value_fingerprint)` (`tax_identifier_by_fingerprint`), by
+  which capture finds a customer's tax number of any scheme.
 - `sales.sales_order_item`: a quotation item's columns and rules, with
   `delivered_quantity` and `billed_quantity`, 0 when created:
   `0 <= billed_quantity <= delivered_quantity <= quantity`
@@ -5468,10 +5525,11 @@ erDiagram
 
 ## 3.32 Records management (`records`)
 
-ADR-0079, T99a (migration 000316), T99b (migration 000317). A leaf: it
-reads tenancy's legal entities, the configuration's retention rules
-(`companies[].retention[]`, described with the configuration document above)
-and the ledger's fiscal years and journal through its ports. The retention
+ADR-0079, T99a (migration 000316), T99b (migration 000317), T100c
+(migration 000337). A leaf: it reads tenancy's legal entities, the
+configuration's retention rules (`companies[].retention[]`, described with
+the configuration document above), the ledger's fiscal years and journal
+and the partner context's blocked personal data through its ports. The retention
 status is computed on read from the fiscal periods' dates
 (`ledger.fiscal_period`, through `ledger.Calendar.Years`), the rule's years
 and the completed archiving runs (`archived`). The schema `records` holds
@@ -5481,6 +5539,8 @@ the archiving runs and the context's outbox and inbox.
 records.archiving_run  (tenant_id, id, legal_entity_id, document_kind, fiscal_year, retention_years, config_version,
                         status, object_key, manifest_key, sha256, manifest_sha256, size_bytes, entry_count, line_count,
                         debit_total, currency, failure_code, completed_at, requested_by, created_at, updated_at, version)
+records.deletion_run   (tenant_id, id, config_version, status, subject_count, failure_code, completed_at, requested_by,
+                        created_at, updated_at, version)
 ```
 
 - An archiving run (ADR-0079 §6, T99b) archives one company's documents of
@@ -5516,8 +5576,22 @@ records.archiving_run  (tenant_id, id, legal_entity_id, document_kind, fiscal_ye
   not say why (`records.SchemasWithout`). The subject read counts rows of
   those tables by the subject's column, through RLS in the request's
   transaction; it reads no value.
+- A deletion run (ADR-0079 §12, T100c) is the subjects eligible when it
+  was asked for, under its configuration version (at least one subject,
+  `deletion_run_count_check`), `queued`, then `completed` (with its time)
+  or `failed` (with its problem code), either its last change
+  (`deletion_run_settled_fixed`); one queued run per tenant
+  (`deletion_run_one_queued`). Each subject
+  (`records.deletion_run_subject (tenant_id, run_id, partner_id,
+  partner_number, blocked_at, retention_years, retention_ends, status,
+  settled_at)`) is a partner by id and number, `pending`, then `blanked`
+  or `skipped` with its time, either its last change
+  (`deletion_run_subject_settled_fixed`); the application writes only the
+  settling columns and deletes nothing. The deleter reads the pending
+  subjects by `deletion_run_subject_pending`.
 - Permissions `records.retention.read`, `records.archive.run`,
-  `records.privacy.read` (migration 000318).
+  `records.privacy.read` (migration 000318), `records.privacy.delete`
+  (migration 000337).
 
 ## 3.33 Lease accounting (`leases`)
 
@@ -5528,12 +5602,17 @@ configuration through its ports and keeps no foreign key out of its schema
 inbox, the lease contract a company enters as lessee and its payments,
 written at creation. A draft posts nothing. T88b (migrations 000327,
 000328) activates a contract, which posts the right-of-use asset against
-the lease liability and stores its schedule.
+the lease liability and stores its schedule. T88c (migrations 000332,
+000333) keeps the lease runs, which post the stored lines' interest and
+depreciation per company and period.
 
 ```mermaid
 erDiagram
   contract ||--|{ payment : "paid by"
   contract ||--o{ schedule_line : "stored at activation"
+  run ||--o{ run_posting : "posts"
+  contract ||--o{ run_posting : "posted by"
+  schedule_line ||--o{ run_posting : "first and last line"
   contract { uuid id PK
     text document_number "lease_contract range, once per company"
     uuid legal_entity_id "tenancy"
@@ -5565,6 +5644,24 @@ erDiagram
     bigint closing_liability
     bigint depreciation
     bigint right_of_use_closing }
+  run { uuid id PK
+    uuid legal_entity_id "tenancy"
+    smallint fiscal_year "once per company and period"
+    smallint fiscal_period
+    date posting_date "the period's last day"
+    char currency
+    int contract_count
+    int posting_count
+    bigint interest_amount
+    bigint depreciation_amount }
+  run_posting { uuid run_id PK
+    uuid contract_id PK
+    uuid id "the entry's source document"
+    int first_line_no FK
+    int last_line_no FK
+    bigint interest_amount
+    bigint depreciation_amount "not negative"
+    uuid journal_entry_id "ledger" }
 ```
 
 - `leases.contract`: a lease contract of a company as lessee. Its number
@@ -5588,7 +5685,8 @@ erDiagram
   (`contract_activation_check`); it is fixed
   (`lease_contract_fixed_once_active`, a trigger). The list reads the
   tenant's contracts by number (`contract_by_number`) and a lessor's
-  (`contract_by_lessor`). The application creates contracts, may set
+  (`contract_by_lessor`), and a run a company's active contracts
+  (`contract_by_company`, T88c). The application creates contracts, may set
   their status, version, `updated_by` and what activation writes, and
   deletes none.
 - `leases.payment`: the contract's payments (`payment_contract_fkey`),
@@ -5604,9 +5702,39 @@ erDiagram
   `_payment_check`, `_depreciation_check`, `_right_of_use_check`), and
   the liability moves by the interest and the payment alone
   (`schedule_line_balance_check`); insert-only.
+- `leases.run` (T88c): a lease run of a company and a regular fiscal
+  period (above zero, `run_period_check`), once per company and period
+  (`lease_run_once`), each for a later posting date than the company's
+  last (`lease_run_in_order`, a trigger taking the company's advisory
+  lock, the one the application holds while it reads what earlier runs
+  posted). `posting_date` is the period's last day; the contracts read
+  are not negative (`run_contract_count_check`) and the contracts posted
+  at most them (`run_posting_count_check`); `interest_amount` and
+  `depreciation_amount`, minor units of `currency`, are what the run's
+  entries posted, the depreciation not negative
+  (`run_depreciation_check`), both zero when nothing was posted
+  (`run_nothing_posted_check`). The list reads runs latest first
+  (`run_by_date`) and a company's last (`run_by_company`). Insert-only.
+- `leases.run_posting` (T88c): what a run (`run_posting_run_fkey`) posted
+  for one contract (`run_posting_contract_fkey`), once per run and
+  contract: its stored schedule lines `first_line_no` to `last_line_no`
+  (`run_posting_first_line_fkey`, `run_posting_last_line_fkey`, in order,
+  `run_posting_lines_check`), each posted once: a posting starts after the
+  last line the contract's earlier postings posted
+  (`lease_line_posted_once`, a trigger under the company's runs' lock);
+  their interest and depreciation added up, the depreciation not negative
+  (`run_posting_depreciation_check`), one of them not zero
+  (`run_posting_moves_check`); the entry by id, year and number (1 to 40
+  characters, `run_posting_journal_entry_number_check`); `id`, once
+  (`run_posting_id_once`), is the entry's source document. A contract's
+  postings are read by their last line (`run_posting_by_contract`).
+  Insert-only.
 - `ledger.account_determination` takes the keys `right_of_use_asset` and
   `lease_liability`, and `ledger.journal_entry` the source context
-  `leases` (T88b, both checks validated by 000328).
+  `leases` (T88b, both checks validated by 000328); and the lease run's
+  keys `lease_interest`, `right_of_use_depreciation` and
+  `right_of_use_accumulated_depreciation` (T88c, validated by 000333).
 - `leases.outbox`, `leases.inbox`: the context's events
-  (`LeaseContractChanged`).
-- Permissions `leases.contract.read`, `.write` and `.activate`.
+  (`LeaseContractChanged`, `LeaseRunPosted`).
+- Permissions `leases.contract.read`, `.write` and `.activate`, and
+  `leases.run.post`.

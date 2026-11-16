@@ -26,7 +26,7 @@ import (
 
 func endpoints() *partner.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	return &partner.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: apitest.FieldKeys(), Approvals: fixture.Approvals(), Schemas: configuration.Settings{}, Rules: configuration.Settings{},
+	return &partner.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, OpenItems: ledger.OpenItems{}, Keys: apitest.FieldKeys(), Approvals: fixture.Approvals(), Schemas: configuration.Settings{}, Rules: configuration.Settings{},
 		PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, PlanningGroups: cash.PlanningGroups{}}
 }
 
@@ -66,6 +66,14 @@ func TestDatabaseFailures(t *testing.T) {
 	e.Must(200, "POST", "/v1/business-partners/"+id(f)+":block", `{"reason": "r"}`, `"2"`)
 	// p: pending with its create change.
 	p, create := e.create(t, e.supplier("P", 0))
+	// g: active, to block the personal data of; b: its personal data
+	// blocked, read by a caller who reads it masked.
+	g := e.active(t, "G", 0)
+	b := e.active(t, "B", 0)
+	e.ten.Grant(t, "partner.privacy.block", e.ten.Human)
+	e.blockPersonal(t, b)
+	bChange, _ := e.Must(200, "GET", "/v1/partner-changes?partner_id="+id(b)+"&kind=create", "", "")
+	bCreate := u(bChange["items"].([]any)[0].(map[string]any))
 
 	h := endpoints()
 	when := e.day.AddDate(0, 0, 3)
@@ -82,7 +90,7 @@ func TestDatabaseFailures(t *testing.T) {
 		Extensions: gen.NewOptExtensions(gen.Extensions{"segment": []byte(`"x"`)}), GroupCompanyID: gen.NewOptUUID(e.le), ConfirmDuplicate: gen.NewOptBool(true)}
 	calls := map[string]func(ctx context.Context) error{
 		"payment accounts": func(ctx context.Context) error {
-			_, err := partner.Suppliers{}.PaymentAccounts(ctx, []uuid.UUID{u(a)})
+			_, err := partner.Suppliers{Settings: configuration.Settings{}}.PaymentAccounts(ctx, []uuid.UUID{u(a)})
 			return err
 		},
 		"group company": func(ctx context.Context) error {
@@ -149,9 +157,50 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 	}
+	privacy := map[string]func(ctx context.Context) error{
+		"block personal data": func(ctx context.Context) error {
+			_, err := h.BlockPersonalData(ctx, &gen.ReasonInput{Reason: "r"}, gen.BlockPersonalDataParams{ID: u(g), IfMatch: "*"})
+			return err
+		},
+		"unblock personal data": func(ctx context.Context) error {
+			_, err := h.UnblockPersonalData(ctx, &gen.ReasonInput{Reason: "r"}, gen.UnblockPersonalDataParams{ID: u(b), IfMatch: "*"})
+			return err
+		},
+		"get blocked partner": func(ctx context.Context) error {
+			_, err := h.GetBusinessPartner(ctx, gen.GetBusinessPartnerParams{ID: u(b)})
+			return err
+		},
+		"list blocked partners": func(ctx context.Context) error {
+			_, err := h.ListBusinessPartners(ctx, gen.ListBusinessPartnersParams{Ids: []uuid.UUID{u(b)}})
+			return err
+		},
+		"get blocked bank account": func(ctx context.Context) error {
+			_, err := h.GetBankAccount(ctx, gen.GetBankAccountParams{ID: u(b), BankAccountID: bankOf(b)})
+			return err
+		},
+		"list blocked bank accounts": func(ctx context.Context) error {
+			_, err := h.ListBankAccounts(ctx, gen.ListBankAccountsParams{ID: u(b)})
+			return err
+		},
+		"get blocked change": func(ctx context.Context) error {
+			_, err := h.GetPartnerChange(ctx, gen.GetPartnerChangeParams{ID: bCreate})
+			return err
+		},
+		"names of blocked": func(ctx context.Context) error {
+			_, err := partner.Payees{}.Names(ctx, []uuid.UUID{u(b)})
+			return err
+		},
+		"bank accounts of blocked": func(ctx context.Context) error {
+			_, err := partner.Payees{}.BankAccounts(ctx, []uuid.UUID{bankOf(b)})
+			return err
+		},
+	}
+	for name, call := range privacy {
+		calls[name] = call
+	}
 	for kind, change := range map[string]map[string]any{"create": create, "update": update, "bank add": bankAdd, "bank end": bankEnd, "unblock": unblock} {
 		calls["apply "+kind] = func(ctx context.Context) error {
-			_, err := partner.ApplyChange(ctx, configuration.Settings{}, u(change))
+			_, err := partner.ApplyChange(ctx, configuration.Settings{}, nil, u(change))
 			return err
 		}
 	}
@@ -161,6 +210,10 @@ func TestDatabaseFailures(t *testing.T) {
 	}
 	calls["cancel"] = func(ctx context.Context) error {
 		_, err := partner.CancelChange(ctx, u(create))
+		return err
+	}
+	calls["find customers"] = func(ctx context.Context) error {
+		_, err := partner.Payees{Keys: apitest.FieldKeys()}.FindCustomers(ctx, "BP1", "DE811111111")
 		return err
 	}
 	for name, call := range calls {

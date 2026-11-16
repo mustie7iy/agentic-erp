@@ -140,6 +140,7 @@ func TestAccountsAndCalendarPorts(t *testing.T) {
 			t.Errorf("unknown legal entity: %v", err)
 		}
 		calendarPeriods(t, ctx, c, e.de)
+		calendarRegularPeriod(t, ctx, c, e.de)
 		calendarYears(t, ctx, c, e.de)
 		return nil
 	})
@@ -185,6 +186,29 @@ func calendarPeriods(t *testing.T, ctx context.Context, c ledger.Calendar, le uu
 		t.Run(name, func(t *testing.T) {
 			if _, err := c.Periods(ctx, tc.le, tc.year); problem.From(err).Code != "ledger.no_fiscal_period" {
 				t.Errorf("got %v, want ledger.no_fiscal_period", err)
+			}
+		})
+	}
+}
+
+// calendarRegularPeriod checks Calendar.RegularPeriod: a set-up year's
+// period by its number, 422 ledger.period_not_regular naming fiscal_period
+// for a number that is no regular period, and Periods' refusal for a year
+// not set up.
+func calendarRegularPeriod(t *testing.T, ctx context.Context, c ledger.Calendar, le uuid.UUID) {
+	t.Helper()
+	p, err := c.RegularPeriod(ctx, le, 2026, 3)
+	if got := fmt.Sprint(p.FiscalYear, " ", p.Number, " ", p.Start.Format(time.DateOnly), " ", p.End.Format(time.DateOnly), " ", err); got != "2026 3 2026-03-01 2026-03-31 <nil>" {
+		t.Errorf("period 3 of 2026: got %s, want 2026 3 2026-03-01 2026-03-31 <nil>", got)
+	}
+	for name, tc := range map[string]struct {
+		year, number int32
+		code         string
+	}{"a special period": {2026, 13, "ledger.period_not_regular"}, "a year not set up": {2031, 1, "ledger.no_fiscal_period"}} {
+		t.Run(name, func(t *testing.T) {
+			_, err := c.RegularPeriod(ctx, le, tc.year, tc.number)
+			if p := problem.From(err); p.Code != tc.code || (tc.code == "ledger.period_not_regular" && (len(p.Errors) != 1 || p.Errors[0].Field != "fiscal_period")) {
+				t.Errorf("got %v, want %s", err, tc.code)
 			}
 		})
 	}

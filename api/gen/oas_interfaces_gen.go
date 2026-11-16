@@ -89,6 +89,10 @@ type BlockOrgUnitRes interface {
 	blockOrgUnitRes()
 }
 
+type BlockPersonalDataRes interface {
+	blockPersonalDataRes()
+}
+
 type BlockPrincipalRes interface {
 	blockPrincipalRes()
 }
@@ -143,6 +147,10 @@ type CancelRevaluationRunRes interface {
 
 type CancelSupplierInvoiceRes interface {
 	cancelSupplierInvoiceRes()
+}
+
+type CaptureSalesOrderRes interface {
+	captureSalesOrderRes()
 }
 
 type CaptureSupplierInvoiceRes interface {
@@ -353,6 +361,10 @@ type CreateLeaseContractRes interface {
 	createLeaseContractRes()
 }
 
+type CreateLeaseRunRes interface {
+	createLeaseRunRes()
+}
+
 type CreateLegalEntityRes interface {
 	createLegalEntityRes()
 }
@@ -379,6 +391,10 @@ type CreatePartnerChangeRes interface {
 
 type CreatePeriodCloseRes interface {
 	createPeriodCloseRes()
+}
+
+type CreatePersonalDataDeletionRunRes interface {
+	createPersonalDataDeletionRunRes()
 }
 
 type CreatePlanCategoryRes interface {
@@ -459,6 +475,10 @@ type CreateRoleRes interface {
 
 type CreateSalesOrderRes interface {
 	createSalesOrderRes()
+}
+
+type CreateSalesOrderUploadRes interface {
+	createSalesOrderUploadRes()
 }
 
 type CreateSalesPriceRes interface {
@@ -881,6 +901,10 @@ type GetLeaseContractRes interface {
 	getLeaseContractRes()
 }
 
+type GetLeaseRunRes interface {
+	getLeaseRunRes()
+}
+
 type GetLeaseScheduleRes interface {
 	getLeaseScheduleRes()
 }
@@ -953,6 +977,14 @@ type GetPeriodCloseRes interface {
 	getPeriodCloseRes()
 }
 
+type GetPersonalDataDeletionPreviewRes interface {
+	getPersonalDataDeletionPreviewRes()
+}
+
+type GetPersonalDataDeletionRunRes interface {
+	getPersonalDataDeletionRunRes()
+}
+
 type GetPersonalDataInventoryRes interface {
 	getPersonalDataInventoryRes()
 }
@@ -971,6 +1003,10 @@ type GetPrincipalRes interface {
 
 type GetProfitCenterRes interface {
 	getProfitCenterRes()
+}
+
+type GetProfitabilityReportRes interface {
+	getProfitabilityReportRes()
 }
 
 type GetPurchaseOrderChangeRes interface {
@@ -1063,6 +1099,10 @@ type GetRoleRes interface {
 
 type GetSalesOrderRes interface {
 	getSalesOrderRes()
+}
+
+type GetSalesOrderUploadRes interface {
+	getSalesOrderUploadRes()
 }
 
 type GetSalesPriceRes interface {
@@ -1441,6 +1481,10 @@ type ListLeaseContractsRes interface {
 	listLeaseContractsRes()
 }
 
+type ListLeaseRunsRes interface {
+	listLeaseRunsRes()
+}
+
 type ListLedgerGroupsRes interface {
 	listLedgerGroupsRes()
 }
@@ -1527,6 +1571,10 @@ type ListPeriodCloseVariancesRes interface {
 
 type ListPeriodClosesRes interface {
 	listPeriodClosesRes()
+}
+
+type ListPersonalDataDeletionSubjectsRes interface {
+	listPersonalDataDeletionSubjectsRes()
 }
 
 type ListPlanCategoriesRes interface {
@@ -2115,6 +2163,10 @@ type UnblockLegalEntityRes interface {
 
 type UnblockOrgUnitRes interface {
 	unblockOrgUnitRes()
+}
+
+type UnblockPersonalDataRes interface {
+	unblockPersonalDataRes()
 }
 
 type UnlockFiscalPeriodRes interface {

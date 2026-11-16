@@ -22,15 +22,20 @@ import (
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
-var perms = []string{"leases.contract.read", "leases.contract.write", "leases.contract.activate"}
+var perms = []string{"leases.contract.read", "leases.contract.write", "leases.contract.activate", "leases.run.post"}
 
-const contracts = "/v1/lease-contracts"
+const (
+	contracts = "/v1/lease-contracts"
+	runs      = "/v1/lease-runs"
+)
 
 // env is a configured tenant whose company 2000 (EUR) has a cost center
 // in force from 2026, so lease contracts can be entered there with the
 // fixture's supplier as lessor, and the right-of-use asset (160000) and
 // lease liability (260000) accounts in its account determination, so
-// they can be activated.
+// they can be activated, and the lease run's accounts: interest expense
+// (672000), depreciation expense (673000) and accumulated depreciation
+// (161000).
 type env struct {
 	fixture.Env
 	center     uuid.UUID // CC-LEASE of company 2000, in force from 2026-01-01
@@ -40,11 +45,25 @@ type env struct {
 
 func setup(t *testing.T) env {
 	t.Helper()
+	return withAccounts(t, true)
+}
+
+// withAccounts is setup's tenant, with the lease run's accounts or
+// without them (the activation's two only).
+func withAccounts(t *testing.T, run bool) env {
+	t.Helper()
 	e := env{Env: fixture.NewWith(t, nil, func(doc *config.Config) {
 		de := doc.Company("2000")
 		de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "160000", Name: "Right-of-use assets", Type: config.Asset},
 			config.Account{Number: "260000", Name: "Lease liabilities", Type: config.Liability})
 		de.AccountDetermination.RightOfUseAsset, de.AccountDetermination.LeaseLiability = "160000", "260000"
+		if run {
+			de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "161000", Name: "Accumulated depreciation, right-of-use", Type: config.Asset},
+				config.Account{Number: "672000", Name: "Lease interest", Type: config.Expense},
+				config.Account{Number: "673000", Name: "Depreciation of right-of-use assets", Type: config.Expense})
+			ad := &de.AccountDetermination
+			ad.LeaseInterest, ad.RightOfUseDepreciation, ad.RightOfUseAccumulatedDepreciation = "672000", "673000", "161000"
+		}
 	}, perms...)}
 	e.center = e.costCenter(t, e.DE, "CC-LEASE", "2026-01-01", nil)
 	e.rightOfUse, e.liability = e.Account(t, "2000", "160000"), e.Account(t, "2000", "260000")

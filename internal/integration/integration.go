@@ -64,6 +64,9 @@ type Partners interface {
 	Create(ctx context.Context, in partner.NewPartner) (uuid.UUID, error)
 	AddCompanies(ctx context.Context, id uuid.UUID, companies []partner.SupplierCompanyInput, reason string) error
 	Block(ctx context.Context, id uuid.UUID, reason string) error
+	// Today is partner's day, the earliest of the tenant's companies' days:
+	// what a supplier's bank account and address start by.
+	Today(ctx context.Context) (time.Time, error)
 }
 
 // Suppliers reads suppliers and, for the reconciliation, their payments

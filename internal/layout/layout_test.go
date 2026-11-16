@@ -98,10 +98,11 @@ var allowed = map[string][]string{
 	"collections":             {"config", "ledger", "partner", "tenancy"}, // a leaf (ADR-0065 §1): the ledger's customer open items, partners' names, tenancy and configuration through its ports, by the types their published APIs give
 	"config":                  {"bankfile"},
 	"configuration":           {"approvals", "config", "countrypack", "operations"},
-	"consolidation":           {"config"},                       // a leaf (ADR-0059 §2): configuration and tenancy (the ledger and identity in later slices) through ports the composition root wires
-	"credit":                  {"ledger", "partner", "tenancy"}, // a leaf (ADR-0066 §1): the ledger's customer open items, partners' customers and names and tenancy through its ports, by the types their published APIs give
-	"controlling":             {"config", "ledger", "tenancy"},  // plan values over the ledger's centers and actuals, through ledger.AssignmentBalances (ADR-0050 §2); config: a company's date in its time zone (config.DocumentDay over controlling.Settings, ADR-0064 §3)
+	"consolidation":           {"config"},                                          // a leaf (ADR-0059 §2): configuration and tenancy (the ledger and identity in later slices) through ports the composition root wires
+	"credit":                  {"ledger", "partner", "tenancy"},                    // a leaf (ADR-0066 §1): the ledger's customer open items, partners' customers and names and tenancy through its ports, by the types their published APIs give
+	"controlling":             {"config", "ledger", "partner", "sales", "tenancy"}, // plan values over the ledger's centers and actuals, through ledger.AssignmentBalances (ADR-0050 §2); config: a company's date in its time zone (config.DocumentDay over controlling.Settings, ADR-0064 §3); sales and partner: net revenue by segment from sales.Orders.Segments and the customers' names (ADR-0075 §6)
 	"countrypack":             {"config"},
+	"collectionsagent":        {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration and its check
 	"creditagent":             {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration and its check
 	"controlplane":            {"agents", "audit", "config", "directory", "identity", "offboarding", "provisioning", "tenancy"},
 	"delivery/configagent":    {"apitools", "llm"},
@@ -121,11 +122,11 @@ var allowed = map[string][]string{
 	"payments":                {"approvals", "bankfile", "bankstatement", "config", "ledger", "operations", "partner", "tenancy"},
 	"procurement":             {"approvals", "config", "ledger", "partner", "tenancy"},
 	"provisioning":            {"config", "configuration", "identity", "tenancy"},
-	"receivables":             {"config", "ledger", "partner", "tenancy"},                // as payables reads them (ADR-0063 §1)
-	"sales":                   {"config", "ledger", "partner", "receivables", "tenancy"}, // as receivables reads them; receivables itself for billing, which posts through it (ADR-0067 §1, §9)
-	"revenue":                 {"config", "ledger", "partner", "sales", "tenancy"},       // a leaf (ADR-0068 §1): the sales context's orders (sales.Orders), partners' names, tenancy, the ledger's calendar and the configuration through its ports
-	"records":                 {"config", "ledger", "tenancy"},                           // a leaf (ADR-0079 §1): tenancy's legal entities, the configuration's retention rules and the ledger's fiscal years and journal through its ports
-	"leases":                  {"config", "ledger", "partner", "tenancy"},                // a leaf (ADR-0073 §1): tenancy, the partner context's suppliers and names, the ledger's cost centers, calendar and postings and the configuration through its ports
+	"receivables":             {"config", "ledger", "partner", "tenancy"},                                         // as payables reads them (ADR-0063 §1)
+	"sales":                   {"capture", "config", "ledger", "operations", "partner", "receivables", "tenancy"}, // as receivables reads them; receivables itself for billing, which posts through it (ADR-0067 §1, §9); capture and operations for order capture, as payables' capture (ADR-0067 As built T90a)
+	"revenue":                 {"config", "ledger", "partner", "sales", "tenancy"},                                // a leaf (ADR-0068 §1): the sales context's orders (sales.Orders), partners' names, tenancy, the ledger's calendar and the configuration through its ports
+	"records":                 {"config", "ledger", "partner", "tenancy"},                                         // a leaf (ADR-0079 §1): tenancy's legal entities, the configuration's retention rules, the ledger's fiscal years and journal and the partner context's blocked personal data (§12) through its ports
+	"leases":                  {"config", "ledger", "partner", "tenancy"},                                         // a leaf (ADR-0073 §1): tenancy, the partner context's suppliers and names, the ledger's cost centers, calendar and postings and the configuration through its ports
 	"reconagent":              {"apitools", "llm"},
 	"recommend":               {"apitools", "llm"},                        // the recommending agents' one pattern (ADR-0072): every such agent imports it, and it no agent
 	"regulatoryagent":         {"apitools", "config", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration and its check; config: the paths it names, as config.Diff names them

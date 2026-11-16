@@ -166,6 +166,52 @@ answers it. A tenant without a leading ledger has no figures.
   this ADR writes, so no event is published and nothing is audited.
 - No segregation-of-duties rule is added (product owner, 2026-11-12).
 
+### 6. Net revenue by profitability segment (T92a)
+
+Decided by default while building T92a (ADR-0053 d), where §1 left the
+report's detail open:
+
+- **Segments.** A segment is a customer and an item key, the key of the
+  sales order item a billing item bills. The items without a key are one
+  segment of their customer, with no `item_key`.
+- **What is counted.** A posted billing document counts in the period its
+  posting date falls in, a posted credit memo request (T85d) in the
+  period of its own posting date, in the billing item's segment. A
+  billing document not yet posted, an approved request not yet posted and
+  a returns order count nothing. Regular periods only (the sales
+  documents carry dates, not special periods): `fiscal_period_from` and
+  `fiscal_period_to` default to the year's first and last, and a number
+  that is no regular period is 422 `controlling.period_not_regular`.
+- **Gross value and discounts.** An order item's gross value is its price
+  condition, the first of its conditions (ADR-0067 §11), and its discount
+  that less its net value; an item priced without a procedure has no
+  discount. A billing item that bills the order item in one part takes
+  the whole; parts share it as billing shares the net value (`billable`):
+  the discount × the net billed so far, the part included, ÷ the item's
+  net value, rounded half away from zero, less the same for the parts
+  before it in the order the documents were created. The parts of a fully
+  billed item add up to its discount to the minor unit, and a part's
+  share never changes once billed. Net revenue is gross value less
+  discounts less credit memos, so the rows add up to the net of the
+  period's posted billing documents less its posted credit memos.
+- **Currency.** Amounts are in the company's local currency. A billing
+  document or credit memo in another currency is not converted (no rate
+  is stored on the sales documents, and revenue recognition refuses them
+  likewise, ADR-0068): it is left out, and `foreign_currency_documents`
+  counts what was left out, so nothing is dropped silently.
+- **The read.** The sales context adds the segments up in its published
+  port (`sales.Orders.Segments`, in the request's transaction), the
+  partner context names the customers (`partner.Payees.Names`); the
+  controlling context, which declares both ports, orders the rows by the
+  customer's number, its id, the row without a key first and then the
+  key, and pages them by that key; `totals` are on every page and
+  `includes_cost` is always false. A sum beyond a 64-bit amount fails the
+  read.
+- **Permissions.** Besides `controlling.profitability.read` the caller
+  needs `sales.billing.read` (`x-also-permissions`): the figures are the
+  billing documents' amounts, as the margin report's need
+  `ledger.entry.read`.
+
 ## Alternatives
 
 - **Cost of sales by account type or cost element.** Rejected: a chart
@@ -215,6 +261,11 @@ answers it. A tenant without a leading ledger has no figures.
 7. An inaccessible legal entity is answered as missing (422), not as an
    empty report: the report's heading needs the company's currency.
 8. The margin report needs `ledger.entry.read` beside its own permission.
+
+9. (T92a) Net revenue by segment counts documents in the local currency
+   alone and counts those left out; an item's discount is shared over its
+   billed parts by their net value; regular periods only; the caller also
+   needs `sales.billing.read` (§6).
 
 ## Questions
 
@@ -273,3 +324,44 @@ configuration, not shipped).
   by segment and by hierarchy node, comparison with the plan and the
   previous year, the group's currency, drill-down to journal entries,
   export.
+
+### T92a Net revenue by profitability segment (migration 000331)
+
+- **The sales context's port** `sales.Orders.Segments`
+  (`internal/sales/segments.go`): one statement adding up the posted
+  billing items and credit memo request items of the selection by
+  customer and item key, as §6 says, and one counting the documents in
+  another currency.
+- **`GET /v1/profitability-report`** (`getProfitabilityReport`,
+  `internal/controlling/profitability.go`; `x-slo-class: report`): the
+  controlling context declares the ports `Sales` and `Partners`, wired by
+  the composition root to `sales.Orders` and `partner.Payees`; controlling
+  now imports `sales` and `partner` (`internal/layout`), as revenue does.
+  Problems: 400 `request.invalid_parameter` (periods),
+  `request.invalid_page_size`, `request.invalid_page_token`; 422
+  `controlling.period_not_regular`, `ledger.no_fiscal_period`,
+  `request.reference_not_found` (`legal_entity_id`).
+- **Permission** `controlling.profitability.read` (migration 000331; not
+  an approval permission; `TestMarginReadPermission`). No table.
+- **Tests:** `TestProfitabilityReport` (an item billed in two parts with
+  its discount shared, an item without a key, a credit memo, a billing
+  document not posted, one in US dollars), `TestProfitabilityReportSelections`,
+  `TestProfitabilityReportPages`, `TestProfitabilityReportRefusals`,
+  `TestProfitabilityReportFails`, `TestProfitabilityDatabaseFailures`.
+- **Budget:** `TestProfitabilityReportBudget`: a page of 100 of 21,000
+  segments over 100,000 posted billing documents of 200,000 items, 5,000
+  credit memos and 20,000 documents of the year before: median 1.66 s,
+  p95 2.20 s at scale 1 on a development machine under load (load
+  average 10, 2026-11-15), against 3 s.
+- **Walkthrough** step 98 (`step_profitability`): Carla reads Northwind's
+  segments, the brackets carrying step 85's credit memo; Sally sells
+  Northwind 250 brackets at its price of step 65 less its five percent
+  discount, Ruth bills and posts them; the brackets' segment grows by
+  2,937.48 gross, 146.87 discount and 2,790.61 net; the rows add up to the
+  totals, and Northwind's net revenue is its posted billing documents' net
+  less its posted credit memos; a reader without the permissions is
+  refused.
+- **Not built** (the plan's "Later"): cost of sales and contribution
+  margins per segment, segments on journal lines, further
+  characteristics, overhead allocation, plan against actual per segment,
+  segments from SAP CO-PA; documents in a foreign currency converted.

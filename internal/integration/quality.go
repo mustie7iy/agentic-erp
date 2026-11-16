@@ -65,8 +65,9 @@ type target struct {
 	// days are the day the run loads in each company code's time zone, the
 	// cutover date of the master data it migrates: a vendor's central
 	// address valid on it is the one taken (po:2026-11-09, A1; cutover.go).
-	// today is that day in UTC, the database's and partner's: what a
-	// supplier's bank account and address start by on the platform.
+	// today is partner's day (partner.Migration.Today: the earliest of
+	// the tenant's companies' days): what a supplier's bank account and
+	// address start by on the platform.
 	days  map[string]time.Time
 	today time.Time
 	// partners are what the trading partners the extract's vendors name

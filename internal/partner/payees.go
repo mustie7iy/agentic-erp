@@ -120,19 +120,37 @@ type Named struct{ Number, Name string }
 
 // Names returns the partners' numbers and names, keyed by id: what a
 // payment shows beside its supplier's id, and how a refusal names the
-// supplier. An id that names no partner is left out.
+// supplier. An id that names no partner is left out. The name of a
+// partner whose personal data is blocked is MaskedText to a caller who
+// may not read it (ADR-0079 §11): the number still names it.
 func (Payees) Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Named, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT id, number, name FROM partner.business_partner WHERE id = ANY($1)`, ids)
+	rows, _ := tx.Query(ctx, `SELECT id, number, name, personal_data_blocked_at IS NOT NULL AND personal_data_deleted_at IS NULL
+		FROM partner.business_partner WHERE id = ANY($1)`, ids)
 	out := map[uuid.UUID]Named{}
+	var blocked []uuid.UUID
 	var id uuid.UUID
 	var n Named
-	_, err = pgx.ForEachRow(rows, []any{&id, &n.Number, &n.Name}, func() error { out[id] = n; return nil })
+	var b bool
+	_, err = pgx.ForEachRow(rows, []any{&id, &n.Number, &n.Name, &b}, func() error {
+		out[id] = n
+		if b {
+			blocked = append(blocked, id)
+		}
+		return nil
+	})
 	if err != nil {
 		return out, fmt.Errorf("partner: names of %d partners: %w", len(ids), err)
+	}
+	full, err := readsBlocked(ctx, len(blocked) > 0)
+	if err != nil || full {
+		return out, err
+	}
+	for _, id := range blocked {
+		out[id] = Named{Number: out[id].Number, Name: MaskedText}
 	}
 	return out, nil
 }
@@ -140,7 +158,9 @@ func (Payees) Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Named, 
 // BankAccounts returns the bank accounts, masked, keyed by id: what a
 // payment shows beside its bank account's id. The account number stays
 // sealed (BankDetails opens it, only for a bank file). An id that names no
-// account is left out.
+// account is left out. An account of a partner whose personal data is
+// blocked has its holder and identifiers masked too to a caller who may
+// not read them (ADR-0079 §11).
 func (Payees) BankAccounts(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]BankAccount, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -151,9 +171,61 @@ func (Payees) BankAccounts(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]
 	if err != nil {
 		return nil, fmt.Errorf("partner: bank accounts of %d ids: %w", len(ids), err)
 	}
+	partners := make([]uuid.UUID, len(accounts))
+	for i, a := range accounts {
+		partners[i] = a.PartnerID
+	}
+	blocked, err := blockedAmong(ctx, tx, partners)
+	if err != nil {
+		return nil, err
+	}
+	full, err := readsBlocked(ctx, len(blocked) > 0)
+	if err != nil {
+		return nil, err
+	}
 	out := make(map[uuid.UUID]BankAccount, len(accounts))
 	for _, a := range accounts {
+		if !full && blocked[a.PartnerID] {
+			a = maskedBank(a)
+		}
 		out[a.ID] = a
 	}
 	return out, nil
+}
+
+// Found is a business partner a document names: its id, number and name.
+type Found struct {
+	ID           uuid.UUID
+	Number, Name string
+}
+
+// FindCustomers are the business partners a document names as its
+// customer (T90a, order capture), each once, by number: the one with the
+// number printed and those with a tax registration number of the value
+// printed, whatever its scheme, found through the identifiers' keyed hash
+// without opening one. An empty number or value finds none, nor does a
+// partner whose creation waits for approval; what the partners are to the
+// company is the caller's to check.
+func (p Payees) FindCustomers(ctx context.Context, number, taxNumber string) ([]Found, error) {
+	tx, pr, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var print *string
+	if taxNumber != "" {
+		f, err := p.Keys.Fingerprint(ctx, pr.TenantID, taxNumber)
+		if err != nil {
+			return nil, fmt.Errorf("partner: fingerprint of a tax registration number: %w", err)
+		}
+		print = &f
+	}
+	rows, _ := tx.Query(ctx, `SELECT p.id, p.number, p.name FROM partner.business_partner p
+		WHERE p.status <> 'pending' AND (($1 <> '' AND p.number = $1)
+			OR p.id IN (SELECT t.partner_id FROM partner.tax_identifier t WHERE $2::text IS NOT NULL AND t.value_fingerprint = $2))
+		ORDER BY p.number, p.id`, number, print)
+	found, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Found])
+	if err != nil {
+		return nil, fmt.Errorf("partner: customers named %q, %q: %w", number, taxNumber, err)
+	}
+	return found, nil
 }

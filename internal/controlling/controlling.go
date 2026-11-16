@@ -75,6 +75,13 @@
 // the ledger's balances, read through its port (ledger.AssignmentBalances
 // .Margin) with the cost of sales accounts the configuration names for
 // the company's chart (controlling.margin_report).
+//
+// Net revenue by profitability segment (ADR-0075 §6, T92a) stores
+// nothing either: a company's gross value billed, discounts, credit memos
+// and net revenue per customer and item key are the sales context's
+// posted documents, read through its published port (sales.Orders
+// .Segments), with the customers' names from the partner context's
+// (partner.Payees.Names).
 package controlling
 
 import (
@@ -160,6 +167,8 @@ type Endpoints struct {
 	Settings      Settings
 	Postings      Postings
 	Calendar      Calendar
+	Sales         Sales
+	Partners      Partners
 	Now           func() time.Time // nil: the wall clock
 }
 

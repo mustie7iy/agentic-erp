@@ -339,6 +339,24 @@ type Invoker interface {
 	//
 	// POST /v1/org-units/{id}:block
 	BlockOrgUnit(ctx context.Context, request *ReasonInput, params BlockOrgUnitParams) (BlockOrgUnitRes, error)
+	// BlockPersonalData invokes blockPersonalData operation.
+	//
+	// Blocks the partner's personal data once nothing is open for it (ADR-0079 §11, T100b): a partner
+	// with an open item in the ledger of any company, on a supplier or customer reconciliation account, is
+	// refused with 409 `partner.open_items` naming the company; open orders and unposted documents are the
+	// caller's to check in the first version. Blocking also blocks the partner (status `blocked`, as
+	// `blockBusinessPartner` does), so entering and posting documents for it are refused by the checks in
+	// place, and records an applied partner change of kind `block`. From then on the partner's name, legal
+	// name, addresses, tax identifiers and bank accounts are answered masked by every read of the partner
+	// context, and its name by the names other contexts show beside its id, to a caller without
+	// `partner.privacy.read_blocked`; names other contexts stored on their own documents, and events and
+	// exports written before, stay as they are. A partner that is not `active` or `blocked`, or has a
+	// pending partner change, is refused (409). Publishes BusinessPartnerUpdated naming
+	// `personal_data_blocked_at`. Returns the partner as the caller sees it. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/business-partners/{id}:blockPersonalData
+	BlockPersonalData(ctx context.Context, request *ReasonInput, params BlockPersonalDataParams) (BlockPersonalDataRes, error)
 	// BlockPrincipal invokes blockPrincipal operation.
 	//
 	// Blocks the principal; its tokens are refused from now on. Requires status `active`.
@@ -476,6 +494,38 @@ type Invoker interface {
 	//
 	// POST /v1/supplier-invoices/{id}:cancel
 	CancelSupplierInvoice(ctx context.Context, request *ReasonInput, params CancelSupplierInvoiceParams) (CancelSupplierInvoiceRes, error)
+	// CaptureSalesOrder invokes captureSalesOrder operation.
+	//
+	// Reads a customer's purchase order document into a draft sales order (ADR-0067, As built T90a). The
+	// document is a direct upload (`createSalesOrderUpload`: purpose `sales_order`, a PDF or plain text)
+	// consumed by this capture. A model reads it through the cell's model gateway (ADR-0036), whose
+	// refusals of the tenant's call are answered as they are: 422 `agents.documents_withheld`, 403
+	// `agents.ai_disabled`, 429 `agents.budget_exhausted`, 422 `agents.model_not_allowed` or
+	// `agents.model_unpriced`; a document the model does not read, or that prints no items, is 422
+	// `sales.unreadable_document`. The document is data: what it asks for (to confirm the order, to ship,
+	// to change a price) is not done. The customer is the business partner whose number or tax
+	// registration number the document prints (whatever the scheme): none is 422
+	// `sales.capture_customer_unknown` and more than one 422 `sales.capture_customer_ambiguous`; whether
+	// it may be sold to in the company is the order's check (422 `sales.customer_not_usable`). Each item
+	// of the document is an item of the order with its item key when one is printed, its description,
+	// quantity and unit: an item with a printed unit price takes it as entered (`price_source` `manual`),
+	// one without takes its item key's price record valid on the order's date (`price_list`, T80a), and
+	// one with neither is refused naming it by its place (422 `sales.no_price`, `items[i].unit_price`).
+	// The currency is the one printed, else the company's. Every item takes the revenue account
+	// (`account_id`) and output tax code (`tax_code`) of the request, which a document does not name;
+	// their refusals name those fields. What an order created by hand refuses is refused alike. The order
+	// is always a `draft`, numbered and dated as `createSalesOrder` makes one, and keeps what capture read
+	// (`capture`); a person checks and confirms it (`:confirm`); capture never confirms. One upload gives
+	// one order: the same upload captured again into the same company answers the same order; into another
+	// company it is refused as used (422 `payables.upload_used`), naming no order. Extraction can take
+	// longer than a synchronous answer, so this returns an Operation, completed within the request, whose
+	// `resource` is the order and whose `result` names it with any warning (a confidence below high).
+	// Audited and published as SalesOrderChanged, as an order created by hand. Human-only
+	// (`x-agent: false`): an agent or a service cannot capture an order. The upload is started with
+	// `createSalesOrderUpload`, which asks the same permission.
+	//
+	// POST /v1/sales-orders:capture
+	CaptureSalesOrder(ctx context.Context, request *SalesOrderCaptureRequest, params CaptureSalesOrderParams) (CaptureSalesOrderRes, error)
 	// CaptureSupplierInvoice invokes captureSupplierInvoice operation.
 	//
 	// Extracts a supplier invoice from a document and creates it `parked` with source `capture`.
@@ -1553,6 +1603,40 @@ type Invoker interface {
 	//
 	// POST /v1/lease-contracts
 	CreateLeaseContract(ctx context.Context, request *LeaseContractCreate, params CreateLeaseContractParams) (CreateLeaseContractRes, error)
+	// CreateLeaseRun invokes createLeaseRun operation.
+	//
+	// Runs lease accounting for a company and one of its regular fiscal periods and posts it (ADR-0073
+	// §9, T88c), in the request's transaction: either the whole run is posted or nothing. The system does
+	// the arithmetic only; every judgement is the person's, on the contract. For each `active` lease
+	// contract of the company the run takes the lines of the schedule stored at its activation
+	// (`getLeaseSchedule`) whose payment interval ends on or before the period's last day and that no
+	// earlier run posted: in the usual course the one line whose interval ends in the period, none in a
+	// period that a quarterly or yearly interval does not end in, and a line whose period was run before
+	// the contract was activated is caught up by the next run. A contract with such lines posts one
+	// balanced journal entry (document type `SA`, `source_context` `leases`, dated the period's last day,
+	// the contract's number as its reference) to every ledger the company keeps: the lines' interest
+	// debited to the company's `lease_interest` account and credited to its `lease_liability` account, and
+	// their depreciation debited to its `right_of_use_depreciation` account and credited to its
+	// `right_of_use_accumulated_depreciation` account, both expenses on the contract's cost center; a
+	// contract without such lines posts nothing. The lease payment itself is not posted by the run: a
+	// person posts the lessor's invoice against the lease liability account. One run per company and
+	// period: a second is refused (409 `leases.run_exists`), and a retry with the same `Idempotency-Key`
+	// answers the run as the first answered it. A company's first run is for any open period; each later
+	// run is for a later period than its last (409 `leases.run_period_not_later`): a run is not reversed
+	// or repeated in the first version. `legal_entity_id` is a company the caller may act in (422
+	// `request.reference_not_found`); `fiscal_period` is a regular posting period of `fiscal_year` in the
+	// company's calendar (422 `ledger.no_fiscal_period` for a year that is not set up, 422
+	// `ledger.period_not_regular`); the company has the four accounts (422 `leases.no_lease_accounts`,
+	// naming the keys missing); the period is open in every ledger the company keeps (409
+	// `ledger.period_not_open`), also when nothing is to post; the company has at most 2,000 active
+	// contracts (422 `leases.run_too_large`: larger runs are not supported yet). What the ledger refuses
+	// of an entry refuses the run (for example a cost center no longer valid on the period's last day).
+	// The answer is the run with its counts, the interest and depreciation it posted and its postings, one
+	// per contract that posted, each naming its lines and its journal entry. Audited, and published as
+	// LeaseRunPosted. Human-only (`x-agent: false`).
+	//
+	// POST /v1/lease-runs
+	CreateLeaseRun(ctx context.Context, request *LeaseRunCreate, params CreateLeaseRunParams) (CreateLeaseRunRes, error)
 	// CreateLegalEntity invokes createLegalEntity operation.
 	//
 	// Creates a legal entity in status `inactive`.
@@ -1640,6 +1724,28 @@ type Invoker interface {
 	//
 	// POST /v1/period-closes
 	CreatePeriodClose(ctx context.Context, request *PeriodCloseCreate, params CreatePeriodCloseParams) (CreatePeriodCloseRes, error)
+	// CreatePersonalDataDeletionRun invokes createPersonalDataDeletionRun operation.
+	//
+	// Starts a deletion run (ADR-0079 §12, T100c) of the subjects `getPersonalDataDeletionPreview` lists
+	// now; none is refused (422 `records.nothing_to_delete`). The run is queued with its subjects and the
+	// active configuration version, and the deleter blanks them in the background, each in a transaction
+	// of its own, as `getPersonalDataDeletionRun` then shows: a subject `blanked`, or `skipped` when its
+	// block was lifted, or lifted and set again, since, or an item of it is open (a later run lists it
+	// again once the item is cleared); the run `completed` once none is pending, or `failed` with the
+	// problem code that stopped it (`identity.principal_blocked` when the requester was blocked or
+	// deprovisioned since). Blanking replaces each field of the personal data inventory of the partner
+	// (its name and legal name, addresses, bank accounts, tax identifiers, its changes' payloads and its
+	// name where another change lists it as a possible duplicate) by a fixed marker (`[deleted]`; `XXXX`
+	// for the last four characters of an account or a tax identifier) and ends its bank accounts, and
+	// cannot be undone: the partner then reads `personal_data_deleted_at`, its block can no longer be
+	// lifted, and its documents name it by number. Journal entries, invoices and audit events are neither
+	// removed nor changed. One run is queued at a time: asking again while one is queued answers that run
+	// (200). The subjects are the whole tenant's, so the caller needs access to all companies (403
+	// `records.all_companies_required`). Audited (`records.deletion_run.request`), and each subject's
+	// blanking audited and published as PersonalDataDeleted, by ids only. Human-only (`x-agent: false`).
+	//
+	// POST /v1/personal-data-deletion-runs
+	CreatePersonalDataDeletionRun(ctx context.Context, request *ReasonInput, params CreatePersonalDataDeletionRunParams) (CreatePersonalDataDeletionRunRes, error)
 	// CreatePlanCategory invokes createPlanCategory operation.
 	//
 	// Creates an open plan category (ADR-0050 §8). A code is unique in the tenant (409
@@ -1965,6 +2071,18 @@ type Invoker interface {
 	//
 	// POST /v1/sales-orders
 	CreateSalesOrder(ctx context.Context, request *SalesOrderCreate, params CreateSalesOrderParams) (CreateSalesOrderRes, error)
+	// CreateSalesOrderUpload invokes createSalesOrderUpload operation.
+	//
+	// Starts a direct upload (ADR-0020) of purpose `sales_order`: a customer's purchase order, a PDF or
+	// plain text of at most 50 MB, which `captureSalesOrder` consumes (ADR-0067 As built T90a). It answers
+	// as `createUpload` does: a `url` to `PUT` the bytes to, with the `headers` to send, within
+	// `expires_at`; `via: api` asks for the path on this API whatever the store. An upload's permission
+	// follows its purpose: this one asks `sales.order.capture`, a supplier invoice's `createUpload` asks
+	// `payables.invoice.capture`. Another content type is refused (422
+	// `payables.unsupported_content_type`). Human-only (`x-agent: false`), as the capture is.
+	//
+	// POST /v1/sales-order-uploads
+	CreateSalesOrderUpload(ctx context.Context, request *SalesOrderUploadCreate, params CreateSalesOrderUploadParams) (CreateSalesOrderUploadRes, error)
 	// CreateSalesPrice invokes createSalesPrice operation.
 	//
 	// Records a price for an item key in a company (ADR-0067 §10, T80a): for every customer, or with
@@ -2064,7 +2182,10 @@ type Invoker interface {
 	// to the tenant's request quota once its signature checks out, and carries the rate-limit headers (429
 	// `request.rate_limited` with `Retry-After` over it); it is answered 503 with `Retry-After` while the
 	// server is receiving as many documents as it can, or as many of the tenant's at once as one tenant
-	// may (ADR-0020). 503 while the server has no object storage.
+	// may (ADR-0020). 503 while the server has no object storage. A customer's purchase order is not
+	// uploaded here but with `createSalesOrderUpload` (`sales.order.capture`, T90a): an upload's
+	// permission follows its purpose, and purpose `sales_order` is refused here (422
+	// `payables.unknown_upload_purpose`).
 	//
 	// POST /v1/uploads
 	CreateUpload(ctx context.Context, request *UploadCreate, params CreateUploadParams) (CreateUploadRes, error)
@@ -3305,6 +3426,17 @@ type Invoker interface {
 	//
 	// GET /v1/lease-contracts/{id}
 	GetLeaseContract(ctx context.Context, params GetLeaseContractParams) (GetLeaseContractRes, error)
+	// GetLeaseRun invokes getLeaseRun operation.
+	//
+	// One lease run (ADR-0073 §9, T88c) with its company's code and name, its fiscal period and posting
+	// date, the number of active contracts it read and of contracts it posted, the interest and
+	// depreciation it posted and its `postings`, one per contract that posted, by contract number: the
+	// contract with its lessor and cost center, the schedule lines it posted, their interest and
+	// depreciation and the journal entry. One of a company the caller may not act in is not found (404),
+	// as one that does not exist.
+	//
+	// GET /v1/lease-runs/{id}
+	GetLeaseRun(ctx context.Context, params GetLeaseRunParams) (GetLeaseRunRes, error)
 	// GetLeaseSchedule invokes getLeaseSchedule operation.
 	//
 	// The schedule of one lease contract (ADR-0073 §8, T88b): the lease liability at commencement, the
@@ -3584,6 +3716,32 @@ type Invoker interface {
 	//
 	// GET /v1/period-closes/{id}
 	GetPeriodClose(ctx context.Context, params GetPeriodCloseParams) (GetPeriodCloseRes, error)
+	// GetPersonalDataDeletionPreview invokes getPersonalDataDeletionPreview operation.
+	//
+	// The business partners a deletion run started now would blank (ADR-0079 §12, T100c), changing
+	// nothing: each partner whose personal data is blocked (`blockPersonalData`) and not deleted, that has
+	// supplier or customer data in at least one company, and whose block has lasted, in every such
+	// company, the whole years of the company's retention rule for `personal_data` in the active
+	// configuration, counted from the block's day on the company's date (a rule of zero years: from the
+	// day of the block). A company without a `personal_data` rule keeps its partners: without one, nothing
+	// is eligible. Each subject is listed by id and number with when its block began, the longest rule it
+	// is held to and the day that rule's years ended, a page at a time by number; `count` is how many
+	// there are in all. Sortable by: `partner_number` (default). `createPersonalDataDeletionRun` lists the
+	// same subjects. The subjects are the whole tenant's, so the caller needs access to all companies (403
+	// `records.all_companies_required`). A tenant without a configuration is 409
+	// `config.not_bootstrapped`. Human-only (`x-agent: false`).
+	//
+	// GET /v1/personal-data-deletion-preview
+	GetPersonalDataDeletionPreview(ctx context.Context, params GetPersonalDataDeletionPreviewParams) (GetPersonalDataDeletionPreviewRes, error)
+	// GetPersonalDataDeletionRun invokes getPersonalDataDeletionRun operation.
+	//
+	// One deletion run (ADR-0079 §12, T100c): `queued` while a subject is pending, then `completed`, or
+	// `failed` with the problem code that stopped it, with how many of its subjects are pending, blanked
+	// and skipped; `listPersonalDataDeletionSubjects` lists them. It needs access to all companies (403
+	// `records.all_companies_required`), as starting one does. Human-only (`x-agent: false`).
+	//
+	// GET /v1/personal-data-deletion-runs/{id}
+	GetPersonalDataDeletionRun(ctx context.Context, params GetPersonalDataDeletionRunParams) (GetPersonalDataDeletionRunRes, error)
 	// GetPersonalDataInventory invokes getPersonalDataInventory operation.
 	//
 	// The personal data inventory (ADR-0079 §9-§10, T100a): each column of the database that holds
@@ -3631,6 +3789,29 @@ type Invoker interface {
 	//
 	// GET /v1/profit-centers/{id}
 	GetProfitCenter(ctx context.Context, params GetProfitCenterParams) (GetProfitCenterRes, error)
+	// GetProfitabilityReport invokes getProfitabilityReport operation.
+	//
+	// Net revenue by profitability segment of one legal entity over a range of regular periods of a fiscal
+	// year (ADR-0075 §1, §6), from the sales context's posted documents, exact at the moment of the
+	// read: per segment, a customer and an item key, the gross value billed (each billed item's value
+	// before discounts, its price condition), the discounts taken off it, the credit memos posted against
+	// its billing and the net revenue, gross value less discounts less credit memos. A billing document
+	// counts in the period its posting date falls in, a credit memo in the period of its own posting date.
+	// An item billed in parts carries its discount in proportion to the net value each part billed,
+	// rounded half away from zero, so the parts add up to the item's discount to the minor unit. An item
+	// without an item key is grouped under its customer alone (no `item_key`). Amounts are in the legal
+	// entity's local currency: documents in another currency are not converted and are left out, and
+	// `foreign_currency_documents` counts them. No cost is shown (`includes_cost` is false): no cost of
+	// goods sold is posted per item, and the margin report (`getMarginReport`) has the ledger's cost of
+	// sales. Rows are by the customer's number, then the item key, the row without one first; `totals` are
+	// the whole selection's, on every page, and the rows of every page add up to them over the pages. A
+	// legal entity that does not exist or that the caller cannot act in is answered as missing (422
+	// `request.reference_not_found` on `legal_entity_id`). The figures are billing documents' amounts, so
+	// besides `controlling.profitability.read` the caller needs `sales.billing.read`
+	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/profitability-report
+	GetProfitabilityReport(ctx context.Context, params GetProfitabilityReportParams) (GetProfitabilityReportRes, error)
 	// GetPurchaseOrder invokes getPurchaseOrder operation.
 	//
 	// Returns one purchase order. Expandable: `supplier`, for a caller who may read business partners
@@ -3908,6 +4089,15 @@ type Invoker interface {
 	//
 	// GET /v1/sales-orders/{id}
 	GetSalesOrder(ctx context.Context, params GetSalesOrderParams) (GetSalesOrderRes, error)
+	// GetSalesOrderUpload invokes getSalesOrderUpload operation.
+	//
+	// Returns one upload of purpose `sales_order` (T90a), as `getUpload` returns a supplier invoice's:
+	// `open`, `received` or `used` by the order captured from it (`used_by`). An upload's permission
+	// follows its purpose: this one asks `sales.order.capture`; an upload of another purpose is not found
+	// here (404).
+	//
+	// GET /v1/sales-order-uploads/{id}
+	GetSalesOrderUpload(ctx context.Context, params GetSalesOrderUploadParams) (GetSalesOrderUploadRes, error)
 	// GetSalesPrice invokes getSalesPrice operation.
 	//
 	// One price record (ADR-0067 §10, §11, T80a, T80b), a price or a discount, with its company's code
@@ -3986,7 +4176,9 @@ type Invoker interface {
 	// GetUpload invokes getUpload operation.
 	//
 	// Returns one upload: `open` until bytes arrive through this API (`received`) or the upload is
-	// consumed (`used`); an upload to object storage stays `open` until it is consumed.
+	// consumed (`used`); an upload to object storage stays `open` until it is consumed. An upload's
+	// permission follows its purpose: an upload of a customer's purchase order (`sales_order`) is read
+	// with `getSalesOrderUpload` (`sales.order.capture`) and is not found here (404).
 	//
 	// GET /v1/uploads/{id}
 	GetUpload(ctx context.Context, params GetUploadParams) (GetUploadRes, error)
@@ -4893,6 +5085,15 @@ type Invoker interface {
 	//
 	// GET /v1/lease-contracts
 	ListLeaseContracts(ctx context.Context, params ListLeaseContractsParams) (ListLeaseContractsRes, error)
+	// ListLeaseRuns invokes listLeaseRuns operation.
+	//
+	// The lease runs of the companies the caller may act in (ADR-0073 §9, T88c), latest posting date
+	// first, each with its company's code and name, its fiscal period, its counts and the interest and
+	// depreciation it posted, without its postings, which `getLeaseRun` gives. Filtered by company, fiscal
+	// year and fiscal period. Sortable by: `posting_date`.
+	//
+	// GET /v1/lease-runs
+	ListLeaseRuns(ctx context.Context, params ListLeaseRunsParams) (ListLeaseRunsRes, error)
 	// ListLedgerGroups invokes listLedgerGroups operation.
 	//
 	// Ledger groups name the ledgers a posting goes to together; the representative ledger decides the
@@ -5104,6 +5305,17 @@ type Invoker interface {
 	//
 	// GET /v1/period-closes
 	ListPeriodCloses(ctx context.Context, params ListPeriodClosesParams) (ListPeriodClosesRes, error)
+	// ListPersonalDataDeletionSubjects invokes listPersonalDataDeletionSubjects operation.
+	//
+	// The subjects of a deletion run (ADR-0079 §12, T100c), by partner number, a page at a time,
+	// optionally of one status: each business partner by id and number, never by name, with when its block
+	// began, the rule it was held to, and its status (`pending`, `blanked`, or `skipped` when its block
+	// was lifted or set again since, or an item of it was open) with when it was settled. It needs access
+	// to all companies (403 `records.all_companies_required`). A run the tenant does not have is 404.
+	// Human-only (`x-agent: false`). Sortable by: `partner_number` (default).
+	//
+	// GET /v1/personal-data-deletion-runs/{id}/subjects
+	ListPersonalDataDeletionSubjects(ctx context.Context, params ListPersonalDataDeletionSubjectsParams) (ListPersonalDataDeletionSubjectsRes, error)
 	// ListPlanCategories invokes listPlanCategories operation.
 	//
 	// The tenant's plan categories (ADR-0050 §8), such as `PLAN` and `FORECAST`: open, or locked so their
@@ -6854,7 +7066,15 @@ type Invoker interface {
 	// periods it needs and those the history has (422 `analytics.forecast_history_short`); a history of
 	// more periods than a query answers (500 rows) is refused (422 `analytics.invalid_query`). The answer
 	// names the method, the periods it used (`used`) and says it is an arithmetic projection, not a
-	// statistical forecast. Changes nothing: agents of any autonomy level may run it.
+	// statistical forecast. With a `scenario` (ADR-0077 §8, T97b), the history is read by period and by
+	// each dimension an adjustment names; the rows of each adjustment's value are forecast on their own by
+	// the method, and so are the rows of none; `forecast` is then the baseline, those forecasts summed,
+	// and `scenario` gives per period ahead the baseline, the scenario (each adjusted part changed by its
+	// percentage, rounded half away from zero to the metric's digits) and their difference, with their
+	// totals and each adjustment's part. A dimension the metric lacks or one of the forecast's periods is
+	// 422 `request.validation_failed` on the adjustment's `dimension`; two adjustments that would change
+	// one row are 422 `analytics.scenario_overlap`; a history by those dimensions of more than 500 rows is
+	// refused (422 `analytics.invalid_query`). Changes nothing: agents of any autonomy level may run it.
 	//
 	// POST /v1/analytics-forecasts
 	RunAnalyticsForecast(ctx context.Context, request *AnalyticsForecastRequest, params RunAnalyticsForecastParams) (RunAnalyticsForecastRes, error)
@@ -7240,6 +7460,17 @@ type Invoker interface {
 	//
 	// POST /v1/org-units/{id}:unblock
 	UnblockOrgUnit(ctx context.Context, params UnblockOrgUnitParams) (UnblockOrgUnitRes, error)
+	// UnblockPersonalData invokes unblockPersonalData operation.
+	//
+	// Lifts the block of the partner's personal data (ADR-0079 §11, T100b): its reads are answered in
+	// full again. The partner itself stays `blocked`; unblocking it is `unblockBusinessPartner`, with its
+	// approval. A partner whose personal data is not blocked is refused with 409
+	// `partner.personal_data_not_blocked`, one whose personal data a deletion run blanked with 409
+	// `partner.personal_data_deleted`. Publishes BusinessPartnerUpdated naming `personal_data_blocked_at`.
+	// Returns the partner as the caller sees it. Human-only (`x-agent: false`).
+	//
+	// POST /v1/business-partners/{id}:unblockPersonalData
+	UnblockPersonalData(ctx context.Context, request *ReasonInput, params UnblockPersonalDataParams) (UnblockPersonalDataRes, error)
 	// UnlockFiscalPeriod invokes unlockFiscalPeriod operation.
 	//
 	// Opens a `period_unlock` approval request for a locked period and names it on the period
@@ -11372,6 +11603,178 @@ func (c *Client) sendBlockOrgUnit(ctx context.Context, request *ReasonInput, par
 	return result, nil
 }
 
+// BlockPersonalData invokes blockPersonalData operation.
+//
+// Blocks the partner's personal data once nothing is open for it (ADR-0079 §11, T100b): a partner
+// with an open item in the ledger of any company, on a supplier or customer reconciliation account, is
+// refused with 409 `partner.open_items` naming the company; open orders and unposted documents are the
+// caller's to check in the first version. Blocking also blocks the partner (status `blocked`, as
+// `blockBusinessPartner` does), so entering and posting documents for it are refused by the checks in
+// place, and records an applied partner change of kind `block`. From then on the partner's name, legal
+// name, addresses, tax identifiers and bank accounts are answered masked by every read of the partner
+// context, and its name by the names other contexts show beside its id, to a caller without
+// `partner.privacy.read_blocked`; names other contexts stored on their own documents, and events and
+// exports written before, stay as they are. A partner that is not `active` or `blocked`, or has a
+// pending partner change, is refused (409). Publishes BusinessPartnerUpdated naming
+// `personal_data_blocked_at`. Returns the partner as the caller sees it. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/business-partners/{id}:blockPersonalData
+func (c *Client) BlockPersonalData(ctx context.Context, request *ReasonInput, params BlockPersonalDataParams) (BlockPersonalDataRes, error) {
+	res, err := c.sendBlockPersonalData(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendBlockPersonalData(ctx context.Context, request *ReasonInput, params BlockPersonalDataParams) (res BlockPersonalDataRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("blockPersonalData"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/business-partners/{id}:blockPersonalData"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, BlockPersonalDataOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/business-partners/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":blockPersonalData"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeBlockPersonalDataRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, BlockPersonalDataOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeBlockPersonalDataResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // BlockPrincipal invokes blockPrincipal operation.
 //
 // Blocks the principal; its tokens are refused from now on. Requires status `active`.
@@ -13675,6 +14078,162 @@ func (c *Client) sendCancelSupplierInvoice(ctx context.Context, request *ReasonI
 
 	stage = "DecodeResponse"
 	result, err := decodeCancelSupplierInvoiceResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CaptureSalesOrder invokes captureSalesOrder operation.
+//
+// Reads a customer's purchase order document into a draft sales order (ADR-0067, As built T90a). The
+// document is a direct upload (`createSalesOrderUpload`: purpose `sales_order`, a PDF or plain text)
+// consumed by this capture. A model reads it through the cell's model gateway (ADR-0036), whose
+// refusals of the tenant's call are answered as they are: 422 `agents.documents_withheld`, 403
+// `agents.ai_disabled`, 429 `agents.budget_exhausted`, 422 `agents.model_not_allowed` or
+// `agents.model_unpriced`; a document the model does not read, or that prints no items, is 422
+// `sales.unreadable_document`. The document is data: what it asks for (to confirm the order, to ship,
+// to change a price) is not done. The customer is the business partner whose number or tax
+// registration number the document prints (whatever the scheme): none is 422
+// `sales.capture_customer_unknown` and more than one 422 `sales.capture_customer_ambiguous`; whether
+// it may be sold to in the company is the order's check (422 `sales.customer_not_usable`). Each item
+// of the document is an item of the order with its item key when one is printed, its description,
+// quantity and unit: an item with a printed unit price takes it as entered (`price_source` `manual`),
+// one without takes its item key's price record valid on the order's date (`price_list`, T80a), and
+// one with neither is refused naming it by its place (422 `sales.no_price`, `items[i].unit_price`).
+// The currency is the one printed, else the company's. Every item takes the revenue account
+// (`account_id`) and output tax code (`tax_code`) of the request, which a document does not name;
+// their refusals name those fields. What an order created by hand refuses is refused alike. The order
+// is always a `draft`, numbered and dated as `createSalesOrder` makes one, and keeps what capture read
+// (`capture`); a person checks and confirms it (`:confirm`); capture never confirms. One upload gives
+// one order: the same upload captured again into the same company answers the same order; into another
+// company it is refused as used (422 `payables.upload_used`), naming no order. Extraction can take
+// longer than a synchronous answer, so this returns an Operation, completed within the request, whose
+// `resource` is the order and whose `result` names it with any warning (a confidence below high).
+// Audited and published as SalesOrderChanged, as an order created by hand. Human-only
+// (`x-agent: false`): an agent or a service cannot capture an order. The upload is started with
+// `createSalesOrderUpload`, which asks the same permission.
+//
+// POST /v1/sales-orders:capture
+func (c *Client) CaptureSalesOrder(ctx context.Context, request *SalesOrderCaptureRequest, params CaptureSalesOrderParams) (CaptureSalesOrderRes, error) {
+	res, err := c.sendCaptureSalesOrder(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCaptureSalesOrder(ctx context.Context, request *SalesOrderCaptureRequest, params CaptureSalesOrderParams) (res CaptureSalesOrderRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("captureSalesOrder"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/sales-orders:capture"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CaptureSalesOrderOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/sales-orders:capture"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCaptureSalesOrderRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CaptureSalesOrderOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCaptureSalesOrderResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -21793,6 +22352,164 @@ func (c *Client) sendCreateLeaseContract(ctx context.Context, request *LeaseCont
 	return result, nil
 }
 
+// CreateLeaseRun invokes createLeaseRun operation.
+//
+// Runs lease accounting for a company and one of its regular fiscal periods and posts it (ADR-0073
+// §9, T88c), in the request's transaction: either the whole run is posted or nothing. The system does
+// the arithmetic only; every judgement is the person's, on the contract. For each `active` lease
+// contract of the company the run takes the lines of the schedule stored at its activation
+// (`getLeaseSchedule`) whose payment interval ends on or before the period's last day and that no
+// earlier run posted: in the usual course the one line whose interval ends in the period, none in a
+// period that a quarterly or yearly interval does not end in, and a line whose period was run before
+// the contract was activated is caught up by the next run. A contract with such lines posts one
+// balanced journal entry (document type `SA`, `source_context` `leases`, dated the period's last day,
+// the contract's number as its reference) to every ledger the company keeps: the lines' interest
+// debited to the company's `lease_interest` account and credited to its `lease_liability` account, and
+// their depreciation debited to its `right_of_use_depreciation` account and credited to its
+// `right_of_use_accumulated_depreciation` account, both expenses on the contract's cost center; a
+// contract without such lines posts nothing. The lease payment itself is not posted by the run: a
+// person posts the lessor's invoice against the lease liability account. One run per company and
+// period: a second is refused (409 `leases.run_exists`), and a retry with the same `Idempotency-Key`
+// answers the run as the first answered it. A company's first run is for any open period; each later
+// run is for a later period than its last (409 `leases.run_period_not_later`): a run is not reversed
+// or repeated in the first version. `legal_entity_id` is a company the caller may act in (422
+// `request.reference_not_found`); `fiscal_period` is a regular posting period of `fiscal_year` in the
+// company's calendar (422 `ledger.no_fiscal_period` for a year that is not set up, 422
+// `ledger.period_not_regular`); the company has the four accounts (422 `leases.no_lease_accounts`,
+// naming the keys missing); the period is open in every ledger the company keeps (409
+// `ledger.period_not_open`), also when nothing is to post; the company has at most 2,000 active
+// contracts (422 `leases.run_too_large`: larger runs are not supported yet). What the ledger refuses
+// of an entry refuses the run (for example a cost center no longer valid on the period's last day).
+// The answer is the run with its counts, the interest and depreciation it posted and its postings, one
+// per contract that posted, each naming its lines and its journal entry. Audited, and published as
+// LeaseRunPosted. Human-only (`x-agent: false`).
+//
+// POST /v1/lease-runs
+func (c *Client) CreateLeaseRun(ctx context.Context, request *LeaseRunCreate, params CreateLeaseRunParams) (CreateLeaseRunRes, error) {
+	res, err := c.sendCreateLeaseRun(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateLeaseRun(ctx context.Context, request *LeaseRunCreate, params CreateLeaseRunParams) (res CreateLeaseRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createLeaseRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/lease-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateLeaseRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/lease-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateLeaseRunRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateLeaseRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateLeaseRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreateLegalEntity invokes createLegalEntity operation.
 //
 // Creates a legal entity in status `inactive`.
@@ -22741,6 +23458,152 @@ func (c *Client) sendCreatePeriodClose(ctx context.Context, request *PeriodClose
 
 	stage = "DecodeResponse"
 	result, err := decodeCreatePeriodCloseResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreatePersonalDataDeletionRun invokes createPersonalDataDeletionRun operation.
+//
+// Starts a deletion run (ADR-0079 §12, T100c) of the subjects `getPersonalDataDeletionPreview` lists
+// now; none is refused (422 `records.nothing_to_delete`). The run is queued with its subjects and the
+// active configuration version, and the deleter blanks them in the background, each in a transaction
+// of its own, as `getPersonalDataDeletionRun` then shows: a subject `blanked`, or `skipped` when its
+// block was lifted, or lifted and set again, since, or an item of it is open (a later run lists it
+// again once the item is cleared); the run `completed` once none is pending, or `failed` with the
+// problem code that stopped it (`identity.principal_blocked` when the requester was blocked or
+// deprovisioned since). Blanking replaces each field of the personal data inventory of the partner
+// (its name and legal name, addresses, bank accounts, tax identifiers, its changes' payloads and its
+// name where another change lists it as a possible duplicate) by a fixed marker (`[deleted]`; `XXXX`
+// for the last four characters of an account or a tax identifier) and ends its bank accounts, and
+// cannot be undone: the partner then reads `personal_data_deleted_at`, its block can no longer be
+// lifted, and its documents name it by number. Journal entries, invoices and audit events are neither
+// removed nor changed. One run is queued at a time: asking again while one is queued answers that run
+// (200). The subjects are the whole tenant's, so the caller needs access to all companies (403
+// `records.all_companies_required`). Audited (`records.deletion_run.request`), and each subject's
+// blanking audited and published as PersonalDataDeleted, by ids only. Human-only (`x-agent: false`).
+//
+// POST /v1/personal-data-deletion-runs
+func (c *Client) CreatePersonalDataDeletionRun(ctx context.Context, request *ReasonInput, params CreatePersonalDataDeletionRunParams) (CreatePersonalDataDeletionRunRes, error) {
+	res, err := c.sendCreatePersonalDataDeletionRun(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreatePersonalDataDeletionRun(ctx context.Context, request *ReasonInput, params CreatePersonalDataDeletionRunParams) (res CreatePersonalDataDeletionRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createPersonalDataDeletionRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/personal-data-deletion-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreatePersonalDataDeletionRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/personal-data-deletion-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreatePersonalDataDeletionRunRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreatePersonalDataDeletionRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreatePersonalDataDeletionRunResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -25610,6 +26473,142 @@ func (c *Client) sendCreateSalesOrder(ctx context.Context, request *SalesOrderCr
 	return result, nil
 }
 
+// CreateSalesOrderUpload invokes createSalesOrderUpload operation.
+//
+// Starts a direct upload (ADR-0020) of purpose `sales_order`: a customer's purchase order, a PDF or
+// plain text of at most 50 MB, which `captureSalesOrder` consumes (ADR-0067 As built T90a). It answers
+// as `createUpload` does: a `url` to `PUT` the bytes to, with the `headers` to send, within
+// `expires_at`; `via: api` asks for the path on this API whatever the store. An upload's permission
+// follows its purpose: this one asks `sales.order.capture`, a supplier invoice's `createUpload` asks
+// `payables.invoice.capture`. Another content type is refused (422
+// `payables.unsupported_content_type`). Human-only (`x-agent: false`), as the capture is.
+//
+// POST /v1/sales-order-uploads
+func (c *Client) CreateSalesOrderUpload(ctx context.Context, request *SalesOrderUploadCreate, params CreateSalesOrderUploadParams) (CreateSalesOrderUploadRes, error) {
+	res, err := c.sendCreateSalesOrderUpload(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateSalesOrderUpload(ctx context.Context, request *SalesOrderUploadCreate, params CreateSalesOrderUploadParams) (res CreateSalesOrderUploadRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createSalesOrderUpload"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/sales-order-uploads"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateSalesOrderUploadOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/sales-order-uploads"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateSalesOrderUploadRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateSalesOrderUploadOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateSalesOrderUploadResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreateSalesPrice invokes createSalesPrice operation.
 //
 // Records a price for an item key in a company (ADR-0067 §10, T80a): for every customer, or with
@@ -26491,7 +27490,10 @@ func (c *Client) sendCreateSupplierQuotation(ctx context.Context, request *Suppl
 // to the tenant's request quota once its signature checks out, and carries the rate-limit headers (429
 // `request.rate_limited` with `Retry-After` over it); it is answered 503 with `Retry-After` while the
 // server is receiving as many documents as it can, or as many of the tenant's at once as one tenant
-// may (ADR-0020). 503 while the server has no object storage.
+// may (ADR-0020). 503 while the server has no object storage. A customer's purchase order is not
+// uploaded here but with `createSalesOrderUpload` (`sales.order.capture`, T90a): an upload's
+// permission follows its purpose, and purpose `sales_order` is refused here (422
+// `payables.unknown_upload_purpose`).
 //
 // POST /v1/uploads
 func (c *Client) CreateUpload(ctx context.Context, request *UploadCreate, params CreateUploadParams) (CreateUploadRes, error) {
@@ -41387,6 +42389,142 @@ func (c *Client) sendGetLeaseContract(ctx context.Context, params GetLeaseContra
 	return result, nil
 }
 
+// GetLeaseRun invokes getLeaseRun operation.
+//
+// One lease run (ADR-0073 §9, T88c) with its company's code and name, its fiscal period and posting
+// date, the number of active contracts it read and of contracts it posted, the interest and
+// depreciation it posted and its `postings`, one per contract that posted, by contract number: the
+// contract with its lessor and cost center, the schedule lines it posted, their interest and
+// depreciation and the journal entry. One of a company the caller may not act in is not found (404),
+// as one that does not exist.
+//
+// GET /v1/lease-runs/{id}
+func (c *Client) GetLeaseRun(ctx context.Context, params GetLeaseRunParams) (GetLeaseRunRes, error) {
+	res, err := c.sendGetLeaseRun(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetLeaseRun(ctx context.Context, params GetLeaseRunParams) (res GetLeaseRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getLeaseRun"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/lease-runs/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetLeaseRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/lease-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetLeaseRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetLeaseRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetLeaseSchedule invokes getLeaseSchedule operation.
 //
 // The schedule of one lease contract (ADR-0073 §8, T88b): the lease liability at commencement, the
@@ -44177,6 +45315,319 @@ func (c *Client) sendGetPeriodClose(ctx context.Context, params GetPeriodClosePa
 	return result, nil
 }
 
+// GetPersonalDataDeletionPreview invokes getPersonalDataDeletionPreview operation.
+//
+// The business partners a deletion run started now would blank (ADR-0079 §12, T100c), changing
+// nothing: each partner whose personal data is blocked (`blockPersonalData`) and not deleted, that has
+// supplier or customer data in at least one company, and whose block has lasted, in every such
+// company, the whole years of the company's retention rule for `personal_data` in the active
+// configuration, counted from the block's day on the company's date (a rule of zero years: from the
+// day of the block). A company without a `personal_data` rule keeps its partners: without one, nothing
+// is eligible. Each subject is listed by id and number with when its block began, the longest rule it
+// is held to and the day that rule's years ended, a page at a time by number; `count` is how many
+// there are in all. Sortable by: `partner_number` (default). `createPersonalDataDeletionRun` lists the
+// same subjects. The subjects are the whole tenant's, so the caller needs access to all companies (403
+// `records.all_companies_required`). A tenant without a configuration is 409
+// `config.not_bootstrapped`. Human-only (`x-agent: false`).
+//
+// GET /v1/personal-data-deletion-preview
+func (c *Client) GetPersonalDataDeletionPreview(ctx context.Context, params GetPersonalDataDeletionPreviewParams) (GetPersonalDataDeletionPreviewRes, error) {
+	res, err := c.sendGetPersonalDataDeletionPreview(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetPersonalDataDeletionPreview(ctx context.Context, params GetPersonalDataDeletionPreviewParams) (res GetPersonalDataDeletionPreviewRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getPersonalDataDeletionPreview"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/personal-data-deletion-preview"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetPersonalDataDeletionPreviewOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/personal-data-deletion-preview"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetPersonalDataDeletionPreviewOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetPersonalDataDeletionPreviewResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetPersonalDataDeletionRun invokes getPersonalDataDeletionRun operation.
+//
+// One deletion run (ADR-0079 §12, T100c): `queued` while a subject is pending, then `completed`, or
+// `failed` with the problem code that stopped it, with how many of its subjects are pending, blanked
+// and skipped; `listPersonalDataDeletionSubjects` lists them. It needs access to all companies (403
+// `records.all_companies_required`), as starting one does. Human-only (`x-agent: false`).
+//
+// GET /v1/personal-data-deletion-runs/{id}
+func (c *Client) GetPersonalDataDeletionRun(ctx context.Context, params GetPersonalDataDeletionRunParams) (GetPersonalDataDeletionRunRes, error) {
+	res, err := c.sendGetPersonalDataDeletionRun(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetPersonalDataDeletionRun(ctx context.Context, params GetPersonalDataDeletionRunParams) (res GetPersonalDataDeletionRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getPersonalDataDeletionRun"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/personal-data-deletion-runs/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetPersonalDataDeletionRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/personal-data-deletion-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetPersonalDataDeletionRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetPersonalDataDeletionRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetPersonalDataInventory invokes getPersonalDataInventory operation.
 //
 // The personal data inventory (ADR-0079 §9-§10, T100a): each column of the database that holds
@@ -44843,6 +46294,253 @@ func (c *Client) sendGetProfitCenter(ctx context.Context, params GetProfitCenter
 
 	stage = "DecodeResponse"
 	result, err := decodeGetProfitCenterResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetProfitabilityReport invokes getProfitabilityReport operation.
+//
+// Net revenue by profitability segment of one legal entity over a range of regular periods of a fiscal
+// year (ADR-0075 §1, §6), from the sales context's posted documents, exact at the moment of the
+// read: per segment, a customer and an item key, the gross value billed (each billed item's value
+// before discounts, its price condition), the discounts taken off it, the credit memos posted against
+// its billing and the net revenue, gross value less discounts less credit memos. A billing document
+// counts in the period its posting date falls in, a credit memo in the period of its own posting date.
+// An item billed in parts carries its discount in proportion to the net value each part billed,
+// rounded half away from zero, so the parts add up to the item's discount to the minor unit. An item
+// without an item key is grouped under its customer alone (no `item_key`). Amounts are in the legal
+// entity's local currency: documents in another currency are not converted and are left out, and
+// `foreign_currency_documents` counts them. No cost is shown (`includes_cost` is false): no cost of
+// goods sold is posted per item, and the margin report (`getMarginReport`) has the ledger's cost of
+// sales. Rows are by the customer's number, then the item key, the row without one first; `totals` are
+// the whole selection's, on every page, and the rows of every page add up to them over the pages. A
+// legal entity that does not exist or that the caller cannot act in is answered as missing (422
+// `request.reference_not_found` on `legal_entity_id`). The figures are billing documents' amounts, so
+// besides `controlling.profitability.read` the caller needs `sales.billing.read`
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/profitability-report
+func (c *Client) GetProfitabilityReport(ctx context.Context, params GetProfitabilityReportParams) (GetProfitabilityReportRes, error) {
+	res, err := c.sendGetProfitabilityReport(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetProfitabilityReport(ctx context.Context, params GetProfitabilityReportParams) (res GetProfitabilityReportRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getProfitabilityReport"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/profitability-report"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetProfitabilityReportOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/profitability-report"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.Int32ToString(params.FiscalYear))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period_from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period_from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriodFrom.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period_to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period_to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriodTo.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetProfitabilityReportOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetProfitabilityReportResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -48246,6 +49944,140 @@ func (c *Client) sendGetSalesOrder(ctx context.Context, params GetSalesOrderPara
 	return result, nil
 }
 
+// GetSalesOrderUpload invokes getSalesOrderUpload operation.
+//
+// Returns one upload of purpose `sales_order` (T90a), as `getUpload` returns a supplier invoice's:
+// `open`, `received` or `used` by the order captured from it (`used_by`). An upload's permission
+// follows its purpose: this one asks `sales.order.capture`; an upload of another purpose is not found
+// here (404).
+//
+// GET /v1/sales-order-uploads/{id}
+func (c *Client) GetSalesOrderUpload(ctx context.Context, params GetSalesOrderUploadParams) (GetSalesOrderUploadRes, error) {
+	res, err := c.sendGetSalesOrderUpload(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetSalesOrderUpload(ctx context.Context, params GetSalesOrderUploadParams) (res GetSalesOrderUploadRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getSalesOrderUpload"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/sales-order-uploads/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetSalesOrderUploadOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/sales-order-uploads/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetSalesOrderUploadOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetSalesOrderUploadResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetSalesPrice invokes getSalesPrice operation.
 //
 // One price record (ADR-0067 §10, §11, T80a, T80b), a price or a discount, with its company's code
@@ -49391,7 +51223,9 @@ func (c *Client) sendGetTaxReturnDraft(ctx context.Context, params GetTaxReturnD
 // GetUpload invokes getUpload operation.
 //
 // Returns one upload: `open` until bytes arrive through this API (`received`) or the upload is
-// consumed (`used`); an upload to object storage stays `open` until it is consumed.
+// consumed (`used`); an upload to object storage stays `open` until it is consumed. An upload's
+// permission follows its purpose: an upload of a customer's purchase order (`sales_order`) is read
+// with `getSalesOrderUpload` (`sales.order.capture`) and is not found here (404).
 //
 // GET /v1/uploads/{id}
 func (c *Client) GetUpload(ctx context.Context, params GetUploadParams) (GetUploadRes, error) {
@@ -69364,6 +71198,228 @@ func (c *Client) sendListLeaseContracts(ctx context.Context, params ListLeaseCon
 	return result, nil
 }
 
+// ListLeaseRuns invokes listLeaseRuns operation.
+//
+// The lease runs of the companies the caller may act in (ADR-0073 §9, T88c), latest posting date
+// first, each with its company's code and name, its fiscal period, its counts and the interest and
+// depreciation it posted, without its postings, which `getLeaseRun` gives. Filtered by company, fiscal
+// year and fiscal period. Sortable by: `posting_date`.
+//
+// GET /v1/lease-runs
+func (c *Client) ListLeaseRuns(ctx context.Context, params ListLeaseRunsParams) (ListLeaseRunsRes, error) {
+	res, err := c.sendListLeaseRuns(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListLeaseRuns(ctx context.Context, params ListLeaseRunsParams) (res ListLeaseRunsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listLeaseRuns"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/lease-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListLeaseRunsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/lease-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalYear.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriod.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListLeaseRunsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListLeaseRunsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListLedgerGroups invokes listLedgerGroups operation.
 //
 // Ledger groups name the ledgers a posting goes to together; the representative ledger decides the
@@ -74496,6 +76552,215 @@ func (c *Client) sendListPeriodCloses(ctx context.Context, params ListPeriodClos
 
 	stage = "DecodeResponse"
 	result, err := decodeListPeriodClosesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListPersonalDataDeletionSubjects invokes listPersonalDataDeletionSubjects operation.
+//
+// The subjects of a deletion run (ADR-0079 §12, T100c), by partner number, a page at a time,
+// optionally of one status: each business partner by id and number, never by name, with when its block
+// began, the rule it was held to, and its status (`pending`, `blanked`, or `skipped` when its block
+// was lifted or set again since, or an item of it was open) with when it was settled. It needs access
+// to all companies (403 `records.all_companies_required`). A run the tenant does not have is 404.
+// Human-only (`x-agent: false`). Sortable by: `partner_number` (default).
+//
+// GET /v1/personal-data-deletion-runs/{id}/subjects
+func (c *Client) ListPersonalDataDeletionSubjects(ctx context.Context, params ListPersonalDataDeletionSubjectsParams) (ListPersonalDataDeletionSubjectsRes, error) {
+	res, err := c.sendListPersonalDataDeletionSubjects(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListPersonalDataDeletionSubjects(ctx context.Context, params ListPersonalDataDeletionSubjectsParams) (res ListPersonalDataDeletionSubjectsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listPersonalDataDeletionSubjects"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/personal-data-deletion-runs/{id}/subjects"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListPersonalDataDeletionSubjectsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/personal-data-deletion-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/subjects"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListPersonalDataDeletionSubjectsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListPersonalDataDeletionSubjectsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -98392,7 +100657,15 @@ func (c *Client) sendRunAllocationCycle(ctx context.Context, request *Allocation
 // periods it needs and those the history has (422 `analytics.forecast_history_short`); a history of
 // more periods than a query answers (500 rows) is refused (422 `analytics.invalid_query`). The answer
 // names the method, the periods it used (`used`) and says it is an arithmetic projection, not a
-// statistical forecast. Changes nothing: agents of any autonomy level may run it.
+// statistical forecast. With a `scenario` (ADR-0077 §8, T97b), the history is read by period and by
+// each dimension an adjustment names; the rows of each adjustment's value are forecast on their own by
+// the method, and so are the rows of none; `forecast` is then the baseline, those forecasts summed,
+// and `scenario` gives per period ahead the baseline, the scenario (each adjusted part changed by its
+// percentage, rounded half away from zero to the metric's digits) and their difference, with their
+// totals and each adjustment's part. A dimension the metric lacks or one of the forecast's periods is
+// 422 `request.validation_failed` on the adjustment's `dimension`; two adjustments that would change
+// one row are 422 `analytics.scenario_overlap`; a history by those dimensions of more than 500 rows is
+// refused (422 `analytics.invalid_query`). Changes nothing: agents of any autonomy level may run it.
 //
 // POST /v1/analytics-forecasts
 func (c *Client) RunAnalyticsForecast(ctx context.Context, request *AnalyticsForecastRequest, params RunAnalyticsForecastParams) (RunAnalyticsForecastRes, error) {
@@ -101968,6 +104241,171 @@ func (c *Client) sendUnblockOrgUnit(ctx context.Context, params UnblockOrgUnitPa
 
 	stage = "DecodeResponse"
 	result, err := decodeUnblockOrgUnitResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UnblockPersonalData invokes unblockPersonalData operation.
+//
+// Lifts the block of the partner's personal data (ADR-0079 §11, T100b): its reads are answered in
+// full again. The partner itself stays `blocked`; unblocking it is `unblockBusinessPartner`, with its
+// approval. A partner whose personal data is not blocked is refused with 409
+// `partner.personal_data_not_blocked`, one whose personal data a deletion run blanked with 409
+// `partner.personal_data_deleted`. Publishes BusinessPartnerUpdated naming `personal_data_blocked_at`.
+// Returns the partner as the caller sees it. Human-only (`x-agent: false`).
+//
+// POST /v1/business-partners/{id}:unblockPersonalData
+func (c *Client) UnblockPersonalData(ctx context.Context, request *ReasonInput, params UnblockPersonalDataParams) (UnblockPersonalDataRes, error) {
+	res, err := c.sendUnblockPersonalData(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUnblockPersonalData(ctx context.Context, request *ReasonInput, params UnblockPersonalDataParams) (res UnblockPersonalDataRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("unblockPersonalData"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/business-partners/{id}:unblockPersonalData"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UnblockPersonalDataOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/business-partners/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":unblockPersonalData"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUnblockPersonalDataRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UnblockPersonalDataOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUnblockPersonalDataResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

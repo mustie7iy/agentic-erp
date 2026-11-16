@@ -317,9 +317,10 @@ func (e *Endpoints) MatchSupplierInvoice(ctx context.Context, params gen.MatchSu
 
 // PostSupplierInvoice implements POST /v1/supplier-invoices/{id}:post.
 func (e *Endpoints) PostSupplierInvoice(ctx context.Context, req gen.OptSupplierInvoicePost, params gen.PostSupplierInvoiceParams) (gen.PostSupplierInvoiceRes, error) {
-	v, err := e.PostInvoice(ctx, params.ID, etag.IfMatch(params.IfMatch), apitypes.Ptr[time.Time](req.Value.PostingDate))
+	date := apitypes.Ptr[time.Time](req.Value.PostingDate)
+	v, err := e.PostInvoice(ctx, params.ID, etag.IfMatch(params.IfMatch), date)
 	if err != nil {
-		return nil, err
+		return nil, refusedPost(ctx, params.ID, date, err)
 	}
 	return ok(v), nil
 }

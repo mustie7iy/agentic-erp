@@ -4448,7 +4448,8 @@ type AnalyticsForecast struct {
 	// The latest posting or document date in the history's data (YYYY-MM-DD).
 	DataThrough string `json:"data_through"`
 	// The configuration version whose metric definitions answered.
-	ConfigVersion int32 `json:"config_version"`
+	ConfigVersion int32                      `json:"config_version"`
+	Scenario      OptAnalyticsScenarioResult `json:"scenario"`
 }
 
 // GetMetric returns the value of Metric.
@@ -4541,6 +4542,11 @@ func (s *AnalyticsForecast) GetConfigVersion() int32 {
 	return s.ConfigVersion
 }
 
+// GetScenario returns the value of Scenario.
+func (s *AnalyticsForecast) GetScenario() OptAnalyticsScenarioResult {
+	return s.Scenario
+}
+
 // SetMetric sets the value of Metric.
 func (s *AnalyticsForecast) SetMetric(val string) {
 	s.Metric = val
@@ -4629,6 +4635,11 @@ func (s *AnalyticsForecast) SetDataThrough(val string) {
 // SetConfigVersion sets the value of ConfigVersion.
 func (s *AnalyticsForecast) SetConfigVersion(val int32) {
 	s.ConfigVersion = val
+}
+
+// SetScenario sets the value of Scenario.
+func (s *AnalyticsForecast) SetScenario(val OptAnalyticsScenarioResult) {
+	s.Scenario = val
 }
 
 // AnalyticsForecastHeaders wraps AnalyticsForecast with response headers.
@@ -4757,7 +4768,8 @@ type AnalyticsForecastRequest struct {
 	// here; values may be added within /v1.
 	Method string `json:"method"`
 	// For `moving_average`, and for it alone: how many of the last periods it averages.
-	Window OptInt32 `json:"window"`
+	Window   OptInt32             `json:"window"`
+	Scenario OptAnalyticsScenario `json:"scenario"`
 }
 
 // GetMetric returns the value of Metric.
@@ -4795,6 +4807,11 @@ func (s *AnalyticsForecastRequest) GetWindow() OptInt32 {
 	return s.Window
 }
 
+// GetScenario returns the value of Scenario.
+func (s *AnalyticsForecastRequest) GetScenario() OptAnalyticsScenario {
+	return s.Scenario
+}
+
 // SetMetric sets the value of Metric.
 func (s *AnalyticsForecastRequest) SetMetric(val string) {
 	s.Metric = val
@@ -4828,6 +4845,11 @@ func (s *AnalyticsForecastRequest) SetMethod(val string) {
 // SetWindow sets the value of Window.
 func (s *AnalyticsForecastRequest) SetWindow(val OptInt32) {
 	s.Window = val
+}
+
+// SetScenario sets the value of Scenario.
+func (s *AnalyticsForecastRequest) SetScenario(val OptAnalyticsScenario) {
+	s.Scenario = val
 }
 
 // A configuration version's governed semantic model.
@@ -5150,6 +5172,307 @@ func (s *AnalyticsResultHeaders) SetResponse(val AnalyticsResult) {
 }
 
 func (*AnalyticsResultHeaders) runAnalyticsQueryRes() {}
+
+// A scenario on the forecast (ADR-0077 §8, T97b): percentage changes of the rows of named dimension
+// values. Each adjustment's rows are forecast on their own, and so are the rows of none; the baseline
+// is those forecasts summed, the scenario the same with each adjusted part changed by its percentage.
+// Nothing is stored.
+// Ref: #/components/schemas/AnalyticsScenario
+type AnalyticsScenario struct {
+	// The changes, at most one per row: two adjustments that would change one row, the same value named
+	// twice or values of two dimensions meeting in a row, are refused (422 `analytics.scenario_overlap`).
+	Adjustments []AnalyticsScenarioAdjustment `json:"adjustments"`
+}
+
+// GetAdjustments returns the value of Adjustments.
+func (s *AnalyticsScenario) GetAdjustments() []AnalyticsScenarioAdjustment {
+	return s.Adjustments
+}
+
+// SetAdjustments sets the value of Adjustments.
+func (s *AnalyticsScenario) SetAdjustments(val []AnalyticsScenarioAdjustment) {
+	s.Adjustments = val
+}
+
+// A percentage change of the forecast of the rows whose dimension has the value.
+// Ref: #/components/schemas/AnalyticsScenarioAdjustment
+type AnalyticsScenarioAdjustment struct {
+	// A dimension of the metric (`getAnalyticsModel`), not one of the forecast's periods (`fiscal_year`,
+	// `fiscal_quarter`, `fiscal_month`, `posting_date`); another is 422 `request.validation_failed` on it.
+	Dimension string `json:"dimension"`
+	// The dimension's value whose rows are changed, as a query's rows write it (an account's number, a
+	// company's code).
+	Value string `json:"value"`
+	// The change in percent of the rows' forecast: `10` ten percent more, `-5` five percent less; -100 at
+	// the least.
+	Percent string `json:"percent"`
+}
+
+// GetDimension returns the value of Dimension.
+func (s *AnalyticsScenarioAdjustment) GetDimension() string {
+	return s.Dimension
+}
+
+// GetValue returns the value of Value.
+func (s *AnalyticsScenarioAdjustment) GetValue() string {
+	return s.Value
+}
+
+// GetPercent returns the value of Percent.
+func (s *AnalyticsScenarioAdjustment) GetPercent() string {
+	return s.Percent
+}
+
+// SetDimension sets the value of Dimension.
+func (s *AnalyticsScenarioAdjustment) SetDimension(val string) {
+	s.Dimension = val
+}
+
+// SetValue sets the value of Value.
+func (s *AnalyticsScenarioAdjustment) SetValue(val string) {
+	s.Value = val
+}
+
+// SetPercent sets the value of Percent.
+func (s *AnalyticsScenarioAdjustment) SetPercent(val string) {
+	s.Percent = val
+}
+
+// An adjustment's part of the scenario.
+// Ref: #/components/schemas/AnalyticsScenarioPart
+type AnalyticsScenarioPart struct {
+	// The dimension.
+	Dimension string `json:"dimension"`
+	// The dimension's value.
+	Value string `json:"value"`
+	// The change in percent.
+	Percent string `json:"percent"`
+	// The forecast of the value's rows over the periods ahead.
+	BaselineTotal string `json:"baseline_total"`
+	// The same, changed by the percentage period by period, each rounded half away from zero to the
+	// metric's digits.
+	ScenarioTotal string `json:"scenario_total"`
+}
+
+// GetDimension returns the value of Dimension.
+func (s *AnalyticsScenarioPart) GetDimension() string {
+	return s.Dimension
+}
+
+// GetValue returns the value of Value.
+func (s *AnalyticsScenarioPart) GetValue() string {
+	return s.Value
+}
+
+// GetPercent returns the value of Percent.
+func (s *AnalyticsScenarioPart) GetPercent() string {
+	return s.Percent
+}
+
+// GetBaselineTotal returns the value of BaselineTotal.
+func (s *AnalyticsScenarioPart) GetBaselineTotal() string {
+	return s.BaselineTotal
+}
+
+// GetScenarioTotal returns the value of ScenarioTotal.
+func (s *AnalyticsScenarioPart) GetScenarioTotal() string {
+	return s.ScenarioTotal
+}
+
+// SetDimension sets the value of Dimension.
+func (s *AnalyticsScenarioPart) SetDimension(val string) {
+	s.Dimension = val
+}
+
+// SetValue sets the value of Value.
+func (s *AnalyticsScenarioPart) SetValue(val string) {
+	s.Value = val
+}
+
+// SetPercent sets the value of Percent.
+func (s *AnalyticsScenarioPart) SetPercent(val string) {
+	s.Percent = val
+}
+
+// SetBaselineTotal sets the value of BaselineTotal.
+func (s *AnalyticsScenarioPart) SetBaselineTotal(val string) {
+	s.BaselineTotal = val
+}
+
+// SetScenarioTotal sets the value of ScenarioTotal.
+func (s *AnalyticsScenarioPart) SetScenarioTotal(val string) {
+	s.ScenarioTotal = val
+}
+
+// A period ahead's baseline, scenario and their difference.
+// Ref: #/components/schemas/AnalyticsScenarioPoint
+type AnalyticsScenarioPoint struct {
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The fiscal month (1-12) or quarter (1-4) within it; absent for a year.
+	Period OptInt32 `json:"period"`
+	// The period as `2026-09`, `2026-Q3` or `2026`.
+	Label string `json:"label"`
+	// The baseline: every part's forecast summed.
+	Baseline string `json:"baseline"`
+	// The scenario: every part's forecast, each adjusted part changed by its percentage, summed.
+	Scenario string `json:"scenario"`
+	// The scenario less the baseline.
+	Difference string `json:"difference"`
+	// For an amount: its currency.
+	Currency OptString `json:"currency"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AnalyticsScenarioPoint) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *AnalyticsScenarioPoint) GetPeriod() OptInt32 {
+	return s.Period
+}
+
+// GetLabel returns the value of Label.
+func (s *AnalyticsScenarioPoint) GetLabel() string {
+	return s.Label
+}
+
+// GetBaseline returns the value of Baseline.
+func (s *AnalyticsScenarioPoint) GetBaseline() string {
+	return s.Baseline
+}
+
+// GetScenario returns the value of Scenario.
+func (s *AnalyticsScenarioPoint) GetScenario() string {
+	return s.Scenario
+}
+
+// GetDifference returns the value of Difference.
+func (s *AnalyticsScenarioPoint) GetDifference() string {
+	return s.Difference
+}
+
+// GetCurrency returns the value of Currency.
+func (s *AnalyticsScenarioPoint) GetCurrency() OptString {
+	return s.Currency
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AnalyticsScenarioPoint) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *AnalyticsScenarioPoint) SetPeriod(val OptInt32) {
+	s.Period = val
+}
+
+// SetLabel sets the value of Label.
+func (s *AnalyticsScenarioPoint) SetLabel(val string) {
+	s.Label = val
+}
+
+// SetBaseline sets the value of Baseline.
+func (s *AnalyticsScenarioPoint) SetBaseline(val string) {
+	s.Baseline = val
+}
+
+// SetScenario sets the value of Scenario.
+func (s *AnalyticsScenarioPoint) SetScenario(val string) {
+	s.Scenario = val
+}
+
+// SetDifference sets the value of Difference.
+func (s *AnalyticsScenarioPoint) SetDifference(val string) {
+	s.Difference = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *AnalyticsScenarioPoint) SetCurrency(val OptString) {
+	s.Currency = val
+}
+
+// A scenario's answer (ADR-0077 §8): per period ahead the baseline, the scenario and their
+// difference, each figure an exact decimal at the metric's digits in `currency` for an amount, with
+// their totals and each adjustment's part. The baseline is the forecast (`forecast`): the parts'
+// forecasts summed, so the baseline and the scenario each add up.
+// Ref: #/components/schemas/AnalyticsScenarioResult
+type AnalyticsScenarioResult struct {
+	// Each adjustment as asked, with its rows' forecast over the periods ahead before and after its
+	// change.
+	Adjustments []AnalyticsScenarioPart `json:"adjustments"`
+	// The periods ahead, in order.
+	Periods []AnalyticsScenarioPoint `json:"periods"`
+	// The baseline over the periods ahead.
+	BaselineTotal string `json:"baseline_total"`
+	// The scenario over the periods ahead.
+	ScenarioTotal string `json:"scenario_total"`
+	// The scenario less the baseline over the periods ahead.
+	DifferenceTotal string `json:"difference_total"`
+	// For an amount: the currency of every figure.
+	Currency OptString `json:"currency"`
+}
+
+// GetAdjustments returns the value of Adjustments.
+func (s *AnalyticsScenarioResult) GetAdjustments() []AnalyticsScenarioPart {
+	return s.Adjustments
+}
+
+// GetPeriods returns the value of Periods.
+func (s *AnalyticsScenarioResult) GetPeriods() []AnalyticsScenarioPoint {
+	return s.Periods
+}
+
+// GetBaselineTotal returns the value of BaselineTotal.
+func (s *AnalyticsScenarioResult) GetBaselineTotal() string {
+	return s.BaselineTotal
+}
+
+// GetScenarioTotal returns the value of ScenarioTotal.
+func (s *AnalyticsScenarioResult) GetScenarioTotal() string {
+	return s.ScenarioTotal
+}
+
+// GetDifferenceTotal returns the value of DifferenceTotal.
+func (s *AnalyticsScenarioResult) GetDifferenceTotal() string {
+	return s.DifferenceTotal
+}
+
+// GetCurrency returns the value of Currency.
+func (s *AnalyticsScenarioResult) GetCurrency() OptString {
+	return s.Currency
+}
+
+// SetAdjustments sets the value of Adjustments.
+func (s *AnalyticsScenarioResult) SetAdjustments(val []AnalyticsScenarioPart) {
+	s.Adjustments = val
+}
+
+// SetPeriods sets the value of Periods.
+func (s *AnalyticsScenarioResult) SetPeriods(val []AnalyticsScenarioPoint) {
+	s.Periods = val
+}
+
+// SetBaselineTotal sets the value of BaselineTotal.
+func (s *AnalyticsScenarioResult) SetBaselineTotal(val string) {
+	s.BaselineTotal = val
+}
+
+// SetScenarioTotal sets the value of ScenarioTotal.
+func (s *AnalyticsScenarioResult) SetScenarioTotal(val string) {
+	s.ScenarioTotal = val
+}
+
+// SetDifferenceTotal sets the value of DifferenceTotal.
+func (s *AnalyticsScenarioResult) SetDifferenceTotal(val string) {
+	s.DifferenceTotal = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *AnalyticsScenarioResult) SetCurrency(val OptString) {
+	s.Currency = val
+}
 
 type ApplyCountryPackBadRequest Problem
 
@@ -16267,6 +16590,70 @@ type BlockOrgUnitUnprocessableEntity Problem
 
 func (*BlockOrgUnitUnprocessableEntity) blockOrgUnitRes() {}
 
+type BlockPersonalDataBadRequest Problem
+
+func (*BlockPersonalDataBadRequest) blockPersonalDataRes() {}
+
+type BlockPersonalDataForbidden Problem
+
+func (*BlockPersonalDataForbidden) blockPersonalDataRes() {}
+
+type BlockPersonalDataNotFound Problem
+
+func (*BlockPersonalDataNotFound) blockPersonalDataRes() {}
+
+// BlockPersonalDataOKHeaders wraps BusinessPartner with response headers.
+type BlockPersonalDataOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           BusinessPartner
+}
+
+// GetETag returns the value of ETag.
+func (s *BlockPersonalDataOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *BlockPersonalDataOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *BlockPersonalDataOKHeaders) GetResponse() BusinessPartner {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *BlockPersonalDataOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *BlockPersonalDataOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *BlockPersonalDataOKHeaders) SetResponse(val BusinessPartner) {
+	s.Response = val
+}
+
+func (*BlockPersonalDataOKHeaders) blockPersonalDataRes()   {}
+func (*BlockPersonalDataOKHeaders) unblockPersonalDataRes() {}
+
+type BlockPersonalDataPreconditionFailed Problem
+
+func (*BlockPersonalDataPreconditionFailed) blockPersonalDataRes() {}
+
+type BlockPersonalDataPreconditionRequired Problem
+
+func (*BlockPersonalDataPreconditionRequired) blockPersonalDataRes() {}
+
+type BlockPersonalDataUnprocessableEntity Problem
+
+func (*BlockPersonalDataUnprocessableEntity) blockPersonalDataRes() {}
+
 type BlockPrincipalBadRequest Problem
 
 func (*BlockPrincipalBadRequest) blockPrincipalRes() {}
@@ -16343,6 +16730,15 @@ type BusinessPartner struct {
 	// `group_company_id` by its company code and its name as they are now, both only to a caller who may
 	// act in that company (the id alone otherwise); absent with it.
 	GroupCompany OptGroupCompany `json:"group_company"`
+	// When the partner's personal data was blocked (`blockPersonalData`, ADR-0079 §11); absent while it
+	// is not. While it is set, and the data is not deleted, a caller without
+	// `partner.privacy.read_blocked` reads `name`, `legal_name`, the addresses' lines, city, postal code
+	// and region as `[blocked]` and the tax identifiers' `value_last4` as `XXXX`.
+	PersonalDataBlockedAt OptDateTime `json:"personal_data_blocked_at"`
+	// When a deletion run blanked the partner's personal data (`createPersonalDataDeletionRun`, ADR-0079
+	// §12): its names, addresses, tax identifiers and bank accounts read `[deleted]` (`XXXX` for the last
+	// four characters), to every caller. Absent while it is not deleted. Not reversible.
+	PersonalDataDeletedAt OptDateTime `json:"personal_data_deleted_at"`
 }
 
 // GetID returns the value of ID.
@@ -16450,6 +16846,16 @@ func (s *BusinessPartner) GetGroupCompany() OptGroupCompany {
 	return s.GroupCompany
 }
 
+// GetPersonalDataBlockedAt returns the value of PersonalDataBlockedAt.
+func (s *BusinessPartner) GetPersonalDataBlockedAt() OptDateTime {
+	return s.PersonalDataBlockedAt
+}
+
+// GetPersonalDataDeletedAt returns the value of PersonalDataDeletedAt.
+func (s *BusinessPartner) GetPersonalDataDeletedAt() OptDateTime {
+	return s.PersonalDataDeletedAt
+}
+
 // SetID sets the value of ID.
 func (s *BusinessPartner) SetID(val uuid.UUID) {
 	s.ID = val
@@ -16553,6 +16959,16 @@ func (s *BusinessPartner) SetGroupCompanyID(val OptUUID) {
 // SetGroupCompany sets the value of GroupCompany.
 func (s *BusinessPartner) SetGroupCompany(val OptGroupCompany) {
 	s.GroupCompany = val
+}
+
+// SetPersonalDataBlockedAt sets the value of PersonalDataBlockedAt.
+func (s *BusinessPartner) SetPersonalDataBlockedAt(val OptDateTime) {
+	s.PersonalDataBlockedAt = val
+}
+
+// SetPersonalDataDeletedAt sets the value of PersonalDataDeletedAt.
+func (s *BusinessPartner) SetPersonalDataDeletedAt(val OptDateTime) {
+	s.PersonalDataDeletedAt = val
 }
 
 // Changes to business partner master data (merge-patch semantics), applied when the partner change is
@@ -17485,6 +17901,22 @@ func (*CancelSupplierInvoicePreconditionRequired) cancelSupplierInvoiceRes() {}
 type CancelSupplierInvoiceUnprocessableEntity Problem
 
 func (*CancelSupplierInvoiceUnprocessableEntity) cancelSupplierInvoiceRes() {}
+
+type CaptureSalesOrderBadRequest Problem
+
+func (*CaptureSalesOrderBadRequest) captureSalesOrderRes() {}
+
+type CaptureSalesOrderForbidden Problem
+
+func (*CaptureSalesOrderForbidden) captureSalesOrderRes() {}
+
+type CaptureSalesOrderPreconditionRequired Problem
+
+func (*CaptureSalesOrderPreconditionRequired) captureSalesOrderRes() {}
+
+type CaptureSalesOrderUnprocessableEntity Problem
+
+func (*CaptureSalesOrderUnprocessableEntity) captureSalesOrderRes() {}
 
 type CaptureSupplierInvoiceBadRequest Problem
 
@@ -25694,6 +26126,7 @@ func (*ConflictHeaders) awardRfqRes()                              {}
 func (*ConflictHeaders) blockBusinessPartnerRes()                  {}
 func (*ConflictHeaders) blockLegalEntityRes()                      {}
 func (*ConflictHeaders) blockOrgUnitRes()                          {}
+func (*ConflictHeaders) blockPersonalDataRes()                     {}
 func (*ConflictHeaders) blockPrincipalRes()                        {}
 func (*ConflictHeaders) callOffScheduleLineRes()                   {}
 func (*ConflictHeaders) cancelApprovalRequestRes()                 {}
@@ -25708,6 +26141,7 @@ func (*ConflictHeaders) cancelPurchaseOrderRes()                   {}
 func (*ConflictHeaders) cancelRequisitionRes()                     {}
 func (*ConflictHeaders) cancelRevaluationRunRes()                  {}
 func (*ConflictHeaders) cancelSupplierInvoiceRes()                 {}
+func (*ConflictHeaders) captureSalesOrderRes()                     {}
 func (*ConflictHeaders) captureSupplierInvoiceRes()                {}
 func (*ConflictHeaders) checkCloseTaskRes()                        {}
 func (*ConflictHeaders) checkYearCloseTaskRes()                    {}
@@ -25760,6 +26194,7 @@ func (*ConflictHeaders) createHierarchyRes()                       {}
 func (*ConflictHeaders) createIncomingPaymentRes()                 {}
 func (*ConflictHeaders) createInternalOrderRes()                   {}
 func (*ConflictHeaders) createLeaseContractRes()                   {}
+func (*ConflictHeaders) createLeaseRunRes()                        {}
 func (*ConflictHeaders) createLegalEntityRes()                     {}
 func (*ConflictHeaders) createMemoRecordRes()                      {}
 func (*ConflictHeaders) createMetricWatcherRes()                   {}
@@ -25767,6 +26202,7 @@ func (*ConflictHeaders) createMigrationRunRes()                    {}
 func (*ConflictHeaders) createOrgUnitRes()                         {}
 func (*ConflictHeaders) createPartnerChangeRes()                   {}
 func (*ConflictHeaders) createPeriodCloseRes()                     {}
+func (*ConflictHeaders) createPersonalDataDeletionRunRes()         {}
 func (*ConflictHeaders) createPlanCategoryRes()                    {}
 func (*ConflictHeaders) createPrincipalRes()                       {}
 func (*ConflictHeaders) createProfitCenterRes()                    {}
@@ -25785,6 +26221,7 @@ func (*ConflictHeaders) createRiskRatingRes()                      {}
 func (*ConflictHeaders) createRoleAssignmentRes()                  {}
 func (*ConflictHeaders) createRoleRes()                            {}
 func (*ConflictHeaders) createSalesOrderRes()                      {}
+func (*ConflictHeaders) createSalesOrderUploadRes()                {}
 func (*ConflictHeaders) createSalesPriceRes()                      {}
 func (*ConflictHeaders) createScheduleLineRes()                    {}
 func (*ConflictHeaders) createSegmentRes()                         {}
@@ -25828,6 +26265,8 @@ func (*ConflictHeaders) getLegalEntityTodayRes()                   {}
 func (*ConflictHeaders) getLiquidityForecastVarianceRes()          {}
 func (*ConflictHeaders) getMarginReportRes()                       {}
 func (*ConflictHeaders) getPeriodCloseRes()                        {}
+func (*ConflictHeaders) getPersonalDataDeletionPreviewRes()        {}
+func (*ConflictHeaders) getProfitabilityReportRes()                {}
 func (*ConflictHeaders) getPurchaseOrderDocumentRes()              {}
 func (*ConflictHeaders) getReportRunRes()                          {}
 func (*ConflictHeaders) getRetentionStatusRes()                    {}
@@ -25953,6 +26392,7 @@ func (*ConflictHeaders) transmitBankFileRes()                      {}
 func (*ConflictHeaders) unblockBusinessPartnerRes()                {}
 func (*ConflictHeaders) unblockLegalEntityRes()                    {}
 func (*ConflictHeaders) unblockOrgUnitRes()                        {}
+func (*ConflictHeaders) unblockPersonalDataRes()                   {}
 func (*ConflictHeaders) unlockFiscalPeriodRes()                    {}
 func (*ConflictHeaders) unlockPlanCategoryRes()                    {}
 func (*ConflictHeaders) unscheduleReportRes()                      {}
@@ -32943,6 +33383,22 @@ type CreateLeaseContractUnprocessableEntity Problem
 
 func (*CreateLeaseContractUnprocessableEntity) createLeaseContractRes() {}
 
+type CreateLeaseRunBadRequest Problem
+
+func (*CreateLeaseRunBadRequest) createLeaseRunRes() {}
+
+type CreateLeaseRunForbidden Problem
+
+func (*CreateLeaseRunForbidden) createLeaseRunRes() {}
+
+type CreateLeaseRunPreconditionRequired Problem
+
+func (*CreateLeaseRunPreconditionRequired) createLeaseRunRes() {}
+
+type CreateLeaseRunUnprocessableEntity Problem
+
+func (*CreateLeaseRunUnprocessableEntity) createLeaseRunRes() {}
+
 type CreateLegalEntityBadRequest Problem
 
 func (*CreateLegalEntityBadRequest) createLegalEntityRes() {}
@@ -33062,6 +33518,22 @@ func (*CreatePeriodClosePreconditionRequired) createPeriodCloseRes() {}
 type CreatePeriodCloseUnprocessableEntity Problem
 
 func (*CreatePeriodCloseUnprocessableEntity) createPeriodCloseRes() {}
+
+type CreatePersonalDataDeletionRunBadRequest Problem
+
+func (*CreatePersonalDataDeletionRunBadRequest) createPersonalDataDeletionRunRes() {}
+
+type CreatePersonalDataDeletionRunForbidden Problem
+
+func (*CreatePersonalDataDeletionRunForbidden) createPersonalDataDeletionRunRes() {}
+
+type CreatePersonalDataDeletionRunPreconditionRequired Problem
+
+func (*CreatePersonalDataDeletionRunPreconditionRequired) createPersonalDataDeletionRunRes() {}
+
+type CreatePersonalDataDeletionRunUnprocessableEntity Problem
+
+func (*CreatePersonalDataDeletionRunUnprocessableEntity) createPersonalDataDeletionRunRes() {}
 
 type CreatePlanCategoryBadRequest Problem
 
@@ -33390,6 +33862,61 @@ func (*CreateSalesOrderPreconditionRequired) createSalesOrderRes() {}
 type CreateSalesOrderUnprocessableEntity Problem
 
 func (*CreateSalesOrderUnprocessableEntity) createSalesOrderRes() {}
+
+type CreateSalesOrderUploadBadRequest Problem
+
+func (*CreateSalesOrderUploadBadRequest) createSalesOrderUploadRes() {}
+
+// CreateSalesOrderUploadCreatedHeaders wraps Upload with response headers.
+type CreateSalesOrderUploadCreatedHeaders struct {
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           Upload
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CreateSalesOrderUploadCreatedHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *CreateSalesOrderUploadCreatedHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *CreateSalesOrderUploadCreatedHeaders) GetResponse() Upload {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CreateSalesOrderUploadCreatedHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *CreateSalesOrderUploadCreatedHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CreateSalesOrderUploadCreatedHeaders) SetResponse(val Upload) {
+	s.Response = val
+}
+
+func (*CreateSalesOrderUploadCreatedHeaders) createSalesOrderUploadRes() {}
+
+type CreateSalesOrderUploadForbidden Problem
+
+func (*CreateSalesOrderUploadForbidden) createSalesOrderUploadRes() {}
+
+type CreateSalesOrderUploadPreconditionRequired Problem
+
+func (*CreateSalesOrderUploadPreconditionRequired) createSalesOrderUploadRes() {}
+
+type CreateSalesOrderUploadUnprocessableEntity Problem
+
+func (*CreateSalesOrderUploadUnprocessableEntity) createSalesOrderUploadRes() {}
 
 type CreateSalesPriceBadRequest Problem
 
@@ -45704,6 +46231,18 @@ func (s *GetLeaseContractOKHeaders) SetResponse(val LeaseContract) {
 
 func (*GetLeaseContractOKHeaders) getLeaseContractRes() {}
 
+type GetLeaseRunBadRequest Problem
+
+func (*GetLeaseRunBadRequest) getLeaseRunRes() {}
+
+type GetLeaseRunForbidden Problem
+
+func (*GetLeaseRunForbidden) getLeaseRunRes() {}
+
+type GetLeaseRunNotFound Problem
+
+func (*GetLeaseRunNotFound) getLeaseRunRes() {}
+
 type GetLeaseScheduleBadRequest Problem
 
 func (*GetLeaseScheduleBadRequest) getLeaseScheduleRes() {}
@@ -46184,6 +46723,18 @@ func (s *GetPeriodCloseOKHeaders) SetResponse(val PeriodClose) {
 
 func (*GetPeriodCloseOKHeaders) getPeriodCloseRes() {}
 
+type GetPersonalDataDeletionRunBadRequest Problem
+
+func (*GetPersonalDataDeletionRunBadRequest) getPersonalDataDeletionRunRes() {}
+
+type GetPersonalDataDeletionRunForbidden Problem
+
+func (*GetPersonalDataDeletionRunForbidden) getPersonalDataDeletionRunRes() {}
+
+type GetPersonalDataDeletionRunNotFound Problem
+
+func (*GetPersonalDataDeletionRunNotFound) getPersonalDataDeletionRunRes() {}
+
 type GetPersonalDataSubjectBadRequest Problem
 
 func (*GetPersonalDataSubjectBadRequest) getPersonalDataSubjectRes() {}
@@ -46319,6 +46870,18 @@ func (s *GetProfitCenterOKHeaders) SetResponse(val ProfitCenter) {
 }
 
 func (*GetProfitCenterOKHeaders) getProfitCenterRes() {}
+
+type GetProfitabilityReportBadRequest Problem
+
+func (*GetProfitabilityReportBadRequest) getProfitabilityReportRes() {}
+
+type GetProfitabilityReportForbidden Problem
+
+func (*GetProfitabilityReportForbidden) getProfitabilityReportRes() {}
+
+type GetProfitabilityReportUnprocessableEntity Problem
+
+func (*GetProfitabilityReportUnprocessableEntity) getProfitabilityReportRes() {}
 
 type GetPurchaseOrderBadRequest Problem
 
@@ -47093,6 +47656,18 @@ func (s *GetSalesOrderOKHeaders) SetResponse(val SalesOrder) {
 }
 
 func (*GetSalesOrderOKHeaders) getSalesOrderRes() {}
+
+type GetSalesOrderUploadBadRequest Problem
+
+func (*GetSalesOrderUploadBadRequest) getSalesOrderUploadRes() {}
+
+type GetSalesOrderUploadForbidden Problem
+
+func (*GetSalesOrderUploadForbidden) getSalesOrderUploadRes() {}
+
+type GetSalesOrderUploadNotFound Problem
+
+func (*GetSalesOrderUploadNotFound) getSalesOrderUploadRes() {}
 
 type GetSalesPriceBadRequest Problem
 
@@ -54463,6 +55038,486 @@ func (s *LeasePayment) SetAmount(val Money) {
 	s.Amount = val
 }
 
+// A lease run of a company and a fiscal period (ADR-0073 §9). Amounts are in `currency`, the
+// company's local currency.
+// Ref: #/components/schemas/LeaseRun
+type LeaseRun struct {
+	// The run.
+	ID uuid.UUID `json:"id"`
+	// The company run.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The fiscal year run.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The fiscal period run.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The period's last day: the lines whose interval ends on or before it are posted, and the entries are
+	// dated it.
+	PostingDate time.Time `json:"posting_date"`
+	// The company's local currency (ISO 4217), which every amount of the run is in.
+	Currency string `json:"currency"`
+	// The active contracts of the company the run read.
+	ContractCount int32 `json:"contract_count"`
+	// The contracts with lines to post: the journal entries the run posted, one each.
+	PostingCount int32 `json:"posting_count"`
+	// The interest the run posted, the postings' added up: debited to interest expense and credited to the
+	// lease liability; zero for a run that posted nothing.
+	InterestAmount Money `json:"interest_amount"`
+	// The right-of-use depreciation the run posted, the postings' added up: debited to depreciation
+	// expense and credited to accumulated depreciation; zero for a run that posted nothing.
+	DepreciationAmount Money `json:"depreciation_amount"`
+	// When the run was made.
+	CreatedAt time.Time `json:"created_at"`
+	// Who ran it.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// The run's postings, one per contract that posted, by contract number; at most 2,000. Given by
+	// `getLeaseRun` and by the run's creation; absent in `listLeaseRuns`.
+	Postings []LeaseRunPosting `json:"postings"`
+}
+
+// GetID returns the value of ID.
+func (s *LeaseRun) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *LeaseRun) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *LeaseRun) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *LeaseRun) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *LeaseRun) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *LeaseRun) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *LeaseRun) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *LeaseRun) GetCurrency() string {
+	return s.Currency
+}
+
+// GetContractCount returns the value of ContractCount.
+func (s *LeaseRun) GetContractCount() int32 {
+	return s.ContractCount
+}
+
+// GetPostingCount returns the value of PostingCount.
+func (s *LeaseRun) GetPostingCount() int32 {
+	return s.PostingCount
+}
+
+// GetInterestAmount returns the value of InterestAmount.
+func (s *LeaseRun) GetInterestAmount() Money {
+	return s.InterestAmount
+}
+
+// GetDepreciationAmount returns the value of DepreciationAmount.
+func (s *LeaseRun) GetDepreciationAmount() Money {
+	return s.DepreciationAmount
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *LeaseRun) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *LeaseRun) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetPostings returns the value of Postings.
+func (s *LeaseRun) GetPostings() []LeaseRunPosting {
+	return s.Postings
+}
+
+// SetID sets the value of ID.
+func (s *LeaseRun) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *LeaseRun) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *LeaseRun) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *LeaseRun) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *LeaseRun) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *LeaseRun) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *LeaseRun) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *LeaseRun) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetContractCount sets the value of ContractCount.
+func (s *LeaseRun) SetContractCount(val int32) {
+	s.ContractCount = val
+}
+
+// SetPostingCount sets the value of PostingCount.
+func (s *LeaseRun) SetPostingCount(val int32) {
+	s.PostingCount = val
+}
+
+// SetInterestAmount sets the value of InterestAmount.
+func (s *LeaseRun) SetInterestAmount(val Money) {
+	s.InterestAmount = val
+}
+
+// SetDepreciationAmount sets the value of DepreciationAmount.
+func (s *LeaseRun) SetDepreciationAmount(val Money) {
+	s.DepreciationAmount = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *LeaseRun) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *LeaseRun) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetPostings sets the value of Postings.
+func (s *LeaseRun) SetPostings(val []LeaseRunPosting) {
+	s.Postings = val
+}
+
+func (*LeaseRun) getLeaseRunRes() {}
+
+// Run lease accounting for a company and one of its regular fiscal periods.
+// Ref: #/components/schemas/LeaseRunCreate
+type LeaseRunCreate struct {
+	// The company to run: one the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year of the company's calendar.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The regular posting period of the fiscal year to run: the schedule lines whose interval ends on or
+	// before its last day are posted, and the entries are dated that day.
+	FiscalPeriod int32 `json:"fiscal_period"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *LeaseRunCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *LeaseRunCreate) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *LeaseRunCreate) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *LeaseRunCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *LeaseRunCreate) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *LeaseRunCreate) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// LeaseRunHeaders wraps LeaseRun with response headers.
+type LeaseRunHeaders struct {
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           LeaseRun
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *LeaseRunHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *LeaseRunHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *LeaseRunHeaders) GetResponse() LeaseRun {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *LeaseRunHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *LeaseRunHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *LeaseRunHeaders) SetResponse(val LeaseRun) {
+	s.Response = val
+}
+
+func (*LeaseRunHeaders) createLeaseRunRes() {}
+
+// One page of lease runs.
+// Ref: #/components/schemas/LeaseRunPage
+type LeaseRunPage struct {
+	// The runs on this page, without their postings.
+	Items []LeaseRun `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *LeaseRunPage) GetItems() []LeaseRun {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *LeaseRunPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *LeaseRunPage) SetItems(val []LeaseRun) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *LeaseRunPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*LeaseRunPage) listLeaseRunsRes() {}
+
+// What a lease run posted for one lease contract: the schedule lines it posted, their interest and
+// depreciation, and the journal entry.
+// Ref: #/components/schemas/LeaseRunPosting
+type LeaseRunPosting struct {
+	// The lease contract (`getLeaseContract`).
+	LeaseContractID uuid.UUID `json:"lease_contract_id"`
+	// The contract's number: the entry's reference.
+	DocumentNumber string `json:"document_number"`
+	// The lessor (`GET /v1/business-partners/{id}`).
+	LessorID uuid.UUID `json:"lessor_id"`
+	// The lessor's business partner number.
+	LessorNumber string `json:"lessor_number"`
+	// The lessor's name, as it is now.
+	LessorName string `json:"lessor_name"`
+	// The contract's cost center, which the expenses are posted on.
+	CostCenterID uuid.UUID `json:"cost_center_id"`
+	// The cost center's code.
+	CostCenterCode string `json:"cost_center_code"`
+	// The first schedule line posted (`getLeaseSchedule`).
+	FirstLineNo int32 `json:"first_line_no"`
+	// The last schedule line posted: the lines from the first to it are posted, each once.
+	LastLineNo int32 `json:"last_line_no"`
+	// The lines' interest added up: debited to interest expense, credited to the lease liability; zero: no
+	// lines for it.
+	InterestAmount Money `json:"interest_amount"`
+	// The lines' depreciation added up: debited to depreciation expense, credited to accumulated
+	// depreciation; zero: no lines for it.
+	DepreciationAmount Money `json:"depreciation_amount"`
+	// The journal entry the run posted for the contract (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The entry's fiscal year.
+	JournalEntryYear int32 `json:"journal_entry_year"`
+	// The entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+}
+
+// GetLeaseContractID returns the value of LeaseContractID.
+func (s *LeaseRunPosting) GetLeaseContractID() uuid.UUID {
+	return s.LeaseContractID
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *LeaseRunPosting) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetLessorID returns the value of LessorID.
+func (s *LeaseRunPosting) GetLessorID() uuid.UUID {
+	return s.LessorID
+}
+
+// GetLessorNumber returns the value of LessorNumber.
+func (s *LeaseRunPosting) GetLessorNumber() string {
+	return s.LessorNumber
+}
+
+// GetLessorName returns the value of LessorName.
+func (s *LeaseRunPosting) GetLessorName() string {
+	return s.LessorName
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *LeaseRunPosting) GetCostCenterID() uuid.UUID {
+	return s.CostCenterID
+}
+
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *LeaseRunPosting) GetCostCenterCode() string {
+	return s.CostCenterCode
+}
+
+// GetFirstLineNo returns the value of FirstLineNo.
+func (s *LeaseRunPosting) GetFirstLineNo() int32 {
+	return s.FirstLineNo
+}
+
+// GetLastLineNo returns the value of LastLineNo.
+func (s *LeaseRunPosting) GetLastLineNo() int32 {
+	return s.LastLineNo
+}
+
+// GetInterestAmount returns the value of InterestAmount.
+func (s *LeaseRunPosting) GetInterestAmount() Money {
+	return s.InterestAmount
+}
+
+// GetDepreciationAmount returns the value of DepreciationAmount.
+func (s *LeaseRunPosting) GetDepreciationAmount() Money {
+	return s.DepreciationAmount
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *LeaseRunPosting) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *LeaseRunPosting) GetJournalEntryYear() int32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *LeaseRunPosting) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// SetLeaseContractID sets the value of LeaseContractID.
+func (s *LeaseRunPosting) SetLeaseContractID(val uuid.UUID) {
+	s.LeaseContractID = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *LeaseRunPosting) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetLessorID sets the value of LessorID.
+func (s *LeaseRunPosting) SetLessorID(val uuid.UUID) {
+	s.LessorID = val
+}
+
+// SetLessorNumber sets the value of LessorNumber.
+func (s *LeaseRunPosting) SetLessorNumber(val string) {
+	s.LessorNumber = val
+}
+
+// SetLessorName sets the value of LessorName.
+func (s *LeaseRunPosting) SetLessorName(val string) {
+	s.LessorName = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *LeaseRunPosting) SetCostCenterID(val uuid.UUID) {
+	s.CostCenterID = val
+}
+
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *LeaseRunPosting) SetCostCenterCode(val string) {
+	s.CostCenterCode = val
+}
+
+// SetFirstLineNo sets the value of FirstLineNo.
+func (s *LeaseRunPosting) SetFirstLineNo(val int32) {
+	s.FirstLineNo = val
+}
+
+// SetLastLineNo sets the value of LastLineNo.
+func (s *LeaseRunPosting) SetLastLineNo(val int32) {
+	s.LastLineNo = val
+}
+
+// SetInterestAmount sets the value of InterestAmount.
+func (s *LeaseRunPosting) SetInterestAmount(val Money) {
+	s.InterestAmount = val
+}
+
+// SetDepreciationAmount sets the value of DepreciationAmount.
+func (s *LeaseRunPosting) SetDepreciationAmount(val Money) {
+	s.DepreciationAmount = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *LeaseRunPosting) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *LeaseRunPosting) SetJournalEntryYear(val int32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *LeaseRunPosting) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
 // A lease contract's schedule (leases, ADR-0073 §8): computed on read for a draft, the stored one of
 // an active contract.
 // Ref: #/components/schemas/LeaseSchedule
@@ -58403,6 +59458,14 @@ type ListLeaseContractsForbidden Problem
 
 func (*ListLeaseContractsForbidden) listLeaseContractsRes() {}
 
+type ListLeaseRunsBadRequest Problem
+
+func (*ListLeaseRunsBadRequest) listLeaseRunsRes() {}
+
+type ListLeaseRunsForbidden Problem
+
+func (*ListLeaseRunsForbidden) listLeaseRunsRes() {}
+
 type ListLedgerGroupsBadRequest Problem
 
 func (*ListLedgerGroupsBadRequest) listLedgerGroupsRes() {}
@@ -58606,6 +59669,18 @@ func (*ListPeriodClosesBadRequest) listPeriodClosesRes() {}
 type ListPeriodClosesForbidden Problem
 
 func (*ListPeriodClosesForbidden) listPeriodClosesRes() {}
+
+type ListPersonalDataDeletionSubjectsBadRequest Problem
+
+func (*ListPersonalDataDeletionSubjectsBadRequest) listPersonalDataDeletionSubjectsRes() {}
+
+type ListPersonalDataDeletionSubjectsForbidden Problem
+
+func (*ListPersonalDataDeletionSubjectsForbidden) listPersonalDataDeletionSubjectsRes() {}
+
+type ListPersonalDataDeletionSubjectsNotFound Problem
+
+func (*ListPersonalDataDeletionSubjectsNotFound) listPersonalDataDeletionSubjectsRes() {}
 
 type ListPlanCategoriesBadRequest Problem
 
@@ -64548,6 +65623,7 @@ func (s *OperationHeaders) SetResponse(val Operation) {
 	s.Response = val
 }
 
+func (*OperationHeaders) captureSalesOrderRes()      {}
 func (*OperationHeaders) captureSupplierInvoiceRes() {}
 func (*OperationHeaders) createConsolidationRunRes() {}
 func (*OperationHeaders) fetchEInvoicesRes()         {}
@@ -64869,6 +65945,98 @@ func (o OptAnalyticsDerived) Get() (v AnalyticsDerived, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAnalyticsDerived) Or(d AnalyticsDerived) AnalyticsDerived {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAnalyticsScenario returns new OptAnalyticsScenario with value set to v.
+func NewOptAnalyticsScenario(v AnalyticsScenario) OptAnalyticsScenario {
+	return OptAnalyticsScenario{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAnalyticsScenario is optional AnalyticsScenario.
+type OptAnalyticsScenario struct {
+	Value AnalyticsScenario
+	Set   bool
+}
+
+// IsSet returns true if OptAnalyticsScenario was set.
+func (o OptAnalyticsScenario) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAnalyticsScenario) Reset() {
+	var v AnalyticsScenario
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAnalyticsScenario) SetTo(v AnalyticsScenario) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAnalyticsScenario) Get() (v AnalyticsScenario, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAnalyticsScenario) Or(d AnalyticsScenario) AnalyticsScenario {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAnalyticsScenarioResult returns new OptAnalyticsScenarioResult with value set to v.
+func NewOptAnalyticsScenarioResult(v AnalyticsScenarioResult) OptAnalyticsScenarioResult {
+	return OptAnalyticsScenarioResult{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAnalyticsScenarioResult is optional AnalyticsScenarioResult.
+type OptAnalyticsScenarioResult struct {
+	Value AnalyticsScenarioResult
+	Set   bool
+}
+
+// IsSet returns true if OptAnalyticsScenarioResult was set.
+func (o OptAnalyticsScenarioResult) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAnalyticsScenarioResult) Reset() {
+	var v AnalyticsScenarioResult
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAnalyticsScenarioResult) SetTo(v AnalyticsScenarioResult) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAnalyticsScenarioResult) Get() (v AnalyticsScenarioResult, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAnalyticsScenarioResult) Or(d AnalyticsScenarioResult) AnalyticsScenarioResult {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -69231,6 +70399,52 @@ func (o OptReportTileWhere) Get() (v ReportTileWhere, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptReportTileWhere) Or(d ReportTileWhere) ReportTileWhere {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptSalesOrderCaptured returns new OptSalesOrderCaptured with value set to v.
+func NewOptSalesOrderCaptured(v SalesOrderCaptured) OptSalesOrderCaptured {
+	return OptSalesOrderCaptured{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSalesOrderCaptured is optional SalesOrderCaptured.
+type OptSalesOrderCaptured struct {
+	Value SalesOrderCaptured
+	Set   bool
+}
+
+// IsSet returns true if OptSalesOrderCaptured was set.
+func (o OptSalesOrderCaptured) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSalesOrderCaptured) Reset() {
+	var v SalesOrderCaptured
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSalesOrderCaptured) SetTo(v SalesOrderCaptured) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSalesOrderCaptured) Get() (v SalesOrderCaptured, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSalesOrderCaptured) Or(d SalesOrderCaptured) SalesOrderCaptured {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -74596,6 +75810,387 @@ func (s *PeriodCloseVarianceTotals) SetRowsExplained(val int32) {
 	s.RowsExplained = val
 }
 
+// The subjects a deletion run started now would blank (records, ADR-0079 §12, T100c).
+// Ref: #/components/schemas/PersonalDataDeletionPreview
+type PersonalDataDeletionPreview struct {
+	// The active configuration version the retention rules were read from.
+	ConfigurationVersion int32 `json:"configuration_version"`
+	// How many subjects a run would blank, on every page.
+	Count int32 `json:"count"`
+	// This page's subjects, by partner number.
+	Items []PersonalDataDeletionSubject `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetConfigurationVersion returns the value of ConfigurationVersion.
+func (s *PersonalDataDeletionPreview) GetConfigurationVersion() int32 {
+	return s.ConfigurationVersion
+}
+
+// GetCount returns the value of Count.
+func (s *PersonalDataDeletionPreview) GetCount() int32 {
+	return s.Count
+}
+
+// GetItems returns the value of Items.
+func (s *PersonalDataDeletionPreview) GetItems() []PersonalDataDeletionSubject {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *PersonalDataDeletionPreview) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetConfigurationVersion sets the value of ConfigurationVersion.
+func (s *PersonalDataDeletionPreview) SetConfigurationVersion(val int32) {
+	s.ConfigurationVersion = val
+}
+
+// SetCount sets the value of Count.
+func (s *PersonalDataDeletionPreview) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetItems sets the value of Items.
+func (s *PersonalDataDeletionPreview) SetItems(val []PersonalDataDeletionSubject) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *PersonalDataDeletionPreview) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*PersonalDataDeletionPreview) getPersonalDataDeletionPreviewRes() {}
+
+// A deletion run (records, ADR-0079 §12, T100c): the subjects eligible when it was asked for, blanked
+// by the deleter one by one. Not reversible.
+// Ref: #/components/schemas/PersonalDataDeletionRun
+type PersonalDataDeletionRun struct {
+	// Deletion run id.
+	ID uuid.UUID `json:"id"`
+	// `queued` (while a subject is pending), `completed` or `failed`. Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The active configuration version the retention rules were read from.
+	ConfigurationVersion int32 `json:"configuration_version"`
+	// How many subjects it has; `listPersonalDataDeletionSubjects` lists them.
+	SubjectCount int32 `json:"subject_count"`
+	// How many of them are pending.
+	PendingCount int32 `json:"pending_count"`
+	// How many of them were blanked.
+	BlankedCount int32 `json:"blanked_count"`
+	// How many of them were skipped.
+	SkippedCount int32 `json:"skipped_count"`
+	// Failed: the problem code that stopped the run (`identity.principal_blocked`).
+	FailureCode OptString `json:"failure_code"`
+	// When the deleter completed it.
+	CompletedAt OptDateTime `json:"completed_at"`
+	// Who asked for the run.
+	RequestedBy uuid.UUID `json:"requested_by"`
+	// Their name, as the identity context gives it now.
+	RequestedByName string    `json:"requested_by_name"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *PersonalDataDeletionRun) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetStatus returns the value of Status.
+func (s *PersonalDataDeletionRun) GetStatus() string {
+	return s.Status
+}
+
+// GetConfigurationVersion returns the value of ConfigurationVersion.
+func (s *PersonalDataDeletionRun) GetConfigurationVersion() int32 {
+	return s.ConfigurationVersion
+}
+
+// GetSubjectCount returns the value of SubjectCount.
+func (s *PersonalDataDeletionRun) GetSubjectCount() int32 {
+	return s.SubjectCount
+}
+
+// GetPendingCount returns the value of PendingCount.
+func (s *PersonalDataDeletionRun) GetPendingCount() int32 {
+	return s.PendingCount
+}
+
+// GetBlankedCount returns the value of BlankedCount.
+func (s *PersonalDataDeletionRun) GetBlankedCount() int32 {
+	return s.BlankedCount
+}
+
+// GetSkippedCount returns the value of SkippedCount.
+func (s *PersonalDataDeletionRun) GetSkippedCount() int32 {
+	return s.SkippedCount
+}
+
+// GetFailureCode returns the value of FailureCode.
+func (s *PersonalDataDeletionRun) GetFailureCode() OptString {
+	return s.FailureCode
+}
+
+// GetCompletedAt returns the value of CompletedAt.
+func (s *PersonalDataDeletionRun) GetCompletedAt() OptDateTime {
+	return s.CompletedAt
+}
+
+// GetRequestedBy returns the value of RequestedBy.
+func (s *PersonalDataDeletionRun) GetRequestedBy() uuid.UUID {
+	return s.RequestedBy
+}
+
+// GetRequestedByName returns the value of RequestedByName.
+func (s *PersonalDataDeletionRun) GetRequestedByName() string {
+	return s.RequestedByName
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *PersonalDataDeletionRun) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *PersonalDataDeletionRun) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *PersonalDataDeletionRun) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetStatus sets the value of Status.
+func (s *PersonalDataDeletionRun) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetConfigurationVersion sets the value of ConfigurationVersion.
+func (s *PersonalDataDeletionRun) SetConfigurationVersion(val int32) {
+	s.ConfigurationVersion = val
+}
+
+// SetSubjectCount sets the value of SubjectCount.
+func (s *PersonalDataDeletionRun) SetSubjectCount(val int32) {
+	s.SubjectCount = val
+}
+
+// SetPendingCount sets the value of PendingCount.
+func (s *PersonalDataDeletionRun) SetPendingCount(val int32) {
+	s.PendingCount = val
+}
+
+// SetBlankedCount sets the value of BlankedCount.
+func (s *PersonalDataDeletionRun) SetBlankedCount(val int32) {
+	s.BlankedCount = val
+}
+
+// SetSkippedCount sets the value of SkippedCount.
+func (s *PersonalDataDeletionRun) SetSkippedCount(val int32) {
+	s.SkippedCount = val
+}
+
+// SetFailureCode sets the value of FailureCode.
+func (s *PersonalDataDeletionRun) SetFailureCode(val OptString) {
+	s.FailureCode = val
+}
+
+// SetCompletedAt sets the value of CompletedAt.
+func (s *PersonalDataDeletionRun) SetCompletedAt(val OptDateTime) {
+	s.CompletedAt = val
+}
+
+// SetRequestedBy sets the value of RequestedBy.
+func (s *PersonalDataDeletionRun) SetRequestedBy(val uuid.UUID) {
+	s.RequestedBy = val
+}
+
+// SetRequestedByName sets the value of RequestedByName.
+func (s *PersonalDataDeletionRun) SetRequestedByName(val string) {
+	s.RequestedByName = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *PersonalDataDeletionRun) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *PersonalDataDeletionRun) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+func (*PersonalDataDeletionRun) createPersonalDataDeletionRunRes() {}
+func (*PersonalDataDeletionRun) getPersonalDataDeletionRunRes()    {}
+
+// PersonalDataDeletionRunHeaders wraps PersonalDataDeletionRun with response headers.
+type PersonalDataDeletionRunHeaders struct {
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           PersonalDataDeletionRun
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *PersonalDataDeletionRunHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *PersonalDataDeletionRunHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *PersonalDataDeletionRunHeaders) GetResponse() PersonalDataDeletionRun {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *PersonalDataDeletionRunHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *PersonalDataDeletionRunHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *PersonalDataDeletionRunHeaders) SetResponse(val PersonalDataDeletionRun) {
+	s.Response = val
+}
+
+func (*PersonalDataDeletionRunHeaders) createPersonalDataDeletionRunRes() {}
+
+// A business partner a deletion run blanks, by id and number; never its name.
+// Ref: #/components/schemas/PersonalDataDeletionSubject
+type PersonalDataDeletionSubject struct {
+	// The business partner (`GET /v1/business-partners/{id}`).
+	PartnerID uuid.UUID `json:"partner_id"`
+	// Its number.
+	PartnerNumber string `json:"partner_number"`
+	// When its personal data was blocked.
+	PersonalDataBlockedAt time.Time `json:"personal_data_blocked_at"`
+	// The longest retention rule for personal data of the companies it has data in.
+	RetentionYears int32 `json:"retention_years"`
+	// The day that rule's years ended, counted from the block's day on the company's date: from that day
+	// on it is eligible.
+	RetentionEnds time.Time `json:"retention_ends"`
+	// In a run: `pending`, `blanked`, or `skipped` when its block was lifted or set again since the run
+	// was asked for, or an item of it was open; absent in a preview. Open enumeration: clients must accept
+	// and preserve values not listed here; values may be added within /v1.
+	Status OptString `json:"status"`
+	// In a run: when it was blanked or skipped.
+	SettledAt OptDateTime `json:"settled_at"`
+}
+
+// GetPartnerID returns the value of PartnerID.
+func (s *PersonalDataDeletionSubject) GetPartnerID() uuid.UUID {
+	return s.PartnerID
+}
+
+// GetPartnerNumber returns the value of PartnerNumber.
+func (s *PersonalDataDeletionSubject) GetPartnerNumber() string {
+	return s.PartnerNumber
+}
+
+// GetPersonalDataBlockedAt returns the value of PersonalDataBlockedAt.
+func (s *PersonalDataDeletionSubject) GetPersonalDataBlockedAt() time.Time {
+	return s.PersonalDataBlockedAt
+}
+
+// GetRetentionYears returns the value of RetentionYears.
+func (s *PersonalDataDeletionSubject) GetRetentionYears() int32 {
+	return s.RetentionYears
+}
+
+// GetRetentionEnds returns the value of RetentionEnds.
+func (s *PersonalDataDeletionSubject) GetRetentionEnds() time.Time {
+	return s.RetentionEnds
+}
+
+// GetStatus returns the value of Status.
+func (s *PersonalDataDeletionSubject) GetStatus() OptString {
+	return s.Status
+}
+
+// GetSettledAt returns the value of SettledAt.
+func (s *PersonalDataDeletionSubject) GetSettledAt() OptDateTime {
+	return s.SettledAt
+}
+
+// SetPartnerID sets the value of PartnerID.
+func (s *PersonalDataDeletionSubject) SetPartnerID(val uuid.UUID) {
+	s.PartnerID = val
+}
+
+// SetPartnerNumber sets the value of PartnerNumber.
+func (s *PersonalDataDeletionSubject) SetPartnerNumber(val string) {
+	s.PartnerNumber = val
+}
+
+// SetPersonalDataBlockedAt sets the value of PersonalDataBlockedAt.
+func (s *PersonalDataDeletionSubject) SetPersonalDataBlockedAt(val time.Time) {
+	s.PersonalDataBlockedAt = val
+}
+
+// SetRetentionYears sets the value of RetentionYears.
+func (s *PersonalDataDeletionSubject) SetRetentionYears(val int32) {
+	s.RetentionYears = val
+}
+
+// SetRetentionEnds sets the value of RetentionEnds.
+func (s *PersonalDataDeletionSubject) SetRetentionEnds(val time.Time) {
+	s.RetentionEnds = val
+}
+
+// SetStatus sets the value of Status.
+func (s *PersonalDataDeletionSubject) SetStatus(val OptString) {
+	s.Status = val
+}
+
+// SetSettledAt sets the value of SettledAt.
+func (s *PersonalDataDeletionSubject) SetSettledAt(val OptDateTime) {
+	s.SettledAt = val
+}
+
+// One page of a deletion run's subjects, by partner number.
+// Ref: #/components/schemas/PersonalDataDeletionSubjectPage
+type PersonalDataDeletionSubjectPage struct {
+	// The subjects on this page.
+	Items []PersonalDataDeletionSubject `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *PersonalDataDeletionSubjectPage) GetItems() []PersonalDataDeletionSubject {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *PersonalDataDeletionSubjectPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *PersonalDataDeletionSubjectPage) SetItems(val []PersonalDataDeletionSubject) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *PersonalDataDeletionSubjectPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*PersonalDataDeletionSubjectPage) listPersonalDataDeletionSubjectsRes() {}
+
 // A column of the database that holds personal data.
 // Ref: #/components/schemas/PersonalDataEntry
 type PersonalDataEntry struct {
@@ -76790,7 +78385,8 @@ func (s *Problem) SetCreditLimit(val OptCreditLimit) {
 	s.CreditLimit = val
 }
 
-func (*Problem) getPersonalDataInventoryRes() {}
+func (*Problem) getPersonalDataDeletionPreviewRes() {}
+func (*Problem) getPersonalDataInventoryRes()       {}
 
 // Merged schema.
 // Ref: #/components/schemas/ProfitCenter
@@ -77802,6 +79398,328 @@ func (s *ProfitCenterPlanActualPage) SetNextPageToken(val OptString) {
 }
 
 func (*ProfitCenterPlanActualPage) listProfitCenterPlanActualRes() {}
+
+// One page of a legal entity's net revenue by profitability segment (ADR-0075 §6), with the selection
+// and the totals on every page. It has no cost side, and says so.
+// Ref: #/components/schemas/ProfitabilityReport
+type ProfitabilityReport struct {
+	// The segments on this page, by the customer's number, then the item key.
+	Items []ProfitabilityRow `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The customer the selection is restricted to; absent for every customer.
+	CustomerID OptUUID `json:"customer_id"`
+	// Fiscal year of the selection.
+	FiscalYear int32 `json:"fiscal_year"`
+	// First period of the selection.
+	FiscalPeriodFrom int32 `json:"fiscal_period_from"`
+	// Last period of the selection.
+	FiscalPeriodTo int32 `json:"fiscal_period_to"`
+	// The first day of the first period: the earliest posting date counted.
+	DateFrom time.Time `json:"date_from"`
+	// The last day of the last period: the latest posting date counted.
+	DateTo time.Time `json:"date_to"`
+	// The legal entity's local currency, which every amount is in.
+	Currency string `json:"currency"`
+	// Always false: the report shows no cost, since no cost of goods sold is posted per item; the margin
+	// report (`getMarginReport`) has the ledger's cost of sales.
+	IncludesCost bool `json:"includes_cost"`
+	// The posted billing documents and credit memos of the selection in a currency other than `currency`,
+	// which are not converted and are left out of every figure.
+	ForeignCurrencyDocuments int32 `json:"foreign_currency_documents"`
+	// The whole selection's totals, the same on every page.
+	Totals ProfitabilityTotals `json:"totals"`
+}
+
+// GetItems returns the value of Items.
+func (s *ProfitabilityReport) GetItems() []ProfitabilityRow {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ProfitabilityReport) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ProfitabilityReport) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *ProfitabilityReport) GetCustomerID() OptUUID {
+	return s.CustomerID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *ProfitabilityReport) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriodFrom returns the value of FiscalPeriodFrom.
+func (s *ProfitabilityReport) GetFiscalPeriodFrom() int32 {
+	return s.FiscalPeriodFrom
+}
+
+// GetFiscalPeriodTo returns the value of FiscalPeriodTo.
+func (s *ProfitabilityReport) GetFiscalPeriodTo() int32 {
+	return s.FiscalPeriodTo
+}
+
+// GetDateFrom returns the value of DateFrom.
+func (s *ProfitabilityReport) GetDateFrom() time.Time {
+	return s.DateFrom
+}
+
+// GetDateTo returns the value of DateTo.
+func (s *ProfitabilityReport) GetDateTo() time.Time {
+	return s.DateTo
+}
+
+// GetCurrency returns the value of Currency.
+func (s *ProfitabilityReport) GetCurrency() string {
+	return s.Currency
+}
+
+// GetIncludesCost returns the value of IncludesCost.
+func (s *ProfitabilityReport) GetIncludesCost() bool {
+	return s.IncludesCost
+}
+
+// GetForeignCurrencyDocuments returns the value of ForeignCurrencyDocuments.
+func (s *ProfitabilityReport) GetForeignCurrencyDocuments() int32 {
+	return s.ForeignCurrencyDocuments
+}
+
+// GetTotals returns the value of Totals.
+func (s *ProfitabilityReport) GetTotals() ProfitabilityTotals {
+	return s.Totals
+}
+
+// SetItems sets the value of Items.
+func (s *ProfitabilityReport) SetItems(val []ProfitabilityRow) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ProfitabilityReport) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ProfitabilityReport) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *ProfitabilityReport) SetCustomerID(val OptUUID) {
+	s.CustomerID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *ProfitabilityReport) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriodFrom sets the value of FiscalPeriodFrom.
+func (s *ProfitabilityReport) SetFiscalPeriodFrom(val int32) {
+	s.FiscalPeriodFrom = val
+}
+
+// SetFiscalPeriodTo sets the value of FiscalPeriodTo.
+func (s *ProfitabilityReport) SetFiscalPeriodTo(val int32) {
+	s.FiscalPeriodTo = val
+}
+
+// SetDateFrom sets the value of DateFrom.
+func (s *ProfitabilityReport) SetDateFrom(val time.Time) {
+	s.DateFrom = val
+}
+
+// SetDateTo sets the value of DateTo.
+func (s *ProfitabilityReport) SetDateTo(val time.Time) {
+	s.DateTo = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *ProfitabilityReport) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetIncludesCost sets the value of IncludesCost.
+func (s *ProfitabilityReport) SetIncludesCost(val bool) {
+	s.IncludesCost = val
+}
+
+// SetForeignCurrencyDocuments sets the value of ForeignCurrencyDocuments.
+func (s *ProfitabilityReport) SetForeignCurrencyDocuments(val int32) {
+	s.ForeignCurrencyDocuments = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *ProfitabilityReport) SetTotals(val ProfitabilityTotals) {
+	s.Totals = val
+}
+
+func (*ProfitabilityReport) getProfitabilityReportRes() {}
+
+// A profitability segment's figures in the selection (ADR-0075 §6): a customer and an item key, or
+// the customer alone for its items without one; in the legal entity's local currency.
+// Ref: #/components/schemas/ProfitabilityRow
+type ProfitabilityRow struct {
+	// The customer.
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name.
+	CustomerName string `json:"customer_name"`
+	// The billed items' item key; absent on the row of the customer's items without one.
+	ItemKey OptString `json:"item_key"`
+	// The billed items' value before discounts.
+	GrossValue Money `json:"gross_value"`
+	// The discounts taken off the billed items.
+	Discounts Money `json:"discounts"`
+	// The net value of the credit memos posted against the segment's billed items.
+	CreditMemos Money `json:"credit_memos"`
+	// Gross value less discounts less credit memos.
+	NetRevenue Money `json:"net_revenue"`
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *ProfitabilityRow) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *ProfitabilityRow) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *ProfitabilityRow) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetItemKey returns the value of ItemKey.
+func (s *ProfitabilityRow) GetItemKey() OptString {
+	return s.ItemKey
+}
+
+// GetGrossValue returns the value of GrossValue.
+func (s *ProfitabilityRow) GetGrossValue() Money {
+	return s.GrossValue
+}
+
+// GetDiscounts returns the value of Discounts.
+func (s *ProfitabilityRow) GetDiscounts() Money {
+	return s.Discounts
+}
+
+// GetCreditMemos returns the value of CreditMemos.
+func (s *ProfitabilityRow) GetCreditMemos() Money {
+	return s.CreditMemos
+}
+
+// GetNetRevenue returns the value of NetRevenue.
+func (s *ProfitabilityRow) GetNetRevenue() Money {
+	return s.NetRevenue
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *ProfitabilityRow) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *ProfitabilityRow) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *ProfitabilityRow) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetItemKey sets the value of ItemKey.
+func (s *ProfitabilityRow) SetItemKey(val OptString) {
+	s.ItemKey = val
+}
+
+// SetGrossValue sets the value of GrossValue.
+func (s *ProfitabilityRow) SetGrossValue(val Money) {
+	s.GrossValue = val
+}
+
+// SetDiscounts sets the value of Discounts.
+func (s *ProfitabilityRow) SetDiscounts(val Money) {
+	s.Discounts = val
+}
+
+// SetCreditMemos sets the value of CreditMemos.
+func (s *ProfitabilityRow) SetCreditMemos(val Money) {
+	s.CreditMemos = val
+}
+
+// SetNetRevenue sets the value of NetRevenue.
+func (s *ProfitabilityRow) SetNetRevenue(val Money) {
+	s.NetRevenue = val
+}
+
+// The whole selection's gross value, discounts, credit memos and net revenue, which the rows of every
+// page add up to over the pages; in the legal entity's local currency.
+// Ref: #/components/schemas/ProfitabilityTotals
+type ProfitabilityTotals struct {
+	// Gross value billed.
+	GrossValue Money `json:"gross_value"`
+	// Discounts.
+	Discounts Money `json:"discounts"`
+	// Credit memos.
+	CreditMemos Money `json:"credit_memos"`
+	// Net revenue: the net value of the posted billing documents less the posted credit memos.
+	NetRevenue Money `json:"net_revenue"`
+}
+
+// GetGrossValue returns the value of GrossValue.
+func (s *ProfitabilityTotals) GetGrossValue() Money {
+	return s.GrossValue
+}
+
+// GetDiscounts returns the value of Discounts.
+func (s *ProfitabilityTotals) GetDiscounts() Money {
+	return s.Discounts
+}
+
+// GetCreditMemos returns the value of CreditMemos.
+func (s *ProfitabilityTotals) GetCreditMemos() Money {
+	return s.CreditMemos
+}
+
+// GetNetRevenue returns the value of NetRevenue.
+func (s *ProfitabilityTotals) GetNetRevenue() Money {
+	return s.NetRevenue
+}
+
+// SetGrossValue sets the value of GrossValue.
+func (s *ProfitabilityTotals) SetGrossValue(val Money) {
+	s.GrossValue = val
+}
+
+// SetDiscounts sets the value of Discounts.
+func (s *ProfitabilityTotals) SetDiscounts(val Money) {
+	s.Discounts = val
+}
+
+// SetCreditMemos sets the value of CreditMemos.
+func (s *ProfitabilityTotals) SetCreditMemos(val Money) {
+	s.CreditMemos = val
+}
+
+// SetNetRevenue sets the value of NetRevenue.
+func (s *ProfitabilityTotals) SetNetRevenue(val Money) {
+	s.NetRevenue = val
+}
 
 type ProposeAccrualBadRequest Problem
 
@@ -91473,7 +93391,8 @@ type SalesOrder struct {
 	// When the credit block was released; absent unless `credit_block` is `released`.
 	CreditReleasedAt OptDateTime `json:"credit_released_at"`
 	// The items, by item number.
-	Items []SalesOrderItem `json:"items"`
+	Items   []SalesOrderItem      `json:"items"`
+	Capture OptSalesOrderCaptured `json:"capture"`
 }
 
 // GetID returns the value of ID.
@@ -91601,6 +93520,11 @@ func (s *SalesOrder) GetItems() []SalesOrderItem {
 	return s.Items
 }
 
+// GetCapture returns the value of Capture.
+func (s *SalesOrder) GetCapture() OptSalesOrderCaptured {
+	return s.Capture
+}
+
 // SetID sets the value of ID.
 func (s *SalesOrder) SetID(val uuid.UUID) {
 	s.ID = val
@@ -91724,6 +93648,227 @@ func (s *SalesOrder) SetCreditReleasedAt(val OptDateTime) {
 // SetItems sets the value of Items.
 func (s *SalesOrder) SetItems(val []SalesOrderItem) {
 	s.Items = val
+}
+
+// SetCapture sets the value of Capture.
+func (s *SalesOrder) SetCapture(val OptSalesOrderCaptured) {
+	s.Capture = val
+}
+
+// Capture a customer's purchase order from a direct upload into a draft sales order of the company.
+// Ref: #/components/schemas/SalesOrderCaptureRequest
+type SalesOrderCaptureRequest struct {
+	// The company that takes the order: one the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// A direct upload of the document (`createSalesOrderUpload`: purpose `sales_order`, a PDF or plain
+	// text, at most 50 MB), consumed by this capture. 422 `payables.upload_empty` when nothing was
+	// uploaded to it yet, `payables.upload_purpose` when it is for another purpose; captured again into
+	// the same company, it answers the order it gave; into another, 422 `payables.upload_used`.
+	UploadID uuid.UUID `json:"upload_id"`
+	// The revenue account every item of the order is billed to (`GET /v1/accounts/{id}`): postable in the
+	// company (422 `sales.account_not_postable`).
+	AccountID uuid.UUID `json:"account_id"`
+	// The output tax code every item is billed with: an output tax code of the company in force on the
+	// order's date (422 `sales.unknown_tax_code`); absent, the items have none.
+	TaxCode OptString `json:"tax_code"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *SalesOrderCaptureRequest) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetUploadID returns the value of UploadID.
+func (s *SalesOrderCaptureRequest) GetUploadID() uuid.UUID {
+	return s.UploadID
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *SalesOrderCaptureRequest) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *SalesOrderCaptureRequest) GetTaxCode() OptString {
+	return s.TaxCode
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *SalesOrderCaptureRequest) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetUploadID sets the value of UploadID.
+func (s *SalesOrderCaptureRequest) SetUploadID(val uuid.UUID) {
+	s.UploadID = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *SalesOrderCaptureRequest) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *SalesOrderCaptureRequest) SetTaxCode(val OptString) {
+	s.TaxCode = val
+}
+
+// What order capture read into the order (ADR-0067, As built T90a); absent for an order created by
+// hand. The items as the document printed them, numbered as the order's items they gave.
+// Ref: #/components/schemas/SalesOrderCaptured
+type SalesOrderCaptured struct {
+	// The direct upload the order was captured from (`GET /v1/uploads/{id}`).
+	UploadID uuid.UUID `json:"upload_id"`
+	// The customer's own purchase order number as printed; empty when none is.
+	CustomerReference string `json:"customer_reference"`
+	// What found the customer: the customer number printed, the tax registration number printed, or both.
+	CustomerMatchedBy []string `json:"customer_matched_by"`
+	// How sure the model was of what it read. Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	Confidence string `json:"confidence"`
+	// The document's items, in its order.
+	Items []SalesOrderCapturedItem `json:"items"`
+}
+
+// GetUploadID returns the value of UploadID.
+func (s *SalesOrderCaptured) GetUploadID() uuid.UUID {
+	return s.UploadID
+}
+
+// GetCustomerReference returns the value of CustomerReference.
+func (s *SalesOrderCaptured) GetCustomerReference() string {
+	return s.CustomerReference
+}
+
+// GetCustomerMatchedBy returns the value of CustomerMatchedBy.
+func (s *SalesOrderCaptured) GetCustomerMatchedBy() []string {
+	return s.CustomerMatchedBy
+}
+
+// GetConfidence returns the value of Confidence.
+func (s *SalesOrderCaptured) GetConfidence() string {
+	return s.Confidence
+}
+
+// GetItems returns the value of Items.
+func (s *SalesOrderCaptured) GetItems() []SalesOrderCapturedItem {
+	return s.Items
+}
+
+// SetUploadID sets the value of UploadID.
+func (s *SalesOrderCaptured) SetUploadID(val uuid.UUID) {
+	s.UploadID = val
+}
+
+// SetCustomerReference sets the value of CustomerReference.
+func (s *SalesOrderCaptured) SetCustomerReference(val string) {
+	s.CustomerReference = val
+}
+
+// SetCustomerMatchedBy sets the value of CustomerMatchedBy.
+func (s *SalesOrderCaptured) SetCustomerMatchedBy(val []string) {
+	s.CustomerMatchedBy = val
+}
+
+// SetConfidence sets the value of Confidence.
+func (s *SalesOrderCaptured) SetConfidence(val string) {
+	s.Confidence = val
+}
+
+// SetItems sets the value of Items.
+func (s *SalesOrderCaptured) SetItems(val []SalesOrderCapturedItem) {
+	s.Items = val
+}
+
+// An item as the document printed it.
+// Ref: #/components/schemas/SalesOrderCapturedItem
+type SalesOrderCapturedItem struct {
+	// The order's item it gave.
+	ItemNo int32 `json:"item_no"`
+	// The item key printed; empty when none is.
+	ItemKey string `json:"item_key"`
+	// The description printed.
+	Description string `json:"description"`
+	// The quantity printed, a decimal.
+	Quantity string `json:"quantity"`
+	// The unit of measure read.
+	Unit string `json:"unit"`
+	// The unit price printed, a decimal in the order's currency; empty when none is printed.
+	UnitPrice string `json:"unit_price"`
+	// `manual`: the item took the price printed; `price_list`: none was printed and the item took its item
+	// key's price record (its `unit_price` on the order's item). Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	PriceSource string `json:"price_source"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *SalesOrderCapturedItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetItemKey returns the value of ItemKey.
+func (s *SalesOrderCapturedItem) GetItemKey() string {
+	return s.ItemKey
+}
+
+// GetDescription returns the value of Description.
+func (s *SalesOrderCapturedItem) GetDescription() string {
+	return s.Description
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *SalesOrderCapturedItem) GetQuantity() string {
+	return s.Quantity
+}
+
+// GetUnit returns the value of Unit.
+func (s *SalesOrderCapturedItem) GetUnit() string {
+	return s.Unit
+}
+
+// GetUnitPrice returns the value of UnitPrice.
+func (s *SalesOrderCapturedItem) GetUnitPrice() string {
+	return s.UnitPrice
+}
+
+// GetPriceSource returns the value of PriceSource.
+func (s *SalesOrderCapturedItem) GetPriceSource() string {
+	return s.PriceSource
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *SalesOrderCapturedItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetItemKey sets the value of ItemKey.
+func (s *SalesOrderCapturedItem) SetItemKey(val string) {
+	s.ItemKey = val
+}
+
+// SetDescription sets the value of Description.
+func (s *SalesOrderCapturedItem) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *SalesOrderCapturedItem) SetQuantity(val string) {
+	s.Quantity = val
+}
+
+// SetUnit sets the value of Unit.
+func (s *SalesOrderCapturedItem) SetUnit(val string) {
+	s.Unit = val
+}
+
+// SetUnitPrice sets the value of UnitPrice.
+func (s *SalesOrderCapturedItem) SetUnitPrice(val string) {
+	s.UnitPrice = val
+}
+
+// SetPriceSource sets the value of PriceSource.
+func (s *SalesOrderCapturedItem) SetPriceSource(val string) {
+	s.PriceSource = val
 }
 
 // Create a sales order: from an accepted quotation (`quotation_id` alone, with `payment_term_code` if
@@ -92096,6 +94241,37 @@ func (s *SalesOrderPage) SetNextPageToken(val OptString) {
 }
 
 func (*SalesOrderPage) listSalesOrdersRes() {}
+
+// What a direct upload of a customer's purchase order will carry.
+// Ref: #/components/schemas/SalesOrderUploadCreate
+type SalesOrderUploadCreate struct {
+	// The content type of the document: a PDF or plain text; another type is refused (422
+	// `payables.unsupported_content_type`). Open enumeration: values may be added within /v1.
+	ContentType string `json:"content_type"`
+	// Where the bytes are to go, as `createUpload`'s `via`: `store` (the default) or `api`. Another value
+	// is refused (422 `payables.unknown_upload_via`). Open enumeration: values may be added within /v1.
+	Via OptString `json:"via"`
+}
+
+// GetContentType returns the value of ContentType.
+func (s *SalesOrderUploadCreate) GetContentType() string {
+	return s.ContentType
+}
+
+// GetVia returns the value of Via.
+func (s *SalesOrderUploadCreate) GetVia() OptString {
+	return s.Via
+}
+
+// SetContentType sets the value of ContentType.
+func (s *SalesOrderUploadCreate) SetContentType(val string) {
+	s.ContentType = val
+}
+
+// SetVia sets the value of Via.
+func (s *SalesOrderUploadCreate) SetVia(val OptString) {
+	s.Via = val
+}
 
 // Merged schema.
 // Ref: #/components/schemas/SalesPrice
@@ -93300,6 +95476,7 @@ func (*ServiceUnavailableHeaders) awardRfqRes()                              {}
 func (*ServiceUnavailableHeaders) blockBusinessPartnerRes()                  {}
 func (*ServiceUnavailableHeaders) blockLegalEntityRes()                      {}
 func (*ServiceUnavailableHeaders) blockOrgUnitRes()                          {}
+func (*ServiceUnavailableHeaders) blockPersonalDataRes()                     {}
 func (*ServiceUnavailableHeaders) blockPrincipalRes()                        {}
 func (*ServiceUnavailableHeaders) callOffScheduleLineRes()                   {}
 func (*ServiceUnavailableHeaders) cancelApprovalRequestRes()                 {}
@@ -93314,6 +95491,7 @@ func (*ServiceUnavailableHeaders) cancelPurchaseOrderRes()                   {}
 func (*ServiceUnavailableHeaders) cancelRequisitionRes()                     {}
 func (*ServiceUnavailableHeaders) cancelRevaluationRunRes()                  {}
 func (*ServiceUnavailableHeaders) cancelSupplierInvoiceRes()                 {}
+func (*ServiceUnavailableHeaders) captureSalesOrderRes()                     {}
 func (*ServiceUnavailableHeaders) captureSupplierInvoiceRes()                {}
 func (*ServiceUnavailableHeaders) checkCloseTaskRes()                        {}
 func (*ServiceUnavailableHeaders) checkYearCloseTaskRes()                    {}
@@ -93352,6 +95530,7 @@ func (*ServiceUnavailableHeaders) createMigrationRunRes()                    {}
 func (*ServiceUnavailableHeaders) createOrgUnitRes()                         {}
 func (*ServiceUnavailableHeaders) createPartnerChangeRes()                   {}
 func (*ServiceUnavailableHeaders) createPeriodCloseRes()                     {}
+func (*ServiceUnavailableHeaders) createPersonalDataDeletionRunRes()         {}
 func (*ServiceUnavailableHeaders) createPlanCategoryRes()                    {}
 func (*ServiceUnavailableHeaders) createPrincipalRes()                       {}
 func (*ServiceUnavailableHeaders) createProfitCenterRes()                    {}
@@ -93364,6 +95543,7 @@ func (*ServiceUnavailableHeaders) createRequisitionRes()                     {}
 func (*ServiceUnavailableHeaders) createRfqRes()                             {}
 func (*ServiceUnavailableHeaders) createRoleAssignmentRes()                  {}
 func (*ServiceUnavailableHeaders) createRoleRes()                            {}
+func (*ServiceUnavailableHeaders) createSalesOrderUploadRes()                {}
 func (*ServiceUnavailableHeaders) createScheduleLineRes()                    {}
 func (*ServiceUnavailableHeaders) createSegmentRes()                         {}
 func (*ServiceUnavailableHeaders) createSodRuleRes()                         {}
@@ -93485,6 +95665,7 @@ func (*ServiceUnavailableHeaders) transmitBankFileRes()                      {}
 func (*ServiceUnavailableHeaders) unblockBusinessPartnerRes()                {}
 func (*ServiceUnavailableHeaders) unblockLegalEntityRes()                    {}
 func (*ServiceUnavailableHeaders) unblockOrgUnitRes()                        {}
+func (*ServiceUnavailableHeaders) unblockPersonalDataRes()                   {}
 func (*ServiceUnavailableHeaders) unlockFiscalPeriodRes()                    {}
 func (*ServiceUnavailableHeaders) unlockPlanCategoryRes()                    {}
 func (*ServiceUnavailableHeaders) updateAiPolicyRes()                        {}
@@ -95382,7 +97563,8 @@ type SupplierInvoiceCaptureMultipart struct {
 	Document OptString `json:"document"`
 	// A direct upload of the document (purpose `supplier_invoice`, at most 50 MB), consumed by this
 	// capture. 422 `payables.upload_empty` when nothing was uploaded to it yet, `payables.upload_used`
-	// when it was consumed before.
+	// when it was consumed before, `payables.upload_purpose` when it is for another purpose (a customer's
+	// purchase order).
 	UploadID OptUUID `json:"upload_id"`
 }
 
@@ -98428,6 +100610,7 @@ func (*TooManyRequestsHeaders) awardRfqRes()                              {}
 func (*TooManyRequestsHeaders) blockBusinessPartnerRes()                  {}
 func (*TooManyRequestsHeaders) blockLegalEntityRes()                      {}
 func (*TooManyRequestsHeaders) blockOrgUnitRes()                          {}
+func (*TooManyRequestsHeaders) blockPersonalDataRes()                     {}
 func (*TooManyRequestsHeaders) blockPrincipalRes()                        {}
 func (*TooManyRequestsHeaders) callOffScheduleLineRes()                   {}
 func (*TooManyRequestsHeaders) cancelApprovalRequestRes()                 {}
@@ -98442,6 +100625,7 @@ func (*TooManyRequestsHeaders) cancelPurchaseOrderRes()                   {}
 func (*TooManyRequestsHeaders) cancelRequisitionRes()                     {}
 func (*TooManyRequestsHeaders) cancelRevaluationRunRes()                  {}
 func (*TooManyRequestsHeaders) cancelSupplierInvoiceRes()                 {}
+func (*TooManyRequestsHeaders) captureSalesOrderRes()                     {}
 func (*TooManyRequestsHeaders) captureSupplierInvoiceRes()                {}
 func (*TooManyRequestsHeaders) checkCloseTaskRes()                        {}
 func (*TooManyRequestsHeaders) checkYearCloseTaskRes()                    {}
@@ -98494,6 +100678,7 @@ func (*TooManyRequestsHeaders) createHierarchyRes()                       {}
 func (*TooManyRequestsHeaders) createIncomingPaymentRes()                 {}
 func (*TooManyRequestsHeaders) createInternalOrderRes()                   {}
 func (*TooManyRequestsHeaders) createLeaseContractRes()                   {}
+func (*TooManyRequestsHeaders) createLeaseRunRes()                        {}
 func (*TooManyRequestsHeaders) createLegalEntityRes()                     {}
 func (*TooManyRequestsHeaders) createMemoRecordRes()                      {}
 func (*TooManyRequestsHeaders) createMetricWatcherRes()                   {}
@@ -98501,6 +100686,7 @@ func (*TooManyRequestsHeaders) createMigrationRunRes()                    {}
 func (*TooManyRequestsHeaders) createOrgUnitRes()                         {}
 func (*TooManyRequestsHeaders) createPartnerChangeRes()                   {}
 func (*TooManyRequestsHeaders) createPeriodCloseRes()                     {}
+func (*TooManyRequestsHeaders) createPersonalDataDeletionRunRes()         {}
 func (*TooManyRequestsHeaders) createPlanCategoryRes()                    {}
 func (*TooManyRequestsHeaders) createPrincipalRes()                       {}
 func (*TooManyRequestsHeaders) createProfitCenterRes()                    {}
@@ -98521,6 +100707,7 @@ func (*TooManyRequestsHeaders) createRiskRes()                            {}
 func (*TooManyRequestsHeaders) createRoleAssignmentRes()                  {}
 func (*TooManyRequestsHeaders) createRoleRes()                            {}
 func (*TooManyRequestsHeaders) createSalesOrderRes()                      {}
+func (*TooManyRequestsHeaders) createSalesOrderUploadRes()                {}
 func (*TooManyRequestsHeaders) createSalesPriceRes()                      {}
 func (*TooManyRequestsHeaders) createScheduleLineRes()                    {}
 func (*TooManyRequestsHeaders) createSegmentRes()                         {}
@@ -98626,6 +100813,7 @@ func (*TooManyRequestsHeaders) getInternalOrderRes()                      {}
 func (*TooManyRequestsHeaders) getInternalOrderSettlementRuleRes()        {}
 func (*TooManyRequestsHeaders) getJournalEntryRes()                       {}
 func (*TooManyRequestsHeaders) getLeaseContractRes()                      {}
+func (*TooManyRequestsHeaders) getLeaseRunRes()                           {}
 func (*TooManyRequestsHeaders) getLeaseScheduleRes()                      {}
 func (*TooManyRequestsHeaders) getLegalEntityRes()                        {}
 func (*TooManyRequestsHeaders) getLegalEntityTodayRes()                   {}
@@ -98644,11 +100832,14 @@ func (*TooManyRequestsHeaders) getParkedJournalEntryRes()                 {}
 func (*TooManyRequestsHeaders) getPartnerChangeRes()                      {}
 func (*TooManyRequestsHeaders) getPaymentRunRes()                         {}
 func (*TooManyRequestsHeaders) getPeriodCloseRes()                        {}
+func (*TooManyRequestsHeaders) getPersonalDataDeletionPreviewRes()        {}
+func (*TooManyRequestsHeaders) getPersonalDataDeletionRunRes()            {}
 func (*TooManyRequestsHeaders) getPersonalDataInventoryRes()              {}
 func (*TooManyRequestsHeaders) getPersonalDataSubjectRes()                {}
 func (*TooManyRequestsHeaders) getPlanCategoryRes()                       {}
 func (*TooManyRequestsHeaders) getPrincipalRes()                          {}
 func (*TooManyRequestsHeaders) getProfitCenterRes()                       {}
+func (*TooManyRequestsHeaders) getProfitabilityReportRes()                {}
 func (*TooManyRequestsHeaders) getPurchaseOrderChangeRes()                {}
 func (*TooManyRequestsHeaders) getPurchaseOrderDocumentRes()              {}
 func (*TooManyRequestsHeaders) getPurchaseOrderRes()                      {}
@@ -98672,6 +100863,7 @@ func (*TooManyRequestsHeaders) getRoleAssignmentRes()                     {}
 func (*TooManyRequestsHeaders) getRolePermissionRes()                     {}
 func (*TooManyRequestsHeaders) getRoleRes()                               {}
 func (*TooManyRequestsHeaders) getSalesOrderRes()                         {}
+func (*TooManyRequestsHeaders) getSalesOrderUploadRes()                   {}
 func (*TooManyRequestsHeaders) getSalesPriceRes()                         {}
 func (*TooManyRequestsHeaders) getSchemaRes()                             {}
 func (*TooManyRequestsHeaders) getSegmentRes()                            {}
@@ -98766,6 +100958,7 @@ func (*TooManyRequestsHeaders) listInternalOrderSettlementsRes()          {}
 func (*TooManyRequestsHeaders) listInternalOrdersRes()                    {}
 func (*TooManyRequestsHeaders) listJournalEntriesRes()                    {}
 func (*TooManyRequestsHeaders) listLeaseContractsRes()                    {}
+func (*TooManyRequestsHeaders) listLeaseRunsRes()                         {}
 func (*TooManyRequestsHeaders) listLedgerGroupsRes()                      {}
 func (*TooManyRequestsHeaders) listLedgerReconciliationEntriesRes()       {}
 func (*TooManyRequestsHeaders) listLedgerReconciliationRes()              {}
@@ -98788,6 +100981,7 @@ func (*TooManyRequestsHeaders) listPaymentRunsRes()                       {}
 func (*TooManyRequestsHeaders) listPaymentsRes()                          {}
 func (*TooManyRequestsHeaders) listPeriodCloseVariancesRes()              {}
 func (*TooManyRequestsHeaders) listPeriodClosesRes()                      {}
+func (*TooManyRequestsHeaders) listPersonalDataDeletionSubjectsRes()      {}
 func (*TooManyRequestsHeaders) listPlanCategoriesRes()                    {}
 func (*TooManyRequestsHeaders) listPlanLinesRes()                         {}
 func (*TooManyRequestsHeaders) listPrincipalNamesRes()                    {}
@@ -98935,6 +101129,7 @@ func (*TooManyRequestsHeaders) transmitBankFileRes()                      {}
 func (*TooManyRequestsHeaders) unblockBusinessPartnerRes()                {}
 func (*TooManyRequestsHeaders) unblockLegalEntityRes()                    {}
 func (*TooManyRequestsHeaders) unblockOrgUnitRes()                        {}
+func (*TooManyRequestsHeaders) unblockPersonalDataRes()                   {}
 func (*TooManyRequestsHeaders) unlockFiscalPeriodRes()                    {}
 func (*TooManyRequestsHeaders) unlockPlanCategoryRes()                    {}
 func (*TooManyRequestsHeaders) unscheduleReportRes()                      {}
@@ -99297,6 +101492,7 @@ func (*UnauthorizedHeaders) awardRfqRes()                              {}
 func (*UnauthorizedHeaders) blockBusinessPartnerRes()                  {}
 func (*UnauthorizedHeaders) blockLegalEntityRes()                      {}
 func (*UnauthorizedHeaders) blockOrgUnitRes()                          {}
+func (*UnauthorizedHeaders) blockPersonalDataRes()                     {}
 func (*UnauthorizedHeaders) blockPrincipalRes()                        {}
 func (*UnauthorizedHeaders) callOffScheduleLineRes()                   {}
 func (*UnauthorizedHeaders) cancelApprovalRequestRes()                 {}
@@ -99311,6 +101507,7 @@ func (*UnauthorizedHeaders) cancelPurchaseOrderRes()                   {}
 func (*UnauthorizedHeaders) cancelRequisitionRes()                     {}
 func (*UnauthorizedHeaders) cancelRevaluationRunRes()                  {}
 func (*UnauthorizedHeaders) cancelSupplierInvoiceRes()                 {}
+func (*UnauthorizedHeaders) captureSalesOrderRes()                     {}
 func (*UnauthorizedHeaders) captureSupplierInvoiceRes()                {}
 func (*UnauthorizedHeaders) checkCloseTaskRes()                        {}
 func (*UnauthorizedHeaders) checkYearCloseTaskRes()                    {}
@@ -99363,6 +101560,7 @@ func (*UnauthorizedHeaders) createHierarchyRes()                       {}
 func (*UnauthorizedHeaders) createIncomingPaymentRes()                 {}
 func (*UnauthorizedHeaders) createInternalOrderRes()                   {}
 func (*UnauthorizedHeaders) createLeaseContractRes()                   {}
+func (*UnauthorizedHeaders) createLeaseRunRes()                        {}
 func (*UnauthorizedHeaders) createLegalEntityRes()                     {}
 func (*UnauthorizedHeaders) createMemoRecordRes()                      {}
 func (*UnauthorizedHeaders) createMetricWatcherRes()                   {}
@@ -99370,6 +101568,7 @@ func (*UnauthorizedHeaders) createMigrationRunRes()                    {}
 func (*UnauthorizedHeaders) createOrgUnitRes()                         {}
 func (*UnauthorizedHeaders) createPartnerChangeRes()                   {}
 func (*UnauthorizedHeaders) createPeriodCloseRes()                     {}
+func (*UnauthorizedHeaders) createPersonalDataDeletionRunRes()         {}
 func (*UnauthorizedHeaders) createPlanCategoryRes()                    {}
 func (*UnauthorizedHeaders) createPrincipalRes()                       {}
 func (*UnauthorizedHeaders) createProfitCenterRes()                    {}
@@ -99390,6 +101589,7 @@ func (*UnauthorizedHeaders) createRiskRes()                            {}
 func (*UnauthorizedHeaders) createRoleAssignmentRes()                  {}
 func (*UnauthorizedHeaders) createRoleRes()                            {}
 func (*UnauthorizedHeaders) createSalesOrderRes()                      {}
+func (*UnauthorizedHeaders) createSalesOrderUploadRes()                {}
 func (*UnauthorizedHeaders) createSalesPriceRes()                      {}
 func (*UnauthorizedHeaders) createScheduleLineRes()                    {}
 func (*UnauthorizedHeaders) createSegmentRes()                         {}
@@ -99495,6 +101695,7 @@ func (*UnauthorizedHeaders) getInternalOrderRes()                      {}
 func (*UnauthorizedHeaders) getInternalOrderSettlementRuleRes()        {}
 func (*UnauthorizedHeaders) getJournalEntryRes()                       {}
 func (*UnauthorizedHeaders) getLeaseContractRes()                      {}
+func (*UnauthorizedHeaders) getLeaseRunRes()                           {}
 func (*UnauthorizedHeaders) getLeaseScheduleRes()                      {}
 func (*UnauthorizedHeaders) getLegalEntityRes()                        {}
 func (*UnauthorizedHeaders) getLegalEntityTodayRes()                   {}
@@ -99513,11 +101714,14 @@ func (*UnauthorizedHeaders) getParkedJournalEntryRes()                 {}
 func (*UnauthorizedHeaders) getPartnerChangeRes()                      {}
 func (*UnauthorizedHeaders) getPaymentRunRes()                         {}
 func (*UnauthorizedHeaders) getPeriodCloseRes()                        {}
+func (*UnauthorizedHeaders) getPersonalDataDeletionPreviewRes()        {}
+func (*UnauthorizedHeaders) getPersonalDataDeletionRunRes()            {}
 func (*UnauthorizedHeaders) getPersonalDataInventoryRes()              {}
 func (*UnauthorizedHeaders) getPersonalDataSubjectRes()                {}
 func (*UnauthorizedHeaders) getPlanCategoryRes()                       {}
 func (*UnauthorizedHeaders) getPrincipalRes()                          {}
 func (*UnauthorizedHeaders) getProfitCenterRes()                       {}
+func (*UnauthorizedHeaders) getProfitabilityReportRes()                {}
 func (*UnauthorizedHeaders) getPurchaseOrderChangeRes()                {}
 func (*UnauthorizedHeaders) getPurchaseOrderDocumentRes()              {}
 func (*UnauthorizedHeaders) getPurchaseOrderRes()                      {}
@@ -99541,6 +101745,7 @@ func (*UnauthorizedHeaders) getRoleAssignmentRes()                     {}
 func (*UnauthorizedHeaders) getRolePermissionRes()                     {}
 func (*UnauthorizedHeaders) getRoleRes()                               {}
 func (*UnauthorizedHeaders) getSalesOrderRes()                         {}
+func (*UnauthorizedHeaders) getSalesOrderUploadRes()                   {}
 func (*UnauthorizedHeaders) getSalesPriceRes()                         {}
 func (*UnauthorizedHeaders) getSchemaRes()                             {}
 func (*UnauthorizedHeaders) getSegmentRes()                            {}
@@ -99635,6 +101840,7 @@ func (*UnauthorizedHeaders) listInternalOrderSettlementsRes()          {}
 func (*UnauthorizedHeaders) listInternalOrdersRes()                    {}
 func (*UnauthorizedHeaders) listJournalEntriesRes()                    {}
 func (*UnauthorizedHeaders) listLeaseContractsRes()                    {}
+func (*UnauthorizedHeaders) listLeaseRunsRes()                         {}
 func (*UnauthorizedHeaders) listLedgerGroupsRes()                      {}
 func (*UnauthorizedHeaders) listLedgerReconciliationEntriesRes()       {}
 func (*UnauthorizedHeaders) listLedgerReconciliationRes()              {}
@@ -99657,6 +101863,7 @@ func (*UnauthorizedHeaders) listPaymentRunsRes()                       {}
 func (*UnauthorizedHeaders) listPaymentsRes()                          {}
 func (*UnauthorizedHeaders) listPeriodCloseVariancesRes()              {}
 func (*UnauthorizedHeaders) listPeriodClosesRes()                      {}
+func (*UnauthorizedHeaders) listPersonalDataDeletionSubjectsRes()      {}
 func (*UnauthorizedHeaders) listPlanCategoriesRes()                    {}
 func (*UnauthorizedHeaders) listPlanLinesRes()                         {}
 func (*UnauthorizedHeaders) listPrincipalNamesRes()                    {}
@@ -99804,6 +102011,7 @@ func (*UnauthorizedHeaders) transmitBankFileRes()                      {}
 func (*UnauthorizedHeaders) unblockBusinessPartnerRes()                {}
 func (*UnauthorizedHeaders) unblockLegalEntityRes()                    {}
 func (*UnauthorizedHeaders) unblockOrgUnitRes()                        {}
+func (*UnauthorizedHeaders) unblockPersonalDataRes()                   {}
 func (*UnauthorizedHeaders) unlockFiscalPeriodRes()                    {}
 func (*UnauthorizedHeaders) unlockPlanCategoryRes()                    {}
 func (*UnauthorizedHeaders) unscheduleReportRes()                      {}
@@ -99912,6 +102120,30 @@ func (*UnblockOrgUnitPreconditionRequired) unblockOrgUnitRes() {}
 type UnblockOrgUnitUnprocessableEntity Problem
 
 func (*UnblockOrgUnitUnprocessableEntity) unblockOrgUnitRes() {}
+
+type UnblockPersonalDataBadRequest Problem
+
+func (*UnblockPersonalDataBadRequest) unblockPersonalDataRes() {}
+
+type UnblockPersonalDataForbidden Problem
+
+func (*UnblockPersonalDataForbidden) unblockPersonalDataRes() {}
+
+type UnblockPersonalDataNotFound Problem
+
+func (*UnblockPersonalDataNotFound) unblockPersonalDataRes() {}
+
+type UnblockPersonalDataPreconditionFailed Problem
+
+func (*UnblockPersonalDataPreconditionFailed) unblockPersonalDataRes() {}
+
+type UnblockPersonalDataPreconditionRequired Problem
+
+func (*UnblockPersonalDataPreconditionRequired) unblockPersonalDataRes() {}
+
+type UnblockPersonalDataUnprocessableEntity Problem
+
+func (*UnblockPersonalDataUnprocessableEntity) unblockPersonalDataRes() {}
 
 type UnlockFiscalPeriodBadRequest Problem
 
@@ -101986,6 +104218,8 @@ func (s *Upload) SetSize(val OptInt64) {
 func (s *Upload) SetUsedBy(val OptUUID) {
 	s.UsedBy = val
 }
+
+func (*Upload) getSalesOrderUploadRes() {}
 
 // What a direct upload will carry.
 // Ref: #/components/schemas/UploadCreate

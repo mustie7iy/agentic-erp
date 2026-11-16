@@ -72,3 +72,55 @@ func TestForecastRefusals(t *testing.T) {
 		})
 	}
 }
+
+// TestForecastScenario: a scenario raises one account's forecast by ten
+// percent; the answer gives the baseline, the scenario and their
+// difference per period ahead and in total, and the adjustment's part;
+// an adjustment on a dimension the metric lacks or two on one row are
+// refused (T97b).
+func TestForecastScenario(t *testing.T) {
+	e := seeded(t, perms...)
+	e.Must(201, "POST", "/v1/journal-entries", fmt.Sprintf(`{"legal_entity_id": %q, "document_date": "2026-01-15", "posting_date": "2026-01-15",
+		"currency": "EUR", "lines": [{"account_id": %q, "amount": {"amount": "100.01", "currency": "EUR"}},
+		{"account_id": %q, "amount": {"amount": "-100.01", "currency": "EUR"}}]}`, e.DE, e.Account(t, "2000", "100000"), e.Account(t, "2000", "400000")), "")
+	const ask = `{"metric": "revenue", "companies": ["2000"], "grain": "month", "periods_ahead": 2, "method": "moving_average", "window": 3, "scenario": %s}`
+	f, _ := e.Must(200, "POST", "/v1/analytics-forecasts", fmt.Sprintf(ask, `{"adjustments": [{"dimension": "account", "value": "400000", "percent": "10"}]}`), "")
+	if got := points(f, "forecast"); got != "2026-04 200.00 EUR, 2026-05 200.00 EUR" {
+		t.Errorf("forecast: got %s, want the baseline", got)
+	}
+	sc, _ := f["scenario"].(map[string]any)
+	var periods []string
+	for _, p := range sc["periods"].([]any) {
+		pt := p.(map[string]any)
+		periods = append(periods, fmt.Sprint(pt["label"], " ", pt["baseline"], " ", pt["scenario"], " ", pt["difference"], " ", pt["currency"], " ", pt["fiscal_year"], " ", pt["period"]))
+	}
+	if got := strings.Join(periods, ", "); got != "2026-04 200.00 220.00 20.00 EUR 2026 4, 2026-05 200.00 220.00 20.00 EUR 2026 5" {
+		t.Errorf("scenario's periods: got %s", got)
+	}
+	if got := fmt.Sprint(sc["baseline_total"], " ", sc["scenario_total"], " ", sc["difference_total"], " ", sc["currency"]); got != "400.00 440.00 40.00 EUR" {
+		t.Errorf("scenario's totals: got %s", got)
+	}
+	part, _ := sc["adjustments"].([]any)[0].(map[string]any)
+	if got := fmt.Sprint(part["dimension"], " ", part["value"], " ", part["percent"], " ", part["baseline_total"], " ", part["scenario_total"]); got != "account 400000 10 400.00 440.00" {
+		t.Errorf("the adjustment's part: got %s", got)
+	}
+	for name, c := range map[string]struct{ scenario, code, field string }{
+		"a dimension revenue lacks": {`{"adjustments": [{"dimension": "supplier", "value": "S1", "percent": "10"}]}`, "request.validation_failed", "scenario.adjustments[0].dimension"},
+		"two on one row": {`{"adjustments": [{"dimension": "account", "value": "400000", "percent": "10"}, {"dimension": "company", "value": "2000", "percent": "5"}]}`,
+			"analytics.scenario_overlap", "scenario.adjustments[1]"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := e.In(t).Problem(422, c.code, "POST", "/v1/analytics-forecasts", fmt.Sprintf(ask, c.scenario), "")
+			errs, _ := got["errors"].([]any)
+			if len(errs) != 1 || errs[0].(map[string]any)["field"] != c.field {
+				t.Errorf("errors: got %v, want one on %s", got["errors"], c.field)
+			}
+		})
+	}
+	y, _ := e.Must(200, "POST", "/v1/analytics-forecasts", `{"metric": "revenue", "companies": ["2000"], "grain": "year", "periods_ahead": 1,
+		"method": "moving_average", "window": 1, "scenario": {"adjustments": [{"dimension": "company", "value": "2000", "percent": "-50"}]}}`, "")
+	sc, _ = y["scenario"].(map[string]any)
+	if p, _ := sc["periods"].([]any)[0].(map[string]any); p["label"] != "2027" || p["period"] != nil || p["scenario"] != "300.00" || p["difference"] != "-300.01" {
+		t.Errorf("by year: got %v, want 2027 with no period, 600.01 less half of it rounded away from zero (300.01)", p)
+	}
+}

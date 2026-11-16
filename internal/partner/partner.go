@@ -121,8 +121,12 @@ type Endpoints struct {
 	PlanningGroups PlanningGroups
 	Keys           *fieldcrypt.Keyring
 	Approvals      Opener
-	Schemas        extensions.Schemas // the tenant's custom field schemas (configuration context)
-	Rules          rules.Source       // the tenant's validation rules (configuration context)
+	Schemas        Settings     // the tenant's custom field schemas and companies' time zones (configuration context)
+	Rules          rules.Source // the tenant's validation rules (configuration context)
+	OpenItems      OpenItems    // the partner's open items (ledger context), asked before its personal data is blocked
+	// Now is the clock partner's day is read at (partnerDay): nil is the
+	// transaction's start; tests fix an instant.
+	Now func() time.Time
 }
 
 // Ports are the other contexts and keys requests are checked and sealed with.
@@ -132,13 +136,19 @@ type Ports struct {
 	PaymentMethods PaymentMethods
 	PlanningGroups PlanningGroups
 	Keys           *fieldcrypt.Keyring
-	Schemas        extensions.Schemas
+	Schemas        Settings
 	Rules          rules.Source
+	Now            func() time.Time // as Endpoints.Now
 }
 
 func (e *Endpoints) ports() Ports {
 	return Ports{LegalEntities: e.LegalEntities, Accounts: e.Accounts, PaymentMethods: e.PaymentMethods, PlanningGroups: e.PlanningGroups, Keys: e.Keys,
-		Schemas: e.Schemas, Rules: e.Rules}
+		Schemas: e.Schemas, Rules: e.Rules, Now: e.Now}
+}
+
+// day is partner's day now (partnerDay).
+func (p Ports) day(ctx context.Context, tx pgx.Tx) (time.Time, error) {
+	return partnerDay(ctx, tx, p.Schemas, p.Now)
 }
 
 // checkRules evaluates the tenant's validation rules on a business partner
@@ -263,11 +273,19 @@ type Partner struct {
 	// it is one of the group's companies: the trading partner the ledger
 	// derives for lines naming the partner (ADR-0059 §4, T68c).
 	GroupCompanyID *uuid.UUID
-	Version        int32
-	CreatedAt      time.Time
-	CreatedBy      uuid.UUID
-	UpdatedAt      time.Time
-	UpdatedBy      uuid.UUID
+	// PersonalDataBlockedAt is when the partner's personal data was
+	// blocked (ADR-0079 §11, T100b), or nil: its reads then answer it
+	// masked to a caller without ReadBlockedPermission.
+	PersonalDataBlockedAt *time.Time
+	// PersonalDataDeletedAt is when a deletion run blanked the partner's
+	// personal data (ADR-0079 §12, T100c), or nil; blanked, it is masked
+	// no more: the markers are all that is left.
+	PersonalDataDeletedAt *time.Time
+	Version               int32
+	CreatedAt             time.Time
+	CreatedBy             uuid.UUID
+	UpdatedAt             time.Time
+	UpdatedBy             uuid.UUID
 }
 
 const partnerSelect = `SELECT p.id, p.number, p.kind, p.name, p.legal_name, p.country_code, p.language, p.status, p.extensions, p.extensions_schema,
@@ -286,14 +304,15 @@ const partnerSelect = `SELECT p.id, p.number, p.kind, p.name, p.legal_name, p.co
 		p.group_company_id,
 		coalesce((SELECT json_agg(json_build_object('legal_entity_id', c.legal_entity_id, 'reconciliation_account_id', c.reconciliation_account_id,
 			'payment_term_code', c.payment_term_code, 'is_posting_blocked', c.is_posting_blocked) ORDER BY c.legal_entity_id)
-			FROM partner.customer_company c WHERE c.tenant_id = p.tenant_id AND c.partner_id = p.id), '[]')
+			FROM partner.customer_company c WHERE c.tenant_id = p.tenant_id AND c.partner_id = p.id), '[]'),
+		p.personal_data_blocked_at, p.personal_data_deleted_at
 	FROM partner.business_partner p`
 
 func scanPartner(row pgx.Row) (Partner, error) {
 	var p Partner
 	err := row.Scan(&p.ID, &p.Number, &p.Kind, &p.Name, &p.LegalName, &p.CountryCode, &p.Language, &p.Status, &p.Extensions, &p.ExtensionsSchema,
 		&p.Version, &p.CreatedAt, &p.CreatedBy, &p.UpdatedAt, &p.UpdatedBy, &p.Roles, &p.SupplierCompanies, &p.Addresses, &p.TaxIdentifiers,
-		&p.GroupCompanyID, &p.CustomerCompanies)
+		&p.GroupCompanyID, &p.CustomerCompanies, &p.PersonalDataBlockedAt, &p.PersonalDataDeletedAt)
 	return p, errs.Wrapf(err, "scan business partner")
 }
 

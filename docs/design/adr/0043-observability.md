@@ -260,3 +260,13 @@ traces, and CPU and memory saturation.
   it. Beyond 768 values, or past 75,000 series, the labels an
   operation's metrics carry are this ADR's to revisit, a cost question
   for the product owner.
+
+## As built: the agent_kind label's ceiling (batch 74)
+
+- Decided by default (listed in batch 74's digest): with the collections
+  agent (T105b) the agent types and `none` and `untyped` come to 17
+  values, over the ceiling of 16. The `agent_kind` ceiling is 20, which
+  leaves 3 of headroom and adds 652 series for each value:
+  the catalog's worst case is 59,480 series, still under `MaxSeries`
+  (60,000). The next new agent type that takes `agent_kind` past 20, or
+  the series past 60,000, is this ADR's to revisit.
