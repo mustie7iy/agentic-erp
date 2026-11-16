@@ -20306,6 +20306,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
         "422":
@@ -49115,7 +49117,7 @@ components:
         upload_id:
           type: string
           format: uuid
-          description: "A direct upload of the document (purpose `supplier_invoice`, at most 50 MB), consumed by this capture. 422 `payables.upload_empty` when nothing was uploaded to it yet, `payables.upload_used` when it was consumed before, `payables.upload_purpose` when it is for another purpose (a customer's purchase order)."
+          description: "A direct upload of the document (purpose `supplier_invoice`, at most 50 MB), consumed by this capture. An upload that does not exist, or that another tenant started, is 404 `request.not_found`; 422 `payables.upload_empty` when nothing was uploaded to it yet, `payables.upload_used` when it was consumed before, `payables.upload_purpose` when it is for another purpose (a customer's purchase order)."
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
           document: JVBERi0xLjcK
@@ -55545,7 +55547,7 @@ components:
       additionalProperties: false
       properties:
         legal_entity_id: {type: string, format: uuid, description: "The company that takes the order: one the caller may act in."}
-        upload_id: {type: string, format: uuid, description: "A direct upload of the document (`createSalesOrderUpload`: purpose `sales_order`, a PDF or plain text, at most 50 MB), consumed by this capture. 422 `payables.upload_empty` when nothing was uploaded to it yet, `payables.upload_purpose` when it is for another purpose; captured again into the same company, it answers the order it gave; into another, 422 `payables.upload_used`."}
+        upload_id: {type: string, format: uuid, description: "A direct upload of the document (`createSalesOrderUpload`: purpose `sales_order`, a PDF or plain text, at most 50 MB), consumed by this capture. An upload that does not exist, or that another tenant started, is 404 `request.not_found`; 422 `payables.upload_empty` when nothing was uploaded to it yet, `payables.upload_purpose` when it is for another purpose; captured again into the same company, it answers the order it gave; into another, 422 `payables.upload_used`."}
         account_id: {type: string, format: uuid, description: "The revenue account every item of the order is billed to (`GET /v1/accounts/{id}`): postable in the company (422 `sales.account_not_postable`)."}
         tax_code: {type: string, maxLength: 20, description: "The output tax code every item is billed with: an output tax code of the company in force on the order's date (422 `sales.unknown_tax_code`); absent, the items have none."}
       examples:

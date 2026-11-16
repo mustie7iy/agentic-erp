@@ -4877,9 +4877,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Capture operations can answer 404 for an unknown upload id but declare no 404 in api/openapi.yaml for captureSalesOrder (pre-existing, found in batch 74 in T90a's lane).",
-        "r": "api/openapi.yaml captureSalesOrder · docs/design/adr/0067-sales-documents.md As built T90a",
+        "r": "api/openapi.yaml captureSalesOrder · docs/design/adr/0067-sales-documents.md As built T90a · done in hnames: captureSalesOrder declares 404, both captures' upload_id say an unknown upload is 404 request.not_found; TestCaptureOrderRefusals (an unknown upload)",
         "src": "review:batch74",
         "c": []
        },

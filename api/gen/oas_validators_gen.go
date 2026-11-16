@@ -14921,6 +14921,14 @@ func (s *CaptureSalesOrderForbidden) Validate() error {
 	return nil
 }
 
+func (s *CaptureSalesOrderNotFound) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *CaptureSalesOrderPreconditionRequired) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {

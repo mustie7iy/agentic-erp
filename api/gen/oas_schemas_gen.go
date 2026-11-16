@@ -18397,6 +18397,10 @@ type CaptureSalesOrderForbidden Problem
 
 func (*CaptureSalesOrderForbidden) captureSalesOrderRes() {}
 
+type CaptureSalesOrderNotFound Problem
+
+func (*CaptureSalesOrderNotFound) captureSalesOrderRes() {}
+
 type CaptureSalesOrderPreconditionRequired Problem
 
 func (*CaptureSalesOrderPreconditionRequired) captureSalesOrderRes() {}
@@ -94973,9 +94977,10 @@ type SalesOrderCaptureRequest struct {
 	// The company that takes the order: one the caller may act in.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// A direct upload of the document (`createSalesOrderUpload`: purpose `sales_order`, a PDF or plain
-	// text, at most 50 MB), consumed by this capture. 422 `payables.upload_empty` when nothing was
-	// uploaded to it yet, `payables.upload_purpose` when it is for another purpose; captured again into
-	// the same company, it answers the order it gave; into another, 422 `payables.upload_used`.
+	// text, at most 50 MB), consumed by this capture. An upload that does not exist, or that another
+	// tenant started, is 404 `request.not_found`; 422 `payables.upload_empty` when nothing was uploaded to
+	// it yet, `payables.upload_purpose` when it is for another purpose; captured again into the same
+	// company, it answers the order it gave; into another, 422 `payables.upload_used`.
 	UploadID uuid.UUID `json:"upload_id"`
 	// The revenue account every item of the order is billed to (`GET /v1/accounts/{id}`): postable in the
 	// company (422 `sales.account_not_postable`).
@@ -98876,9 +98881,10 @@ type SupplierInvoiceCaptureMultipart struct {
 	// captured twice (409).
 	Document OptString `json:"document"`
 	// A direct upload of the document (purpose `supplier_invoice`, at most 50 MB), consumed by this
-	// capture. 422 `payables.upload_empty` when nothing was uploaded to it yet, `payables.upload_used`
-	// when it was consumed before, `payables.upload_purpose` when it is for another purpose (a customer's
-	// purchase order).
+	// capture. An upload that does not exist, or that another tenant started, is 404 `request.not_found`;
+	// 422 `payables.upload_empty` when nothing was uploaded to it yet, `payables.upload_used` when it was
+	// consumed before, `payables.upload_purpose` when it is for another purpose (a customer's purchase
+	// order).
 	UploadID OptUUID `json:"upload_id"`
 }
 
