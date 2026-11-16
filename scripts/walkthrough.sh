@@ -10533,7 +10533,8 @@ step_expense_report() {
 # contract's price; it recommends bringing Tyrell under a contract, naming
 # its spend off contract as the spend metric returns it. A recommendation
 # stating a saving with a figure is refused by the run first. Its own
-# contract is refused (403); Ben accepts, which creates nothing.
+# contract is refused (403, its autonomy level); Ben accepts, which
+# creates nothing.
 step_savings_agent() {
   heading "Step 99 — The savings opportunity agent: from the spend of step 71 it recommends bringing the off-contract supplier under a contract, naming its spend off contract; a saving stated in money refused; nothing created"
   local role period number name q want got session rec contracts
@@ -10584,8 +10585,8 @@ step_savings_agent() {
   as savings-agent
   api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"
   expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "runAnalyticsQuery createRecommendation createRecommendation"
-  say "Recommending is all it may do: its role creates no contract, so the API refuses its own:"
-  refused 403 identity.permission_missing createContract -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"valid_from\": \"$TODAY\", \"valid_to\": \"$TODAY\", \"target_value\": {\"amount\": \"1.00\", \"currency\": \"CAD\"}, \"items\": [{\"material_key\": \"CHAIR-ERGO\", \"description\": \"Ergonomic office chairs\", \"unit_price\": {\"amount\": \"450.00\", \"currency\": \"CAD\"}, \"uom_code\": \"EA\", \"account_id\": \"$(account 6000)\"}]}"
+  say "Recommending is all it may do: at autonomy level 1 it performs nothing, so the API refuses its own contract:"
+  refused 403 identity.autonomy_insufficient createContract -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"valid_from\": \"$TODAY\", \"valid_to\": \"$TODAY\", \"target_value\": {\"amount\": \"1.00\", \"currency\": \"CAD\"}, \"items\": [{\"material_key\": \"CHAIR-ERGO\", \"description\": \"Ergonomic office chairs\", \"unit_price\": {\"amount\": \"450.00\", \"currency\": \"CAD\"}, \"uom_code\": \"EA\", \"account_id\": \"$(account 6000)\"}]}"
   as ben
   QUIET=1 api 200 '' listContracts -p "legal_entity_id=$LE" -p "supplier_id=$SUPPLIER" -p page_size=200
   contracts=$(field '.items | length')

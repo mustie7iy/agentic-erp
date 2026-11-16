@@ -974,7 +974,7 @@ A later slice adds its row here and its section under "As built".
   last; the agent's recommendation stating a saving is refused; it
   recommends `bring_under_contract` on Tyrell, its first line Tyrell's
   spend off contract as the metric returns it; its own contract is
-  refused (403); Ben accepts, and Tyrell's contracts are as they were.
+  refused (403 `identity.autonomy_insufficient`: level 1); Ben accepts, and Tyrell's contracts are as they were.
 - No migration, no new operation, permission, event or problem code; the
   agent type `savings` added to the open enumeration of
   `agent_profile.agent_type`.
