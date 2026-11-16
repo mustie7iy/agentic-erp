@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 )
 
 // A center's effective-dated periods (ADR-0050 §3) are spans: [From, To),
@@ -44,20 +45,6 @@ func openOf(t time.Time) time.Time {
 	return t
 }
 
-func later(a, b time.Time) time.Time {
-	if a.After(b) {
-		return a
-	}
-	return b
-}
-
-func earlier(a, b time.Time) time.Time {
-	if a.Before(b) {
-		return a
-	}
-	return b
-}
-
 // validity is the first span's start and the last span's end (zero:
 // open-ended); ok is false for no spans.
 func validity[A comparable](spans []span[A]) (from, to time.Time, ok bool) {
@@ -81,13 +68,13 @@ func setFrom[A comparable](spans []span[A], from, to time.Time, f func(A) A) []s
 	for _, s := range spans {
 		end := endOf(s.To)
 		if s.From.Before(from) {
-			out = append(out, span[A]{From: s.From, To: openOf(earlier(end, from)), Attr: s.Attr})
+			out = append(out, span[A]{From: s.From, To: openOf(clock.Earlier(end, from)), Attr: s.Attr})
 		}
-		if lo, hi := later(s.From, from), earlier(end, endOf(to)); lo.Before(hi) {
+		if lo, hi := clock.Later(s.From, from), clock.Earlier(end, endOf(to)); lo.Before(hi) {
 			out = append(out, span[A]{From: lo, To: openOf(hi), Attr: f(s.Attr)})
 		}
 		if end.After(endOf(to)) {
-			out = append(out, span[A]{From: later(s.From, endOf(to)), To: s.To, Attr: s.Attr})
+			out = append(out, span[A]{From: clock.Later(s.From, endOf(to)), To: s.To, Attr: s.Attr})
 		}
 	}
 	return keepIDs(spans, joined(out))
@@ -102,7 +89,7 @@ func redated[A comparable](spans []span[A], from, to time.Time) ([]span[A], bool
 		if !endOf(s.To).After(from) || !s.From.Before(endOf(to)) {
 			continue
 		}
-		out = append(out, span[A]{From: later(s.From, from), To: openOf(earlier(endOf(s.To), endOf(to))), Attr: s.Attr})
+		out = append(out, span[A]{From: clock.Later(s.From, from), To: openOf(clock.Earlier(endOf(s.To), endOf(to))), Attr: s.Attr})
 	}
 	if len(out) == 0 {
 		return nil, false

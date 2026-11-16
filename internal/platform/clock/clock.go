@@ -36,3 +36,20 @@ func AddMonths(d time.Time, n int) time.Time {
 	last := first.AddDate(0, 1, -1).Day()
 	return first.AddDate(0, 0, min(d.Day(), last)-1)
 }
+
+// Later is the later of two times; Earlier the earlier. Where both are
+// the same instant, either is returned.
+func Later(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
+}
+
+// Earlier is the earlier of two times (Later).
+func Earlier(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
+}

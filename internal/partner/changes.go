@@ -17,6 +17,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/cabank"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
@@ -1239,18 +1240,11 @@ func applyChange(ctx context.Context, schemas Settings, now func() time.Time, id
 	return applied, audit.Record(ctx, "partner.change.apply", "partner.partner_change", id, map[string]any{"kind": c.Kind, "partner_id": c.PartnerID}, events...)
 }
 
-func later(a, b time.Time) time.Time {
-	if a.After(b) {
-		return a
-	}
-	return b
-}
-
 // insertBank adds an approved account, ending the current account of its
 // purpose on the new account's first day: the requested day, or day (the
 // earliest allowed) when that has passed while the change waited.
 func insertBank(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, b sealedBank, day time.Time) (outbox.Event, error) {
-	from := later(b.ValidFrom.Time, day)
+	from := clock.Later(b.ValidFrom.Time, day)
 	var ended *uuid.UUID
 	var endedTo *time.Time
 	err := tx.QueryRow(ctx, `UPDATE partner.bank_account SET valid_to = $3, ended_by = $4
@@ -1357,7 +1351,7 @@ func applyUpdate(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, b
 		fields = append(fields, "customer_company."+cc.LegalEntityID.String())
 	}
 	for i := range pl.Addresses {
-		pl.Addresses[i].ValidFrom = Date{later(pl.Addresses[i].ValidFrom.Time, day)}
+		pl.Addresses[i].ValidFrom = Date{clock.Later(pl.Addresses[i].ValidFrom.Time, day)}
 		fields = append(fields, "address."+pl.Addresses[i].Purpose)
 	}
 	if err := addAddresses(ctx, tx, p, bp.ID, pl.Addresses, true); err != nil {
@@ -1425,7 +1419,7 @@ func applyBankChange(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Chang
 	if err != nil {
 		return nil, err
 	}
-	to := later(pl.ValidTo.Time, day)
+	to := clock.Later(pl.ValidTo.Time, day)
 	if b.ValidTo != nil && !to.Before(*b.ValidTo) {
 		return nil, problem.Conflict("partner.invalid_end", "The bank account already ends on "+b.ValidTo.Format(time.DateOnly)+".")
 	}
