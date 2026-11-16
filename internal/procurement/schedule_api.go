@@ -12,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -40,7 +41,7 @@ func (e *Endpoints) CreateScheduleLine(ctx context.Context, req *gen.ScheduleLin
 	c, l, err := e.createScheduleLine(ctx, params.ID, NewScheduleLine{ItemNo: req.ContractItemNo, DeliveryDate: req.DeliveryDate,
 		Quantity: req.Quantity.Value, Unit: req.Quantity.Unit})
 	if err != nil {
-		return nil, err
+		return nil, problem.KeepRequestFields(err, req)
 	}
 	return &gen.ScheduleLineHeaders{ETag: gen.NewOptString(etag.Format(l.Version)),
 		Location: gen.NewOptString(fmt.Sprintf("%s?line_no=%d", schedulePath(c.ID), l.No)), Response: scheduleLineToAPI(c, l)}, nil
@@ -87,7 +88,7 @@ func (e *Endpoints) ListScheduleLines(ctx context.Context, params gen.ListSchedu
 func (e *Endpoints) CallOffScheduleLine(ctx context.Context, params gen.CallOffScheduleLineParams) (gen.CallOffScheduleLineRes, error) {
 	c, l, err := e.callOff(ctx, params.ID, params.LineNo, etag.IfMatch(params.IfMatch))
 	if err != nil {
-		return nil, err
+		return nil, problem.KeepFields(err)
 	}
 	return &gen.CallOffScheduleLineOKHeaders{ETag: gen.NewOptString(etag.Format(l.Version)), Response: scheduleLineToAPI(c, l)}, nil
 }

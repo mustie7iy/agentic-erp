@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
-	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/idref"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -357,7 +356,7 @@ func (e *Endpoints) recorded(ctx context.Context, tx pgx.Tx, id uuid.UUID, actio
 	for _, m := range more {
 		events = append(events, m(stored))
 	}
-	return stored, audit.Record(ctx, "procurement.rfq."+action, "procurement.rfq", stored.ID, detail, events...)
+	return stored, e.record(ctx, "procurement.rfq."+action, "procurement.rfq", stored.ID, detail, events...)
 }
 
 // publishRFQ publishes a draft RFQ once: read under its row lock at the

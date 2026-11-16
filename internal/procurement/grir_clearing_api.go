@@ -11,6 +11,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -37,7 +38,7 @@ func clearingToAPI(c GRIRClearing) gen.GrIrClearing {
 func (e *Endpoints) CreateGrIrClearing(ctx context.Context, req *gen.GrIrClearingCreate, params gen.CreateGrIrClearingParams) (gen.CreateGrIrClearingRes, error) {
 	c, err := e.createGRIRClearing(ctx, params.ID, GRIRClearingInput{Reason: req.Reason, PostingDate: req.PostingDate, Items: req.PoItemNos})
 	if err != nil {
-		return nil, err
+		return nil, problem.KeepRequestFields(err, req)
 	}
 	return &gen.CreateGrIrClearingCreatedHeaders{ETag: gen.NewOptString(etag.Format(c.Version)),
 		Location: gen.NewOptString("/v1/gr-ir-clearings/" + c.ID.String()), Response: clearingToAPI(c)}, nil

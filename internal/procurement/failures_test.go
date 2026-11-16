@@ -194,13 +194,13 @@ func failureCalls(e env, h *procurement.Endpoints, f failureFixture) map[string]
 			return err
 		},
 		"approved": func(ctx context.Context) error {
-			return procurement.Approvals{}.Approved(ctx, u(f.pendingReq), uuid.New())
+			return procurement.Approvals{Endpoints: h}.Approved(ctx, u(f.pendingReq), uuid.New())
 		},
 		"rejected": func(ctx context.Context) error {
-			return procurement.Approvals{}.Rejected(ctx, u(f.pendingReq), uuid.New(), "c")
+			return procurement.Approvals{Endpoints: h}.Rejected(ctx, u(f.pendingReq), uuid.New(), "c")
 		},
 		"cancelled": func(ctx context.Context) error {
-			return procurement.Approvals{}.Cancelled(ctx, u(f.pendingReq), uuid.New(), "c")
+			return procurement.Approvals{Endpoints: h}.Cancelled(ctx, u(f.pendingReq), uuid.New(), "c")
 		},
 		"create contract": func(ctx context.Context) error {
 			_, err := h.CreateContract(ctx, &gen.ContractCreate{LegalEntityID: e.DE, SupplierID: e.Supplier, Currency: "EUR", ValidFrom: d("2026-01-01"),
@@ -395,7 +395,7 @@ func TestDatabaseFailures(t *testing.T) {
 		e := e.in(t)
 		// A decision for a requisition that is not pending is refused.
 		pgtest.CheckErr(t, apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-			return procurement.Approvals{}.Approved(ctx, u(f.draftReq), uuid.New())
+			return procurement.Approvals{Endpoints: h}.Approved(ctx, u(f.draftReq), uuid.New())
 		}), "procurement.invalid_status")
 		// Orders port.
 		if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {

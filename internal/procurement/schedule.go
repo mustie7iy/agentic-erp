@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
-	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -195,5 +194,5 @@ func (e *Endpoints) scheduleChanged(ctx context.Context, c Contract, l ScheduleL
 	}
 	detail := map[string]any{"contract_id": c.ID, "line_no": l.No, "contract_item_no": l.ItemNo, "delivery_date": l.DeliveryDate.Format(time.DateOnly),
 		"quantity": l.Quantity, "unit": it.Unit, "amount": value, "purchase_order_id": l.OrderID}
-	return audit.Record(ctx, "procurement.schedule_line."+action, "procurement.schedule_line", l.ID, detail, events...)
+	return e.record(ctx, "procurement.schedule_line."+action, "procurement.schedule_line", l.ID, detail, events...)
 }

@@ -191,6 +191,14 @@ codes by the repository layer; a raw database message never reaches a client.
 A required text given as white space alone is 422 `request.validation_failed`
 on its field, checked before the write, not the 409 of the column's check
 (ADR-0013, as built).
+A field error names a field of the request (its body's top-level field,
+or within one: `items[2].account_id` when `items` is given). A refusal of
+what a stored document holds that the request does not give, such as a
+purchase order's company on `PATCH`, or its items on a bodiless `:submit`
+or `:release`, carries no field error, and its `detail` says what is
+refused (`problem.KeepFields`, `problem.KeepRequestFields`; procurement's
+actions since hnames, review:batch26; ADR-0004 as built for a missing
+number range).
 A refusal whose figures a client must show carries them as fields of the
 problem, never only in `detail`: `payables.tax_mismatch` carries
 `calculated_tax` (the tax stated, the tax its codes' rates give, and each

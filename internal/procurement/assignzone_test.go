@@ -48,7 +48,7 @@ func TestSubmissionOnTheCompanysDate(t *testing.T) {
 				return
 			}
 			p := e.Problem(422, "ledger.cost_center_invalid", "POST", path+":submit", "", tag)
-			wantField(t, p, "items[0].cost_center_id", c.reason)
+			wantNoFields(t, p)
 			if d, _ := p["detail"].(string); !strings.Contains(d, "checked on the company's date in its time zone as it is submitted: "+c.today+" in "+c.zone+".") {
 				t.Errorf("detail: got %q, want it to name %s in %s", d, c.today, c.zone)
 			}

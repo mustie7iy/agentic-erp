@@ -52,6 +52,16 @@ func wantField(t *testing.T, p map[string]any, field, code string) {
 	t.Errorf("field errors: got %v, want %s with code %s", errs, field, code)
 }
 
+// wantNoFields checks a refusal of an action without a body, or of what
+// the request does not give, names no field: the request has none of the
+// document's fields (review:batch26); its detail says what is refused.
+func wantNoFields(t *testing.T, p map[string]any) {
+	t.Helper()
+	if errs, ok := p["errors"]; ok {
+		t.Errorf("field errors: got %v, want none", errs)
+	}
+}
+
 func TestItemAssignment(t *testing.T) {
 	e := setupAssignment(t)
 	t.Run("entered", func(t *testing.T) {
@@ -101,12 +111,12 @@ func TestItemAssignment(t *testing.T) {
 				path := "/v1/requisitions/" + id(r)
 				_, tag := e.Must(200, "GET", path, "", "")
 				p := e.Problem(422, c.code, "POST", path+":submit", "", tag)
-				wantField(t, p, "items[1].cost_center_id", c.field)
+				wantNoFields(t, p)
 				o := e.order(t, its, "")
 				path = "/v1/purchase-orders/" + id(o)
 				_, tag = e.Must(200, "GET", path, "", "")
 				p = e.Problem(422, c.code, "POST", path+":release", "", tag)
-				wantField(t, p, "items[1].cost_center_id", c.field)
+				wantNoFields(t, p)
 				if d, _ := p["detail"].(string); len(d) < 6 || d[:6] != "Item 2" {
 					t.Errorf("detail: got %q, want it to name item 2", d)
 				}
@@ -178,7 +188,7 @@ func TestItemAssignmentChanges(t *testing.T) {
 		e := e.in(t)
 		cpath, tag := e.draftChange(t, path, items(centered(e.expense, "5.00", e.c.Admin, ""), centered(e.expense, "1.00", e.c.Locked, "")))
 		p := e.Problem(422, "ledger.cost_center_invalid", "POST", cpath+":submit", "", tag)
-		wantField(t, p, "items[1].cost_center_id", "locked_for_costs")
+		wantNoFields(t, p)
 		_, tag = e.Must(200, "GET", cpath, "", "")
 		e.Must(200, "POST", cpath+":cancel", "", tag)
 	})

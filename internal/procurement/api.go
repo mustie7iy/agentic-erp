@@ -16,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -298,7 +299,7 @@ func (e *Endpoints) UpdateRequisition(ctx context.Context, req *gen.RequisitionU
 	}
 	r, err := e.updateRequisition(ctx, params.ID, etag.IfMatch(params.IfMatch), ch)
 	if err != nil {
-		return nil, err
+		return nil, problem.KeepRequestFields(err, req)
 	}
 	return requisitionOK(r), nil
 }
@@ -307,7 +308,7 @@ func (e *Endpoints) UpdateRequisition(ctx context.Context, req *gen.RequisitionU
 func (e *Endpoints) SubmitRequisition(ctx context.Context, params gen.SubmitRequisitionParams) (gen.SubmitRequisitionRes, error) {
 	r, err := e.submitRequisition(ctx, params.ID, etag.IfMatch(params.IfMatch))
 	if err != nil {
-		return nil, err
+		return nil, problem.KeepFields(err)
 	}
 	return requisitionOK(r), nil
 }
@@ -316,7 +317,7 @@ func (e *Endpoints) SubmitRequisition(ctx context.Context, params gen.SubmitRequ
 func (e *Endpoints) CancelRequisition(ctx context.Context, params gen.CancelRequisitionParams) (gen.CancelRequisitionRes, error) {
 	r, err := e.cancelRequisition(ctx, params.ID, etag.IfMatch(params.IfMatch))
 	if err != nil {
-		return nil, err
+		return nil, problem.KeepFields(err)
 	}
 	return requisitionOK(r), nil
 }
@@ -397,25 +398,25 @@ func (e *Endpoints) UpdateContract(ctx context.Context, req *gen.ContractUpdate,
 	}
 	c, err := e.updateContract(ctx, params.ID, etag.IfMatch(params.IfMatch), ch)
 	if err != nil {
-		return nil, err
+		return nil, problem.KeepRequestFields(err, req)
 	}
 	return contractOK(c), nil
 }
 
 // ReleaseContract implements POST /v1/contracts/{id}:release.
 func (e *Endpoints) ReleaseContract(ctx context.Context, params gen.ReleaseContractParams) (gen.ReleaseContractRes, error) {
-	c, err := changeContract(ctx, params.ID, etag.IfMatch(params.IfMatch), releaseContract, "")
+	c, err := e.changeContract(ctx, params.ID, etag.IfMatch(params.IfMatch), releaseContract, "")
 	if err != nil {
-		return nil, err
+		return nil, problem.KeepFields(err)
 	}
 	return contractOK(c), nil
 }
 
 // CancelContract implements POST /v1/contracts/{id}:cancel.
 func (e *Endpoints) CancelContract(ctx context.Context, params gen.CancelContractParams) (gen.CancelContractRes, error) {
-	c, err := changeContract(ctx, params.ID, etag.IfMatch(params.IfMatch), cancelContract, "")
+	c, err := e.changeContract(ctx, params.ID, etag.IfMatch(params.IfMatch), cancelContract, "")
 	if err != nil {
-		return nil, err
+		return nil, problem.KeepFields(err)
 	}
 	return contractOK(c), nil
 }
@@ -424,7 +425,7 @@ func (e *Endpoints) CancelContract(ctx context.Context, params gen.CancelContrac
 func (e *Endpoints) RenewContract(ctx context.Context, req *gen.ContractRenew, params gen.RenewContractParams) (gen.RenewContractRes, error) {
 	c, err := e.renewContract(ctx, params.ID, etag.IfMatch(params.IfMatch), req.ValidTo, req.TargetValue.Amount, req.TargetValue.Currency)
 	if err != nil {
-		return nil, err
+		return nil, problem.KeepRequestFields(err, req)
 	}
 	return &gen.ContractHeaders{ETag: gen.NewOptString(etag.Format(c.Version)), Location: gen.NewOptString("/v1/contracts/" + c.ID.String()),
 		Response: contractToAPI(c)}, nil
@@ -432,9 +433,9 @@ func (e *Endpoints) RenewContract(ctx context.Context, req *gen.ContractRenew, p
 
 // TerminateContract implements POST /v1/contracts/{id}:terminate.
 func (e *Endpoints) TerminateContract(ctx context.Context, req *gen.ReasonInput, params gen.TerminateContractParams) (gen.TerminateContractRes, error) {
-	c, err := changeContract(ctx, params.ID, etag.IfMatch(params.IfMatch), terminateContract, req.Reason)
+	c, err := e.changeContract(ctx, params.ID, etag.IfMatch(params.IfMatch), terminateContract, req.Reason)
 	if err != nil {
-		return nil, err
+		return nil, problem.KeepRequestFields(err, req)
 	}
 	return contractOK(c), nil
 }
@@ -550,7 +551,7 @@ func (e *Endpoints) UpdatePurchaseOrder(ctx context.Context, req *gen.PurchaseOr
 	}
 	o, err := e.updateOrder(ctx, params.ID, etag.IfMatch(params.IfMatch), ch)
 	if err != nil {
-		return nil, err
+		return nil, problem.KeepRequestFields(err, req)
 	}
 	return orderOK(o), nil
 }
@@ -559,7 +560,7 @@ func (e *Endpoints) UpdatePurchaseOrder(ctx context.Context, req *gen.PurchaseOr
 func (e *Endpoints) ReleasePurchaseOrder(ctx context.Context, params gen.ReleasePurchaseOrderParams) (gen.ReleasePurchaseOrderRes, error) {
 	o, err := e.releaseOrder(ctx, params.ID, etag.IfMatch(params.IfMatch), "")
 	if err != nil {
-		return nil, err
+		return nil, problem.KeepFields(err)
 	}
 	return orderOK(o), nil
 }
@@ -568,7 +569,7 @@ func (e *Endpoints) ReleasePurchaseOrder(ctx context.Context, params gen.Release
 func (e *Endpoints) ClosePurchaseOrder(ctx context.Context, params gen.ClosePurchaseOrderParams) (gen.ClosePurchaseOrderRes, error) {
 	o, err := e.closeOrder(ctx, params.ID, etag.IfMatch(params.IfMatch))
 	if err != nil {
-		return nil, err
+		return nil, problem.KeepFields(err)
 	}
 	return orderOK(o), nil
 }
@@ -577,7 +578,7 @@ func (e *Endpoints) ClosePurchaseOrder(ctx context.Context, params gen.ClosePurc
 func (e *Endpoints) CancelPurchaseOrder(ctx context.Context, params gen.CancelPurchaseOrderParams) (gen.CancelPurchaseOrderRes, error) {
 	o, err := e.cancelOrder(ctx, params.ID, etag.IfMatch(params.IfMatch))
 	if err != nil {
-		return nil, err
+		return nil, problem.KeepFields(err)
 	}
 	return orderOK(o), nil
 }
@@ -610,7 +611,7 @@ func changeInput(reason gen.OptString, orderDate gen.OptDate, term gen.OptString
 func (e *Endpoints) CreatePurchaseOrderChange(ctx context.Context, req *gen.PurchaseOrderChangeCreate, params gen.CreatePurchaseOrderChangeParams) (gen.CreatePurchaseOrderChangeRes, error) {
 	ch, err := e.createChange(ctx, params.ID, changeInput(gen.NewOptString(req.Reason), req.OrderDate, req.PaymentTermCode, req.Items, req.Extensions))
 	if err != nil {
-		return nil, err
+		return nil, problem.KeepRequestFields(err, req)
 	}
 	return &gen.PurchaseOrderChangeHeaders{ETag: gen.NewOptString(etag.Format(ch.Version)),
 		Location: gen.NewOptString("/v1/purchase-orders/" + params.ID.String() + "/changes/" + ch.ID.String()), Response: changeToAPI(ch)}, nil
@@ -648,7 +649,7 @@ func (e *Endpoints) UpdatePurchaseOrderChange(ctx context.Context, req *gen.Purc
 	ch, err := e.updateChange(ctx, params.ID, params.ChangeID, etag.IfMatch(params.IfMatch),
 		changeInput(req.Reason, req.OrderDate, req.PaymentTermCode, req.Items, req.Extensions))
 	if err != nil {
-		return nil, err
+		return nil, problem.KeepRequestFields(err, req)
 	}
 	return changeOK(ch), nil
 }
@@ -657,7 +658,7 @@ func (e *Endpoints) UpdatePurchaseOrderChange(ctx context.Context, req *gen.Purc
 func (e *Endpoints) CancelPurchaseOrderChange(ctx context.Context, params gen.CancelPurchaseOrderChangeParams) (gen.CancelPurchaseOrderChangeRes, error) {
 	ch, err := cancelChange(ctx, params.ID, params.ChangeID, etag.IfMatch(params.IfMatch))
 	if err != nil {
-		return nil, err
+		return nil, problem.KeepFields(err)
 	}
 	return changeOK(ch), nil
 }
@@ -666,7 +667,7 @@ func (e *Endpoints) CancelPurchaseOrderChange(ctx context.Context, params gen.Ca
 func (e *Endpoints) SubmitPurchaseOrderChange(ctx context.Context, params gen.SubmitPurchaseOrderChangeParams) (gen.SubmitPurchaseOrderChangeRes, error) {
 	ch, err := e.submitChange(ctx, params.ID, params.ChangeID, etag.IfMatch(params.IfMatch))
 	if err != nil {
-		return nil, err
+		return nil, problem.KeepFields(err)
 	}
 	return changeOK(ch), nil
 }
