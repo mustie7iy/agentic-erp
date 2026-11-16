@@ -852,6 +852,7 @@ migrated_default_assignment() {
 step_migrate() {
   heading "Step 3 — The company's SAP data is migrated and reconciled"
   as ada
+  migration_fit_gap
   say "The periods of $YEAR are opened in both ledgers, for SAP's documents and the pilot's."
   local p
   QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p page_size=100
@@ -945,6 +946,38 @@ step_migrate() {
   migrated_grir
   migrated_foreign_grir
   passed
+}
+
+# migration_fit_gap is the fit-gap report of SAP's customizing (T104a):
+# per object the configuration generator read, carried over, carried over
+# with a note or left out, computed by the generator, with every note it
+# returns. The draft beside it does not validate (step 1: the USD bank's
+# account is revalued by the reviewer), which leaves the report as it is.
+migration_fit_gap() {
+  say "Before the load, the delivery consultant reads the fit-gap report of SAP's customizing (T104a): per object the"
+  say "configuration generator read, whether the draft carried it over, carried it over with a note or left it out."
+  show erp config generate -source file:data/extract.json -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" -cutover "$YEAR-01-01" -out draft.yaml -fit-gap fit-gap.json -fit-gap-format json
+  rm -f "$WORK/fit-gap.json"
+  if "$ERP" config generate -source "file:$WORK/data/extract.json" -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" \
+    -cutover "$YEAR-01-01" -out "$WORK/fit-gap-draft.yaml" -fit-gap "$WORK/fit-gap.json" -fit-gap-format json >"$WORK/fit-gap.out" 2>&1; then
+    fail "the draft validated without the USD bank's account revalued"
+  fi
+  [ -s "$WORK/fit-gap.json" ] || { sed 's/^/     /' "$WORK/fit-gap.out"; fail "no fit-gap report was written"; }
+  grep '^Fit-gap report written' "$WORK/fit-gap.out" | sed 's/^/     /'
+  jq -r '"     \(.scope)"' "$WORK/fit-gap.json"
+  expect "the report's scope" "$(jq -r '.scope | test("customizing only.*not cover usage, changes or custom code")' "$WORK/fit-gap.json")" true
+  expect "the outcomes adding up to the objects read" \
+    "$(jq -r '.counts | "\(.carried_over + .carried_with_note + .left_out) \(.objects)"' "$WORK/fit-gap.json")" \
+    "$(jq -r '"\(.objects | length) \(.objects | length)"' "$WORK/fit-gap.json")"
+  say "The objects carried over with a note, with what the reviewers should read:"
+  jq -r '.objects[] | select(.outcome == "carried_with_note") | "     \(.table) \(.key):", (.notes[] | "       \(.path): \(.message | .[0:150])")' "$WORK/fit-gap.json"
+  expect "the USD house bank's outcome" "$(jq -r --arg k "$CC/MUSD" '.objects[] | select(.table == "T012K" and .key == $k) | .outcome' "$WORK/fit-gap.json")" carried_with_note
+  say "Left out, by table (the SAP roles go to the identity context, OKB9's defaults wait for the loaded cost centers):"
+  jq -r '[.objects[] | select(.outcome == "left_out") | .table] | group_by(.) | .[] | "     \(.[0]): \(length)"' "$WORK/fit-gap.json"
+  jq -r '(.defaults[], .objects[].notes[]) | "\(.path): \(.message)"' "$WORK/fit-gap.json" >"$WORK/fit-gap-notes.txt"
+  sed -n '/^Notes for reviewers:$/,/^$/s/^  //p' "$WORK/fit-gap.out" >"$WORK/generator-notes.txt"
+  [ -s "$WORK/generator-notes.txt" ] || fail "the generator printed no notes"
+  expect "the generator's notes missing from the report" "$(grep -cvxFf "$WORK/fit-gap-notes.txt" "$WORK/generator-notes.txt")" 0
 }
 
 # migration_group_company is the legal entity SAP's trading partner of

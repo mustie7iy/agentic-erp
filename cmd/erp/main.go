@@ -466,7 +466,8 @@ func sapDate(d string) (string, error) {
 }
 
 // configGenerate drafts a configuration document from SAP customizing, for
-// a change request (erp agent config -draft, or erp call createChangeRequest).
+// a change request (erp agent config -draft, or erp call createChangeRequest),
+// and with -fit-gap writes the extract's fit-gap report beside it (T104a).
 func configGenerate(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("config generate", flag.ContinueOnError)
 	source := fs.String("source", "file:"+defaultExtract, `SAP source: "file:PATH" or "odata:URL"`)
@@ -476,34 +477,44 @@ func configGenerate(ctx context.Context, args []string) error {
 	zones := fs.String("time-zone", "", "comma-separated CODE=ZONE, each company's IANA time zone (e.g. 3000=America/Toronto); SAP's extract has none")
 	form := fs.String("amount-format", "", `the form of a file extract's amounts: "internal" (the default, SAP's stored form, converted with the extract's TCURX) or "external"; OData's are external`)
 	cutover := fs.String("cutover", "", "the cutover date (YYYY-MM-DD), at which each account's cost element is read from SAP's CSKB slice valid then; without it, the latest slice")
+	fitGap := fs.String("fit-gap", "", "where to write the fit-gap report of the extract's customizing: per object read, carried over, carried over with a note or left out")
+	fitGapFormat := fs.String("fit-gap-format", "text", `the fit-gap report's form: "text" or "json"`)
 	if err := parseFlags(fs, args); err != nil {
 		return err
+	}
+	if *fitGapFormat != "text" && *fitGapFormat != "json" {
+		return fmt.Errorf(`invalid -fit-gap-format %q: want "text" or "json"`, *fitGapFormat)
 	}
 	src, err := parseSource(*source)
 	if err != nil {
 		return err
 	}
-	opts := sapconfig.DefaultOptions()
-	if opts.ExternalAmounts, err = externalAmounts(src, *form); err != nil {
-		return err
-	}
-	if opts.TimeZones, err = parseZones(*zones); err != nil {
-		return err
-	}
-	if opts.Cutover, err = sapDate(*cutover); err != nil {
+	opts, err := generateOptions(src, *form, *zones, *cutover)
+	if err != nil {
 		return err
 	}
 	e, err := src.Extract(ctx, sap.Scope{CompanyCodes: strings.Split(*companies, ","), FiscalYear: *year})
 	if err != nil {
 		return err
 	}
-	cfg, notes := sapconfig.Generate(e, opts)
+	cfg, notes, report := sapconfig.FitGapReport(e, opts)
 	doc, _ := cfg.Marshal() // Config.Marshal cannot fail
 	if err := os.WriteFile(*outPath, doc, 0o600); err != nil {
 		return fmt.Errorf("config generate: write draft %s: %w", *outPath, err)
 	}
+	if *fitGap != "" {
+		if err := writeFitGap(*fitGap, *fitGapFormat, report); err != nil {
+			return err
+		}
+	}
 	w := printer()
-	fmt.Fprintf(w, "Draft configuration written to %s\n\nNotes for reviewers:\n", *outPath)
+	fmt.Fprintf(w, "Draft configuration written to %s\n", *outPath)
+	if *fitGap != "" {
+		c := report.Counts
+		fmt.Fprintf(w, "Fit-gap report written to %s: %d objects read, %d carried over, %d carried over with a note, %d left out\n",
+			*fitGap, c.Objects, c.CarriedOver, c.CarriedWithNote, c.LeftOut)
+	}
+	fmt.Fprintf(w, "\nNotes for reviewers:\n")
 	for _, n := range notes {
 		fmt.Fprintln(w, "  "+n.String())
 	}
@@ -511,6 +522,36 @@ func configGenerate(ctx context.Context, args []string) error {
 		return fmt.Errorf("config generate: print notes: %w", err)
 	}
 	return printFindings(config.Validate(cfg, currency.Seeded()))
+}
+
+// generateOptions are the generator's options from config generate's
+// flags.
+func generateOptions(src sap.Source, form, zones, cutover string) (sapconfig.Options, error) {
+	opts := sapconfig.DefaultOptions()
+	var err error
+	if opts.ExternalAmounts, err = externalAmounts(src, form); err != nil {
+		return opts, err
+	}
+	if opts.TimeZones, err = parseZones(zones); err != nil {
+		return opts, err
+	}
+	opts.Cutover, err = sapDate(cutover)
+	return opts, err
+}
+
+// writeFitGap writes the fit-gap report to path, as text or JSON.
+func writeFitGap(path, format string, r sapconfig.FitGap) error {
+	var b bytes.Buffer
+	if format == "json" {
+		doc, _ := json.MarshalIndent(r, "", "  ") // strings, ints and slices of them: it cannot fail
+		b.Write(append(doc, '\n'))
+	} else {
+		_ = r.WriteText(&b) // a bytes.Buffer's writes do not fail
+	}
+	if err := os.WriteFile(path, b.Bytes(), 0o600); err != nil {
+		return fmt.Errorf("config generate: write fit-gap report %s: %w", path, err)
+	}
+	return nil
 }
 
 // parseZones reads -time-zone: the zones are checked by the draft's

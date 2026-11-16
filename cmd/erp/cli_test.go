@@ -21,6 +21,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/delivery/sapconfig"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
@@ -206,6 +207,8 @@ func TestLocalPreparationErrors(t *testing.T) {
 	fails(t, "invalid -cutover", "config", "generate", "-source", "file:extract.json", "-cutover", "20260101")
 	fails(t, "invalid -amount-format", "config", "generate", "-source", "odata:http://127.0.0.1:1", "-amount-format", "internal")
 	fails(t, "invalid -time-zone", "config", "generate", "-source", "file:extract.json", "-time-zone", "1000=")
+	fails(t, "invalid -fit-gap-format", "config", "generate", "-source", "file:extract.json", "-fit-gap-format", "xml")
+	fails(t, "write fit-gap report", "config", "generate", "-source", "file:extract.json", "-out", "draft.yaml", "-fit-gap", "file/fit-gap.txt")
 	// SAP's extract has no time zone for a company code: without one given,
 	// the draft names the company and key to set (product owner 2026-10-31).
 	fails(t, "[error] companies[1000].time_zone: time zone is required", "config", "generate", "-source", "file:extract.json", "-out", "draft.yaml")
@@ -1097,4 +1100,42 @@ func TestAskContinue(t *testing.T) {
 	fails(t, "no such file", "ask", "-continue", "rpt_missing", "-out", "reports", "q")
 	fakeAPI(t, answers(refused))
 	fails(t, "query", "ask", "-continue", id[1], "-out", "reports", "q")
+}
+
+// TestConfigFitGap: erp config generate -fit-gap writes the extract's
+// fit-gap report as text or JSON beside the draft (T104a), which is the
+// draft written without it.
+func TestConfigFitGap(t *testing.T) {
+	t.Chdir(t.TempDir())
+	must(t, "gen-mock-sap", "-out", "extract.json")
+	gen := []string{"config", "generate", "-source", "file:extract.json", "-time-zone", "1000=America/New_York"}
+	must(t, append(gen, "-out", "plain.yaml")...)
+	got := must(t, append(gen, "-out", "draft.yaml", "-fit-gap", "fit-gap.txt")...)
+	if !strings.Contains(got, "Fit-gap report written to fit-gap.txt: ") {
+		t.Errorf("got %s, want the report's counts", got)
+	}
+	plain, draft := readFile(t, "plain.yaml"), readFile(t, "draft.yaml")
+	if !bytes.Equal(plain, draft) {
+		t.Errorf("got a draft with -fit-gap other than without it:\n%s\nwant\n%s", draft, plain)
+	}
+	if text := string(readFile(t, "fit-gap.txt")); !strings.Contains(text, sapconfig.FitGapScope) || !strings.Contains(text, "T001 1000: carried over with a note") {
+		t.Errorf("got text report\n%s\nwant its scope and company 1000", text)
+	}
+	must(t, append(gen, "-out", "draft.yaml", "-fit-gap", "fit-gap.json", "-fit-gap-format", "json")...)
+	var r sapconfig.FitGap
+	if err := json.Unmarshal(readFile(t, "fit-gap.json"), &r); err != nil {
+		t.Fatalf("got %v, want the JSON report", err)
+	}
+	if c := r.Counts; c.Objects == 0 || c.CarriedOver+c.CarriedWithNote+c.LeftOut != c.Objects {
+		t.Errorf("got counts %+v, want objects whose outcomes add up", c)
+	}
+}
+
+func readFile(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }

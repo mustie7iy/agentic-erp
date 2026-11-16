@@ -45,8 +45,9 @@ func (g *gen) defaultAssignments(p string, co *config.Company) {
 	for _, r := range rows {
 		account := sap.Alpha(r.KSTAR)
 		path := p + ".default_assignments[" + account + "]"
+		o := g.read("TKA3A", r.BUKRS+"/"+r.KOKRS+"/"+account)
 		if why := g.notProposed(r, co); why != "" {
-			g.note(path, "TKA3A "+r.KOKRS+"/"+account+": "+why+"; not proposed")
+			g.leaveOut(o, path, "TKA3A "+r.KOKRS+"/"+account+": "+why+"; not proposed")
 			continue
 		}
 		msg := fmt.Sprintf("propose after the migration: {account: %q, cost_center: %q}, the default cost center from TKA3A (OKB9, REGEL blank); "+
@@ -55,7 +56,7 @@ func (g *gen) defaultAssignments(p string, co *config.Company) {
 		if extra := objects("", r.AUFNR, r.PRCTR); extra != "" {
 			msg += "; TKA3A's " + extra + " beside it is not proposed, as a default holds a cost center alone"
 		}
-		g.note(path, msg)
+		g.leaveOut(o, path, msg) // the first configuration holds no default: see the note
 	}
 }
 

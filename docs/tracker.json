@@ -10318,13 +10318,13 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Fit-gap report",
       "c": [
        {
-        "s": "T",
-        "t": "A delivery consultant reads the fit-gap report of a SAP customizing extract: per customizing object the configuration generator reads, whether it was carried over, carried over with a note or left out, with the notes (erp delivery fit-gap)",
-        "r": "T104a · docs/design/plan-breadth-week3.md §T104a",
+        "s": "D",
+        "t": "A delivery consultant reads the fit-gap report of a SAP customizing extract: per customizing object the configuration generator reads, whether it was carried over, carried over with a note or left out, with the notes (erp config generate -fit-gap)",
+        "r": "T104a · docs/design/plan-breadth-week3.md §T104a · docs/migration.md (The fit-gap report) · sapconfig.FitGapReport, FitGap.WriteText (internal/delivery/sapconfig/fitgap.go) · erp config generate -fit-gap, -fit-gap-format · TestFitGapFromMockSAP, TestFitGapLeftOut, TestFitGapGapsAndDefaults, TestFitGapOtherExtracts, TestFitGapText, TestConfigFitGap · walkthrough step_migrate (migration_fit_gap)",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

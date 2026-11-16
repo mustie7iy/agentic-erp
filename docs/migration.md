@@ -685,6 +685,64 @@ event (api/asyncapi.yaml) carries the report's headline figures as
 `loaded`, the same counts as the report's, null when the quality gate
 stopped the run before the load.
 
+## The fit-gap report
+
+Before a scope's first rehearsal, the delivery consultant reads what the
+configuration generator made of the client's SAP customizing (T104a).
+`erp config generate ... -fit-gap PATH` writes, beside the draft, the
+fit-gap report of the extract's customizing, as text (the default) or as
+JSON (`-fit-gap-format json`), and prints its counts. The draft is the
+same with the flag as without it, byte for byte, and so are the notes the
+command prints. The report is computed by the generator, never written by
+a model (plan-breadth-week3, default 13), and it states that it covers
+customizing only: not usage, changes or custom code.
+
+It lists each customizing object the generator read, by its SAP table and
+key, with one outcome and its notes:
+
+| Object | Table | Key |
+|---|---|---|
+| Company code (with what the draft sets for it that SAP does not give: fiscal year, time zone, limits, the reconciliation account the vendors use) | T001 | `BUKRS` |
+| G/L account, with its cost element (CSKB, SKA1 type) | SKB1 | `BUKRS/account` |
+| Account determination entry | T030 | `BUKRS/KTOSL/account` |
+| Down payment account | T074 | `BUKRS/KOART/UMSKZ/reconciliation account` |
+| Tax code | T007A | `BUKRS/MWSKZ` |
+| Invoice tolerance | T169G | `BUKRS/TOLSL` |
+| House bank account | T012K | `BUKRS/HBKID`, and ` (account n)` for its n-th row |
+| Payment method, with its name (T042Z), bank ranking (T042A) and subaccounts (T042I) | T042E | `ZBUKR/ZLSCH` |
+| Bank ranking of a method the company does not set up | T042A | `ZBUKR/ZLSCH` |
+| Payment term | T052 | `ZTERM` |
+| Default account assignment (OKB9, with TKA3C and TKA3P) | TKA3A | `BUKRS/KOKRS/account` |
+| Currency decimals, for an extract in SAP's internal form | TCURX | `CURRKEY` |
+| SAP role | AGR_DEFINE | `AGR_NAME` |
+
+Accounts drop SAP's leading zeros (ALPHA), as the draft holds them.
+
+- `carried_over`: the draft takes the object as SAP has it, with no note.
+- `carried_with_note`: the draft takes it, and a note says what the
+  reviewers should check or set (a payment term in months, a house bank in
+  a foreign currency, an account whose cost element SAP leaves unclear).
+- `left_out`: the draft does not take it, and a note says why: an account
+  no type rule covers, a house bank's further account, a second
+  determination or down payment account where the configuration holds one,
+  a transaction key, tolerance key or T074 row of a kind the configuration
+  has no place for, a TCURX row the conversion cannot use, a default
+  assignment (proposed once the run has loaded its cost center), an SAP
+  role (the identity context provisions roles).
+
+Every note the generator returns appears in the report exactly once: under
+its object, under the company code for a note on a company's setting that
+no row of its own gives, or among the settings the draft fills with no SAP
+object behind them (the approval tiers, the bank change hold, the number
+ranges, the roles to provision). A left-out object the generator skips
+without a note gets one the report alone carries; the generator's notes
+are unchanged. The counts per outcome add up to the objects read; a
+duplicate row of an object (the same key) is the same object.
+
+What the report does not hold yet (after 1 December 2026): gaps from usage
+analysis and change-log mining, custom code, effort estimates, a summary by
+the discovery agent, and the report kept per migration run.
+
 ## What to check on a real SAP system
 
 An SAP specialist answered the open points of this section on 2026-11-09
