@@ -2,7 +2,6 @@ package leases
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -122,7 +121,7 @@ var runKeys = []string{InterestKey, LiabilityKey, DepreciationKey, AccumulatedKe
 // request.reference_not_found), the period a regular one (the ledger's
 // 422 ledger.no_fiscal_period and ledger.period_not_regular), the company
 // has the four accounts (422 leases.no_lease_accounts), the run is for a
-// later period than the company's last (runsInOrder), and the period is
+// later period than the company's last (leaseRuns), and the period is
 // open in every ledger the company keeps (the ledger's 409
 // ledger.period_not_open), also when nothing is to post.
 func (e *Endpoints) basisOfRun(ctx context.Context, tx pgx.Tx, p reqctx.Principal, legalEntity uuid.UUID, year, number int32) (runBasis, error) {
@@ -147,7 +146,7 @@ func (e *Endpoints) basisOfRun(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 	if b.accounts, err = e.leaseAccounts(ctx, le.ID, le.Code, runKeys...); err != nil {
 		return runBasis{}, err
 	}
-	if err := runsInOrder(ctx, tx, p, le, b.period); err != nil {
+	if err := leaseRuns.InOrder(ctx, tx, p.TenantID, le.ID, le.Code, b.period); err != nil {
 		return runBasis{}, err
 	}
 	if err := e.Postings.Postable(ctx, le.ID, b.period.End); err != nil {
@@ -156,37 +155,22 @@ func (e *Endpoints) basisOfRun(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 	return b, nil
 }
 
-// runsInOrder holds the company's runs until the transaction ends and
-// refuses a run that does not follow them: one for a period already run
-// (409 leases.run_exists) or for a period before the company's last run
-// (409 leases.run_period_not_later). A run posts the lines the runs
-// before it left, so the runs of a company follow one another: the
-// advisory lock is the one the database's rules take when the run and its
-// postings are kept (lease_run_in_order, lease_line_posted_once).
-func runsInOrder(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le tenancy.Entity, period ledger.FiscalPeriod) error {
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('leases.run:' || $1::uuid::text || ':' || $2::uuid::text, 0))`,
-		p.TenantID, le.ID); err != nil {
-		return fmt.Errorf("leases: hold the lease runs of company %s: %w", le.Code, err)
-	}
-	var year, number int16
-	var day time.Time
-	err := tx.QueryRow(ctx, `SELECT fiscal_year, fiscal_period, posting_date FROM leases.run WHERE legal_entity_id = $1
-		ORDER BY posting_date DESC LIMIT 1`, le.ID).Scan(&year, &number, &day)
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		return nil
-	case err != nil:
-		return fmt.Errorf("leases: last lease run of company %s: %w", le.Code, err)
-	case year == period.FiscalYear && number == period.Number:
+// leaseRuns are the company's lease runs, which follow one another: a
+// run posts the lines the runs before it left, and the database's rules
+// take the same lock when the run and its postings are kept
+// (lease_run_in_order, lease_line_posted_once). A second run for the last
+// run's period is 409 leases.run_exists, one for an earlier period 409
+// leases.run_period_not_later.
+var leaseRuns = ledger.PeriodRuns{Table: pgx.Identifier{"leases", "run"}, Lock: "leases.run", Name: "leases: lease runs",
+	Exists: func(company string, year, number int16) error {
 		return problem.Conflict("leases.run_exists", fmt.Sprintf("Lease accounting was already run for company %s and %d/%d; "+
-			"GET /v1/lease-runs?legal_entity_id=&fiscal_year=&fiscal_period= finds the run.", le.Code, year, number))
-	case !day.Before(period.End):
+			"GET /v1/lease-runs?legal_entity_id=&fiscal_year=&fiscal_period= finds the run.", company, year, number))
+	},
+	NotLater: func(company string, year, number int16, day time.Time) error {
 		return problem.Conflict("leases.run_period_not_later", fmt.Sprintf("Company %s's last lease run was for %d/%d, to %s; "+
 			"a run is for a later period than the last. A line whose interval ended in a period already run is caught up by the next run.",
-			le.Code, year, number, day.Format(time.DateOnly)))
-	}
-	return nil
-}
+			company, year, number, day.Format(time.DateOnly)))
+	}}
 
 // due are the number of the company's active contracts, at most the
 // run's bound (422 leases.run_too_large), and, by contract number, what

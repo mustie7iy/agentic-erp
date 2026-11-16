@@ -2,7 +2,6 @@ package revenue
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -184,7 +183,7 @@ func (e *Endpoints) contractAccounts(ctx context.Context, le tenancy.Entity) (as
 // (422 request.reference_not_found), the period a regular one, the
 // company has its two accounts, the period is open in every ledger the
 // company keeps (the ledger's 409 ledger.period_not_open), and the run
-// is for a later period than the company's last (inOrder).
+// is for a later period than the company's last (recognitionRuns).
 func (e *Endpoints) basisOfRun(ctx context.Context, tx pgx.Tx, p reqctx.Principal, legalEntity uuid.UUID, year, number int32) (runBasis, error) {
 	access, err := authz.Companies(ctx)
 	if err != nil {
@@ -207,7 +206,7 @@ func (e *Endpoints) basisOfRun(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 	if b.asset, b.liability, err = e.contractAccounts(ctx, le); err != nil {
 		return runBasis{}, err
 	}
-	if err := inOrder(ctx, tx, p, le, b.period); err != nil {
+	if err := recognitionRuns.InOrder(ctx, tx, p.TenantID, le.ID, le.Code, b.period); err != nil {
 		return runBasis{}, err
 	}
 	if err := e.Postings.Postable(ctx, le.ID, b.period.End); err != nil {
@@ -216,37 +215,22 @@ func (e *Endpoints) basisOfRun(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 	return b, nil
 }
 
-// inOrder holds the company's runs until the transaction ends and
-// refuses a run that does not follow them: one for a period already run
-// (409 revenue.recognition_run_exists) or for a period before the
-// company's last run (409 revenue.recognition_period_not_later). A run
-// reads what the runs before it posted and takes it off, so the runs of
-// a company must follow one another: the advisory lock is the one the
-// database's rule takes when the run is kept (recognition_run_in_order).
-func inOrder(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le tenancy.Entity, period ledger.FiscalPeriod) error {
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('revenue.recognition:' || $1::uuid::text || ':' || $2::uuid::text, 0))`,
-		p.TenantID, le.ID); err != nil {
-		return fmt.Errorf("revenue: hold the recognition runs of company %s: %w", le.Code, err)
-	}
-	var year, number int16
-	var day time.Time
-	err := tx.QueryRow(ctx, `SELECT fiscal_year, fiscal_period, posting_date FROM revenue.recognition_run WHERE legal_entity_id = $1
-		ORDER BY posting_date DESC LIMIT 1`, le.ID).Scan(&year, &number, &day)
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		return nil
-	case err != nil:
-		return fmt.Errorf("revenue: last recognition run of company %s: %w", le.Code, err)
-	case year == period.FiscalYear && number == period.Number:
+// recognitionRuns are the company's recognition runs, which follow one
+// another: a run reads what the runs before it posted and takes it off,
+// and the database's rule takes the same lock when the run is kept
+// (recognition_run_in_order). A second run for the last run's period is
+// 409 revenue.recognition_run_exists, one for an earlier period 409
+// revenue.recognition_period_not_later.
+var recognitionRuns = ledger.PeriodRuns{Table: pgx.Identifier{"revenue", "recognition_run"}, Lock: "revenue.recognition", Name: "revenue: recognition runs",
+	Exists: func(company string, year, number int16) error {
 		return problem.Conflict("revenue.recognition_run_exists", fmt.Sprintf("Revenue recognition was already run for company %s and %d/%d; "+
-			"GET /v1/revenue-recognition-runs?legal_entity_id=&fiscal_year=&fiscal_period= finds the run.", le.Code, year, number))
-	case !day.Before(period.End):
+			"GET /v1/revenue-recognition-runs?legal_entity_id=&fiscal_year=&fiscal_period= finds the run.", company, year, number))
+	},
+	NotLater: func(company string, year, number int16, day time.Time) error {
 		return problem.Conflict("revenue.recognition_period_not_later", fmt.Sprintf("Company %s's last revenue recognition run was for %d/%d, to %s; "+
 			"a run is for a later period than the last. What is dated into a period already run is caught up by the next run.",
-			le.Code, year, number, day.Format(time.DateOnly)))
-	}
-	return nil
-}
+			company, year, number, day.Format(time.DateOnly)))
+	}}
 
 // activeContracts are the company's active contracts by their orders'
 // numbers; more than the run's bound are refused (422
