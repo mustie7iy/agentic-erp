@@ -165,7 +165,7 @@ func (e *Endpoints) createCatalogItem(ctx context.Context, in NewCatalogItem) (C
 // stored and searched, without surrounding white space.
 func catalogTexts(in NewCatalogItem) error {
 	if in.ItemKey == "" || in.ItemKey != strings.TrimSpace(in.ItemKey) {
-		return invalid("procurement.invalid_item_key", "item_key", "an item key without leading or trailing white space")
+		return problem.Invalid("procurement.invalid_item_key", "item_key", "an item key without leading or trailing white space")
 	}
 	return problem.RequireText("description", in.Description)
 }
@@ -181,10 +181,10 @@ func catalogContractItem(ctx context.Context, tx pgx.Tx, in NewCatalogItem, le u
 		return nil
 	}
 	if in.ContractID == nil {
-		return invalid("procurement.invalid_contract_item", "contract_item_no", "a contract item needs its contract_id")
+		return problem.Invalid("procurement.invalid_contract_item", "contract_item_no", "a contract item needs its contract_id")
 	}
 	if in.ContractItemNo == nil {
-		return invalid("procurement.invalid_contract_item", "contract_item_no", "a contract is named with the item of it that prices the catalog item")
+		return problem.Invalid("procurement.invalid_contract_item", "contract_item_no", "a contract is named with the item of it that prices the catalog item")
 	}
 	c, err := referencedContract(ctx, tx, *in.ContractID)
 	if err != nil {
@@ -192,18 +192,18 @@ func catalogContractItem(ctx context.Context, tx pgx.Tx, in NewCatalogItem, le u
 	}
 	switch {
 	case c.Status != Active:
-		return invalid("procurement.invalid_contract", "contract_id", "the contract is "+c.Status)
+		return problem.Invalid("procurement.invalid_contract", "contract_id", "the contract is "+c.Status)
 	case c.LegalEntityID != le || c.SupplierID != in.SupplierID:
-		return invalid("procurement.invalid_contract", "contract_id", "a contract of the legal entity with the catalog item's supplier")
+		return problem.Invalid("procurement.invalid_contract", "contract_id", "a contract of the legal entity with the catalog item's supplier")
 	case c.Currency != in.Currency:
-		return invalid("procurement.invalid_contract", "contract_id", "a contract in the catalog item's currency "+in.Currency)
+		return problem.Invalid("procurement.invalid_contract", "contract_id", "a contract in the catalog item's currency "+in.Currency)
 	}
 	for _, it := range c.Items {
 		if it.No == *in.ContractItemNo && it.Unit == in.Unit {
 			return catalogContractPrice(in, c, it, price, exp)
 		}
 	}
-	return invalid("procurement.invalid_contract_item", "contract_item_no", "an item of the contract in the same unit")
+	return problem.Invalid("procurement.invalid_contract_item", "contract_item_no", "an item of the contract in the same unit")
 }
 
 // catalogContractPrice refuses a catalog item whose price is not its
@@ -221,7 +221,7 @@ func catalogContractPrice(in NewCatalogItem, c Contract, it Item, price money.Mi
 	if it.UnitPrice == price {
 		field = "price_unit"
 	}
-	return invalid("procurement.catalog_item_price", field, fmt.Sprintf("catalog item %s is priced at %s %s per %d, but item %d of contract %s prices it at %s %s per %d",
+	return problem.Invalid("procurement.catalog_item_price", field, fmt.Sprintf("catalog item %s is priced at %s %s per %d, but item %d of contract %s prices it at %s %s per %d",
 		in.ItemKey, price.Plain(exp), in.Currency, unit, it.No, c.DocumentNumber, it.UnitPrice.Plain(exp), c.Currency, it.PriceUnit))
 }
 

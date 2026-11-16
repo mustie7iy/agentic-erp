@@ -95,12 +95,12 @@ func (e *Endpoints) checkMigratedDownPayment(ctx context.Context, tx pgx.Tx, in 
 	}
 	switch {
 	case strings.TrimSpace(in.Reference) == "" || len(in.Reference) > ReferenceLength:
-		return invalid("payables.invalid_reference", "reference", fmt.Sprintf("The source document's reference has 1 to %d characters.", ReferenceLength))
+		return problem.Invalid("payables.invalid_reference", "reference", fmt.Sprintf("The source document's reference has 1 to %d characters.", ReferenceLength))
 	case in.Amount <= 0:
 		return problem.Unprocessable("payables.invalid_amount", "A down payment is more than zero.",
 			problem.FieldError{Field: "amount", Code: "not_positive", Message: "an amount above 0"})
 	case in.Tax < 0 || in.Tax >= in.Amount || (in.TaxCode == nil && in.Tax != 0):
-		return invalid("payables.invalid_tax_amount", "tax", "A down payment's tax is 0 or more and below its amount, and 0 without a tax code.")
+		return problem.Invalid("payables.invalid_tax_amount", "tax", "A down payment's tax is 0 or more and below its amount, and 0 without a tax code.")
 	case in.TaxCode == nil:
 		return nil
 	}
@@ -109,7 +109,7 @@ func (e *Endpoints) checkMigratedDownPayment(ctx context.Context, tx pgx.Tx, in 
 		return err
 	}
 	if !ok || code.Direction != "input" {
-		return invalid("payables.unknown_tax_code", "tax_code", "Tax code "+*in.TaxCode+" is not an input tax code of the legal entity on the posting date.")
+		return problem.Invalid("payables.unknown_tax_code", "tax_code", "Tax code "+*in.TaxCode+" is not an input tax code of the legal entity on the posting date.")
 	}
 	if _, ok := code.Single(); !ok {
 		return componentsUnsupported("tax_code", *in.TaxCode)

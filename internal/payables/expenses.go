@@ -271,7 +271,7 @@ func (x expenseEntry) report() ExpenseReport {
 func (x expenseEntry) line(v *invoiceCheck, i int, in ExpenseLineInput) (ExpenseLine, string, error) {
 	field := fmt.Sprintf("lines[%d]", i)
 	if in.ExpenseDate.After(x.day) {
-		return ExpenseLine{}, "", invalid("payables.expense_date_in_future", field+".expense_date",
+		return ExpenseLine{}, "", problem.Invalid("payables.expense_date_in_future", field+".expense_date",
 			"An expense is dated on or before the company's date today, "+x.day.Format(time.DateOnly)+".")
 	}
 	if in.Description != nil {
@@ -285,7 +285,7 @@ func (x expenseEntry) line(v *invoiceCheck, i int, in ExpenseLineInput) (Expense
 		t, ok = x.co.ExpenseType(in.ExpenseType)
 	}
 	if !ok {
-		return ExpenseLine{}, "", invalid("payables.unknown_expense_type", field+".expense_type",
+		return ExpenseLine{}, "", problem.Invalid("payables.unknown_expense_type", field+".expense_type",
 			"Expense type "+in.ExpenseType+" is not configured for company "+x.le.Code+" (companies[].expense_types).")
 	}
 	amount, err := v.parse(in.Amount, field+".amount")
@@ -321,7 +321,7 @@ func (e *Endpoints) expenseAccounts(ctx context.Context, le uuid.UUID, numbers [
 			}
 		}
 		if !ok {
-			return invalid("payables.account_not_postable", fmt.Sprintf("lines[%d].expense_type", i),
+			return problem.Invalid("payables.account_not_postable", fmt.Sprintf("lines[%d].expense_type", i),
 				"Account "+numbers[i]+" of expense type "+lines[i].ExpenseType+" cannot be posted in this legal entity.")
 		}
 		lines[i].AccountID = id

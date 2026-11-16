@@ -120,14 +120,14 @@ func (e *Endpoints) CreateRun(ctx context.Context, in NewRun) (Run, Connector, e
 		return Run{}, Connector{}, err
 	}
 	if in.Mode != "documents" && in.Mode != "balances" {
-		return Run{}, Connector{}, invalid("integration.unknown_mode", "mode", "documents or balances")
+		return Run{}, Connector{}, problem.Invalid("integration.unknown_mode", "mode", "documents or balances")
 	}
 	c, err := getConnector(ctx, tx, in.ConnectorID, false)
 	if err != nil {
 		return Run{}, Connector{}, problem.Reference(err, "connector_id", "connector", "no connector with this id")
 	}
 	if c.Kind != SAPFile && c.Kind != SAPOData {
-		return Run{}, Connector{}, invalid("integration.not_a_source", "connector_id", "Migration runs read from an sap_file or sap_odata connector.")
+		return Run{}, Connector{}, problem.Invalid("integration.not_a_source", "connector_id", "Migration runs read from an sap_file or sap_odata connector.")
 	}
 	if _, err := e.entities(ctx, in.Scope); err != nil {
 		return Run{}, Connector{}, err
@@ -157,7 +157,7 @@ func (e *Endpoints) entities(ctx context.Context, s Scope) (map[string]tenancy.E
 			return nil, err
 		}
 		if le.Status != "active" {
-			return nil, invalid("integration.legal_entity_not_active", field, "The legal entity is "+le.Status+".")
+			return nil, problem.Invalid("integration.legal_entity_not_active", field, "The legal entity is "+le.Status+".")
 		}
 		out[le.Code] = le
 	}

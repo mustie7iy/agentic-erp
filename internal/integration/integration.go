@@ -35,7 +35,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
-	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -190,10 +189,6 @@ type Endpoints struct {
 // action names the object type (integration.connector.create).
 func record(ctx context.Context, action string, id uuid.UUID, detail map[string]any, events ...outbox.Event) error {
 	return audit.Record(ctx, action, audit.ObjectTypeOf(action), id, detail, events...)
-}
-
-func invalid(code, field, message string) error {
-	return problem.Unprocessable(code, message, problem.FieldError{Field: field, Code: "invalid", Message: message})
 }
 
 func noRows(err error) bool { return errors.Is(err, pgx.ErrNoRows) }

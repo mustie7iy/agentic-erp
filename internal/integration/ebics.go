@@ -31,16 +31,16 @@ var ebicsKeys = []string{"url", "host_id", "partner_id", "user_id"}
 func checkEBICSSettings(settings map[string]any) error {
 	for k := range settings {
 		if !slices.Contains(ebicsKeys, k) {
-			return invalid("integration.invalid_settings", "settings."+k, "Not a bank_ebics setting; keys go in secret_ref.")
+			return problem.Invalid("integration.invalid_settings", "settings."+k, "Not a bank_ebics setting; keys go in secret_ref.")
 		}
 	}
 	raw, _ := settings["url"].(string) // not a string: "", refused below
 	if u, err := url.Parse(raw); err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return invalid("integration.invalid_settings", "settings.url", "The bank's EBICS URL: https, without credentials, query or fragment.")
+		return problem.Invalid("integration.invalid_settings", "settings.url", "The bank's EBICS URL: https, without credentials, query or fragment.")
 	}
 	for _, k := range []string{"host_id", "partner_id", "user_id"} {
 		if v, _ := settings[k].(string); !ebicsID.MatchString(v) { // not a string: "", which does not match
-			return invalid("integration.invalid_settings", "settings."+k, "The EBICS "+k+" the bank assigned: 1-35 letters, digits, ',' or '='.")
+			return problem.Invalid("integration.invalid_settings", "settings."+k, "The EBICS "+k+" the bank assigned: 1-35 letters, digits, ',' or '='.")
 		}
 	}
 	return nil

@@ -100,13 +100,13 @@ func checkSettings(kind string, settings map[string]any) error {
 	}
 	if sys, ok := settings["system"]; ok && (kind == SAPFile || kind == SAPOData) {
 		if code, isString := sys.(string); !isString || !systemCode.MatchString(code) {
-			return invalid("integration.invalid_settings", "settings.system", "The source system's code in external references: 2-20 upper-case letters, digits or _.")
+			return problem.Invalid("integration.invalid_settings", "settings.system", "The source system's code in external references: 2-20 upper-case letters, digits or _.")
 		}
 	}
 	switch kind {
 	case SAPFile:
 		if p, ok := str("path"); !ok || !filepath.IsLocal(p) {
-			return invalid("integration.invalid_settings", "settings.path", "An extract file path relative to the server's extract directory.")
+			return problem.Invalid("integration.invalid_settings", "settings.path", "An extract file path relative to the server's extract directory.")
 		}
 		return checkAmountFormat(settings)
 	case SAPOData:
@@ -160,14 +160,14 @@ func sftpEndpoint(settings map[string]any) (sftpclient.Endpoint, error) {
 func sftpServer(settings map[string]any, kind string, keys []string, collects string) (sftpclient.Endpoint, error) {
 	for k := range settings {
 		if !slices.Contains(keys, k) {
-			return sftpclient.Endpoint{}, invalid("integration.invalid_settings", "settings."+k, "Not a "+kind+" setting; credentials go in secret_ref.")
+			return sftpclient.Endpoint{}, problem.Invalid("integration.invalid_settings", "settings."+k, "Not a "+kind+" setting; credentials go in secret_ref.")
 		}
 	}
 	host, _ := settings["host"].(string) // not a string: "", refused below
 	user, _ := settings["user"].(string) // as host
 	for _, k := range []string{"host", "user"} {
 		if v := map[string]string{"host": host, "user": user}[k]; v == "" || strings.ContainsAny(v, ":@/ ") {
-			return sftpclient.Endpoint{}, invalid("integration.invalid_settings", "settings."+k, "The SFTP server's "+k+", without port, path or spaces.")
+			return sftpclient.Endpoint{}, problem.Invalid("integration.invalid_settings", "settings."+k, "The SFTP server's "+k+", without port, path or spaces.")
 		}
 	}
 	port, err := sftpPort(settings)
@@ -177,11 +177,11 @@ func sftpServer(settings map[string]any, kind string, keys []string, collects st
 	line, _ := settings["host_key"].(string) // not a string: "", which ParseHostKey refuses
 	key, err := sftpclient.ParseHostKey(line)
 	if err != nil {
-		return sftpclient.Endpoint{}, invalid("integration.invalid_settings", "settings.host_key", "The SFTP server's public key in authorized_keys form, as the bank gave it.")
+		return sftpclient.Endpoint{}, problem.Invalid("integration.invalid_settings", "settings.host_key", "The SFTP server's public key in authorized_keys form, as the bank gave it.")
 	}
 	dir, _ := settings["directory"].(string) // not a string: "", which is not absolute
 	if !path.IsAbs(dir) {
-		return sftpclient.Endpoint{}, invalid("integration.invalid_settings", "settings.directory", "The absolute directory "+collects+".")
+		return sftpclient.Endpoint{}, problem.Invalid("integration.invalid_settings", "settings.directory", "The absolute directory "+collects+".")
 	}
 	return sftpclient.Endpoint{Addr: net.JoinHostPort(host, strconv.Itoa(port)), User: user, HostKey: key, Dir: dir}, nil
 }
@@ -228,9 +228,9 @@ func treasurySettings(settings map[string]any) (Treasury, error) {
 	format, codes, ok := treasuryFields(settings)
 	switch {
 	case format == "":
-		return Treasury{}, invalid("integration.invalid_settings", "settings.format", "The format of the files, jsonl or csv (the cash export schema v1).")
+		return Treasury{}, problem.Invalid("integration.invalid_settings", "settings.format", "The format of the files, jsonl or csv (the cash export schema v1).")
 	case !ok:
-		return Treasury{}, invalid("integration.invalid_settings", "settings.companies", "The company codes whose snapshots are exported, at least one, each once.")
+		return Treasury{}, problem.Invalid("integration.invalid_settings", "settings.companies", "The company codes whose snapshots are exported, at least one, each once.")
 	}
 	return Treasury{Endpoint: ep, Format: format, Companies: codes}, nil
 }
@@ -247,10 +247,10 @@ func statementDirs(settings map[string]any) (inbound, archive string, err error)
 	inbound, _ = settings["statements_directory"].(string) // not a string: "", which is not absolute
 	archive, _ = settings["statements_archive"].(string)   // as inbound
 	if !path.IsAbs(inbound) {
-		return "", "", invalid("integration.invalid_settings", "settings.statements_directory", "The absolute directory the bank leaves statements in, with statements_archive.")
+		return "", "", problem.Invalid("integration.invalid_settings", "settings.statements_directory", "The absolute directory the bank leaves statements in, with statements_archive.")
 	}
 	if !path.IsAbs(archive) || path.Clean(archive) == path.Clean(inbound) {
-		return "", "", invalid("integration.invalid_settings", "settings.statements_archive",
+		return "", "", problem.Invalid("integration.invalid_settings", "settings.statements_archive",
 			"The absolute directory imported statements are moved to, not statements_directory.")
 	}
 	return path.Clean(inbound), path.Clean(archive), nil
@@ -266,28 +266,28 @@ func sftpPort(settings map[string]any) (int, error) {
 	if f, isNumber := n.(float64); isNumber && f >= 1 && f <= 65535 && f == float64(int(f)) {
 		return int(f), nil
 	}
-	return 0, invalid("integration.invalid_settings", "settings.port", "The SFTP server's port, from 1 to 65535; 22 when left out.")
+	return 0, problem.Invalid("integration.invalid_settings", "settings.port", "The SFTP server's port, from 1 to 65535; 22 when left out.")
 }
 
 // checkODataSettings validates the settings of a sap_odata source.
 func checkODataSettings(settings map[string]any) error {
 	if _, ok := settings["amount_format"]; ok {
-		return invalid("integration.invalid_settings", "settings.amount_format", "OData delivers amounts in external form; only a sap_file connector takes amount_format.")
+		return problem.Invalid("integration.invalid_settings", "settings.amount_format", "OData delivers amounts in external form; only a sap_file connector takes amount_format.")
 	}
 	b, ok := settings["base_url"].(string)
 	u, err := url.Parse(b)
 	if !ok || err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-		return invalid("integration.invalid_settings", "settings.base_url", "The SAP system's base URL, for example https://sap.example.com.")
+		return problem.Invalid("integration.invalid_settings", "settings.base_url", "The SAP system's base URL, for example https://sap.example.com.")
 	}
 	if c, ok := settings["client"]; ok {
 		if _, isString := c.(string); !isString {
-			return invalid("integration.invalid_settings", "settings.client", "The SAP client as a string, for example \"100\".")
+			return problem.Invalid("integration.invalid_settings", "settings.client", "The SAP client as a string, for example \"100\".")
 		}
 	}
 	if n, ok := settings["page_size"]; ok {
 		//nolint:forbidigo // encoding/json decodes every number in map[string]any as float64; a page size is not an amount
 		if f, isNumber := n.(float64); !isNumber || f < 1 || f > 5000 || f != float64(int(f)) {
-			return invalid("integration.invalid_settings", "settings.page_size", "A page size from 1 to 5000.")
+			return problem.Invalid("integration.invalid_settings", "settings.page_size", "A page size from 1 to 5000.")
 		}
 	}
 	return nil
@@ -312,7 +312,7 @@ func CreateConnector(ctx context.Context, in NewConnector) (Connector, error) {
 		return Connector{}, err
 	}
 	if !slices.Contains(kinds, in.Kind) {
-		return Connector{}, invalid("integration.unknown_kind", "kind", "A connector kind of the contract.")
+		return Connector{}, problem.Invalid("integration.unknown_kind", "kind", "A connector kind of the contract.")
 	}
 	if err := checkSettings(in.Kind, in.Settings); err != nil {
 		return Connector{}, err

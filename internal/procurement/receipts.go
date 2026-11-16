@@ -258,11 +258,11 @@ func (e *Endpoints) postReceipt(ctx context.Context, in ReceiptInput, post bool)
 func movementType(in ReceiptInput) (string, error) {
 	switch mt := cmp.Or(in.MovementType, Receipt); {
 	case mt != Receipt && mt != Return:
-		return "", invalid("procurement.invalid_movement_type", "movement_type", "101 to receive goods or 122 to return them")
+		return "", problem.Invalid("procurement.invalid_movement_type", "movement_type", "101 to receive goods or 122 to return them")
 	case mt == Return && (in.Reason == nil || strings.TrimSpace(*in.Reason) == ""):
-		return "", invalid("procurement.reason_required", "reason", "why the goods go back to the supplier")
+		return "", problem.Invalid("procurement.reason_required", "reason", "why the goods go back to the supplier")
 	case mt == Receipt && in.Reason != nil:
-		return "", invalid("procurement.reason_not_allowed", "reason", "a reason only on a return (122)")
+		return "", problem.Invalid("procurement.reason_not_allowed", "reason", "a reason only on a return (122)")
 	default:
 		return mt, nil
 	}
@@ -279,13 +279,13 @@ func movedItems(in []ReceiptItem, mt string, le uuid.UUID, current []orderItem) 
 		oi := current[i]
 		switch {
 		case !oi.found || oi.legalEntity != le:
-			return nil, invalid("procurement.unknown_order_item", field, "an item of a purchase order of the legal entity")
+			return nil, problem.Invalid("procurement.unknown_order_item", field, "an item of a purchase order of the legal entity")
 		case mt == Receipt && oi.status != Released:
 			return nil, problem.Conflict("procurement.order_not_released", "Purchase order "+oi.documentNumber+" is "+oi.status+"; goods are received only on released orders.")
 		case mt == Return && oi.status != Released && oi.status != Closed:
 			return nil, problem.Conflict("procurement.order_not_released", "Purchase order "+oi.documentNumber+" is "+oi.status+"; goods are returned only on released or closed orders.")
 		case it.Unit != oi.unit:
-			return nil, invalid("procurement.unit_mismatch", field+".quantity.unit", "the purchase order item's unit "+oi.unit)
+			return nil, problem.Invalid("procurement.unit_mismatch", field+".quantity.unit", "the purchase order item's unit "+oi.unit)
 		}
 		if mt == Return {
 			it.Quantity = negated(it.Quantity)

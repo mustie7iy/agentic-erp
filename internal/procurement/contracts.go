@@ -135,7 +135,7 @@ func writeContractItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, it
 
 func checkValidity(from, to time.Time) error {
 	if to.Before(from) {
-		return invalid("procurement.invalid_validity", "valid_to", "valid_to is on or after valid_from")
+		return problem.Invalid("procurement.invalid_validity", "valid_to", "valid_to is on or after valid_from")
 	}
 	return nil
 }

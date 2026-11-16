@@ -70,15 +70,15 @@ func usableCatalogItem(ctx context.Context, tx pgx.Tx, id, le uuid.UUID, currenc
 	c, err := getCatalogItem(ctx, tx, id, false)
 	switch {
 	case err != nil && problem.From(err).Status == http.StatusNotFound:
-		return CatalogItem{}, invalid("procurement.invalid_catalog_item", field, "no catalog item with this id that you can access")
+		return CatalogItem{}, problem.Invalid("procurement.invalid_catalog_item", field, "no catalog item with this id that you can access")
 	case err != nil:
 		return CatalogItem{}, err
 	case c.LegalEntityID != le:
-		return CatalogItem{}, invalid("procurement.invalid_catalog_item", field, "catalog item "+c.ItemKey+" is another legal entity's")
+		return CatalogItem{}, problem.Invalid("procurement.invalid_catalog_item", field, "catalog item "+c.ItemKey+" is another legal entity's")
 	case c.Status != Active:
-		return CatalogItem{}, invalid("procurement.invalid_catalog_item", field, "catalog item "+c.ItemKey+" is "+c.Status)
+		return CatalogItem{}, problem.Invalid("procurement.invalid_catalog_item", field, "catalog item "+c.ItemKey+" is "+c.Status)
 	case c.Currency != currency:
-		return CatalogItem{}, invalid("procurement.invalid_catalog_item", field,
+		return CatalogItem{}, problem.Invalid("procurement.invalid_catalog_item", field,
 			"catalog item "+c.ItemKey+" is priced in "+c.Currency+", not the requisition currency "+currency)
 	}
 	return c, nil
@@ -96,13 +96,13 @@ func noOverride(it ItemInput, c CatalogItem, field string) error {
 	price := c.UnitPrice.Plain(c.Exponent)
 	switch {
 	case (it.Price != "" || it.Currency != "") && (it.Price != price || it.Currency != c.Currency):
-		return invalid(code, field+".unit_price", fmt.Sprintf("the price is catalog item %s's, %s %s; send that or none", c.ItemKey, price, c.Currency))
+		return problem.Invalid(code, field+".unit_price", fmt.Sprintf("the price is catalog item %s's, %s %s; send that or none", c.ItemKey, price, c.Currency))
 	case it.PriceUnit != 0 && it.PriceUnit != c.PriceUnit:
-		return invalid(code, field+".price_unit", fmt.Sprintf("the price unit is catalog item %s's, %d; send that or none", c.ItemKey, c.PriceUnit))
+		return problem.Invalid(code, field+".price_unit", fmt.Sprintf("the price unit is catalog item %s's, %d; send that or none", c.ItemKey, c.PriceUnit))
 	case it.Description != "" && it.Description != c.Description:
-		return invalid(code, field+".description", "the description is catalog item "+c.ItemKey+"'s; send that or none")
+		return problem.Invalid(code, field+".description", "the description is catalog item "+c.ItemKey+"'s; send that or none")
 	case it.Unit != c.Unit:
-		return invalid(code, field+".quantity.unit", "catalog item "+c.ItemKey+" is ordered in "+c.Unit)
+		return problem.Invalid(code, field+".quantity.unit", "catalog item "+c.ItemKey+" is ordered in "+c.Unit)
 	}
 	return nil
 }
@@ -119,7 +119,7 @@ func catalogParties(supplier, contract *uuid.UUID, used []catalogUse) (*uuid.UUI
 			supplier = &c.SupplierID
 		}
 		if *supplier != c.SupplierID {
-			return nil, nil, invalid("procurement.catalog_item_supplier", u.field,
+			return nil, nil, problem.Invalid("procurement.catalog_item_supplier", u.field,
 				"catalog item "+c.ItemKey+" is another supplier's than the requisition's")
 		}
 		if c.ContractID == nil {
@@ -129,7 +129,7 @@ func catalogParties(supplier, contract *uuid.UUID, used []catalogUse) (*uuid.UUI
 			contract = c.ContractID
 		}
 		if *contract != *c.ContractID {
-			return nil, nil, invalid("procurement.catalog_item_contract", u.field,
+			return nil, nil, problem.Invalid("procurement.catalog_item_contract", u.field,
 				"catalog item "+c.ItemKey+" is priced by contract "+*c.ContractNumber+", another than the requisition's")
 		}
 	}

@@ -124,7 +124,7 @@ func (e *Endpoints) Replay(ctx context.Context, sub uuid.UUID, ifMatch func(int3
 		return 0, err
 	}
 	if now := clock.Now(e.Now); since.Before(now.Add(-DeliveryRetention)) || since.After(now) {
-		return 0, invalid("integration.invalid_replay_since", "since", "An instant in the past, at most 30 days back: deliveries are kept 30 days.")
+		return 0, problem.Invalid("integration.invalid_replay_since", "since", "An instant in the past, at most 30 days back: deliveries are kept 30 days.")
 	}
 	if _, err := queueable(ctx, tx, sub, ifMatch); err != nil {
 		return 0, err

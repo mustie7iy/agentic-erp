@@ -83,11 +83,11 @@ func (e *Endpoints) TakeOverInvoiced(ctx context.Context, in MigratedInvoice) (u
 func (e *Endpoints) checkMigrated(ctx context.Context, in MigratedInvoice) error {
 	switch {
 	case strings.TrimSpace(in.Reference) == "" || len(in.Reference) > 100:
-		return invalid("payables.invalid_reference", "reference", "The source document's reference has 1 to 100 characters.")
+		return problem.Invalid("payables.invalid_reference", "reference", "The source document's reference has 1 to 100 characters.")
 	case in.Kind != KindInvoice && in.Kind != KindCreditMemo:
-		return invalid("payables.unknown_kind", "kind", "A migrated document invoices or credits quantities: invoice or credit_memo.")
+		return problem.Invalid("payables.unknown_kind", "kind", "A migrated document invoices or credits quantities: invoice or credit_memo.")
 	case len(in.Items) == 0:
-		return invalid("payables.items_required", "items", "A migrated document takes over at least one item.")
+		return problem.Invalid("payables.items_required", "items", "A migrated document takes over at least one item.")
 	}
 	access, err := authz.Companies(ctx)
 	if err != nil {
@@ -97,18 +97,18 @@ func (e *Endpoints) checkMigrated(ctx context.Context, in MigratedInvoice) error
 	for i, it := range in.Items {
 		field := fmt.Sprintf("items[%d]", i)
 		if it.ItemNo < 1 || seen[it.ItemNo] {
-			return invalid("payables.invalid_item_no", field+".item_no", "Each item has its own positive number.")
+			return problem.Invalid("payables.invalid_item_no", field+".item_no", "Each item has its own positive number.")
 		}
 		seen[it.ItemNo] = true
 		if err := money.PositiveQuantity(it.Quantity); err != nil {
-			return invalid("payables.invalid_quantity", field+".quantity", err.Error())
+			return problem.Invalid("payables.invalid_quantity", field+".quantity", err.Error())
 		}
 		o, ok, err := e.Orders.Order(ctx, it.PurchaseOrderID)
 		if err != nil {
 			return err
 		}
 		if !ok || !access.Allows(o.LegalEntityID) || !slices.ContainsFunc(o.Items, func(oi procurement.OrderItem) bool { return oi.ItemNo == it.POItemNo }) {
-			return invalid("payables.invalid_purchase_order", field+".po_item_no", "The item names an item of a purchase order in a legal entity you can access.")
+			return problem.Invalid("payables.invalid_purchase_order", field+".po_item_no", "The item names an item of a purchase order in a legal entity you can access.")
 		}
 	}
 	return nil
