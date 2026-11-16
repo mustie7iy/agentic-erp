@@ -278,12 +278,13 @@ func TestCancelOperation(t *testing.T) {
 	if code, body := cancel(apitest.NewKey(), `"2"`); code != 409 || body["code"] != "platform.operation_not_cancellable" {
 		t.Fatalf("cancel twice: %d %v", code, body)
 	}
-	// The change was audited once and published once, as the agent.
+	// The change was audited once and published once, as the agent; the
+	// second cancel's refusal is audited as refused (ADR-0011 As built).
 	var audits, events int
 	var payload []byte
 	admin := pgtest.Admin(t)
 	if err := admin.QueryRow(context.Background(), `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'platform.operation.cancel'
-		AND object_id = $2 AND actor_id = $3 AND actor_kind = 'agent'`, ten.ID, o.ID, ten.Agent.ID).Scan(&audits); err != nil {
+		AND object_id = $2 AND actor_id = $3 AND actor_kind = 'agent' AND outcome = 'succeeded'`, ten.ID, o.ID, ten.Agent.ID).Scan(&audits); err != nil {
 		t.Fatalf("count cancel audits: %v", err)
 	}
 	if err := admin.QueryRow(context.Background(), `SELECT count(*), max(payload::text) FROM platform.outbox WHERE tenant_id = $1 AND aggregate_id = $2

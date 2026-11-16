@@ -7813,9 +7813,11 @@ step_credit_block() {
     -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"500\", \"unit\": \"EA\"}}]}"
   expect "the delivery of the released order" "$(field '"\(.delivery_no) \(.sales_order_number)"')" "1 $number"
   as ruth
-  QUIET=1 api 200 '' listAuditEvents -p object_type=sales.sales_order -p "object_id=$large"
-  expect "the order's audit trail" "$(field '[.items[].action] | sort | join(" ")')" \
-    "sales.sales_order.confirm sales.sales_order.create sales.sales_order.release_credit_block"
+  say "Its audit trail holds the writes refused on it too, with the problem's code (ADR-0011 As built):"
+  api 200 '.items[] | "  \(.action) \(.outcome)\(if .outcome == "refused" then " (\(.detail.code))" else "" end)"' listAuditEvents \
+    -p object_type=sales.sales_order -p "object_id=$large"
+  expect "the order's audit trail" "$(field '[.items[] | "\(.action) \(.outcome)"] | sort | join(", ")')" \
+    "sales.delivery.confirm refused, sales.sales_order.confirm succeeded, sales.sales_order.create succeeded, sales.sales_order.release_credit_block refused, sales.sales_order.release_credit_block succeeded"
   CREDIT_ORDER=$large
   passed
 }
