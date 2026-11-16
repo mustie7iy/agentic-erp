@@ -368,6 +368,23 @@ exceptions.
   erp-analytics loads no libz, and in PgBouncer only libcrypto loads it,
   importing the stream functions and no gz* function. The tracker item
   pins fixed digests and removes the entry.
+- **Third exception (2026-11-15, batch 73).** CVE-2026-33630 and
+  CVE-2026-69184 (High) in libcares2 1.34.5 of the PgBouncer pin, fixed in
+  Debian 13's 1.34.9-1~deb13u1, are accepted by the product owner until
+  2026-11-29: PgBouncer loads libcares for its DNS lookups, so this is a
+  posture decision, not a "nothing reaches it" exception; nothing is
+  deployed, the release scans again before it copies or signs, and
+  PgBouncer resolves only the cell's database host. No PgBouncer build
+  carries the fix yet; the tracker item pins one and removes the entry.
+- **First and second removed (2026-11-16).** PgBouncer
+  1.26.1-202611121015-trixie (linux/arm64 `sha256:2df7fa82...`; a dated
+  build tag, not the moving 1.26.1, so the mirror's tag names one build)
+  carries apt 3.0.4 and zlib1g 1:1.3.dfsg+really1.3.1-1+deb13u1, with the
+  same entrypoint, user 998 and group 996; distroless cc-debian13:nonroot's
+  index `sha256:cb87acc5...` carries the fixed zlib1g. Both are pinned and
+  the apt and zlib1g entries are gone from `.grype.yaml`, so DSA-6613-1's
+  scope no longer matters. The pinned grype finds no fixable high in either
+  except PgBouncer's libcares2 (the third exception).
 - **Checked by** `scripts/test-images.sh` with a fake grype: every pin,
   PgBouncer's and NATS's, scanned once by digest on `linux/arm64` with the
   threshold and `.grype.yaml`; a fixable high in a pin fails the scan; a

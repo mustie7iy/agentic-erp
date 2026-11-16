@@ -23,7 +23,7 @@
 # - The pod runs it as uid 65532 with a read-only root file system; the
 #   verified-file cache is an emptyDir (ERP_ANALYTICS_CACHE).
 ARG GO_IMAGE=docker.io/library/golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
-ARG BASE_IMAGE=gcr.io/distroless/cc-debian13:nonroot@sha256:08476c244888bfb425bae1ae4dd7c17f093e972aab8426883d97f3c6f280f7c1
+ARG BASE_IMAGE=gcr.io/distroless/cc-debian13:nonroot@sha256:cb87acc574abe719b6e5c547384defa2f7b1f24af9605d3f618cf852495d8be2
 
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
 ARG BUILDARCH

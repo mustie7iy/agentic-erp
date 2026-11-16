@@ -13,7 +13,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PREFIX="erp-failover-$$"
-PGBOUNCER_IMAGE="ghcr.io/cloudnative-pg/pgbouncer:1.26.0-trixie@sha256:01f76846eb3d2b2c6f05fc0b45466d43364001cfdd68a4883067c69c8e14817f"
+PGBOUNCER_IMAGE="ghcr.io/cloudnative-pg/pgbouncer:1.26.1-202611121015-trixie@sha256:2df7fa827e3237c17ab1a1bc5278d1a4868ad713ab508b45e2cfcd323e65d748"
 PRIMARY_PORT="${ERP_FAILOVER_PRIMARY_PORT:-55460}"
 REPLICA_PORT="${ERP_FAILOVER_REPLICA_PORT:-55461}"
 BOUNCER_PORT="${ERP_FAILOVER_PGBOUNCER_PORT:-55462}"
