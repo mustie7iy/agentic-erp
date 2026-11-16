@@ -4,13 +4,13 @@
 # without a new reason. grype does not read the expiry: review does.
 ignore:
   # libcares2 1.34.5-1+deb13u1 in the pinned PgBouncer image
-  # (ghcr.io/cloudnative-pg/pgbouncer 1.26.1, deploy/images/upstream.txt, pinned
-  # 2026-11-16 for its apt 3.0.4 and zlib1g 1:1.3.dfsg+really1.3.1-1+deb13u1); Debian
-  # 13 fixes CVE-2026-33630 and CVE-2026-69184 (High) in 1.34.9-1~deb13u1,
-  # but no PgBouncer image carries it yet: the tag's current build
-  # (arm64 sha256:d63d8b3a...) and the newest, 1.26.1-202611121015-trixie
-  # (arm64 sha256:2df7fa82...), both still have 1.34.5 (scanned
-  # 2026-11-15). PgBouncer links libcares and uses it for its DNS lookups,
+  # (ghcr.io/cloudnative-pg/pgbouncer 1.26.1-202611121015-trixie, arm64
+  # sha256:2df7fa82..., deploy/images/upstream.txt, pinned 2026-11-16 for
+  # its apt 3.0.4 and zlib1g 1:1.3.dfsg+really1.3.1-1+deb13u1); Debian 13
+  # fixes CVE-2026-33630 and CVE-2026-69184 (High) in 1.34.9-1~deb13u1, but
+  # no PgBouncer image carries it yet: the pinned build is also the newest
+  # (the moving tag 1.26.1 names the same arm64 digest on 2026-11-16), and
+  # it still has 1.34.5 (scanned 2026-11-16). PgBouncer links libcares and uses it for its DNS lookups,
   # so this is not a "nothing loads it" exception. Accepted by the product
   # owner (2026-11-15): nothing is deployed (AWS deferred), the release runs
   # this scan again before it copies or signs any image, and PgBouncer

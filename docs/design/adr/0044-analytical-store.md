@@ -1295,12 +1295,14 @@ lapses must be removed, and without it the release's scan fails and
 nothing ships.
 
 **Decision.** The runtime base is `gcr.io/distroless/cc-debian13:nonroot`,
-pinned by its index digest `sha256:cb87acc574abe719b6e5c547384defa2f7b1f24af9605d3f618cf852495d8be2`
-(resolved by the coordinator on 2026-11-01, and moved on 2026-11-16 to the
-digest carrying zlib1g 1:1.3.dfsg+really1.3.1-1+deb13u1 (ADR-0032 As built), when the pinned grype,
+pinned by its index digest `sha256:08476c244888bfb425bae1ae4dd7c17f093e972aab8426883d97f3c6f280f7c1`
+(resolved by the coordinator on 2026-11-01, when the pinned grype,
 `--platform linux/arm64 --only-fixed --fail-on high`, reported "No
 vulnerabilities found" on it). The libssl3 exception is removed and
-`.grype.yaml` accepts nothing.
+`.grype.yaml` accepts nothing for this base. On 2026-11-16 the pin moved to
+index `sha256:cb87acc574abe719b6e5c547384defa2f7b1f24af9605d3f618cf852495d8be2`,
+which carries zlib1g 1:1.3.dfsg+really1.3.1-1+deb13u1; the same grype
+reported "No vulnerabilities found" on it (ADR-0032 As built).
 
 **The builder stays Debian 12** (`golang:1.26.11-bookworm`). The binary
 needs `libc.so.6`, `libm.so.6`, `libgcc_s.so.1` and `libstdc++.so.6`,
