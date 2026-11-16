@@ -274,7 +274,7 @@ func New(cfg Config) (http.Handler, error) {
 		recordsAPI:     Records(cfg),
 		leasesAPI:      Leases(cfg),
 		paymentsAPI:    Payments(cfg),
-		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
+		auditAPI:       Audit(cfg),
 		integrationAPI: Integration(cfg),
 		agentsAPI:      &agents.Endpoints{Pages: cfg.Pages, Countries: tenancy.Countries, Certifications: certifications(cfg)},
 		analyticsAPI:   queries,
@@ -550,6 +550,15 @@ func (receivablesStatements) Lines(ctx context.Context, entries []ledger.ItemRef
 func Collections(cfg Config) *collections.Endpoints {
 	return &collections.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{}, Partners: partner.Payees{},
 		Settings: configuration.Settings{}, People: LedgerPeople{}}
+}
+
+// Audit is the audit context as the API wires it (ADR-0011): its
+// evidence exports (T101a) read tenancy's legal entities, the ledger's
+// journal, the approval requests on the entries' source documents and
+// people's names through its ports, and write to the object store.
+func Audit(cfg Config) *audit.Endpoints {
+	return &audit.Endpoints{Pages: cfg.Pages, Objects: cfg.Objects, LegalEntities: tenancy.Directory{}, Journal: ledger.Archive{},
+		Approvals: approvals.Evidence{}, People: LedgerPeople{}, Now: cfg.Now}
 }
 
 // Records is the records management context as the API wires it

@@ -30,6 +30,7 @@ var knownPersonal = regexp.MustCompile(`((^|_)name$|^name_norm$|^line[12]$|^city
 // person's data, each with why.
 var notPersonal = map[string]string{
 	"analytics.metric_watcher.name":                           "a watcher's name, a label its creator gives the metric it watches",
+	"audit.evidence_export.with_client_addresses":             "whether an evidence export's audit events carry their client addresses: a flag, not an address",
 	"cash.export.file_name":                                   "a file's name",
 	"payments.statement_fetch.file_name":                      "a file's name",
 	"cash.liquidity_item.name":                                "a liquidity item's name",

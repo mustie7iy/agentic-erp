@@ -21,50 +21,11 @@ import (
 )
 
 // ArchiveFormat names the archive file's form and its manifest's
-// (ADR-0079 §7), which the manifest states.
+// (ADR-0079 §7), which the manifest states. A line of the file is an
+// entry in the ledger's record form (ledger.EntryRecord): JSON, one entry
+// per line, its amounts decimal strings in their currency's digits, a
+// debit positive and a credit negative.
 const ArchiveFormat = "agentic-erp.records.journal_entry.v1"
-
-// fileEntry is a journal entry as a line of the archive file (ADR-0079
-// §7): JSON, one entry per line, its amounts decimal strings in their
-// currency's digits, a debit positive and a credit negative.
-type fileEntry struct {
-	EntryID          uuid.UUID  `json:"entry_id"`
-	Ledger           string     `json:"ledger"`
-	DocumentType     string     `json:"document_type"`
-	DocumentNumber   string     `json:"document_number"`
-	FiscalYear       int16      `json:"fiscal_year"`
-	FiscalPeriod     int16      `json:"fiscal_period"`
-	DocumentDate     string     `json:"document_date"`
-	PostingDate      string     `json:"posting_date"`
-	Currency         string     `json:"currency"`
-	LocalCurrency    string     `json:"local_currency"`
-	GroupCurrency    string     `json:"group_currency"`
-	RateToLocal      string     `json:"rate_to_local"`
-	RateToGroup      string     `json:"rate_to_group"`
-	Reference        *string    `json:"reference"`
-	HeaderText       *string    `json:"header_text"`
-	SourceContext    string     `json:"source_context"`
-	SourceDocumentID *uuid.UUID `json:"source_document_id"`
-	ReversalOfID     *uuid.UUID `json:"reversal_of_id"`
-	ReversalOfYear   *int16     `json:"reversal_of_year"`
-	PostedAt         string     `json:"posted_at"`
-	PostedBy         uuid.UUID  `json:"posted_by"`
-	Lines            []fileLine `json:"lines"`
-}
-
-// fileLine is a line of an archived entry.
-type fileLine struct {
-	LineNo      int32      `json:"line_no"`
-	Account     string     `json:"account"`
-	Amount      string     `json:"amount"`
-	AmountLocal string     `json:"amount_local"`
-	AmountGroup string     `json:"amount_group"`
-	PartnerID   *uuid.UUID `json:"partner_id"`
-	TaxCode     *string    `json:"tax_code"`
-	Quantity    *string    `json:"quantity"`
-	Unit        *string    `json:"unit"`
-	Text        *string    `json:"text"`
-}
 
 // manifest describes an archive file (ADR-0079 §7): what it holds, its
 // hash and size, and the count of its entries and lines and the sum of
@@ -137,26 +98,18 @@ func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, r Ru
 
 // add counts the entry and its lines and its debits in the company's
 // currency, and gives it in the file's form.
-func (a *archive) add(x ledger.ArchivedEntry, exps currency.Exponents) (fileEntry, error) {
-	out := fileEntry{EntryID: x.ID, Ledger: x.Ledger, DocumentType: x.DocumentType, DocumentNumber: x.DocumentNumber, FiscalYear: x.FiscalYear,
-		FiscalPeriod: x.FiscalPeriod, DocumentDate: x.DocumentDate.Format(time.DateOnly), PostingDate: x.PostingDate.Format(time.DateOnly),
-		Currency: x.Currency, LocalCurrency: x.LocalCurrency, GroupCurrency: x.GroupCurrency, RateToLocal: x.RateToLocal, RateToGroup: x.RateToGroup,
-		Reference: x.Reference, HeaderText: x.HeaderText, SourceContext: x.SourceContext, SourceDocumentID: x.SourceDocumentID,
-		ReversalOfID: x.ReversalOfID, ReversalOfYear: x.ReversalOfYear, PostedAt: x.PostedAt.UTC().Format(time.RFC3339Nano), PostedBy: x.PostedBy,
-		Lines: make([]fileLine, len(x.Lines))}
-	for i, l := range x.Lines {
-		out.Lines[i] = fileLine{LineNo: l.LineNo, Account: l.Account, Amount: l.Amount.Plain(exps[x.Currency]), AmountLocal: l.AmountLocal.Plain(exps[x.LocalCurrency]),
-			AmountGroup: l.AmountGroup.Plain(exps[x.GroupCurrency]), PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text}
+func (a *archive) add(x ledger.ArchivedEntry, exps currency.Exponents) (ledger.EntryRecord, error) {
+	for _, l := range x.Lines {
 		if l.AmountLocal > 0 {
 			var ok bool
 			if a.debits, ok = addDebit(a.debits, l.AmountLocal); !ok {
-				return fileEntry{}, problem.Unprocessable("records.amount_too_large", "The year's debits add up to more than an amount holds.")
+				return ledger.EntryRecord{}, problem.Unprocessable("records.amount_too_large", "The year's debits add up to more than an amount holds.")
 			}
 		}
 	}
 	a.entries++
 	a.lines += int32(len(x.Lines)) // #nosec G115 -- an entry's lines are numbered by an integer column
-	return out, nil
+	return x.Record(exps), nil
 }
 
 // addDebit adds a debit to the sum, and reports false when the sum would

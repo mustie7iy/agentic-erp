@@ -855,6 +855,10 @@ func (s *server) startOperations(runCtx context.Context) {
 		archiver := &records.Archiver{Endpoints: app.Records(apiCfg), Requesters: identity.Actors{}, Pool: pool, AppRole: cfg.AppRole,
 			WorkerRole: cfg.WorkerRole, Log: log}
 		s.spawn("records archiver", func() { archiver.Run(runCtx) })
+		// Audit evidence exports are written the same way (T101a).
+		evidence := &audit.EvidenceExporter{Endpoints: app.Audit(apiCfg), Requesters: identity.Actors{}, Pool: pool, AppRole: cfg.AppRole,
+			WorkerRole: cfg.WorkerRole, Log: log}
+		s.spawn("audit evidence exporter", func() { evidence.Run(runCtx) })
 	}
 	recurrences := &workflows.Recurrences{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Endpoints: app.Ledger(apiCfg)}
 	// The cash context is a leaf (ADR-0051 §2): its endpoints are the

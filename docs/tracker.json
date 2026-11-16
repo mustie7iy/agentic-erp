@@ -9790,13 +9790,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T66"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Audit evidence export for external auditors",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An auditor requests an evidence export for a company and a period: the audit events, the journal entries with their approval decisions and the result of verifying the audit chain, written as files with a manifest and SHA-256 to object storage and downloaded (POST /v1/audit-evidence-exports)",
-        "r": "T101a · docs/design/plan-breadth-week3.md §T101a",
+        "r": "T101a · docs/design/plan-breadth-week3.md §T101a · audit.evidence_export · db/migrations/000331 · POST/GET /v1/audit-evidence-exports, GET /v1/audit-evidence-exports/{id}, GET /v1/audit-evidence-exports/{id}/files/{name} · AuditEvidenceExported · audit.evidence.export · audit.EvidenceExporter · ledger.Archive.EntriesBetween, ledger.EntryRecord · approvals.Evidence · walkthrough step_audit · ADR-0011 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

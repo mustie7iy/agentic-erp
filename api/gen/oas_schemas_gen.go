@@ -12291,6 +12291,492 @@ func (s *AuditEventPage) SetTotalEstimate(val OptInt64) {
 
 func (*AuditEventPage) listAuditEventsRes() {}
 
+// Completed: the verification of the tenant's audit chain from its first event to its head when the
+// exporter read it, against the stored hashes and the write-once anchors, as `verifyAuditChain` does.
+// Ref: #/components/schemas/AuditEvidenceChain
+type AuditEvidenceChain struct {
+	// Whether every event and anchor verified.
+	Verified bool `json:"verified"`
+	// The head: the last sequence number verified, and the last an exported event may have.
+	LastSeq int64 `json:"last_seq"`
+	// The events checked.
+	Checked int64 `json:"checked"`
+	// The anchors checked.
+	AnchorsChecked int32 `json:"anchors_checked"`
+	// Not verified: the first sequence number that did not.
+	FirstBrokenSeq OptInt64 `json:"first_broken_seq"`
+}
+
+// GetVerified returns the value of Verified.
+func (s *AuditEvidenceChain) GetVerified() bool {
+	return s.Verified
+}
+
+// GetLastSeq returns the value of LastSeq.
+func (s *AuditEvidenceChain) GetLastSeq() int64 {
+	return s.LastSeq
+}
+
+// GetChecked returns the value of Checked.
+func (s *AuditEvidenceChain) GetChecked() int64 {
+	return s.Checked
+}
+
+// GetAnchorsChecked returns the value of AnchorsChecked.
+func (s *AuditEvidenceChain) GetAnchorsChecked() int32 {
+	return s.AnchorsChecked
+}
+
+// GetFirstBrokenSeq returns the value of FirstBrokenSeq.
+func (s *AuditEvidenceChain) GetFirstBrokenSeq() OptInt64 {
+	return s.FirstBrokenSeq
+}
+
+// SetVerified sets the value of Verified.
+func (s *AuditEvidenceChain) SetVerified(val bool) {
+	s.Verified = val
+}
+
+// SetLastSeq sets the value of LastSeq.
+func (s *AuditEvidenceChain) SetLastSeq(val int64) {
+	s.LastSeq = val
+}
+
+// SetChecked sets the value of Checked.
+func (s *AuditEvidenceChain) SetChecked(val int64) {
+	s.Checked = val
+}
+
+// SetAnchorsChecked sets the value of AnchorsChecked.
+func (s *AuditEvidenceChain) SetAnchorsChecked(val int32) {
+	s.AnchorsChecked = val
+}
+
+// SetFirstBrokenSeq sets the value of FirstBrokenSeq.
+func (s *AuditEvidenceChain) SetFirstBrokenSeq(val OptInt64) {
+	s.FirstBrokenSeq = val
+}
+
+// A company an evidence export covers.
+// Ref: #/components/schemas/AuditEvidenceCompany
+type AuditEvidenceCompany struct {
+	// The company (`GET /v1/legal-entities/{id}`).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Its code.
+	CompanyCode string `json:"company_code"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AuditEvidenceCompany) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *AuditEvidenceCompany) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AuditEvidenceCompany) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *AuditEvidenceCompany) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// An audit evidence export (audit, ADR-0011 As built, T101a): the evidence of companies and a period
+// written to object storage as files with a manifest.
+// Ref: #/components/schemas/AuditEvidenceExport
+type AuditEvidenceExport struct {
+	// Evidence export id.
+	ID uuid.UUID `json:"id"`
+	// The companies the export covers, in the order of their codes.
+	Companies []AuditEvidenceCompany `json:"companies"`
+	// The period's first day.
+	From time.Time `json:"from"`
+	// The period's last day.
+	To time.Time `json:"to"`
+	// Whether the audit events carry their client addresses: the requester held `audit.event.read` when
+	// asking.
+	WithClientAddresses bool `json:"with_client_addresses"`
+	// `queued` (until the exporter writes its files), `completed` or `failed`. Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// Completed: the files the manifest names, in its order
+	// (`GET /v1/audit-evidence-exports/{id}/files/{name}` downloads each, and `manifest.json`); otherwise
+	// empty.
+	Files []AuditEvidenceFile `json:"files"`
+	// Completed: the SHA-256 of `manifest.json`, in hexadecimal.
+	ManifestSHA256 OptString `json:"manifest_sha256"`
+	// Completed: the audit events exported.
+	AuditEventCount OptInt32 `json:"audit_event_count"`
+	// Completed: the journal entries exported.
+	JournalEntryCount OptInt32 `json:"journal_entry_count"`
+	// Completed: the approval decisions exported.
+	ApprovalDecisionCount OptInt32              `json:"approval_decision_count"`
+	Chain                 OptAuditEvidenceChain `json:"chain"`
+	// Failed: the problem code that stopped the export (`identity.principal_blocked`,
+	// `audit.evidence_changed` when the file store holds other bytes under the export's manifest).
+	FailureCode OptString `json:"failure_code"`
+	// When the exporter completed it.
+	CompletedAt OptDateTime `json:"completed_at"`
+	// Who asked for the export.
+	RequestedBy uuid.UUID `json:"requested_by"`
+	// Their name, as the identity context gives it now.
+	RequestedByName string    `json:"requested_by_name"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *AuditEvidenceExport) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCompanies returns the value of Companies.
+func (s *AuditEvidenceExport) GetCompanies() []AuditEvidenceCompany {
+	return s.Companies
+}
+
+// GetFrom returns the value of From.
+func (s *AuditEvidenceExport) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *AuditEvidenceExport) GetTo() time.Time {
+	return s.To
+}
+
+// GetWithClientAddresses returns the value of WithClientAddresses.
+func (s *AuditEvidenceExport) GetWithClientAddresses() bool {
+	return s.WithClientAddresses
+}
+
+// GetStatus returns the value of Status.
+func (s *AuditEvidenceExport) GetStatus() string {
+	return s.Status
+}
+
+// GetFiles returns the value of Files.
+func (s *AuditEvidenceExport) GetFiles() []AuditEvidenceFile {
+	return s.Files
+}
+
+// GetManifestSHA256 returns the value of ManifestSHA256.
+func (s *AuditEvidenceExport) GetManifestSHA256() OptString {
+	return s.ManifestSHA256
+}
+
+// GetAuditEventCount returns the value of AuditEventCount.
+func (s *AuditEvidenceExport) GetAuditEventCount() OptInt32 {
+	return s.AuditEventCount
+}
+
+// GetJournalEntryCount returns the value of JournalEntryCount.
+func (s *AuditEvidenceExport) GetJournalEntryCount() OptInt32 {
+	return s.JournalEntryCount
+}
+
+// GetApprovalDecisionCount returns the value of ApprovalDecisionCount.
+func (s *AuditEvidenceExport) GetApprovalDecisionCount() OptInt32 {
+	return s.ApprovalDecisionCount
+}
+
+// GetChain returns the value of Chain.
+func (s *AuditEvidenceExport) GetChain() OptAuditEvidenceChain {
+	return s.Chain
+}
+
+// GetFailureCode returns the value of FailureCode.
+func (s *AuditEvidenceExport) GetFailureCode() OptString {
+	return s.FailureCode
+}
+
+// GetCompletedAt returns the value of CompletedAt.
+func (s *AuditEvidenceExport) GetCompletedAt() OptDateTime {
+	return s.CompletedAt
+}
+
+// GetRequestedBy returns the value of RequestedBy.
+func (s *AuditEvidenceExport) GetRequestedBy() uuid.UUID {
+	return s.RequestedBy
+}
+
+// GetRequestedByName returns the value of RequestedByName.
+func (s *AuditEvidenceExport) GetRequestedByName() string {
+	return s.RequestedByName
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *AuditEvidenceExport) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *AuditEvidenceExport) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *AuditEvidenceExport) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCompanies sets the value of Companies.
+func (s *AuditEvidenceExport) SetCompanies(val []AuditEvidenceCompany) {
+	s.Companies = val
+}
+
+// SetFrom sets the value of From.
+func (s *AuditEvidenceExport) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *AuditEvidenceExport) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetWithClientAddresses sets the value of WithClientAddresses.
+func (s *AuditEvidenceExport) SetWithClientAddresses(val bool) {
+	s.WithClientAddresses = val
+}
+
+// SetStatus sets the value of Status.
+func (s *AuditEvidenceExport) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetFiles sets the value of Files.
+func (s *AuditEvidenceExport) SetFiles(val []AuditEvidenceFile) {
+	s.Files = val
+}
+
+// SetManifestSHA256 sets the value of ManifestSHA256.
+func (s *AuditEvidenceExport) SetManifestSHA256(val OptString) {
+	s.ManifestSHA256 = val
+}
+
+// SetAuditEventCount sets the value of AuditEventCount.
+func (s *AuditEvidenceExport) SetAuditEventCount(val OptInt32) {
+	s.AuditEventCount = val
+}
+
+// SetJournalEntryCount sets the value of JournalEntryCount.
+func (s *AuditEvidenceExport) SetJournalEntryCount(val OptInt32) {
+	s.JournalEntryCount = val
+}
+
+// SetApprovalDecisionCount sets the value of ApprovalDecisionCount.
+func (s *AuditEvidenceExport) SetApprovalDecisionCount(val OptInt32) {
+	s.ApprovalDecisionCount = val
+}
+
+// SetChain sets the value of Chain.
+func (s *AuditEvidenceExport) SetChain(val OptAuditEvidenceChain) {
+	s.Chain = val
+}
+
+// SetFailureCode sets the value of FailureCode.
+func (s *AuditEvidenceExport) SetFailureCode(val OptString) {
+	s.FailureCode = val
+}
+
+// SetCompletedAt sets the value of CompletedAt.
+func (s *AuditEvidenceExport) SetCompletedAt(val OptDateTime) {
+	s.CompletedAt = val
+}
+
+// SetRequestedBy sets the value of RequestedBy.
+func (s *AuditEvidenceExport) SetRequestedBy(val uuid.UUID) {
+	s.RequestedBy = val
+}
+
+// SetRequestedByName sets the value of RequestedByName.
+func (s *AuditEvidenceExport) SetRequestedByName(val string) {
+	s.RequestedByName = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *AuditEvidenceExport) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *AuditEvidenceExport) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+func (*AuditEvidenceExport) getAuditEvidenceExportRes() {}
+
+// An audit evidence export to request (T101a): the companies and the period.
+// Ref: #/components/schemas/AuditEvidenceExportCreate
+type AuditEvidenceExportCreate struct {
+	// The companies whose journal entries and approval decisions are exported; the export covers those the
+	// caller may act in.
+	LegalEntityIds []uuid.UUID `json:"legal_entity_ids"`
+	// The period's first day: posting dates, and audit events from 00:00 UTC.
+	From time.Time `json:"from"`
+	// The period's last day, at most 370 days after `from`.
+	To time.Time `json:"to"`
+}
+
+// GetLegalEntityIds returns the value of LegalEntityIds.
+func (s *AuditEvidenceExportCreate) GetLegalEntityIds() []uuid.UUID {
+	return s.LegalEntityIds
+}
+
+// GetFrom returns the value of From.
+func (s *AuditEvidenceExportCreate) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *AuditEvidenceExportCreate) GetTo() time.Time {
+	return s.To
+}
+
+// SetLegalEntityIds sets the value of LegalEntityIds.
+func (s *AuditEvidenceExportCreate) SetLegalEntityIds(val []uuid.UUID) {
+	s.LegalEntityIds = val
+}
+
+// SetFrom sets the value of From.
+func (s *AuditEvidenceExportCreate) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *AuditEvidenceExportCreate) SetTo(val time.Time) {
+	s.To = val
+}
+
+// AuditEvidenceExportHeaders wraps AuditEvidenceExport with response headers.
+type AuditEvidenceExportHeaders struct {
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           AuditEvidenceExport
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AuditEvidenceExportHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *AuditEvidenceExportHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *AuditEvidenceExportHeaders) GetResponse() AuditEvidenceExport {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AuditEvidenceExportHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *AuditEvidenceExportHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AuditEvidenceExportHeaders) SetResponse(val AuditEvidenceExport) {
+	s.Response = val
+}
+
+func (*AuditEvidenceExportHeaders) createAuditEvidenceExportRes() {}
+
+// One page of audit evidence exports, newest first.
+// Ref: #/components/schemas/AuditEvidenceExportPage
+type AuditEvidenceExportPage struct {
+	// The exports on this page.
+	Items []AuditEvidenceExport `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *AuditEvidenceExportPage) GetItems() []AuditEvidenceExport {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AuditEvidenceExportPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *AuditEvidenceExportPage) SetItems(val []AuditEvidenceExport) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AuditEvidenceExportPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*AuditEvidenceExportPage) listAuditEvidenceExportsRes() {}
+
+// A file of a completed evidence export, as its manifest names it.
+// Ref: #/components/schemas/AuditEvidenceFile
+type AuditEvidenceFile struct {
+	// `audit_events.jsonl`, `journal_entries.jsonl` or `approval_decisions.jsonl`.
+	Name string `json:"name"`
+	// The SHA-256 of the file's content, in hexadecimal.
+	SHA256 string `json:"sha256"`
+	// The file's size in bytes.
+	SizeBytes int64 `json:"size_bytes"`
+	// Its lines: one record each.
+	Records int32 `json:"records"`
+}
+
+// GetName returns the value of Name.
+func (s *AuditEvidenceFile) GetName() string {
+	return s.Name
+}
+
+// GetSHA256 returns the value of SHA256.
+func (s *AuditEvidenceFile) GetSHA256() string {
+	return s.SHA256
+}
+
+// GetSizeBytes returns the value of SizeBytes.
+func (s *AuditEvidenceFile) GetSizeBytes() int64 {
+	return s.SizeBytes
+}
+
+// GetRecords returns the value of Records.
+func (s *AuditEvidenceFile) GetRecords() int32 {
+	return s.Records
+}
+
+// SetName sets the value of Name.
+func (s *AuditEvidenceFile) SetName(val string) {
+	s.Name = val
+}
+
+// SetSHA256 sets the value of SHA256.
+func (s *AuditEvidenceFile) SetSHA256(val string) {
+	s.SHA256 = val
+}
+
+// SetSizeBytes sets the value of SizeBytes.
+func (s *AuditEvidenceFile) SetSizeBytes(val int64) {
+	s.SizeBytes = val
+}
+
+// SetRecords sets the value of Records.
+func (s *AuditEvidenceFile) SetRecords(val int32) {
+	s.Records = val
+}
+
 // Range of the hash chain to verify. The Operation result reports `verified`, `last_seq`, `checked`,
 // `anchors_checked` (the write-once anchors in the range compared with the stored hashes and, when
 // object storage is configured, with the anchor objects) and, if broken, `first_broken_seq`.
@@ -25731,6 +26217,7 @@ func (*ConflictHeaders) createAssetAcquisitionRes()                {}
 func (*ConflictHeaders) createAssetRes()                           {}
 func (*ConflictHeaders) createAssetRetirementRes()                 {}
 func (*ConflictHeaders) createAssetTransferRes()                   {}
+func (*ConflictHeaders) createAuditEvidenceExportRes()             {}
 func (*ConflictHeaders) createBillingDocumentRes()                 {}
 func (*ConflictHeaders) createBusinessPartnerRes()                 {}
 func (*ConflictHeaders) createCashExportRes()                      {}
@@ -25817,6 +26304,7 @@ func (*ConflictHeaders) finalizeConsolidationRunRes()              {}
 func (*ConflictHeaders) getAccrualProposalRes()                    {}
 func (*ConflictHeaders) getAnalyticsModelRes()                     {}
 func (*ConflictHeaders) getArchivingRunFileRes()                   {}
+func (*ConflictHeaders) getAuditEvidenceExportFileRes()            {}
 func (*ConflictHeaders) getBankFileContentRes()                    {}
 func (*ConflictHeaders) getCloseCalendarRes()                      {}
 func (*ConflictHeaders) getConsolidatedStatementRes()              {}
@@ -32369,6 +32857,22 @@ func (*CreateAssetTransferUnprocessableEntity) createAssetTransferRes() {}
 type CreateAssetUnprocessableEntity Problem
 
 func (*CreateAssetUnprocessableEntity) createAssetRes() {}
+
+type CreateAuditEvidenceExportBadRequest Problem
+
+func (*CreateAuditEvidenceExportBadRequest) createAuditEvidenceExportRes() {}
+
+type CreateAuditEvidenceExportForbidden Problem
+
+func (*CreateAuditEvidenceExportForbidden) createAuditEvidenceExportRes() {}
+
+type CreateAuditEvidenceExportPreconditionRequired Problem
+
+func (*CreateAuditEvidenceExportPreconditionRequired) createAuditEvidenceExportRes() {}
+
+type CreateAuditEvidenceExportUnprocessableEntity Problem
+
+func (*CreateAuditEvidenceExportUnprocessableEntity) createAuditEvidenceExportRes() {}
 
 type CreateBillingDocumentBadRequest Problem
 
@@ -44256,6 +44760,47 @@ func (s *GetAssetTransferOKHeaders) SetResponse(val AssetTransfer) {
 }
 
 func (*GetAssetTransferOKHeaders) getAssetTransferRes() {}
+
+type GetAuditEvidenceExportBadRequest Problem
+
+func (*GetAuditEvidenceExportBadRequest) getAuditEvidenceExportRes() {}
+
+type GetAuditEvidenceExportFileBadRequest Problem
+
+func (*GetAuditEvidenceExportFileBadRequest) getAuditEvidenceExportFileRes() {}
+
+type GetAuditEvidenceExportFileForbidden Problem
+
+func (*GetAuditEvidenceExportFileForbidden) getAuditEvidenceExportFileRes() {}
+
+type GetAuditEvidenceExportFileNotFound Problem
+
+func (*GetAuditEvidenceExportFileNotFound) getAuditEvidenceExportFileRes() {}
+
+// The file's bytes: JSON for `manifest.json`, JSON Lines for the others; UTF-8.
+type GetAuditEvidenceExportFileOK struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetAuditEvidenceExportFileOK) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+func (*GetAuditEvidenceExportFileOK) getAuditEvidenceExportFileRes() {}
+
+type GetAuditEvidenceExportForbidden Problem
+
+func (*GetAuditEvidenceExportForbidden) getAuditEvidenceExportRes() {}
+
+type GetAuditEvidenceExportNotFound Problem
+
+func (*GetAuditEvidenceExportNotFound) getAuditEvidenceExportRes() {}
 
 type GetBalanceCarryForwardBadRequest Problem
 
@@ -57827,6 +58372,14 @@ type ListAuditEventsForbidden Problem
 
 func (*ListAuditEventsForbidden) listAuditEventsRes() {}
 
+type ListAuditEvidenceExportsBadRequest Problem
+
+func (*ListAuditEvidenceExportsBadRequest) listAuditEvidenceExportsRes() {}
+
+type ListAuditEvidenceExportsForbidden Problem
+
+func (*ListAuditEvidenceExportsForbidden) listAuditEvidenceExportsRes() {}
+
 type ListBalanceCarryForwardBalancesBadRequest Problem
 
 func (*ListBalanceCarryForwardBalancesBadRequest) listBalanceCarryForwardBalancesRes() {}
@@ -65513,6 +66066,52 @@ func (o OptAssetTransferReversal) Get() (v AssetTransferReversal, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAssetTransferReversal) Or(d AssetTransferReversal) AssetTransferReversal {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAuditEvidenceChain returns new OptAuditEvidenceChain with value set to v.
+func NewOptAuditEvidenceChain(v AuditEvidenceChain) OptAuditEvidenceChain {
+	return OptAuditEvidenceChain{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAuditEvidenceChain is optional AuditEvidenceChain.
+type OptAuditEvidenceChain struct {
+	Value AuditEvidenceChain
+	Set   bool
+}
+
+// IsSet returns true if OptAuditEvidenceChain was set.
+func (o OptAuditEvidenceChain) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAuditEvidenceChain) Reset() {
+	var v AuditEvidenceChain
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAuditEvidenceChain) SetTo(v AuditEvidenceChain) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAuditEvidenceChain) Get() (v AuditEvidenceChain, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAuditEvidenceChain) Or(d AuditEvidenceChain) AuditEvidenceChain {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -93330,6 +93929,7 @@ func (*ServiceUnavailableHeaders) createAssetAcquisitionRes()                {}
 func (*ServiceUnavailableHeaders) createAssetRes()                           {}
 func (*ServiceUnavailableHeaders) createAssetRetirementRes()                 {}
 func (*ServiceUnavailableHeaders) createAssetTransferRes()                   {}
+func (*ServiceUnavailableHeaders) createAuditEvidenceExportRes()             {}
 func (*ServiceUnavailableHeaders) createBusinessPartnerRes()                 {}
 func (*ServiceUnavailableHeaders) createCatalogItemRes()                     {}
 func (*ServiceUnavailableHeaders) createChangeRequestRes()                   {}
@@ -93388,6 +93988,7 @@ func (*ServiceUnavailableHeaders) excludeBankStatementLineRes()              {}
 func (*ServiceUnavailableHeaders) fetchEInvoicesRes()                        {}
 func (*ServiceUnavailableHeaders) fileTaxReturnRes()                         {}
 func (*ServiceUnavailableHeaders) getArchivingRunFileRes()                   {}
+func (*ServiceUnavailableHeaders) getAuditEvidenceExportFileRes()            {}
 func (*ServiceUnavailableHeaders) getBankStatementFileRes()                  {}
 func (*ServiceUnavailableHeaders) getEInvoiceContentRes()                    {}
 func (*ServiceUnavailableHeaders) getReportRunRes()                          {}
@@ -98465,6 +99066,7 @@ func (*TooManyRequestsHeaders) createAssetAcquisitionRes()                {}
 func (*TooManyRequestsHeaders) createAssetRes()                           {}
 func (*TooManyRequestsHeaders) createAssetRetirementRes()                 {}
 func (*TooManyRequestsHeaders) createAssetTransferRes()                   {}
+func (*TooManyRequestsHeaders) createAuditEvidenceExportRes()             {}
 func (*TooManyRequestsHeaders) createBillingDocumentRes()                 {}
 func (*TooManyRequestsHeaders) createBusinessPartnerRes()                 {}
 func (*TooManyRequestsHeaders) createCashExportRes()                      {}
@@ -98569,6 +99171,8 @@ func (*TooManyRequestsHeaders) getAssetRes()                              {}
 func (*TooManyRequestsHeaders) getAssetRetirementRes()                    {}
 func (*TooManyRequestsHeaders) getAssetScheduleRes()                      {}
 func (*TooManyRequestsHeaders) getAssetTransferRes()                      {}
+func (*TooManyRequestsHeaders) getAuditEvidenceExportFileRes()            {}
+func (*TooManyRequestsHeaders) getAuditEvidenceExportRes()                {}
 func (*TooManyRequestsHeaders) getBalanceCarryForwardRes()                {}
 func (*TooManyRequestsHeaders) getBankAccountRes()                        {}
 func (*TooManyRequestsHeaders) getBankFileContentRes()                    {}
@@ -98704,6 +99308,7 @@ func (*TooManyRequestsHeaders) listAssetRetirementsRes()                  {}
 func (*TooManyRequestsHeaders) listAssetTransfersRes()                    {}
 func (*TooManyRequestsHeaders) listAssetsRes()                            {}
 func (*TooManyRequestsHeaders) listAuditEventsRes()                       {}
+func (*TooManyRequestsHeaders) listAuditEvidenceExportsRes()              {}
 func (*TooManyRequestsHeaders) listBalanceCarryForwardBalancesRes()       {}
 func (*TooManyRequestsHeaders) listBalanceCarryForwardsRes()              {}
 func (*TooManyRequestsHeaders) listBalancesRes()                          {}
@@ -99334,6 +99939,7 @@ func (*UnauthorizedHeaders) createAssetAcquisitionRes()                {}
 func (*UnauthorizedHeaders) createAssetRes()                           {}
 func (*UnauthorizedHeaders) createAssetRetirementRes()                 {}
 func (*UnauthorizedHeaders) createAssetTransferRes()                   {}
+func (*UnauthorizedHeaders) createAuditEvidenceExportRes()             {}
 func (*UnauthorizedHeaders) createBillingDocumentRes()                 {}
 func (*UnauthorizedHeaders) createBusinessPartnerRes()                 {}
 func (*UnauthorizedHeaders) createCashExportRes()                      {}
@@ -99438,6 +100044,8 @@ func (*UnauthorizedHeaders) getAssetRes()                              {}
 func (*UnauthorizedHeaders) getAssetRetirementRes()                    {}
 func (*UnauthorizedHeaders) getAssetScheduleRes()                      {}
 func (*UnauthorizedHeaders) getAssetTransferRes()                      {}
+func (*UnauthorizedHeaders) getAuditEvidenceExportFileRes()            {}
+func (*UnauthorizedHeaders) getAuditEvidenceExportRes()                {}
 func (*UnauthorizedHeaders) getBalanceCarryForwardRes()                {}
 func (*UnauthorizedHeaders) getBankAccountRes()                        {}
 func (*UnauthorizedHeaders) getBankFileContentRes()                    {}
@@ -99573,6 +100181,7 @@ func (*UnauthorizedHeaders) listAssetRetirementsRes()                  {}
 func (*UnauthorizedHeaders) listAssetTransfersRes()                    {}
 func (*UnauthorizedHeaders) listAssetsRes()                            {}
 func (*UnauthorizedHeaders) listAuditEventsRes()                       {}
+func (*UnauthorizedHeaders) listAuditEvidenceExportsRes()              {}
 func (*UnauthorizedHeaders) listBalanceCarryForwardBalancesRes()       {}
 func (*UnauthorizedHeaders) listBalanceCarryForwardsRes()              {}
 func (*UnauthorizedHeaders) listBalancesRes()                          {}

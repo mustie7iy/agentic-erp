@@ -3313,7 +3313,7 @@ step_downpayment() {
 }
 
 step_audit() {
-  heading "Step 17 — The audit trail: who did what to Tyrell's invoices"
+  heading "Step 17 — The audit trail: who did what to Tyrell's invoices; an external auditor's evidence export of the current period"
   as ada
   local inv
   for inv in "$INVOICE" "$DUPLICATE" "$CREDIT"; do
@@ -3326,7 +3326,85 @@ step_audit() {
   wait_op
   excerpt '"audit chain \(if .result.verified then "intact" else "BROKEN" end): \(.result.checked) records checked, \(.result.anchors_checked) anchors"'
   expect "audit chain verified" "$(field .result.verified)" true
+  audit_evidence
   passed
+}
+
+# audit_evidence is T101a (ADR-0011 As built): Aldo, the external
+# auditor, asks for the evidence of the company's current period; the
+# server's exporter writes the period's audit events, journal entries and
+# approval decisions with a manifest to object storage. The manifest
+# counts the period's audit events up to the chain's head and the
+# company's entries of the period, as the trail and the ledgers list
+# them, and names the chain as verified.
+audit_evidence() {
+  local from to export manifest events token ledger listed
+  say "Aldo, the external auditor, gets a role of his own: audit evidence exports, the audit trail and the journal."
+  QUIET=1 api 201 '' createRole -body '{"code": "external_auditor", "name": "External auditor"}'
+  grant "$(field .id)" audit.evidence.export audit.event.read ledger.entry.read
+  QUIET=1 api 200 '' listRoles -p page_size=100
+  cp "$WORK/last.json" "$WORK/roles.json"
+  person aldo "Aldo Auditor" external_auditor
+  as aldo
+  from="${TODAY:0:7}-01" to=$(month_end)
+  say "He asks for the evidence of $CC for the current period, $from to $to. The export is queued and the"
+  say "server's exporter writes its files to object storage in the background:"
+  api 201 '"evidence export of \([.companies[].company_code] | join(", ")), \(.from) to \(.to): \(.status), client addresses \(.with_client_addresses)"' \
+    createAuditEvidenceExport -body "{\"legal_entity_ids\": [\"$LE\"], \"from\": \"$from\", \"to\": \"$to\"}"
+  export=$(field .id)
+  wait_evidence "$export"
+  excerpt '"  \(.status): \(.audit_event_count) audit events, \(.journal_entry_count) journal entries, \(.approval_decision_count) approval decisions; chain \(if .chain.verified then "verified" else "BROKEN" end) to \(.chain.last_seq), \(.chain.anchors_checked) anchors", (.files[] | "  \(.name): \(.records) records, SHA-256 \(.sha256[0:16])…")'
+  cp "$WORK/last.json" "$WORK/evidence.json"
+  manifest="$WORK/evidence-manifest.json"
+  say "Aldo downloads the manifest and checks it against the export, and each file against the manifest:"
+  api 200 '' getAuditEvidenceExportFile -p "id=$export" -p name=manifest.json -out "$manifest"
+  expect "the manifest's SHA-256, the export's" "$(shasum -a 256 "$manifest" | cut -d' ' -f1)" "$(jq -r .manifest_sha256 "$WORK/evidence.json")"
+  for name in audit_events.jsonl journal_entries.jsonl approval_decisions.jsonl; do
+    QUIET=1 api 200 '' getAuditEvidenceExportFile -p "id=$export" -p "name=$name" -out "$WORK/evidence-$name"
+    expect "$name's SHA-256, the manifest's" "$(shasum -a 256 "$WORK/evidence-$name" | cut -d' ' -f1)" \
+      "$(jq -r --arg n "$name" '.files[] | select(.name == $n) | .sha256' "$manifest")"
+  done
+  expect "the chain named verified" "$(jq -r '"\(.chain.verified) \(.chain.from_seq)"' "$manifest")" "true 1"
+  events=0 token=''
+  while :; do
+    QUIET=1 api 200 '' listAuditEvents -p "occurred_from=$(jq -r .audit_events_from "$manifest")" -p "occurred_to=$(jq -r .audit_events_before "$manifest")" \
+      -p order_by=occurred_at -p page_size=500 ${token:+-p "page_token=$token"}
+    events=$((events + $(field "[.items[] | select(.seq <= $(jq -r .chain.last_seq "$manifest") and .occurred_at < \"$(jq -r .audit_events_before "$manifest")\")] | length")))
+    token=$(field '.next_page_token // ""')
+    [ -n "$token" ] || break
+  done
+  say "  the trail lists $events events of the period up to the chain's head; the manifest counts $(jq -r '.files[0].records' "$manifest")"
+  expect "the manifest's audit events, the trail's" "$(jq -r '.files[] | select(.name == "audit_events.jsonl") | .records' "$manifest")" "$events"
+  listed=0
+  QUIET=1 api 200 '' listLedgers
+  for ledger in $(field '.items[].id'); do
+    token=''
+    while :; do
+      QUIET=1 api 200 '' listJournalEntries -p "legal_entity_id=$LE" -p "ledger_id=$ledger" -p "posting_date_from=$from" -p "posting_date_to=$to" \
+        -p page_size=500 ${token:+-p "page_token=$token"}
+      listed=$((listed + $(field '.items | length')))
+      token=$(field '.next_page_token // ""')
+      [ -n "$token" ] || break
+    done
+  done
+  say "  the ledgers list $listed journal entries of $CC in the period; the manifest counts $(jq -r '.files[1].records' "$manifest")"
+  expect "the manifest's journal entries, the ledgers'" "$(jq -r '.files[] | select(.name == "journal_entries.jsonl") | .records' "$manifest")" "$listed"
+  as ada
+}
+
+# wait_evidence ID waits for the exporter to settle an evidence export.
+wait_evidence() {
+  local status i
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' getAuditEvidenceExport -p "id=$1"
+    status=$(field .status)
+    case "$status" in
+    completed) return 0 ;;
+    failed) fail "evidence export $1 failed: $(field .failure_code)" ;;
+    esac
+    sleep 0.25
+  done
+  fail "evidence export $1 still $status after a minute (attempt $i)"
 }
 
 step_capture() {

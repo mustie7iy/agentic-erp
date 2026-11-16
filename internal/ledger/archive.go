@@ -15,8 +15,9 @@ import (
 
 // Archive reads a company's fiscal year for the records context's
 // archiving runs (ADR-0079 §6, T99b): whether the year is closed, and its
-// journal entries with their lines. It reads in the caller's transaction
-// and changes nothing.
+// journal entries with their lines; and a company's entries of a period
+// for the audit context's evidence exports (T101a). It reads in the
+// caller's transaction and changes nothing.
 type Archive struct{}
 
 // YearClosed tells whether the company's fiscal year is closed: it has
@@ -79,6 +80,21 @@ type ArchivedLine struct {
 // statement reads them, so they are the year's entries at one moment.
 // An error from fn stops the read and is returned.
 func (Archive) Entries(ctx context.Context, legalEntity uuid.UUID, year int16, fn func(ArchivedEntry) error) error {
+	return entries(ctx, `e.legal_entity_id = $1 AND e.fiscal_year = $2`, fmt.Sprintf("%s in %d", legalEntity, year), fn, legalEntity, year)
+}
+
+// EntriesBetween calls fn with each journal entry of the company posted
+// from one date to another, both included, of every ledger, with its
+// lines, in the order Entries gives (the audit context's evidence
+// exports, T101a). One statement reads them.
+func (Archive) EntriesBetween(ctx context.Context, legalEntity uuid.UUID, from, to time.Time, fn func(ArchivedEntry) error) error {
+	return entries(ctx, `e.legal_entity_id = $1 AND e.posting_date BETWEEN $2 AND $3`,
+		fmt.Sprintf("%s from %s to %s", legalEntity, from.Format(time.DateOnly), to.Format(time.DateOnly)), fn, legalEntity, from, to)
+}
+
+// entries calls fn with each journal entry the condition selects, with
+// its lines, by posting date and then id.
+func entries(ctx context.Context, where, what string, fn func(ArchivedEntry) error, args ...any) error {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return err
@@ -91,8 +107,8 @@ func (Archive) Entries(ctx context.Context, legalEntity uuid.UUID, year int16, f
 		JOIN ledger.ledger l ON l.tenant_id = e.tenant_id AND l.id = e.ledger_id
 		JOIN ledger.journal_line jl ON jl.tenant_id = e.tenant_id AND jl.fiscal_year = e.fiscal_year AND jl.journal_entry_id = e.id
 		JOIN ledger.gl_account a ON a.tenant_id = jl.tenant_id AND a.id = jl.account_id
-		WHERE e.legal_entity_id = $1 AND e.fiscal_year = $2
-		ORDER BY e.posting_date, e.id, jl.line_no`, legalEntity, year)
+		WHERE `+where+`
+		ORDER BY e.posting_date, e.id, jl.line_no`, args...)
 	var cur ArchivedEntry
 	var e ArchivedEntry
 	var l ArchivedLine
@@ -113,13 +129,13 @@ func (Archive) Entries(ctx context.Context, legalEntity uuid.UUID, year int16, f
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("ledger: journal entries of %s in %d: %w", legalEntity, year, err)
+		return fmt.Errorf("ledger: journal entries of %s: %w", what, err)
 	}
 	if cur.ID == uuid.Nil {
 		return nil
 	}
 	if err := fn(cur); err != nil {
-		return fmt.Errorf("ledger: journal entries of %s in %d: %w", legalEntity, year, err)
+		return fmt.Errorf("ledger: journal entries of %s: %w", what, err)
 	}
 	return nil
 }

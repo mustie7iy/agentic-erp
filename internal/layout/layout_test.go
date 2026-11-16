@@ -89,8 +89,8 @@ var allowed = map[string][]string{
 	"apitools":                {"llm"},
 	"app":                     {"countrypack"}, // apitest releases a test's own country packs
 	"approvals":               {"config"},
-	"assets":                  {"config"}, // a leaf (ADR-0057 §2): configuration and tenancy through ports the composition root wires
-	"audit":                   {"operations"},
+	"assets":                  {"config"},                                       // a leaf (ADR-0057 §2): configuration and tenancy through ports the composition root wires
+	"audit":                   {"approvals", "ledger", "operations", "tenancy"}, // evidence exports (T101a): tenancy's legal entities, the ledger's journal and the approval requests on its entries' source documents through its ports, by the types their published APIs give
 	"capture":                 {"llm"},
 	"cash":                    {"config"}, // a leaf (ADR-0051 §2): the ledger, payments, payables and procurement through ports the composition root wires
 	"closeagent":              {"apitools", "llm"},

@@ -1155,6 +1155,33 @@ func (UnimplementedHandler) CreateAssetTransfer(ctx context.Context, req *AssetT
 	return r, ht.ErrNotImplemented
 }
 
+// CreateAuditEvidenceExport implements createAuditEvidenceExport operation.
+//
+// Requests the audit evidence of companies and a period (ADR-0011 As built, T101a), written by the
+// evidence exporter in the background to object storage as files with a manifest
+// (`getAuditEvidenceExport` then shows it `completed`, or `failed` with the problem code that stopped
+// it): `audit_events.jsonl`, the tenant's audit events that occurred in the period (from `from` at
+// 00:00 UTC to the end of `to` in UTC) up to the chain's head when the exporter read it, their details
+// as stored and, only when the requester holds `audit.event.read` (the permission that reads them on
+// `listAuditEvents`), their client addresses (`with_client_addresses`); `journal_entries.jsonl`, the
+// journal entries of the companies posted in the period, of every ledger, with their lines;
+// `approval_decisions.jsonl`, the decisions on the approval requests about those entries' source
+// documents, with who decided; and `manifest.json`, each file's record count and SHA-256 and the
+// result of verifying the audit chain from its first event to that head against its hashes and
+// anchors. The audit trail is the tenant's (one chain per tenant), not a company's. The export covers
+// the companies asked for that the caller may act in, in the order of their codes; when it covers
+// none, 422 `request.validation_failed` names `legal_entity_ids`. The period is one day to 371 days,
+// `to` not before `from` (422 `request.validation_failed`). Each request is a new export. The exporter
+// refuses a requester blocked or deprovisioned since (the export fails with
+// `identity.principal_blocked`). 503 while the server has no object storage to write the files to.
+// Audited (`audit.evidence_export.request`); the completion is audited and published as
+// AuditEvidenceExported. Human-only (`x-agent: false`).
+//
+// POST /v1/audit-evidence-exports
+func (UnimplementedHandler) CreateAuditEvidenceExport(ctx context.Context, req *AuditEvidenceExportCreate, params CreateAuditEvidenceExportParams) (r CreateAuditEvidenceExportRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateBillingDocument implements createBillingDocument operation.
 //
 // Creates a billing document for one sales order (ADR-0067 §9, T79a): each of its items bills the
@@ -3099,6 +3126,37 @@ func (UnimplementedHandler) GetAssetSchedule(ctx context.Context, params GetAsse
 //
 // GET /v1/asset-transfers/{id}
 func (UnimplementedHandler) GetAssetTransfer(ctx context.Context, params GetAssetTransferParams) (r GetAssetTransferRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetAuditEvidenceExport implements getAuditEvidenceExport operation.
+//
+// One audit evidence export (T101a): `queued` until the exporter writes its files, then `completed`
+// with its files (name, SHA-256, size and record count), the manifest's SHA-256, its counts and the
+// chain's verification, or `failed` with the problem code that stopped it. An export covering a
+// company the caller cannot act in is not found. Human-only (`x-agent: false`).
+//
+// GET /v1/audit-evidence-exports/{id}
+func (UnimplementedHandler) GetAuditEvidenceExport(ctx context.Context, params GetAuditEvidenceExportParams) (r GetAuditEvidenceExportRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetAuditEvidenceExportFile implements getAuditEvidenceExportFile operation.
+//
+// A file of a completed audit evidence export (T101a), byte for byte as the exporter wrote it to
+// object storage: `manifest.json` (JSON), or one of the files it names, `audit_events.jsonl`,
+// `journal_entries.jsonl` or `approval_decisions.jsonl` (JSON Lines, one record per line, in the form
+// ADR-0011's As built documents). The manifest's SHA-256 is the export's `manifest_sha256`, and each
+// other file's is the one the manifest names; both are checked before the file is handed out (409
+// `audit.evidence_changed` when the stored bytes no longer match). An export not completed has no
+// files (409 `audit.evidence_not_completed`); another name is not found. The audit events of an export
+// made `with_client_addresses` hold people's client addresses, so that file is handed only to a caller
+// who holds `audit.event.read` too (403 `audit.client_addresses_withheld` otherwise). Human-only
+// (`x-agent: false`). 503 while the server has no object storage or the store does not answer. An
+// export covering a company the caller cannot act in is not found.
+//
+// GET /v1/audit-evidence-exports/{id}/files/{name}
+func (UnimplementedHandler) GetAuditEvidenceExportFile(ctx context.Context, params GetAuditEvidenceExportFileParams) (r GetAuditEvidenceExportFileRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -5101,6 +5159,17 @@ func (UnimplementedHandler) ListAssets(ctx context.Context, params ListAssetsPar
 //
 // GET /v1/audit-events
 func (UnimplementedHandler) ListAuditEvents(ctx context.Context, params ListAuditEventsParams) (r ListAuditEventsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListAuditEvidenceExports implements listAuditEvidenceExports operation.
+//
+// The audit evidence exports (T101a) whose every company the caller may act in, newest first, filtered
+// by a company they cover and by status. Sortable by: `created_at` (default descending). Human-only
+// (`x-agent: false`).
+//
+// GET /v1/audit-evidence-exports
+func (UnimplementedHandler) ListAuditEvidenceExports(ctx context.Context, params ListAuditEvidenceExportsParams) (r ListAuditEvidenceExportsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
