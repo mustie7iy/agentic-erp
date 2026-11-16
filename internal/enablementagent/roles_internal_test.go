@@ -15,13 +15,14 @@ func TestRolesOnlyWholeTokens(t *testing.T) {
 		allowed []string
 		wantErr bool
 	}{
-		"an invented role around a short field": {"The id belongs to ap_id_clerk.", []string{"id"}, true},
-		"the field itself is no role":           {"The id is the invoice's number.", []string{"id"}, false},
-		"the field in backticks":                {"The `id` is the invoice's number.", []string{"id"}, false},
-		"two fields side by side":               {"id name", []string{"id", "name"}, false},
-		"a dotted code taken out whole":         {"The code payables.match_required means it.", []string{"payables.match_required"}, false},
-		"a real role beside the field":          {"payables_clerk reads the id.", []string{"id"}, false},
-		"an empty allowed name changes nothing": {"ap_clerk", []string{""}, true},
+		"an invented role around a short field":           {"The id belongs to ap_id_clerk.", []string{"id"}, true},
+		"the field itself is no role":                     {"The id is the invoice's number.", []string{"id"}, false},
+		"the field in backticks":                          {"The `id` is the invoice's number.", []string{"id"}, false},
+		"a field repeated, neighbours sharing a boundary": {"id id id id", []string{"id"}, false},
+		"two fields side by side":                         {"id name", []string{"id", "name"}, false},
+		"a dotted code taken out whole":                   {"The code payables.match_required means it.", []string{"payables.match_required"}, false},
+		"a real role beside the field":                    {"payables_clerk reads the id.", []string{"id"}, false},
+		"an empty allowed name changes nothing":           {"ap_clerk", []string{""}, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := rolesOnly(tc.prose, roles, tc.allowed)
