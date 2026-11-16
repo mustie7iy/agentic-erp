@@ -295,9 +295,10 @@ func (e *Endpoints) named(ctx context.Context, xs []Export) error {
 		return fmt.Errorf("audit: requesters of evidence exports: %w", err)
 	}
 	codes := map[uuid.UUID]string{}
-	for i, x := range xs {
-		xs[i].RequestedByName = names[x.RequestedBy]
-		xs[i].Companies = make([]Company, 0, len(x.LegalEntities))
+	for i := range xs {
+		x := &xs[i]
+		x.RequestedByName = names[x.RequestedBy]
+		x.Companies = make([]Company, 0, len(x.LegalEntities))
 		for _, id := range x.LegalEntities {
 			if _, ok := codes[id]; !ok {
 				le, found, err := e.LegalEntities.Entity(ctx, id)
@@ -309,7 +310,7 @@ func (e *Endpoints) named(ctx context.Context, xs []Export) error {
 				}
 				codes[id] = le.Code
 			}
-			xs[i].Companies = append(xs[i].Companies, Company{ID: id, Code: codes[id]})
+			x.Companies = append(x.Companies, Company{ID: id, Code: codes[id]})
 		}
 	}
 	return nil
