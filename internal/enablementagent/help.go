@@ -72,9 +72,11 @@ fields.
 
 Answer once, with the tool reply. Name the field or problem code asked about. Quote what the contract says in double
 quotes, each passage exactly as the contract writes it. Cite each setting of the configuration that applies as its path
-and its value, each in backticks, as ` + "`companies[1000].invoice_tolerance.price_percent` = `2`" + `. Write no other number
-outside a quotation; a count is written in words. You change nothing and have no tool that writes. After the reply, end
-with one short sentence.`
+and its value, each in backticks, as ` + "`companies[1000].invoice_tolerance.price_percent` = `2`" + `. Write a role as its code
+in backticks, and only roles the tenant has; put nothing else in backticks but the citations, the field or problem code
+asked about, the operation's id, its permission and its problem codes. Write no other number outside a quotation, in
+digits or in words; "percent" follows only a cited percentage. You change nothing and have no tool that writes. After the
+reply, end with one short sentence.`
 
 // Help runs one session on the question: it refuses, before anything is
 // read or a model asked, a question that names an operation, field or
@@ -95,14 +97,19 @@ func (a *Agent) Help(ctx context.Context, q Question) (Helped, error) {
 	if err != nil {
 		return Helped{}, err
 	}
+	roles, err := a.roles(ctx)
+	if err != nil {
+		return Helped{}, err
+	}
 	s, err := apitools.StartSession(ctx, a.API, "Explain "+asked(q)+" of "+q.Operation, a.LLM.Model)
 	if err != nil {
 		return Helped{}, err
 	}
 	res := Helped{Session: s.ID}
 	tools, _ := apitools.Tools(a.API, s, HelpReads...) // reads of the contract open to agents (TestHelpTools)
-	h := &helping{res: &res, asked: asked(q), name: q.Field + q.Problem, active: config.Readable(v.Document),
-		sources: []string{e.Operation.Summary, e.Operation.Description, e.FieldDescription}}
+	h := &helping{res: &res, asked: asked(q), name: q.Field + q.Problem, active: config.Readable(v.Document), roles: roles,
+		sources: []string{e.Operation.Summary, e.Operation.Description, e.FieldDescription},
+		allowed: append([]string{q.Field + q.Problem, e.Operation.ID, e.Operation.Permission}, e.Operation.ProblemCodes...)}
 	tools = append(tools, h.tool(s))
 	var mu sync.Mutex
 	for _, t := range tools {
@@ -161,6 +168,8 @@ type helping struct {
 	sources []string
 	numbers []string
 	active  *config.Config
+	roles   map[string]bool // the tenant's roles, whether each is active
+	allowed []string        // names a reply may write in backticks beside roles
 }
 
 // tool is the agent's reply: its check guards it, and an admitted reply
@@ -205,6 +214,9 @@ func (h *helping) check(text string) error {
 	}
 	prose, err := uncited(h.active, rest)
 	if err != nil {
+		return err
+	}
+	if err := rolesOnly(prose, h.roles, h.allowed); err != nil {
 		return err
 	}
 	for _, n := range recommend.Numbers(prose) {

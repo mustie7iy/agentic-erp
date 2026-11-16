@@ -758,13 +758,15 @@ A later slice adds its row here and its section under "As built".
   - no number stands outside the citations (a list item's number of one or
     two digits at a line's start apart, `recommend.Unnumbered`, shared with
     the support agent), in digits or in words (two to ninety, hundred,
-    thousand, million, billion, dozen, half, twice, double, triple), and
-    "percent", "per cent" or "%" stands only right after a citation: every
+    thousand, million, billion, dozen, half, quarter, zero, twice, double,
+    triple, and the ordinals from third), and "percent", "per cent" or "%"
+    stands only right after a citation of a percentage (a path ending in
+    `percent`): every
     amount, percentage, count of approvals and days is a cited setting, so
     the plan's "every amount, percentage and role ... with that value"
     holds for what the check sees. It does not see a role whose code is a
     single plain word written outside backticks (`controller`), nor
-    "one" or "a" as a count.
+    "one", "a", "first" or "second" as a count or a position.
 - Its never list (`Never`, `TestNever` against the contract's `config.*`
   writes and `identity.access.manage`'s) is every write of the
   configuration and of access.
@@ -803,6 +805,8 @@ A later slice adds its row here and its section under "As built".
   `x-problem-codes`, or one the document lists for every operation), and
   answers `apitools.ErrNotInContract` for any it does not have; a question
   naming neither or both of a field and a problem code is `ErrAsk`.
+- Before its session the run also reads the tenant's roles, as T109a's
+  does (identity.access.read).
 - The prompt gives what the contract says, between `<contract>` lines: the
   operation's method, path, summary, description, permission and problem
   codes, and the field's description.
@@ -814,8 +818,11 @@ A later slice adds its row here and its section under "As built".
   quotation rule moved from `internal/regulatoryagent` and shared); every
   setting cited is the active version's with that value; outside the
   quotations and citations no number is written in words and "percent"
-  follows only a citation, as T109a's rule has it, and every number (a
-  list's numbering apart) is one the question's names write.
+  follows only a cited percentage, as T109a's rule has it, every number (a
+  list's numbering apart) is one the question's names write, and every
+  text in backticks and every code joined by underscores is an active role
+  of the tenant's, the field or problem code asked about, or the
+  operation's id, permission or one of its problem codes.
 - `evals/enablement`, version 2: three cases added (task `operation` with
   `field` or `problem`): `payables.match_required` of `postSupplierInvoice`
   explained with the tenant's tolerance cited; `gross_amount` of

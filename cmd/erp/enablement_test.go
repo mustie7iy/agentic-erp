@@ -76,7 +76,7 @@ func TestAgentEnablementHelp(t *testing.T) {
 	fails(t, "flag provided", "agent", "enablement-help", "-x")
 	fails(t, "want -operation ID and -field NAME or -problem CODE", "agent", "enablement-help", "-operation", "postSupplierInvoice")
 	fails(t, `not in the contract: no problem code "payables.late"`, "agent", "enablement-help", "-operation", "postSupplierInvoice", "-problem", "payables.late")
-	fakeAPI(t, sessionRoutes(routes{"GET /v1/config-versions": {enablementVersion}}))
+	fakeAPI(t, sessionRoutes(routes{"GET /v1/config-versions": {enablementVersion}, "GET /v1/roles": {ok(`{"items": []}`)}}))
 	explained := "`gross_amount` is the \"Gross amount; all amounts must share one currency.\""
 	model(t, llmtest.Tool(enablementagent.Reply, map[string]any{"text": explained}), llmtest.Final("Explained."))
 	got := must(t, "agent", "enablement-help", "-operation", "createSupplierInvoice", "-field", "gross_amount")

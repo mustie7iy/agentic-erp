@@ -91,7 +91,8 @@ value, each in backticks, as ` + "`companies[1000].invoice_tolerance.price_perce
 names it (a list item by its key, as companies[1000], or by its position from 0, as requisition_approval[0]); a setting
 written any other way is not seen. Write every role as its code in backticks, as ` + "`Z_PURCH_MGR`" + `, and only roles the
 tenant has; put nothing else in backticks but citations. Write no number outside a citation, in digits or in words: every
-amount, percentage, count of approvals or days is a setting cited, and "percent" follows only a cited percentage. Keep the
+amount, percentage, count of approvals or days, and every ordinal beyond second, is a setting cited, and "percent"
+follows only a cited percentage. Keep the
 description under ten thousand characters.`
 
 // Agent writes a process's description from the configuration (T109a)
@@ -145,14 +146,11 @@ func (a *Agent) Document(ctx context.Context, name string) (recommend.Result, er
 	if err != nil {
 		return recommend.Result{}, err
 	}
-	roles, err := apitools.List[role](ctx, a.API, "/v1/roles", nil)
+	roles, err := a.roles(ctx)
 	if err != nil {
-		return recommend.Result{}, fmt.Errorf("enablementagent: the roles: %w", err)
+		return recommend.Result{}, err
 	}
-	d := &documenting{heading: Heading(p.title, v.Number), active: config.Readable(v.Document), roles: map[string]bool{}}
-	for _, r := range roles {
-		d.roles[r.Code] = r.Status == "active"
-	}
+	d := &documenting{heading: Heading(p.title, v.Number), active: config.Readable(v.Document), roles: roles}
 	task := recommend.Task{
 		Purpose: fmt.Sprintf("Describe %s from configuration version %d", strings.ToLower(p.title), v.Number),
 		Prompt: fmt.Sprintf("Describe the process %s. It rests on %s.\nThe tenant's active configuration is version %d (id %s).\nThe description's first line is:\n%s",
@@ -161,6 +159,21 @@ func (a *Agent) Document(ctx context.Context, name string) (recommend.Result, er
 		Check:   d.check,
 	}
 	return agent(a.MaxIterations).Run(ctx, a.LLM, a.API, task)
+}
+
+// roles are the tenant's roles by code, whether each is active: what a
+// run holds the roles its text names to (roles the agent may not read
+// stop it before a session).
+func (a *Agent) roles(ctx context.Context) (map[string]bool, error) {
+	roles, err := apitools.List[role](ctx, a.API, "/v1/roles", nil)
+	if err != nil {
+		return nil, fmt.Errorf("enablementagent: the roles: %w", err)
+	}
+	out := map[string]bool{}
+	for _, r := range roles {
+		out[r.Code] = r.Status == "active"
+	}
+	return out, nil
 }
 
 // Heading is the first line of a process's description: its title and the
@@ -197,7 +210,9 @@ var (
 	// amount the check of digits does not see.
 	wordsRe = regexp.MustCompile(`(?i)\b(?:two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|` +
 		`sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundreds?|thousands?|` +
-		`millions?|billions?|dozens?|half|halves|twice|double|triple)\b`)
+		`millions?|billions?|dozens?|half|halves|twice|double|triple|zero|quarters?|third|fourth|fifth|sixth|seventh|eighth|ninth|` +
+		`tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|` +
+		`thirtieth|fortieth|fiftieth|sixtieth|seventieth|eightieth|ninetieth|hundredth|thousandth|millionth)\b`)
 	// percentRe is a percentage's word or sign.
 	percentRe = regexp.MustCompile(`(?i)\bper ?cent\b|%`)
 )
@@ -218,17 +233,26 @@ func (d *documenting) check(p recommend.Proposed, _ *recommend.Figures) error {
 	if err != nil {
 		return err
 	}
+	if err := rolesOnly(prose, d.roles, nil); err != nil {
+		return err
+	}
+	if n := recommend.Numbers(spanRe.ReplaceAllString(prose, " ")); len(n) > 0 {
+		return fmt.Errorf("%w: not %s", ErrNumber, strings.Join(n, ", "))
+	}
+	return nil
+}
+
+// rolesOnly refuses a text in backticks, or a code joined by underscores,
+// that is neither an active role nor one of the names allowed beside them.
+func rolesOnly(prose string, roles map[string]bool, allowed []string) error {
 	named := codeRe.FindAllString(spanRe.ReplaceAllString(prose, " "), -1)
 	for _, m := range spanRe.FindAllStringSubmatch(prose, -1) {
 		named = append(named, m[1])
 	}
 	for _, code := range named {
-		if !d.roles[code] {
+		if !roles[code] && !slices.Contains(allowed, code) {
 			return fmt.Errorf("%w: not %s", ErrRole, code)
 		}
-	}
-	if n := recommend.Numbers(spanRe.ReplaceAllString(prose, " ")); len(n) > 0 {
-		return fmt.Errorf("%w: not %s", ErrNumber, strings.Join(n, ", "))
 	}
 	return nil
 }
@@ -242,6 +266,9 @@ func uncited(c *config.Config, text string) (string, error) {
 		return "", fmt.Errorf("%w: not %s = %s", ErrSetting, s.Path, s.Value)
 	}
 	for _, s := range config.Cited(text) {
+		if !strings.HasSuffix(s.Path, "percent") {
+			continue // a percentage's word follows only a percentage
+		}
 		for _, unit := range []string{" percent", " per cent", "%", " %"} {
 			text = strings.ReplaceAll(text, s.Text+unit, " ")
 		}

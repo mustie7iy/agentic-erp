@@ -33,8 +33,9 @@ const (
 // and replies once. Its check refuses, and counts, a reply that does not
 // name the code, one quoting nothing, one quoting what the contract does
 // not write, a setting cited with another value, "percent" after no
-// citation, a number outside the quotations and citations, and a second
-// reply; a list's numbers are
+// citation, a number outside the quotations and citations, a text in
+// backticks that is no role of the tenant's nor a name of the operation's,
+// and a second reply; a list's numbers are
 // allowed.
 func TestHelp(t *testing.T) {
 	a := &fakeAPI{}
@@ -46,6 +47,7 @@ func TestHelp(t *testing.T) {
 		reply("`payables.match_required`: "+passage+"; `companies[1000].invoice_tolerance.price_percent` = `3`."),
 		reply("`payables.match_required`: "+passage+", within 2 percent."),
 		reply("`payables.match_required`: "+passage+", after 2 days."),
+		reply("`payables.match_required`: "+passage+"; role `AP_CLERK` matches it."),
 		reply(explanation),
 		reply(explanation),
 		llmtest.Final("Explained."))
@@ -56,8 +58,8 @@ func TestHelp(t *testing.T) {
 	if res.Session != session || res.Reply != explanation {
 		t.Errorf("result: got session %s and reply %q, want %s and %q", res.Session, res.Reply, session, explanation)
 	}
-	if res.Refused != 7 {
-		t.Errorf("refused: got %d, want 7", res.Refused)
+	if res.Refused != 8 {
+		t.Errorf("refused: got %d, want 8", res.Refused)
 	}
 	if n := a.sent(":end"); n != 1 {
 		t.Errorf("sessions ended: got %d, want 1", n)
@@ -65,7 +67,7 @@ func TestHelp(t *testing.T) {
 	told(t, model.Requests[:1], "The tenant's active configuration is version 3 (id "+version+").\nThe user asks what the problem code payables.match_required of postSupplierInvoice means.",
 		"<contract>\noperation postSupplierInvoice: POST /v1/supplier-invoices/{id}:post\nsummary: ", "problem codes: ", "payables.match_required")
 	told(t, model.Requests, enablementagent.ErrNotNamed.Error(), enablementagent.ErrNotQuoted.Error(), `not "a clean match of the invoice"`,
-		enablementagent.ErrSetting.Error(), enablementagent.ErrNumber.Error(), `not "percent"`, enablementagent.ErrHelpNumber.Error(), "not 2", enablementagent.ErrSecond.Error())
+		enablementagent.ErrSetting.Error(), enablementagent.ErrNumber.Error(), `not "percent"`, enablementagent.ErrHelpNumber.Error(), "not 2", enablementagent.ErrRole.Error(), "not AP_CLERK", enablementagent.ErrSecond.Error())
 }
 
 // TestHelpField: a field is explained from its own description, and a
@@ -108,6 +110,7 @@ func TestHelpRefusals(t *testing.T) {
 		"an unknown field":     {client(t, unread), enablementagent.Question{Operation: "postSupplierInvoice", Field: "colour"}, apitools.ErrNotInContract, ""},
 		"an unknown problem":   {client(t, unread), enablementagent.Question{Operation: "postSupplierInvoice", Problem: "payables.too_late"}, apitools.ErrNotInContract, ""},
 		"a version refused":    {client(t, &fakeAPI{status: 403}), refusedPost, nil, "identity.permission_missing"},
+		"roles refused":        {client(t, &fakeAPI{roles: 403}), refusedPost, nil, "enablementagent: the roles"},
 		"a session refused":    {client(t, &fakeAPI{sessions: 403}), refusedPost, nil, "identity.permission_missing"},
 		"the API gone":         {gone, refusedPost, nil, "127.0.0.1:1"},
 	} {
