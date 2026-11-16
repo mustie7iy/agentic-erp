@@ -11978,7 +11978,7 @@
       "c": []
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "Pin a pgbouncer image carrying apt ≥ 3.0.4 (the product owner allowed downloading it, 2026-11-05) and remove the .grype.yaml entry; by 2026-11-20 (batch 56's ci-local image scan failed on CVE-2026-109518, High, in apt and libapt-pkg7.0 3.0.3 of the pinned ghcr.io/cloudnative-pg/pgbouncer:1.26.0-trixie, fixed in Debian 13's 3.0.4, DSA-6607-1; the tag's current build of 2026-11-05 still carries 3.0.3, so the finding is accepted until then: nothing in the cell's use of the image runs apt or loads libapt-pkg)",
       "r": "deploy/images/upstream.txt · .grype.yaml · ADR-0032 As built",
       "src": "ci:batch56",
@@ -11992,7 +11992,7 @@
       "c": []
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "Pin a distroless cc-debian13:nonroot digest carrying zlib1g ≥ 1:1.3.dfsg+really1.3.1-1+deb13u1 as erp-analytics's runtime base, and a PgBouncer image carrying it (with the apt pin above), and remove the .grype.yaml zlib1g entries; by 2026-11-20 (the vulnbump fix forward's ci-local image scan failed on CVE-2026-76844 and CVE-2026-85091, High, in zlib1g of the pinned base and of the PgBouncer pin; the tag's current digest of 2026-11-08 is the pinned one, and PgBouncer's current build still carries the same zlib1g, so the findings are accepted until then with the product owner's agreement: both are in zlib's gzFile write path (per advisory aggregators; DSA-6613-1 to confirm when pinning), erp-analytics loads no libz and PgBouncer's libcrypto imports no gz* function)",
       "r": "deploy/images/erp-analytics.Dockerfile · deploy/images/upstream.txt · scripts/base-image-current.sh · scripts/test-images.sh · .grype.yaml · ADR-0032 As built",
       "src": "ci:batch56",

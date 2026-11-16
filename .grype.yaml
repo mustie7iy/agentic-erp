@@ -3,70 +3,9 @@
 # accepted and until when; an expired entry is removed, not extended
 # without a new reason. grype does not read the expiry: review does.
 ignore:
-  # apt and libapt-pkg7.0 3.0.3 in ghcr.io/cloudnative-pg/pgbouncer
-  # 1.26.0-trixie (deploy/images/upstream.txt, linux/arm64 digest
-  # sha256:01f76846...), whose tag's current build (image index
-  # sha256:5487ee7b..., pulled 2026-11-05) still carries 3.0.3; Debian 13 fixes
-  # CVE-2026-109518 in 3.0.4 (DSA-6607-1). Accepted because nothing in
-  # the cell's use of the image runs apt or loads libapt-pkg
-  # (deploy/helm/erp-cell/templates/pgbouncer.yaml; checked on the pinned
-  # image, 2026-11-05): the entrypoint /usr/bin/pgbouncer links to
-  # /usr/sbin/pgbouncer, whose NEEDED are libcares, libevent, libssl,
-  # libcrypto, libsystemd, libldap, libpam and libc, and whose ldd closure
-  # has no libapt-pkg; the pgbouncer package does not depend on apt; the
-  # reload sidecar runs dash, cat, sha256sum and sleep (kill is dash's
-  # builtin), none linking libapt-pkg; only apt's own programs and
-  # libapt-private do. Both containers run as uid 998 with a read-only
-  # root, no capabilities and no privilege escalation, and the pod has no
-  # init container or hook. Pinned to this version, so an image carrying
-  # another is scanned afresh; grype applies it to every image the scan
-  # covers, so a new pin or base carrying apt 3.0.3 needs its own check
-  # before it lands. Until 2026-11-20, or sooner once a
-  # pgbouncer image with apt >= 3.0.4 is pinned.
-  - vulnerability: CVE-2026-109518
-    package:
-      name: apt
-      type: deb
-      version: 3.0.3
-  - vulnerability: CVE-2026-109518
-    package:
-      name: libapt-pkg7.0
-      type: deb
-      version: 3.0.3
-  # zlib1g 1:1.3.dfsg+really1.3.1-1+b1 in gcr.io/distroless/cc-debian13:nonroot
-  # (erp-analytics's runtime base, deploy/images/erp-analytics.Dockerfile,
-  # digest sha256:08476c24..., still the tag's current digest on
-  # 2026-11-08) and in the pinned PgBouncer image above; Debian 13 fixes
-  # CVE-2026-76844 and CVE-2026-85091 (High) in
-  # 1:1.3.dfsg+really1.3.1-1+deb13u1 (DSA-6613-1). Both are heap overflows
-  # in the gzFile write path (gz_write/gz_vacate after a failed or stalled
-  # write); the deflate/inflate stream API and compress/uncompress are not
-  # affected (per advisory aggregators and OSV, 2026-11-08; DSA-6613-1 not
-  # read directly: confirm when pinning). Accepted because nothing we run calls the gz* functions
-  # (checked 2026-11-08): erp-analytics loads no libz at all (the binary's
-  # NEEDED are libstdc++, libm, libgcc_s, libc and ld-linux, whose own
-  # NEEDED name no libz; it names no libz.so to dlopen; DuckDB links its
-  # own miniz and zstd statically; Go's compress packages are pure Go; the
-  # linux/arm64 build uses the same link flags). In the PgBouncer image the
-  # only loaded library linking libz is libcrypto.so.3, which imports
-  # compress, uncompress, deflate* and inflate* and no gz* function;
-  # libapt-pkg imports gzwrite but nothing in the cell loads it (the apt
-  # entry above). PgBouncer's current tag build (sha256:5487ee7b...,
-  # pulled 2026-11-05) still carries the same zlib1g. Pinned to this version; grype applies it to every image,
-  # so a new pin carrying it needs its own check. Until 2026-11-20, or
-  # sooner once fixed digests are pinned. CVE-2026-27171 (Medium) is below
-  # the scan's threshold and needs no entry.
-  - vulnerability: CVE-2026-76844
-    package:
-      name: zlib1g
-      type: deb
-      version: 1:1.3.dfsg+really1.3.1-1+b1
-  - vulnerability: CVE-2026-85091
-    package:
-      name: zlib1g
-      type: deb
-      version: 1:1.3.dfsg+really1.3.1-1+b1
-  # libcares2 1.34.5-1+deb13u1 in the pinned PgBouncer image above; Debian
+  # libcares2 1.34.5-1+deb13u1 in the pinned PgBouncer image
+  # (ghcr.io/cloudnative-pg/pgbouncer 1.26.1, deploy/images/upstream.txt, pinned
+  # 2026-11-16 for its apt 3.0.4 and zlib1g 1:1.3.dfsg+really1.3.1-1+deb13u1); Debian
   # 13 fixes CVE-2026-33630 and CVE-2026-69184 (High) in 1.34.9-1~deb13u1,
   # but no PgBouncer image carries it yet: the tag's current build
   # (arm64 sha256:d63d8b3a...) and the newest, 1.26.1-202611121015-trixie
