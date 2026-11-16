@@ -9,9 +9,9 @@ import (
 )
 
 // TestRequisitionDate: every requisition has a date (T72n5, migrations
-// 000170-000171). The application dates it in its company's time zone; a
-// row the previous release inserts without one is dated by its rule, UTC's
-// today; none is without a date.
+// 000170-000171). The application dates it in its company's time zone; an
+// insert that leaves the date out fails, no longer dated on UTC's day by a
+// default (000343, the contract step), and none is without a date.
 func TestRequisitionDate(t *testing.T) {
 	need(t)
 	for _, c := range []struct {
@@ -20,7 +20,7 @@ func TestRequisitionDate(t *testing.T) {
 		want         string  // the constraint the insert fails, if any
 	}{
 		{"dated by the application", ", requisition_date", new("2026-12-31"), ""},
-		{"dated by the previous release's rule", "", nil, ""},
+		{"the date left out", "", nil, "requisition_dated"},
 		{"without a date", ", requisition_date", nil, "requisition_dated"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -39,8 +39,8 @@ func TestRequisitionDate(t *testing.T) {
 					created_by, updated_by`+c.column+`) VALUES ($1, $2, $3, $4, $5, 'USD', 'draft', $5, $5`+value+`)`, args...); err != nil {
 					return err
 				}
-				return tx.QueryRow(context.Background(), `SELECT requisition_date = coalesce($2::date, (now() AT TIME ZONE 'UTC')::date)
-					FROM procurement.requisition WHERE id = $1`, r, c.given).Scan(&dated)
+				return tx.QueryRow(context.Background(), `SELECT requisition_date = $2::date FROM procurement.requisition WHERE id = $1`,
+					r, c.given).Scan(&dated)
 			})
 			if c.want != "" {
 				failsWith(t, err, c.want)
@@ -50,7 +50,7 @@ func TestRequisitionDate(t *testing.T) {
 				t.Fatalf("got %v, want no error", err)
 			}
 			if !dated {
-				t.Errorf("requisition_date: got another date, want %v (nil: UTC's today)", c.given)
+				t.Errorf("requisition_date: got another date, want %v", *c.given)
 			}
 		})
 	}

@@ -1107,7 +1107,8 @@ company's time zone):
   were routed, `created_at`'s date in UTC, without touching their version
   or `updated_at`; the previous release's inserts in a mixed cell take the
   column's default, its own UTC rule; the not-null rule is validated in
-  000171.
+  000171. The default was dropped in 000343 (the contract step; hdates,
+  below): an insert that leaves the date out now fails.
 - **Not this rule.** Procurement's other dates are different decisions,
   each read on the company's date by its own step: a goods movement
   reversal's default posting date since 2026-10-31 (below), and a
@@ -2841,6 +2842,13 @@ As built (business dates swept; hdates, review:batch75):
   `procurement.TestOrderDocumentTimeZone` (an order desk moving on 11
   March: the legal address at 22:30 on 10 March in Toronto, the new desk
   at 01:00 on 11 March in Dubai), `TestOrderDocumentZoneLost`.
+- **The requisition date's default dropped (000343).** The contract step
+  T72n5's review asked for once no release before T72n5 runs: none does,
+  since no cell has been deployed (the product owner put deployment last,
+  2026-11-02), so the first deployed release is past T72n5 and has no
+  previous release without the column. An insert that leaves the date out
+  fails `requisition_dated` instead of dating the requisition on UTC's
+  day. Evidence: `db.TestRequisitionDate`.
 
 ## Alternatives
 - **Cash position and forecast inside payments.** Fewer packages, but
