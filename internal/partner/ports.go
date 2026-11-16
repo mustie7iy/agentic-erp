@@ -137,7 +137,7 @@ func (PaymentTerms) Apply(ctx context.Context, doc *config.Config) error {
 
 // Suppliers answers procurement's and payables' questions about suppliers
 // in the request's transaction. Settings is the configuration whose
-// companies' time zones partner's day, which a payments bank account is valid
+// companies' time zones partner's day, which a bank account is valid
 // on, is judged in (partnerDay); Now is the clock it is read at, nil the
 // transaction's start. An order address's day is the caller's.
 type Suppliers struct {

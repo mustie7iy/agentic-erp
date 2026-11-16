@@ -308,8 +308,8 @@ ended, never deleted or rewritten. `platform.end_validity()` allows exactly
 one change: setting `valid_to` (or bringing it forward), not into the past,
 with `ended_by`; `ended_at` is stamped by the database. The access a
 principal had on any past date can therefore be reconstructed for audit.
-Partner bank accounts follow the same pattern, ended no earlier than the
-database's yesterday (partner's day, ADR-0051; migration 000344).
+Partner bank accounts and addresses follow the same pattern, ended no
+earlier than the database's yesterday (partner's day, ADR-0051; migration 000344).
 
 ## 3.5 Configuration (`config`)
 

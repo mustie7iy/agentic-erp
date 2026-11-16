@@ -11,7 +11,7 @@ import (
 // hdates): a business partner's address and bank account may be ended on
 // the database's yesterday, the day partner's day (the earliest of the
 // companies' days) is in Toronto from 19:00, but not before it; identity's
-// assignments keep the database's day (schema_test's validity test).
+// assignments keep the database's day (TestAssignmentsAreEndedNeverRewritten).
 func TestPartnerValidityCompanyDay(t *testing.T) {
 	need(t)
 	const (
