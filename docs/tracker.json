@@ -11376,28 +11376,28 @@
        {
         "s": "T",
         "t": "An evidence file asked whole when it was written in parts answers 404, while the archive asked whole answers 409: one answer for both (found in batch 76's integration).",
-        "r": "internal/audit evidence export \u00b7 internal/records archiving run file \u00b7 GET /v1/archiving-runs/{id}/file \u00b7 ADR-0079 \u00b7 internal/platform/jsonl parts",
+        "r": "internal/audit evidence export · internal/records archiving run file · GET /v1/archiving-runs/{id}/file · ADR-0079 · internal/platform/jsonl parts",
         "src": "review:batch76",
         "c": []
        },
        {
         "s": "T",
         "t": "archiving_run_completed does not carry the number of parts an archive was written in, so a consumer of the event cannot tell how many files to fetch.",
-        "r": "internal/records archiving run \u00b7 archiving_run_completed (asyncapi) \u00b7 migration 000345 parts \u00b7 ADR-0079",
+        "r": "internal/records archiving run · archiving_run_completed (asyncapi) · migration 000345 parts · ADR-0079",
         "src": "review:batch76",
         "c": []
        },
        {
         "s": "T",
         "t": "walkcheck's countsMatches misses a grep called as /usr/bin/grep, zgrep or `command grep`, so a substitution counting with them can end with status 1 unguarded.",
-        "r": "cmd/erp walkthrough_status_test.go countsMatches \u00b7 scripts/walkthrough.sh \u00b7 06 \u00a76.5",
+        "r": "cmd/erp walkthrough_status_test.go countsMatches · scripts/walkthrough.sh · 06 §6.5",
         "src": "review:batch76",
         "c": []
        },
        {
         "s": "T",
-        "t": "PlanBatch and BusinessPartner/SupplierCompany still give ids without a name beside them (pre-existing; found by the hnames sweep).",
-        "r": "api/openapi.yaml PlanBatch, BusinessPartner, SupplierCompany \u00b7 ADR-0050 names beside ids \u00b7 hnames sweep (review:batch26)",
+        "t": "PlanBatch (plan_category_id, legal_entity_id), SupplierCompany (legal_entity_id, reconciliation_account_id) and BusinessPartner's ids still give ids without a name or code beside them (pre-existing; found by the hnames sweep).",
+        "r": "api/openapi.yaml PlanBatch, BusinessPartner, SupplierCompany · ADR-0050 names beside ids · hnames sweep (review:batch26)",
         "src": "review:batch76",
         "c": []
        },
