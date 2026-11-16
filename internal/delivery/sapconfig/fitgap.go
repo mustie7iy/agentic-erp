@@ -28,10 +28,13 @@ const (
 const FitGapScope = "This report covers SAP customizing only: it does not cover usage, changes or custom code."
 
 // Object is one customizing object the generator read: its SAP table and
-// key, its outcome and the notes about it.
+// key, its name where SAP gives one (a company's, an account's, a
+// payment term's, a tax code's, a payment method's in the company's
+// country, a role's), its outcome and the notes about it.
 type Object struct {
 	Table   string  `json:"table"`
 	Key     string  `json:"key"`
+	Name    string  `json:"name,omitempty"`
 	Outcome Outcome `json:"outcome"`
 	Notes   []Note  `json:"notes"`
 }
@@ -78,6 +81,15 @@ func (g *gen) read(table, key string) objRef {
 	}
 	if g.objects[o] == nil {
 		g.objects[o] = &object{Object: Object{Table: table, Key: key, Notes: []Note{}}}
+	}
+	return o
+}
+
+// named gives object o, which the generator has read, its name in SAP,
+// where SAP gives one; a duplicate row keeps the first row's.
+func (g *gen) named(o objRef, name string) objRef {
+	if obj := g.objects[o]; obj.Name == "" {
+		obj.Name = strings.TrimSpace(name)
 	}
 	return o
 }
@@ -151,7 +163,11 @@ func (r FitGap) WriteText(w io.Writer) error {
 	fmt.Fprintf(&b, "Objects read: %d (carried over %d, carried over with a note %d, left out %d)\n",
 		r.Counts.Objects, r.Counts.CarriedOver, r.Counts.CarriedWithNote, r.Counts.LeftOut)
 	for _, o := range r.Objects {
-		fmt.Fprintf(&b, "\n%s %s: %s\n", o.Table, o.Key, outcomeText[o.Outcome])
+		name := ""
+		if o.Name != "" {
+			name = " (" + o.Name + ")"
+		}
+		fmt.Fprintf(&b, "\n%s %s%s: %s\n", o.Table, o.Key, name, outcomeText[o.Outcome])
 		for _, n := range o.Notes {
 			fmt.Fprintf(&b, "  %s\n", n)
 		}

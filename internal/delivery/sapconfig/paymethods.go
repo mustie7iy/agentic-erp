@@ -35,6 +35,7 @@ func (g *gen) paymentMethods(company objRef, p, country string, co *config.Compa
 		g.amountLimits(o, mp, e, co.Currency)
 		out = append(out, config.PaymentMethod{Code: e.ZLSCH, Description: g.methodName(o, mp, country, e.ZLSCH), Ranking: g.ranking(o, mp, co, e.ZLSCH)})
 		g.subaccounts(o, mp, co, e.ZLSCH)
+		g.named(o, out[len(out)-1].Description)
 	}
 	for _, a := range g.e.T042A {
 		if a.ZBUKR == co.Code && !seen[a.ZLSCH] {

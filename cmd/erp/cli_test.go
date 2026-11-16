@@ -208,6 +208,7 @@ func TestLocalPreparationErrors(t *testing.T) {
 	fails(t, "invalid -amount-format", "config", "generate", "-source", "odata:http://127.0.0.1:1", "-amount-format", "internal")
 	fails(t, "invalid -time-zone", "config", "generate", "-source", "file:extract.json", "-time-zone", "1000=")
 	fails(t, "invalid -fit-gap-format", "config", "generate", "-source", "file:extract.json", "-fit-gap-format", "xml")
+	fails(t, "-fit-gap-format needs -fit-gap PATH", "config", "generate", "-source", "file:extract.json", "-fit-gap-format", "json")
 	fails(t, "write fit-gap report", "config", "generate", "-source", "file:extract.json", "-out", "draft.yaml", "-fit-gap", "file/fit-gap.txt")
 	// SAP's extract has no time zone for a company code: without one given,
 	// the draft names the company and key to set (product owner 2026-10-31).
@@ -1118,7 +1119,7 @@ func TestConfigFitGap(t *testing.T) {
 	if !bytes.Equal(plain, draft) {
 		t.Errorf("got a draft with -fit-gap other than without it:\n%s\nwant\n%s", draft, plain)
 	}
-	if text := string(readFile(t, "fit-gap.txt")); !strings.Contains(text, sapconfig.FitGapScope) || !strings.Contains(text, "T001 1000: carried over with a note") {
+	if text := string(readFile(t, "fit-gap.txt")); !strings.Contains(text, sapconfig.FitGapScope) || !strings.Contains(text, "T001 1000 (") || !strings.Contains(text, "): carried over with a note") {
 		t.Errorf("got text report\n%s\nwant its scope and company 1000", text)
 	}
 	must(t, append(gen, "-out", "draft.yaml", "-fit-gap", "fit-gap.json", "-fit-gap-format", "json")...)

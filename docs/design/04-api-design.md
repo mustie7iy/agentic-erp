@@ -1026,8 +1026,9 @@ operations of the contract and cites settings as the active version
 holds them; it has no tool that writes. The planning agent (`erp agent
 plan -company CODE -category CODE -year YYYY`, agent type `planning`,
 T105e) recommends on a `plan_category`: `plan_proposal`, a line per plan
-line of the year (cost center, account and period by id, an amount a read
-returned, in the company's currency) and per cost center its reasons
+line of the year (cost center by id and code, account by id and number,
+period, a plan or actual amount of the company's a read returned, in its
+currency, sign included) and per cost center its reasons
 citing its actuals; the controller applies the lines as a plan batch
 (`x-agent: false`, ADR-0050 §8).
 Bank statements reach agents with the accounts masked to

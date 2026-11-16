@@ -9019,14 +9019,15 @@ step_planning_agent() {
   admin_actual=$(field '.items[] | select(.cost_center_id == "'"$admin"'" and .account_id == "'"$account"'") | .actual.amount')
   sales_actual=$(field '.items[] | select(.cost_center_id == "'"$sales"'" and .account_id == "'"$account"'") | .actual.amount')
   say "The agent runs: erp agent plan starts a session on erp-default, reads FC's plan lines of $YEAR, its plan against"
-  say "actual of this month and the cost centers through its tools, and proposes FC's plan of $next. The model is the"
+  say "actual of this month, the cost centers and the account through its tools, and proposes FC's plan of $next, each line"
+  say "naming its cost center and account by id and by code or number. The model is the"
   say "stand-in, answering from a script of turns as the agent's evaluation suite replays them (evals/planning): it first"
   say "proposes the forecast plus five percent, 1102.50 CAD, an amount no read returned (refused by the run: the agent"
   say "computes no amount), then CC-1100 and CC-1300 at the forecast's amounts, each with its actual of this month."
   jq -n --arg fc "$fc" --arg le "$LE" --arg admin "$admin" --arg sales "$sales" --arg account "$account" --argjson month "$month" \
     --argjson year "$YEAR" --arg aa "$admin_actual" --arg sa "$sales_actual" --arg next "$next" '
     {session_id: "{{session}}", object_type: "plan_category", object_id: $fc, kind: "plan_proposal"} as $on |
-    "Line \($admin) account \($account) period \($month): " as $a | "Line \($sales) account \($account) period \($month): " as $s |
+    "Line \($admin) CC-1100 account \($account) 6000 period \($month): " as $a | "Line \($sales) CC-1300 account \($account) 6000 period \($month): " as $s |
     "\nWhy CC-1100: its actual of period \($month) of \($year) is \($aa) CAD against the forecast of 1050.00 CAD; the plan of \($next) keeps the forecast." as $why_a |
     "\nWhy CC-1300: its actual is \($sa) CAD against the forecast of 350.00 CAD; the plan keeps the forecast." as $why_s |
     {vars: {session: "session id is ([0-9a-f-]{36})"},
@@ -9034,6 +9035,7 @@ step_planning_agent() {
       {tool: "listCostCenters", input: {legal_entity_id: $le}},
       {tool: "listPlanLines", input: {legal_entity_id: $le, fiscal_year: $year, plan_category_id: $fc}},
       {tool: "listCostCenterPlanActual", input: {plan_category_id: $fc, legal_entity_id: $le, fiscal_year: $year, fiscal_period_from: $month, fiscal_period_to: $month}},
+      {tool: "listAccounts", input: {legal_entity_id: $le, page_size: 500}},
       {tool: "createRecommendation", input: {body: ($on + {content: "\($a)1102.50 CAD\n\($s)350.00 CAD\($why_a)\($why_s)"})}},
       {tool: "createRecommendation", input: {body: ($on + {content: "\($a)1050.00 CAD\n\($s)350.00 CAD\($why_a)\($why_s)"})}},
       {final: "Proposed the plan of FC for \($next), CC-1100 and CC-1300; the controller decides, and applies it as a plan batch."}]}' >"$WORK/model-script.json"
@@ -9051,20 +9053,20 @@ step_planning_agent() {
   expect "the recommendations on FC, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
   expect "made in its session" "$(field '.items[0].session_id')" "$session"
   expect "its lines" "$(field '[.items[0].content | split("\n")[] | select(startswith("Line "))] | join("; ")')" \
-    "Line $admin account $account period $month: 1050.00 CAD; Line $sales account $account period $month: 350.00 CAD"
+    "Line $admin CC-1100 account $account 6000 period $month: 1050.00 CAD; Line $sales CC-1300 account $account 6000 period $month: 350.00 CAD"
   as planning-agent
   say "Proposing is all it may do: a plan batch is a person's (x-agent: false), erp agent builds it no tool for it, and"
   say "the API refuses its own call:"
   refused 403 identity.agent_not_allowed applyPlanBatch -body "{\"plan_category_id\": \"$fc\", \"legal_entity_id\": \"$LE\", \"fiscal_year\": $next, \"batch_key\": \"agent-$next\", \"lines\": [
       {\"cost_center_id\": \"$admin\", \"account_id\": \"$account\", \"fiscal_period\": $month, \"amount\": {\"amount\": \"1050.00\", \"currency\": \"CAD\"}}]}"
   api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
-  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "listCostCenters listPlanLines listCostCenterPlanActual createRecommendation createRecommendation"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "listCostCenters listPlanLines listCostCenterPlanActual listAccounts createRecommendation createRecommendation"
   as carla
   say "Carla accepts the proposal. Accepting changes nothing: FC has no plan of $next until she applies the lines herself,"
   say "as a plan batch, through the normal operation:"
   QUIET=1 api 200 '' getRecommendation -p "id=$rec"
   jq '{plan_category_id: .object_id, legal_entity_id: "'"$LE"'", fiscal_year: '"$next"', batch_key: "agent-proposal-'"$next"'",
-    lines: [.content | split("\n")[] | capture("^Line (?<c>[0-9a-f-]{36}) account (?<a>[0-9a-f-]{36}) period (?<p>[0-9]+): (?<amount>-?[0-9.]+) (?<currency>[A-Z]{3})$")?
+    lines: [.content | split("\n")[] | capture("^Line (?<c>[0-9a-f-]{36}) [0-9A-Z_-]+ account (?<a>[0-9a-f-]{36}) [^ ]+ period (?<p>[0-9]+): (?<amount>-?[0-9.]+) (?<currency>[A-Z]{3})$")?
       | {cost_center_id: .c, account_id: .a, fiscal_period: (.p | tonumber), amount: {amount, currency}}]}' "$WORK/last.json" >"$WORK/plan-proposal.json"
   api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
     -body '{"outcome": "accepted", "comment": "The forecast it is; I apply the lines."}'
@@ -9113,11 +9115,11 @@ planning_agent_setup() {
   local role
   as ada
   say "Ada sets up the planning agent (ADR-0072): an agent principal of type planning at autonomy level 1 on"
-  say "erp-default. Its role reads the companies, the plan, the actuals, the cost centers and the governed metrics, and"
+  say "erp-default. Its role reads the companies, the plan, the actuals, the cost centers, the accounts and the governed metrics, and"
   say "records its sessions and recommendations; it holds no permission that writes a plan."
   api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "planning_agent", "name": "Planning agent"}'
   role=$(field .id)
-  grant "$role" tenancy.org.read controlling.plan.read ledger.entry.read ledger.cost_center.read analytics.query.run \
+  grant "$role" tenancy.org.read controlling.plan.read ledger.entry.read ledger.cost_center.read ledger.account.read analytics.query.run \
     agents.session.read agents.session.record agents.model.invoke
   api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model), budget \(.agent_profile.monthly_budget.amount) \(.agent_profile.monthly_budget.currency) a month"' \
     createPrincipal -body '{"kind": "agent", "external_subject": "planning-agent", "display_name": "Planning agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "planning", "model": "erp-default", "description": "Proposes plans for a controller to decide (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'

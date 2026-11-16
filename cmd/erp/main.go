@@ -479,12 +479,12 @@ func configGenerate(ctx context.Context, args []string) error {
 	form := fs.String("amount-format", "", `the form of a file extract's amounts: "internal" (the default, SAP's stored form, converted with the extract's TCURX) or "external"; OData's are external`)
 	cutover := fs.String("cutover", "", "the cutover date (YYYY-MM-DD), at which each account's cost element is read from SAP's CSKB slice valid then; without it, the latest slice")
 	fitGap := fs.String("fit-gap", "", "where to write the fit-gap report of the extract's customizing: per object read, carried over, carried over with a note or left out")
-	fitGapFormat := fs.String("fit-gap-format", "text", `the fit-gap report's form: "text" or "json"`)
+	fitGapFormat := fs.String("fit-gap-format", "", `the fit-gap report's form: "text" (the default) or "json"; with -fit-gap`)
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
-	if *fitGapFormat != "text" && *fitGapFormat != "json" {
-		return fmt.Errorf(`invalid -fit-gap-format %q: want "text" or "json"`, *fitGapFormat)
+	if err := fitGapFlags(*fitGap, *fitGapFormat); err != nil {
+		return err
 	}
 	src, err := parseSource(*source)
 	if err != nil {
@@ -508,12 +508,32 @@ func configGenerate(ctx context.Context, args []string) error {
 			return err
 		}
 	}
+	if err := printGenerated(*outPath, *fitGap, notes, report.Counts); err != nil {
+		return err
+	}
+	return printFindings(config.Validate(cfg, currency.Seeded()))
+}
+
+// fitGapFlags refuses a fit-gap report's form other than text or JSON,
+// and a form given without -fit-gap, which would write nothing.
+func fitGapFlags(path, format string) error {
+	switch {
+	case format != "" && format != "text" && format != "json":
+		return fmt.Errorf(`invalid -fit-gap-format %q: want "text" or "json"`, format)
+	case format != "" && path == "":
+		return errors.New("-fit-gap-format needs -fit-gap PATH, where the report is written")
+	}
+	return nil
+}
+
+// printGenerated prints where the draft went, the fit-gap report's counts
+// when one was written, and the notes for the reviewers.
+func printGenerated(outPath, fitGap string, notes []sapconfig.Note, c sapconfig.FitGapCounts) error {
 	w := printer()
-	fmt.Fprintf(w, "Draft configuration written to %s\n", *outPath)
-	if *fitGap != "" {
-		c := report.Counts
+	fmt.Fprintf(w, "Draft configuration written to %s\n", outPath)
+	if fitGap != "" {
 		fmt.Fprintf(w, "Fit-gap report written to %s: %d objects read, %d carried over, %d carried over with a note, %d left out\n",
-			*fitGap, c.Objects, c.CarriedOver, c.CarriedWithNote, c.LeftOut)
+			fitGap, c.Objects, c.CarriedOver, c.CarriedWithNote, c.LeftOut)
 	}
 	fmt.Fprintf(w, "\nNotes for reviewers:\n")
 	for _, n := range notes {
@@ -522,7 +542,7 @@ func configGenerate(ctx context.Context, args []string) error {
 	if err := w.Flush(); err != nil {
 		return fmt.Errorf("config generate: print notes: %w", err)
 	}
-	return printFindings(config.Validate(cfg, currency.Seeded()))
+	return nil
 }
 
 // generateOptions are the generator's options from config generate's

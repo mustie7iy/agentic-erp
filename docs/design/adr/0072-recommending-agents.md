@@ -207,7 +207,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `regulatory` | `internal/regulatoryagent`, `erp agent regulatory-notice -file F` | `listCountryPacks`, `listConfigVersions`, `getConfigVersion`, `listTaxRegistrations`, `listTaxPeriods` | on `config_version`: `change_needed`, `no_change` | every write of the configuration (change requests, a pack applied, a regression suite) |
 | `regulatory` (drafting, T107b) | `erp agent regulatory-draft -recommendation ID` | `getRecommendation`, `listConfigVersions`, `getConfigVersion`, `listFiscalPeriods`, `getChangeRequest`, `getOperation`; writes `createChangeRequest`, `updateChangeRequest`, `simulateChangeRequest` | on `change_request`: `ready_to_submit`, `simulation_failed` | submitting, withdrawing or activating a change request, a pack applied, a regression suite, a decision on an approval or a recommendation |
 | `bid_comparison` | `internal/bidagent`, `erp agent bid-compare -rfq ID` | `getRfq`, `listSupplierQuotations`, `getRfqComparison`, `getBusinessPartner`, `listContracts`, `listPurchaseOrders` | on `rfq`: `award`, `no_award` | `awardRfq`, `publishRfq`, `createSupplierQuotation`, `createRfq` |
-| `planning` | `internal/planningagent`, `erp agent plan -company CODE -category CODE -year YYYY` | `listPlanCategories`, `listPlanLines`, `listCostCenterPlanActual`, `listProfitCenterPlanActual`, `listCostCenters`, `runAnalyticsQuery` | on `plan_category`: `plan_proposal` | `applyPlanBatch`, `copyPlanCategory`, `lockPlanCategory`, `unlockPlanCategory`, `createPlanCategory` |
+| `planning` | `internal/planningagent`, `erp agent plan -company CODE -category CODE -year YYYY` | `listPlanCategories`, `listPlanLines`, `listCostCenterPlanActual`, `listProfitCenterPlanActual`, `listCostCenters`, `listAccounts`, `runAnalyticsQuery` | on `plan_category`: `plan_proposal` | `applyPlanBatch`, `copyPlanCategory`, `lockPlanCategory`, `unlockPlanCategory`, `createPlanCategory` |
 
 A later slice adds its row here and its section under "As built".
 
@@ -737,15 +737,21 @@ A later slice adds its row here and its section under "As built".
   `plan_proposal`.
 - Its check (`planningagent.proposal.check`): every number in the
   content is one the run read (§4); the content has one line per plan
-  line, `Line <cost_center_id> account <account_id> period <n>: <amount>
-  <currency>`, at least one, which the controller applies as the lines
-  of a plan batch as they stand: the cost center one the run read as an
-  active cost center of the company (`listCostCenters`), the account one
-  it read in the company's cost center plan lines (`listPlanLines`) or
-  plan against actual (`listCostCenterPlanActual`), the period 1 to 16,
-  each cost center, account and period once, the amount one a read
-  returned as money (`Figures.Returned`, without its sign) in the
-  company's currency; and for each cost center planned a line `Why
+  line, `Line <cost_center_id> <cost center code> account <account_id>
+  <account number> period <n>: <amount> <currency>`, at least one, which
+  the controller applies as the lines of a plan batch as they stand and
+  reads by the codes and numbers beside the ids (review:T105e: an id
+  alone would cost a call per line): the cost center one the run read
+  as an active cost center of the company (`listCostCenters`) with that
+  code, the account one it read in the company's cost center plan lines
+  (`listPlanLines`) or plan against actual (`listCostCenterPlanActual`)
+  and, as a profit and loss account with that number, in `listAccounts`
+  (a read added to the plan's list for the number), the period 1 to 16,
+  each cost center, account and period once, the amount a plan, actual
+  or variance amount of the company's rows or plan lines the run read in
+  the company's currency, written as returned with its sign (so an
+  amount of another company or currency, or a cost turned into a credit,
+  is refused); and for each cost center planned a line `Why
   <cost center code>: ` whose numbers include an actual amount the run
   read of that center in the plan against actual. So a plan at the year
   before's figure plus a growth the agent computed is refused, and a
@@ -872,7 +878,8 @@ A later slice adds its row here and its section under "As built".
     the agent plans cost centers only (a profit center line, which a plan
     batch also takes, waits for a slice that needs it); its amounts are
     figures a read returned, so a growth on last year is the
-    controller's to apply, not the agent's; an account may be planned
+    controller's to apply, not the agent's; `listAccounts` joins the
+    plan's reads so that each line names its account's number; an account may be planned
     when the run read it in the company's cost center plan or actuals,
     the API judging the rest when the batch is applied; a locked
     category stops the run before a session. A read marked `x-autonomy:

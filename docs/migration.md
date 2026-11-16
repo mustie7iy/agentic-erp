@@ -698,7 +698,10 @@ a model (plan-breadth-week3, default 13), and it states that it covers
 customizing only: not usage, changes or custom code.
 
 It lists each customizing object the generator read, by its SAP table and
-key, with one outcome and its notes:
+key, with its name where SAP gives one (the company code's `BUTXT`, the
+account's `TXT50`, the payment term's and tax code's `TEXT1`, the payment
+method's name in the company's country from `T042Z`, the role's `TEXT`),
+one outcome and its notes:
 
 | Object | Table | Key |
 |---|---|---|
@@ -716,7 +719,11 @@ key, with one outcome and its notes:
 | Currency decimals, for an extract in SAP's internal form | TCURX | `CURRKEY` |
 | SAP role | AGR_DEFINE | `AGR_NAME` |
 
-Accounts drop SAP's leading zeros (ALPHA), as the draft holds them.
+Accounts drop SAP's leading zeros (ALPHA), as the draft holds them. The
+TCURX rows are read only to convert amounts in SAP's internal form: one
+"carried over" is a currency whose decimals the conversion uses, and the
+draft holds no currency of its own from it. `-fit-gap-format` without
+`-fit-gap` is refused.
 
 - `carried_over`: the draft takes the object as SAP has it, with no note.
 - `carried_with_note`: the draft takes it, and a note says what the

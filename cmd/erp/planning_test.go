@@ -32,12 +32,14 @@ func TestAgentPlan(t *testing.T) {
 		"GET /v1/cost-centers":    {ok(`{"items": [{"id": "` + center + `", "legal_entity_id": "le", "code": "CC-1100", "status": "active"}]}`)},
 		"GET /v1/cost-center-plan-actual": {ok(`{"items": [{"legal_entity_id": "le", "cost_center_id": "` + center + `", "account_id": "` + account + `", "fiscal_period_from": 11,
 			"plan": {"amount": "1050.00", "currency": "CAD"}, "actual": {"amount": "1250.00", "currency": "CAD"}}]}`)},
+		"GET /v1/accounts":         {ok(`{"items": [{"id": "` + account + `", "number": "6000", "is_balance_sheet": false}]}`)},
 		"POST /v1/recommendations": {reply{201, `{"id": "r1", "object_type": "plan_category", "object_id": "fc", "kind": "plan_proposal"}`}}})
 	fakeAPI(t, planned)
 	model(t, llmtest.Tool("listCostCenters", map[string]any{"legal_entity_id": "le"}),
 		llmtest.Tool("listCostCenterPlanActual", map[string]any{"plan_category_id": "fc", "legal_entity_id": "le", "fiscal_year": 2026}),
+		llmtest.Tool("listAccounts", map[string]any{"legal_entity_id": "le"}),
 		llmtest.Tool("createRecommendation", map[string]any{"body": map[string]any{"session_id": agentSession, "object_type": "plan_category",
-			"object_id": "fc", "kind": "plan_proposal", "content": "Line " + center + " account " + account + " period 11: 1250.00 CAD\n" +
+			"object_id": "fc", "kind": "plan_proposal", "content": "Line " + center + " CC-1100 account " + account + " 6000 period 11: 1250.00 CAD\n" +
 				"Why CC-1100: actual 1250.00 CAD against a plan of 1050.00 CAD."}}),
 		llmtest.Final("Proposed; the controller decides."))
 	got := must(t, run...)

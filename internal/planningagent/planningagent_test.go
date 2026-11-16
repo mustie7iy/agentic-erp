@@ -33,6 +33,7 @@ const (
 	office   = "01a1aa00-0000-7000-8000-000000000e01" // 6000, in the plan against actual
 	travel   = "01a1aa00-0000-7000-8000-000000000e02" // 6100, in a plan line
 	elsewise = "01a1aa00-0000-7000-8000-000000000e03" // an account of another company's plan
+	bank     = "01a1aa00-0000-7000-8000-000000000e04" // 100000, a balance sheet account in the plan against actual
 	unknown  = "01a1aa00-0000-7000-8000-000000000e09"
 )
 
@@ -50,8 +51,16 @@ const planActual = `{"items": [
 	 "plan": {"amount": "1050.00", "currency": "CAD"}, "actual": {"amount": "1250.00", "currency": "CAD"}, "variance": {"amount": "200.00", "currency": "CAD"}},
 	{"legal_entity_id": "` + le + `", "cost_center_id": "` + sales + `", "account_id": "` + office + `", "fiscal_year": 2026,
 	 "plan": {"amount": "350.00", "currency": "CAD"}, "actual": {"amount": "-80.00", "currency": "CAD"}, "variance": {"amount": "-430.00", "currency": "CAD"}},
+	{"legal_entity_id": "` + le + `", "cost_center_id": "` + admin + `", "account_id": "` + bank + `", "fiscal_year": 2026,
+	 "plan": {"amount": "0.00", "currency": "CAD"}, "actual": {"amount": "0.00", "currency": "CAD"}, "variance": {"amount": "0.00", "currency": "CAD"}},
 	{"legal_entity_id": "` + otherLE + `", "cost_center_id": "` + foreign + `", "account_id": "` + elsewise + `", "fiscal_year": 2026,
 	 "plan": {"amount": "990.00", "currency": "EUR"}, "actual": {"amount": "999.00", "currency": "EUR"}, "variance": {"amount": "9.00", "currency": "EUR"}}]}`
+
+// accounts are the accounts: three profit and loss ones and the bank.
+const accounts = `{"items": [{"id": "` + office + `", "number": "6000", "name": "Office expenses", "is_balance_sheet": false},
+	{"id": "` + travel + `", "number": "6100", "name": "Travel", "is_balance_sheet": false},
+	{"id": "` + elsewise + `", "number": "7000", "name": "Other", "is_balance_sheet": false},
+	{"id": "` + bank + `", "number": "100000", "name": "Bank", "is_balance_sheet": true}]}`
 
 // planLines are the category's lines: a cost center's on 6100, a profit
 // center's on another account, and another company's.
@@ -96,7 +105,7 @@ func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		answer(200, `{"items": []}`)
 	case path == "/v1/plan-categories":
 		answer(200, fmt.Sprintf(`{"items": [{"id": %q, "code": "FC", "name": "Forecast 2026", "locked": %v}]}`, fc, a.locked))
-	case a.reads != 0 && (path == "/v1/cost-centers" || path == "/v1/cost-center-plan-actual" || path == "/v1/plan-lines"):
+	case a.reads != 0 && (path == "/v1/cost-centers" || path == "/v1/cost-center-plan-actual" || path == "/v1/plan-lines" || path == "/v1/accounts"):
 		answer(a.reads, `{"code": "identity.permission_missing", "status": 403}`)
 	case path == "/v1/cost-centers":
 		answer(200, centers)
@@ -104,6 +113,8 @@ func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		answer(200, planActual)
 	case path == "/v1/plan-lines":
 		answer(200, planLines)
+	case path == "/v1/accounts":
+		answer(200, accounts)
 	case path == "/v1/agent-sessions":
 		answer(201, `{"id": "`+session+`", "autonomy_level": 1}`)
 	case path == "/v1/recommendations":
@@ -159,11 +170,24 @@ var reads = []llmtest.Step{
 	llmtest.Tool("listCostCenters", map[string]any{"legal_entity_id": le}),
 	llmtest.Tool("listCostCenterPlanActual", map[string]any{"plan_category_id": fc, "legal_entity_id": le, "fiscal_year": 2026}),
 	llmtest.Tool("listPlanLines", map[string]any{"legal_entity_id": le, "fiscal_year": 2026, "plan_category_id": fc}),
+	llmtest.Tool("listAccounts", map[string]any{"legal_entity_id": le}),
 }
+
+// codes are the cost centers' codes, and numbers the accounts' numbers,
+// as a line names them beside their ids.
+var (
+	codes   = map[string]string{admin: "CC-1100", sales: "CC-1300", pending: "CC-1900", foreign: "CC-2100"}
+	numbers = map[string]string{office: "6000", travel: "6100", elsewise: "7000", unknown: "6000"}
+)
 
 // line is a plan line of the proposal.
 func line(center, account string, period int, amount string) string {
-	return fmt.Sprintf("Line %s account %s period %d: %s", center, account, period, amount)
+	return named(center, codes[center], account, numbers[account], period, amount)
+}
+
+// named is a plan line naming its cost center and account as given.
+func named(center, code, account, number string, period int, amount string) string {
+	return fmt.Sprintf("Line %s %s account %s %s period %d: %s", center, code, account, number, period, amount)
 }
 
 // TestPropose: the agent proposes category FC's plan of 2027 for company
@@ -181,14 +205,19 @@ func TestPropose(t *testing.T) {
 		{"Plan CC-1100 at 1250.00 CAD." + why, planningagent.ErrForm},
 		{"Line CC-1100 for 1250.00 CAD" + why, planningagent.ErrForm},
 		{line(admin, office, 2026, "1250.00 CAD") + why, planningagent.ErrForm},
-		{"Line CC-1100 account 6000 period 11: 1250.00 CAD" + why, planningagent.ErrUnread},
+		{"Line CC-1100 account 6000 period 11: 1250.00 CAD" + why, planningagent.ErrForm},
 		{line(admin, office, 11, "1312.50 CAD") + why, planningagent.ErrUnread},
 		{line(pending, office, 11, "1250.00 CAD") + why, planningagent.ErrCenter},
 		{line(foreign, office, 11, "1250.00 CAD") + why, planningagent.ErrCenter},
+		{named(admin, "CC-1300", office, "6000", 11, "1250.00 CAD") + why, planningagent.ErrCenter},
+		{named(admin, "CC-1100", office, "6100", 11, "1250.00 CAD") + why, planningagent.ErrAccount},
+		{named(admin, "CC-1100", bank, "100000", 11, "1250.00 CAD") + why, planningagent.ErrAccount},
 		{line(admin, elsewise, 11, "1250.00 CAD") + why, planningagent.ErrAccount},
 		{line(admin, unknown, 11, "1250.00 CAD") + why, planningagent.ErrAccount},
 		{line(admin, office, 11, "1250.00 EUR") + why, planningagent.ErrAmount},
 		{line(admin, office, 11, "2026 CAD") + why, planningagent.ErrAmount},
+		{line(admin, office, 11, "999.00 CAD") + why, planningagent.ErrAmount},
+		{line(admin, office, 11, "-1250.00 CAD") + why, planningagent.ErrAmount},
 		{line(admin, office, 11, "1250.00 CAD") + "\n" + line(admin, office, 11, "1050.00 CAD") + why, planningagent.ErrTwice},
 		{line(admin, office, 11, "1250.00 CAD"), planningagent.ErrReason},
 		{line(admin, office, 11, "1250.00 CAD") + "\nWhy CC-1100: the plan was 1050.00 CAD.", planningagent.ErrReason},

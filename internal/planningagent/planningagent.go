@@ -10,9 +10,11 @@
 // normal operation; nothing happens on acceptance.
 //
 // Its check holds the content to a form a controller can apply: each line
-// names a cost center the run read as an active one of the company, an
-// account the run read in the company's plan or actuals, a period, and an
-// amount a read returned as money, in the company's currency; and every
+// names a cost center the run read as an active one of the company, by id
+// and code, an account the run read in the company's plan or actuals, by
+// id and the number listAccounts gave it, a period, and an amount of the
+// company's plan or plan against actual the run read in the company's
+// currency, as returned, its sign included; and every
 // cost center planned has its reasons, citing an actual figure the run
 // read of that center. Every number the content writes is one the run
 // read (recommend.Figures): the agent computes no amount. It never
@@ -48,7 +50,7 @@ const (
 )
 
 // Reads are the operations the agent reads with (ADR-0072, T105e).
-var Reads = []string{"listPlanCategories", "listPlanLines", "listCostCenterPlanActual", "listProfitCenterPlanActual", "listCostCenters", "runAnalyticsQuery"}
+var Reads = []string{"listPlanCategories", "listPlanLines", "listCostCenterPlanActual", "listProfitCenterPlanActual", "listCostCenters", "listAccounts", "runAnalyticsQuery"}
 
 // Never are the operations the agent never calls (ADR-0072): applying a
 // plan batch, copying a category's plan (T93a), locking or unlocking a
@@ -61,15 +63,16 @@ const system = `You propose the plan of a fiscal year for a plan category of a c
 Read the plan against actual by cost center and account of the year before (listCostCenterPlanActual with the plan category,
 the legal entity and that fiscal year: the category's plan, the actual, the variance; a range of periods if you need one),
 the category's plan lines (listPlanLines), the company's cost centers (listCostCenters with the legal entity: their codes,
-names and status) and, if useful, the plan against actual by profit center (listProfitCenterPlanActual) and the company's
+names and status), the accounts (listAccounts: their numbers and names) and, if useful, the plan against actual by profit center (listProfitCenterPlanActual) and the company's
 governed metrics (runAnalyticsQuery). Plan only on cost centers: active ones of the company.
 
 Then recommend once, on the plan category, kind plan_proposal. The content has one line per plan line, each on a line of its
 own and exactly in this form:
-Line <cost_center_id> account <account_id> period <period>: <amount> <currency>
-with the cost center's and the account's ids as the tools returned them, the period of the year planned, and an amount a tool
-returned as money (the year before's actual or plan of that center and account, normally), written exactly as returned, in
-the company's currency, debit positive as the plan is (costs positive, revenue negative). Then, for each cost center you plan,
+Line <cost_center_id> <cost center code> account <account_id> <account number> period <period>: <amount> <currency>
+with the cost center's id and code and the account's id and number as the tools returned them, the period of the year
+planned, and an amount of the company's plan, actual or variance a tool returned (the year before's actual or plan of that
+center and account, normally), written exactly as returned, its sign included, in the company's currency, debit positive as
+the plan is (costs positive, revenue negative). Then, for each cost center you plan,
 a line of its own:
 Why <cost center code>: <reasons>
 saying why its plan departs from the year before, citing the actual figures you read for that center (its actual, its plan,
@@ -89,17 +92,21 @@ type Agent struct {
 var (
 	// ErrForm refuses a proposal without plan lines in the form a
 	// controller applies, or with a line that starts as one and is not.
-	ErrForm = errors.New(`planningagent: a plan_proposal has one line per plan line, "Line <cost_center_id> account <account_id> period <period>: <amount> <currency>", ` +
+	ErrForm = errors.New(`planningagent: a plan_proposal has one line per plan line, "Line <cost_center_id> <cost center code> account <account_id> <account number> period <period>: <amount> <currency>", ` +
 		`and for each cost center planned a line "Why <cost center code>: " with its reasons`)
 	// ErrCenter refuses a line on a cost center the run has not read as an
-	// active one of the company.
-	ErrCenter = errors.New("planningagent: a line's cost center is an active cost center of the company that the run read (listCostCenters)")
+	// active one of the company, or named by another code than its own.
+	ErrCenter = errors.New("planningagent: a line's cost center is an active cost center of the company that the run read (listCostCenters), with its code")
 	// ErrAccount refuses a line on an account the run has not read in the
-	// company's plan or actuals.
-	ErrAccount = errors.New("planningagent: a line's account is one the run read in the company's plan lines or plan against actual")
-	// ErrAmount refuses a line whose amount no read returned as money, or
-	// that is not in the company's currency.
-	ErrAmount = errors.New("planningagent: a line's amount is an amount a tool returned as money, written as returned, in the company's currency")
+	// company's plan or actuals, or not read as a profit and loss account
+	// with that number.
+	ErrAccount = errors.New("planningagent: a line's account is one the run read in the company's plan lines or plan against actual, " +
+		"with its number as listAccounts gives it (a profit and loss account)")
+	// ErrAmount refuses a line whose amount is not a figure of the
+	// company's plan or plan against actual the run read in its currency,
+	// with its sign as returned.
+	ErrAmount = errors.New("planningagent: a line's amount is a plan, actual or variance amount of the company that a tool returned in its currency, " +
+		"written as returned, its sign included")
 	// ErrTwice refuses a cost center, account and period planned twice: a
 	// plan batch takes each once.
 	ErrTwice = errors.New("planningagent: a cost center, account and period is planned once")
@@ -145,7 +152,7 @@ func (a *Agent) Propose(ctx context.Context, companyCode, categoryCode string, y
 			"for the company's cost centers from fiscal year %d's plan and actual figures.", co.Code, co.ID, co.Currency, cat.Code, cat.Name, cat.ID, year, year-1),
 		Objects: map[string]string{cat.ID: CategoryObject},
 		Observe: map[string]func(apitools.Response){"listCostCenters": p.centersRead, "listCostCenterPlanActual": p.planActualRead,
-			"listPlanLines": p.planLinesRead},
+			"listPlanLines": p.planLinesRead, "listAccounts": p.accountsRead},
 		Check: p.check,
 	}
 	return agent(a.MaxIterations).Run(ctx, a.LLM, a.API, task)
@@ -193,16 +200,33 @@ func agent(maxIterations int) recommend.Agent {
 func Tools() []string { return agent(0).Tools() }
 
 // proposal is what one run's check knows: the company, and what the run
-// read of its cost centers, accounts and actual figures.
+// read of its cost centers, accounts and figures.
 type proposal struct {
 	co       company
 	centers  map[string]string          // active cost centers of the company: id to code
 	accounts map[string]bool            // accounts of the company's plan lines and plan against actual
+	numbers  map[string]string          // profit and loss accounts read: id to number
+	amounts  map[string]bool            // the company's figures in its currency, signed, as returned
 	actuals  map[string]map[string]bool // each cost center's actual amounts, without their sign
 }
 
 func newProposal(co company) *proposal {
-	return &proposal{co: co, centers: map[string]string{}, accounts: map[string]bool{}, actuals: map[string]map[string]bool{}}
+	return &proposal{co: co, centers: map[string]string{}, accounts: map[string]bool{}, numbers: map[string]string{},
+		amounts: map[string]bool{}, actuals: map[string]map[string]bool{}}
+}
+
+// money is a Money as an answer gives it.
+type money struct {
+	Amount   string `json:"amount"`
+	Currency string `json:"currency"`
+}
+
+// keep keeps a figure of the company's, when it is in the company's
+// currency, with its sign as returned.
+func (p *proposal) keep(m money) {
+	if m.Currency == p.co.Currency && m.Amount != "" {
+		p.amounts[m.Amount] = true
+	}
 }
 
 // centersRead keeps the company's active cost centers of an answer.
@@ -225,17 +249,37 @@ func (p *proposal) centersRead(resp apitools.Response) {
 	}
 }
 
-// planActualRead keeps the accounts and each cost center's actual amounts
-// of the company's rows in an answer.
+// accountsRead keeps the profit and loss accounts of an answer by their
+// numbers, which a line names its account by beside its id.
+func (p *proposal) accountsRead(resp apitools.Response) {
+	var page struct {
+		Items []struct {
+			ID             string `json:"id"`
+			Number         string `json:"number"`
+			IsBalanceSheet bool   `json:"is_balance_sheet"`
+		}
+	}
+	if resp.Decode(&page) != nil {
+		return // a refused read shows no account
+	}
+	for _, a := range page.Items {
+		if !a.IsBalanceSheet {
+			p.numbers[a.ID] = a.Number
+		}
+	}
+}
+
+// planActualRead keeps the accounts, the figures and each cost center's
+// actual amounts of the company's rows in an answer.
 func (p *proposal) planActualRead(resp apitools.Response) {
 	var page struct {
 		Items []struct {
 			LegalEntityID string `json:"legal_entity_id"`
 			CostCenterID  string `json:"cost_center_id"`
 			AccountID     string `json:"account_id"`
-			Actual        struct {
-				Amount string `json:"amount"`
-			} `json:"actual"`
+			Plan          money  `json:"plan"`
+			Actual        money  `json:"actual"`
+			Variance      money  `json:"variance"`
 		}
 	}
 	if resp.Decode(&page) != nil {
@@ -246,6 +290,9 @@ func (p *proposal) planActualRead(resp apitools.Response) {
 			continue
 		}
 		p.accounts[r.AccountID] = true
+		p.keep(r.Plan)
+		p.keep(r.Actual)
+		p.keep(r.Variance)
 		if p.actuals[r.CostCenterID] == nil {
 			p.actuals[r.CostCenterID] = map[string]bool{}
 		}
@@ -253,14 +300,15 @@ func (p *proposal) planActualRead(resp apitools.Response) {
 	}
 }
 
-// planLinesRead keeps the accounts of the company's cost center plan
-// lines in an answer.
+// planLinesRead keeps the accounts and amounts of the company's cost
+// center plan lines in an answer.
 func (p *proposal) planLinesRead(resp apitools.Response) {
 	var page struct {
 		Items []struct {
 			LegalEntityID string `json:"legal_entity_id"`
 			CostCenterID  string `json:"cost_center_id"`
 			AccountID     string `json:"account_id"`
+			Amount        money  `json:"amount"`
 		}
 	}
 	if resp.Decode(&page) != nil {
@@ -269,6 +317,7 @@ func (p *proposal) planLinesRead(resp apitools.Response) {
 	for _, l := range page.Items {
 		if l.LegalEntityID == p.co.ID && l.CostCenterID != "" {
 			p.accounts[l.AccountID] = true
+			p.keep(l.Amount)
 		}
 	}
 }
@@ -278,9 +327,10 @@ func (p *proposal) planLinesRead(resp apitools.Response) {
 const maxPeriod = 16
 
 var (
-	// planLine is a line of the proposal: the cost center, the account,
-	// the period, the amount and its currency.
-	planLine = regexp.MustCompile(`^Line ([0-9a-f-]{36}) account ([0-9a-f-]{36}) period (\d+): (-?\d+(?:\.\d+)?) ([A-Z]{3})$`)
+	// planLine is a line of the proposal: the cost center by id and code,
+	// the account by id and number, the period, the amount and its
+	// currency.
+	planLine = regexp.MustCompile(`^Line ([0-9a-f-]{36}) ([0-9A-Z_-]{1,10}) account ([0-9a-f-]{36}) (\S+) period (\d+): (-?\d+(?:\.\d+)?) ([A-Z]{3})$`)
 	// why is a cost center's reasons: its code, then the text.
 	why = regexp.MustCompile(`^Why ([0-9A-Z_-]{1,10}): (.+)$`)
 )
@@ -288,9 +338,10 @@ var (
 // check is the agent's rule on a recommendation the pattern admits
 // (ADR-0072, T105e): every number it writes is one the run read; its plan
 // lines are in the form a controller applies, each on an active cost
-// center of the company and an account the run read in the company's
-// plan or actuals, once per center, account and period, with an amount a
-// read returned as money in the company's currency; and each cost center
+// center of the company with its code and an account the run read in the
+// company's plan or actuals with its number, once per center, account
+// and period, with a figure of the company's plan or plan against actual
+// read in its currency, sign included; and each cost center
 // planned has its reasons, citing an actual figure the run read of it.
 func (p *proposal) check(r recommend.Proposed, f *recommend.Figures) error {
 	if unread := f.Unread(r.Content); len(unread) > 0 {
@@ -307,7 +358,7 @@ func (p *proposal) check(r recommend.Proposed, f *recommend.Figures) error {
 		if !strings.HasPrefix(text, "Line ") {
 			continue
 		}
-		center, err := p.line(text, f, seen)
+		center, err := p.line(text, seen)
 		if err != nil {
 			return err
 		}
@@ -320,23 +371,23 @@ func (p *proposal) check(r recommend.Proposed, f *recommend.Figures) error {
 }
 
 // line checks one plan line and returns its cost center.
-func (p *proposal) line(text string, f *recommend.Figures, seen map[string]bool) (string, error) {
+func (p *proposal) line(text string, seen map[string]bool) (string, error) {
 	m := planLine.FindStringSubmatch(text)
 	if m == nil {
 		return "", fmt.Errorf("%w: not %q", ErrForm, text)
 	}
-	center, account, amount, currency := m[1], m[2], m[4], m[5]
-	period, err := strconv.Atoi(m[3])
+	center, code, account, number, amount, currency := m[1], m[2], m[3], m[4], m[6], m[7]
+	period, err := strconv.Atoi(m[5])
 	key := fmt.Sprintf("%s %s %d", center, account, period)
 	switch {
-	case p.centers[center] == "":
-		return "", fmt.Errorf("%w: not %s", ErrCenter, center)
-	case !p.accounts[account]:
-		return "", fmt.Errorf("%w: not %s", ErrAccount, account)
-	case currency != p.co.Currency || !f.Returned(strings.TrimPrefix(amount, "-")):
+	case p.centers[center] == "" || p.centers[center] != code:
+		return "", fmt.Errorf("%w: not %s %s", ErrCenter, center, code)
+	case !p.accounts[account] || p.numbers[account] == "" || p.numbers[account] != number:
+		return "", fmt.Errorf("%w: not %s %s", ErrAccount, account, number)
+	case currency != p.co.Currency || !p.amounts[amount]:
 		return "", fmt.Errorf("%w: not %s %s", ErrAmount, amount, currency)
 	case err != nil || period < 1 || period > maxPeriod:
-		return "", fmt.Errorf("%w: not period %d", ErrForm, period)
+		return "", fmt.Errorf("%w: not period %s", ErrForm, m[5])
 	case seen[key]:
 		return "", fmt.Errorf("%w: %s", ErrTwice, text)
 	}

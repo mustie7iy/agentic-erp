@@ -183,7 +183,7 @@ func (g *gen) paymentTerms() []config.PaymentTerm {
 func (g *gen) paymentTerm(t sap.T052) config.PaymentTerm {
 	p := "payment_terms[" + t.ZTERM + "]"
 	term := config.PaymentTerm{Key: t.ZTERM, Description: t.TEXT1, NetDays: unknownDays}
-	o := g.read("T052", t.ZTERM)
+	o := g.named(g.read("T052", t.ZTERM), t.TEXT1)
 	if _, err := strconv.Atoi(strings.TrimSpace(t.ZTAG1)); err != nil {
 		g.note(o, p+".net_days", fmt.Sprintf("T052 days %q are not a whole number; set the term's days (left at %d, which fails validation)", t.ZTAG1, unknownDays))
 		return term
@@ -280,7 +280,7 @@ func (g *gen) company(t sap.T001) config.Company {
 		Code: t.BUKRS, Name: t.BUTXT, Currency: t.WAERS, Country: t.LAND1, FiscalYearStartMonth: 1,
 		AutoPostLimit: g.opts.AutoPostLimit, ManualEntryApprovalLimit: g.opts.ManualEntryApprovalLimit, OverDeliveryPercent: 0,
 	}
-	o := g.read("T001", t.BUKRS)
+	o := g.named(g.read("T001", t.BUKRS), t.BUTXT)
 	g.note(o, p+".fiscal_year_start_month", "fiscal year variant not in extract; assumed calendar year (K4)")
 	g.timeZone(o, p, &co)
 	g.note(o, p+".auto_post_limit", "no SAP equivalent; invoices above "+g.opts.AutoPostLimit+" always go to a person")
@@ -293,7 +293,7 @@ func (g *gen) company(t sap.T001) config.Company {
 	co.AccountDetermination.DownPayment = g.downPayment(p+".account_determination.down_payment", t.BUKRS)
 	for _, tx := range g.e.T007A {
 		if tx.BUKRS == t.BUKRS {
-			g.read("T007A", tx.BUKRS+"/"+tx.MWSKZ)
+			g.named(g.read("T007A", tx.BUKRS+"/"+tx.MWSKZ), tx.TEXT1)
 			co.TaxCodes = append(co.TaxCodes, config.TaxCode{Code: tx.MWSKZ, Description: tx.TEXT1, RatePercent: tx.KBETR, Account: sap.Alpha(tx.KONTS)})
 		}
 	}
@@ -497,7 +497,7 @@ func (g *gen) chartOfAccounts(p, company string) []config.Account {
 			continue
 		}
 		num := sap.Alpha(a.SAKNR)
-		o := g.read("SKB1", company+"/"+num)
+		o := g.named(g.read("SKB1", company+"/"+num), a.TXT50)
 		typ, err := g.opts.accountType(num)
 		if err != nil {
 			g.leaveOut(o, p+".chart_of_accounts["+num+"]", err.Error())
@@ -654,7 +654,7 @@ func (g *gen) roles(c *config.Config) {
 		}
 	}
 	for _, d := range g.e.AGR_DEFINE {
-		g.leaveOut(g.read("AGR_DEFINE", d.AGR_NAME), "roles["+d.AGR_NAME+"]", fmt.Sprintf("SAP role %q (users: %s): map its permissions in identity", d.TEXT, strings.Join(users[d.AGR_NAME], ", ")))
+		g.leaveOut(g.named(g.read("AGR_DEFINE", d.AGR_NAME), d.TEXT), "roles["+d.AGR_NAME+"]", fmt.Sprintf("SAP role %q (users: %s): map its permissions in identity", d.TEXT, strings.Join(users[d.AGR_NAME], ", ")))
 	}
 }
 

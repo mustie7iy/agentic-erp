@@ -99,6 +99,11 @@ func TestFitGapFromMockSAP(t *testing.T) {
 	if !slices.IsSortedFunc(r.Objects, func(a, b Object) int { return strings.Compare(a.Table+"\x00"+a.Key, b.Table+"\x00"+b.Key) }) {
 		t.Error("got objects out of order, want them in table and key order")
 	}
+	for _, o := range []struct{ table, key string }{{"T001", "1000"}, {"SKB1", "1000/211000"}, {"T052", "NT30"}, {"T007A", "1000/V1"}, {"AGR_DEFINE", "Z_AP_CLERK"}} {
+		if findObject(t, r, o.table, o.key).Name == "" {
+			t.Errorf("%s %s: got no name, want SAP's", o.table, o.key)
+		}
+	}
 	if len(r.Defaults) == 0 {
 		t.Error("got no settings without an SAP object, want the approval tiers and holds the draft sets")
 	}
@@ -225,7 +230,7 @@ func TestFitGapText(t *testing.T) {
 		Scope:  FitGapScope,
 		Counts: FitGapCounts{Objects: 2, CarriedOver: 1, LeftOut: 1},
 		Objects: []Object{
-			{Table: "T007A", Key: "1000/V1", Outcome: CarriedOver, Notes: []Note{}},
+			{Table: "T007A", Key: "1000/V1", Name: "Input tax", Outcome: CarriedOver, Notes: []Note{}},
 			{Table: "T030", Key: "1000/GBB/500000", Outcome: LeftOut, Notes: []Note{{Path: "companies[1000].account_determination", Message: "left out"}}},
 		},
 		Defaults: []Note{{Path: "roles", Message: "provision"}},
@@ -236,7 +241,7 @@ func TestFitGapText(t *testing.T) {
 	}
 	want := "Fit-gap report of the SAP customizing extract\n" + FitGapScope + "\n\n" +
 		"Objects read: 2 (carried over 1, carried over with a note 0, left out 1)\n\n" +
-		"T007A 1000/V1: carried over\n\n" +
+		"T007A 1000/V1 (Input tax): carried over\n\n" +
 		"T030 1000/GBB/500000: left out\n  companies[1000].account_determination: left out\n\n" +
 		"Settings the draft sets with no SAP object behind them: 1\n  roles: provision\n"
 	if b.String() != want {
