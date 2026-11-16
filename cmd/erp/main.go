@@ -172,10 +172,12 @@ agents (ERP_AGENT_TOKEN; models through the cell's gateway, ERP_AGENT_MODEL an a
                  | savings -company CODE [-period FROM..TO] [-max N]
                  | control-monitor [-process TEXT]
                  | risk
-  mcp            serve the API's operations open to agents as MCP tools over standard input and output
                  | plan -company CODE -category CODE -year YYYY
                  | enablement-docs -process purchase_to_pay|order_to_cash [-out F]
                  | enablement-help -operation ID -field NAME|-problem CODE
+
+agent hosts (ERP_AGENT_TOKEN):
+  mcp            serve the API's operations open to agents as MCP tools over standard input and output
 
 agent evaluations (ADR-0039; live, on demand: they spend model money):
   eval run -suite evals/<agent>/suite.yaml [-repeats 3] [-max-cost 5.00] [-out evals/results]

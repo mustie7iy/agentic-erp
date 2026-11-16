@@ -250,7 +250,12 @@ func rolesOnly(prose string, roles map[string]bool, allowed []string) error {
 	for _, name := range allowed {
 		if name != "" {
 			prose = strings.ReplaceAll(prose, "`"+name+"`", " ")
-			prose = strings.ReplaceAll(prose, name, " ")
+			// A whole token only: a short field (id) taken out of
+			// ap_id_clerk would hide an invented role.
+			re := regexp.MustCompile(`(^|[^A-Za-z0-9_])` + regexp.QuoteMeta(name) + `($|[^A-Za-z0-9_])`)
+			for range 2 { // a boundary shared by two neighbours is taken in the second pass
+				prose = re.ReplaceAllString(prose, "${1} ${2}")
+			}
 		}
 	}
 	named := codeRe.FindAllString(spanRe.ReplaceAllString(prose, " "), -1)
