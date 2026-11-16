@@ -31182,7 +31182,7 @@ paths:
       tags:
         - analytics
       summary: Get a kept run of a report you read
-      description: "One kept run of a report the caller reads, their own or one shared with them (ADR-0076 §6-§7; T95b, T95c), when the caller's company access today covers every company the run covered and they may use every permission its queries read their data with (`permissions`; held and not barred by a segregation-of-duties rule), as a run of theirs would need (403 `analytics.report_run_access` otherwise, or the segregation-of-duties problem; and for a run kept before T95c, which names neither, to all but its report's owner): as JSON (`format=json`, the default) the run with its specification and every query's result as the run kept them, read back from object storage, whose bytes are compared with the SHA-256 recorded (409 `analytics.report_run_changed` when they differ); as CSV (`format=csv`) one result, a header row of its columns' names then a row per result row, each measure an exact decimal and a money measure followed by its currency's column (`<name>_currency`), a measure that cannot be computed empty, the result named by `query_id` (422 `analytics.unknown_query` when the run has no such result, or when the run has several and none is named); as an Excel workbook (`format=xlsx`, T95d, ADR-0076 §8) the same result as `runAnalyticsQuery`'s workbook writes it, on a sheet named `Report`, the result named as for CSV, and a result cut at the rows a query answers (`truncated`) refused (422 `analytics.result_truncated`). A failed run has no results (409 `analytics.report_run_failed` for its CSV or workbook); a format the contract does not list is 422 `request.validation_failed`; 503 while the server has no object storage."
+      description: "One kept run of a report the caller reads, their own or one shared with them (ADR-0076 §6-§7; T95b, T95c), when the caller's company access today covers every company the run covered and they may use every permission its queries read their data with (`permissions`; held and not barred by a segregation-of-duties rule), as a run of theirs would need (403 `analytics.report_run_access` otherwise, or the segregation-of-duties problem; and for a run kept before T95c, which names neither, to all but its report's owner): as JSON (`format=json`, the default) the run with its specification and every query's result as the run kept them, read back from object storage, whose bytes are compared with the SHA-256 recorded (409 `analytics.report_run_changed` when they differ); as CSV (`format=csv`) one result, a header row of its columns' names then a row per result row, `Result-Truncated: true` when the result was cut at the rows a query answers (`truncated`), each measure an exact decimal and a money measure followed by its currency's column (`<name>_currency`), a measure that cannot be computed empty, the result named by `query_id` (422 `analytics.unknown_query` when the run has no such result, or when the run has several and none is named); as an Excel workbook (`format=xlsx`, T95d, ADR-0076 §8) the same result as `runAnalyticsQuery`'s workbook writes it, on a sheet named `Report`, the result named as for CSV, and a result cut at the rows a query answers (`truncated`) refused (422 `analytics.result_truncated`). A failed run has no results (409 `analytics.report_run_failed` for its CSV or workbook); a format the contract does not list is 422 `request.validation_failed`; 503 while the server has no object storage."
       x-permission: analytics.report.read
       x-problem-codes:
         - analytics.report_run_access
@@ -31215,6 +31215,11 @@ paths:
       responses:
         "200":
           description: The run, or one of its results as CSV or an Excel workbook.
+          headers:
+            Result-Truncated:
+              description: "`true` on a result's CSV when the result was cut at the rows a query answers, as its JSON's `truncated` says (a CSV's rows could not say so); absent otherwise."
+              schema:
+                type: boolean
           content:
             application/json:
               schema:
@@ -45144,6 +45149,8 @@ components:
         - fiscal_year
         - fiscal_period
         - account_id
+        - account_number
+        - account_name
         - amount
         - created_at
         - created_by
@@ -45183,15 +45190,39 @@ components:
           format: uuid
           description: The cost center; absent on a profit center's line.
           readOnly: true
+        cost_center_code:
+          type: string
+          description: "The cost center's code; absent on a profit center's line."
+          readOnly: true
+        cost_center_name:
+          type: string
+          description: "The cost center's name; absent on a profit center's line."
+          readOnly: true
         profit_center_id:
           type: string
           format: uuid
           description: The profit center; absent on a cost center's line.
           readOnly: true
+        profit_center_code:
+          type: string
+          description: "The profit center's code; absent on a cost center's line."
+          readOnly: true
+        profit_center_name:
+          type: string
+          description: "The profit center's name; absent on a cost center's line."
+          readOnly: true
         account_id:
           type: string
           format: uuid
           description: The account.
+          readOnly: true
+        account_number:
+          type: string
+          description: "The account's number."
+          readOnly: true
+        account_name:
+          type: string
+          description: "The account's name."
           readOnly: true
         amount:
           $ref: "#/components/schemas/Money"
@@ -45220,7 +45251,11 @@ components:
           fiscal_year: 2027
           fiscal_period: 1
           cost_center_id: "0192a000-0000-7000-8000-000000000201"
+          cost_center_code: CC-1000
+          cost_center_name: Administration
           account_id: "0192a000-0000-7000-8000-000000000501"
+          account_number: "640000"
+          account_name: Office supplies
           amount:
             amount: "12000.00"
             currency: EUR
@@ -45257,6 +45292,10 @@ components:
         - fiscal_period_to
         - cost_center_id
         - account_id
+        - cost_center_code
+        - cost_center_name
+        - account_number
+        - account_name
         - plan
         - actual
         - variance
@@ -45291,10 +45330,26 @@ components:
           format: uuid
           description: The cost center.
           readOnly: true
+        cost_center_code:
+          type: string
+          description: "The cost center's code."
+          readOnly: true
+        cost_center_name:
+          type: string
+          description: "The cost center's name."
+          readOnly: true
         account_id:
           type: string
           format: uuid
           description: The account.
+          readOnly: true
+        account_number:
+          type: string
+          description: "The account's number."
+          readOnly: true
+        account_name:
+          type: string
+          description: "The account's name."
           readOnly: true
         plan:
           $ref: "#/components/schemas/Money"
@@ -45320,7 +45375,11 @@ components:
           fiscal_period_from: 1
           fiscal_period_to: 3
           cost_center_id: "0192a000-0000-7000-8000-000000000201"
+          cost_center_code: CC-1000
+          cost_center_name: Administration
           account_id: "0192a000-0000-7000-8000-000000000501"
+          account_number: "640000"
+          account_name: Office supplies
           plan:
             amount: "36000.00"
             currency: EUR
@@ -45357,6 +45416,10 @@ components:
         - fiscal_period_to
         - profit_center_id
         - account_id
+        - profit_center_code
+        - profit_center_name
+        - account_number
+        - account_name
         - plan
         - actual
         - variance
@@ -45391,10 +45454,26 @@ components:
           format: uuid
           description: The profit center.
           readOnly: true
+        profit_center_code:
+          type: string
+          description: "The profit center's code."
+          readOnly: true
+        profit_center_name:
+          type: string
+          description: "The profit center's name."
+          readOnly: true
         account_id:
           type: string
           format: uuid
           description: The account.
+          readOnly: true
+        account_number:
+          type: string
+          description: "The account's number."
+          readOnly: true
+        account_name:
+          type: string
+          description: "The account's name."
           readOnly: true
         plan:
           $ref: "#/components/schemas/Money"
@@ -45420,7 +45499,11 @@ components:
           fiscal_period_from: 1
           fiscal_period_to: 3
           profit_center_id: "0192a000-0000-7000-8000-000000000301"
+          profit_center_code: PC-NORTH
+          profit_center_name: North
           account_id: "0192a000-0000-7000-8000-000000000501"
+          account_number: "640000"
+          account_name: Office supplies
           plan:
             amount: "36000.00"
             currency: EUR

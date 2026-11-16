@@ -414,3 +414,15 @@ bytes.
   spreadsheet program is available to the build; the format follows the
   standard's text (xlsx-minimal §11), and the tests read the workbook back
   with their own reader and compare it with the CSV.
+
+### A CSV says what its JSON says (hnames, review:T95d)
+
+- `erp query -csv` (`analytics.WriteCSV`) writes `analytics.Records`, as
+  the run's CSV and the workbook do: a money measure followed by its
+  currency's column (`<name>_currency`), so a column mixing currencies
+  says which each amount is in. The three layouts are now one.
+- `getReportRun`'s CSV of a result cut at the rows a query answers
+  (`truncated`) says so in a `Result-Truncated: true` header, as a CSV
+  page's `Next-Page-Token` does for the event log, rather than being
+  refused as the workbook is: the CSV was answered before, and refusing it
+  now would break a consumer (additive change only). Decided by default.

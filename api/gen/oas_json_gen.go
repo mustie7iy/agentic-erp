@@ -74660,8 +74660,24 @@ func (s *CostCenterPlanActual) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.CostCenterID)
 	}
 	{
+		e.FieldStart("cost_center_code")
+		e.Str(s.CostCenterCode)
+	}
+	{
+		e.FieldStart("cost_center_name")
+		e.Str(s.CostCenterName)
+	}
+	{
 		e.FieldStart("account_id")
 		json.EncodeUUID(e, s.AccountID)
+	}
+	{
+		e.FieldStart("account_number")
+		e.Str(s.AccountNumber)
+	}
+	{
+		e.FieldStart("account_name")
+		e.Str(s.AccountName)
 	}
 	{
 		e.FieldStart("plan")
@@ -74683,18 +74699,22 @@ func (s *CostCenterPlanActual) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfCostCenterPlanActual = [11]string{
+var jsonFieldsNameOfCostCenterPlanActual = [15]string{
 	0:  "plan_category_id",
 	1:  "legal_entity_id",
 	2:  "fiscal_year",
 	3:  "fiscal_period_from",
 	4:  "fiscal_period_to",
 	5:  "cost_center_id",
-	6:  "account_id",
-	7:  "plan",
-	8:  "actual",
-	9:  "variance",
-	10: "variance_percent",
+	6:  "cost_center_code",
+	7:  "cost_center_name",
+	8:  "account_id",
+	9:  "account_number",
+	10: "account_name",
+	11: "plan",
+	12: "actual",
+	13: "variance",
+	14: "variance_percent",
 }
 
 // Decode decodes CostCenterPlanActual from json.
@@ -74778,8 +74798,32 @@ func (s *CostCenterPlanActual) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"cost_center_id\"")
 			}
-		case "account_id":
+		case "cost_center_code":
 			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				v, err := d.Str()
+				s.CostCenterCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cost_center_code\"")
+			}
+		case "cost_center_name":
+			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				v, err := d.Str()
+				s.CostCenterName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cost_center_name\"")
+			}
+		case "account_id":
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.AccountID = v
@@ -74790,8 +74834,32 @@ func (s *CostCenterPlanActual) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"account_id\"")
 			}
+		case "account_number":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.AccountNumber = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"account_number\"")
+			}
+		case "account_name":
+			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.AccountName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"account_name\"")
+			}
 		case "plan":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				if err := s.Plan.Decode(d); err != nil {
 					return err
@@ -74801,7 +74869,7 @@ func (s *CostCenterPlanActual) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"plan\"")
 			}
 		case "actual":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				if err := s.Actual.Decode(d); err != nil {
 					return err
@@ -74811,7 +74879,7 @@ func (s *CostCenterPlanActual) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"actual\"")
 			}
 		case "variance":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				if err := s.Variance.Decode(d); err != nil {
 					return err
@@ -74841,7 +74909,7 @@ func (s *CostCenterPlanActual) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11111111,
-		0b00000011,
+		0b00111111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -192266,14 +192334,46 @@ func (s *PlanLine) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.CostCenterCode.Set {
+			e.FieldStart("cost_center_code")
+			s.CostCenterCode.Encode(e)
+		}
+	}
+	{
+		if s.CostCenterName.Set {
+			e.FieldStart("cost_center_name")
+			s.CostCenterName.Encode(e)
+		}
+	}
+	{
 		if s.ProfitCenterID.Set {
 			e.FieldStart("profit_center_id")
 			s.ProfitCenterID.Encode(e)
 		}
 	}
 	{
+		if s.ProfitCenterCode.Set {
+			e.FieldStart("profit_center_code")
+			s.ProfitCenterCode.Encode(e)
+		}
+	}
+	{
+		if s.ProfitCenterName.Set {
+			e.FieldStart("profit_center_name")
+			s.ProfitCenterName.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("account_id")
 		json.EncodeUUID(e, s.AccountID)
+	}
+	{
+		e.FieldStart("account_number")
+		e.Str(s.AccountNumber)
+	}
+	{
+		e.FieldStart("account_name")
+		e.Str(s.AccountName)
 	}
 	{
 		e.FieldStart("amount")
@@ -192295,7 +192395,7 @@ func (s *PlanLine) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPlanLine = [13]string{
+var jsonFieldsNameOfPlanLine = [19]string{
 	0:  "id",
 	1:  "plan_batch_id",
 	2:  "plan_category_id",
@@ -192303,12 +192403,18 @@ var jsonFieldsNameOfPlanLine = [13]string{
 	4:  "fiscal_year",
 	5:  "fiscal_period",
 	6:  "cost_center_id",
-	7:  "profit_center_id",
-	8:  "account_id",
-	9:  "amount",
-	10: "quantity",
-	11: "created_at",
-	12: "created_by",
+	7:  "cost_center_code",
+	8:  "cost_center_name",
+	9:  "profit_center_id",
+	10: "profit_center_code",
+	11: "profit_center_name",
+	12: "account_id",
+	13: "account_number",
+	14: "account_name",
+	15: "amount",
+	16: "quantity",
+	17: "created_at",
+	18: "created_by",
 }
 
 // Decode decodes PlanLine from json.
@@ -192316,7 +192422,7 @@ func (s *PlanLine) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode PlanLine to nil")
 	}
-	var requiredBitSet [2]uint8
+	var requiredBitSet [3]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -192402,6 +192508,26 @@ func (s *PlanLine) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"cost_center_id\"")
 			}
+		case "cost_center_code":
+			if err := func() error {
+				s.CostCenterCode.Reset()
+				if err := s.CostCenterCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cost_center_code\"")
+			}
+		case "cost_center_name":
+			if err := func() error {
+				s.CostCenterName.Reset()
+				if err := s.CostCenterName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cost_center_name\"")
+			}
 		case "profit_center_id":
 			if err := func() error {
 				s.ProfitCenterID.Reset()
@@ -192412,8 +192538,28 @@ func (s *PlanLine) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"profit_center_id\"")
 			}
+		case "profit_center_code":
+			if err := func() error {
+				s.ProfitCenterCode.Reset()
+				if err := s.ProfitCenterCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"profit_center_code\"")
+			}
+		case "profit_center_name":
+			if err := func() error {
+				s.ProfitCenterName.Reset()
+				if err := s.ProfitCenterName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"profit_center_name\"")
+			}
 		case "account_id":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.AccountID = v
@@ -192424,8 +192570,32 @@ func (s *PlanLine) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"account_id\"")
 			}
+		case "account_number":
+			requiredBitSet[1] |= 1 << 5
+			if err := func() error {
+				v, err := d.Str()
+				s.AccountNumber = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"account_number\"")
+			}
+		case "account_name":
+			requiredBitSet[1] |= 1 << 6
+			if err := func() error {
+				v, err := d.Str()
+				s.AccountName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"account_name\"")
+			}
 		case "amount":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				if err := s.Amount.Decode(d); err != nil {
 					return err
@@ -192445,7 +192615,7 @@ func (s *PlanLine) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"quantity\"")
 			}
 		case "created_at":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.CreatedAt = v
@@ -192457,7 +192627,7 @@ func (s *PlanLine) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_at\"")
 			}
 		case "created_by":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.CreatedBy = v
@@ -192477,9 +192647,10 @@ func (s *PlanLine) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [2]uint8{
+	for i, mask := range [3]uint8{
 		0b00111111,
-		0b00011011,
+		0b11110000,
+		0b00000110,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -199884,8 +200055,24 @@ func (s *ProfitCenterPlanActual) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.ProfitCenterID)
 	}
 	{
+		e.FieldStart("profit_center_code")
+		e.Str(s.ProfitCenterCode)
+	}
+	{
+		e.FieldStart("profit_center_name")
+		e.Str(s.ProfitCenterName)
+	}
+	{
 		e.FieldStart("account_id")
 		json.EncodeUUID(e, s.AccountID)
+	}
+	{
+		e.FieldStart("account_number")
+		e.Str(s.AccountNumber)
+	}
+	{
+		e.FieldStart("account_name")
+		e.Str(s.AccountName)
 	}
 	{
 		e.FieldStart("plan")
@@ -199907,18 +200094,22 @@ func (s *ProfitCenterPlanActual) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfProfitCenterPlanActual = [11]string{
+var jsonFieldsNameOfProfitCenterPlanActual = [15]string{
 	0:  "plan_category_id",
 	1:  "legal_entity_id",
 	2:  "fiscal_year",
 	3:  "fiscal_period_from",
 	4:  "fiscal_period_to",
 	5:  "profit_center_id",
-	6:  "account_id",
-	7:  "plan",
-	8:  "actual",
-	9:  "variance",
-	10: "variance_percent",
+	6:  "profit_center_code",
+	7:  "profit_center_name",
+	8:  "account_id",
+	9:  "account_number",
+	10: "account_name",
+	11: "plan",
+	12: "actual",
+	13: "variance",
+	14: "variance_percent",
 }
 
 // Decode decodes ProfitCenterPlanActual from json.
@@ -200002,8 +200193,32 @@ func (s *ProfitCenterPlanActual) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"profit_center_id\"")
 			}
-		case "account_id":
+		case "profit_center_code":
 			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				v, err := d.Str()
+				s.ProfitCenterCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"profit_center_code\"")
+			}
+		case "profit_center_name":
+			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				v, err := d.Str()
+				s.ProfitCenterName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"profit_center_name\"")
+			}
+		case "account_id":
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.AccountID = v
@@ -200014,8 +200229,32 @@ func (s *ProfitCenterPlanActual) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"account_id\"")
 			}
+		case "account_number":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.AccountNumber = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"account_number\"")
+			}
+		case "account_name":
+			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.AccountName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"account_name\"")
+			}
 		case "plan":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				if err := s.Plan.Decode(d); err != nil {
 					return err
@@ -200025,7 +200264,7 @@ func (s *ProfitCenterPlanActual) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"plan\"")
 			}
 		case "actual":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				if err := s.Actual.Decode(d); err != nil {
 					return err
@@ -200035,7 +200274,7 @@ func (s *ProfitCenterPlanActual) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"actual\"")
 			}
 		case "variance":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				if err := s.Variance.Decode(d); err != nil {
 					return err
@@ -200065,7 +200304,7 @@ func (s *ProfitCenterPlanActual) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11111111,
-		0b00000011,
+		0b00111111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

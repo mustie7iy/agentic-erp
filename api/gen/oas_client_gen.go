@@ -4005,7 +4005,8 @@ type Invoker interface {
 	// neither, to all but its report's owner): as JSON (`format=json`, the default) the run with its
 	// specification and every query's result as the run kept them, read back from object storage, whose
 	// bytes are compared with the SHA-256 recorded (409 `analytics.report_run_changed` when they differ);
-	// as CSV (`format=csv`) one result, a header row of its columns' names then a row per result row, each
+	// as CSV (`format=csv`) one result, a header row of its columns' names then a row per result row,
+	// `Result-Truncated: true` when the result was cut at the rows a query answers (`truncated`), each
 	// measure an exact decimal and a money measure followed by its currency's column (`<name>_currency`),
 	// a measure that cannot be computed empty, the result named by `query_id` (422
 	// `analytics.unknown_query` when the run has no such result, or when the run has several and none is
@@ -48774,7 +48775,8 @@ func (c *Client) sendGetReport(ctx context.Context, params GetReportParams) (res
 // neither, to all but its report's owner): as JSON (`format=json`, the default) the run with its
 // specification and every query's result as the run kept them, read back from object storage, whose
 // bytes are compared with the SHA-256 recorded (409 `analytics.report_run_changed` when they differ);
-// as CSV (`format=csv`) one result, a header row of its columns' names then a row per result row, each
+// as CSV (`format=csv`) one result, a header row of its columns' names then a row per result row,
+// `Result-Truncated: true` when the result was cut at the rows a query answers (`truncated`), each
 // measure an exact decimal and a money measure followed by its currency's column (`<name>_currency`),
 // a measure that cannot be computed empty, the result named by `query_id` (422
 // `analytics.unknown_query` when the run has no such result, or when the run has several and none is

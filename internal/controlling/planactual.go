@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/idref"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -75,11 +76,14 @@ type paRow struct {
 	percent                gen.OptDecimal
 }
 
-// paPage is a page: its query, its rows and the next page's token.
+// paPage is a page: its query, its rows, what names their centers and
+// accounts, and the next page's token.
 type paPage struct {
-	q    paQuery
-	rows []paRow
-	next gen.OptString
+	q        paQuery
+	rows     []paRow
+	centers  map[uuid.UUID]ledger.CenterName
+	accounts map[uuid.UUID]ledger.AccountRef
+	next     gen.OptString
 }
 
 // paQuery is a page's request, its filters resolved.
@@ -101,7 +105,11 @@ func (e *Endpoints) ListCostCenterPlanActual(ctx context.Context, params gen.Lis
 	if err != nil {
 		return nil, err
 	}
-	return &gen.CostCenterPlanActualPage{Items: paItems(p, (*gen.CostCenterPlanActual).SetCostCenterID), NextPageToken: p.next}, nil
+	return &gen.CostCenterPlanActualPage{Items: paItems(p, func(item *gen.CostCenterPlanActual, id uuid.UUID, n ledger.CenterName) {
+		item.SetCostCenterID(id)
+		item.SetCostCenterCode(n.Code)
+		item.SetCostCenterName(n.Name)
+	}), NextPageToken: p.next}, nil
 }
 
 // ListProfitCenterPlanActual implements GET /v1/profit-center-plan-actual.
@@ -110,7 +118,11 @@ func (e *Endpoints) ListProfitCenterPlanActual(ctx context.Context, params gen.L
 	if err != nil {
 		return nil, err
 	}
-	return &gen.ProfitCenterPlanActualPage{Items: paItems(p, (*gen.ProfitCenterPlanActual).SetProfitCenterID), NextPageToken: p.next}, nil
+	return &gen.ProfitCenterPlanActualPage{Items: paItems(p, func(item *gen.ProfitCenterPlanActual, id uuid.UUID, n ledger.CenterName) {
+		item.SetProfitCenterID(id)
+		item.SetProfitCenterCode(n.Code)
+		item.SetProfitCenterName(n.Name)
+	}), NextPageToken: p.next}, nil
 }
 
 func costCenterParams(p gen.ListCostCenterPlanActualParams) paParams {
@@ -133,14 +145,17 @@ type paItem[T any] interface {
 	SetFiscalPeriodFrom(int32)
 	SetFiscalPeriodTo(int32)
 	SetAccountID(uuid.UUID)
+	SetAccountNumber(string)
+	SetAccountName(string)
 	SetPlan(gen.Money)
 	SetActual(gen.Money)
 	SetVariance(gen.Money)
 	SetVariancePercent(gen.OptDecimal)
 }
 
-// paItems are the page's rows as the operation's items.
-func paItems[T any, P paItem[T]](p paPage, setCenter func(P, uuid.UUID)) []T {
+// paItems are the page's rows as the operation's items, each center and
+// account named beside its id (review:T105e).
+func paItems[T any, P paItem[T]](p paPage, setCenter func(P, uuid.UUID, ledger.CenterName)) []T {
 	out := make([]T, len(p.rows))
 	for i, r := range p.rows {
 		item := P(&out[i])
@@ -149,8 +164,10 @@ func paItems[T any, P paItem[T]](p paPage, setCenter func(P, uuid.UUID)) []T {
 		item.SetFiscalYear(int32(p.q.actuals.FiscalYear))
 		item.SetFiscalPeriodFrom(int32(p.q.from))
 		item.SetFiscalPeriodTo(int32(p.q.to))
-		setCenter(item, r.center)
+		setCenter(item, r.center, p.centers[r.center])
 		item.SetAccountID(r.account)
+		item.SetAccountNumber(p.accounts[r.account].Number)
+		item.SetAccountName(p.accounts[r.account].Name)
 		item.SetPlan(r.plan)
 		item.SetActual(r.actual)
 		item.SetVariance(r.variance)
@@ -187,7 +204,9 @@ func (e *Endpoints) planActual(ctx context.Context, k paKind, params paParams) (
 		}
 		p.rows = append(p.rows, row)
 	}
-	return p, nil
+	p.centers, p.accounts, err = e.names(ctx, idref.Of(p.rows, func(r paRow) *uuid.UUID { return &r.center }),
+		idref.Of(p.rows, func(r paRow) *uuid.UUID { return &r.account }))
+	return p, err
 }
 
 // planActualQuery resolves the request: the page, the periods, the legal
@@ -305,4 +324,21 @@ func (q paQuery) toAPI(r planActual) (paRow, error) {
 		out.percent.SetTo(gen.Decimal(money.PercentOf(variance, r.plan)))
 	}
 	return out, nil
+}
+
+// Kinds of the objects a plan's rows name by id.
+var (
+	centerRef  = idref.Kind{Name: "cost or profit center", Context: "ledger"}
+	accountRef = idref.Kind{Name: "account", Context: "ledger"}
+)
+
+// names reads the codes and names of the centers and the numbers and
+// names of the accounts a page's rows name (one call each for the page).
+func (e *Endpoints) names(ctx context.Context, centers, accounts []uuid.UUID) (map[uuid.UUID]ledger.CenterName, map[uuid.UUID]ledger.AccountRef, error) {
+	c, err := idref.Resolve(ctx, e.Ledger.CenterNames, centers, centerRef)
+	if err != nil {
+		return nil, nil, err
+	}
+	a, err := idref.Resolve(ctx, e.Ledger.AccountNames, accounts, accountRef)
+	return c, a, err
 }

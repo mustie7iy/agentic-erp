@@ -51981,41 +51981,101 @@ func encodeGetReportResponse(response GetReportRes, w http.ResponseWriter, span 
 
 func encodeGetReportRunResponse(response GetReportRunRes, w http.ResponseWriter, span trace.Span) error {
 	switch response := response.(type) {
-	case *ReportRun:
+	case *ReportRunHeaders:
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Access-Control-Expose-Headers", "Result-Truncated")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "Result-Truncated" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Result-Truncated",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.ResultTruncated.Get(); ok {
+						return e.EncodeValue(conv.BoolToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Result-Truncated header")
+				}
+			}
+		}
 		w.WriteHeader(200)
 
 		e := new(jx.Encoder)
-		response.Encode(e)
+		response.Response.Encode(e)
 		if _, err := e.WriteTo(w); err != nil {
 			return errors.Wrap(err, "write")
 		}
 
 		return nil
 
-	case *GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet:
+	case *GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders:
 		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+		w.Header().Set("Access-Control-Expose-Headers", "Result-Truncated")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "Result-Truncated" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Result-Truncated",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.ResultTruncated.Get(); ok {
+						return e.EncodeValue(conv.BoolToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Result-Truncated header")
+				}
+			}
+		}
 		w.WriteHeader(200)
 
 		writer := w
-		if closer, ok := response.Data.(io.Closer); ok {
+		if closer, ok := response.Response.Data.(io.Closer); ok {
 			defer closer.Close()
 		}
-		if _, err := io.Copy(writer, response); err != nil {
+		if _, err := io.Copy(writer, response.Response); err != nil {
 			return errors.Wrap(err, "write")
 		}
 
 		return nil
 
-	case *GetReportRunOKTextCsv:
+	case *GetReportRunOKTextCsvHeaders:
 		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Access-Control-Expose-Headers", "Result-Truncated")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "Result-Truncated" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Result-Truncated",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.ResultTruncated.Get(); ok {
+						return e.EncodeValue(conv.BoolToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Result-Truncated header")
+				}
+			}
+		}
 		w.WriteHeader(200)
 
 		writer := w
-		if closer, ok := response.Data.(io.Closer); ok {
+		if closer, ok := response.Response.Data.(io.Closer); ok {
 			defer closer.Close()
 		}
-		if _, err := io.Copy(writer, response); err != nil {
+		if _, err := io.Copy(writer, response.Response); err != nil {
 			return errors.Wrap(err, "write")
 		}
 

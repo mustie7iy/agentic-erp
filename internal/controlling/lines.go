@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/idref"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -89,10 +90,22 @@ func (e *Endpoints) ListPlanLines(ctx context.Context, params gen.ListPlanLinesP
 	if err != nil {
 		return nil, fmt.Errorf("controlling: list plan lines of %s: %w", le.ID, err)
 	}
+	centers, accounts, err := e.names(ctx, append(idref.Of(ls, func(l Line) *uuid.UUID { return l.CostCenterID }), idref.Of(ls, func(l Line) *uuid.UUID { return l.ProfitCenterID })...),
+		idref.Of(ls, func(l Line) *uuid.UUID { return &l.AccountID }))
+	if err != nil {
+		return nil, err
+	}
 	items, next := apitypes.PageOf(ks, ls, func(l Line) (string, uuid.UUID) { return fmt.Sprint(l.FiscalPeriod), l.ID }, func(l Line) gen.PlanLine {
 		out := gen.PlanLine{ID: l.ID, PlanBatchID: l.BatchID, PlanCategoryID: l.CategoryID, LegalEntityID: l.LegalEntityID, FiscalYear: int32(l.FiscalYear),
 			FiscalPeriod: int32(l.FiscalPeriod), CostCenterID: apitypes.OptUUID(l.CostCenterID), ProfitCenterID: apitypes.OptUUID(l.ProfitCenterID),
-			AccountID: l.AccountID, Amount: apitypes.Money(l.Amount, le.LocalCurrency, exp), CreatedAt: l.CreatedAt, CreatedBy: l.CreatedBy}
+			AccountID: l.AccountID, AccountNumber: accounts[l.AccountID].Number, AccountName: accounts[l.AccountID].Name,
+			Amount: apitypes.Money(l.Amount, le.LocalCurrency, exp), CreatedAt: l.CreatedAt, CreatedBy: l.CreatedBy}
+		if l.CostCenterID != nil {
+			out.CostCenterCode, out.CostCenterName = gen.NewOptString(centers[*l.CostCenterID].Code), gen.NewOptString(centers[*l.CostCenterID].Name)
+		}
+		if l.ProfitCenterID != nil {
+			out.ProfitCenterCode, out.ProfitCenterName = gen.NewOptString(centers[*l.ProfitCenterID].Code), gen.NewOptString(centers[*l.ProfitCenterID].Name)
+		}
 		if l.Quantity != nil {
 			out.Quantity.SetTo(gen.Quantity{Value: *l.Quantity, Unit: *l.Unit})
 		}

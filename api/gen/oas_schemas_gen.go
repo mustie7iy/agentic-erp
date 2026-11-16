@@ -32644,8 +32644,16 @@ type CostCenterPlanActual struct {
 	FiscalPeriodTo int32 `json:"fiscal_period_to"`
 	// The cost center.
 	CostCenterID uuid.UUID `json:"cost_center_id"`
+	// The cost center's code.
+	CostCenterCode string `json:"cost_center_code"`
+	// The cost center's name.
+	CostCenterName string `json:"cost_center_name"`
 	// The account.
 	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name.
+	AccountName string `json:"account_name"`
 	// The category's plan.
 	Plan Money `json:"plan"`
 	// The leading ledger's actual.
@@ -32687,9 +32695,29 @@ func (s *CostCenterPlanActual) GetCostCenterID() uuid.UUID {
 	return s.CostCenterID
 }
 
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *CostCenterPlanActual) GetCostCenterCode() string {
+	return s.CostCenterCode
+}
+
+// GetCostCenterName returns the value of CostCenterName.
+func (s *CostCenterPlanActual) GetCostCenterName() string {
+	return s.CostCenterName
+}
+
 // GetAccountID returns the value of AccountID.
 func (s *CostCenterPlanActual) GetAccountID() uuid.UUID {
 	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *CostCenterPlanActual) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *CostCenterPlanActual) GetAccountName() string {
+	return s.AccountName
 }
 
 // GetPlan returns the value of Plan.
@@ -32742,9 +32770,29 @@ func (s *CostCenterPlanActual) SetCostCenterID(val uuid.UUID) {
 	s.CostCenterID = val
 }
 
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *CostCenterPlanActual) SetCostCenterCode(val string) {
+	s.CostCenterCode = val
+}
+
+// SetCostCenterName sets the value of CostCenterName.
+func (s *CostCenterPlanActual) SetCostCenterName(val string) {
+	s.CostCenterName = val
+}
+
 // SetAccountID sets the value of AccountID.
 func (s *CostCenterPlanActual) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *CostCenterPlanActual) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *CostCenterPlanActual) SetAccountName(val string) {
+	s.AccountName = val
 }
 
 // SetPlan sets the value of Plan.
@@ -47822,7 +47870,33 @@ func (s GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlShe
 	return s.Data.Read(p)
 }
 
-func (*GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet) getReportRunRes() {
+// GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders wraps GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet with response headers.
+type GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders struct {
+	ResultTruncated OptBool
+	Response        GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet
+}
+
+// GetResultTruncated returns the value of ResultTruncated.
+func (s *GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders) GetResultTruncated() OptBool {
+	return s.ResultTruncated
+}
+
+// GetResponse returns the value of Response.
+func (s *GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders) GetResponse() GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet {
+	return s.Response
+}
+
+// SetResultTruncated sets the value of ResultTruncated.
+func (s *GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders) SetResultTruncated(val OptBool) {
+	s.ResultTruncated = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders) SetResponse(val GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet) {
+	s.Response = val
+}
+
+func (*GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders) getReportRunRes() {
 }
 
 // One result: a header row of column names, then its rows; UTF-8, lines ending in LF.
@@ -47840,7 +47914,33 @@ func (s GetReportRunOKTextCsv) Read(p []byte) (n int, err error) {
 	return s.Data.Read(p)
 }
 
-func (*GetReportRunOKTextCsv) getReportRunRes() {}
+// GetReportRunOKTextCsvHeaders wraps GetReportRunOKTextCsv with response headers.
+type GetReportRunOKTextCsvHeaders struct {
+	ResultTruncated OptBool
+	Response        GetReportRunOKTextCsv
+}
+
+// GetResultTruncated returns the value of ResultTruncated.
+func (s *GetReportRunOKTextCsvHeaders) GetResultTruncated() OptBool {
+	return s.ResultTruncated
+}
+
+// GetResponse returns the value of Response.
+func (s *GetReportRunOKTextCsvHeaders) GetResponse() GetReportRunOKTextCsv {
+	return s.Response
+}
+
+// SetResultTruncated sets the value of ResultTruncated.
+func (s *GetReportRunOKTextCsvHeaders) SetResultTruncated(val OptBool) {
+	s.ResultTruncated = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetReportRunOKTextCsvHeaders) SetResponse(val GetReportRunOKTextCsv) {
+	s.Response = val
+}
+
+func (*GetReportRunOKTextCsvHeaders) getReportRunRes() {}
 
 type GetReportRunUnprocessableEntity Problem
 
@@ -77831,10 +77931,22 @@ type PlanLine struct {
 	FiscalPeriod int32 `json:"fiscal_period"`
 	// The cost center; absent on a profit center's line.
 	CostCenterID OptUUID `json:"cost_center_id"`
+	// The cost center's code; absent on a profit center's line.
+	CostCenterCode OptString `json:"cost_center_code"`
+	// The cost center's name; absent on a profit center's line.
+	CostCenterName OptString `json:"cost_center_name"`
 	// The profit center; absent on a cost center's line.
 	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// The profit center's code; absent on a cost center's line.
+	ProfitCenterCode OptString `json:"profit_center_code"`
+	// The profit center's name; absent on a cost center's line.
+	ProfitCenterName OptString `json:"profit_center_name"`
 	// The account.
 	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name.
+	AccountName string `json:"account_name"`
 	// The amount in the legal entity's local currency; debit positive.
 	Amount Money `json:"amount"`
 	// The quantity planned.
@@ -77880,14 +77992,44 @@ func (s *PlanLine) GetCostCenterID() OptUUID {
 	return s.CostCenterID
 }
 
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *PlanLine) GetCostCenterCode() OptString {
+	return s.CostCenterCode
+}
+
+// GetCostCenterName returns the value of CostCenterName.
+func (s *PlanLine) GetCostCenterName() OptString {
+	return s.CostCenterName
+}
+
 // GetProfitCenterID returns the value of ProfitCenterID.
 func (s *PlanLine) GetProfitCenterID() OptUUID {
 	return s.ProfitCenterID
 }
 
+// GetProfitCenterCode returns the value of ProfitCenterCode.
+func (s *PlanLine) GetProfitCenterCode() OptString {
+	return s.ProfitCenterCode
+}
+
+// GetProfitCenterName returns the value of ProfitCenterName.
+func (s *PlanLine) GetProfitCenterName() OptString {
+	return s.ProfitCenterName
+}
+
 // GetAccountID returns the value of AccountID.
 func (s *PlanLine) GetAccountID() uuid.UUID {
 	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *PlanLine) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *PlanLine) GetAccountName() string {
+	return s.AccountName
 }
 
 // GetAmount returns the value of Amount.
@@ -77945,14 +78087,44 @@ func (s *PlanLine) SetCostCenterID(val OptUUID) {
 	s.CostCenterID = val
 }
 
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *PlanLine) SetCostCenterCode(val OptString) {
+	s.CostCenterCode = val
+}
+
+// SetCostCenterName sets the value of CostCenterName.
+func (s *PlanLine) SetCostCenterName(val OptString) {
+	s.CostCenterName = val
+}
+
 // SetProfitCenterID sets the value of ProfitCenterID.
 func (s *PlanLine) SetProfitCenterID(val OptUUID) {
 	s.ProfitCenterID = val
 }
 
+// SetProfitCenterCode sets the value of ProfitCenterCode.
+func (s *PlanLine) SetProfitCenterCode(val OptString) {
+	s.ProfitCenterCode = val
+}
+
+// SetProfitCenterName sets the value of ProfitCenterName.
+func (s *PlanLine) SetProfitCenterName(val OptString) {
+	s.ProfitCenterName = val
+}
+
 // SetAccountID sets the value of AccountID.
 func (s *PlanLine) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *PlanLine) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *PlanLine) SetAccountName(val string) {
+	s.AccountName = val
 }
 
 // SetAmount sets the value of Amount.
@@ -80517,8 +80689,16 @@ type ProfitCenterPlanActual struct {
 	FiscalPeriodTo int32 `json:"fiscal_period_to"`
 	// The profit center.
 	ProfitCenterID uuid.UUID `json:"profit_center_id"`
+	// The profit center's code.
+	ProfitCenterCode string `json:"profit_center_code"`
+	// The profit center's name.
+	ProfitCenterName string `json:"profit_center_name"`
 	// The account.
 	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name.
+	AccountName string `json:"account_name"`
 	// The category's plan.
 	Plan Money `json:"plan"`
 	// The leading ledger's actual.
@@ -80560,9 +80740,29 @@ func (s *ProfitCenterPlanActual) GetProfitCenterID() uuid.UUID {
 	return s.ProfitCenterID
 }
 
+// GetProfitCenterCode returns the value of ProfitCenterCode.
+func (s *ProfitCenterPlanActual) GetProfitCenterCode() string {
+	return s.ProfitCenterCode
+}
+
+// GetProfitCenterName returns the value of ProfitCenterName.
+func (s *ProfitCenterPlanActual) GetProfitCenterName() string {
+	return s.ProfitCenterName
+}
+
 // GetAccountID returns the value of AccountID.
 func (s *ProfitCenterPlanActual) GetAccountID() uuid.UUID {
 	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *ProfitCenterPlanActual) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *ProfitCenterPlanActual) GetAccountName() string {
+	return s.AccountName
 }
 
 // GetPlan returns the value of Plan.
@@ -80615,9 +80815,29 @@ func (s *ProfitCenterPlanActual) SetProfitCenterID(val uuid.UUID) {
 	s.ProfitCenterID = val
 }
 
+// SetProfitCenterCode sets the value of ProfitCenterCode.
+func (s *ProfitCenterPlanActual) SetProfitCenterCode(val string) {
+	s.ProfitCenterCode = val
+}
+
+// SetProfitCenterName sets the value of ProfitCenterName.
+func (s *ProfitCenterPlanActual) SetProfitCenterName(val string) {
+	s.ProfitCenterName = val
+}
+
 // SetAccountID sets the value of AccountID.
 func (s *ProfitCenterPlanActual) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *ProfitCenterPlanActual) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *ProfitCenterPlanActual) SetAccountName(val string) {
+	s.AccountName = val
 }
 
 // SetPlan sets the value of Plan.
@@ -85750,8 +85970,6 @@ func (s *ReportRun) SetResults(val []AnalyticsResult) {
 	s.Results = val
 }
 
-func (*ReportRun) getReportRunRes() {}
-
 // The problem that failed a run.
 // Ref: #/components/schemas/ReportRunFailure
 type ReportRunFailure struct {
@@ -85780,6 +85998,34 @@ func (s *ReportRunFailure) SetCode(val string) {
 func (s *ReportRunFailure) SetDetail(val string) {
 	s.Detail = val
 }
+
+// ReportRunHeaders wraps ReportRun with response headers.
+type ReportRunHeaders struct {
+	ResultTruncated OptBool
+	Response        ReportRun
+}
+
+// GetResultTruncated returns the value of ResultTruncated.
+func (s *ReportRunHeaders) GetResultTruncated() OptBool {
+	return s.ResultTruncated
+}
+
+// GetResponse returns the value of Response.
+func (s *ReportRunHeaders) GetResponse() ReportRun {
+	return s.Response
+}
+
+// SetResultTruncated sets the value of ResultTruncated.
+func (s *ReportRunHeaders) SetResultTruncated(val OptBool) {
+	s.ResultTruncated = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ReportRunHeaders) SetResponse(val ReportRun) {
+	s.Response = val
+}
+
+func (*ReportRunHeaders) getReportRunRes() {}
 
 // One page of kept runs.
 // Ref: #/components/schemas/ReportRunPage
