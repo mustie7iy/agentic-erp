@@ -292,12 +292,13 @@ var agentCommands = map[string]func(context.Context, []string) error{
 	"regulatory-draft":  agentRegulatoryDraft,
 	"support-ask":       agentSupportAsk,
 	"enablement-docs":   agentEnablementDocs,
+	"enablement-help":   agentEnablementHelp,
 }
 
 // agentCmd runs a delivery agent with the agents' token.
 func agentCmd(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("agent invoices | config | migration | test | reconcile | close-accruals | close-variances | cash-variance | tax-draft | credit-score | access-roles | access-sod | access-review | bid-compare | regulatory-notice | regulatory-draft | support-ask | enablement-docs")
+		return errors.New("agent invoices | config | migration | test | reconcile | close-accruals | close-variances | cash-variance | tax-draft | credit-score | access-roles | access-sod | access-review | bid-compare | regulatory-notice | regulatory-draft | support-ask | enablement-docs | enablement-help")
 	}
 	if run, ok := agentCommands[args[0]]; ok {
 		return run(ctx, args[1:])

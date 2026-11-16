@@ -11,9 +11,11 @@
 // it names the version on its first line, every setting it cites is the
 // active version's with that value, every role it names is one of the
 // tenant's active roles, and it writes no number outside its citations,
-// so every amount and percentage it states is the configuration's. The
-// agent changes nothing (Never). Its evaluation suite is evals/enablement
-// (ADR-0039).
+// so every amount and percentage it states is the configuration's. Its
+// second capability (T109b, help.go) explains a field or a problem code
+// of an operation from the contract and the configuration, with a reply
+// only. The agent changes nothing (Never). Its evaluation suite is
+// evals/enablement (ADR-0039).
 package enablementagent
 
 import (
@@ -89,7 +91,8 @@ written any other way is not seen. Name every role as the word role and its code
 and only roles the tenant has. Write no number outside a citation: every amount, percentage, count of approvals or days
 is a setting cited; a count you made yourself is written in words. Keep the description under ten thousand characters.`
 
-// Agent writes a process's description from the configuration (T109a).
+// Agent writes a process's description from the configuration (T109a)
+// and explains a field or a problem code of an operation (T109b).
 type Agent struct {
 	LLM *llm.Runner
 	API *apitools.Client
@@ -195,7 +198,7 @@ func (d *documenting) check(p recommend.Proposed, _ *recommend.Figures) error {
 	if strings.TrimSpace(first) != d.heading {
 		return ErrHeading
 	}
-	if err := cited(d.active, rest); err != nil {
+	if err := cited(d.active, rest, true); err != nil {
 		return err
 	}
 	for _, m := range roleRe.FindAllStringSubmatch(rest, -1) {
@@ -210,10 +213,10 @@ func (d *documenting) check(p recommend.Proposed, _ *recommend.Figures) error {
 }
 
 // cited holds every setting a text cites to the configuration, with its
-// value, and refuses a text that cites none.
-func cited(c *config.Config, text string) error {
+// value; required refuses a text that cites none.
+func cited(c *config.Config, text string, required bool) error {
 	settings := config.Cited(text)
-	if len(settings) == 0 {
+	if required && len(settings) == 0 {
 		return ErrUncited
 	}
 	for _, s := range settings {

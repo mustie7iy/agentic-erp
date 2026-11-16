@@ -204,7 +204,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `access` | `internal/accessagent`, `erp agent access-roles -role CODE -period FROM..TO`, `erp agent access-sod -role CODE [-add P,...]`, `erp agent access-review -period FROM..TO` | `listRoles`, `getRole`, `listRolePermissions`, `listRoleAssignments`, `listPrincipals`, `listAuditEvents`, `listSodRules` | on `role`: `remove_permissions`, `keep` (T106a); `sod_conflict`, `no_conflict` (T106b); on `principal`: `keep_roles`, `remove_roles`, `review` (T106c) | every identity write (granting a permission, changing a rule, ending a role assignment, blocking a principal among them) |
 | `regulatory` | `internal/regulatoryagent`, `erp agent regulatory-notice -file F` | `listCountryPacks`, `listConfigVersions`, `getConfigVersion`, `listTaxRegistrations`, `listTaxPeriods` | on `config_version`: `change_needed`, `no_change` | every write of the configuration (change requests, a pack applied, a regression suite) |
 | `regulatory` (drafting, T107b) | `erp agent regulatory-draft -recommendation ID` | `getRecommendation`, `listConfigVersions`, `getConfigVersion`, `listFiscalPeriods`, `getChangeRequest`, `getOperation`; writes `createChangeRequest`, `updateChangeRequest`, `simulateChangeRequest` | on `change_request`: `ready_to_submit`, `simulation_failed` | submitting, withdrawing or activating a change request, a pack applied, a regression suite, a decision on an approval or a recommendation |
-| `enablement` | `internal/enablementagent`, `erp agent enablement-docs -process P [-out F]` | `listConfigVersions`, `getConfigVersion`, `listRoles`, `listRolePermissions`, `listSodRules` | on `config_version`: `process_document` | every write of the configuration and of access (change requests, a pack applied, a regression suite, roles, grants, assignments, SoD rules, principals, company access) |
+| `enablement` | `internal/enablementagent`, `erp agent enablement-docs -process P [-out F]`; beside the pattern, `erp agent enablement-help -operation ID -field NAME\|-problem CODE` (T109b) | `listConfigVersions`, `getConfigVersion`, `listRoles`, `listRolePermissions`, `listSodRules`; for help also `getSchema` | on `config_version`: `process_document` (T109a); help replies only (T109b) | every write of the configuration and of access (change requests, a pack applied, a regression suite, roles, grants, assignments, SoD rules, principals, company access) |
 | `bid_comparison` | `internal/bidagent`, `erp agent bid-compare -rfq ID` | `getRfq`, `listSupplierQuotations`, `getRfqComparison`, `getBusinessPartner`, `listContracts`, `listPurchaseOrders` | on `rfq`: `award`, `no_award` | `awardRfq`, `publishRfq`, `createSupplierQuotation`, `createRfq` |
 
 A later slice adds its row here and its section under "As built".
@@ -778,6 +778,52 @@ A later slice adds its row here and its section under "As built".
   the version is as it was.
 - No migration, no new operation, permission, event or problem code.
 
+### T109b, the enablement agent: in-context help
+
+- A second entry function of the `enablement` agent, `Agent.Help`, as the
+  plan says; same type, same suite. `erp agent enablement-help -operation
+  ID -field NAME|-problem CODE`. It replies and does not recommend, so it
+  runs outside the pattern, through `apitools.Run` with a local `reply`
+  tool, as the support agent does (T108a); its reads are T109a's and
+  `getSchema`.
+- **Refused before any model call.** The plan's "422 otherwise, before any
+  model call" is, for a command with no endpoint, a refusal before
+  anything is read or a session started: `apitools.Explain` looks the
+  operation up in the contract compiled into the binary, then the field (a
+  parameter of that name, else a property of the request body, else of a
+  successful response's body, dotted through nested objects, arrays and
+  combined schemas) or the problem code (one the operation lists in
+  `x-problem-codes`, or one the document lists for every operation), and
+  answers `apitools.ErrNotInContract` for any it does not have; a question
+  naming neither or both of a field and a problem code is `ErrAsk`.
+- The prompt gives what the contract says, between `<contract>` lines: the
+  operation's method, path, summary, description, permission and problem
+  codes, and the field's description.
+- Its check (`helping.check`): one reply; it names the field or problem
+  code asked about; it quotes at least one passage in double quotes, and
+  every passage is in the operation's summary or description or the
+  field's description character for character, as whole words and numbers
+  (`recommend.Quotations`, `recommend.Quoted`, the regulatory agent's
+  quotation rule moved from `internal/regulatoryagent` and shared); every
+  setting cited is the active version's with that value; every number
+  outside the quotations and citations (a list's numbering apart) is one
+  the question's names write.
+- `evals/enablement`, version 2: three cases added (task `operation` with
+  `field` or `problem`): `payables.match_required` of `postSupplierInvoice`
+  explained with the tenant's tolerance cited; `gross_amount` of
+  `createSupplierInvoice` explained from its description; an instruction
+  in a role's name not followed while `status` of `listRoles` is explained.
+- Walkthrough `step_enablement_agent` extended (`enablement_help`): Alex
+  enters an invoice on Tyrell's order and posts it before matching it
+  (409 `payables.match_required`); a code the contract does not have is
+  refused before any model call; the agent's reply quoting words the
+  contract does not write is refused; it explains the code, quoting the
+  operation's description and citing company 3000's price tolerance in
+  force; Alex cancels the invoice.
+- Help beside a field in the web workspace is not built (the plan's
+  "Later"). No migration, no new operation, permission, event or problem
+  code.
+
 ## Defaults taken (for the product owner's digest)
 
 1. The shared run is a package, `internal/recommend`, not a copy per
@@ -874,3 +920,9 @@ A later slice adds its row here and its section under "As built".
     `identity.access.read`, granted by the administrator as for the
     access agent. The first version knows purchase to pay and order to
     cash, and writes the file the command names (default `P.md`).
+19. (T109b) Help is a second entry function of the same agent that
+    replies; "422 before any model call" is a refusal before anything is
+    read (the command has no endpoint); a field is a parameter or a body's
+    property, dotted; a problem code is the operation's or one every
+    operation may answer; the reply quotes the contract and cites only the
+    active version's settings.

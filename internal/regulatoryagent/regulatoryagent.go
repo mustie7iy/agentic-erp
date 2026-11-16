@@ -162,9 +162,9 @@ type reading struct {
 // run read, and a change_needed names on its first lines the paths the
 // version holds and when it takes effect, and quotes the notice.
 func (r *reading) check(p recommend.Proposed, f *recommend.Figures) error {
-	quoted, rest := quotations(p.Content)
+	quoted, rest := recommend.Quotations(p.Content)
 	for _, q := range quoted {
-		if !inNotice(r.notice, q) {
+		if !recommend.Quoted(r.notice, q) {
 			return fmt.Errorf("%w: not %q", ErrNotQuoted, q)
 		}
 	}
@@ -204,30 +204,4 @@ func takesEffect(content string) bool {
 	}
 	when, ok := strings.CutPrefix(lines[1], "Takes effect: ")
 	return ok && (when == "not stated" || strings.HasPrefix(when, `"`) || strings.HasPrefix(when, "“"))
-}
-
-// quotations are the passages a content writes between double quotes,
-// straight ("…") or typographic (“…”), empty ones too, and the content
-// without them. A quotation left open runs to the content's end.
-func quotations(content string) (quoted []string, rest string) {
-	var b strings.Builder
-	for {
-		i := strings.IndexAny(content, "\"“")
-		if i < 0 {
-			b.WriteString(content)
-			return quoted, b.String()
-		}
-		b.WriteString(content[:i])
-		opener, closer := `"`, `"`
-		if strings.HasPrefix(content[i:], "“") {
-			opener, closer = "“", "”"
-		}
-		content = content[i+len(opener):]
-		j := strings.Index(content, closer)
-		if j < 0 {
-			j = len(content)
-		}
-		quoted = append(quoted, content[:j])
-		content = content[min(j+len(closer), len(content)):]
-	}
 }

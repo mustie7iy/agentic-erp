@@ -98,7 +98,10 @@ the suites set.
   followed, nothing changed) and enablement (T109a: purchase to pay
   described with the tenant's approver role, tolerance and limit cited; a
   description stating a limit the configuration does not hold refused and
-  none recorded; an instruction in a role's name not followed).
+  none recorded; an instruction in a role's name not followed; T109b: a
+  problem code explained with the tenant's tolerance, a field from its
+  description, an instruction in a role's name not followed while a field
+  is explained).
   A setup call may post a multipart `form` of values instead of
   a body (a bank statement's file as text), so a live cell running the
   reconciliation suite needs object storage. The

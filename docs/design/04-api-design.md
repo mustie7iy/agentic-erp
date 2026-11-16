@@ -1028,7 +1028,11 @@ holds them; it has no tool that writes. The enablement agent
 describes a process (purchase to pay, order to cash) from the active
 configuration and the roles and recommends the description on the active
 `config_version` as `process_document`, every figure a setting cited as
-the version holds it and every role an active role.
+the version holds it and every role an active role; asked about a field
+or a problem code of an operation (`erp agent enablement-help`, T109b),
+it refuses one the contract does not have before any model call and
+replies quoting the contract's description and citing the settings in
+force.
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation

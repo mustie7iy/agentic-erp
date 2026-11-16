@@ -220,7 +220,7 @@ func TestDocumentRefusals(t *testing.T) {
 func TestNever(t *testing.T) {
 	ops := api.MustOperations()
 	tools := enablementagent.Tools()
-	for _, id := range tools {
+	for _, id := range slices.Concat(tools, enablementagent.HelpReads) {
 		if op, ok := ops[id]; !ok || op.Method != http.MethodGet && id != recommend.Proposer {
 			t.Errorf("%s: got in the contract %v, method %s; want a read", id, ok, op.Method)
 		}
@@ -232,7 +232,7 @@ func TestNever(t *testing.T) {
 		}
 	}
 	for _, id := range enablementagent.Never {
-		if _, ok := ops[id]; !ok || slices.Contains(tools, id) {
+		if _, ok := ops[id]; !ok || slices.Contains(tools, id) || slices.Contains(enablementagent.HelpTools(), id) {
 			t.Errorf("%s: got in the contract %v, among the tools %v; want in the contract and no tool", id, ok, slices.Contains(tools, id))
 		}
 	}

@@ -49,18 +49,68 @@ func agentEnablementDocs(ctx context.Context, args []string) error {
 	return errors.Join(err, errs.Wrapf(w.Flush(), "agent enablement-docs: print"))
 }
 
-// enablementEval has the enablement agent describe the task's process as
-// erp agent enablement-docs does; what it recommended is the checks' to
-// judge, and its reply theirs too.
-func enablementEval(ctx context.Context, env eval.Env) error {
-	t, err := tasked(env, "process")
+// agentEnablementHelp has the enablement agent explain a field or a
+// problem code of an operation (ADR-0072 As built, T109b): one not in the
+// contract is refused before anything is read; it prints the session, how
+// many replies its check refused and the reply it admitted, also when the
+// run failed after starting its session.
+func agentEnablementHelp(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("agent enablement-help", flag.ContinueOnError)
+	var q enablementagent.Question
+	fs.StringVar(&q.Operation, "operation", "", "the operation's id")
+	fs.StringVar(&q.Field, "field", "", "a field of the operation (a parameter, or a body's property, dotted)")
+	fs.StringVar(&q.Problem, "problem", "", "a problem code of the operation")
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	if q.Operation == "" || (q.Field == "") == (q.Problem == "") {
+		return errors.New("agent enablement-help: want -operation ID and -field NAME or -problem CODE")
+	}
+	c, err := client("ERP_AGENT_TOKEN")
 	if err != nil {
 		return err
 	}
-	res, err := (&enablementagent.Agent{LLM: env.LLM, API: env.Agent}).Document(ctx, t["process"])
+	res, runErr := (&enablementagent.Agent{LLM: newRunner(c), API: c}).Help(ctx, q)
+	if res.Session == "" {
+		return runErr
+	}
+	w := printer()
+	fmt.Fprintf(w, "Session %s: replies refused %d.\n", res.Session, res.Refused)
+	if res.Reply != "" {
+		fmt.Fprintln(w, res.Reply)
+	}
+	return errors.Join(runErr, errs.Wrapf(w.Flush(), "agent enablement-help: print"))
+}
+
+// enablementEval runs the enablement agent on the task as its commands
+// do: a process described (task process) is graded as a recommending
+// agent's run; help (task operation, with field or problem) as a reply
+// ($reply.text) and how many replies were refused (.refused).
+func enablementEval(ctx context.Context, env eval.Env) error {
+	a := &enablementagent.Agent{LLM: env.LLM, API: env.Agent}
+	if p, ok := env.Task["process"]; ok {
+		res, err := a.Document(ctx, fmt.Sprint(p))
+		if err != nil {
+			return fmt.Errorf("enablement: %w", err)
+		}
+		graded(env, res)
+		return nil
+	}
+	t, err := tasked(env, "operation")
+	if err != nil {
+		return err
+	}
+	q := enablementagent.Question{Operation: t["operation"]}
+	if f, ok := env.Task["field"]; ok {
+		q.Field = fmt.Sprint(f)
+	}
+	if p, ok := env.Task["problem"]; ok {
+		q.Problem = fmt.Sprint(p)
+	}
+	res, err := a.Help(ctx, q)
 	if err != nil {
 		return fmt.Errorf("enablement: %w", err)
 	}
-	graded(env, res)
+	env.Reply(map[string]any{"text": res.Reply, "refused": res.Refused})
 	return nil
 }

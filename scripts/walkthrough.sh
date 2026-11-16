@@ -10213,7 +10213,7 @@ step_expense_report() {
   passed
 }
 
-# step_enablement_agent is T109a (ADR-0072 As built): Priya, the
+# step_enablement_agent is T109a and T109b (ADR-0072 As built): Priya, the
 # process owner, has the enablement agent describe purchase to pay from
 # the active configuration and roles. Ada sets the agent up; its first
 # run is refused before a session, since reading the roles needs
@@ -10224,9 +10224,11 @@ step_expense_report() {
 # configuration version and cites the requisition approval limit and the
 # invoice tolerance as the active version holds them, and erp agent
 # enablement-docs writes it to a file. Its own change request is refused;
-# the version is as it was.
+# the version is as it was. Then (T109b, enablement_help) Alex's invoice
+# posted before a clean match is refused, and the agent explains the
+# problem code from the contract, naming the tolerance in force.
 step_enablement_agent() {
-  heading "Step 98 — The enablement agent: purchase to pay described from the configuration, every limit, tolerance and role as the active version and the roles hold them"
+  heading "Step 98 — The enablement agent: purchase to pay described from the configuration, every limit, tolerance and role as the active version and the roles hold them; the problem code of a refused invoice explained from the contract with the tolerance in force"
   local role agent version number limit approver second pct abs release got session rec doc
   as ada
   say "Ada sets up the enablement agent (ADR-0072): an agent principal of type enablement at autonomy level 1 on"
@@ -10235,7 +10237,7 @@ step_enablement_agent() {
   role=$(field .id)
   grant "$role" config.version.read agents.session.read agents.session.record agents.model.invoke
   api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' \
-    createPrincipal -body '{"kind": "agent", "external_subject": "enablement-agent", "display_name": "Enablement agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "enablement", "model": "erp-default", "description": "Describes processes from the configuration (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+    createPrincipal -body '{"kind": "agent", "external_subject": "enablement-agent", "display_name": "Enablement agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "enablement", "model": "erp-default", "description": "Describes processes from the configuration and explains the contract (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
   agent=$(field .id)
   QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$agent\", \"role_id\": \"$role\"}"
   token enablement-agent "Enablement agent"
@@ -10303,9 +10305,69 @@ step_enablement_agent() {
   as priya
   QUIET=1 api 200 '' listConfigVersions -p is_active=true
   expect "the active version" "$(field '.items[0].id')" "$version"
+  enablement_help "$version" "$pct" "$abs"
   passed
 }
 
+# enablement_help VERSION PCT ABS is T109b, step_enablement_agent's
+# second part: Alex enters an invoice on Tyrell's order and posts it
+# before matching it, which is refused (409 payables.match_required). He
+# asks the enablement agent what the code means: a code the contract does
+# not have is refused before any model call; erp agent enablement-help,
+# through the stand-in's script, reads the active version, quotes the
+# operation's description wrongly (refused by the run), then explains
+# the code, quoting the contract and naming the price tolerance in force.
+# Alex cancels the invoice; nothing else changed.
+enablement_help() {
+  local version=$1 pct=$2 abs=$3 order price inv got session passage
+  as alex
+  say "Alex enters an invoice on Tyrell's released order for one more unit of its first item and posts it at once,"
+  say "before matching it:"
+  QUIET=1 api 200 '' listPurchaseOrders -p "legal_entity_id=$LE" -p "supplier_id=$SUPPLIER" -p status=released -p page_size=1
+  order=$(field '.items[0].id')
+  [ -n "$order" ] && [ "$order" != null ] || fail "Tyrell has no released order to invoice"
+  QUIET=1 api 200 '' getPurchaseOrder -p "id=$order"
+  price=$(field '.items[] | select(.item_no == 1) | .unit_price.amount')
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TY-HELP-1\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"$price\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"0.00\", \"currency\": \"CAD\"}, \"purchase_order_id\": \"$order\", \"items\": [{\"purchase_order_id\": \"$order\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"$price\", \"currency\": \"CAD\"}}]}"
+  inv=$(field .id)
+  refused 409 payables.match_required postSupplierInvoice -p "id=$inv" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  say "He asks the enablement agent what the code means (T109b). A code the contract does not have is refused before any"
+  say "model call, as a field or an operation it does not have is:"
+  show ERP_AGENT_TOKEN=… erp agent enablement-help -operation postSupplierInvoice -problem payables.tolerance_exceeded
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/enablement-agent") "$ERP" agent enablement-help -operation postSupplierInvoice -problem payables.tolerance_exceeded 2>&1 || true) # refused: checked below
+  printf '%s\n' "$got" | sed 's/^/     /'
+  expect "refused as not in the contract" "$(printf '%s\n' "$got" | grep -c 'not in the contract: no problem code "payables.tolerance_exceeded"')" 1
+  passage="a clean latest match of the invoice as it now stands for PO-based invoices"
+  # shellcheck disable=SC2016 # backticks of Markdown, not expansions
+  jq -n --arg v "$version" --arg cc "$CC" --arg pct "$pct" --arg abs "$abs" --arg q "$passage" '
+    ("The match holds the invoice'"'"'s price to `companies[\($cc)].invoice_tolerance.price_percent` = `\($pct)` percent or `companies[\($cc)].invoice_tolerance.price_absolute` = `\($abs)` of the order'"'"'s; match the invoice, and post it once its match is clean.") as $tolerance |
+    {turns: [
+      {tool: "getConfigVersion", input: {id: $v}},
+      {tool: "reply", input: {text: ("`payables.match_required`: the contract says \"an invoice is matched within the tolerance\". " + $tolerance)}},
+      {tool: "reply", input: {text: ("`payables.match_required` refuses the posting: the contract requires \"" + $q + "\". " + $tolerance)}},
+      {final: "Explained payables.match_required with the tolerance in force."}]}' >"$WORK/model-script.json"
+  say "The agent explains the refusal's code: erp agent enablement-help reads the operation's description and problem codes"
+  say "from the contract compiled into it and the active version, starts a session and, through the stand-in's script,"
+  say "quotes words the contract does not write (refused by the run: every quotation is the contract's), then replies."
+  show ERP_AGENT_TOKEN=… erp agent enablement-help -operation postSupplierInvoice -problem payables.match_required
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/enablement-agent") "$ERP" agent enablement-help -operation postSupplierInvoice -problem payables.match_required 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent enablement-help failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent did" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "replies refused 1."
+  expect "quoting the contract" "$(printf '%s\n' "$got" | grep -cF "\"$passage\"")" 1
+  expect "naming the tolerance in force" "$(printf '%s\n' "$got" | grep -cF "\`companies[$CC].invoice_tolerance.price_percent\` = \`$pct\`")" 1
+  as enablement-agent
+  api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "getConfigVersion reply reply"
+  as alex
+  say "Alex cancels the invoice; he will match the next one before posting it."
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$inv"
+  api 200 '"\(.document_number): \(.status)"' cancelSupplierInvoice -p "id=$inv" -if-match "$ETAG" -body '{"reason": "Entered to ask about the refusal"}'
+  expect "the invoice" "$(field .status)" cancelled
+}
 
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
