@@ -26,6 +26,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -384,7 +385,7 @@ func token(ctx context.Context, args []string) error {
 	if *subject == "" {
 		return errors.New("-subject is required")
 	}
-	tok, err := eval.DevIssuer(orDefault(getenv("ERP_ADMIN_URL"), "http://localhost:9090"), nil)(ctx, *tenant, *subject)
+	tok, err := eval.DevIssuer(cmp.Or(getenv("ERP_ADMIN_URL"), "http://localhost:9090"), nil)(ctx, *tenant, *subject)
 	if err != nil {
 		return fmt.Errorf("token: %w", err)
 	}

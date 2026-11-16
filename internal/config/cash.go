@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cmp"
 	"fmt"
 	"regexp"
 	"slices"
@@ -199,7 +200,7 @@ const (
 func (c CompanyCash) TakesDiscounts() bool { return c.TakeDiscounts == nil || *c.TakeDiscounts }
 
 // RateTypeOrPlanning is the rate type totals convert at.
-func (c CompanyCash) RateTypeOrPlanning() string { return orDefault(c.RateType, DefaultCashRateType) }
+func (c CompanyCash) RateTypeOrPlanning() string { return cmp.Or(c.RateType, DefaultCashRateType) }
 
 // RateMaxAge is the age in days beyond which a rate is flagged.
 func (c CompanyCash) RateMaxAge() int { return intOr(c.RateMaxAgeDays, DefaultRateMaxAgeDays) }
@@ -208,7 +209,7 @@ func (c CompanyCash) RateMaxAge() int { return intOr(c.RateMaxAgeDays, DefaultRa
 func (c CompanyCash) OrderLead() int { return intOr(c.OrderLeadDays, DefaultOrderLeadDays) }
 
 // SnapshotAt is the local time the daily snapshot is taken (HH:MM).
-func (c CompanyCash) SnapshotAt() string { return orDefault(c.SnapshotTime, DefaultSnapshotTime) }
+func (c CompanyCash) SnapshotAt() string { return cmp.Or(c.SnapshotTime, DefaultSnapshotTime) }
 
 // BucketsOrDefault are the forecast's buckets.
 func (c CompanyCash) BucketsOrDefault() []Bucket {
@@ -232,13 +233,6 @@ func (c CompanyCash) ValueDaysFor(houseBank, method string) int {
 		}
 	}
 	return days
-}
-
-func orDefault(s, def string) string {
-	if s == "" {
-		return def
-	}
-	return s
 }
 
 func intOr(n *int, def int) int {
