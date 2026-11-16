@@ -977,7 +977,7 @@ migration_fit_gap() {
   jq -r '(.defaults[], .objects[].notes[]) | "\(.path): \(.message)"' "$WORK/fit-gap.json" >"$WORK/fit-gap-notes.txt"
   sed -n '/^Notes for reviewers:$/,/^$/s/^  //p' "$WORK/fit-gap.out" >"$WORK/generator-notes.txt"
   [ -s "$WORK/generator-notes.txt" ] || fail "the generator printed no notes"
-  expect "the generator's notes missing from the report" "$(grep -cvxFf "$WORK/fit-gap-notes.txt" "$WORK/generator-notes.txt")" 0
+  expect "the generator's notes missing from the report" "$(grep -cvxFf "$WORK/fit-gap-notes.txt" "$WORK/generator-notes.txt" || true)" 0
 }
 
 # migration_group_company is the legal entity SAP's trading partner of
