@@ -316,7 +316,7 @@ func (e *Endpoints) VarianceComments(ctx context.Context, q CommentsQuery) ([]Va
 	if err != nil {
 		return nil, "", fmt.Errorf("cash: list variance comments: %w", err)
 	}
-	cs, next := pagination.Page(ks, cs, func(c VarianceComment) (string, uuid.UUID) { return c.CreatedAt.UTC().Format(time.RFC3339Nano), c.ID })
+	cs, next := pagination.Page(ks, cs, func(c VarianceComment) (string, uuid.UUID) { return pagination.Instant(c.CreatedAt), c.ID })
 	return cs, next, e.coded(ctx, cs)
 }
 

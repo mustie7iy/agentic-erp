@@ -192,7 +192,7 @@ func (e *Endpoints) ListSupplierQuotations(ctx context.Context, params gen.ListS
 	if err != nil {
 		return nil, err
 	}
-	items, next := apitypes.PageOf(ks, list, func(q Quotation) (string, uuid.UUID) { return timestamp(q.CreatedAt), q.ID },
+	items, next := apitypes.PageOf(ks, list, func(q Quotation) (string, uuid.UUID) { return pagination.Instant(q.CreatedAt), q.ID },
 		func(q Quotation) gen.SupplierQuotation { return quotationToAPI(named[0], q) })
 	return &gen.SupplierQuotationPage{Items: items, NextPageToken: next}, nil
 }

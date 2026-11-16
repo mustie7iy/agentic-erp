@@ -275,7 +275,7 @@ func (e *Endpoints) ListMemoRecords(ctx context.Context, params gen.ListMemoReco
 	}
 	items, next, err := apitypes.PageWith(ks, ms, func(m MemoRecord) (string, uuid.UUID) {
 		if ks.Field() == "created_at" {
-			return m.CreatedAt.UTC().Format(time.RFC3339Nano), m.ID
+			return pagination.Instant(m.CreatedAt), m.ID
 		}
 		return m.ValueDate.Format(time.DateOnly), m.ID
 	}, func(page []MemoRecord) (map[uuid.UUID]string, error) { return e.bankCodes(ctx, page) },

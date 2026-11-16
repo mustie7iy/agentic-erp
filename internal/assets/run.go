@@ -272,7 +272,7 @@ func (e *Endpoints) ListDepreciationRuns(ctx context.Context, params gen.ListDep
 	if err != nil {
 		return nil, fmt.Errorf("assets: list depreciation runs: %w", err)
 	}
-	items, next, err := apitypes.PageWith(ks, rs, func(r Run) (string, uuid.UUID) { return r.CreatedAt.UTC().Format(time.RFC3339Nano), r.ID },
+	items, next, err := apitypes.PageWith(ks, rs, func(r Run) (string, uuid.UUID) { return pagination.Instant(r.CreatedAt), r.ID },
 		func(page []Run) (docView, error) { return e.runPage(ctx, tx, page) }, func(r Run, v docView) gen.DepreciationRun { return v.runAPI(r) })
 	if err != nil {
 		return nil, err

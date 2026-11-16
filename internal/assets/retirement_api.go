@@ -167,7 +167,7 @@ func (e *Endpoints) ListAssetRetirements(ctx context.Context, params gen.ListAss
 	}
 	items, next, err := apitypes.PageWith(ks, qs, func(q Retirement) (string, uuid.UUID) {
 		if ks.Field() == "created_at" {
-			return q.CreatedAt.UTC().Format(time.RFC3339Nano), q.ID
+			return pagination.Instant(q.CreatedAt), q.ID
 		}
 		return q.PostingDate.Format(time.DateOnly), q.ID
 	}, func(page []Retirement) (docView, error) { return e.retirementPage(ctx, tx, page) }, func(q Retirement, v docView) gen.AssetRetirement {

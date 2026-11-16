@@ -295,7 +295,7 @@ func (e *Endpoints) ListReportShares(ctx context.Context, params gen.ListReportS
 	if err != nil {
 		return nil, err
 	}
-	items, next, err := apitypes.PageWith(ks, shares, func(s Share) (string, uuid.UUID) { return s.CreatedAt.Format(time.RFC3339Nano), s.ID },
+	items, next, err := apitypes.PageWith(ks, shares, func(s Share) (string, uuid.UUID) { return pagination.Instant(s.CreatedAt), s.ID },
 		func(page []Share) (shareNames, error) { return e.namesOf(ctx, page) }, shareToAPI)
 	if err != nil {
 		return nil, err

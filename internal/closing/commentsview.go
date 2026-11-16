@@ -65,7 +65,7 @@ func (e *Endpoints) ListVarianceComments(ctx context.Context, params gen.ListVar
 	if err != nil {
 		return nil, fmt.Errorf("closing: list variance comments: %w", err)
 	}
-	items, next, err := apitypes.PageWith(ks, cs, func(c comment) (string, uuid.UUID) { return c.CreatedAt.UTC().Format(time.RFC3339Nano), c.ID },
+	items, next, err := apitypes.PageWith(ks, cs, func(c comment) (string, uuid.UUID) { return pagination.Instant(c.CreatedAt), c.ID },
 		func(page []comment) (commentView, error) { return e.commentView(ctx, tx, page) }, func(c comment, v commentView) gen.VarianceComment { return v.toAPI(c) })
 	if err != nil {
 		return nil, err

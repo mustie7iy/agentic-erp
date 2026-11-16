@@ -3,7 +3,6 @@ package collections
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -183,7 +182,7 @@ func (e *Endpoints) ListDisputeCases(ctx context.Context, params gen.ListDispute
 	if err != nil {
 		return nil, fmt.Errorf("collections: list dispute cases: %w", err)
 	}
-	items, next, err := apitypes.PageWith(ks, cases, func(c Case) (string, uuid.UUID) { return c.CreatedAt.UTC().Format(time.RFC3339Nano), c.ID },
+	items, next, err := apitypes.PageWith(ks, cases, func(c Case) (string, uuid.UUID) { return pagination.Instant(c.CreatedAt), c.ID },
 		func(page []Case) (caseRefs, error) { return e.refs(ctx, page) }, caseToAPI)
 	if err != nil {
 		return nil, err

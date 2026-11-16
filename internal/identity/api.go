@@ -191,7 +191,7 @@ func (e *Endpoints) ListPrincipals(ctx context.Context, params gen.ListPrincipal
 			if byName {
 				return p.DisplayName, p.ID
 			}
-			return p.CreatedAt.UTC().Format(time.RFC3339Nano), p.ID
+			return pagination.Instant(p.CreatedAt), p.ID
 		}, principalToAPI)
 	if err != nil {
 		return nil, err
@@ -507,7 +507,7 @@ func (e *Endpoints) ListSodRules(ctx context.Context, params gen.ListSodRulesPar
 		return nil, err
 	}
 	items, next, err := list(ctx, tx, ks, `SELECT `+sodColumns+` FROM identity.sod_rule WHERE `+fmt.Sprintf(validOn, 1), []any{on}, scanSod,
-		func(r SodRule) (string, uuid.UUID) { return r.CreatedAt.UTC().Format(time.RFC3339Nano), r.ID }, sodToAPI)
+		func(r SodRule) (string, uuid.UUID) { return pagination.Instant(r.CreatedAt), r.ID }, sodToAPI)
 	if err != nil {
 		return nil, err
 	}

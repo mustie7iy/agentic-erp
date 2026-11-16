@@ -504,7 +504,7 @@ func (e *Endpoints) ListPartnerChanges(ctx context.Context, params gen.ListPartn
 	if err := maskChanges(ctx, tx, cs); err != nil {
 		return nil, err
 	}
-	items, next := apitypes.PageOf(ks, cs, func(c Change) (string, uuid.UUID) { return c.CreatedAt.Format(time.RFC3339Nano), c.ID }, changeToAPI)
+	items, next := apitypes.PageOf(ks, cs, func(c Change) (string, uuid.UUID) { return pagination.Instant(c.CreatedAt), c.ID }, changeToAPI)
 	return &gen.PartnerChangePage{Items: items, NextPageToken: next}, nil
 }
 

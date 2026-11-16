@@ -3,7 +3,6 @@ package configuration
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -92,6 +91,6 @@ func (e *Endpoints) ListRegressionSuites(ctx context.Context, params gen.ListReg
 	for i := range suites {
 		suites[i] = suiteShown(suites[i], access)
 	}
-	items, next := apitypes.PageOf(ks, suites, func(s RegressionSuite) (string, uuid.UUID) { return s.CapturedAt.UTC().Format(time.RFC3339Nano), s.ID }, suiteToAPI)
+	items, next := apitypes.PageOf(ks, suites, func(s RegressionSuite) (string, uuid.UUID) { return pagination.Instant(s.CapturedAt), s.ID }, suiteToAPI)
 	return &gen.RegressionSuitePage{Items: items, NextPageToken: next}, nil
 }

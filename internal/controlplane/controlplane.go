@@ -257,7 +257,7 @@ func (s *Service) List(ctx context.Context, status string, page pagination.Reque
 		if ks.Field() == "name" {
 			return t.Name, t.ID
 		}
-		return t.CreatedAt.UTC().Format(time.RFC3339Nano), t.ID
+		return pagination.Instant(t.CreatedAt), t.ID
 	})
 	return tenants, next, nil
 }
