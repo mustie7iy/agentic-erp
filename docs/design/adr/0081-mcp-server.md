@@ -130,7 +130,7 @@ versions hosts speak today is not settled there.
 - `cmd/erp`: `erp mcp [-purpose TEXT] [-model NAME]`; the session's model
   is the flag's (default `agent-host`), since the host's model is not
   known to the server.
-- Walkthrough `step_mcp` (step 98): a scripted host, as the support agent
+- Walkthrough `step_mcp` (step 103): a scripted host, as the support agent
   of step 88 (level 1), discovers the server, lists the tools (none closed
   to agents, no write above its level, a proposal at it), calls
   `listConfigVersions` and gets the API's answer, is refused
