@@ -36,9 +36,10 @@ type scan struct {
 // and orders priced above an active contract of their supplier; each kind
 // by the currency of its first amount, in code order, and the largest
 // spend first within a currency: amounts of two currencies are never
-// ranked against each other. A spend query answers at most 500 rows (a
-// known limit of the first version: a supplier or an account beyond them
-// is not found).
+// ranked against each other. A spend query answers at most 500 rows, the
+// largest by their figure as written (the server's order, whatever the
+// currency): a known limit of the first version, beyond which a supplier
+// or an account is not found.
 func (s *scan) opportunities(ctx context.Context) ([]opportunity, error) {
 	suppliers, err := s.offContract(ctx)
 	if err != nil {
@@ -70,11 +71,12 @@ func (c cell) text() string {
 }
 
 // query runs the spend metrics of the company in the period by the
-// dimensions and returns its rows by column name, by currency and the
-// largest first within one.
+// dimensions, the server keeping the 500 largest by the figure, and
+// returns its rows by column name, by currency and the largest first
+// within one.
 func (s *scan) query(ctx context.Context, measure string, by ...string) ([]map[string]cell, error) {
 	body := map[string]any{"measures": []string{measure}, "by": slices.Concat(by, []string{"currency"}), "companies": []string{s.company},
-		"where": []any{map[string]any{"dim": "posting_date", "op": "between", "values": []string{s.from, s.to}}}, "limit": 500}
+		"where": []any{map[string]any{"dim": "posting_date", "op": "between", "values": []string{s.from, s.to}}}, "order_by": measure, "desc": true, "limit": 500}
 	resp, err := s.api.Do(ctx, http.MethodPost, "/v1/analytics-queries", nil, body, "")
 	var answer struct {
 		Columns []struct {

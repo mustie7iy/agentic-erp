@@ -83,6 +83,7 @@ type fakeAPI struct {
 	made   int
 	// suppliers answers the spend by supplier; "": bySupplier.
 	suppliers string
+	queries   []string // the spend queries' bodies
 }
 
 func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -108,6 +109,7 @@ func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/v1/legal-entities":
 		answer(200, `{"items": [{"id": "`+le+`", "code": "3000"}]}`)
 	case "/v1/analytics-queries":
+		a.queries = append(a.queries, string(b))
 		if strings.Contains(string(b), "vendor_name") && a.suppliers != "" {
 			answer(200, a.suppliers)
 			return
@@ -237,6 +239,21 @@ func TestAdvise(t *testing.T) {
 	}
 	if res.Refused != 5 {
 		t.Errorf("refused: got %d, want 5", res.Refused)
+	}
+	// The server cuts a query at 500 rows: the largest are kept. The run's
+	// own three queries come before the model's.
+	for _, q := range a.queries[:3] {
+		var body struct {
+			Measures []string `json:"measures"`
+			OrderBy  string   `json:"order_by"`
+			Desc     bool     `json:"desc"`
+		}
+		if err := json.Unmarshal([]byte(q), &body); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := body.OrderBy+" "+fmt.Sprint(body.Desc), body.Measures[0]+" true"; got != want {
+			t.Errorf("a spend query's order: got %q, want %q", got, want)
+		}
 	}
 	if got, want := res.Names[tyrell]+"; "+res.Names[office]+"; "+res.Names[order], "100001 Tyrell; 6000 Office supplies; 4500000007"; got != want {
 		t.Errorf("names: got %q, want %q", got, want)

@@ -1105,7 +1105,8 @@ A later slice adds its row here and its section under "As built".
     quantity. At most ten a run by default (`-max`), suppliers first, then
     accounts, then orders, each by currency (in code order) and the largest
     spend first within a currency, never ranked across currencies; a spend
-    query answers at most 500 rows, a known limit. The period
+    query answers at most 500 rows, the server keeping the largest by the
+    figure as written whatever its currency, a known limit. The period
     defaults to the year to today (UTC). The first line is the spend the
     opportunity covers as a tool returned it (the spend off contract, the
     account's spend, the order's total), per currency, never summed
