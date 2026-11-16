@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
 )
 
@@ -124,11 +125,7 @@ func (s *Store) readCertificate(ctx context.Context) (*tls.Certificate, error) {
 	if err != nil {
 		return nil, fmt.Errorf("tlsconf: certificate and key: %w", err)
 	}
-	now := time.Now
-	if s.Now != nil {
-		now = s.Now
-	}
-	if expiry := cert.Leaf.NotAfter; now().After(expiry) {
+	if expiry := cert.Leaf.NotAfter; clock.Now(s.Now).After(expiry) {
 		return nil, fmt.Errorf("tlsconf: the certificate expired at %s", expiry.UTC().Format(time.RFC3339))
 	}
 	return &cert, nil

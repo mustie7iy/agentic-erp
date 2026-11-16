@@ -244,13 +244,9 @@ func (e *Endpoints) account(ctx context.Context, le, id uuid.UUID, field string)
 // stored zone the binary cannot load fails the call rather than dating the
 // document in UTC.
 func (e *Endpoints) today(ctx context.Context, company string) (time.Time, *time.Location, error) {
-	doc, _, err := e.Settings.Document(ctx)
+	d, err := config.DocumentDay(ctx, e.Settings, company, clock.Now(e.Now))
 	if err != nil {
-		return time.Time{}, nil, fmt.Errorf("procurement: configuration: %w", err)
-	}
-	d, err := doc.CompanyDay(company, clock.Now(e.Now))
-	if err != nil {
-		return time.Time{}, nil, fmt.Errorf("procurement: %w", err)
+		return time.Time{}, nil, fmt.Errorf("procurement: today in company %s: %w", company, err)
 	}
 	return d.Date, d.Zone, nil
 }

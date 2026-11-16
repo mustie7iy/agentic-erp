@@ -29,6 +29,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/recommend"
 )
 
@@ -160,11 +161,7 @@ func (a *Agent) Advise(ctx context.Context, company, period string) (recommend.R
 // period is the run's period: the one given, or the year to today, UTC.
 func (a *Agent) period(p string) (string, string, error) {
 	if p == "" {
-		now := time.Now
-		if a.Now != nil {
-			now = a.Now
-		}
-		to := now().UTC()
+		to := clock.Now(a.Now).UTC()
 		return to.AddDate(-1, 0, 1).Format(time.DateOnly), to.Format(time.DateOnly), nil
 	}
 	from, to, ok := strings.Cut(p, "..")
