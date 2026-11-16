@@ -110,6 +110,11 @@ be computed on read, without storing anything.
   `procurement.ProcessLog`, `payables.ProcessLog`, `payments.ProcessLog`,
   `audit.Trail`; migrations 000339 (permission), 000340 and 000341
   (indexes); `TestEventLogBudget`; walkthrough `step_process_mining`.
+- `getProcessEventLog` reads as of one database state (`x-snapshot`,
+  REPEATABLE READ) and is `x-slo-class: report` with a row in 01 §1.3,
+  as the map is (hnames, review:T103a): `case_count` and the page's
+  cases are separate statements, and a payment run completing between
+  them would have shown a count that disagrees with the page.
 
 ## As built (T103b, the process map)
 

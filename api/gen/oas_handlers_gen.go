@@ -52288,11 +52288,12 @@ func (s *Server) handleGetPrincipalRequest(args [1]string, argsEscaped bool, w h
 // time and the kind of actor that did it (`person`, `agent` or `system`, never who), by time and then
 // by the audit trail's sequence number, at any time up to the read. ADR-0080 lists the activities and
 // the audit actions each comes from. The cases are by date and id, paged by case (`page_size` cases,
-// the default 50, at most 500); `case_count` counts every case of the log. The period is one day to
-// 371 days (422 `request.validation_failed` naming `to` otherwise). As JSON (`format=json`, the
-// default) or as CSV (`format=csv`): a header row, then a row per event of the page's cases with its
-// case, the next page's token in the `Next-Page-Token` header. A company the caller cannot act in is
-// 404, as one that does not exist.
+// the default 50, at most 500); `case_count` counts every case of the log; the count and the page are
+// read as of one database state (`x-snapshot`), so they agree. The period is one day to 371 days (422
+// `request.validation_failed` naming `to` otherwise). As JSON (`format=json`, the default) or as CSV
+// (`format=csv`): a header row, then a row per event of the page's cases with its case, the next
+// page's token in the `Next-Page-Token` header. A company the caller cannot act in is 404, as one that
+// does not exist.
 //
 // GET /v1/process-event-logs
 func (s *Server) handleGetProcessEventLogRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
