@@ -49,3 +49,12 @@ func TestQuotations(t *testing.T) {
 		t.Errorf("rest: got %q, want %q", rest, want)
 	}
 }
+
+// TestUnnumbered: a list item's number at a line's start is taken out; a
+// number of three digits there, or one inside a line, is kept.
+func TestUnnumbered(t *testing.T) {
+	got := recommend.Unnumbered("1. First\n  12) Twelfth\n100) Not a list\nAt 7. five")
+	if want := " First\n Twelfth\n100) Not a list\nAt 7. five"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

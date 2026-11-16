@@ -15,13 +15,13 @@ import (
 // agentEnablementDocs has the enablement agent describe a process from the
 // active configuration and roles (ADR-0072 As built, T109a): it prints
 // what the agent recommended, as every recommending agent's command does,
-// and writes the description to the file -out (default PROCESS.md), so a
+// and writes the description to the file -out (default <process>.md), so a
 // process owner reads it as a document; the recommendation waits for the
 // owner's decision either way.
 func agentEnablementDocs(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("agent enablement-docs", flag.ContinueOnError)
 	process := fs.String("process", "", "the process: purchase_to_pay or order_to_cash")
-	file := fs.String("out", "", "the file the description is written to (default PROCESS.md)")
+	file := fs.String("out", "", "the file the description is written to (default <process>.md)")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}

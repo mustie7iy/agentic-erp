@@ -182,8 +182,6 @@ var (
 	operationRe = regexp.MustCompile(`\b[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)+\b`)
 	// codeRe is a text in backticks.
 	codeRe = regexp.MustCompile("`[^`]*`")
-	// listRe is a list item's number at a line's start.
-	listRe = regexp.MustCompile(`(?m)^\s*\d+[.)]\s`)
 )
 
 // check is the agent's rule on a reply (T108a): it names only the
@@ -204,13 +202,11 @@ func (r *replying) check(text string) error {
 	if len(named) == 0 && !strings.Contains(text, Unanswered) {
 		return ErrUnanswered
 	}
-	for _, c := range config.Cited(text) {
-		if v, ok := config.Setting(r.active, c.Path); !ok || v != c.Value {
-			return fmt.Errorf("%w: not %s = %s", ErrSetting, c.Path, c.Value)
-		}
+	if c, unheld := config.Unheld(r.active, text); unheld {
+		return fmt.Errorf("%w: not %s = %s", ErrSetting, c.Path, c.Value)
 	}
 	asked := recommend.Numbers(r.question)
-	prose := listRe.ReplaceAllString(codeRe.ReplaceAllString(text, " "), " ")
+	prose := recommend.Unnumbered(codeRe.ReplaceAllString(text, " "))
 	for _, n := range recommend.Numbers(prose) {
 		if !slices.Contains(asked, n) {
 			return fmt.Errorf("%w: not %s", ErrNumber, n)

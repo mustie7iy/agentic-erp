@@ -38,7 +38,7 @@ func Explain(operationID, field, problem string) (Explained, error) {
 
 // explain is Explain on the contract.
 func (c contract) explain(operationID, field, problem string) (Explained, error) {
-	path, method, op, found := c.find1(operationID)
+	path, method, op, found := c.byID(operationID)
 	if !found {
 		return Explained{}, fmt.Errorf("%w: no operation %q", ErrNotInContract, operationID)
 	}
@@ -56,8 +56,8 @@ func (c contract) explain(operationID, field, problem string) (Explained, error)
 	return e, nil
 }
 
-// find1 is the operation of the id, with its path and method.
-func (c contract) find1(id string) (path, method string, op map[string]any, found bool) {
+// byID is the operation of the id, with its path and method.
+func (c contract) byID(id string) (path, method string, op map[string]any, found bool) {
 	paths, _ := c.spec["paths"].(map[string]any)
 	for p, item := range paths {
 		methods, _ := item.(map[string]any)

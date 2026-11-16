@@ -747,17 +747,24 @@ A later slice adds its row here and its section under "As built".
     active version's number (`Heading`);
   - at least one setting is cited, and every setting cited as
     `` `path` = `value` `` is the active version's with that value
-    (`config.Cited`, `config.Setting`; the support agent's form, now
-    shared from `internal/config`), a list item named by its key or, where
-    the configuration keys none, its position (`requisition_approval[0]`);
-  - every role named as ``role `CODE` `` is one of the tenant's active
-    roles as read before the session;
-  - no number stands outside the citations (a list item's number at a
-    line's start apart): every amount, percentage, count of approvals and
-    days is a cited setting, so the plan's "every amount, percentage and
-    role ... with that value" holds for what the check sees. It does not
-    see a setting or a role written in prose without its form; the prompt
-    asks for the form, and the number rule refuses a figure in prose.
+    (`config.Cited`, `config.Unheld`; the support agent's form, now
+    shared from `internal/config` with its check), a list item named by
+    its key or, where the configuration keys none, its position
+    (`requisition_approval[0]`);
+  - every text in backticks outside the citations, and every code joined
+    by underscores (`process_owner`, `Z_PURCH_MGR`), is one of the
+    tenant's active roles as read before the session: a role is written in
+    backticks, alone, in a list or beside the word, and nothing else is;
+  - no number stands outside the citations (a list item's number of one or
+    two digits at a line's start apart, `recommend.Unnumbered`, shared with
+    the support agent), in digits or in words (two to ninety, hundred,
+    thousand, million, billion, dozen, half, twice, double, triple), and
+    "percent", "per cent" or "%" stands only right after a citation: every
+    amount, percentage, count of approvals and days is a cited setting, so
+    the plan's "every amount, percentage and role ... with that value"
+    holds for what the check sees. It does not see a role whose code is a
+    single plain word written outside backticks (`controller`), nor
+    "one" or "a" as a count.
 - Its never list (`Never`, `TestNever` against the contract's `config.*`
   writes and `identity.access.manage`'s) is every write of the
   configuration and of access.
@@ -805,9 +812,10 @@ A later slice adds its row here and its section under "As built".
   field's description character for character, as whole words and numbers
   (`recommend.Quotations`, `recommend.Quoted`, the regulatory agent's
   quotation rule moved from `internal/regulatoryagent` and shared); every
-  setting cited is the active version's with that value; every number
-  outside the quotations and citations (a list's numbering apart) is one
-  the question's names write.
+  setting cited is the active version's with that value; outside the
+  quotations and citations no number is written in words and "percent"
+  follows only a citation, as T109a's rule has it, and every number (a
+  list's numbering apart) is one the question's names write.
 - `evals/enablement`, version 2: three cases added (task `operation` with
   `field` or `problem`): `payables.match_required` of `postSupplierInvoice`
   explained with the tenant's tolerance cited; `gross_amount` of
@@ -915,7 +923,8 @@ A later slice adds its row here and its section under "As built".
 18. (T109a) The enablement agent's description is a recommendation on the
     active configuration version, the object the configuration's reads
     name; every figure in it is a setting cited as `` `path` = `value` ``
-    and no number stands outside the citations, every role named is an
+    and no number stands outside the citations, in digits or in words,
+    every role named (in backticks, or a code joined by underscores) is an
     active role of the tenant's; reading roles needs
     `identity.access.read`, granted by the administrator as for the
     access agent. The first version knows purchase to pay and order to

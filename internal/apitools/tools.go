@@ -424,25 +424,18 @@ func (c contract) tool(id string) (*Tool, error) { return c.operation(id, false)
 // operation builds the tool of an operation; forPeople admits operations
 // closed to agents.
 func (c contract) operation(id string, forPeople bool) (*Tool, error) {
-	paths, _ := c.spec["paths"].(map[string]any)
-	for path, item := range paths {
-		methods, _ := item.(map[string]any)
-		for method, v := range methods {
-			op, ok := v.(map[string]any)
-			if !ok || op["operationId"] != id {
-				continue
-			}
-			if op["x-agent"] == false && !forPeople {
-				return nil, fmt.Errorf("apitools: %s is not open to agents (x-agent: false)", id)
-			}
-			t, err := c.buildTool(id, method, path, op)
-			if err != nil {
-				return nil, fmt.Errorf("apitools: operation %s: %w", id, err)
-			}
-			return t, nil
-		}
+	path, method, op, found := c.byID(id)
+	switch {
+	case !found:
+		return nil, fmt.Errorf("apitools: no operation %s in the contract", id)
+	case op["x-agent"] == false && !forPeople:
+		return nil, fmt.Errorf("apitools: %s is not open to agents (x-agent: false)", id)
 	}
-	return nil, fmt.Errorf("apitools: no operation %s in the contract", id)
+	t, err := c.buildTool(id, method, path, op)
+	if err != nil {
+		return nil, fmt.Errorf("apitools: operation %s: %w", id, err)
+	}
+	return t, nil
 }
 
 // buildTool is the tool of one contract operation: its parameters and body

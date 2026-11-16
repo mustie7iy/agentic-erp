@@ -149,8 +149,10 @@ const (
 // on the version once. Its check refuses, and counts, a first line that
 // is not the heading, a description citing no setting, a setting cited
 // with another value or at a path the version does not hold, a role the
-// tenant does not have or whose role is inactive, and a number outside
-// the citations; a list's numbering is allowed. The description is
+// tenant does not have or whose role is inactive (in backticks, alone or
+// in a list, or a bare code), a number outside the citations, in digits or
+// in words, and "percent" after no citation; a list's numbering and a
+// cited percentage are allowed. The description is
 // recorded as written.
 func TestDocument(t *testing.T) {
 	a := &fakeAPI{}
@@ -163,6 +165,10 @@ func TestDocument(t *testing.T) {
 		rec(heading+body+" Role `Z_NOBODY` approves."),
 		rec(heading+body+" Role `OLD_BUYER` approves."),
 		rec(heading+body+" Payments wait 5 days."),
+		rec(heading+body+" Roles `Z_PURCH_MGR` and `Z_FAKE` approve."),
+		rec(heading+body+" The Z_FAKE role approves."),
+		rec(heading+body+" Payments need two approvals."),
+		rec(heading+body+" Prices may differ by a few percent."),
 		rec(heading+body),
 		llmtest.Final("Described purchase to pay."))
 	res, err := (&enablementagent.Agent{LLM: model.Runner(), API: client(t, a)}).Document(context.Background(), "purchase_to_pay")
@@ -173,14 +179,14 @@ func TestDocument(t *testing.T) {
 	if !slices.Equal(res.Recommendations, want) {
 		t.Errorf("recommendations: got %v, want %v", res.Recommendations, want)
 	}
-	if res.Refused != 7 {
-		t.Errorf("refused: got %d, want 7", res.Refused)
+	if res.Refused != 11 {
+		t.Errorf("refused: got %d, want 11", res.Refused)
 	}
 	told(t, model.Requests[:1], "The tenant's active configuration is version 3 (id "+version+").", "The description's first line is:\n"+strings.TrimSuffix(heading, "\n"),
 		"Describe the process purchase to pay. It rests on the approval of requisitions")
 	told(t, model.Requests, enablementagent.ErrHeading.Error(), enablementagent.ErrUncited.Error(), enablementagent.ErrSetting.Error(),
 		"not companies[1000].invoice_tolerance.price_percent = 3", "not companies[1000].tolerance = 2", enablementagent.ErrRole.Error(),
-		"not Z_NOBODY", "not OLD_BUYER", enablementagent.ErrNumber.Error(), "not 5")
+		"not Z_NOBODY", "not OLD_BUYER", "not Z_FAKE", enablementagent.ErrNumber.Error(), "not 5", `not "two"`, `not "percent"`)
 }
 
 // TestDocumentRefusals: a process the first version does not know stops

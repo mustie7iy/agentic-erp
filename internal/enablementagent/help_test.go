@@ -32,8 +32,9 @@ const (
 // session from the contract, given in its prompt, and the active version,
 // and replies once. Its check refuses, and counts, a reply that does not
 // name the code, one quoting nothing, one quoting what the contract does
-// not write, a setting cited with another value, a number outside the
-// quotations and citations, and a second reply; a list's numbers are
+// not write, a setting cited with another value, "percent" after no
+// citation, a number outside the quotations and citations, and a second
+// reply; a list's numbers are
 // allowed.
 func TestHelp(t *testing.T) {
 	a := &fakeAPI{}
@@ -44,6 +45,7 @@ func TestHelp(t *testing.T) {
 		reply("`payables.match_required`: \"a clean match of the invoice\"."),
 		reply("`payables.match_required`: "+passage+"; `companies[1000].invoice_tolerance.price_percent` = `3`."),
 		reply("`payables.match_required`: "+passage+", within 2 percent."),
+		reply("`payables.match_required`: "+passage+", after 2 days."),
 		reply(explanation),
 		reply(explanation),
 		llmtest.Final("Explained."))
@@ -54,8 +56,8 @@ func TestHelp(t *testing.T) {
 	if res.Session != session || res.Reply != explanation {
 		t.Errorf("result: got session %s and reply %q, want %s and %q", res.Session, res.Reply, session, explanation)
 	}
-	if res.Refused != 6 {
-		t.Errorf("refused: got %d, want 6", res.Refused)
+	if res.Refused != 7 {
+		t.Errorf("refused: got %d, want 7", res.Refused)
 	}
 	if n := a.sent(":end"); n != 1 {
 		t.Errorf("sessions ended: got %d, want 1", n)
@@ -63,7 +65,7 @@ func TestHelp(t *testing.T) {
 	told(t, model.Requests[:1], "The tenant's active configuration is version 3 (id "+version+").\nThe user asks what the problem code payables.match_required of postSupplierInvoice means.",
 		"<contract>\noperation postSupplierInvoice: POST /v1/supplier-invoices/{id}:post\nsummary: ", "problem codes: ", "payables.match_required")
 	told(t, model.Requests, enablementagent.ErrNotNamed.Error(), enablementagent.ErrNotQuoted.Error(), `not "a clean match of the invoice"`,
-		enablementagent.ErrSetting.Error(), enablementagent.ErrHelpNumber.Error(), "not 2", enablementagent.ErrSecond.Error())
+		enablementagent.ErrSetting.Error(), enablementagent.ErrNumber.Error(), `not "percent"`, enablementagent.ErrHelpNumber.Error(), "not 2", enablementagent.ErrSecond.Error())
 }
 
 // TestHelpField: a field is explained from its own description, and a

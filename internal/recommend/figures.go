@@ -207,3 +207,12 @@ func (f *Figures) Unread(text string) []string {
 	}
 	return out
 }
+
+// numbered is a list item's number at a line's start: one or two digits,
+// then a point or a parenthesis and a space.
+var numbered = regexp.MustCompile(`(?m)^\s*\d{1,2}[.)]\s`)
+
+// Unnumbered is a text without its list items' numbers, which an agent's
+// check does not hold to the figures it read (the support and enablement
+// agents' replies and descriptions).
+func Unnumbered(text string) string { return numbered.ReplaceAllString(text, " ") }

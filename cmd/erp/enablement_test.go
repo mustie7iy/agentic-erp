@@ -22,7 +22,7 @@ const enablementDoc = "# Purchase to pay, configuration version 3\nAn invoice ab
 
 // TestAgentEnablementDocs: erp agent enablement-docs needs -process, runs
 // the enablement agent's session, prints what it recommended and writes
-// the description to the file -out, PROCESS.md by default; a run that
+// the description to the file -out, <process>.md by default; a run that
 // recommended nothing writes no file; a file it cannot write fails the
 // command after printing (ADR-0072 As built, T109a).
 func TestAgentEnablementDocs(t *testing.T) {

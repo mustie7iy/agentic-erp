@@ -28,3 +28,16 @@ func Cited(text string) []Citation {
 // Uncited is the text with every citation replaced by a space: what an
 // agent's check reads for the numbers it writes outside them.
 func Uncited(text string) string { return citation.ReplaceAllString(text, " ") }
+
+// Unheld is the first setting a text cites that the configuration does not
+// hold with that value, and whether there is one: an agent's check refuses
+// a text citing it (the support agent's reply, the enablement agent's
+// description and help).
+func Unheld(c *Config, text string) (Citation, bool) {
+	for _, s := range Cited(text) {
+		if v, ok := Setting(c, s.Path); !ok || v != s.Value {
+			return s, true
+		}
+	}
+	return Citation{}, false
+}

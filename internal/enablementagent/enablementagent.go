@@ -9,9 +9,11 @@
 // process_document on the active configuration version. Its check holds
 // the description to the configuration and the identity data in code:
 // it names the version on its first line, every setting it cites is the
-// active version's with that value, every role it names is one of the
-// tenant's active roles, and it writes no number outside its citations,
-// so every amount and percentage it states is the configuration's. Its
+// active version's with that value, every role it names (in backticks, or
+// a code joined by underscores) is one of the tenant's active roles, and
+// it writes no number outside its citations, in digits or in words, and
+// "percent" only after a cited setting, so every amount and percentage it
+// states is the configuration's. Its
 // second capability (T109b, help.go) explains a field or a problem code
 // of an operation from the contract and the configuration, with a reply
 // only. The agent changes nothing (Never). Its evaluation suite is
@@ -87,9 +89,10 @@ Recommend once, on the configuration version, with the kind process_document; th
 line is the heading you are given, word for word. Cite every setting of the configuration you state as its path and its
 value, each in backticks, as ` + "`companies[1000].invoice_tolerance.price_percent` = `2`" + `, the path as the configuration
 names it (a list item by its key, as companies[1000], or by its position from 0, as requisition_approval[0]); a setting
-written any other way is not seen. Name every role as the word role and its code in backticks, as role ` + "`Z_PURCH_MGR`" + `,
-and only roles the tenant has. Write no number outside a citation: every amount, percentage, count of approvals or days
-is a setting cited; a count you made yourself is written in words. Keep the description under ten thousand characters.`
+written any other way is not seen. Write every role as its code in backticks, as ` + "`Z_PURCH_MGR`" + `, and only roles the
+tenant has; put nothing else in backticks but citations. Write no number outside a citation, in digits or in words: every
+amount, percentage, count of approvals or days is a setting cited, and "percent" follows only a cited percentage. Keep the
+description under ten thousand characters.`
 
 // Agent writes a process's description from the configuration (T109a)
 // and explains a field or a problem code of an operation (T109b).
@@ -114,10 +117,12 @@ var (
 	// does not hold with that value.
 	ErrSetting = errors.New("enablementagent: every setting cited as `path` = `value` is the active configuration's, with that value")
 	// ErrRole refuses a role named that is not one of the tenant's active
-	// roles.
-	ErrRole = errors.New("enablementagent: every role named as role `code` is one of the tenant's active roles")
-	// ErrNumber refuses a number outside the citations.
-	ErrNumber = errors.New("enablementagent: every number is a setting cited as `path` = `value`; a count is written in words")
+	// roles: any text in backticks outside the citations, and any code
+	// joined by underscores.
+	ErrRole = errors.New("enablementagent: every text in backticks outside a citation, and every code joined by underscores, is one of the tenant's active roles")
+	// ErrNumber refuses a number outside the citations, in digits or in
+	// words, and "percent" that does not follow a cited setting.
+	ErrNumber = errors.New("enablementagent: every number is a setting cited as `path` = `value`, never in words; percent follows only a cited setting")
 )
 
 // role is a role as the run reads it before its session.
@@ -183,46 +188,70 @@ type documenting struct {
 }
 
 var (
-	// roleRe is a role named as the word role and its code in backticks.
-	roleRe = regexp.MustCompile("(?i)\\brole `([^`]*)`")
-	// listRe is a list item's number at a line's start.
-	listRe = regexp.MustCompile(`(?m)^\s*\d+[.)]\s`)
+	// spanRe is a text in backticks.
+	spanRe = regexp.MustCompile("`([^`]*)`")
+	// codeRe is a word joined by underscores, the form of a role's code
+	// (process_owner, Z_PURCH_MGR).
+	codeRe = regexp.MustCompile(`\b[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+\b`)
+	// wordsRe is a number written in words beyond one: a count or an
+	// amount the check of digits does not see.
+	wordsRe = regexp.MustCompile(`(?i)\b(?:two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|` +
+		`sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundreds?|thousands?|` +
+		`millions?|billions?|dozens?|half|halves|twice|double|triple)\b`)
+	// percentRe is a percentage's word or sign.
+	percentRe = regexp.MustCompile(`(?i)\bper ?cent\b|%`)
 )
 
 // check is the agent's rule on a description (T109a): the heading first,
 // at least one setting cited and every one as the active version holds
-// it, every role named an active role of the tenant's, and no number
-// outside the citations and a list's numbering.
+// it, every role named an active role of the tenant's, and no figure
+// outside the citations.
 func (d *documenting) check(p recommend.Proposed, _ *recommend.Figures) error {
 	first, rest, _ := strings.Cut(p.Content, "\n")
 	if strings.TrimSpace(first) != d.heading {
 		return ErrHeading
 	}
-	if err := cited(d.active, rest, true); err != nil {
+	if len(config.Cited(rest)) == 0 {
+		return ErrUncited
+	}
+	prose, err := uncited(d.active, rest)
+	if err != nil {
 		return err
 	}
-	for _, m := range roleRe.FindAllStringSubmatch(rest, -1) {
-		if !d.roles[m[1]] {
-			return fmt.Errorf("%w: not %s", ErrRole, m[1])
+	named := codeRe.FindAllString(spanRe.ReplaceAllString(prose, " "), -1)
+	for _, m := range spanRe.FindAllStringSubmatch(prose, -1) {
+		named = append(named, m[1])
+	}
+	for _, code := range named {
+		if !d.roles[code] {
+			return fmt.Errorf("%w: not %s", ErrRole, code)
 		}
 	}
-	if n := recommend.Numbers(listRe.ReplaceAllString(roleRe.ReplaceAllString(config.Uncited(rest), " "), " ")); len(n) > 0 {
+	if n := recommend.Numbers(spanRe.ReplaceAllString(prose, " ")); len(n) > 0 {
 		return fmt.Errorf("%w: not %s", ErrNumber, strings.Join(n, ", "))
 	}
 	return nil
 }
 
-// cited holds every setting a text cites to the configuration, with its
-// value; required refuses a text that cites none.
-func cited(c *config.Config, text string, required bool) error {
-	settings := config.Cited(text)
-	if required && len(settings) == 0 {
-		return ErrUncited
+// uncited holds every setting a text cites to the configuration, with its
+// value, and returns the text without its citations (a percentage's word
+// or sign right after one goes with it) and its list's numbering; a number
+// in words, or a percentage's word or sign left in it, refuses the text.
+func uncited(c *config.Config, text string) (string, error) {
+	if s, unheld := config.Unheld(c, text); unheld {
+		return "", fmt.Errorf("%w: not %s = %s", ErrSetting, s.Path, s.Value)
 	}
-	for _, s := range settings {
-		if v, ok := config.Setting(c, s.Path); !ok || v != s.Value {
-			return fmt.Errorf("%w: not %s = %s", ErrSetting, s.Path, s.Value)
+	for _, s := range config.Cited(text) {
+		for _, unit := range []string{" percent", " per cent", "%", " %"} {
+			text = strings.ReplaceAll(text, s.Text+unit, " ")
 		}
 	}
-	return nil
+	prose := recommend.Unnumbered(config.Uncited(text))
+	if w := wordsRe.FindString(prose); w != "" {
+		return "", fmt.Errorf("%w: not %q", ErrNumber, w)
+	}
+	if w := percentRe.FindString(prose); w != "" {
+		return "", fmt.Errorf("%w: not %q", ErrNumber, w)
+	}
+	return prose, nil
 }

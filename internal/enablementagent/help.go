@@ -203,10 +203,11 @@ func (h *helping) check(text string) error {
 			return fmt.Errorf("%w: not %q", ErrNotQuoted, q)
 		}
 	}
-	if err := cited(h.active, rest, false); err != nil {
+	prose, err := uncited(h.active, rest)
+	if err != nil {
 		return err
 	}
-	for _, n := range recommend.Numbers(listRe.ReplaceAllString(config.Uncited(rest), " ")) {
+	for _, n := range recommend.Numbers(prose) {
 		if !slices.Contains(h.numbers, n) {
 			return fmt.Errorf("%w: not %s", ErrHelpNumber, n)
 		}
