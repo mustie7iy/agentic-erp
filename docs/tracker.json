@@ -10500,13 +10500,13 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Connector generation and monitoring",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The integration agent reads the tenant's connectors, webhook subscriptions and their deliveries, bank files and long-running operations and recommends what to do about each failing one with its evidence, for an integration administrator to decide; it never enables, disables or redelivers (erp agent integration-monitor)",
-        "r": "T110a · docs/design/plan-breadth-week3.md §T110a",
+        "r": "T110a · docs/design/plan-breadth-week3.md §T110a · internal/integrationagent · agent type integration · erp agent integration-monitor · evals/integration · walkthrough step_integration_agent · ADR-0072 As built (T110a)",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

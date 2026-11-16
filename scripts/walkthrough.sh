@@ -10468,6 +10468,102 @@ service_order() {
   expect "the run" "$(field .status)" released
 }
 
+# step_integration_agent is T110a (ADR-0072): the integration agent, erp
+# agent integration-monitor through the model stand-in answering from a
+# script of turns (its suite's replay, evals/integration), looks over
+# Maple's integrations. Sam subscribes the supplier portal's endpoint to
+# the cash events, but the portal was never given the subscription's
+# secret, so it refuses every delivery (401): his ping dies. The agent
+# finds the subscription failing before its session, with the ping as its
+# failed delivery, and recommends checking the endpoint, its first line
+# naming the delivery; a recommendation without that line is refused. It
+# reads no secret, and pausing the subscription is refused to it. Sam
+# accepts, which changes nothing, and deletes the subscription himself.
+step_integration_agent() {
+  heading "Step 99 — The integration agent: a webhook subscription whose endpoint refuses its deliveries; the agent recommends checking the endpoint and names the failed delivery; it reads no secret and may not pause the subscription; the administrator decides"
+  local role sub ping line got session rec i
+  as ada
+  say "Ada sets up the integration agent (ADR-0072): an agent principal of type integration at autonomy level 1. Its role"
+  say "reads connectors, webhooks, migration runs, payment files and operations, and records its sessions and"
+  say "recommendations; it holds no permission that changes an integration."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "integration_agent", "name": "Integration agent"}'
+  role=$(field .id)
+  grant "$role" integration.connector.read integration.webhook.read integration.migration.read payments.run.read platform.operation.read \
+    agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "integration-agent", "display_name": "Integration agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "integration", "model": "erp-default", "description": "Recommends what to do about failing integrations (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token integration-agent "Integration agent"
+  as sam
+  say "Sam subscribes the supplier portal's endpoint to the cash events. The portal was never given the subscription's"
+  say "secret, so it cannot verify a delivery and refuses each one. Sam pings it:"
+  api 201 '"subscription \(.description) at \(.url): \(.status)"' createWebhookSubscription \
+    -body "{\"url\": \"https://$HOOK_ADDR/portal/events\", \"description\": \"Supplier portal\", \"event_types\": [\"cash.*\"]}"
+  sub=$(field .id)
+  api 200 '"ping \(.id): \(.status)"' pingWebhookSubscription -p "id=$sub" -if-match "$ETAG"
+  ping=$(field .id)
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' getWebhookDelivery -p "id=$sub" -p "delivery_id=$ping"
+    [ "$(field .status)" = dead ] && break
+    sleep 0.25
+  done
+  excerpt '"  \(.type): \(.status) after \(.attempts) attempt(s), the endpoint answered \(.last_status)"'
+  expect "the ping, refused by the endpoint (after $i checks)" "$(field '"\(.status) \(.last_status)"')" "dead 401"
+  QUIET=1 api 200 '' getWebhookSubscription -p "id=$sub"
+  line="Failing: subscription $(field '.status + (if .disabled_reason then " (\(.disabled_reason))" else "" end) + (if .failing_since then ", failing since \(.failing_since)" else "" end)'); failed deliveries $ping"
+  as integration-agent
+  say "What the agent reads of the subscriptions: never a secret, which the API lists for nobody."
+  api 200 '.items[] | "  \(.description): \(.status), keys \(keys | join(" "))"' listWebhookSubscriptions
+  expect "a secret among the subscriptions read" "$(field '[.items[] | select(has("secret"))] | length')" 0
+  say "The agent runs: erp agent integration-monitor finds the failing integrations before its session and recommends"
+  say "on each. The stand-in reads the subscription's dead deliveries, recommends without the line the run computed"
+  say "(refused), then checking the endpoint, the line naming the failed delivery:"
+  integration_agent_script "$sub" "$line"
+  show ERP_AGENT_TOKEN=… erp agent integration-monitor
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/integration-agent") "$ERP" agent integration-monitor 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent integration-monitor failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): check_endpoint on webhook_subscription $sub .*/\1/p")
+  [ -n "$rec" ] || fail "erp agent integration-monitor printed no check_endpoint on the subscription $sub"
+  say "Pausing the subscription is the administrator's (x-agent: false), and the API refuses the agent its own call:"
+  QUIET=1 api 200 '' getWebhookSubscription -p "id=$sub"
+  as integration-agent
+  refused 403 identity.agent_not_allowed pauseWebhookSubscription -p "id=$sub" -if-match "$ETAG"
+  as sam
+  say "Sam reads the recommendation on the subscription:"
+  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"): \(.content)")' listRecommendations -p "object_id=$sub"
+  expect "the recommendations on the subscription, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "made in its session" "$(field '.items[0].session_id')" "$session"
+  expect "naming the failed delivery" "$(field '.items[0].content | split("\n") | first')" "$line"
+  say "Sam accepts it, which changes nothing: the portal will not take Maple's events for now, so he deletes the"
+  say "subscription himself."
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "The portal has no secret yet; the subscription goes until it has."}'
+  QUIET=1 api 200 '' getWebhookSubscription -p "id=$sub"
+  expect "the subscription as it was" "$(field .status)" active
+  api 200 '"  subscription \(.description): \(.status)"' deleteWebhookSubscription -p "id=$sub" -if-match "$ETAG"
+  passed
+}
+
+# integration_agent_script SUBSCRIPTION LINE writes the stand-in's turns
+# of the integration agent's run: the subscription's dead deliveries, a
+# recommendation without the line the run computed (refused) and one
+# checking the endpoint, starting with LINE.
+integration_agent_script() {
+  jq -n --arg sub "$1" --arg line "$2" '
+    {session_id: "{{session}}", object_type: "webhook_subscription", object_id: $sub, kind: "check_endpoint"} as $on |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "listWebhookDeliveries", input: {id: $sub, status: "dead"}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "The supplier portal refuses its deliveries."})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "\($line)\nThe endpoint answered HTTP 401 to the ping: it cannot verify the deliveries. Give the portal the subscription'"'"'s signing secret, or rotate it and give it the new one, then ping again."})}},
+      {final: "One failing integration: the supplier portal'"'"'s subscription, whose endpoint refuses its deliveries; recommended checking the endpoint."}]}' >"$WORK/model-script.json"
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -12492,7 +12588,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_process_mining step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_process_mining step_integration_agent step_close'
 
 main() {
   stop_unseen

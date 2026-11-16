@@ -34479,6 +34479,7 @@ components:
             - bid_comparison
             - regulatory
             - support
+            - integration
           maxLength: 50
         model:
           type: string

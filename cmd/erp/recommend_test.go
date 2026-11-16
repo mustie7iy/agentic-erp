@@ -305,6 +305,44 @@ func TestAgentSupportAsk(t *testing.T) {
 	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "support-ask", "how?")
 }
 
+// TestAgentIntegrationMonitor: erp agent integration-monitor takes no
+// flag, finds the failing integrations, runs the integration agent's
+// session and prints what it recommended, naming each object, and the
+// model's reply; with nothing failing it prints the reply alone, and a
+// run that failed after starting its session still names it (ADR-0072,
+// T110a).
+func TestAgentIntegrationMonitor(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	fails(t, "flag provided", "agent", "integration-monitor", "-x")
+	fails(t, "404", "agent", "integration-monitor")
+	quiet := routes{"GET /v1/webhook-subscriptions": {ok(`{"items": []}`)}, "GET /v1/bank-files": {ok(`{"items": []}`), ok(`{"items": []}`)},
+		"GET /v1/connectors": {ok(`{"items": []}`)}, "GET /v1/migration-runs": {ok(`{"items": []}`)}}
+	fakeAPI(t, quiet)
+	if got := must(t, "agent", "integration-monitor"); !strings.HasPrefix(got, "Nothing is failing") {
+		t.Errorf("agent integration-monitor with nothing failing: got %q", got)
+	}
+	failing := sessionRoutes(routes{"GET /v1/webhook-subscriptions": {ok(`{"items": []}`)}, "GET /v1/bank-files": {ok(`{"items": [{"id": "f1", "format": "pain.001.001.03",
+		"house_bank_code": "RBC", "status": "failed"}]}`), ok(`{"items": []}`)}, "GET /v1/connectors": {ok(`{"items": []}`)}, "GET /v1/migration-runs": {ok(`{"items": []}`)},
+		"POST /v1/recommendations": {reply{201, `{"id": "r1", "object_type": "bank_file", "object_id": "f1", "kind": "retransmit",
+			"content": "Failing: bank file failed\nTransmit it again."}`}}})
+	fakeAPI(t, failing)
+	model(t, llmtest.Tool("createRecommendation", map[string]any{"body": map[string]any{"session_id": agentSession, "object_type": "bank_file",
+		"object_id": "f1", "kind": "retransmit", "content": "Failing: bank file failed\nTransmit it again."}}),
+		llmtest.Final("One failing file; the administrator decides."))
+	got := must(t, "agent", "integration-monitor")
+	if want := "Session " + agentSession + ": recommendations made 1, refused 0.\n  recommendation r1: retransmit on bank_file f1 (pain.001.001.03 from RBC): " +
+		"Failing: bank file failed\nOne failing file; the administrator decides.\n"; got != want {
+		t.Errorf("agent integration-monitor: got %q, want %q", got, want)
+	}
+	fakeAPI(t, failing)
+	model(t)
+	fails(t, "Session "+agentSession+": recommendations made 0, refused 0.", "agent", "integration-monitor")
+	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
+	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "integration-monitor")
+}
+
 // TestRecommendingAdapterFailures: a recommending agent's evaluation
 // adapter fails its case on a task without its values and on an agent
 // that could not run.
@@ -324,6 +362,7 @@ func TestRecommendingAdapterFailures(t *testing.T) {
 		"access without its API": accessEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{},
 			Task: map[string]any{"role": "clerk", "from": "2026-04-01", "to": "2026-06-30"}}),
 		"bid_comparison without an RFQ":  bidComparisonEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
+		"integration without its API":    integrationEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}}),
 		"bid_comparison without its API": bidComparisonEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"rfq": "q1"}}),
 		"regulatory without a notice":    regulatoryEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
 		"regulatory without its API":     regulatoryEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"notice": "A notice."}}),

@@ -1023,7 +1023,13 @@ only: it reads the contract through a local search of its operations
 (`findOperations`: method, path, summary, description, permission,
 problem codes) and the active configuration, and its reply names only
 operations of the contract and cites settings as the active version
-holds them; it has no tool that writes.
+holds them; it has no tool that writes. The integration agent
+(`erp agent integration-monitor`, agent type `integration`, T110a) finds
+the failing webhook subscriptions, bank files and connectors before its
+session and recommends on each (`check_endpoint`, `investigate`,
+`redeliver`, `pause`, `retransmit`), its first line naming the failed
+deliveries, the file's status or the failed migration run; pausing,
+redelivering and the other writes stay the administrator's.
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation
