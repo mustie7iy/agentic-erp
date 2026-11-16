@@ -96,7 +96,7 @@ func (a *Agent) Fix(ctx context.Context, recommendation string) (recommend.Resul
 		return recommend.Result{}, fmt.Errorf("supportagent: recommendation %s: %w", recommendation, err)
 	}
 	class, _ := classOf(rec.Content)
-	cited := citationRe.FindAllStringSubmatch(rec.Content, -1)
+	cited := config.Cited(rec.Content)
 	if _, ok := Documents[rec.ObjectType]; !ok || rec.Kind != RootCause || rec.Outcome != "accepted" || class != Configuration || len(cited) == 0 {
 		return recommend.Result{}, fmt.Errorf("%w: recommendation %s is %s on %s of class %q, outcome %q, citing %d settings",
 			ErrNotConfiguration, recommendation, rec.Kind, rec.ObjectType, class, rec.Outcome, len(cited))
@@ -107,11 +107,11 @@ func (a *Agent) Fix(ctx context.Context, recommendation string) (recommend.Resul
 	}
 	active := config.Readable(v.Document)
 	var paths []string
-	for _, m := range cited {
-		if value, ok := config.Setting(active, m[1]); !ok || value != m[2] {
-			return recommend.Result{}, fmt.Errorf("%w: %s = %s, version %d is active", ErrFixStale, m[1], m[2], v.Number)
+	for _, c := range cited {
+		if value, ok := config.Setting(active, c.Path); !ok || value != c.Value {
+			return recommend.Result{}, fmt.Errorf("%w: %s = %s, version %d is active", ErrFixStale, c.Path, c.Value, v.Number)
 		}
-		paths = append(paths, m[1])
+		paths = append(paths, c.Path)
 	}
 	f := &fixing{active: active, draft: (&changedraft.Draft{API: a.API, Poll: a.Poll, Patience: a.Patience, Base: v.Number,
 		Active: active, Scope: oneOf(paths), Objects: map[string]string{}}).Start(ctx)}
@@ -173,12 +173,10 @@ func (f *fixing) check(p recommend.Proposed, figures *recommend.Figures) error {
 	if strings.TrimSpace(first) != fmt.Sprintf("Change: `%s` from `%s` to `%s`", ch.Path, ch.Old, ch.New) {
 		return fmt.Errorf("%w: Change: `%s` from `%s` to `%s`", ErrChange, ch.Path, ch.Old, ch.New)
 	}
-	for _, m := range citationRe.FindAllStringSubmatch(rest, -1) {
-		if v, ok := config.Setting(f.active, m[1]); !ok || v != m[2] {
-			return fmt.Errorf("%w: not %s = %s", ErrSetting, m[1], m[2])
-		}
+	if c, unheld := config.Unheld(f.active, rest); unheld {
+		return fmt.Errorf("%w: not %s = %s", ErrSetting, c.Path, c.Value)
 	}
-	if unread := figures.Unread(citationRe.ReplaceAllString(rest, " ")); len(unread) > 0 {
+	if unread := figures.Unread(config.Uncited(rest)); len(unread) > 0 {
 		return fmt.Errorf("%w: not %s", ErrDiagnosisNumber, strings.Join(unread, ", "))
 	}
 	return nil

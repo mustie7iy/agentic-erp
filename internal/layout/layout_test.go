@@ -140,6 +140,7 @@ var allowed = map[string][]string{
 	"cashagent":               {"apitools", "llm"},
 	"router":                  {"directory"},
 	"savingsagent":            {"apitools", "llm", "recommend"},                          // a recommending agent (ADR-0072): its declaration, the opportunities it finds before its session and its check
+	"enablementagent":         {"apitools", "config", "llm", "recommend"},                // a recommending agent (ADR-0072 As built, T109a) and its help (T109b): config, the settings it cites; recommend, its quotations and numbers
 	"supportagent":            {"apitools", "changedraft", "config", "llm", "recommend"}, // the support agent (ADR-0072 As built, T108a): a reply only, not the pattern's run; config: the settings it cites; recommend: its numbers (Numbers); changedraft: the fix it drafts (T108c)
 	"taxagent":                {"apitools", "llm"},
 	// Registrations from the configuration, companies from the directory

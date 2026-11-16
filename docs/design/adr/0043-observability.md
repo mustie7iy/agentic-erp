@@ -271,13 +271,18 @@ traces, and CPU and memory saturation.
   (60,000). The next new agent type that takes `agent_kind` past 20, or
   the series past 60,000, is this ADR's to revisit.
 
-## As built: the agent_kind label's ceiling (T105f, T105g)
+## As built: the agent_kind label's ceiling (batch 75)
 
-- Decided by default: the control monitoring and risk agents bring
-  `autonomy.Kinds` to 18 values (16 types, "untyped" and "none"), over
-  the `agent_kind` ceiling of 16. The ceiling is 24, room for the agent
-  slices of week 3 still to come, and `MaxSeries` 65,000: the catalog's
-  worst case at 24, computed by `TestMetricsCatalog`'s `Check`, is
-  62,137 series, and 65,000 is the smallest multiple of 5,000 that
-  holds it, under the 75,000 above which the labels are a cost question
-  for the product owner.
+- Decided by default (listed in batch 75's digest): the week 3 agents
+  (savings, control monitoring, risk, planning, enablement and
+  integration; T105d to T105g, T109a, T110a) bring `autonomy.Kinds` to 23
+  values (21 types, "untyped" and "none"), over the ceiling of 20. The
+  `agent_kind` ceiling is the real count, 23, not a round number with
+  headroom: the next agent type is one more line in `Types` and in this
+  ceiling, caught by `TestMetricsCatalog` as every ceiling is. The
+  catalog's worst case, computed by `TestMetricsCatalog`'s `Check`, is
+  61,504 series, which `MaxSeries` 65,000 (the smallest multiple of 5,000
+  that holds it) keeps, under the 75,000 above which the labels are a
+  cost question for the product owner. The `operation` label holds 606
+  values (584 operations of the API, 21 of the control plane and
+  "unmatched") of its 768.

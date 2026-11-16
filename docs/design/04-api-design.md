@@ -1101,6 +1101,16 @@ period, a plan or actual amount of the company's a read returned, in its
 currency, sign included) and per cost center its reasons
 citing its actuals; the controller applies the lines as a plan batch
 (`x-agent: false`, ADR-0050 §8).
+The enablement agent
+(`erp agent enablement-docs -process P`, agent type `enablement`, T109a)
+describes a process (purchase to pay, order to cash) from the active
+configuration and the roles and recommends the description on the active
+`config_version` as `process_document`, every figure a setting cited as
+the version holds it and every role an active role; asked about a field
+or a problem code of an operation (`erp agent enablement-help`, T109b),
+it refuses one the contract does not have before any model call and
+replies quoting the contract's description and citing the settings in
+force.
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation

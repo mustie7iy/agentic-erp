@@ -10640,13 +10640,13 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Process docs from live configuration",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A process owner has the enablement agent write the description of a process (purchase to pay, or order to cash) from the tenant's active configuration and roles: who does what, with the limits and tolerances in force, every figure taken from the configuration (erp agent enablement-docs)",
-        "r": "T109a · docs/design/plan-breadth-week3.md §T109a",
+        "r": "T109a · docs/design/plan-breadth-week3.md §T109a · internal/enablementagent · agent type enablement · erp agent enablement-docs -process P [-out F] · process_document on the active config_version · config.Cited · evals/enablement · walkthrough step_enablement_agent · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -10661,13 +10661,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "In-context help",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A user asks the enablement agent what a field or a problem code of an operation means; it explains it from the API contract and the tenant's configuration (erp agent enablement-help)",
-        "r": "T109b · docs/design/plan-breadth-week3.md §T109b",
+        "r": "T109b · docs/design/plan-breadth-week3.md §T109b · enablementagent.Agent.Help · erp agent enablement-help -operation ID -field NAME|-problem CODE · apitools.Explain · recommend.Quotations, Quoted · evals/enablement version 2 · walkthrough step_enablement_agent (enablement_help) · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

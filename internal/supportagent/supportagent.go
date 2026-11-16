@@ -186,12 +186,8 @@ var (
 	// operationRe is a word that has the form of an operation id: lower
 	// case, then words joined by capitals (releaseSupplierInvoice).
 	operationRe = regexp.MustCompile(`\b[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)+\b`)
-	// citationRe is a setting cited as `path` = `value`.
-	citationRe = regexp.MustCompile("`([^`\\s]+)` = `([^`]*)`")
 	// codeRe is a text in backticks.
 	codeRe = regexp.MustCompile("`[^`]*`")
-	// listRe is a list item's number at a line's start.
-	listRe = regexp.MustCompile(`(?m)^\s*\d+[.)]\s`)
 )
 
 // check is the agent's rule on a reply (T108a): it names only the
@@ -212,13 +208,11 @@ func (r *replying) check(text string) error {
 	if len(named) == 0 && !strings.Contains(text, Unanswered) {
 		return ErrUnanswered
 	}
-	for _, m := range citationRe.FindAllStringSubmatch(text, -1) {
-		if v, ok := config.Setting(r.active, m[1]); !ok || v != m[2] {
-			return fmt.Errorf("%w: not %s = %s", ErrSetting, m[1], m[2])
-		}
+	if c, unheld := config.Unheld(r.active, text); unheld {
+		return fmt.Errorf("%w: not %s = %s", ErrSetting, c.Path, c.Value)
 	}
 	asked := recommend.Numbers(r.question)
-	prose := listRe.ReplaceAllString(codeRe.ReplaceAllString(text, " "), " ")
+	prose := recommend.Unnumbered(codeRe.ReplaceAllString(text, " "))
 	for _, n := range recommend.Numbers(prose) {
 		if !slices.Contains(asked, n) {
 			return fmt.Errorf("%w: not %s", ErrNumber, n)

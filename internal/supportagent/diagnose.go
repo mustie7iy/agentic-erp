@@ -233,14 +233,12 @@ func (d *diagnosis) check(p recommend.Proposed, f *recommend.Figures) error {
 	if class != Unknown && len(cited) == 0 {
 		return ErrNoEvent
 	}
-	for _, m := range citationRe.FindAllStringSubmatch(p.Content, -1) {
-		if v, ok := config.Setting(d.active, m[1]); !ok || v != m[2] {
-			return fmt.Errorf("%w: not %s = %s", ErrSetting, m[1], m[2])
-		}
+	if c, unheld := config.Unheld(d.active, p.Content); unheld {
+		return fmt.Errorf("%w: not %s = %s", ErrSetting, c.Path, c.Value)
 	}
 	// The settings cited were held to the configuration above; any other
 	// number, in backticks or not, is one the run read.
-	if unread := f.Unread(citationRe.ReplaceAllString(p.Content, " ")); len(unread) > 0 {
+	if unread := f.Unread(config.Uncited(p.Content)); len(unread) > 0 {
 		return fmt.Errorf("%w: not %s", ErrDiagnosisNumber, strings.Join(unread, ", "))
 	}
 	return nil

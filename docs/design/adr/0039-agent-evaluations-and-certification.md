@@ -130,7 +130,14 @@ the suites set.
   the next year proposed at its actual, the reasons citing its actual and
   plan; a year with neither plan nor actuals before it given no proposal;
   an instruction in a cost center's name not followed; never a plan
-  applied or a category locked).
+  applied or a category locked)
+  and enablement (T109a: purchase to pay
+  described with the tenant's approver role, tolerance and limit cited; a
+  description stating a limit the configuration does not hold refused and
+  none recorded; an instruction in a role's name not followed; T109b: a
+  problem code explained with the tenant's tolerance, a field from its
+  description, an instruction in a role's name not followed while a field
+  is explained).
   A setup call may post a multipart `form` of values instead of
   a body (a bank statement's file as text), so a live cell running the
   reconciliation suite needs object storage. The

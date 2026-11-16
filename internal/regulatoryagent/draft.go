@@ -176,9 +176,9 @@ func (d *drafting) check(p recommend.Proposed, f *recommend.Figures) error {
 	if err := d.draft.Outcome(p.Kind); err != nil {
 		return err
 	}
-	quoted, rest := quotations(p.Content)
+	quoted, rest := recommend.Quotations(p.Content)
 	for _, q := range quoted {
-		if !inNotice(d.accepted, q) {
+		if !recommend.Quoted(d.accepted, q) {
 			return fmt.Errorf("%w: not %q", ErrNotQuoted, q)
 		}
 	}

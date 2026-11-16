@@ -206,6 +206,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `access` | `internal/accessagent`, `erp agent access-roles -role CODE -period FROM..TO`, `erp agent access-sod -role CODE [-add P,...]`, `erp agent access-review -period FROM..TO` | `listRoles`, `getRole`, `listRolePermissions`, `listRoleAssignments`, `listPrincipals`, `listAuditEvents`, `listSodRules` | on `role`: `remove_permissions`, `keep` (T106a); `sod_conflict`, `no_conflict` (T106b); on `principal`: `keep_roles`, `remove_roles`, `review` (T106c) | every identity write (granting a permission, changing a rule, ending a role assignment, blocking a principal among them) |
 | `regulatory` | `internal/regulatoryagent`, `erp agent regulatory-notice -file F` | `listCountryPacks`, `listConfigVersions`, `getConfigVersion`, `listTaxRegistrations`, `listTaxPeriods` | on `config_version`: `change_needed`, `no_change` | every write of the configuration (change requests, a pack applied, a regression suite) |
 | `regulatory` (drafting, T107b) | `erp agent regulatory-draft -recommendation ID` | `getRecommendation`, `listConfigVersions`, `getConfigVersion`, `listFiscalPeriods`, `getChangeRequest`, `getOperation`; writes `createChangeRequest`, `updateChangeRequest`, `simulateChangeRequest` | on `change_request`: `ready_to_submit`, `simulation_failed` | submitting, withdrawing or activating a change request, a pack applied, a regression suite, a decision on an approval or a recommendation |
+| `enablement` | `internal/enablementagent`, `erp agent enablement-docs -process P [-out F]`; beside the pattern, `erp agent enablement-help -operation ID -field NAME\|-problem CODE` (T109b) | `listConfigVersions`, `getConfigVersion`, `listRoles`, `listRolePermissions`, `listSodRules`; for help also `getSchema` | on `config_version`: `process_document` (T109a); help replies only (T109b) | every write of the configuration and of access (change requests, a pack applied, a regression suite, roles, grants, assignments, SoD rules, principals, company access) |
 | `bid_comparison` | `internal/bidagent`, `erp agent bid-compare -rfq ID` | `getRfq`, `listSupplierQuotations`, `getRfqComparison`, `getBusinessPartner`, `listContracts`, `listPurchaseOrders` | on `rfq`: `award`, `no_award` | `awardRfq`, `publishRfq`, `createSupplierQuotation`, `createRfq` |
 | `collections` | `internal/collectionsagent`, `erp agent collections -company CODE [-key-date YYYY-MM-DD]` | `getCollectionWorklist`, `getReceivablesAging`, `listDunningRuns`, `listDunningNotices`, `listIncomingPayments`, `listCustomerInvoices`, `listDisputeCases`, `getDisputeCase`, `listOpenItems`, `listAccounts`, `getBusinessPartner` | on `business_partner` (a customer of the worklist): `call`, `send_reminder`, `escalate`, `wait_for_dispute`, `no_action` | `createDunningRun`, `confirmDunningRun`, `createDisputeCase`, `updateDisputeCase`, `closeDisputeCase`; nothing in the contract sends to a customer |
 | `support` (diagnosis, T108b) | `internal/supportagent`, `erp agent support-diagnose -type KIND -id ID [WHAT HAPPENED]` | T108a's (`listConfigVersions`, `getConfigVersion`, `getSchema`, `getCurrentPrincipal`), `listAuditEvents`, `listOperations`, `listApprovalRequests`, each document's read (`getSupplierInvoice`, `getCustomerInvoice`, `getJournalEntry`, `getPurchaseOrder`, `getSalesOrder`, `getPaymentRun`, `getChangeRequest`, `getOperation`), the contract's search (`findOperations`) | on the document (its kind): `root_cause` | every write: its tools hold none |
@@ -856,7 +857,8 @@ A later slice adds its row here and its section under "As built".
 
 - `internal/integrationagent`; agent type `integration` (in
   `autonomy.Types`, the profile's open enumeration in both contracts, and
-  the telemetry ceiling of `agent_kind` one higher, 17); no migration, no
+  the telemetry ceiling of `agent_kind`, set for every week 3 agent at
+  integration, ADR-0043 As built, batch 75); no migration, no
   new operation, permission, event or problem code.
 - `erp agent integration-monitor` (no flags): before its session the run
   reads the webhook subscriptions (`listWebhookSubscriptions`, deleted
@@ -1237,6 +1239,128 @@ A later slice adds its row here and its section under "As built".
   which then holds them.
 - No migration, no new operation, permission, event or problem code.
 
+
+### T109a, the enablement agent: a process described from the configuration
+
+- `internal/enablementagent`; agent type `enablement` (`autonomy.Types`,
+  the profile's open enumeration; the `agent_kind` label's ceiling holds it,
+  ADR-0043 As built, batch 75). `erp agent enablement-docs -process P [-out F]`,
+  `P` one of `purchase_to_pay` and `order_to_cash`; a process the first
+  version does not know is refused before anything is read
+  (`ErrProcess`). Before its session the run reads the active
+  configuration version (`apitools.ActiveConfig`) and every role
+  (`listRoles`, every page): a version or roles the agent may not read
+  stop it before a session, and reading roles needs
+  `identity.access.read`, which only the tenant's administrator grants
+  (§6). The prompt names, per process, the settings it rests on (purchase
+  to pay: the requisition and order release tiers, the receipt's
+  over-delivery tolerance, the invoice tolerance, the posting limits, the
+  payment terms and the payment release; order to cash: the pricing
+  procedure, the payment terms and the dunning levels).
+- It recommends once on the active version (object type
+  `config_version`), kind `process_document`, the content the description
+  in Markdown, at most the API's 10,000 characters; the command prints the
+  run as every recommending agent's does and writes the content as the API
+  recorded it to `F` (default `P.md`), only when a recommendation was made.
+- Its check (`documenting.check`), computed, not judged:
+  - the first line is `# <Process>, configuration version <N>`, the
+    active version's number (`Heading`);
+  - at least one setting is cited, and every setting cited as
+    `` `path` = `value` `` is the active version's with that value
+    (`config.Cited`, `config.Unheld`; the support agent's form, now
+    shared from `internal/config` with its check), a list item named by
+    its key or, where the configuration keys none, its position
+    (`requisition_approval[0]`);
+  - every text in backticks outside the citations, and every code joined
+    by underscores (`process_owner`, `Z_PURCH_MGR`), is one of the
+    tenant's active roles as read before the session: a role is written in
+    backticks, alone, in a list or beside the word, and nothing else is;
+  - no number stands outside the citations (a list item's number of one or
+    two digits at a line's start apart, `recommend.Unnumbered`, shared with
+    the support agent), in digits or in words (two to ninety, hundred,
+    thousand, million, billion, dozen, half, quarter, zero, twice, double,
+    triple, and the ordinals from third), and "percent", "per cent" or "%"
+    stands only right after a citation of a percentage (a path ending in
+    `percent`): every
+    amount, percentage, count of approvals and days is a cited setting, so
+    the plan's "every amount, percentage and role ... with that value"
+    holds for what the check sees. It does not see a role whose code is a
+    single plain word written outside backticks (`controller`), nor
+    "one", "a", "first" or "second" as a count or a position.
+- Its never list (`Never`, `TestNever` against the contract's `config.*`
+  writes and `identity.access.manage`'s) is every write of the
+  configuration and of access.
+- `evals/enablement`, version 1, replayed to level 2, on the tax suite's
+  configuration: purchase to pay described with the approver role, the
+  tolerance and the auto-post limit cited; a description stating a limit
+  the configuration does not hold refused and none recorded; an
+  instruction in a role's name not followed, the role granted nothing.
+  Not run against a live model.
+- Walkthrough `step_enablement_agent` (step 108): Ada sets the agent up
+  without `identity.access.read`; Priya's first run is refused before a
+  session (403 `identity.permission_missing`); Ada grants it; the agent's
+  description writing the approval limit in prose is refused by the run;
+  it recommends the description naming version N, citing the requisition
+  approval limit, its roles and company 3000's price tolerance as the
+  active version holds them, written to `purchase_to_pay.md` and equal to
+  the recommendation's content; its own change request is refused (403);
+  the version is as it was.
+- No migration, no new operation, permission, event or problem code.
+
+### T109b, the enablement agent: in-context help
+
+- A second entry function of the `enablement` agent, `Agent.Help`, as the
+  plan says; same type, same suite. `erp agent enablement-help -operation
+  ID -field NAME|-problem CODE`. It replies and does not recommend, so it
+  runs outside the pattern, through `apitools.Run` with a local `reply`
+  tool, as the support agent does (T108a); its reads are T109a's and
+  `getSchema`.
+- **Refused before any model call.** The plan's "422 otherwise, before any
+  model call" is, for a command with no endpoint, a refusal before
+  anything is read or a session started: `apitools.Explain` looks the
+  operation up in the contract compiled into the binary, then the field (a
+  parameter of that name, else a property of the request body, else of a
+  successful response's body, dotted through nested objects, arrays and
+  combined schemas) or the problem code (one the operation lists in
+  `x-problem-codes`, or one the document lists for every operation), and
+  answers `apitools.ErrNotInContract` for any it does not have; a question
+  naming neither or both of a field and a problem code is `ErrAsk`.
+- Before its session the run also reads the tenant's roles, as T109a's
+  does (identity.access.read).
+- The prompt gives what the contract says, between `<contract>` lines: the
+  operation's method, path, summary, description, permission and problem
+  codes, and the field's description.
+- Its check (`helping.check`): one reply; it names the field or problem
+  code asked about; it quotes at least one passage in double quotes, and
+  every passage is in the operation's summary or description or the
+  field's description character for character, as whole words and numbers
+  (`recommend.Quotations`, `recommend.Quoted`, the regulatory agent's
+  quotation rule moved from `internal/regulatoryagent` and shared); every
+  setting cited is the active version's with that value; outside the
+  quotations and citations no number is written in words and "percent"
+  follows only a cited percentage, as T109a's rule has it, every number (a
+  list's numbering apart) is one the question's names write, and every
+  text in backticks and every code joined by underscores is an active role
+  of the tenant's, the field or problem code asked about, or the
+  operation's id, permission or one of its problem codes; those names are
+  taken out before codes are looked for, so a problem code written without
+  backticks is not read as the code after its dot.
+- `evals/enablement`, version 2: three cases added (task `operation` with
+  `field` or `problem`): `payables.match_required` of `postSupplierInvoice`
+  explained with the tenant's tolerance cited; `gross_amount` of
+  `createSupplierInvoice` explained from its description; an instruction
+  in a role's name not followed while `status` of `listRoles` is explained.
+- Walkthrough `step_enablement_agent` extended (`enablement_help`): Alex
+  enters an invoice on Tyrell's order and posts it before matching it
+  (409 `payables.match_required`); a code the contract does not have is
+  refused before any model call; the agent's reply quoting words the
+  contract does not write is refused; it explains the code, quoting the
+  operation's description and citing company 3000's price tolerance in
+  force; Alex cancels the invoice.
+- Help beside a field in the web workspace is not built (the plan's
+  "Later"). No migration, no new operation, permission, event or problem
+  code.
+
 ## Defaults taken (for the product owner's digest)
 
 1. The shared run is a package, `internal/recommend`, not a copy per
@@ -1422,3 +1546,18 @@ A later slice adds its row here and its section under "As built".
     the API judging the rest when the batch is applied; a locked
     category stops the run before a session. A read marked `x-autonomy:
     read` is a read of the pattern (§2).
+30. (T109a) The enablement agent's description is a recommendation on the
+    active configuration version, the object the configuration's reads
+    name; every figure in it is a setting cited as `` `path` = `value` ``
+    and no number stands outside the citations, in digits or in words,
+    every role named (in backticks, or a code joined by underscores) is an
+    active role of the tenant's; reading roles needs
+    `identity.access.read`, granted by the administrator as for the
+    access agent. The first version knows purchase to pay and order to
+    cash, and writes the file the command names (default `P.md`).
+31. (T109b) Help is a second entry function of the same agent that
+    replies; "422 before any model call" is a refusal before anything is
+    read (the command has no endpoint); a field is a parameter or a body's
+    property, dotted; a problem code is the operation's or one every
+    operation may answer; the reply quotes the contract and cites only the
+    active version's settings.

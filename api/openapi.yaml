@@ -35217,6 +35217,7 @@ components:
             - control_monitoring
             - risk
             - planning
+            - enablement
           maxLength: 50
         model:
           type: string
