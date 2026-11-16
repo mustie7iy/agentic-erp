@@ -226,6 +226,9 @@ func TestEventLogRefused(t *testing.T) {
 		"&from=2026-03-01&to=2026-03-31", "", "")
 	reader := e.As(e.Reader(t, "Rita Reader", e.US))
 	reader.Problem(404, "request.not_found", "GET", base+"&process=purchase_to_pay", "", "")
+	if got := read(t, e.Client, "legal_entity_id="+e.DE.String()+"&from=2026-03-01&to=2027-03-06"); got["to"] != "2027-03-06" {
+		t.Errorf("370 days: got %v, want the log", got)
+	}
 	if got := read(t, reader, "legal_entity_id="+e.US.String()+"&from=2026-03-01&to=2026-03-31"); got["case_count"] != float64(0) {
 		t.Errorf("an empty log: got %v", got)
 	}
