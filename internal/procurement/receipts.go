@@ -338,7 +338,7 @@ func reversedItems(orig []ReceiptItem, reversal string, current []orderItem) ([]
 		if err := receivedWithin(current[i], it.POItemNo, left[key], reversal); err != nil {
 			return nil, nil, err
 		}
-		it.Quantity = new(big.Rat).Neg(money.ParseRat(it.Quantity)).FloatString(6)
+		it.Quantity = negated(it.Quantity)
 		items[i] = it
 	}
 	return items, left, nil
