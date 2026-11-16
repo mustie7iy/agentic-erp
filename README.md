@@ -49,6 +49,11 @@ support work that consultants do today.
 
 ## Quick start
 
+Locally you need bash 5 (on macOS, `brew install bash` and put Homebrew's
+`bin` first on `PATH`): `make walkthrough` refuses macOS's `/bin/bash` 3.2,
+which runs a lone command in `$(…)` without the ERR trap, so a run there
+could pass what fails on CI's bash 5.
+
 ```sh
 make db-up      # PostgreSQL 17 in Docker on :55432
 make test       # functional, end-to-end and resilience suites, race detector on

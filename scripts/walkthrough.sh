@@ -44,6 +44,16 @@
 # the same on every run (fixed seed, January to September of this year);
 # the pilot's documents are dated today, the pilot company's date in its
 # time zone (scripts/walkthrough/dates.sh).
+#
+# Needs bash 5 or later, as GitHub's runners have: macOS's
+# /bin/bash 3.2 runs a lone command in $(...) without the ERR trap, so a
+# run it passed stopped on GitHub (stop_unseen, ci:batch75). On macOS,
+# `brew install bash` and put Homebrew's bin first on PATH, where
+# `#!/usr/bin/env bash` and `go test` find it.
+if [ "${BASH_VERSINFO[0]}" -lt 5 ]; then
+  echo "$(basename "$0"): needs bash 5 or later, got $BASH_VERSION at $BASH (on macOS: brew install bash, with Homebrew's bin first on PATH)" >&2
+  exit 1
+fi
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -226,7 +236,7 @@ fail() {
 
 # stop_unseen makes a failed command or an unbound variable inside a
 # command substitution stop the run (review:T61j). bash clears set -e in a
-# substitution (macOS's bash 3.2, which runs this, has no inherit_errexit),
+# substitution (this script sets no inherit_errexit, which bash 3.2 lacks),
 # and its caller sees its status only in a plain assignment, x=$(f): not in
 # local x=$(f), an argument, expect "..." "$(f)" ..., or printed text,
 # say "$(f)". So every failed command, here or in any subshell (set -E),
@@ -235,10 +245,15 @@ fail() {
 # (on_substitution_exit, scripts/lib/on-exit.sh); either leaves fail's
 # mark, and ran stops the run after the step. ( ... ) and pipelines keep
 # set -e, which stops them as before. A substitution whose failure is
-# expected says so inside it, $(f || true), in a condition too: bash 3.2
-# runs the ERR trap in $(f) || true and in if [ "$(f)" ... ], and a
-# substitution ending with a status other than 0, $(grep -c x f) finding
-# none, stops the run on both bash 3.2 and 5.
+# expected says so inside it, $(f || true), in a condition too: the ERR
+# trap runs in $(f) || true and in if [ "$(f)" ... ], and a substitution
+# ending with a status other than 0, $(grep -c x f) finding none, stops
+# the run (TestWalkthroughToleratedStatus holds grep -c, and a lone grep,
+# diff or cmp, to that). This needs bash 5 or later (the check at the
+# top): bash 3.2 runs a lone simple command in $(...), $(grep -c x f),
+# without the ERR trap or the substitution's EXIT trap, so its failure
+# stopped nothing there and stopped the run on GitHub's bash 5
+# (ci:batch75).
 stop_unseen() {
   set -E
   trap 'command_failed $? "$LINENO" "$BASH_COMMAND"' ERR
@@ -620,7 +635,7 @@ role() { jq -r --arg c "$1" '.items[] | select(.code == $c) | .id' "$WORK/roles.
 people() {
   say "Ada, the administrator, sets up the team. Day-to-day work is one role, finance_staff; deciding"
   say "approvals and releasing payments belong to the roles the configuration names, given to approvers."
-  local staff perm code n=0
+  local staff perm code approve n=0
   QUIET=1 api 200 '' listRoles -p page_size=100
   cp "$WORK/last.json" "$WORK/roles.json"
   QUIET=1 api 200 '' listRolePermissions -p "id=$(role tenant_admin)" -p page_size=200
@@ -634,9 +649,11 @@ people() {
     n=$((n + 1))
   done <"$WORK/permissions"
   show erp call grantRolePermission -p "id=$staff" -body '{"permission_code": "..."}' "# $n permissions"
+  approve=$(grep '\.approve$' "$WORK/permissions" || true)
+  if [ -z "$approve" ]; then fail "tenant_admin's permissions: got no *.approve permission, want the ones the approvers are given"; fi
   for code in Z_PURCH_MGR process_owner controller solution_architect Z_TREASURY_MGR vendor_master_approver tax_manager; do
-    # shellcheck disable=SC2046 # permission codes are single words
-    grant "$(role "$code")" workflow.request.decide $(grep '\.approve$' "$WORK/permissions")
+    # shellcheck disable=SC2086 # permission codes are single words
+    grant "$(role "$code")" workflow.request.decide $approve
   done
   grant "$(role Z_TREASURY_MGR)" payments.run.release payments.file.transmit
   say "  the approver roles Z_PURCH_MGR, process_owner, controller, solution_architect, vendor_master_approver and"
@@ -711,7 +728,7 @@ step_tenant() {
   jq -r --arg cc "$CC" '.T042E[] | select(.ZBUKR == $cc) | "     T042E company \(.ZBUKR), method \(.ZLSCH)"' "$WORK/data/extract.json"
   jq -r --arg cc "$CC" '.T042A[] | select(.ZBUKR == $cc) | "     T042A method \(.ZLSCH), \(.WAERS), rank \(.RANGF): house bank \(.HBKID)"' "$WORK/data/extract.json"
   grep -A 9 '^    payment_methods:$' "$WORK/config.yaml" | sed 's/^/     /'
-  expect "the generated method's ranking" "$(grep -A 9 '^    payment_methods:$' "$WORK/config.yaml" | grep -cE '^ +- (MAIN|MUSD)$')" 2
+  expect "the generated method's ranking" "$(grep -A 9 '^    payment_methods:$' "$WORK/config.yaml" | grep -cE '^ +- (MAIN|MUSD)$' || true)" 2
   say "SAP's cost element categories (CSKB-KATYP; T56h2) give the accounts' cost elements: sales revenue a revenue"
   say "element (11), the expenses primary costs (01), and the exchange rate accounts, no cost elements in SAP, none,"
   say "so their lines take no cost object (ADR-0050 §4)."
@@ -728,7 +745,7 @@ step_tenant() {
   grep "\[error\]" "$WORK/generate.out" | sed 's/^ */     /'
   grep -q "\[error\] companies\[$CC\]\.house_banks\[MUSD\]\.gl_account: house bank MUSD is in USD: account 102000 must be revalue_foreign_currency" "$WORK/generate.out" ||
     { sed 's/^/     /' "$WORK/generate.out"; fail "the draft did not ask for the USD bank's account to be revalued"; }
-  expect "the draft's validation errors" "$(grep -c '\[error\]' "$WORK/generate.out")" 1
+  expect "the draft's validation errors" "$(grep -c '\[error\]' "$WORK/generate.out" || true)" 1
   say "SAP also holds an open supplier invoice in USD (ACDOCA RWCUR), which loads in USD: the reviewer has the payables"
   say "account 211000 revalued too, its differences on a payables valuation account 211099 (ADR-0042)."
   jq -r --arg cc "$CC" '.ACDOCA[] | select(.RBUKRS == $cc and .RWCUR != null and .RWCUR != "CAD" and .LIFNR != "" and .AUGBL == "")
@@ -801,7 +818,7 @@ default_assignments() {
   say "every other row is noted with why, and TKA3A's own cost center is never taken when REGEL is set:"
   grep "companies\[$CC\]\.default_assignments" "$WORK/generate.out" | sed 's/^ */     /'
   if grep -q 'default_assignments' "$WORK/config.yaml"; then fail "the draft holds default assignments before their cost centers are migrated"; fi
-  expect "the notes on rows not proposed" "$(grep -c "companies\[$CC\]\.default_assignments\[[0-9]*\]: TKA3A .*; not proposed$" "$WORK/generate.out")" 8
+  expect "the notes on rows not proposed" "$(grep -c "companies\[$CC\]\.default_assignments\[[0-9]*\]: TKA3A .*; not proposed$" "$WORK/generate.out" || true)" 8
   grep -q "default_assignments\[540000\]: .*REGEL 3, .*TKA3P profit center P3100: cost center 3120; TKA3P profit center P3200: cost center 3200).*TKA3A's own cost center 3120 is not taken as a fallback" \
     "$WORK/generate.out" || fail "the REGEL 3 row's note does not name its TKA3P rows"
   sed -nE "s/^ *companies\[$CC\]\.default_assignments\[[0-9]+\]: propose after the migration: \{account: \"([0-9]+)\", cost_center: \"([^\"]+)\"\}.*/\1 \2/p" \
@@ -2381,7 +2398,7 @@ step_statement() {
     importBankStatements -body "{\"house_bank_id\": \"$RBC\", \"format\": \"camt.053\"}" -file file=@camt053-empty.xml
   say "RBC's end-of-day statement (camt.053) shows the run's payments leaving the account."
   statement 500000.00
-  say "  $(grep -c '<Ntry>' "$WORK/camt053.xml") entries, opening 500000.00, closing $CLOSING CAD"
+  say "  $(grep -c '<Ntry>' "$WORK/camt053.xml" || true) entries, opening 500000.00, closing $CLOSING CAD"
   say "Tom imports it, the file as a part of the upload's form. It opens at 500,000.00, not at yesterday's 0.00:"
   say "the bank's statement that carried the funding never arrived, so it is in gap (ADR-0047 Continuity)."
   api 201 '' importBankStatements -body "{\"house_bank_id\": \"$RBC\", \"format\": \"camt.053\"}" -file file=@camt053.xml
@@ -2832,7 +2849,7 @@ tax_agent_decided() {
   api 200 '(.items[] | "  \(.kind) by \(.agent_id[0:8])…, \(.outcome // "open"): \(.content)")' listRecommendations -p "object_id=$registration"
   expect "the explanations of the registration's draft" "$(field '[.items[] | select(.kind == "explain_draft_return")] | length')" 1
   rec=$(field '.items[0].id')
-  expect "the explanation, one the agent printed" "$(printf '%s\n' "$got" | grep -c "^  recommendation $rec\$")" 1
+  expect "the explanation, one the agent printed" "$(printf '%s\n' "$got" | grep -c "^  recommendation $rec\$" || true)" 1
   expect "made in its session" "$(field '.items[0].session_id')" "$session"
   expect "citing invoice 1039's entry" "$(jq -r --arg d "$doc" '.items[0].content | contains("entry \($d)")' "$WORK/last.json")" true
   QUIET=1 api 200 '' listTaxReturns -p "id=$registration" -p "period_start=$start"
@@ -10210,8 +10227,8 @@ step_support_agent() {
   printf '%s\n' "$got" | sed 's/^/     /'
   session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
   expect "what the agent did" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "replies refused 1."
-  expect "naming the operation" "$(printf '%s\n' "$got" | grep -c 'releaseSupplierInvoice')" 1
-  expect "citing the tenant's tolerance" "$(printf '%s\n' "$got" | grep -cF "\`companies[$CC].invoice_tolerance.price_percent\` = \`$pct\`")" 1
+  expect "naming the operation" "$(printf '%s\n' "$got" | grep -c 'releaseSupplierInvoice' || true)" 1
+  expect "citing the tenant's tolerance" "$(printf '%s\n' "$got" | grep -cF "\`companies[$CC].invoice_tolerance.price_percent\` = \`$pct\`" || true)" 1
   as support-agent
   api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"
   expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "findOperations getConfigVersion reply reply"
@@ -11188,7 +11205,7 @@ step_process_mining() {
     ${token:+-p "page_token=$token"} -p format=csv -out "$csv"
   head -1 "$csv" | sed 's/^/  /'
   grep "^$PO," "$csv" | head -3 | sed 's/^/  /'
-  expect "the order's rows" "$(grep -c "^$PO," "$csv")" "$rows"
+  expect "the order's rows" "$(grep -c "^$PO," "$csv" || true)" "$rows"
   process_map "$from" "$to"
   passed
 }
@@ -11805,7 +11822,7 @@ step_enablement_agent() {
   show ERP_AGENT_TOKEN=… erp agent enablement-docs -process purchase_to_pay -out purchase_to_pay.md
   got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/enablement-agent") "$ERP" agent enablement-docs -process purchase_to_pay -out "$WORK/purchase_to_pay.md" 2>&1 || true) # refused: checked below
   printf '%s\n' "$got" | sed 's/^/     /'
-  expect "refused before a session" "$(printf '%s\n' "$got" | grep -c 'identity.permission_missing')" 1
+  expect "refused before a session" "$(printf '%s\n' "$got" | grep -c 'identity.permission_missing' || true)" 1
   as ada
   say "Ada grants its role identity.access.read: it may read the roles, their permissions and the SoD rules."
   grant "$role" identity.access.read
@@ -11839,8 +11856,8 @@ step_enablement_agent() {
   say "The description, as written to purchase_to_pay.md:"
   sed 's/^/     | /' "$WORK/purchase_to_pay.md"
   expect "it names the version it describes" "$(head -1 "$WORK/purchase_to_pay.md")" "$doc"
-  expect "the approval limit as configured" "$(grep -cF "\`purchasing.requisition_approval[0].up_to\` = \`$limit\`" "$WORK/purchase_to_pay.md")" 1
-  expect "the invoice tolerance as configured" "$(grep -cF "\`companies[$CC].invoice_tolerance.price_percent\` = \`$pct\`" "$WORK/purchase_to_pay.md")" 1
+  expect "the approval limit as configured" "$(grep -cF "\`purchasing.requisition_approval[0].up_to\` = \`$limit\`" "$WORK/purchase_to_pay.md" || true)" 1
+  expect "the invoice tolerance as configured" "$(grep -cF "\`companies[$CC].invoice_tolerance.price_percent\` = \`$pct\`" "$WORK/purchase_to_pay.md" || true)" 1
   say "Priya reads the recommendation on the version: the same description, open for her decision."
   api 200 '(.items[] | select(.kind == "process_document") | "  \(.kind) on the \(.object_type), \(.outcome // "open"), in session \(.session_id)")' listRecommendations -p "object_id=$version"
   expect "the description, the one the agent printed" "$(field '[.items[] | select(.kind == "process_document") | .id] | join(" ")')" "$rec"
@@ -11885,7 +11902,7 @@ enablement_help() {
   show ERP_AGENT_TOKEN=… erp agent enablement-help -operation postSupplierInvoice -problem payables.tolerance_exceeded
   got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/enablement-agent") "$ERP" agent enablement-help -operation postSupplierInvoice -problem payables.tolerance_exceeded 2>&1 || true) # refused: checked below
   printf '%s\n' "$got" | sed 's/^/     /'
-  expect "refused as not in the contract" "$(printf '%s\n' "$got" | grep -c 'not in the contract: no problem code "payables.tolerance_exceeded"')" 1
+  expect "refused as not in the contract" "$(printf '%s\n' "$got" | grep -c 'not in the contract: no problem code "payables.tolerance_exceeded"' || true)" 1
   passage="a clean latest match of the invoice as it now stands for PO-based invoices"
   # shellcheck disable=SC2016 # backticks of Markdown, not expansions
   jq -n --arg v "$version" --arg cc "$CC" --arg pct "$pct" --arg abs "$abs" --arg q "$passage" '
@@ -11905,8 +11922,8 @@ enablement_help() {
   printf '%s\n' "$got" | sed 's/^/     /'
   session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
   expect "what the agent did" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "replies refused 1."
-  expect "quoting the contract" "$(printf '%s\n' "$got" | grep -cF "\"$passage\"")" 1
-  expect "naming the tolerance in force" "$(printf '%s\n' "$got" | grep -cF "\`companies[$CC].invoice_tolerance.price_percent\` = \`$pct\`")" 1
+  expect "quoting the contract" "$(printf '%s\n' "$got" | grep -cF "\"$passage\"" || true)" 1
+  expect "naming the tolerance in force" "$(printf '%s\n' "$got" | grep -cF "\`companies[$CC].invoice_tolerance.price_percent\` = \`$pct\`" || true)" 1
   as enablement-agent
   api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"
   expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "getConfigVersion reply reply"
