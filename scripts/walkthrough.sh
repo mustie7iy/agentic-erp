@@ -10291,7 +10291,7 @@ step_expense_report() {
   passed
 }
 
-# step_process_mining is T103a (ADR-0080): Paula, the process analyst,
+# step_process_mining is T103a (ADR-0080): Pia, the process analyst,
 # reads the purchase-to-pay event log of the company's current month and
 # finds the case of the order of step_procure: its activities in order of
 # time, from the requisition's creation to the payment, each with the
@@ -10300,10 +10300,10 @@ step_process_mining() {
   heading "Step 98 — The purchase-to-pay event log: the order of step 4 as a case, its activities from the requisition's creation to the payment, by time, each with the kind of actor; as JSON and as CSV"
   local from to token found csv
   as ada
-  person paula "Paula Process Analyst" finance_staff
-  as paula
+  person pia "Pia Process Analyst" finance_staff
+  as pia
   from="${TODAY:0:7}-01" to=$(month_end)
-  say "Paula reads the purchase-to-pay event log of $CC for $from to $to, a page of cases at a time, and finds the order of step 4:"
+  say "Pia reads the purchase-to-pay event log of $CC for $from to $to, a page of cases at a time, and finds the order of step 4:"
   token='' found=''
   while :; do
     QUIET=1 api 200 '' getProcessEventLog -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$from" -p "to=$to" -p page_size=500 \
