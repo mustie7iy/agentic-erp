@@ -35216,6 +35216,7 @@ components:
             - savings
             - control_monitoring
             - risk
+            - planning
           maxLength: 50
         model:
           type: string

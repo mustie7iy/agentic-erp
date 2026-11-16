@@ -31,13 +31,17 @@ func (g *gen) amount(s, cur string) (value, problem string) {
 	return value, ""
 }
 
-// tcurxNotes notes each TCURX row the conversion cannot use, when the
-// extract's amounts are in internal form.
+// tcurxNotes reads TCURX's rows, when the extract's amounts are in
+// internal form, and leaves out with a note each the conversion cannot
+// use.
 func (g *gen) tcurxNotes() {
 	if g.opts.ExternalAmounts {
 		return
 	}
+	for _, r := range g.e.TCURX {
+		g.read("TCURX", strings.TrimSpace(r.CURRKEY))
+	}
 	for _, p := range g.problems {
-		g.note("tcurx", "TCURX "+p.Message+"; amounts in "+p.CURRKEY+" are not converted")
+		g.leaveOut(g.read("TCURX", p.CURRKEY), "tcurx", "TCURX "+p.Message+"; amounts in "+p.CURRKEY+" are not converted")
 	}
 }

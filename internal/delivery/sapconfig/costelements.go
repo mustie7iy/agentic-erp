@@ -67,7 +67,7 @@ func areasOf(e *sap.Extract) map[string][]string {
 // leaves the type's default with a note. A company whose areas the
 // extract does not tell, or whose areas have no cost elements, keeps the
 // defaults.
-func (g *gen) costElements(p, company string, accounts []config.Account) {
+func (g *gen) costElements(co objRef, p, company string, accounts []config.Account) {
 	areas := g.areas[company]
 	byAccount := map[string]map[string][]sap.CSKB{} // account, then area: its slices
 	for _, r := range g.e.CSKB {
@@ -82,13 +82,13 @@ func (g *gen) costElements(p, company string, accounts []config.Account) {
 	}
 	if len(byAccount) == 0 {
 		if len(g.e.CSKB) > 0 {
-			g.note(p+".chart_of_accounts", "the extract has no cost elements (CSKB) of the company's controlling areas ("+
+			g.note(co, p+".chart_of_accounts", "the extract has no cost elements (CSKB) of the company's controlling areas ("+
 				cmp.Or(strings.Join(areas, ", "), "none known: the company has no centers, and the extract no TKA02 row of it")+"); its accounts take their type's cost element")
 		}
 		return
 	}
 	if g.opts.Cutover == "" {
-		g.note(p+".chart_of_accounts", "no cutover date given (-cutover): each account's cost element is its latest CSKB slice's, "+
+		g.note(co, p+".chart_of_accounts", "no cutover date given (-cutover): each account's cost element is its latest CSKB slice's, "+
 			"not the one valid at the cutover")
 	}
 	types := map[string]string{}
@@ -101,7 +101,8 @@ func (g *gen) costElements(p, company string, accounts []config.Account) {
 		a := &accounts[i]
 		if a.Type == config.Revenue || a.Type == config.Expense {
 			path := p + ".chart_of_accounts[" + a.Number + "].cost_element"
-			a.CostElement = g.costElement(path, *a, g.cutoverSlices(path, byAccount[a.Number]), types[a.Number])
+			o := g.read("SKB1", company+"/"+a.Number)
+			a.CostElement = g.costElement(o, path, *a, g.cutoverSlices(o, path, byAccount[a.Number]), types[a.Number])
 		}
 	}
 }
@@ -110,7 +111,7 @@ func (g *gen) costElements(p, company string, accounts []config.Account) {
 // area: the one valid at the cutover date, else (none covers it, or no
 // date was given) the latest, with a note when the date was given: an
 // expired cost element means CO postings to it were stopped on purpose.
-func (g *gen) cutoverSlices(path string, rows map[string][]sap.CSKB) map[string]sap.CSKB {
+func (g *gen) cutoverSlices(o objRef, path string, rows map[string][]sap.CSKB) map[string]sap.CSKB {
 	out := map[string]sap.CSKB{}
 	for _, area := range sortedKeys(rows) {
 		list := rows[area]
@@ -127,7 +128,7 @@ func (g *gen) cutoverSlices(path string, rows map[string][]sap.CSKB) map[string]
 		if _, ok := out[area]; !ok {
 			out[area] = latest
 			if g.opts.Cutover != "" {
-				g.note(path, "no CSKB slice of controlling area "+area+" is valid at the cutover date "+g.opts.Cutover+"; its latest, to "+
+				g.note(o, path, "no CSKB slice of controlling area "+area+" is valid at the cutover date "+g.opts.Cutover+"; its latest, to "+
 					latest.DATBI+", is taken: an expired cost element means CO postings to it were stopped on purpose")
 			}
 		}
@@ -138,9 +139,9 @@ func (g *gen) cutoverSlices(path string, rows map[string][]sap.CSKB) map[string]
 // costElement is a profit and loss account's cost element from its CSKB
 // rows by controlling area, cross-checked by its G/L account type
 // (SKA1-GLACCOUNT_TYPE) when it has none.
-func (g *gen) costElement(path string, a config.Account, rows map[string]sap.CSKB, glType string) config.CostElement {
+func (g *gen) costElement(o objRef, path string, a config.Account, rows map[string]sap.CSKB, glType string) config.CostElement {
 	if len(rows) == 0 {
-		return g.noCostElement(path, glType)
+		return g.noCostElement(o, path, glType)
 	}
 	var katyp []string
 	for _, area := range sortedKeys(rows) {
@@ -149,7 +150,7 @@ func (g *gen) costElement(path string, a config.Account, rows map[string]sap.CSK
 		}
 	}
 	if len(katyp) > 1 {
-		g.note(path, "the controlling areas give categories "+strings.Join(katyp, ", ")+" (CSKB-KATYP); left at its type's default")
+		g.note(o, path, "the controlling areas give categories "+strings.Join(katyp, ", ")+" (CSKB-KATYP); left at its type's default")
 		return ""
 	}
 	switch {
@@ -158,9 +159,9 @@ func (g *gen) costElement(path string, a config.Account, rows map[string]sap.CSK
 	case (katyp[0] == katypRevenue || katyp[0] == katypSalesDeductions) && a.Type == config.Revenue:
 		return config.CostElementRevenue
 	case katyp[0] == katypPrimaryCost || katyp[0] == katypRevenue || katyp[0] == katypSalesDeductions:
-		g.note(path, "category "+katyp[0]+" (CSKB-KATYP) does not fit the account's type, "+string(a.Type)+"; left at its type's default")
+		g.note(o, path, "category "+katyp[0]+" (CSKB-KATYP) does not fit the account's type, "+string(a.Type)+"; left at its type's default")
 	default:
-		g.note(path, "category "+katyp[0]+" (CSKB-KATYP) is a secondary or statistical cost element, which the draft does not take over; left at its type's default")
+		g.note(o, path, "category "+katyp[0]+" (CSKB-KATYP) is a secondary or statistical cost element, which the draft does not take over; left at its type's default")
 	}
 	return ""
 }
@@ -168,15 +169,15 @@ func (g *gen) costElement(path string, a config.Account, rows map[string]sap.CSK
 // noCostElement is the cost element of an account without a CSKB row:
 // none, unless its G/L account type (SKA1-GLACCOUNT_TYPE) says it is one,
 // which leaves its type's default with a note.
-func (g *gen) noCostElement(path, glType string) config.CostElement {
+func (g *gen) noCostElement(o objRef, path, glType string) config.CostElement {
 	switch glType {
 	case "", glTypeNonOperating:
-		g.note(path, "not a cost element in SAP (no CSKB row): none, so its lines take no cost object")
+		g.note(o, path, "not a cost element in SAP (no CSKB row): none, so its lines take no cost object")
 		return config.CostElementNone
 	case glTypePrimary, glTypeSecondary:
-		g.note(path, "no CSKB row, but its G/L account type (SKA1-GLACCOUNT_TYPE) "+glType+" says it is a cost element; left at its type's default")
+		g.note(o, path, "no CSKB row, but its G/L account type (SKA1-GLACCOUNT_TYPE) "+glType+" says it is a cost element; left at its type's default")
 	default:
-		g.note(path, "no CSKB row, and its G/L account type (SKA1-GLACCOUNT_TYPE) "+glType+" is not a profit and loss one; left at its type's default")
+		g.note(o, path, "no CSKB row, and its G/L account type (SKA1-GLACCOUNT_TYPE) "+glType+" is not a profit and loss one; left at its type's default")
 	}
 	return ""
 }

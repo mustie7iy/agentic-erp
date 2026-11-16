@@ -360,6 +360,10 @@ func TestRunRefusals(t *testing.T) {
 	if _, err := (recommend.Agent{Reads: []string{"updateCreditLimit"}}).Run(context.Background(), model.Runner(), client(t, &fakeAPI{}), recommend.Task{}); !errors.Is(err, recommend.ErrNotARead) {
 		t.Errorf("a write among the reads: got %v, want ErrNotARead", err)
 	}
+	// A query run with a body changes nothing (x-autonomy: read): a read.
+	if _, err := (recommend.Agent{Reads: []string{"runAnalyticsQuery"}}).Run(context.Background(), model.Runner(), client(t, &fakeAPI{start: 403}), recommend.Task{}); errors.Is(err, recommend.ErrNotARead) {
+		t.Errorf("a query run among the reads: got %v, want it admitted as a read", err)
+	}
 }
 
 // TestNumbers: a text's numbers are its runs of digits with the

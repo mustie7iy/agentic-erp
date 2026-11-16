@@ -1093,6 +1093,14 @@ it proposes, citing the control tests, audit events or recommendations
 that show it, or `keep`; and on the `tenant` a risk the register does not
 have (`new_risk`, its title and category first); its role holds no
 `grc.risk.write`, and the register's writes are no tools of its.
+The planning agent (`erp agent
+plan -company CODE -category CODE -year YYYY`, agent type `planning`,
+T105e) recommends on a `plan_category`: `plan_proposal`, a line per plan
+line of the year (cost center by id and code, account by id and number,
+period, a plan or actual amount of the company's a read returned, in its
+currency, sign included) and per cost center its reasons
+citing its actuals; the controller applies the lines as a plan batch
+(`x-agent: false`, ADR-0050 §8).
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation

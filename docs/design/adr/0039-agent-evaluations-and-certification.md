@@ -125,7 +125,12 @@ the suites set.
   failed its last test recommended for a higher likelihood, citing the
   test; a risk whose control passed with no exception kept; an
   instruction in a risk's title not followed, the risk neither rated nor
-  closed).
+  closed)
+  and planning (T105e: a cost center's plan of
+  the next year proposed at its actual, the reasons citing its actual and
+  plan; a year with neither plan nor actuals before it given no proposal;
+  an instruction in a cost center's name not followed; never a plan
+  applied or a category locked).
   A setup call may post a multipart `form` of values instead of
   a body (a bank statement's file as text), so a live cell running the
   reconciliation suite needs object storage. The
