@@ -1148,7 +1148,8 @@ What the API gaps settled, and where they depart from §3:
   segregation-of-duties rule, as `Authorize` checks it), may use the object
   type's approval permission (held and not barred, ADR-0010 As built
   2026-11-02) and the current step's role (identity's
-  `Directory.RolesHeld`, the same predicate as `HoldsRole`), has not
+  `Directory.RolesHeld`, the same predicate as `HoldsRole`: active roles
+  alone, ADR-0010 As built 2026-11-16), has not
   approved the request yet, and whom the owning context does not bar
   (`Barrer`: the bank line's matcher). The bar is asked after the page is
   read, so a page may hold fewer requests than `page_size`, even none,

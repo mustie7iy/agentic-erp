@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -71,6 +72,52 @@ func TestDirectory(t *testing.T) {
 				t.Error("outside a unit of work: got nil error, want an error")
 			}
 			apitest.EveryFailure(t, ten, ten.Human, name, call)
+		})
+	}
+}
+
+// TestDirectoryInactiveRole: a role made inactive gives its holders
+// nothing here either, as authz grants it nothing: HoldsRole denies it and
+// RolesHeld leaves it out until it is active again.
+func TestDirectoryInactiveRole(t *testing.T) {
+	ten := pgtest.NewTenant(t)
+	retired := uuid.New()
+	pgtest.Exec(t, `INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1, $2, 'retired', 'Retired', 'active', $3, $3)`,
+		ten.ID, retired, ten.Human.ID)
+	pgtest.Exec(t, `INSERT INTO identity.principal_role (tenant_id, id, principal_id, role_id, valid_from, created_by) VALUES ($1, gen_random_uuid(), $2, $3, current_date - 1, $2)`,
+		ten.ID, ten.Human.ID, retired)
+	var all uuid.UUID
+	pgtest.Scan(t, `SELECT id FROM identity.role WHERE tenant_id = $1 AND code = 'all'`, []any{ten.ID}, &all)
+	byID := func(a, b uuid.UUID) int { return strings.Compare(a.String(), b.String()) }
+	for _, c := range []struct {
+		status string
+		holds  bool
+		held   []uuid.UUID
+	}{{"inactive", false, []uuid.UUID{all}}, {"active", true, []uuid.UUID{all, retired}}} {
+		t.Run(c.status, func(t *testing.T) {
+			pgtest.Exec(t, `UPDATE identity.role SET status = $2, version = version + 1 WHERE id = $1`, retired, c.status)
+			err := apitest.InRequest(t, ten, ten.Human, func(ctx context.Context) error {
+				holds, err := identity.Directory{}.HoldsRole(ctx, ten.Human.ID, retired)
+				if err != nil {
+					return err
+				}
+				if holds != c.holds {
+					t.Errorf("holds the %s role: got %v, want %v", c.status, holds, c.holds)
+				}
+				held, err := identity.Directory{}.RolesHeld(ctx, ten.Human.ID)
+				if err != nil {
+					return err
+				}
+				slices.SortFunc(held, byID)
+				slices.SortFunc(c.held, byID)
+				if !slices.Equal(held, c.held) {
+					t.Errorf("roles held with the role %s: got %v, want %v", c.status, held, c.held)
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
 		})
 	}
 }

@@ -7127,9 +7127,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A holder of a deactivated role neither receives nor decides an approval step: identity.Directory.HoldsRole and RolesHeld ignore the role's status, so approvals route a step to the holder of a deactivated role and let that holder decide it, while authz grants that role nothing (pre-existing security finding on T95c's review)",
-      "r": "internal/identity/directory.go HoldsRole, RolesHeld · internal/approvals/approvals.go (step routing) · internal/approvals/inbox.go",
+      "r": "identity.Directory.HoldsRole, RolesHeld (active roles alone) · app.reportGrantees · TestInactiveStepRole · TestDirectoryInactiveRole · ADR-0010 As built 2026-11-16",
       "src": "review:T95c",
       "c": []
      }
