@@ -148,7 +148,7 @@ func (e *Endpoints) apply(ctx context.Context, tx pgx.Tx, p reqctx.Principal, o 
 	if err := e.extensions().Event(ctx, payload, changed.Extensions, changed.ExtensionsSchema); err != nil {
 		return PurchaseOrderChange{}, err
 	}
-	return applied, audit.Record(ctx, "procurement.purchase_order_change.apply", "procurement.purchase_order_change", ch.ID,
+	return applied, e.record(ctx, "procurement.purchase_order_change.apply", "procurement.purchase_order_change", ch.ID,
 		map[string]any{"purchase_order_id": o.ID, "revision": changed.Revision, "total_before": ch.TotalBefore, "total_after": ch.TotalAfter},
 		event("purchase_order_changed", "purchase_order", o.ID, payload))
 }

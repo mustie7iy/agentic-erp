@@ -29325,6 +29325,50 @@ func decodeCaptureSalesOrderResponse(resp *http.Response) (res CaptureSalesOrder
 		default:
 			return res, validate.InvalidContentType(ct)
 		}
+	case 404:
+		// Code 404.
+		ct, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+		if err != nil {
+			return res, errors.Wrap(err, "parse media type")
+		}
+		switch {
+		case ct == "application/problem+json":
+			buf, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return res, err
+			}
+			d := jx.DecodeBytes(buf)
+
+			var response CaptureSalesOrderNotFound
+			if err := func() error {
+				if err := response.Decode(d); err != nil {
+					return err
+				}
+				if err := d.Skip(); err != io.EOF {
+					return errors.New("unexpected trailing data")
+				}
+				return nil
+			}(); err != nil {
+				err = &ogenerrors.DecodeBodyError{
+					ContentType: ct,
+					Body:        buf,
+					Err:         err,
+				}
+				return res, err
+			}
+			// Validate response.
+			if err := func() error {
+				if err := response.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return res, errors.Wrap(err, "validate")
+			}
+			return &response, nil
+		default:
+			return res, validate.InvalidContentType(ct)
+		}
 	case 409:
 		// Code 409.
 		ct, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
@@ -159947,7 +159991,47 @@ func decodeGetReportRunResponse(resp *http.Response) (res GetReportRunRes, _ err
 			}(); err != nil {
 				return res, errors.Wrap(err, "validate")
 			}
-			return &response, nil
+			var wrapper ReportRunHeaders
+			wrapper.Response = response
+			h := uri.NewHeaderDecoder(resp.Header)
+			// Parse "Result-Truncated" header.
+			{
+				cfg := uri.HeaderParameterDecodingConfig{
+					Name:    "Result-Truncated",
+					Explode: false,
+				}
+				if err := func() error {
+					if err := h.HasParam(cfg); err == nil {
+						if err := h.DecodeParam(cfg, func(d uri.Decoder) error {
+							var wrapperDotResultTruncatedVal bool
+							if err := func() error {
+								val, err := d.DecodeValue()
+								if err != nil {
+									return err
+								}
+
+								c, err := conv.ToBool(val)
+								if err != nil {
+									return err
+								}
+
+								wrapperDotResultTruncatedVal = c
+								return nil
+							}(); err != nil {
+								return err
+							}
+							wrapper.ResultTruncated.SetTo(wrapperDotResultTruncatedVal)
+							return nil
+						}); err != nil {
+							return err
+						}
+					}
+					return nil
+				}(); err != nil {
+					return res, errors.Wrap(err, "parse Result-Truncated header")
+				}
+			}
+			return &wrapper, nil
 		case ct == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
 			reader := resp.Body
 			b, err := io.ReadAll(reader)
@@ -159956,7 +160040,47 @@ func decodeGetReportRunResponse(resp *http.Response) (res GetReportRunRes, _ err
 			}
 
 			response := GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet{Data: bytes.NewReader(b)}
-			return &response, nil
+			var wrapper GetReportRunOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheetHeaders
+			wrapper.Response = response
+			h := uri.NewHeaderDecoder(resp.Header)
+			// Parse "Result-Truncated" header.
+			{
+				cfg := uri.HeaderParameterDecodingConfig{
+					Name:    "Result-Truncated",
+					Explode: false,
+				}
+				if err := func() error {
+					if err := h.HasParam(cfg); err == nil {
+						if err := h.DecodeParam(cfg, func(d uri.Decoder) error {
+							var wrapperDotResultTruncatedVal bool
+							if err := func() error {
+								val, err := d.DecodeValue()
+								if err != nil {
+									return err
+								}
+
+								c, err := conv.ToBool(val)
+								if err != nil {
+									return err
+								}
+
+								wrapperDotResultTruncatedVal = c
+								return nil
+							}(); err != nil {
+								return err
+							}
+							wrapper.ResultTruncated.SetTo(wrapperDotResultTruncatedVal)
+							return nil
+						}); err != nil {
+							return err
+						}
+					}
+					return nil
+				}(); err != nil {
+					return res, errors.Wrap(err, "parse Result-Truncated header")
+				}
+			}
+			return &wrapper, nil
 		case ct == "text/csv":
 			reader := resp.Body
 			b, err := io.ReadAll(reader)
@@ -159965,7 +160089,47 @@ func decodeGetReportRunResponse(resp *http.Response) (res GetReportRunRes, _ err
 			}
 
 			response := GetReportRunOKTextCsv{Data: bytes.NewReader(b)}
-			return &response, nil
+			var wrapper GetReportRunOKTextCsvHeaders
+			wrapper.Response = response
+			h := uri.NewHeaderDecoder(resp.Header)
+			// Parse "Result-Truncated" header.
+			{
+				cfg := uri.HeaderParameterDecodingConfig{
+					Name:    "Result-Truncated",
+					Explode: false,
+				}
+				if err := func() error {
+					if err := h.HasParam(cfg); err == nil {
+						if err := h.DecodeParam(cfg, func(d uri.Decoder) error {
+							var wrapperDotResultTruncatedVal bool
+							if err := func() error {
+								val, err := d.DecodeValue()
+								if err != nil {
+									return err
+								}
+
+								c, err := conv.ToBool(val)
+								if err != nil {
+									return err
+								}
+
+								wrapperDotResultTruncatedVal = c
+								return nil
+							}(); err != nil {
+								return err
+							}
+							wrapper.ResultTruncated.SetTo(wrapperDotResultTruncatedVal)
+							return nil
+						}); err != nil {
+							return err
+						}
+					}
+					return nil
+				}(); err != nil {
+					return res, errors.Wrap(err, "parse Result-Truncated header")
+				}
+			}
+			return &wrapper, nil
 		default:
 			return res, validate.InvalidContentType(ct)
 		}

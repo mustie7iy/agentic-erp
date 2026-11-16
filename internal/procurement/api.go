@@ -404,7 +404,7 @@ func (e *Endpoints) UpdateContract(ctx context.Context, req *gen.ContractUpdate,
 
 // ReleaseContract implements POST /v1/contracts/{id}:release.
 func (e *Endpoints) ReleaseContract(ctx context.Context, params gen.ReleaseContractParams) (gen.ReleaseContractRes, error) {
-	c, err := changeContract(ctx, params.ID, etag.IfMatch(params.IfMatch), releaseContract, "")
+	c, err := e.changeContract(ctx, params.ID, etag.IfMatch(params.IfMatch), releaseContract, "")
 	if err != nil {
 		return nil, err
 	}
@@ -413,7 +413,7 @@ func (e *Endpoints) ReleaseContract(ctx context.Context, params gen.ReleaseContr
 
 // CancelContract implements POST /v1/contracts/{id}:cancel.
 func (e *Endpoints) CancelContract(ctx context.Context, params gen.CancelContractParams) (gen.CancelContractRes, error) {
-	c, err := changeContract(ctx, params.ID, etag.IfMatch(params.IfMatch), cancelContract, "")
+	c, err := e.changeContract(ctx, params.ID, etag.IfMatch(params.IfMatch), cancelContract, "")
 	if err != nil {
 		return nil, err
 	}
@@ -432,7 +432,7 @@ func (e *Endpoints) RenewContract(ctx context.Context, req *gen.ContractRenew, p
 
 // TerminateContract implements POST /v1/contracts/{id}:terminate.
 func (e *Endpoints) TerminateContract(ctx context.Context, req *gen.ReasonInput, params gen.TerminateContractParams) (gen.TerminateContractRes, error) {
-	c, err := changeContract(ctx, params.ID, etag.IfMatch(params.IfMatch), terminateContract, req.Reason)
+	c, err := e.changeContract(ctx, params.ID, etag.IfMatch(params.IfMatch), terminateContract, req.Reason)
 	if err != nil {
 		return nil, err
 	}

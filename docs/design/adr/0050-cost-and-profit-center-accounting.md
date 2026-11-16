@@ -1603,6 +1603,19 @@ the configuration rules (403 `identity.agent_not_allowed`;
 `ledger.cost_center.approve` and `controlling.plan.lock` are approval
 permissions, `is_approval`, which agents cannot hold).
 
+As built (hnames, review:T105e): plan lines (`listPlanLines`) and plan
+against actual by cost and by profit center (`listCostCenterPlanActual`,
+`listProfitCenterPlanActual`) name each center by its code and name and
+each account by its number and name beside their ids, as the reports do,
+so a consumer (the planning agent among them) need not read the cost
+centers and the accounts again to name a row (REVIEW.md, an identifier
+without the name its consumer needs). One call each per page through the
+ledger port (`AssignmentBalances.CenterNames`, `AccountNames`, which
+answer as `AssetReads`' do), `idref.Resolve` failing a page whose center
+or account the ledger does not hold. Additive: the new fields of the two
+reports are required, a plan line's center names are given with its
+center.
+
 ## Alternatives
 - **Centers in the configuration document** (tiered change requests, like
   the chart of accounts). Strong control and simulation for free, but a

@@ -6539,8 +6539,10 @@ components:
         requisition_id: {$ref: '#/components/schemas/Uuid'}
         document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch28); consumers ignore it if absent."}
         requester_id: {$ref: '#/components/schemas/Uuid'}
         supplier_id: {$ref: '#/components/schemas/NullableUuid', description: Suggested supplier.}
+        supplier_number: {"type": "string", "description": "The business partner number of `supplier_id`, as BusinessPartnerCreated gives it, when a supplier is suggested; never its name (product owner 2026-11-05). Added within v1 (review:batch28); consumers ignore it if absent."}
         contract_id: {$ref: '#/components/schemas/NullableUuid'}
         needed_by: {$ref: '#/components/schemas/NullableDate'}
         estimated_total: {$ref: '#/components/schemas/Money', description: 'Sum of quantity × unit_price / price_unit over the items, requisition currency.'}
@@ -6555,8 +6557,10 @@ components:
         purchase_order_id: {$ref: '#/components/schemas/Uuid'}
         document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch28); consumers ignore it if absent."}
         purchasing_org_id: {$ref: '#/components/schemas/NullableUuid'}
         supplier_id: {$ref: '#/components/schemas/Uuid'}
+        supplier_number: {"type": "string", "description": "The business partner number of `supplier_id`, as BusinessPartnerCreated gives it; never its name (product owner 2026-11-05). Added within v1 (review:batch28); consumers ignore it if absent."}
         order_date: {$ref: '#/components/schemas/Date'}
         payment_term_code: {type: string}
         requisition_id: {$ref: '#/components/schemas/NullableUuid'}
@@ -6586,7 +6590,9 @@ components:
         purchase_order_id: {$ref: '#/components/schemas/Uuid'}
         document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch28); consumers ignore it if absent."}
         supplier_id: {$ref: '#/components/schemas/Uuid'}
+        supplier_number: {"type": "string", "description": "The business partner number of `supplier_id`, as BusinessPartnerCreated gives it; never its name (product owner 2026-11-05). Added within v1 (review:batch28); consumers ignore it if absent."}
         change_id: {$ref: '#/components/schemas/Uuid', description: '`procurement.purchase_order_change.id` applied.'}
         revision: {type: integer, minimum: 2, description: The revision the change made.}
         reason: {type: string}
@@ -6625,6 +6631,7 @@ components:
         goods_receipt_id: {$ref: '#/components/schemas/Uuid', description: '`procurement.goods_movement.id`.'}
         document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch28); consumers ignore it if absent."}
         plant_id: {$ref: '#/components/schemas/NullableUuid'}
         movement_type: {type: string, description: '101 (goods receipt for purchase order).'}
         document_date: {$ref: '#/components/schemas/Date'}
@@ -6640,6 +6647,7 @@ components:
         goods_receipt_id: {$ref: '#/components/schemas/Uuid', description: '`procurement.goods_movement.id` of the return.'}
         document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch28); consumers ignore it if absent."}
         plant_id: {$ref: '#/components/schemas/NullableUuid'}
         movement_type: {type: string, description: '122 (return to the supplier).'}
         document_date: {$ref: '#/components/schemas/Date'}
@@ -6657,6 +6665,7 @@ components:
         reversal_id: {$ref: '#/components/schemas/Uuid', description: The reversing goods movement.}
         document_number: {type: string, description: Document number of the reversing movement.}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch28); consumers ignore it if absent."}
         movement_type: {type: string, description: '102 (reversal of a 101) or 123 (reversal of a 122).'}
         posting_date: {$ref: '#/components/schemas/Date'}
         journal_entry_id: {$ref: '#/components/schemas/NullableUuid', description: 'WE entry the reversal posted (items of orders valued gr_ir), else null.'}
@@ -7227,6 +7236,7 @@ components:
         requisition_id: {"$ref": "#/components/schemas/Uuid"}
         document_number: {"type": "string"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch28); consumers ignore it if absent."}
         requester_id: {"$ref": "#/components/schemas/Uuid"}
         previous_status: {"type": "string", "description": "Open enum: draft, pending_approval, approved."}
         status: {"type": "string", "description": "Open enum; cancelled in v1."}
@@ -7238,7 +7248,9 @@ components:
         purchase_order_id: {"$ref": "#/components/schemas/Uuid"}
         document_number: {"type": "string"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch28); consumers ignore it if absent."}
         supplier_id: {"$ref": "#/components/schemas/Uuid"}
+        supplier_number: {"type": "string", "description": "The business partner number of `supplier_id`, as BusinessPartnerCreated gives it; never its name (product owner 2026-11-05). Added within v1 (review:batch28); consumers ignore it if absent."}
         requisition_id: {"$ref": "#/components/schemas/NullableUuid"}
         contract_id: {"$ref": "#/components/schemas/NullableUuid"}
         released_value: {"oneOf": [{"$ref": "#/components/schemas/Money"}, {"type": "null"}], "description": "Contract consumption given back; null when not contract-based."}
@@ -7251,7 +7263,9 @@ components:
         contract_id: {"$ref": "#/components/schemas/Uuid"}
         document_number: {"type": "string"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch28); consumers ignore it if absent."}
         supplier_id: {"$ref": "#/components/schemas/Uuid"}
+        supplier_number: {"type": "string", "description": "The business partner number of `supplier_id`, as BusinessPartnerCreated gives it; never its name (product owner 2026-11-05). Added within v1 (review:batch28); consumers ignore it if absent."}
         valid_from: {"$ref": "#/components/schemas/Date"}
         valid_to: {"$ref": "#/components/schemas/Date"}
         target_value: {"$ref": "#/components/schemas/Money"}
@@ -7265,7 +7279,9 @@ components:
         contract_id: {"$ref": "#/components/schemas/Uuid"}
         document_number: {"type": "string"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch28); consumers ignore it if absent."}
         supplier_id: {"$ref": "#/components/schemas/Uuid"}
+        supplier_number: {"type": "string", "description": "The business partner number of `supplier_id`, as BusinessPartnerCreated gives it; never its name (product owner 2026-11-05). Added within v1 (review:batch28); consumers ignore it if absent."}
         consumed_value: {"$ref": "#/components/schemas/Money", "description": "Sum of contract releases at termination."}
         previous_status: {"type": "string", "description": "Open enum; active in v1."}
         status: {"type": "string", "description": "Open enum; terminated in v1."}
@@ -7275,6 +7291,7 @@ components:
       properties:
         catalog_item_id: {$ref: '#/components/schemas/Uuid', description: '`procurement.catalog_item.id`.'}
         legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company whose catalog the item is in.}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch28); consumers ignore it if absent."}
         supplier_id: {$ref: '#/components/schemas/Uuid', description: The supplier (business partner id).}
         supplier_number: {type: string, description: "The supplier's business partner number."}
         item_key: {type: string, description: "The item's key, the supplier's once among the company's active items."}
@@ -7293,7 +7310,9 @@ components:
         contract_id: {"$ref": "#/components/schemas/Uuid"}
         document_number: {"type": "string"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch28); consumers ignore it if absent."}
         supplier_id: {"$ref": "#/components/schemas/Uuid"}
+        supplier_number: {"type": "string", "description": "The business partner number of `supplier_id`, as BusinessPartnerCreated gives it; never its name (product owner 2026-11-05). Added within v1 (review:batch28); consumers ignore it if absent."}
         previous_status: {"type": "string", "description": "Open enum; draft in v1."}
         status: {"type": "string", "description": "Open enum; cancelled in v1."}
     PaymentRunFailedV1:
@@ -7568,6 +7587,7 @@ components:
         requisition_id: {"$ref": "#/components/schemas/Uuid"}
         document_number: {"type": "string"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch28); consumers ignore it if absent."}
         workflow_request_id: {"$ref": "#/components/schemas/NullableUuid"}
         previous_status: {"type": "string", "description": "Open enum; pending_approval in v1."}
         status: {"type": "string", "description": "Open enum; approved in v1."}
@@ -7578,6 +7598,7 @@ components:
         requisition_id: {"$ref": "#/components/schemas/Uuid"}
         document_number: {"type": "string"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch28); consumers ignore it if absent."}
         workflow_request_id: {"$ref": "#/components/schemas/NullableUuid"}
         previous_status: {"type": "string", "description": "Open enum; pending_approval in v1."}
         status: {"type": "string", "description": "Open enum; rejected in v1."}
@@ -7588,6 +7609,7 @@ components:
         requisition_id: {"$ref": "#/components/schemas/Uuid"}
         document_number: {"type": "string"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch28); consumers ignore it if absent."}
         purchase_order_id: {"$ref": "#/components/schemas/Uuid"}
         previous_status: {"type": "string", "description": "Open enum; approved in v1."}
         status: {"type": "string", "description": "Open enum; ordered in v1."}
@@ -7598,7 +7620,9 @@ components:
         purchase_order_id: {"$ref": "#/components/schemas/Uuid"}
         document_number: {"type": "string"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch28); consumers ignore it if absent."}
         supplier_id: {"$ref": "#/components/schemas/Uuid"}
+        supplier_number: {"type": "string", "description": "The business partner number of `supplier_id`, as BusinessPartnerCreated gives it; never its name (product owner 2026-11-05). Added within v1 (review:batch28); consumers ignore it if absent."}
         previous_status: {"type": "string", "description": "Open enum; released in v1."}
         status: {"type": "string", "description": "Open enum; closed in v1."}
     GrIrClearedV1:
@@ -7609,6 +7633,7 @@ components:
         purchase_order_id: {"$ref": "#/components/schemas/Uuid"}
         document_number: {"type": "string", "description": "The purchase order's document number."}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch28); consumers ignore it if absent."}
         posting_date: {"$ref": "#/components/schemas/Date"}
         journal_entry_id: {"$ref": "#/components/schemas/Uuid"}
         journal_entry_year: {"type": "integer"}

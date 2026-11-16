@@ -131,6 +131,8 @@ type Ledger interface {
 	OrderAccountBalances(ctx context.Context, le, order uuid.UUID, upTo *ledger.PeriodKey) ([]ledger.OrderAccountBalance, error)
 	CostAccounts(ctx context.Context, le uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]ledger.CostAccount, error)
 	Margin(ctx context.Context, q ledger.MarginQuery) (ledger.Margin, error)
+	CenterNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]ledger.CenterName, error)
+	AccountNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]ledger.AccountRef, error)
 }
 
 // Postings is what controlling posts its entries through (ledger.Postings,

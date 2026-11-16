@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
-	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -267,7 +266,7 @@ func (e *Endpoints) catalogChanged(ctx context.Context, c CatalogItem, action st
 		"supplier_number": names[c.SupplierID].Number, "item_key": c.ItemKey, "unit": c.Unit,
 		"unit_price": money.EventAmount(c.UnitPrice, c.Currency, c.Exponent), "price_unit": c.PriceUnit, "contract_id": c.ContractID,
 		"contract_item_no": c.ContractItemNo, "status": c.Status, "status_before": before, "version": c.Version}
-	return audit.Record(ctx, "procurement.catalog_item."+action, "procurement.catalog_item", c.ID,
+	return e.record(ctx, "procurement.catalog_item."+action, "procurement.catalog_item", c.ID,
 		map[string]any{"item_key": c.ItemKey, "supplier_id": c.SupplierID, "status": c.Status},
 		event("catalog_item_changed", "catalog_item", c.ID, payload))
 }

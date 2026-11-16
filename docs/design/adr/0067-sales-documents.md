@@ -1587,7 +1587,9 @@ capture creates a draft order at the printed price; a person confirms.
 - The upload is taken through a port (`sales.Uploads`), which
   `payables.Uploads` answers with `Take` and `Used`, so sales does not
   import payables; the take now checks the upload's purpose for both
-  captures (422 `payables.upload_purpose`).
+  captures (422 `payables.upload_purpose`). An upload that does not
+  exist is 404 `request.not_found`, which `captureSalesOrder` declares
+  since hnames (review:batch74), as `captureSupplierInvoice` did.
 - `erp capture -order` uploads and captures an order; the evaluation
   suite `evals/order_capture` (three cases: an order captured, a
   document asking for an action that changes nothing, an unknown

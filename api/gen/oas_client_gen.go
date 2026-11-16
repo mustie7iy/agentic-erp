@@ -3845,11 +3845,12 @@ type Invoker interface {
 	// time and the kind of actor that did it (`person`, `agent` or `system`, never who), by time and then
 	// by the audit trail's sequence number, at any time up to the read. ADR-0080 lists the activities and
 	// the audit actions each comes from. The cases are by date and id, paged by case (`page_size` cases,
-	// the default 50, at most 500); `case_count` counts every case of the log. The period is one day to
-	// 371 days (422 `request.validation_failed` naming `to` otherwise). As JSON (`format=json`, the
-	// default) or as CSV (`format=csv`): a header row, then a row per event of the page's cases with its
-	// case, the next page's token in the `Next-Page-Token` header. A company the caller cannot act in is
-	// 404, as one that does not exist.
+	// the default 50, at most 500); `case_count` counts every case of the log; the count and the page are
+	// read as of one database state (`x-snapshot`), so they agree. The period is one day to 371 days (422
+	// `request.validation_failed` naming `to` otherwise). As JSON (`format=json`, the default) or as CSV
+	// (`format=csv`): a header row, then a row per event of the page's cases with its case, the next
+	// page's token in the `Next-Page-Token` header. A company the caller cannot act in is 404, as one that
+	// does not exist.
 	//
 	// GET /v1/process-event-logs
 	GetProcessEventLog(ctx context.Context, params GetProcessEventLogParams) (GetProcessEventLogRes, error)
@@ -4004,7 +4005,8 @@ type Invoker interface {
 	// neither, to all but its report's owner): as JSON (`format=json`, the default) the run with its
 	// specification and every query's result as the run kept them, read back from object storage, whose
 	// bytes are compared with the SHA-256 recorded (409 `analytics.report_run_changed` when they differ);
-	// as CSV (`format=csv`) one result, a header row of its columns' names then a row per result row, each
+	// as CSV (`format=csv`) one result, a header row of its columns' names then a row per result row,
+	// `Result-Truncated: true` when the result was cut at the rows a query answers (`truncated`), each
 	// measure an exact decimal and a money measure followed by its currency's column (`<name>_currency`),
 	// a measure that cannot be computed empty, the result named by `query_id` (422
 	// `analytics.unknown_query` when the run has no such result, or when the run has several and none is
@@ -46738,11 +46740,12 @@ func (c *Client) sendGetPrincipal(ctx context.Context, params GetPrincipalParams
 // time and the kind of actor that did it (`person`, `agent` or `system`, never who), by time and then
 // by the audit trail's sequence number, at any time up to the read. ADR-0080 lists the activities and
 // the audit actions each comes from. The cases are by date and id, paged by case (`page_size` cases,
-// the default 50, at most 500); `case_count` counts every case of the log. The period is one day to
-// 371 days (422 `request.validation_failed` naming `to` otherwise). As JSON (`format=json`, the
-// default) or as CSV (`format=csv`): a header row, then a row per event of the page's cases with its
-// case, the next page's token in the `Next-Page-Token` header. A company the caller cannot act in is
-// 404, as one that does not exist.
+// the default 50, at most 500); `case_count` counts every case of the log; the count and the page are
+// read as of one database state (`x-snapshot`), so they agree. The period is one day to 371 days (422
+// `request.validation_failed` naming `to` otherwise). As JSON (`format=json`, the default) or as CSV
+// (`format=csv`): a header row, then a row per event of the page's cases with its case, the next
+// page's token in the `Next-Page-Token` header. A company the caller cannot act in is 404, as one that
+// does not exist.
 //
 // GET /v1/process-event-logs
 func (c *Client) GetProcessEventLog(ctx context.Context, params GetProcessEventLogParams) (GetProcessEventLogRes, error) {
@@ -48772,7 +48775,8 @@ func (c *Client) sendGetReport(ctx context.Context, params GetReportParams) (res
 // neither, to all but its report's owner): as JSON (`format=json`, the default) the run with its
 // specification and every query's result as the run kept them, read back from object storage, whose
 // bytes are compared with the SHA-256 recorded (409 `analytics.report_run_changed` when they differ);
-// as CSV (`format=csv`) one result, a header row of its columns' names then a row per result row, each
+// as CSV (`format=csv`) one result, a header row of its columns' names then a row per result row,
+// `Result-Truncated: true` when the result was cut at the rows a query answers (`truncated`), each
 // measure an exact decimal and a money measure followed by its currency's column (`<name>_currency`),
 // a measure that cannot be computed empty, the result named by `query_id` (422
 // `analytics.unknown_query` when the run has no such result, or when the run has several and none is

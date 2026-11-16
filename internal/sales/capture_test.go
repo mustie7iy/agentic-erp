@@ -221,6 +221,8 @@ func TestCaptureOrderRefusals(t *testing.T) {
 		{"an unknown tax code", reader{ext: purchaseOrder()}, func(e env, upload string) string { return e.captureBody(upload, `, "tax_code": "ZZ"`) },
 			422, "sales.unknown_tax_code", "tax_code", false},
 		{"without a model", nil, nil, 503, "platform.unavailable", "", false},
+		{"an unknown upload", reader{ext: purchaseOrder()}, func(e env, _ string) string { return e.captureBody(uuid.NewString(), "") },
+			404, "request.not_found", "", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

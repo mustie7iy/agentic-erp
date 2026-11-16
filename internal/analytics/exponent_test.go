@@ -89,7 +89,7 @@ func TestMoneyKeepsTheCurrencyExponent(t *testing.T) {
 		if err := WriteCSV(&b, bhd); err != nil {
 			t.Fatal(err)
 		}
-		if got, want := b.String(), "revenue\n1234.567\n"; got != want {
+		if got, want := b.String(), "revenue,revenue_currency\n1234.567,BHD\n"; got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
 	})

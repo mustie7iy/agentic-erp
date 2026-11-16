@@ -12,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
-	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -251,7 +250,7 @@ func (e *Endpoints) postReceipt(ctx context.Context, in ReceiptInput, post bool)
 	if err != nil {
 		return GoodsReceipt{}, err
 	}
-	return g, recordMovement(ctx, g)
+	return g, e.recordMovement(ctx, g)
 }
 
 // movementType is the type of the movement asked for: a receipt, or a
@@ -376,7 +375,7 @@ func (e *Endpoints) keepsInvoiced(ctx context.Context, orig GoodsReceipt, curren
 
 // recordMovement audits a receipt or return and publishes GoodsReceived or
 // GoodsReturned.
-func recordMovement(ctx context.Context, g GoodsReceipt) error {
+func (e *Endpoints) recordMovement(ctx context.Context, g GoodsReceipt) error {
 	action, name := "procurement.goods_receipt.post", "goods_received"
 	payload := map[string]any{"goods_receipt_id": g.ID, "document_number": g.DocumentNumber, "legal_entity_id": g.LegalEntityID, "plant_id": g.PlantID,
 		"movement_type": g.MovementType, "document_date": g.DocumentDate.Format(time.DateOnly), "posting_date": g.PostingDate.Format(time.DateOnly),
@@ -384,7 +383,7 @@ func recordMovement(ctx context.Context, g GoodsReceipt) error {
 	if g.MovementType == Return {
 		action, name, payload["reason"] = "procurement.goods_return.post", "goods_returned", *g.Reason
 	}
-	return audit.Record(ctx, action, "procurement.goods_movement", g.ID, map[string]any{"document_number": g.DocumentNumber, "items": len(g.Items)},
+	return e.record(ctx, action, "procurement.goods_movement", g.ID, map[string]any{"document_number": g.DocumentNumber, "items": len(g.Items)},
 		event(name, "goods_movement", g.ID, payload))
 }
 
@@ -450,7 +449,7 @@ func (e *Endpoints) reverseReceipt(ctx context.Context, id uuid.UUID, ifMatch fu
 	if err != nil {
 		return GoodsReceipt{}, err
 	}
-	return rev, audit.Record(ctx, "procurement.goods_receipt.reverse", "procurement.goods_movement", orig.ID, map[string]any{"reversal_id": rev.ID},
+	return rev, e.record(ctx, "procurement.goods_receipt.reverse", "procurement.goods_movement", orig.ID, map[string]any{"reversal_id": rev.ID},
 		event("goods_receipt_reversed", "goods_movement", orig.ID, map[string]any{"goods_receipt_id": orig.ID, "reversal_id": rev.ID,
 			"document_number": rev.DocumentNumber, "legal_entity_id": rev.LegalEntityID, "movement_type": reversal,
 			"posting_date": rev.PostingDate.Format(time.DateOnly), "journal_entry_id": rev.JournalEntryID, "journal_entry_year": rev.JournalEntryYear,

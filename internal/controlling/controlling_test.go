@@ -111,15 +111,29 @@ func (p plan) lines(t *testing.T, query string) []string {
 	var out []string
 	for _, it := range page["items"].([]any) {
 		l := it.(map[string]any)
-		center, _ := l["cost_center_id"].(string)
+		center, code, name := l["cost_center_id"], l["cost_center_code"], l["cost_center_name"]
 		if pc, ok := l["profit_center_id"].(string); ok {
-			center = pc
+			center, code, name = pc, l["profit_center_code"], l["profit_center_name"]
+		}
+		// A line names its center and account beside their ids
+		// (review:T105e).
+		if label := p.code(center.(string)); label != center && code != label {
+			t.Errorf("center code: got %v, want %s", code, label)
+		}
+		if n, _ := name.(string); n == "" {
+			t.Errorf("center name: got %v, want the center's", name)
+		}
+		if label := p.code(l["account_id"].(string)); l["account_number"] != label {
+			t.Errorf("account number: got %v, want %s", l["account_number"], label)
+		}
+		if n, _ := l["account_name"].(string); n == "" {
+			t.Errorf("account name: got %v, want the account's", l["account_name"])
 		}
 		q := ""
 		if qty, ok := l["quantity"].(map[string]any); ok {
 			q = fmt.Sprintf(" %s %s", qty["value"], qty["unit"])
 		}
-		out = append(out, fmt.Sprintf("%s/%s/%v %s%s", p.code(center), p.code(l["account_id"].(string)), l["fiscal_period"],
+		out = append(out, fmt.Sprintf("%s/%s/%v %s%s", code, l["account_number"], l["fiscal_period"],
 			l["amount"].(map[string]any)["amount"], q))
 	}
 	if tok, ok := page["next_page_token"].(string); ok {

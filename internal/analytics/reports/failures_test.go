@@ -364,6 +364,28 @@ func TestRunsDatabaseFailures(t *testing.T) {
 	})
 	// A result cut at the rows a query answers is refused as a workbook,
 	// which could not say so (T95d).
+	// Its CSV says so in Result-Truncated, as its JSON does (review:T95d);
+	// one not cut says nothing.
+	t.Run("a truncated result as CSV", func(t *testing.T) {
+		for name, c := range map[string]struct {
+			date      string
+			truncated bool
+			want      gen.OptBool
+		}{
+			"cut":     {"2026-01-04", true, gen.NewOptBool(true)},
+			"not cut": {"2026-01-05", false, gen.OptBool{}},
+		} {
+			t.Run(name, func(t *testing.T) {
+				var got gen.OptBool
+				if err := in(t, h, keptCSV(t, e, id, c.date, []byte(kept("5.00", c.truncated)), &got)); err != nil {
+					t.Fatal(err)
+				}
+				if got != c.want {
+					t.Errorf("Result-Truncated: got %v, want %v", got, c.want)
+				}
+			})
+		}
+	})
 	t.Run("a truncated result as a workbook", func(t *testing.T) {
 		err := in(t, h, keptRun(t, e, id, "2026-01-03", []byte(kept("5.00", true)), "xlsx"))
 		if p := problem.From(err); p.Code != "analytics.result_truncated" {
@@ -376,6 +398,21 @@ func TestRunsDatabaseFailures(t *testing.T) {
 // as its results and reads it in the format.
 func keptRun(t *testing.T, e stored, report uuid.UUID, date string, body []byte, format string) func(ctx context.Context, h *reports.Endpoints) error {
 	t.Helper()
+	run := keepRun(t, e, report, date, body)
+	return func(ctx context.Context, h *reports.Endpoints) error {
+		params := gen.GetReportRunParams{ID: run}
+		if format != "" {
+			params.Format = gen.NewOptString(format)
+		}
+		_, err := h.GetReportRun(ctx, params)
+		return err
+	}
+}
+
+// keepRun keeps a succeeded run of the report on the date with the body
+// as its results, as its run would, and returns its id.
+func keepRun(t *testing.T, e stored, report uuid.UUID, date string, body []byte) uuid.UUID {
+	t.Helper()
 	sum := sha256.Sum256(body)
 	run := uuid.Must(uuid.NewV7())
 	key := blobstore.Key(e.Tenant.ID, blobstore.KindReportRuns, run.String()+".json")
@@ -384,13 +421,21 @@ func keptRun(t *testing.T, e stored, report uuid.UUID, date string, body []byte,
 	}
 	pgtest.Exec(t, `INSERT INTO analytics.report_run (tenant_id, id, report_id, run_date, status, run_as, object_key, sha256, data_through)
 		VALUES ($1, $2, $3, $7, 'succeeded', $4, $5, $6, '')`, e.Tenant.ID, run, report, e.Tenant.Human.ID, key, sum[:], date)
+	return run
+}
+
+// keptCSV keeps a succeeded run of the report on the date with the body
+// as its results and reads its CSV's Result-Truncated header.
+func keptCSV(t *testing.T, e stored, report uuid.UUID, date string, body []byte, truncated *gen.OptBool) func(ctx context.Context, h *reports.Endpoints) error {
+	t.Helper()
+	run := keepRun(t, e, report, date, body)
 	return func(ctx context.Context, h *reports.Endpoints) error {
-		params := gen.GetReportRunParams{ID: run}
-		if format != "" {
-			params.Format = gen.NewOptString(format)
+		res, err := h.GetReportRun(ctx, gen.GetReportRunParams{ID: run, Format: gen.NewOptString("csv")})
+		if err != nil {
+			return err
 		}
-		_, err := h.GetReportRun(ctx, params)
-		return err
+		*truncated = res.(*gen.GetReportRunOKTextCsvHeaders).ResultTruncated
+		return nil
 	}
 }
 

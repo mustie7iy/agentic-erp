@@ -402,7 +402,7 @@ func (e *Endpoints) createOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 		return PurchaseOrder{}, err
 	}
 	if in.RequisitionID != nil {
-		if _, err := setStatus(ctx, tx, p, req, Ordered, req.WorkflowRequestID, "requisition_ordered", map[string]any{"purchase_order_id": id}); err != nil {
+		if _, err := e.setStatus(ctx, tx, p, req, Ordered, req.WorkflowRequestID, "requisition_ordered", map[string]any{"purchase_order_id": id}); err != nil {
 			return PurchaseOrder{}, err
 		}
 	}
@@ -714,7 +714,7 @@ func (e *Endpoints) release(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	if err := e.extensions().Event(ctx, payload, o.Extensions, o.ExtensionsSchema); err != nil {
 		return PurchaseOrder{}, err
 	}
-	return released, audit.Record(ctx, "procurement.purchase_order.release", "procurement.purchase_order", o.ID, map[string]any{"value": value},
+	return released, e.record(ctx, "procurement.purchase_order.release", "procurement.purchase_order", o.ID, map[string]any{"value": value},
 		event("purchase_order_released", "purchase_order", o.ID, payload))
 }
 
@@ -823,7 +823,7 @@ func (e *Endpoints) closeOrder(ctx context.Context, id uuid.UUID, ifMatch func(i
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
-	return closed, audit.Record(ctx, "procurement.purchase_order.close", "procurement.purchase_order", id, map[string]any{"from_status": o.Status},
+	return closed, e.record(ctx, "procurement.purchase_order.close", "procurement.purchase_order", id, map[string]any{"from_status": o.Status},
 		event("purchase_order_closed", "purchase_order", id, orderEvent(o, map[string]any{"previous_status": o.Status, "status": Closed})))
 }
 
@@ -876,7 +876,7 @@ func (e *Endpoints) cancelOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 		if err != nil {
 			return PurchaseOrder{}, err
 		}
-		if _, err := setStatus(ctx, tx, p, req, Approved, req.WorkflowRequestID, "", nil); err != nil {
+		if _, err := e.setStatus(ctx, tx, p, req, Approved, req.WorkflowRequestID, "", nil); err != nil {
 			return PurchaseOrder{}, err
 		}
 	}
@@ -884,7 +884,7 @@ func (e *Endpoints) cancelOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
-	return cancelled, audit.Record(ctx, "procurement.purchase_order.cancel", "procurement.purchase_order", id, map[string]any{"from_status": o.Status},
+	return cancelled, e.record(ctx, "procurement.purchase_order.cancel", "procurement.purchase_order", id, map[string]any{"from_status": o.Status},
 		event("purchase_order_cancelled", "purchase_order", id, orderEvent(o, map[string]any{"requisition_id": o.RequisitionID,
 			"contract_id": o.ContractID, "released_value": releasedValue, "previous_status": o.Status, "status": Cancelled})))
 }

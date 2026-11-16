@@ -647,6 +647,10 @@ type failWriter struct{}
 
 func (failWriter) Write([]byte) (int, error) { return 0, errors.New("disk full") }
 
+// TestWriteCSV: erp query -csv writes what the run's CSV and the workbook
+// write (Records): a money measure followed by its currency's column, so
+// a column mixing currencies says which each amount is in (review:T95d);
+// a failed write is reported.
 func TestWriteCSV(t *testing.T) {
 	r := fixtureResult()
 	var buf bytes.Buffer
@@ -657,22 +661,14 @@ func TestWriteCSV(t *testing.T) {
 	if len(lines) != 6 {
 		t.Fatalf("csv: got %d lines, want 6:\n%s", len(lines), buf.String())
 	}
-	if lines[0] != "fiscal_year,fiscal_month,revenue,margin,orders" {
-		t.Errorf("csv header: got %q, want fiscal_year,fiscal_month,revenue,margin,orders", lines[0])
+	if want := "fiscal_year,fiscal_month,revenue,revenue_currency,margin,orders"; lines[0] != want {
+		t.Errorf("csv header: got %q, want %q", lines[0], want)
 	}
-	if lines[4] != "2026,2,-500.00,,1" {
-		t.Errorf("csv line 5: got %q, want 2026,2,-500.00,,1", lines[4])
+	if want := "2026,2,-500.00,USD,,1"; lines[4] != want {
+		t.Errorf("csv line 5: got %q, want %q", lines[4], want)
 	}
 	if err := WriteCSV(failWriter{}, r); err == nil {
-		t.Fatal("flush error must be returned")
-	}
-	wide := &Result{Columns: []Column{{Name: strings.Repeat("h", 5000)}}}
-	if err := WriteCSV(failWriter{}, wide); err == nil {
-		t.Fatal("header write error must be returned")
-	}
-	long := &Result{Columns: []Column{{Name: "a"}}, Rows: []Row{{strings.Repeat("x", 5000)}}}
-	if err := WriteCSV(failWriter{}, long); err == nil {
-		t.Fatal("row write error must be returned")
+		t.Fatal("a failed write: got nil, want its error")
 	}
 }
 

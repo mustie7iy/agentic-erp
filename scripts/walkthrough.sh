@@ -3239,7 +3239,8 @@ step_reports() {
   sed 's/^/     /' "$WORK/query.out"
   local revenue income
   revenue=$(awk -F, -v y="$YEAR" '$1 == y { print $2 }' "$WORK/year.csv")
-  income=$(awk -F, -v y="$YEAR" '$1 == y { print $3 }' "$WORK/year.csv")
+  income=$(awk -F, -v y="$YEAR" '$1 == y { print $4 }' "$WORK/year.csv")
+  expect "the CSV's header: each amount beside its currency" "$(sed -n 1p "$WORK/year.csv")" "fiscal_year,revenue,revenue_currency,income,income_currency"
   expect "income less revenue in $YEAR" "$(amount $(($(cents "$income") - $(cents "$revenue"))))" 94.00
   say "Expenses by month, SAP's months and the pilot's own: months come in their order, 9 before 10, not 1, 10, 2:"
   show erp query -measures expenses -by fiscal_month -where "fiscal_year in $YEAR" -companies "$CC" -csv months.csv

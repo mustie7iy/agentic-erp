@@ -3669,9 +3669,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "CostCenterPlanActual and PlanLine give cost_center_id and account_id with no code, number or name: a consumer, the planning agent among them, has to read the cost centers and the accounts again to name a line (an identifier without the name its consumer needs, found in T105e's review).",
-        "r": "api/openapi.yaml CostCenterPlanActual, PlanLine · internal/planningagent (listAccounts, cost center reads)",
+        "r": "api/openapi.yaml CostCenterPlanActual, PlanLine · internal/planningagent (listAccounts, cost center reads) · done in hnames: PlanLine, CostCenterPlanActual and ProfitCenterPlanActual name centers by code and name and accounts by number and name (ledger AssignmentBalances.CenterNames, AccountNames; idref.Resolve); planactual_test, controlling_test; ADR-0050 as built",
         "src": "review:T105e",
         "c": []
        },
@@ -3922,9 +3922,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A purchase order's update, its changes' create, update and submit, and a requisition's and order's bodiless submit and release name their field errors by the request's fields: legal_entity_id (procurement common.go legalEntity on the stored order), items and items[i].<field> (order_change_apply.go invalidChange, assignment.go, ledger itemassign.go asItems) are fields those requests do not have (an API-consumer class, REVIEW.md)",
-      "r": "found in apinames4's sweep of the class (review:batch26 bootstrap leaf) · internal/procurement common.go :173, :178 from purchase_orders.go updateOrder (:478) and order_changes.go proposal (:280) · order_change_apply.go :34, :62 · assignment.go :36, :88 · purchase_orders.go :606 · ledger itemassign.go :78",
+      "r": "found in apinames4's sweep of the class (review:batch26 bootstrap leaf) · internal/procurement common.go :173, :178 from purchase_orders.go updateOrder (:478) and order_changes.go proposal (:280) · order_change_apply.go :34, :62 · assignment.go :36, :88 · purchase_orders.go :606 · ledger itemassign.go :78 · done in hnames by default (listed for the product owner): a refusal on an action over a stored document names the document's field as its GET returns it, which keeps the item or supplier refused and the reason code (ADR-0050); 04 §4.6 states the rule. Dropping those field errors was built and withdrawn in review round 1: it lost the locator and the reason",
       "src": "review:batch26",
       "c": []
      }
@@ -3957,7 +3957,7 @@
       "c": []
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "Expiry and renewal alerts",
       "r": "contracts/{id}:renew · procurement.ContractExpirer · migration 000066 · T47g",
       "c": [
@@ -3983,9 +3983,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Procurement's other events name the supplier by its number and name and the company by its code beside supplier_id and legal_entity_id, as ContractExpired and ContractExpiring do since batch 28: ContractActivated, ContractTerminated, ContractCancelled, RequisitionSubmitted and the purchase order events (Released, Changed, Cancelled, Closed) give both ids alone; the goods movement, requisition decision and GrIrCleared events give legal_entity_id alone",
-        "r": "api/asyncapi.yaml procurement channel · internal/procurement purchase_orders.go (orderEvent), order_change_apply.go, contracts.go, requisitions · expiry_names.go eventNames is the pattern (optional fields, eventcompat) · REVIEW.md API-consumer class: an identifier without the name its consumer needs · ADR-0034 as built (a contract's expiry events name the company and the supplier)",
+        "r": "api/asyncapi.yaml procurement channel · internal/procurement purchase_orders.go (orderEvent), order_change_apply.go, contracts.go, requisitions · expiry_names.go eventNames is the pattern (optional fields, eventcompat) · REVIEW.md API-consumer class: an identifier without the name its consumer needs · ADR-0034 as built (a contract's expiry events name the company and the supplier) · done in hnames: every listed event gives legal_entity_code and supplier_number (never supplier_name, product owner 2026-11-05), optional within v1, through Endpoints.record (event_names.go); TestNamedEvents; ADR-0034 as built (hnames)",
         "src": "review:batch28",
         "c": []
        }
@@ -4877,9 +4877,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Capture operations can answer 404 for an unknown upload id but declare no 404 in api/openapi.yaml for captureSalesOrder (pre-existing, found in batch 74 in T90a's lane).",
-        "r": "api/openapi.yaml captureSalesOrder · docs/design/adr/0067-sales-documents.md As built T90a",
+        "r": "api/openapi.yaml captureSalesOrder · docs/design/adr/0067-sales-documents.md As built T90a · done in hnames: captureSalesOrder declares 404, both captures' upload_id say an unknown upload is 404 request.not_found; TestCaptureOrderRefusals (an unknown upload)",
         "src": "review:batch74",
         "c": []
        },
@@ -6751,9 +6751,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A CSV export says what its JSON says: erp query -csv (analytics.WriteCSV) writes a money measure without its currency's column, so a column mixing currencies has amounts without their currency, and getReportRun's CSV leaves out that a kept result was truncated (pre-existing findings on T95d's review; the workbook refuses a truncated result)",
-      "r": "internal/analytics/render.go WriteCSV · internal/analytics/reports/runs_api.go resultCSV · ADR-0076 §8",
+      "r": "internal/analytics/render.go WriteCSV · internal/analytics/reports/runs_api.go resultCSV · ADR-0076 §8 · done in hnames: WriteCSV writes analytics.Records (currency columns); getReportRun's CSV gives Result-Truncated: true for a truncated result; TestWriteCSV, failures_test 'a truncated result as CSV'; ADR-0076 as built",
       "src": "review:T95d",
       "c": []
      },
@@ -6902,9 +6902,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "getProcessEventLog has no x-snapshot, no x-slo-class report and no row in 01 §1.3: its case_count and its page are separate statements, so a page can disagree with the count beside it (found in T103a's review).",
-        "r": "api/openapi.yaml getProcessEventLog · internal/processmining · docs/design/01-requirements.md §1.3",
+        "r": "api/openapi.yaml getProcessEventLog · internal/processmining · docs/design/01-requirements.md §1.3 · done in hnames: x-snapshot and x-slo-class report on getProcessEventLog, 01 §1.3's row (TestEventLogBudget p95 0.1-0.28 s), TestSnapshotOperations, ADR-0080 as built",
         "src": "review:T103a",
         "c": []
        },
