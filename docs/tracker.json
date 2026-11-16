@@ -9850,9 +9850,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "An index on approval_request.object_id: the evidence export and the approvals read an object's requests by its id and, without the index, read the tenant's requests (found in batch 75's integration; a migration, expand-only, built concurrently).",
-        "r": "approvals.approval_request (object_id) · audit evidence export reads · 06 §6.4 (indexes built concurrently)",
+        "r": "approvals.approval_request (object_id) · audit evidence export reads · 06 §6.4 (indexes built concurrently) · migration 000343 approval_request_by_object · 03-data-model approvals",
         "src": "review:batch75",
         "c": []
        },

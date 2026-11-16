@@ -3208,7 +3208,10 @@ the decision trigger); decisions are insert-only. The inbox
 through the partial index `approval_request_pending (tenant_id,
 created_at, id) WHERE status = 'pending'` (000151); a principal's own
 requests (`requested_by=me`, T73d2) through `approval_request_by_requester
-(tenant_id, requester_id, created_at, id)` (000183).
+(tenant_id, requester_id, created_at, id)` (000183); the requests about a
+document (the audit evidence export's `approvals.Evidence.About` and
+`object_id=` on the list, review:batch75) through `approval_request_by_object
+(tenant_id, object_id, created_at, id)` (000343, built concurrently).
 
 A `manual_entry` request (T35) is opened for a parked manual journal entry
 whose debits, converted exactly into its company's currency at the average
