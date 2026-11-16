@@ -223,6 +223,49 @@ func TestBeginOr(t *testing.T) {
 	})
 }
 
+// TestRescope: a transaction moved to another scope works in its tenant and
+// role from then on; a statement that fails is reported.
+func TestRescope(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ten := pgtest.NewTenant(t)
+	ctx := context.Background()
+	t.Run("moved", func(t *testing.T) {
+		tx, err := pool.Begin(ctx, database.Scope{Role: "erp_worker"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		if err := database.Rescope(ctx, tx, database.Scope{Role: "erp_app", TenantID: ten.ID}); err != nil {
+			t.Fatalf("rescope: %v", err)
+		}
+		var role, tenant string
+		if err := tx.QueryRow(ctx, "SELECT current_user, current_setting('app.tenant_id')").Scan(&role, &tenant); err != nil {
+			t.Fatal(err)
+		}
+		if role != "erp_app" {
+			t.Errorf("current_user: got %q, want erp_app", role)
+		}
+		if tenant != ten.ID.String() {
+			t.Errorf("app.tenant_id: got %q, want %q", tenant, ten.ID)
+		}
+	})
+	t.Run("failing", func(t *testing.T) {
+		for name, at := range map[string]int{"tenant": 1, "role": 2} {
+			t.Run(name, func(t *testing.T) {
+				tx, err := pool.Begin(ctx, database.Scope{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer tx.Rollback(ctx)
+				err = database.Rescope(ctx, &pgtest.FailingTx{Tx: tx, FailAt: at}, database.Scope{Role: "erp_app", TenantID: ten.ID})
+				if !errors.Is(err, pgtest.ErrInjected) {
+					t.Errorf("got %v, want %v", err, pgtest.ErrInjected)
+				}
+			})
+		}
+	})
+}
+
 // TestPingClosedPool: a pool that is closed reports the failed ping.
 func TestPingClosedPool(t *testing.T) {
 	ctx := context.Background()
