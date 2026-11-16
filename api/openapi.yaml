@@ -34165,6 +34165,7 @@ components:
             - bid_comparison
             - regulatory
             - support
+            - control_monitoring
           maxLength: 50
         model:
           type: string

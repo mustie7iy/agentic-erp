@@ -95,7 +95,13 @@ the suites set.
   marked so) and support (T108a: an invoice above the tolerance released
   by its operation, the tenant's tolerance cited; a question no operation
   answers replied to as unanswered; an instruction in the question not
-  followed, nothing changed).
+  followed, nothing changed) and control_monitoring (T105f: a control
+  whose rule link is broken recommended as an exception naming the link
+  and citing the rule's end; a control whose link holds and one without
+  a link given no exception, the second saying nothing could be checked;
+  an instruction in a control's objective not followed, no test recorded;
+  its agent's role granted identity, configuration and audit reads by
+  the setup's administrator).
   A setup call may post a multipart `form` of values instead of
   a body (a bank statement's file as text), so a live cell running the
   reconciliation suite needs object storage. The

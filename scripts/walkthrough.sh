@@ -10213,6 +10213,120 @@ step_expense_report() {
   passed
 }
 
+# step_control_agent is T105f (ADR-0072, ADR-0078): the control
+# monitoring agent, erp agent control-monitor through the model stand-in
+# answering from a script of turns (its suite's replay,
+# evals/control_monitoring), monitors the controls of a process against
+# the control matrix and the audit trail. Ada makes a segregation-of-
+# duties rule of her own, whoever manages the organisation does not
+# release payment runs; she holds every permission today, so the rule
+# starts tomorrow, as step 77's does. Olive records a control on it,
+# ORG-01, in the process "Access management", and links the control to
+# the rule. Ada then ends the rule, from the day after it starts, the
+# earliest end identity allows: the control is enforced by nothing, and
+# the matrix shows its link broken. The agent's role reads the control
+# library and records its sessions; Ada grants it identity data, the
+# configuration's versions and the audit trail, which nothing grants by
+# default (product owner, 2026-11-12). Its no_exception on the control is
+# refused by the run (the link is broken); it recommends an exception
+# naming the broken link and citing the audit events of the rule's
+# creation and of its end. Its own test of the control is refused; Olive
+# accepts, which records no test and changes nothing. Step 76's
+# propose-and-release rule and PAY-01 are not touched. CONTROL_AGENT_REC
+# is the recommendation, which the risk agent reads (step_risk_agent).
+step_control_agent() {
+  heading "Step 98 — The control monitoring agent: a control whose segregation-of-duties rule was ended found with an exception naming the broken link and citing the audit events of the rule; its no_exception refused; the compliance officer decides, no test recorded"
+  local role tomorrow after rule control link created ended got session rec
+  as ada
+  say "Ada sets up the control monitoring agent (ADR-0072): an agent principal of type control_monitoring at autonomy"
+  say "level 1 on erp-default. Its role reads the control library and approval requests and records its sessions and"
+  say "recommendations; it holds no permission that records a test or changes a control."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "control_agent", "name": "Control monitoring agent"}'
+  role=$(field .id)
+  grant "$role" grc.control.read workflow.request.read agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "control-agent", "display_name": "Control monitoring agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "control_monitoring", "model": "erp-default", "description": "Monitors controls for a compliance officer to decide (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token control-agent "Control monitoring agent"
+  say "The control matrix shows segregation-of-duties rules and configuration settings, and the agent cites the audit"
+  say "trail. Nothing gives an agent those by default; Ada grants its role identity data, the configuration's versions"
+  say "and the audit trail (product owner, 2026-11-12):"
+  for perm in identity.access.read config.version.read audit.event.read; do
+    api 201 '"  granted \(.permission_code) to the agent'"'"'s role"' grantRolePermission -p "id=$role" -body "{\"permission_code\": \"$perm\"}"
+  done
+  tomorrow=$(date_add "$(utc_day)" 1) after=$(date_add "$(utc_day)" 2)
+  say "Ada adds a rule: whoever manages the organisation does not release payment runs. She holds both permissions today"
+  say "and gives up releasing payment runs from tomorrow (step 77), so the rule starts tomorrow, $tomorrow:"
+  api 201 '"rule \(.permission_a) / \(.permission_b), valid from \(.valid_from): \(.description)"' createSodRule \
+    -body "{\"permission_a\": \"tenancy.org.manage\", \"permission_b\": \"payments.run.release\", \"description\": \"Whoever manages the organisation does not release payment runs.\", \"valid_from\": \"$tomorrow\"}"
+  rule=$(field .id)
+  as olive
+  say "Olive records the control that the rule enforces, owned by herself, and links it to the rule:"
+  api 201 '"control \(.code), \(.process), owned by \(.owner_name): \(.frequency), \(.nature), \(.status)"' createControl \
+    -body "{\"code\": \"ORG-01\", \"objective\": \"Whoever manages the organisation does not release payment runs.\", \"process\": \"Access management\", \"owner_id\": \"$(awk -F'\t' '$2 == "Olive Compliance Officer" { print $1 }' "$WORK/names")\", \"frequency\": \"continuous\", \"nature\": \"automated\"}"
+  control=$(field .id)
+  api 201 '"link of \(.control_code) to the \(.kind) \(.sod_rule.permission_a) / \(.sod_rule.permission_b): holds \(.holds)\(if .holds then "" else ", " + .broken_reason end)"' \
+    createControlLink -p "id=$control" -body "{\"kind\": \"sod_rule\", \"sod_rule_id\": \"$rule\"}"
+  link=$(field .id)
+  as ada
+  say "Ada, tidying the rules, ends the new one from $after, the earliest end identity allows (a rule ends after the"
+  say "day it starts): it would be in force for one day only. Nothing tells Olive."
+  QUIET=1 api 200 '' getSodRule -p "id=$rule"
+  api 200 '"rule \(.permission_a) / \(.permission_b): valid from \(.valid_from) to \(.valid_to)"' endSodRule -p "id=$rule" -if-match "$ETAG" -body "{\"valid_to\": \"$after\"}"
+  QUIET=1 api 200 '' listAuditEvents -p object_type=identity.sod_rule -p "object_id=$rule"
+  expect "the rule's audit trail, the latest first" "$(field '[.items[].action] | join(" ")')" "identity.sod_rule.end identity.sod_rule.create"
+  ended=$(field '.items[0].seq') created=$(field '.items[1].seq')
+  as olive
+  say "The control matrix of the process shows the control's one link broken:"
+  api 200 '(.items[] | "  \(.control.code): links \(.link_state)", (.links[] | "    \(.kind): \(if .holds then "holds" else "broken, " + .broken_reason end)"))' \
+    getControlMatrix -p "process=Access management"
+  expect "the control's row" "$(field '[.items[] | "\(.control.id) \(.link_state) \([.links[] | "\(.id) \(.holds)"] | join(","))"] | join(", ")')" "$control broken $link false"
+  jq -n --arg rule "$rule" --arg control "$control" --arg link "$link" --arg created "$created" --arg ended "$ended" --arg tomorrow "$tomorrow" --arg after "$after" '
+    {session_id: "{{session}}", object_type: "control", object_id: $control} as $on |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "listAuditEvents", input: {object_type: "identity.sod_rule", object_id: $rule}},
+      {tool: "createRecommendation", input: {body: ($on + {kind: "no_exception", content: "The control has its link; nothing shows it failed."})}},
+      {tool: "createRecommendation", input: {body: ($on + {kind: "exception_found",
+        content: "Broken links: \($link)\nThe segregation-of-duties rule that enforces the control, tenancy.org.manage / payments.run.release, is not in force: it was made to start on \($tomorrow) (audit event \($created)) and was then ended from \($after) (audit event \($ended)), so it holds for one day only and the control is enforced by nothing after it."})}},
+      {final: "One exception: ORG-01, whose rule was ended; the compliance officer decides."}]}' >"$WORK/model-script.json"
+  say "The agent runs: erp agent control-monitor reads the control matrix of the process and starts a session on"
+  say "erp-default. The model is the stand-in, answering from a script of turns as the agent's evaluation suite replays"
+  say "them (evals/control_monitoring): it reads the rule's audit events; recommends no exception (refused by the run:"
+  say "the control's link is broken), then an exception naming the broken link and citing the rule's two events."
+  show ERP_AGENT_TOKEN=… erp agent control-monitor -process "\"Access management\""
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/control-agent") "$ERP" agent control-monitor -process "Access management" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent control-monitor failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): exception_found on control $control \\(ORG-01\\): Broken links: $link\$/\\1/p")
+  [ -n "$rec" ] || fail "erp agent control-monitor printed no exception_found on ORG-01 naming its broken link"
+  say "Olive, the compliance officer, reads the recommendation on the control:"
+  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)"))' listRecommendations -p "object_id=$control"
+  expect "the recommendations on the control, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "made in its session" "$(field '.items[0].session_id')" "$session"
+  expect "citing the audit event of the rule's end" "$(field ".items[0].content | contains(\"audit event $ended\")")" true
+  as control-agent
+  say "Recommending is all it may do: recording a test is a person's statement (x-agent: false), erp agent builds it no"
+  say "tool for it, and the API refuses its own call:"
+  refused 403 identity.agent_not_allowed createControlTest -p "id=$control" -body "{\"tested_on\": \"$(utc_day)\", \"result\": \"failed\", \"note\": \"The rule was ended.\"}"
+  api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "listAuditEvents createRecommendation createRecommendation"
+  as olive
+  say "Olive accepts the recommendation. Accepting records no test and changes nothing: she acts through the normal"
+  say "operations, a test of her own or the rule made again."
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "The rule was ended by mistake; Ada makes it again."}'
+  expect "the recommendation's outcome" "$(field .outcome)" accepted
+  QUIET=1 api 200 '' getControl -p "id=$control"
+  expect "the control as it was, never tested" "$(field '"\(.status) \(.version) \(has("last_test"))"')" "active 1 false"
+  CONTROL_AGENT_REC=$rec
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -12237,7 +12351,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_control_agent step_close'
 
 main() {
   stop_unseen

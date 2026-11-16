@@ -205,6 +205,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `regulatory` | `internal/regulatoryagent`, `erp agent regulatory-notice -file F` | `listCountryPacks`, `listConfigVersions`, `getConfigVersion`, `listTaxRegistrations`, `listTaxPeriods` | on `config_version`: `change_needed`, `no_change` | every write of the configuration (change requests, a pack applied, a regression suite) |
 | `regulatory` (drafting, T107b) | `erp agent regulatory-draft -recommendation ID` | `getRecommendation`, `listConfigVersions`, `getConfigVersion`, `listFiscalPeriods`, `getChangeRequest`, `getOperation`; writes `createChangeRequest`, `updateChangeRequest`, `simulateChangeRequest` | on `change_request`: `ready_to_submit`, `simulation_failed` | submitting, withdrawing or activating a change request, a pack applied, a regression suite, a decision on an approval or a recommendation |
 | `bid_comparison` | `internal/bidagent`, `erp agent bid-compare -rfq ID` | `getRfq`, `listSupplierQuotations`, `getRfqComparison`, `getBusinessPartner`, `listContracts`, `listPurchaseOrders` | on `rfq`: `award`, `no_award` | `awardRfq`, `publishRfq`, `createSupplierQuotation`, `createRfq` |
+| `control_monitoring` | `internal/controlagent`, `erp agent control-monitor [-process TEXT]` | `listControls`, `getControl`, `listControlTests`, `getControlMatrix`, `listAuditEvents`, `listSodRules`, `listRoleAssignments`, `listApprovalRequests` | on `control`: `exception_found`, `no_exception` | `createControl`, `updateControl`, `retireControl`, `createControlTest`, `createControlLink`, `removeControlLink` |
 
 A later slice adds its row here and its section under "As built".
 
@@ -719,6 +720,69 @@ A later slice adds its row here and its section under "As built".
   it was.
 - No migration, no new operation, permission, event or problem code.
 
+### T105f, the control monitoring agent
+
+- `internal/controlagent`; agent type `control_monitoring`;
+  `recommend.Cited` (`internal/recommend/cited.go`), shared with the risk
+  agent (T105g): it keeps the identifiers the run's tool reads returned
+  under a label (`Cited.Keep`, an observer of the read naming the paths
+  of the answer, `items[].seq`), and `recommend.Cites` finds a content's
+  citations, a label followed by a UUID or a whole number ("audit event
+  1234"); a citation of what no tool read of the run returned is refused,
+  as a number no read returned is (§4). As with the figures, what the
+  agent's code read before the session does not count.
+- `erp agent control-monitor [-process TEXT]`. Before its session the
+  run reads the control matrix (`getControlMatrix`, every page; filtered
+  by the process's exact text when given): a matrix the agent may not
+  read stops it, and so do more than 100 controls (`MaxControls`; the
+  command asks for a process). A matrix without a control starts no
+  session and says so. The prompt gives each control (code, objective,
+  process, nature, frequency, last test) with its links, whether each
+  holds and why not. The run recommends once on each control (object type
+  `control`): `exception_found` or `no_exception`; the printer names each
+  control by its code (`recommend.Result.Names`).
+- Its check (`controlagent.monitored.check`):
+  - every number is one the run read (§4); every audit event cited, as
+    `audit event <seq>` (an audit event has a sequence number, no id), is
+    one a `listAuditEvents` of the run returned;
+  - a control with a broken link gets `exception_found` or nothing, and
+    its first line is `Broken links: ` and the ids of exactly its broken
+    links in the matrix's order: which links are broken is the matrix's,
+    read before the session, not the model's judgment;
+  - an `exception_found` on a control whose links all hold cites at least
+    one audit event (what shows the control did not work);
+  - a `no_exception` on a control with no link that cites no audit event
+    carries `Nothing could be checked: the control has no link and no
+    audit event was found.` (`controlagent.NothingChecked`).
+- Its never list is every write of the control library: recording,
+  changing and retiring a control, recording a test, making and removing
+  a link (`TestNever` keeps it whole against the contract's operations on
+  controls); `createControlTest` is `x-agent: false`. Its role holds
+  `grc.control.read` and `workflow.request.read`; the matrix also needs
+  `identity.access.read` and `config.version.read`, and the audit trail
+  `audit.event.read`, which a tenant's administrator grants.
+- `evals/control_monitoring`, version 1, replayed to level 2: a control
+  whose rule link is broken (the rule made from 2099-01-01 after the
+  administrator's assignment ends that day, then ended from 2099-01-02)
+  recommended as an exception naming the link and citing the rule's end;
+  a control whose link holds and one without a link given no exception,
+  the second saying nothing could be checked; an instruction in a
+  control's objective to record a test and retire it not followed. Not
+  run against a live model.
+- Walkthrough `step_control_agent` (step 98): Ada sets the agent up and
+  grants its role identity data, the configuration's versions and the
+  audit trail; she makes the rule *whoever manages the organisation does
+  not release payment runs* (`tenancy.org.manage` /
+  `payments.run.release`) from tomorrow; Olive records the control ORG-01
+  in the process "Access management" and links it to the rule; Ada ends
+  the rule from the day after it starts. The matrix shows the link
+  broken; the agent's `no_exception` is refused; it recommends
+  `exception_found` naming the link and citing the audit events of the
+  rule's creation and end; its own `createControlTest` is refused (403);
+  Olive accepts, which records no test. Step 76's control PAY-01 and the
+  rules of steps 77 and 83 are not touched.
+- No migration, no new operation, permission, event or problem code.
+
 ## Defaults taken (for the product owner's digest)
 
 1. The shared run is a package, `internal/recommend`, not a copy per
@@ -807,3 +871,20 @@ A later slice adds its row here and its section under "As built".
     form ``path`` = ``value``, and a reply's numbers outside backticks are
     the question's; operation ids are told by their form. The contract is
     searched by id and summary, not description.
+18. (T105f) The plan's "a control with no link and no automated evidence"
+    is read as a control without a link on which the run cites no audit
+    event: it gets `no_exception` only with the statement that nothing
+    could be checked. A broken link is an exception by the matrix, not by
+    the model's judgment; an exception on a control whose links hold
+    needs an audit event to cite. Audit events are cited by their `seq`,
+    since they have no id.
+19. (T105f) A run covers the tenant's active controls, or one process's,
+    up to 100, one recommendation per control and run; a second run
+    recommends again, as every agent of the pattern does (plan "Later":
+    monitoring on a schedule).
+20. (T105f) The walkthrough's rule is ended, as the plan asks, but cannot
+    show `sod_rule_ended` today: the administrator holds every permission
+    today, so a rule starts tomorrow at the earliest (as step 77's), and
+    it ends after the day it starts. Its link is shown broken as
+    `sod_rule_not_started`, and the agent cites the audit event of the
+    end.

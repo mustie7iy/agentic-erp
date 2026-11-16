@@ -1023,7 +1023,13 @@ only: it reads the contract through a local search of its operations
 (`findOperations`: method, path, summary, description, permission,
 problem codes) and the active configuration, and its reply names only
 operations of the contract and cites settings as the active version
-holds them; it has no tool that writes.
+holds them; it has no tool that writes. The control monitoring agent
+(`erp agent control-monitor [-process TEXT]`, agent type
+`control_monitoring`, T105f) recommends on each active `control` of the
+matrix: `exception_found`, its content's first line naming exactly the
+control's broken links and citing the audit events it read by their
+`seq`, or `no_exception`; recording a test stays a person's (`x-agent:
+false`, ADR-0078 §3).
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation
