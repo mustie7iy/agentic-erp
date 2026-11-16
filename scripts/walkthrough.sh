@@ -10801,9 +10801,10 @@ step_order_capture() {
 # reads the purchase-to-pay event log of the company's current month and
 # finds the case of the order of step_procure: its activities in order of
 # time, from the requisition's creation to the payment, each with the
-# kind of actor that did it and never who, as JSON and as CSV.
+# kind of actor that did it and never who, as JSON and as CSV. Then the
+# process map of the month (T103b, process_map).
 step_process_mining() {
-  heading "Step 98 — The purchase-to-pay event log: the order of step 4 as a case, its activities from the requisition's creation to the payment, by time, each with the kind of actor; as JSON and as CSV"
+  heading "Step 101 — The purchase-to-pay event log: the order of step 4 as a case, its activities from the requisition's creation to the payment, by time, each with the kind of actor; as JSON and as CSV; the month's process map, and a service order paid without a goods receipt as a variant of its own"
   local from to token found csv rows
   as ada
   person pia "Pia Process Analyst" finance_staff
@@ -10833,6 +10834,7 @@ step_process_mining() {
   expect "the events in order of time" "$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events | map(.occurred_at) | . == sort] | first')" true
   expect "actors by kind alone" "$(field '[.cases[].events[] | keys[] | select(test("actor_id|name"))] | length')" 0
   rows=$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events[]] | length')
+  field '[.cases[] | select(.case_id == "'"$PO"'") | .events[].activity]' >"$WORK/order-variant.json"
   say "The same page as CSV, a row per event:"
   csv="$WORK/event-log.csv"
   api 200 '' getProcessEventLog -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$from" -p "to=$to" -p page_size=500 \
@@ -10840,7 +10842,232 @@ step_process_mining() {
   head -1 "$csv" | sed 's/^/  /'
   grep "^$PO," "$csv" | head -3 | sed 's/^/  /'
   expect "the order's rows" "$(grep -c "^$PO," "$csv")" "$rows"
+  process_map "$from" "$to"
   passed
+}
+
+# process_map FROM TO is T103b (ADR-0080 As built): Pia reads the
+# process map of the month, computed from every case of the log: the
+# order of step 4 runs a variant of its own, from its requisition to its
+# payment. Ben then orders a service, which nobody receives: Alex's
+# invoice on it is held for want of a receipt, Priya approves the
+# exception and a payment run pays it. The map now shows that order's
+# variant beside the first, without a goods receipt, both of them ended
+# by the payment.
+process_map() {
+  local from=$1 to=$2 before
+  say "Pia reads the process map of the month: its activities, how often one directly follows another and the median"
+  say "time between them, and the variants by frequency, every case counted in exactly one:"
+  api 200 '"\(.case_count) cases, \(.open_case_count) open, \(.variant_count) variants", (.variants[] | "  \(.share_percent)% (\(.case_count), \(.open_case_count) open): \(.activities | join(" > "))"),
+    (.pairs[0:6][] | "  \(.from) > \(.to): \(.count) times, median \(.median_seconds) s")' getProcessMap \
+    -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$from" -p "to=$to"
+  map_counts
+  expect "the variant of the order of step 4, ended by its payment" \
+    "$(jq -r --slurpfile v "$WORK/order-variant.json" '[.variants[] | select(.activities == $v[0]) | .case_count >= 1] | first // false' "$WORK/last.json")" true
+  before=$(field .case_count)
+  service_order
+  as pia
+  say "Pia reads the log's case of the service order and the map again: the order's variant has no goods receipt,"
+  say "beside the variant of the order of step 4:"
+  log_case "$from" "$to" "$SERVICE_PO" >"$WORK/service-variant.json"
+  jq -r '"  " + join(" > ")' "$WORK/service-variant.json"
+  expect "no goods receipt in the service order's case" "$(jq -r 'index("Receive goods") == null' "$WORK/service-variant.json")" true
+  expect "the service order's case ended by its payment" "$(jq -r 'last' "$WORK/service-variant.json")" "Pay invoice"
+  api 200 '"\(.case_count) cases, \(.open_case_count) open, \(.variant_count) variants"' getProcessMap \
+    -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$from" -p "to=$to"
+  map_counts
+  expect "the two orders' variants in the map" \
+    "$(jq -r --slurpfile a "$WORK/order-variant.json" --slurpfile b "$WORK/service-variant.json" \
+      '[.variants[] | select(.activities == $a[0] or .activities == $b[0])] | length' "$WORK/last.json")" 2
+  expect "the cases, the service order one more" "$(field .case_count)" "$((before + 1))"
+}
+
+# map_counts checks that the map in the last answer adds up: its
+# variants' cases are at most its cases, all of them when no more than
+# ten variants exist, and the pairs' counts are at most the events'.
+map_counts() {
+  local listed
+  listed=$(field '[.variants[].case_count] | add // 0')
+  if [ "$(field .variant_count)" -le 10 ]; then
+    expect "the cases of the map's variants, every case in one" "$listed" "$(field .case_count)"
+  else
+    expect "the cases of the ten variants, at most the map's" "$(field "$listed <= .case_count")" true
+  fi
+  expect "the open cases, the variants' at most" "$(field '.open_case_count >= ([.variants[].open_case_count] | add // 0)')" true
+  expect "the pairs, fewer than the events" "$(field '([.pairs[].count] | add // 0) < ([.activities[].event_count] | add // 1)')" true
+}
+
+# log_case FROM TO ID prints the activities of the log's case ID as a
+# JSON array, reading the log a page at a time.
+log_case() {
+  local token='' found
+  while :; do
+    QUIET=1 api 200 '' getProcessEventLog -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$1" -p "to=$2" -p page_size=500 \
+      ${token:+-p "page_token=$token"}
+    found=$(field "[.cases[] | select(.case_id == \"$3\") | .events[].activity]")
+    if [ "$found" != "[]" ]; then
+      printf '%s\n' "$found"
+      return 0
+    fi
+    token=$(field '.next_page_token // ""')
+    [ -n "$token" ] || fail "the order $3 is no case of the log, or has no activity"
+  done
+}
+
+# service_order has Ben order a month's office cleaning from Tyrell, a
+# service nobody receives as goods. Alex's invoice on the order is held:
+# nothing was received. Priya approves the exception, Alex posts the
+# invoice and a payment run from RBC, released by Tara (with Fiona's
+# approval above the dual limit), pays it. SERVICE_PO is the order.
+service_order() {
+  local invoice request run etag entry total
+  as ben
+  say "Ben orders the month's office cleaning from Tyrell, CAD 300.00: a service, which nobody receives as goods."
+  api 201 '"purchase order \(.document_number): \(.status), \(.total_amount.amount) \(.total_amount.currency)"' createPurchaseOrder \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"payment_term_code\": \"NT30\", \"items\": [{\"description\": \"Office cleaning, one month\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}, \"account_id\": \"$(account 6000)\"}]}"
+  SERVICE_PO=$(field .id)
+  api 200 '"\(.status)\(if .release_request_id then ": release request \(.release_request_id)" else "" end)"' releasePurchaseOrder -p "id=$SERVICE_PO" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Cleaning contract"
+    as ben
+    QUIET=1 api 200 '' getPurchaseOrder -p "id=$SERVICE_PO"
+  fi
+  expect "the service order" "$(field .status)" released
+  as alex
+  say "Tyrell invoices the month. Matched, the invoice goes on hold: nothing was received on the order."
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TY-CLEAN-1\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"0.00\", \"currency\": \"CAD\"}, \"purchase_order_id\": \"$SERVICE_PO\", \"items\": [{\"purchase_order_id\": \"$SERVICE_PO\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}}]}"
+  invoice=$(field .id)
+  api 200 "$MATCHED" matchSupplierInvoice -p "id=$invoice" -if-match '"1"'
+  expect "the issue" "$(field '.issues[0].code')" quantity_exceeds_received
+  api 200 '"\(.document_number): \(.status), exception request \(.workflow_request_id)"' getSupplierInvoice -p "id=$invoice"
+  expect "the invoice on hold" "$(field .status)" on_hold
+  request=$(field .workflow_request_id)
+  say "The cleaning was done; Priya, the process owner, approves the exception, and Alex posts the invoice:"
+  approve priya "$request" "Service rendered, no goods to receive"
+  as alex
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$invoice"
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the invoice posted" "$(field .status)" posted
+  entry=$(field .journal_entry_id)
+  as tom
+  say "Tom proposes a run from RBC for what is due within 30 days; it pays the cleaning invoice:"
+  api 202 '"\(.kind) \(.status)"' proposePaymentRun \
+    -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBC\", \"currency\": \"CAD\", \"run_date\": \"$TODAY\", \"due_by\": \"$(date_add "$TODAY" 30)\"}"
+  wait_op
+  run=$(field .resource | sed 's|.*/||')
+  QUIET=1 api 200 '' listPayments -p "id=$run" -p page_size=100
+  expect "the cleaning invoice in the run" "$(field "[.items[].items[] | select(.journal_entry_id == \"$entry\")] | length")" 1
+  api 200 '"run \(.document_number): \(.status), \(.total_amount.amount) \(.total_amount.currency)"' getPaymentRun -p "id=$run"
+  etag=$ETAG total=$(field .total_amount.amount)
+  if [ "$(cents "$total")" -gt 400000 ]; then
+    as tara
+    api 200 '"run \(.document_number): release approval \(.release_approval.status)"' submitPaymentRun -p "id=$run" -if-match "$etag"
+    approve fiona "$(field .release_approval.request_id)" "Within the cash plan"
+    QUIET=1 api 200 '' getPaymentRun -p "id=$run"
+    etag=$ETAG
+  fi
+  as tara
+  api 202 '"\(.kind) \(.status)"' releasePaymentRun -p "id=$run" -if-match "$etag" -body '{"comment": "Cleaning and what is due"}'
+  wait_op
+  api 200 '"run \(.document_number): \(.status)"' getPaymentRun -p "id=$run"
+  expect "the run" "$(field .status)" released
+}
+
+# step_integration_agent is T110a (ADR-0072): the integration agent, erp
+# agent integration-monitor through the model stand-in answering from a
+# script of turns (its suite's replay, evals/integration), looks over
+# Maple's integrations. Sam subscribes the supplier portal's endpoint to
+# the cash events, but the portal was never given the subscription's
+# secret, so it refuses every delivery (401): his ping dies. The agent
+# finds the subscription failing before its session, with the ping as its
+# failed delivery, and recommends checking the endpoint, its first line
+# naming the delivery; a recommendation without that line is refused. It
+# reads no secret, and pausing the subscription is refused to it. Sam
+# accepts, which changes nothing, and deletes the subscription himself.
+step_integration_agent() {
+  heading "Step 102 — The integration agent: a webhook subscription whose endpoint refuses its deliveries; the agent recommends checking the endpoint and names the failed delivery; it reads no secret and may not pause the subscription; the administrator decides"
+  local role sub ping line got session rec i
+  as ada
+  say "Ada sets up the integration agent (ADR-0072): an agent principal of type integration at autonomy level 1. Its role"
+  say "reads connectors, webhooks, migration runs, payment files and operations, and records its sessions and"
+  say "recommendations; it holds no permission that changes an integration."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "integration_agent", "name": "Integration agent"}'
+  role=$(field .id)
+  grant "$role" integration.connector.read integration.webhook.read integration.migration.read payments.run.read platform.operation.read \
+    agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "integration-agent", "display_name": "Integration agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "integration", "model": "erp-default", "description": "Recommends what to do about failing integrations (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token integration-agent "Integration agent"
+  as sam
+  say "Sam subscribes the supplier portal's endpoint to the cash events. The portal was never given the subscription's"
+  say "secret, so it cannot verify a delivery and refuses each one. Sam pings it:"
+  api 201 '"subscription \(.description) at \(.url): \(.status)"' createWebhookSubscription \
+    -body "{\"url\": \"https://$HOOK_ADDR/portal/events\", \"description\": \"Supplier portal\", \"event_types\": [\"cash.*\"]}"
+  sub=$(field .id)
+  api 200 '"ping \(.id): \(.status)"' pingWebhookSubscription -p "id=$sub" -if-match "$ETAG"
+  ping=$(field .id)
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' getWebhookDelivery -p "id=$sub" -p "delivery_id=$ping"
+    [ "$(field .status)" = dead ] && break
+    sleep 0.25
+  done
+  excerpt '"  \(.type): \(.status) after \(.attempts) attempt(s), the endpoint answered \(.last_status)"'
+  expect "the ping, refused by the endpoint (after $i checks)" "$(field '"\(.status) \(.last_status)"')" "dead 401"
+  QUIET=1 api 200 '' getWebhookSubscription -p "id=$sub"
+  line="Failing: subscription $(field '.status + (if .disabled_reason then " (\(.disabled_reason))" else "" end) + (if .failing_since then ", failing since \(.failing_since)" else "" end)'); failed deliveries $ping"
+  as integration-agent
+  say "What the agent reads of the subscriptions: never a secret, which the API lists for nobody."
+  api 200 '.items[] | "  \(.description): \(.status), keys \(keys | join(" "))"' listWebhookSubscriptions
+  expect "a secret among the subscriptions read" "$(field '[.items[] | select(has("secret"))] | length')" 0
+  say "The agent runs: erp agent integration-monitor finds the failing integrations before its session and recommends"
+  say "on each. The stand-in reads the subscription's dead deliveries, recommends without the line the run computed"
+  say "(refused), then checking the endpoint, the line naming the failed delivery:"
+  integration_agent_script "$sub" "$line"
+  show ERP_AGENT_TOKEN=… erp agent integration-monitor
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/integration-agent") "$ERP" agent integration-monitor 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent integration-monitor failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): check_endpoint on webhook_subscription $sub .*/\1/p")
+  [ -n "$rec" ] || fail "erp agent integration-monitor printed no check_endpoint on the subscription $sub"
+  say "Pausing the subscription is the administrator's (x-agent: false), and the API refuses the agent its own call:"
+  QUIET=1 api 200 '' getWebhookSubscription -p "id=$sub"
+  as integration-agent
+  refused 403 identity.agent_not_allowed pauseWebhookSubscription -p "id=$sub" -if-match "$ETAG"
+  as sam
+  say "Sam reads the recommendation on the subscription:"
+  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"): \(.content)")' listRecommendations -p "object_id=$sub"
+  expect "the recommendations on the subscription, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "made in its session" "$(field '.items[0].session_id')" "$session"
+  expect "naming the failed delivery" "$(field '.items[0].content | split("\n") | first')" "$line"
+  say "Sam accepts it, which changes nothing: the portal will not take Maple's events for now, so he deletes the"
+  say "subscription himself."
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "The portal has no secret yet; the subscription goes until it has."}'
+  QUIET=1 api 200 '' getWebhookSubscription -p "id=$sub"
+  expect "the subscription as it was" "$(field .status)" active
+  api 200 '"  subscription \(.description): \(.status)"' deleteWebhookSubscription -p "id=$sub" -if-match "$ETAG"
+  passed
+}
+
+# integration_agent_script SUBSCRIPTION LINE writes the stand-in's turns
+# of the integration agent's run: the subscription's dead deliveries, a
+# recommendation without the line the run computed (refused) and one
+# checking the endpoint, starting with LINE.
+integration_agent_script() {
+  jq -n --arg sub "$1" --arg line "$2" '
+    {session_id: "{{session}}", object_type: "webhook_subscription", object_id: $sub, kind: "check_endpoint"} as $on |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "listWebhookDeliveries", input: {id: $sub, status: "dead"}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "The supplier portal refuses its deliveries."})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "\($line)\nThe endpoint answered HTTP 401 to the ping: it cannot verify the deliveries. Give the portal the subscription'"'"'s signing secret, or rotate it and give it the new one, then ping again."})}},
+      {final: "One failing integration: the supplier portal'"'"'s subscription, whose endpoint refuses its deliveries; recommended checking the endpoint."}]}' >"$WORK/model-script.json"
 }
 
 # step_close is the financial close (ADR-0058), the story's last step: it
@@ -12867,7 +13094,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_close'
 
 main() {
   stop_unseen

@@ -137,16 +137,8 @@ type cursor struct {
 
 // Read reads a page of the company's log of the process for the period.
 func (e *Endpoints) Read(ctx context.Context, q Query) (Log, error) {
-	if _, _, err := reqctx.Request(ctx); err != nil {
+	if err := valid(ctx, q.Process, q.From, q.To); err != nil {
 		return Log{}, err
-	}
-	if q.Process != PurchaseToPay {
-		return Log{}, problem.Unprocessable("request.validation_failed", "The request is not valid: the first process is purchase_to_pay.",
-			problem.FieldError{Field: "process", Code: "invalid", Message: PurchaseToPay})
-	}
-	if q.To.Before(q.From) || q.To.Sub(q.From) > maxPeriodDays*24*time.Hour {
-		return Log{}, problem.Unprocessable("request.validation_failed", "The request is not valid: the period's last day must be on or after its first and at most "+
-			"370 days after it.", problem.FieldError{Field: "to", Code: "out_of_range", Message: "from <= to <= from + 370 days"})
 	}
 	size, err := pagination.Size(q.Size, q.SizeSet)
 	if err != nil {
@@ -176,6 +168,24 @@ func (e *Endpoints) Read(ctx context.Context, q Query) (Log, error) {
 		l.NextPageToken, _ = e.Pages.Encode(scope, cursor{Date: last.DocumentDate, ID: last.ID}) // a date and an id always encode
 	}
 	return l, e.events(ctx, l.Cases)
+}
+
+// valid refuses a read outside a unit of work, of another process than
+// purchase to pay, or of a period that ends before it starts or more than
+// 370 days after.
+func valid(ctx context.Context, process string, from, to time.Time) error {
+	if _, _, err := reqctx.Request(ctx); err != nil {
+		return err
+	}
+	if process != PurchaseToPay {
+		return problem.Unprocessable("request.validation_failed", "The request is not valid: the first process is purchase_to_pay.",
+			problem.FieldError{Field: "process", Code: "invalid", Message: PurchaseToPay})
+	}
+	if to.Before(from) || to.Sub(from) > maxPeriodDays*24*time.Hour {
+		return problem.Unprocessable("request.validation_failed", "The request is not valid: the period's last day must be on or after its first and at most "+
+			"370 days after it.", problem.FieldError{Field: "to", Code: "out_of_range", Message: "from <= to <= from + 370 days"})
+	}
+	return nil
 }
 
 // company is the code of the company, which the caller must be able to

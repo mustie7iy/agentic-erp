@@ -6891,13 +6891,13 @@
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T69"
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Discovery agent process maps",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The analyst reads the process map of a flow for a period: its activities, how often each follows another, the median time between them and the variants by frequency (GET /v1/process-maps)",
-        "r": "T103b · docs/design/plan-breadth-week3.md §T103b",
+        "r": "T103b · docs/design/plan-breadth-week3.md §T103b · internal/processmining (ReadMap, GetProcessMap) · GET /v1/process-maps · processmining.log.read · TestProcessMapBudget · walkthrough step_process_mining (process_map) · ADR-0080 As built (T103b)",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -10521,13 +10521,13 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Connector generation and monitoring",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The integration agent reads the tenant's connectors, webhook subscriptions and their deliveries, bank files and long-running operations and recommends what to do about each failing one with its evidence, for an integration administrator to decide; it never enables, disables or redelivers (erp agent integration-monitor)",
-        "r": "T110a · docs/design/plan-breadth-week3.md §T110a",
+        "r": "T110a · docs/design/plan-breadth-week3.md §T110a · internal/integrationagent · agent type integration · erp agent integration-monitor · evals/integration · walkthrough step_integration_agent · ADR-0072 As built (T110a)",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

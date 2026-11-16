@@ -272,29 +272,30 @@ func agentInvoices(ctx context.Context) error {
 }
 
 // agentUsage names the delivery agents.
-const agentUsage = "agent invoices | config | migration | test | reconcile | close-accruals | close-variances | cash-variance | tax-draft | credit-score | access-roles | access-sod | access-review | bid-compare | regulatory-notice | regulatory-draft | support-ask | support-diagnose | collections"
+const agentUsage = "agent invoices | config | migration | test | reconcile | close-accruals | close-variances | cash-variance | tax-draft | credit-score | access-roles | access-sod | access-review | bid-compare | regulatory-notice | regulatory-draft | support-ask | support-diagnose | collections | integration-monitor"
 
 // agents are the delivery agents but invoices, by their command's name,
 // each run with the arguments after it.
 var agents = map[string]func(context.Context, []string) error{
-	"config":            agentConfig,
-	"migration":         agentMigration,
-	"test":              agentTest,
-	"reconcile":         agentReconcile,
-	"close-accruals":    agentCloseAccruals,
-	"close-variances":   agentCloseVariances,
-	"cash-variance":     agentCashVariance,
-	"tax-draft":         agentTaxDraft,
-	"credit-score":      agentCreditScore,
-	"access-roles":      agentAccessRoles,
-	"access-sod":        agentAccessSod,
-	"access-review":     agentAccessReview,
-	"bid-compare":       agentBidCompare,
-	"regulatory-notice": agentRegulatoryNotice,
-	"regulatory-draft":  agentRegulatoryDraft,
-	"support-ask":       agentSupportAsk,
-	"support-diagnose":  agentSupportDiagnose,
-	"collections":       agentCollections,
+	"config":              agentConfig,
+	"migration":           agentMigration,
+	"test":                agentTest,
+	"reconcile":           agentReconcile,
+	"close-accruals":      agentCloseAccruals,
+	"close-variances":     agentCloseVariances,
+	"cash-variance":       agentCashVariance,
+	"tax-draft":           agentTaxDraft,
+	"credit-score":        agentCreditScore,
+	"access-roles":        agentAccessRoles,
+	"access-sod":          agentAccessSod,
+	"access-review":       agentAccessReview,
+	"bid-compare":         agentBidCompare,
+	"regulatory-notice":   agentRegulatoryNotice,
+	"regulatory-draft":    agentRegulatoryDraft,
+	"support-ask":         agentSupportAsk,
+	"support-diagnose":    agentSupportDiagnose,
+	"collections":         agentCollections,
+	"integration-monitor": agentIntegrationMonitor,
 }
 
 // agentCmd runs a delivery agent with the agents' token.

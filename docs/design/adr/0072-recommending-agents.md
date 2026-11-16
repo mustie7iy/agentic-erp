@@ -207,6 +207,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `bid_comparison` | `internal/bidagent`, `erp agent bid-compare -rfq ID` | `getRfq`, `listSupplierQuotations`, `getRfqComparison`, `getBusinessPartner`, `listContracts`, `listPurchaseOrders` | on `rfq`: `award`, `no_award` | `awardRfq`, `publishRfq`, `createSupplierQuotation`, `createRfq` |
 | `collections` | `internal/collectionsagent`, `erp agent collections -company CODE [-key-date YYYY-MM-DD]` | `getCollectionWorklist`, `getReceivablesAging`, `listDunningRuns`, `listDunningNotices`, `listIncomingPayments`, `listCustomerInvoices`, `listDisputeCases`, `getDisputeCase`, `listOpenItems`, `listAccounts`, `getBusinessPartner` | on `business_partner` (a customer of the worklist): `call`, `send_reminder`, `escalate`, `wait_for_dispute`, `no_action` | `createDunningRun`, `confirmDunningRun`, `createDisputeCase`, `updateDisputeCase`, `closeDisputeCase`; nothing in the contract sends to a customer |
 | `support` (diagnosis, T108b) | `internal/supportagent`, `erp agent support-diagnose -type KIND -id ID [WHAT HAPPENED]` | T108a's (`listConfigVersions`, `getConfigVersion`, `getSchema`, `getCurrentPrincipal`), `listAuditEvents`, `listOperations`, `listApprovalRequests`, each document's read (`getSupplierInvoice`, `getCustomerInvoice`, `getJournalEntry`, `getPurchaseOrder`, `getSalesOrder`, `getPaymentRun`, `getChangeRequest`, `getOperation`), the contract's search (`findOperations`) | on the document (its kind): `root_cause` | every write: its tools hold none |
+| `integration` | `internal/integrationagent`, `erp agent integration-monitor` | `listConnectors`, `getConnector`, `listWebhookSubscriptions`, `listWebhookDeliveries`, `getWebhookDelivery`, `listBankFiles`, `listOperations`, `getOperation`, `listMigrationRuns` | on `webhook_subscription`: `check_endpoint`, `investigate`, `redeliver`, `pause`; on `bank_file`: `retransmit`, `investigate`; on `connector`: `check_endpoint`, `investigate` | every write of connectors, webhook subscriptions and deliveries, bank files, migration runs and operations (enabling, disabling, pausing, resuming, redelivering, rotating a secret, transmitting a file, creating a connector among them) |
 
 A later slice adds its row here and its section under "As built".
 
@@ -844,6 +845,70 @@ A later slice adds its row here and its section under "As built".
   Alex accepts and posts the invoice on today's date.
 - No migration, no new operation, permission, event or problem code.
 
+### T110a, the integration agent: failing integrations
+
+- `internal/integrationagent`; agent type `integration` (in
+  `autonomy.Types`, the profile's open enumeration in both contracts, and
+  the telemetry ceiling of `agent_kind` one higher, 17); no migration, no
+  new operation, permission, event or problem code.
+- `erp agent integration-monitor` (no flags): before its session the run
+  reads the webhook subscriptions (`listWebhookSubscriptions`, deleted
+  ones aside) and, of each, its deliveries that died and those waiting
+  after a failed attempt (`listWebhookDeliveries` by `status`, delivered
+  ones never read), the bank files `failed` or `rejected`
+  (`listBankFiles` by `status`), the connectors (`listConnectors`) and the
+  migration runs (`listMigrationRuns`). Any of them the agent may not read
+  stops the run before a session.
+- **What is failing is computed, not judged** (decided by default): a
+  webhook subscription that is `disabled`, has a `failing_since`, or keeps
+  a delivery that died or waits after a failed attempt (an HTTP status of
+  300 or more, or an error); a bank file the channel refused (`failed`)
+  or the bank `rejected`; a connector whose latest migration run (by
+  `created_at`) `failed`. A connector has no failure status of its own
+  and connectors of other kinds (a bank's, the treasury export's) fail
+  through what they carry, a bank file or an export, so the migration run
+  is the connector's own evidence in this version; a failed operation of
+  another kind names no object the agent recommends on, and the model
+  reads operations (`getOperation`) for the reasons.
+- **One recommendation per failing object**, the object types
+  `webhook_subscription`, `bank_file` and `connector`. The kinds given per
+  object are computed: `check_endpoint` and `investigate` always (a bank
+  file `investigate` alone), `redeliver` only on a subscription with a
+  delivery that died, `pause` only on an active one, `retransmit` only on
+  a file the channel refused (a rejection is the bank's, investigated).
+  Its check (`survey.check`) refuses another kind (`ErrKind`), a first
+  line other than the one computed (`ErrLine`) and a number the run did
+  not read (`ErrUnread`, §4). The first line names the evidence:
+  `Failing: subscription <status>[ (<reason>)][, failing since <instant>][;
+  failed deliveries <ids>]` with at most ten deliveries, those that died
+  first, each the newest first; `Failing: bank file <status>`; `Failing:
+  migration run <id> failed`.
+- **A tenant with nothing failing** gets no session and the reply
+  "Nothing is failing: ...", printed alone.
+- **Secrets**: the reads return none (a subscription's secret is shown
+  once, to its creator; a connector's `secret_ref` is a vault path); the
+  walkthrough checks the agent's list of subscriptions holds no `secret`.
+  It generates no connector: `createConnector` is on its never list with
+  every other write of connectors, webhooks, bank files, migration runs
+  and operations (`TestNever` holds every such write of the contract to
+  the list).
+- `evals/integration`, version 1, replayed to level 2: a connector whose
+  rehearsal failed the quality gate (`evals/migration/broken-extract.json`
+  in the cell's extract directory, an order item whose net value is out
+  of the range of an amount) recommended for investigation, naming the run; a tenant with
+  nothing failing given no recommendation and a reply saying so; an
+  instruction in a connector's name (to disable it) not followed. A replay
+  cell has no webhook dispatcher and no bank channel, so the subscription
+  and the bank file are covered by the package's tests and the
+  walkthrough. Not run against a live model.
+- Walkthrough `step_integration_agent` (step 99): Sam subscribes the
+  supplier portal's endpoint, which was never given the subscription's
+  secret and refuses every delivery (401); his ping dies. The agent's
+  first recommendation without the computed line is refused; it
+  recommends `check_endpoint`, naming the dead ping; its own
+  `pauseWebhookSubscription` is refused (403); Sam accepts, which changes
+  nothing, and deletes the subscription himself.
+
 ## Defaults taken (for the product owner's digest)
 
 1. The shared run is a package, `internal/recommend`, not a copy per
@@ -950,3 +1015,11 @@ A later slice adds its row here and its section under "As built".
     detail, the posting date asked for), as ADR-0046 audits a rule's
     refusal, so a parked invoice's trail shows why; the other documents'
     refusals are not audited (a gap for the product owner).
+20. (T110a) What is failing is computed before the session, as listed
+    under As built: a subscription disabled, failing, or keeping a
+    delivery that died or failed an attempt; a bank file `failed` or
+    `rejected`; a connector whose latest migration run failed. The kinds
+    given per object follow from it (`redeliver` only with a dead
+    delivery, `pause` only on an active subscription, `retransmit` only
+    on a file the channel refused), and a tenant with nothing failing gets
+    no session. A first line names at most ten failed deliveries.

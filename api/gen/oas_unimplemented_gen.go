@@ -4599,6 +4599,34 @@ func (UnimplementedHandler) GetProcessEventLog(ctx context.Context, params GetPr
 	return r, ht.ErrNotImplemented
 }
 
+// GetProcessMap implements getProcessMap operation.
+//
+// The process map of a business process for a company and a period (ADR-0080 As built, T103b),
+// computed on read from every case of its event log (`getProcessEventLog`: the same cases, events and
+// activities); nothing is stored and no model is involved. It gives the activities, each with how many
+// events and cases have it; the directly-follows pairs, each with how many times its second activity
+// directly follows its first within a case (`count`) and the median time between the two events in
+// whole seconds (`median_seconds`, each time cut to whole seconds; for an even count the lower of the
+// two middle values); and the ten most frequent variants, a variant being the sequence of a case's
+// activities, with their cases and their share of the cases in percent (two decimals, rounded half
+// away from zero), the most frequent first, equal ones by their activities. Every case is in exactly
+// one variant: `variant_count` counts them all, and the cases of the variants not among the ten are
+// `case_count` less theirs. A case is open while its last activity does not end it: `Pay invoice`,
+// `Close purchase order` or `Cancel purchase order` end an order's case, `Pay invoice` or
+// `Reverse invoice` a supplier document's, and a case without events is open; open cases are counted
+// (`open_case_count`, also per variant) and in the map like every other. Activities are by event
+// count, then by name; pairs by count, then by their activities. The first process is
+// `purchase_to_pay` (another is 422 `request.validation_failed`). The period is one day to 371 days
+// (422 `request.validation_failed` naming `to` otherwise). Every case is read from one database state
+// (a repeatable-read snapshot), so the counts agree with each other. The permission is the event
+// log's: the map is that log summed. A company the caller cannot act in is 404, as one that does not
+// exist.
+//
+// GET /v1/process-maps
+func (UnimplementedHandler) GetProcessMap(ctx context.Context, params GetProcessMapParams) (r GetProcessMapRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetProfitCenter implements getProfitCenter operation.
 //
 // Returns one profit center with its companies and active periods.
