@@ -48,7 +48,7 @@ type People interface {
 
 // Grantees reads whom a report may be shared with and through which roles
 // a person reads it (identity context): principals' kinds (human, agent,
-// service), the roles a principal holds today and roles by id; an id the
+// service), the active roles a principal holds today and roles by id; an id the
 // tenant has none of is absent.
 type Grantees interface {
 	Kinds(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)

@@ -145,6 +145,9 @@ permissions only while the role is active:
   and `approveApprovalRequest` / `rejectApprovalRequest` let decide, a
   step of a role made inactive after the request was routed to it, while
   authz granted that role nothing.
+- **No operation deactivates a role yet** (`updateRole` changes its name
+  and description alone), so a role becomes inactive only out of band
+  today; the check is defence in depth until such an operation exists.
 - **A step already routed to a role made inactive** stays on that role
   (the request records it, `workflow.approval_step.role_id`) and is
   decided only by holders of it once it is active again: until then every

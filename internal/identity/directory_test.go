@@ -105,12 +105,15 @@ func TestDirectoryInactiveRole(t *testing.T) {
 					t.Errorf("holds the %s role: got %v, want %v", c.status, holds, c.holds)
 				}
 				held, err := identity.Directory{}.RolesHeld(ctx, ten.Human.ID)
+				if err != nil {
+					return err
+				}
 				slices.SortFunc(held, byID)
 				slices.SortFunc(c.held, byID)
 				if !slices.Equal(held, c.held) {
 					t.Errorf("roles held with the role %s: got %v, want %v", c.status, held, c.held)
 				}
-				return err
+				return nil
 			})
 			if err != nil {
 				t.Fatal(err)
