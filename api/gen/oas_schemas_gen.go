@@ -46887,6 +46887,22 @@ type GetProcessEventLogUnprocessableEntity Problem
 
 func (*GetProcessEventLogUnprocessableEntity) getProcessEventLogRes() {}
 
+type GetProcessMapBadRequest Problem
+
+func (*GetProcessMapBadRequest) getProcessMapRes() {}
+
+type GetProcessMapForbidden Problem
+
+func (*GetProcessMapForbidden) getProcessMapRes() {}
+
+type GetProcessMapNotFound Problem
+
+func (*GetProcessMapNotFound) getProcessMapRes() {}
+
+type GetProcessMapUnprocessableEntity Problem
+
+func (*GetProcessMapUnprocessableEntity) getProcessMapRes() {}
+
 type GetProfitCenterBadRequest Problem
 
 func (*GetProfitCenterBadRequest) getProfitCenterRes() {}
@@ -77736,6 +77752,296 @@ func (s *ProcessEventLogHeaders) SetResponse(val ProcessEventLog) {
 
 func (*ProcessEventLogHeaders) getProcessEventLogRes() {}
 
+// The process map of a business process for a company and a period (processmining, ADR-0080, T103b),
+// computed from every case of its event log.
+// Ref: #/components/schemas/ProcessMap
+type ProcessMap struct {
+	// The process. Open enumeration: clients must accept and preserve values not listed here; values may
+	// be added within /v1.
+	Process string `json:"process"`
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Its code.
+	CompanyCode string    `json:"company_code"`
+	From        time.Time `json:"from"`
+	To          time.Time `json:"to"`
+	// The cases of the period.
+	CaseCount int32 `json:"case_count"`
+	// Of them, those still open: no activity has ended them.
+	OpenCaseCount int32 `json:"open_case_count"`
+	// The variants of all the cases, also those not among the ten given.
+	VariantCount int32 `json:"variant_count"`
+	// Every activity of the cases, by event count, then by name.
+	Activities []ProcessMapActivity `json:"activities"`
+	// Every directly-follows pair of the cases, by count, then by their activities.
+	Pairs []ProcessMapPair `json:"pairs"`
+	// The ten most frequent variants, by case count, then by their activities.
+	Variants []ProcessMapVariant `json:"variants"`
+}
+
+// GetProcess returns the value of Process.
+func (s *ProcessMap) GetProcess() string {
+	return s.Process
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ProcessMap) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ProcessMap) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetFrom returns the value of From.
+func (s *ProcessMap) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *ProcessMap) GetTo() time.Time {
+	return s.To
+}
+
+// GetCaseCount returns the value of CaseCount.
+func (s *ProcessMap) GetCaseCount() int32 {
+	return s.CaseCount
+}
+
+// GetOpenCaseCount returns the value of OpenCaseCount.
+func (s *ProcessMap) GetOpenCaseCount() int32 {
+	return s.OpenCaseCount
+}
+
+// GetVariantCount returns the value of VariantCount.
+func (s *ProcessMap) GetVariantCount() int32 {
+	return s.VariantCount
+}
+
+// GetActivities returns the value of Activities.
+func (s *ProcessMap) GetActivities() []ProcessMapActivity {
+	return s.Activities
+}
+
+// GetPairs returns the value of Pairs.
+func (s *ProcessMap) GetPairs() []ProcessMapPair {
+	return s.Pairs
+}
+
+// GetVariants returns the value of Variants.
+func (s *ProcessMap) GetVariants() []ProcessMapVariant {
+	return s.Variants
+}
+
+// SetProcess sets the value of Process.
+func (s *ProcessMap) SetProcess(val string) {
+	s.Process = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ProcessMap) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ProcessMap) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetFrom sets the value of From.
+func (s *ProcessMap) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *ProcessMap) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetCaseCount sets the value of CaseCount.
+func (s *ProcessMap) SetCaseCount(val int32) {
+	s.CaseCount = val
+}
+
+// SetOpenCaseCount sets the value of OpenCaseCount.
+func (s *ProcessMap) SetOpenCaseCount(val int32) {
+	s.OpenCaseCount = val
+}
+
+// SetVariantCount sets the value of VariantCount.
+func (s *ProcessMap) SetVariantCount(val int32) {
+	s.VariantCount = val
+}
+
+// SetActivities sets the value of Activities.
+func (s *ProcessMap) SetActivities(val []ProcessMapActivity) {
+	s.Activities = val
+}
+
+// SetPairs sets the value of Pairs.
+func (s *ProcessMap) SetPairs(val []ProcessMapPair) {
+	s.Pairs = val
+}
+
+// SetVariants sets the value of Variants.
+func (s *ProcessMap) SetVariants(val []ProcessMapVariant) {
+	s.Variants = val
+}
+
+func (*ProcessMap) getProcessMapRes() {}
+
+// An activity of a process map: how many events and cases have it.
+// Ref: #/components/schemas/ProcessMapActivity
+type ProcessMapActivity struct {
+	// The activity, as ADR-0080 lists them. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Activity string `json:"activity"`
+	// Its events.
+	EventCount int32 `json:"event_count"`
+	// The cases with one of them or more.
+	CaseCount int32 `json:"case_count"`
+}
+
+// GetActivity returns the value of Activity.
+func (s *ProcessMapActivity) GetActivity() string {
+	return s.Activity
+}
+
+// GetEventCount returns the value of EventCount.
+func (s *ProcessMapActivity) GetEventCount() int32 {
+	return s.EventCount
+}
+
+// GetCaseCount returns the value of CaseCount.
+func (s *ProcessMapActivity) GetCaseCount() int32 {
+	return s.CaseCount
+}
+
+// SetActivity sets the value of Activity.
+func (s *ProcessMapActivity) SetActivity(val string) {
+	s.Activity = val
+}
+
+// SetEventCount sets the value of EventCount.
+func (s *ProcessMapActivity) SetEventCount(val int32) {
+	s.EventCount = val
+}
+
+// SetCaseCount sets the value of CaseCount.
+func (s *ProcessMapActivity) SetCaseCount(val int32) {
+	s.CaseCount = val
+}
+
+// A directly-follows pair of a process map: its second activity directly follows its first within a
+// case.
+// Ref: #/components/schemas/ProcessMapPair
+type ProcessMapPair struct {
+	// The first activity. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	From string `json:"from"`
+	// The activity directly after it. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	To string `json:"to"`
+	// How many times it directly follows it.
+	Count int32 `json:"count"`
+	// The median time between the two events, in whole seconds; for an even count the lower middle.
+	MedianSeconds int64 `json:"median_seconds"`
+}
+
+// GetFrom returns the value of From.
+func (s *ProcessMapPair) GetFrom() string {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *ProcessMapPair) GetTo() string {
+	return s.To
+}
+
+// GetCount returns the value of Count.
+func (s *ProcessMapPair) GetCount() int32 {
+	return s.Count
+}
+
+// GetMedianSeconds returns the value of MedianSeconds.
+func (s *ProcessMapPair) GetMedianSeconds() int64 {
+	return s.MedianSeconds
+}
+
+// SetFrom sets the value of From.
+func (s *ProcessMapPair) SetFrom(val string) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *ProcessMapPair) SetTo(val string) {
+	s.To = val
+}
+
+// SetCount sets the value of Count.
+func (s *ProcessMapPair) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetMedianSeconds sets the value of MedianSeconds.
+func (s *ProcessMapPair) SetMedianSeconds(val int64) {
+	s.MedianSeconds = val
+}
+
+// A variant of a process map: a sequence of activities and the cases that ran it.
+// Ref: #/components/schemas/ProcessMapVariant
+type ProcessMapVariant struct {
+	// The activities of its cases, in order; empty for cases without events.
+	Activities []string `json:"activities"`
+	// Its cases.
+	CaseCount int32 `json:"case_count"`
+	// Of them, those still open.
+	OpenCaseCount int32 `json:"open_case_count"`
+	// Its share of the map's cases in percent, two decimals, rounded half away from zero.
+	SharePercent string `json:"share_percent"`
+}
+
+// GetActivities returns the value of Activities.
+func (s *ProcessMapVariant) GetActivities() []string {
+	return s.Activities
+}
+
+// GetCaseCount returns the value of CaseCount.
+func (s *ProcessMapVariant) GetCaseCount() int32 {
+	return s.CaseCount
+}
+
+// GetOpenCaseCount returns the value of OpenCaseCount.
+func (s *ProcessMapVariant) GetOpenCaseCount() int32 {
+	return s.OpenCaseCount
+}
+
+// GetSharePercent returns the value of SharePercent.
+func (s *ProcessMapVariant) GetSharePercent() string {
+	return s.SharePercent
+}
+
+// SetActivities sets the value of Activities.
+func (s *ProcessMapVariant) SetActivities(val []string) {
+	s.Activities = val
+}
+
+// SetCaseCount sets the value of CaseCount.
+func (s *ProcessMapVariant) SetCaseCount(val int32) {
+	s.CaseCount = val
+}
+
+// SetOpenCaseCount sets the value of OpenCaseCount.
+func (s *ProcessMapVariant) SetOpenCaseCount(val int32) {
+	s.OpenCaseCount = val
+}
+
+// SetSharePercent sets the value of SharePercent.
+func (s *ProcessMapVariant) SetSharePercent(val string) {
+	s.SharePercent = val
+}
+
 // Merged schema.
 // Ref: #/components/schemas/ProfitCenter
 type ProfitCenter struct {
@@ -99598,6 +99904,7 @@ func (*TooManyRequestsHeaders) getPersonalDataSubjectRes()                {}
 func (*TooManyRequestsHeaders) getPlanCategoryRes()                       {}
 func (*TooManyRequestsHeaders) getPrincipalRes()                          {}
 func (*TooManyRequestsHeaders) getProcessEventLogRes()                    {}
+func (*TooManyRequestsHeaders) getProcessMapRes()                         {}
 func (*TooManyRequestsHeaders) getProfitCenterRes()                       {}
 func (*TooManyRequestsHeaders) getPurchaseOrderChangeRes()                {}
 func (*TooManyRequestsHeaders) getPurchaseOrderDocumentRes()              {}
@@ -100472,6 +100779,7 @@ func (*UnauthorizedHeaders) getPersonalDataSubjectRes()                {}
 func (*UnauthorizedHeaders) getPlanCategoryRes()                       {}
 func (*UnauthorizedHeaders) getPrincipalRes()                          {}
 func (*UnauthorizedHeaders) getProcessEventLogRes()                    {}
+func (*UnauthorizedHeaders) getProcessMapRes()                         {}
 func (*UnauthorizedHeaders) getProfitCenterRes()                       {}
 func (*UnauthorizedHeaders) getPurchaseOrderChangeRes()                {}
 func (*UnauthorizedHeaders) getPurchaseOrderDocumentRes()              {}

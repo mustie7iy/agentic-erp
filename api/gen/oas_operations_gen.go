@@ -252,6 +252,7 @@ const (
 	GetPlanCategoryOperation                       OperationName = "GetPlanCategory"
 	GetPrincipalOperation                          OperationName = "GetPrincipal"
 	GetProcessEventLogOperation                    OperationName = "GetProcessEventLog"
+	GetProcessMapOperation                         OperationName = "GetProcessMap"
 	GetProfitCenterOperation                       OperationName = "GetProfitCenter"
 	GetPurchaseOrderOperation                      OperationName = "GetPurchaseOrder"
 	GetPurchaseOrderChangeOperation                OperationName = "GetPurchaseOrderChange"

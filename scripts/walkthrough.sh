@@ -10295,9 +10295,10 @@ step_expense_report() {
 # reads the purchase-to-pay event log of the company's current month and
 # finds the case of the order of step_procure: its activities in order of
 # time, from the requisition's creation to the payment, each with the
-# kind of actor that did it and never who, as JSON and as CSV.
+# kind of actor that did it and never who, as JSON and as CSV. Then the
+# process map of the month (T103b, process_map).
 step_process_mining() {
-  heading "Step 98 — The purchase-to-pay event log: the order of step 4 as a case, its activities from the requisition's creation to the payment, by time, each with the kind of actor; as JSON and as CSV"
+  heading "Step 98 — The purchase-to-pay event log: the order of step 4 as a case, its activities from the requisition's creation to the payment, by time, each with the kind of actor; as JSON and as CSV; the month's process map, and a service order paid without a goods receipt as a variant of its own"
   local from to token found csv rows
   as ada
   person pia "Pia Process Analyst" finance_staff
@@ -10327,6 +10328,7 @@ step_process_mining() {
   expect "the events in order of time" "$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events | map(.occurred_at) | . == sort] | first')" true
   expect "actors by kind alone" "$(field '[.cases[].events[] | keys[] | select(test("actor_id|name"))] | length')" 0
   rows=$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events[]] | length')
+  field '[.cases[] | select(.case_id == "'"$PO"'") | .events[].activity]' >"$WORK/order-variant.json"
   say "The same page as CSV, a row per event:"
   csv="$WORK/event-log.csv"
   api 200 '' getProcessEventLog -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$from" -p "to=$to" -p page_size=500 \
@@ -10334,7 +10336,136 @@ step_process_mining() {
   head -1 "$csv" | sed 's/^/  /'
   grep "^$PO," "$csv" | head -3 | sed 's/^/  /'
   expect "the order's rows" "$(grep -c "^$PO," "$csv")" "$rows"
+  process_map "$from" "$to"
   passed
+}
+
+# process_map FROM TO is T103b (ADR-0080 As built): Pia reads the
+# process map of the month, computed from every case of the log: the
+# order of step 4 runs a variant of its own, from its requisition to its
+# payment. Ben then orders a service, which nobody receives: Alex's
+# invoice on it is held for want of a receipt, Priya approves the
+# exception and a payment run pays it. The map now shows that order's
+# variant beside the first, without a goods receipt, both of them ended
+# by the payment.
+process_map() {
+  local from=$1 to=$2 before
+  say "Pia reads the process map of the month: its activities, how often one directly follows another and the median"
+  say "time between them, and the variants by frequency, every case counted in exactly one:"
+  api 200 '"\(.case_count) cases, \(.open_case_count) open, \(.variant_count) variants", (.variants[] | "  \(.share_percent)% (\(.case_count), \(.open_case_count) open): \(.activities | join(" > "))"),
+    (.pairs[0:6][] | "  \(.from) > \(.to): \(.count) times, median \(.median_seconds) s")' getProcessMap \
+    -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$from" -p "to=$to"
+  map_counts
+  expect "the variant of the order of step 4, ended by its payment" \
+    "$(jq -r --slurpfile v "$WORK/order-variant.json" '[.variants[] | select(.activities == $v[0]) | .case_count >= 1] | first // false' "$WORK/last.json")" true
+  before=$(field .case_count)
+  service_order
+  as pia
+  say "Pia reads the log's case of the service order and the map again: the order's variant has no goods receipt,"
+  say "beside the variant of the order of step 4:"
+  log_case "$from" "$to" "$SERVICE_PO" >"$WORK/service-variant.json"
+  jq -r '"  " + join(" > ")' "$WORK/service-variant.json"
+  expect "no goods receipt in the service order's case" "$(jq -r 'index("Receive goods") == null' "$WORK/service-variant.json")" true
+  expect "the service order's case ended by its payment" "$(jq -r 'last' "$WORK/service-variant.json")" "Pay invoice"
+  api 200 '"\(.case_count) cases, \(.open_case_count) open, \(.variant_count) variants"' getProcessMap \
+    -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$from" -p "to=$to"
+  map_counts
+  expect "the two orders' variants in the map" \
+    "$(jq -r --slurpfile a "$WORK/order-variant.json" --slurpfile b "$WORK/service-variant.json" \
+      '[.variants[] | select(.activities == $a[0] or .activities == $b[0])] | length' "$WORK/last.json")" 2
+  expect "the cases, the service order one more" "$(field .case_count)" "$((before + 1))"
+}
+
+# map_counts checks that the map in the last answer adds up: its
+# variants' cases are at most its cases, all of them when no more than
+# ten variants exist, and the pairs' counts are at most the events'.
+map_counts() {
+  local listed
+  listed=$(field '[.variants[].case_count] | add // 0')
+  if [ "$(field .variant_count)" -le 10 ]; then
+    expect "the cases of the map's variants, every case in one" "$listed" "$(field .case_count)"
+  else
+    expect "the cases of the ten variants, at most the map's" "$(field "$listed <= .case_count")" true
+  fi
+  expect "the open cases, the variants' at most" "$(field '.open_case_count >= ([.variants[].open_case_count] | add // 0)')" true
+  expect "the pairs, fewer than the events" "$(field '([.pairs[].count] | add // 0) < ([.activities[].event_count] | add // 1)')" true
+}
+
+# log_case FROM TO ID prints the activities of the log's case ID as a
+# JSON array, reading the log a page at a time.
+log_case() {
+  local token='' found
+  while :; do
+    QUIET=1 api 200 '' getProcessEventLog -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$1" -p "to=$2" -p page_size=500 \
+      ${token:+-p "page_token=$token"}
+    found=$(field "[.cases[] | select(.case_id == \"$3\") | .events[].activity]")
+    if [ "$found" != "[]" ]; then
+      printf '%s\n' "$found"
+      return 0
+    fi
+    token=$(field '.next_page_token // ""')
+    [ -n "$token" ] || fail "the order $3 is no case of the log, or has no activity"
+  done
+}
+
+# service_order has Ben order a month's office cleaning from Tyrell, a
+# service nobody receives as goods. Alex's invoice on the order is held:
+# nothing was received. Priya approves the exception, Alex posts the
+# invoice and a payment run from RBC, released by Tara (with Fiona's
+# approval above the dual limit), pays it. SERVICE_PO is the order.
+service_order() {
+  local invoice request run etag entry total
+  as ben
+  say "Ben orders the month's office cleaning from Tyrell, CAD 300.00: a service, which nobody receives as goods."
+  api 201 '"purchase order \(.document_number): \(.status), \(.total_amount.amount) \(.total_amount.currency)"' createPurchaseOrder \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"payment_term_code\": \"NT30\", \"items\": [{\"description\": \"Office cleaning, one month\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}, \"account_id\": \"$(account 6000)\"}]}"
+  SERVICE_PO=$(field .id)
+  api 200 '"\(.status)\(if .release_request_id then ": release request \(.release_request_id)" else "" end)"' releasePurchaseOrder -p "id=$SERVICE_PO" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Cleaning contract"
+    as ben
+    QUIET=1 api 200 '' getPurchaseOrder -p "id=$SERVICE_PO"
+  fi
+  expect "the service order" "$(field .status)" released
+  as alex
+  say "Tyrell invoices the month. Matched, the invoice goes on hold: nothing was received on the order."
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TY-CLEAN-1\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"0.00\", \"currency\": \"CAD\"}, \"purchase_order_id\": \"$SERVICE_PO\", \"items\": [{\"purchase_order_id\": \"$SERVICE_PO\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}}]}"
+  invoice=$(field .id)
+  api 200 "$MATCHED" matchSupplierInvoice -p "id=$invoice" -if-match '"1"'
+  expect "the issue" "$(field '.issues[0].code')" quantity_exceeds_received
+  api 200 '"\(.document_number): \(.status), exception request \(.workflow_request_id)"' getSupplierInvoice -p "id=$invoice"
+  expect "the invoice on hold" "$(field .status)" on_hold
+  request=$(field .workflow_request_id)
+  say "The cleaning was done; Priya, the process owner, approves the exception, and Alex posts the invoice:"
+  approve priya "$request" "Service rendered, no goods to receive"
+  as alex
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$invoice"
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the invoice posted" "$(field .status)" posted
+  entry=$(field .journal_entry_id)
+  as tom
+  say "Tom proposes a run from RBC for what is due within 30 days; it pays the cleaning invoice:"
+  api 202 '"\(.kind) \(.status)"' proposePaymentRun \
+    -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBC\", \"currency\": \"CAD\", \"run_date\": \"$TODAY\", \"due_by\": \"$(date_add "$TODAY" 30)\"}"
+  wait_op
+  run=$(field .resource | sed 's|.*/||')
+  QUIET=1 api 200 '' listPayments -p "id=$run" -p page_size=100
+  expect "the cleaning invoice in the run" "$(field "[.items[].items[] | select(.journal_entry_id == \"$entry\")] | length")" 1
+  api 200 '"run \(.document_number): \(.status), \(.total_amount.amount) \(.total_amount.currency)"' getPaymentRun -p "id=$run"
+  etag=$ETAG total=$(field .total_amount.amount)
+  if [ "$(cents "$total")" -gt 400000 ]; then
+    as tara
+    api 200 '"run \(.document_number): release approval \(.release_approval.status)"' submitPaymentRun -p "id=$run" -if-match "$etag"
+    approve fiona "$(field .release_approval.request_id)" "Within the cash plan"
+    QUIET=1 api 200 '' getPaymentRun -p "id=$run"
+    etag=$ETAG
+  fi
+  as tara
+  api 202 '"\(.kind) \(.status)"' releasePaymentRun -p "id=$run" -if-match "$etag" -body '{"comment": "Cleaning and what is due"}'
+  wait_op
+  api 200 '"run \(.document_number): \(.status)"' getPaymentRun -p "id=$run"
+  expect "the run" "$(field .status)" released
 }
 
 # step_close is the financial close (ADR-0058), the story's last step: it

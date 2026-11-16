@@ -985,6 +985,10 @@ type GetProcessEventLogRes interface {
 	getProcessEventLogRes()
 }
 
+type GetProcessMapRes interface {
+	getProcessMapRes()
+}
+
 type GetProfitCenterRes interface {
 	getProfitCenterRes()
 }

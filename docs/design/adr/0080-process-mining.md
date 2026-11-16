@@ -4,7 +4,7 @@
 accepted once `go-reviewer` had no blocking finding). It decides the
 process mining context and its first slice, the purchase-to-pay event log
 (`docs/design/plan-breadth-week3.md` §T103a); T103b (the process map)
-records what it builds under "As built".
+records what it builds under "As built (T103b)".
 
 ## Context
 
@@ -110,3 +110,52 @@ be computed on read, without storing anything.
   `procurement.ProcessLog`, `payables.ProcessLog`, `payments.ProcessLog`,
   `audit.Trail`; migrations 000332 (permission), 000333 and 000334
   (indexes); `TestEventLogBudget`; walkthrough `step_process_mining`.
+
+## As built (T103b, the process map)
+
+- `GET /v1/process-maps` (`getProcessMap`; `process`, `legal_entity_id`,
+  `from`, `to`), `Endpoints.ReadMap`, `GetProcessMap`: the map of every
+  case of the log of the company and period (§2, §5), the same cases,
+  events and activities, read a thousand cases at a time with their events
+  and summed; nothing is stored, no model is called, no migration.
+- **Activities**: each with its events and the cases that have one or
+  more, by event count, then by name.
+- **Directly-follows pairs**: within a case, each event and the next, by
+  the case's order (time, then sequence number); a pair's `count` is how
+  many times its second activity directly follows its first, and
+  `median_seconds` the median of the times between the two events, each
+  cut to whole seconds, the lower middle for an even count (sorted, the
+  `(n-1)/2`-th). Pairs by count, then by their activities.
+- **Variants**: a case's variant is the sequence of its activities; every
+  case is in exactly one, a case without events in the empty one. The ten
+  most frequent are given, by case count, then by their activities (as
+  text, in order), each with its share of the cases in percent, two
+  decimals, rounded half away from zero, computed in integers;
+  `variant_count` counts every variant, so the cases of those not given
+  are `case_count` less theirs.
+- **Open cases** (decided by default): a case is ended by its last
+  activity: an order's by `Pay invoice`, `Close purchase order` or
+  `Cancel purchase order`, a supplier document's on no order by `Pay
+  invoice` or `Reverse invoice`; any other last activity, or none, leaves
+  it open. Open cases are in the map like the others and counted,
+  `open_case_count` on the map and on each variant (a count, not a flag,
+  since an order's case and a document's could run the same activities).
+  Process mining tools commonly mark a case complete by its end activity
+  (stated from memory, not checked against a source); which activities
+  end a purchase-to-pay case is this product's choice, listed for the
+  product owner.
+- **Permission** (decided by default): the event log's,
+  `processmining.log.read`: the map is that log summed, and whoever may
+  read the log can compute it. No new permission, so no migration.
+- **Size**: the period is the log's, up to 371 days; a map reads every
+  case of it. `TestProcessMapBudget` (3 s at p95) measures a month of
+  4,000 orders of one company, 01 §1.3's volume, at a median of 0.94 s and
+  a p95 of 1.7 s on a loaded machine (load 13); the time grows with the
+  cases, so a year of the largest company's 40,000 orders takes about
+  twelve times as long, within the server's 60 s write timeout.
+- Walkthrough `step_process_mining` (step 98) extended: Pia reads the
+  month's map, which holds the variant of the order of step 4; Ben orders
+  a month's office cleaning, which nobody receives, Alex's invoice on it is
+  held for the missing receipt, Priya approves the exception, a payment run
+  pays it, and the map then holds the service order's variant, without
+  `Receive goods` and ended by `Pay invoice`, beside the first.

@@ -66,3 +66,26 @@ func logCSV(l Log) []byte {
 	w.Flush()
 	return b.Bytes()
 }
+
+// GetProcessMap implements GET /v1/process-maps: the map of the process
+// for the company and period.
+func (e *Endpoints) GetProcessMap(ctx context.Context, params gen.GetProcessMapParams) (gen.GetProcessMapRes, error) {
+	m, err := e.ReadMap(ctx, MapQuery{Process: params.Process, LegalEntity: params.LegalEntityID, From: params.From, To: params.To})
+	if err != nil {
+		return nil, err
+	}
+	out := &gen.ProcessMap{Process: m.Process, LegalEntityID: m.LegalEntity, CompanyCode: m.CompanyCode, From: m.From, To: m.To,
+		CaseCount: int32(m.CaseCount), OpenCaseCount: int32(m.Open), VariantCount: int32(m.VariantCount), // #nosec G115 -- counts of one company's documents of at most 371 days
+		Activities: make([]gen.ProcessMapActivity, len(m.Activities)), Pairs: make([]gen.ProcessMapPair, len(m.Pairs)), Variants: make([]gen.ProcessMapVariant, len(m.Variants))}
+	for i, a := range m.Activities {
+		out.Activities[i] = gen.ProcessMapActivity{Activity: a.Activity, EventCount: int32(a.Events), CaseCount: int32(a.CaseCount)} // #nosec G115 -- as above
+	}
+	for i, p := range m.Pairs {
+		out.Pairs[i] = gen.ProcessMapPair{From: p.From, To: p.To, Count: int32(p.Count), MedianSeconds: p.MedianSeconds} // #nosec G115 -- as above
+	}
+	for i, v := range m.Variants {
+		out.Variants[i] = gen.ProcessMapVariant{Activities: v.Activities, CaseCount: int32(v.CaseCount), OpenCaseCount: int32(v.Open), // #nosec G115 -- as above
+			SharePercent: v.SharePercent}
+	}
+	return out, nil
+}

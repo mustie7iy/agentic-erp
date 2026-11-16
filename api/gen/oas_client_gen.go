@@ -3695,6 +3695,29 @@ type Invoker interface {
 	//
 	// GET /v1/process-event-logs
 	GetProcessEventLog(ctx context.Context, params GetProcessEventLogParams) (GetProcessEventLogRes, error)
+	// GetProcessMap invokes getProcessMap operation.
+	//
+	// The process map of a business process for a company and a period (ADR-0080 As built, T103b),
+	// computed on read from every case of its event log (`getProcessEventLog`: the same cases, events and
+	// activities); nothing is stored and no model is involved. It gives the activities, each with how many
+	// events and cases have it; the directly-follows pairs, each with how many times its second activity
+	// directly follows its first within a case (`count`) and the median time between the two events in
+	// whole seconds (`median_seconds`, each time cut to whole seconds; for an even count the lower of the
+	// two middle values); and the ten most frequent variants, a variant being the sequence of a case's
+	// activities, with their cases and their share of the cases in percent (two decimals, rounded half
+	// away from zero), the most frequent first, equal ones by their activities. Every case is in exactly
+	// one variant: `variant_count` counts them all, and the cases of the variants not among the ten are
+	// `case_count` less theirs. A case is open while its last activity does not end it: `Pay invoice`,
+	// `Close purchase order` or `Cancel purchase order` end an order's case, `Pay invoice` or
+	// `Reverse invoice` a supplier document's, and a case without events is open; open cases are counted
+	// (`open_case_count`, also per variant) and in the map like every other. Activities are by event
+	// count, then by name; pairs by count, then by their activities. The first process is
+	// `purchase_to_pay` (another is 422 `request.validation_failed`). The period is one day to 371 days
+	// (422 `request.validation_failed` naming `to` otherwise). The permission is the event log's: the map
+	// is that log summed. A company the caller cannot act in is 404, as one that does not exist.
+	//
+	// GET /v1/process-maps
+	GetProcessMap(ctx context.Context, params GetProcessMapParams) (GetProcessMapRes, error)
 	// GetProfitCenter invokes getProfitCenter operation.
 	//
 	// Returns one profit center with its companies and active periods.
@@ -45471,6 +45494,196 @@ func (c *Client) sendGetProcessEventLog(ctx context.Context, params GetProcessEv
 
 	stage = "DecodeResponse"
 	result, err := decodeGetProcessEventLogResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetProcessMap invokes getProcessMap operation.
+//
+// The process map of a business process for a company and a period (ADR-0080 As built, T103b),
+// computed on read from every case of its event log (`getProcessEventLog`: the same cases, events and
+// activities); nothing is stored and no model is involved. It gives the activities, each with how many
+// events and cases have it; the directly-follows pairs, each with how many times its second activity
+// directly follows its first within a case (`count`) and the median time between the two events in
+// whole seconds (`median_seconds`, each time cut to whole seconds; for an even count the lower of the
+// two middle values); and the ten most frequent variants, a variant being the sequence of a case's
+// activities, with their cases and their share of the cases in percent (two decimals, rounded half
+// away from zero), the most frequent first, equal ones by their activities. Every case is in exactly
+// one variant: `variant_count` counts them all, and the cases of the variants not among the ten are
+// `case_count` less theirs. A case is open while its last activity does not end it: `Pay invoice`,
+// `Close purchase order` or `Cancel purchase order` end an order's case, `Pay invoice` or
+// `Reverse invoice` a supplier document's, and a case without events is open; open cases are counted
+// (`open_case_count`, also per variant) and in the map like every other. Activities are by event
+// count, then by name; pairs by count, then by their activities. The first process is
+// `purchase_to_pay` (another is 422 `request.validation_failed`). The period is one day to 371 days
+// (422 `request.validation_failed` naming `to` otherwise). The permission is the event log's: the map
+// is that log summed. A company the caller cannot act in is 404, as one that does not exist.
+//
+// GET /v1/process-maps
+func (c *Client) GetProcessMap(ctx context.Context, params GetProcessMapParams) (GetProcessMapRes, error) {
+	res, err := c.sendGetProcessMap(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetProcessMap(ctx context.Context, params GetProcessMapParams) (res GetProcessMapRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getProcessMap"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/process-maps"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetProcessMapOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/process-maps"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "process" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "process",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.Process))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.From))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.To))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetProcessMapOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetProcessMapResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
