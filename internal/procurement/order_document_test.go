@@ -12,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -223,15 +224,37 @@ type gone struct {
 	procurement.Settings
 	what string
 	err  error
+	lost *config.Config // as zone, the document whose company 2000's zone does not load
 }
 
-// Document fails as settings, and as company holds no company at all.
+// renderWith renders order's document as e's tenant's person, with what
+// read through gone (failing with cause).
+func renderWith(t *testing.T, e env, order, what string, cause error) (string, error) {
+	t.Helper()
+	lost := fixture.Document(t)
+	lost.Company("2000").TimeZone = "America/Nowhere"
+	var body string
+	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		h := endpoints()
+		g := gone{LegalEntities: h.LegalEntities, Suppliers: h.Suppliers, Settings: h.Settings, what: what, err: cause, lost: lost}
+		h.LegalEntities, h.Suppliers, h.Settings = g, g, g
+		var err error
+		body, err = h.OrderDocument(ctx, uuid.MustParse(order))
+		return err
+	})
+	return body, err
+}
+
+// Document fails as settings, holds no company at all as company, and as
+// zone holds company 2000 with a time zone that does not load.
 func (g gone) Document(ctx context.Context) (*config.Config, int32, error) {
 	switch g.what {
 	case "settings":
 		return nil, 0, g.err
 	case "company":
 		return &config.Config{}, 1, nil
+	case "zone":
+		return g.lost, 1, nil
 	}
 	return g.Settings.Document(ctx)
 }
@@ -273,16 +296,7 @@ func TestOrderDocumentMasterDataGone(t *testing.T) {
 	broken := errors.New("broken")
 	render := func(t *testing.T, what string, cause error) (string, error) {
 		t.Helper()
-		var body string
-		err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-			h := endpoints()
-			g := gone{LegalEntities: h.LegalEntities, Suppliers: h.Suppliers, Settings: h.Settings, what: what, err: cause}
-			h.LegalEntities, h.Suppliers, h.Settings = g, g, g
-			var err error
-			body, err = h.OrderDocument(ctx, uuid.MustParse(id(o)))
-			return err
-		})
-		return body, err
+		return renderWith(t, e, id(o), what, cause)
 	}
 	for _, what := range []string{"entity", "org", "supplier", "term", "settings"} {
 		for _, cause := range []error{nil, broken} {

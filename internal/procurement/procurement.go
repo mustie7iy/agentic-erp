@@ -48,7 +48,7 @@ type Suppliers interface {
 	PaymentTermExists(ctx context.Context, code string) (bool, error)
 	// PaymentTerm and OrderAddress fill the order document (ADR-0054).
 	PaymentTerm(ctx context.Context, code string) (partner.PaymentTerm, bool, error)
-	OrderAddress(ctx context.Context, partnerID uuid.UUID) (partner.Address, bool, error)
+	OrderAddress(ctx context.Context, partnerID uuid.UUID, day time.Time) (partner.Address, bool, error)
 }
 
 // SupplierNames reads suppliers' numbers and names (partner context), for

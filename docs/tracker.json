@@ -11339,9 +11339,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Contract procurement.requisition.requisition_date: drop its UTC default once no release before T72n5 runs, so an insert path that leaves the date out fails instead of dating the requisition in UTC",
-        "r": "found in T72n5 review round 1 · migration 000170 (the default bridges the previous release in a mixed cell, 06 §6.4 expand / contract) · ADR-0051 as built (T72n5)",
+        "r": "found in T72n5 review round 1 · migration 000170 (the default bridges the previous release in a mixed cell, 06 §6.4 expand / contract) · ADR-0051 as built (T72n5) · done in hdates: migration 000343 drops the default; the condition holds, no cell has been deployed (PO 2026-11-02, deployment last) · ADR-0051 as built (business dates swept) · TestRequisitionDate",
         "src": "review:batch26",
         "c": []
        },
@@ -11369,7 +11369,7 @@
        {
         "s": "T",
         "t": "Identity, grc and integration still call database.Today for business dates where the company's day belongs: a date they stamp or compare is UTC's, off by a day for a company in Toronto between 19:00 and 24:00 (found in batch 75's integration; the contexts T72n4 to T72n6 and batch 74 moved are not among them).",
-        "r": "internal/identity · internal/grc · internal/integration (database.Today) · ADR-0051 · tenancy.LegalEntities company day",
+        "r": "internal/identity · internal/grc · internal/integration (database.Today) · ADR-0051 · tenancy.LegalEntities company day · checked in hdates: integration has dated by partner's day (partner.Migration.Today) and its cutover by each company's day since batch 74, no database.Today left; identity's grant and role-permission dates (grants.go, roles.go) are the dates authorization is judged on, which authz and directory read as current_date in SQL and the end_validity trigger (000001) enforces, tenant-wide with no one company; grc's tested_on and links' state follow identity's day (ADR-0078). Moving them is security posture: waiting for the product owner (hdates report), nothing built · the same class in the schema, fixed in hdates: platform.end_validity refused ending a partner address or bank account before UTC's current_date while partner ends them on partner's day; migration 000344 allows the day before for those two tables (trigger argument company_day) · TestPartnerValidityCompanyDay",
         "src": "review:batch75",
         "c": []
        },
@@ -11476,9 +11476,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "suppliers.OrderAddress takes the tenant-wide day, not the company's: the supplier's order desk address in force on a date is chosen on UTC's (database.Today) day where the company's own day decides, the business date class of ADR-0051 (found in batch 75's integration).",
-      "r": "internal/suppliers OrderAddress · database.Today · ADR-0051 · ADR-0050 (business dates on the company's day)",
+      "r": "internal/suppliers OrderAddress · database.Today · ADR-0051 · ADR-0050 (business dates on the company's day) · done in hdates: partner ports.go Suppliers.OrderAddress takes the caller's day; procurement order_document.go documentOf passes the buyer company's config.CompanyDay · ADR-0051 as built (business dates swept), ADR-0054 §3 · TestOrderDocumentTimeZone · TestOrderDocumentZoneLost · TestOrderAddress",
       "src": "review:batch75",
       "c": []
      }

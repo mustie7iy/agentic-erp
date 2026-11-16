@@ -40,8 +40,9 @@ func flows(t *testing.T, e fixture.Env, le uuid.UUID, first, n int, day string, 
 	ten, who, last := e.Tenant.ID, e.Tenant.Human.ID, first+n-1
 	exec(`SET session_replication_role = replica`)
 	defer exec(`RESET session_replication_role`)
-	exec(`INSERT INTO procurement.requisition (tenant_id, id, document_number, legal_entity_id, requester_id, currency, status, created_by, updated_by)
-		SELECT $1, md5('r' || n)::uuid, 'PR' || n, $2, $3, 'EUR', 'ordered', $3, $3 FROM generate_series($4::int, $5::int) n`, ten, le, who, first, last)
+	exec(`INSERT INTO procurement.requisition (tenant_id, id, document_number, legal_entity_id, requester_id, currency, requisition_date, status,
+			created_by, updated_by)
+		SELECT $1, md5('r' || n)::uuid, 'PR' || n, $2, $3, 'EUR', $6::date, 'ordered', $3, $3 FROM generate_series($4::int, $5::int) n`, ten, le, who, first, last, day)
 	exec(`INSERT INTO procurement.purchase_order (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, order_date, payment_term_code,
 			requisition_id, status, created_by, updated_by)
 		SELECT $1, md5('o' || n)::uuid, 'PO' || n, $2, $3, 'EUR', $6::date + n % $7::int, 'NT30', md5('r' || n)::uuid, 'released', $3, $3

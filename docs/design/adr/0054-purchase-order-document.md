@@ -55,8 +55,9 @@ stored, or whether producing it is audited.
    it, so a copy sent again is not taken for a new order.
 3. **Rendered from stored data on each read, and not stored.** The
    document is the order's current revision with today's master data:
-   the supplier's `order_from` address valid today, else its `legal`
-   one, else a line saying neither is held; the buyer company's name,
+   the supplier's `order_from` address valid today (the buyer company's
+   date in its time zone, ADR-0051), else its `legal` one, else a line
+   saying neither is held; the buyer company's name,
    code and country; the purchasing organisation's code and name; the
    payment term's code and description; the requisition's needed-by
    date. A later revision is marked as replacing the one before it.
