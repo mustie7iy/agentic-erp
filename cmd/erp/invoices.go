@@ -272,7 +272,8 @@ func agentInvoices(ctx context.Context) error {
 }
 
 // agents are the delivery agents erp agent runs, by name: each with the
-// arguments after its name (a table, so a new agent is a line).
+// arguments after its name (a table, so a new agent is a line here and its
+// name in agentCmd's usage).
 var agents = map[string]func(context.Context, []string) error{
 	"invoices":          func(ctx context.Context, _ []string) error { return agentInvoices(ctx) },
 	"config":            agentConfig,

@@ -49,7 +49,7 @@ which would make a cell's series grow with its customers. T54 closes this.
   `telemetry.Metrics`, which records it. `Metrics.Check` holds them to the
   catalog: names and help pass promlint, every label name is in
   `telemetry.Labels`, and the worst case (every label at its ceiling,
-  histograms with every bucket) stays under `telemetry.MaxSeries` (60,000
+  histograms with every bucket) stays under `telemetry.MaxSeries` (65,000
   series per process). The cell's test runs it over every metric the
   server registers and checks that the operation, class and context
   enumerations fit their ceilings. It runs in the existing test suite, not
