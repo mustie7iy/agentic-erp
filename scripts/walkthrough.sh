@@ -10585,7 +10585,7 @@ step_savings_agent() {
   api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"
   expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "runAnalyticsQuery createRecommendation createRecommendation"
   say "Recommending is all it may do: its role creates no contract, so the API refuses its own:"
-  refused 403 identity.permission_missing createContract -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"valid_from\": \"$TODAY\", \"valid_to\": \"$TODAY\", \"target_value\": {\"amount\": \"1.00\", \"currency\": \"CAD\"}, \"items\": []}"
+  refused 403 identity.permission_missing createContract -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"valid_from\": \"$TODAY\", \"valid_to\": \"$TODAY\", \"target_value\": {\"amount\": \"1.00\", \"currency\": \"CAD\"}, \"items\": [{\"material_key\": \"CHAIR-ERGO\", \"description\": \"Ergonomic office chairs\", \"unit_price\": {\"amount\": \"450.00\", \"currency\": \"CAD\"}, \"uom_code\": \"EA\", \"account_id\": \"$(account 6000)\"}]}"
   as ben
   QUIET=1 api 200 '' listContracts -p "legal_entity_id=$LE" -p "supplier_id=$SUPPLIER" -p page_size=200
   contracts=$(field '.items | length')
