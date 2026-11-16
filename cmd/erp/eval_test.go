@@ -471,3 +471,41 @@ func TestAnalyticsAdapterFailures(t *testing.T) {
 		})
 	}
 }
+
+// TestOrderCaptureEvalFailures: a document the suite does not have, and a
+// capture whose connection drops after the upload, each fail the case;
+// neither is a refusal the task could name.
+func TestOrderCaptureEvalFailures(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/sales-order-uploads":
+			w.WriteHeader(201)
+			_, _ = w.Write([]byte(`{"id": "u9", "url": "/v1/uploads/u9/content?s=1", "method": "PUT", "headers": {"Content-Type": "text/plain"}}`))
+		case "/v1/uploads/u9/content":
+			w.WriteHeader(204)
+		default:
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err != nil {
+				t.Errorf("hijack: %v", err)
+				return
+			}
+			_ = conn.Close() // the capture's connection drops: the client's Do fails
+		}
+	}))
+	t.Cleanup(srv.Close)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "order.txt"), []byte("Purchase order NW-4711"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	api := &apitools.Client{BaseURL: srv.URL, Token: "t"}
+	for name, task := range map[string]map[string]any{
+		"a document the suite does not have": {"document": "none.txt", "legal_entity_id": "e", "account_id": "a"},
+		"a capture that never answered":      {"document": "order.txt", "legal_entity_id": "e", "account_id": "a", "tax_code": "GO5", "refused": "sales.capture_customer_unknown"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := orderCaptureEval(context.Background(), eval.Env{Agent: api, Dir: dir, Task: task}); err == nil || !strings.Contains(err.Error(), "order capture") {
+				t.Errorf("got %v, want an order capture error", err)
+			}
+		})
+	}
+}
