@@ -336,7 +336,7 @@ func TestRunRefusals(t *testing.T) {
 		session bool
 	}{
 		"a write among the reads":        {[]string{"getCreditExposure", "updateCreditLimit"}, 0, "updateCreditLimit of agent type credit_scoring is none", false},
-		"the proposer among the reads":   {[]string{"createRecommendation"}, 0, "reads (GET) of the contract", false},
+		"the proposer among the reads":   {[]string{"createRecommendation"}, 0, "reads of the contract (GET, or marked x-autonomy: read)", false},
 		"an operation not in a contract": {[]string{"noSuchOperation"}, 0, "noSuchOperation", false},
 		"a session not started":          {agent.Reads, 403, "identity.permission_missing", false},
 		"a read closed to agents":        {[]string{"getAiPolicy"}, 0, "not open to agents", true},

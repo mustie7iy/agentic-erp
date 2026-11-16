@@ -156,7 +156,7 @@ be computed on read, without storing anything.
   a p95 of 1.7 s on a loaded machine (load 13); the time grows with the
   cases, so a year of the largest company's 40,000 orders takes about
   twelve times as long, within the server's 60 s write timeout.
-- Walkthrough `step_process_mining` (step 98) extended: Pia reads the
+- Walkthrough `step_process_mining` (step 101) extended: Pia reads the
   month's map, which holds the variant of the order of step 4; Ben orders
   a month's office cleaning, which nobody receives, Alex's invoice on it is
   held for the missing receipt, Priya approves the exception, a payment run

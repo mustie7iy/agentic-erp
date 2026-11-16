@@ -93,7 +93,8 @@ var allowed = map[string][]string{
 	"assets":                  {"config"},                                       // a leaf (ADR-0057 §2): configuration and tenancy through ports the composition root wires
 	"audit":                   {"approvals", "ledger", "operations", "tenancy"}, // evidence exports (T101a): tenancy's legal entities, the ledger's journal and the approval requests on its entries' source documents through its ports, by the types their published APIs give
 	"capture":                 {"llm"},
-	"cash":                    {"config"}, // a leaf (ADR-0051 §2): the ledger, payments, payables and procurement through ports the composition root wires
+	"cash":                    {"config"},                          // a leaf (ADR-0051 §2): the ledger, payments, payables and procurement through ports the composition root wires
+	"changedraft":             {"apitools", "config", "recommend"}, // a configuration change request drafted by a recommending agent (ADR-0072 As built, T107b, T108c), shared by the agents that draft
 	"closeagent":              {"apitools", "llm"},
 	"closing":                 {"config"},                                 // a leaf (ADR-0058 §2): configuration, tenancy, the ledger and controlling through ports the composition root wires
 	"collections":             {"config", "ledger", "partner", "tenancy"}, // a leaf (ADR-0065 §1): the ledger's customer open items, partners' names, tenancy and configuration through its ports, by the types their published APIs give
@@ -131,11 +132,12 @@ var allowed = map[string][]string{
 	"mcp":                     {"apitools"},                                                                       // the API as MCP tools for an agent host (ADR-0081)
 	"leases":                  {"config", "ledger", "partner", "tenancy"},                                         // a leaf (ADR-0073 §1): tenancy, the partner context's suppliers and names, the ledger's cost centers, calendar and postings and the configuration through its ports
 	"reconagent":              {"apitools", "llm"},
-	"recommend":               {"apitools", "llm"},                        // the recommending agents' one pattern (ADR-0072): every such agent imports it, and it no agent
-	"regulatoryagent":         {"apitools", "config", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration and its check; config: the paths it names, as config.Diff names them
+	"recommend":               {"apitools", "llm"},                                       // the recommending agents' one pattern (ADR-0072): every such agent imports it, and it no agent
+	"regulatoryagent":         {"apitools", "changedraft", "config", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration and its check; config: the paths it names, as config.Diff names them; changedraft: the change it drafts (T107b)
 	"cashagent":               {"apitools", "llm"},
 	"router":                  {"directory"},
-	"supportagent":            {"apitools", "config", "llm", "recommend"}, // the support agent (ADR-0072 As built, T108a): a reply only, not the pattern's run; config: the settings it cites; recommend: its numbers (Numbers)
+	"savingsagent":            {"apitools", "llm", "recommend"},                          // a recommending agent (ADR-0072): its declaration, the opportunities it finds before its session and its check
+	"supportagent":            {"apitools", "changedraft", "config", "llm", "recommend"}, // the support agent (ADR-0072 As built, T108a): a reply only, not the pattern's run; config: the settings it cites; recommend: its numbers (Numbers); changedraft: the fix it drafts (T108c)
 	"taxagent":                {"apitools", "llm"},
 	// Registrations from the configuration, companies from the directory
 	// (ADR-0049 §10); returns from the ledger's tax items through

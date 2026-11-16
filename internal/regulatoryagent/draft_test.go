@@ -15,6 +15,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/changedraft"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
 	"github.com/mustie7iy/agentic-erp/internal/recommend"
 	"github.com/mustie7iy/agentic-erp/internal/regulatoryagent"
@@ -213,8 +214,8 @@ func TestDraft(t *testing.T) {
 	}
 	told(t, model.Requests[:1], "The accepted recommendation "+accepted+":\n<recommendation>\n"+acceptedContent+"\n</recommendation>",
 		"you may recommend on object_type change_request")
-	told(t, model.Requests, regulatoryagent.ErrBase.Error(), regulatoryagent.ErrOutside.Error(), "not companies[1000].tax_registrations",
-		"it changes nothing", "the proposal is no configuration", regulatoryagent.ErrNotTheDraft.Error(), regulatoryagent.ErrNotSimulated.Error(),
+	told(t, model.Requests, changedraft.ErrBase.Error(), changedraft.ErrOutside.Error(), "not companies[1000].tax_registrations",
+		"it changes nothing", "the proposal is no configuration", changedraft.ErrNotTheDraft.Error(), changedraft.ErrNotSimulated.Error(),
 		regulatoryagent.ErrNotQuoted.Error(), regulatoryagent.ErrNoCaveat.Error(), regulatoryagent.ErrUnread.Error())
 }
 
@@ -308,17 +309,17 @@ func TestDraftNever(t *testing.T) {
 	for _, id := range tools {
 		op, ok := ops[id]
 		read := ok && op.Method == http.MethodGet
-		if !read && !slices.Contains(regulatoryagent.DraftWrites, id) && id != recommend.Proposer {
+		if !read && !slices.Contains(changedraft.Writes, id) && id != recommend.Proposer {
 			t.Errorf("%s: got in the contract %v, method %s; want a read, a draft's write or the proposer", id, ok, op.Method)
 		}
 	}
 	for id, op := range ops {
-		if op.Method != http.MethodGet && strings.HasPrefix(op.Permission, "config.") && !slices.Contains(regulatoryagent.DraftWrites, id) &&
-			!slices.Contains(regulatoryagent.DraftNever, id) {
-			t.Errorf("never list: got %v, want it to hold %s", regulatoryagent.DraftNever, id)
+		if op.Method != http.MethodGet && strings.HasPrefix(op.Permission, "config.") && !slices.Contains(changedraft.Writes, id) &&
+			!slices.Contains(changedraft.Never, id) {
+			t.Errorf("never list: got %v, want it to hold %s", changedraft.Never, id)
 		}
 	}
-	for _, id := range regulatoryagent.DraftNever {
+	for _, id := range changedraft.Never {
 		if _, ok := ops[id]; !ok || slices.Contains(tools, id) {
 			t.Errorf("%s: got in the contract %v, among the tools %v; want in the contract and no tool", id, ok, slices.Contains(tools, id))
 		}

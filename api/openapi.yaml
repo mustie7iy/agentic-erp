@@ -35213,6 +35213,7 @@ components:
             - support
             - collections
             - integration
+            - savings
           maxLength: 50
         model:
           type: string

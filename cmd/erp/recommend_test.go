@@ -331,6 +331,34 @@ func TestAgentSupportDiagnose(t *testing.T) {
 	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "support-diagnose", "-type", "supplier_invoice", "-id", invoice)
 }
 
+// TestAgentSupportFix: erp agent support-fix needs -recommendation,
+// refuses a diagnosis that is not an accepted cause in the configuration
+// before a session, runs the fix's session on one and prints what it
+// recommended and the model's reply (ADR-0072 As built, T108c).
+func TestAgentSupportFix(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	fails(t, "flag provided", "agent", "support-fix", "-x")
+	fails(t, "want -recommendation ID", "agent", "support-fix")
+	fails(t, "404", "agent", "support-fix", "-recommendation", "r0")
+	rec := func(outcome string) reply {
+		return ok(`{"id": "r0", "object_type": "supplier_invoice", "object_id": "i1", "kind": "root_cause", "outcome": "` + outcome +
+			"\", \"content\": \"Root cause: configuration\\nevent 41 under `companies[1000].invoice_tolerance.price_percent` = `2`\"}")
+	}
+	versions := ok(`{"items": [{"id": "v1", "number": 3, "document": {"companies": [{"code": "1000", "invoice_tolerance": {"price_percent": 2}}]}}]}`)
+	fakeAPI(t, routes{"GET /v1/recommendations/r0": {rec("")}})
+	fails(t, `outcome ""`, "agent", "support-fix", "-recommendation", "r0")
+	fakeAPI(t, sessionRoutes(routes{"GET /v1/recommendations/r0": {rec("accepted")}, "GET /v1/config-versions": {versions}}))
+	model(t, llmtest.Final("Nothing drafted."))
+	got := must(t, "agent", "support-fix", "-recommendation", "r0")
+	if want := "Session " + agentSession + ": recommendations made 0, refused 0.\nNothing drafted.\n"; got != want {
+		t.Errorf("agent support-fix: got %q, want %q", got, want)
+	}
+	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
+	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "support-fix", "-recommendation", "r0")
+}
+
 // TestAgentCollections: erp agent collections needs -company, reads the
 // worklist on the key date, runs the collections agent's session and
 // prints what it recommended, each customer named with the first line of
@@ -405,6 +433,46 @@ func TestAgentIntegrationMonitor(t *testing.T) {
 	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "integration-monitor")
 }
 
+// TestAgentSavings: erp agent savings needs -company and a maximum of at
+// least one, finds the opportunities in the period, runs the savings
+// agent's session and prints what it recommended, each object named with
+// the first line of its recommendation, and the model's reply; a period
+// without opportunities starts no session and prints why (ADR-0072 As
+// built, T105d).
+func TestAgentSavings(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	fails(t, "flag provided", "agent", "savings", "-x")
+	fails(t, "want -company CODE", "agent", "savings", "-period", "2026-01-01..2026-11-15")
+	fails(t, "at least one", "agent", "savings", "-company", "3000", "-max", "0")
+	fails(t, "404", "agent", "savings", "-company", "3000")
+	entities := ok(`{"items": [{"id": "le", "code": "3000"}]}`)
+	none := ok(`{"columns": [], "rows": []}`)
+	fakeAPI(t, routes{"GET /v1/legal-entities": {entities}, "POST /v1/analytics-queries": {none, none, none}, "GET /v1/contracts": {ok(`{"items": []}`)}})
+	if got, want := must(t, "agent", "savings", "-company", "3000", "-period", "2026-01-01..2026-11-15"),
+		"No savings opportunity in company 3000's purchasing from 2026-01-01 to 2026-11-15: no spend off contract, no account bought from several suppliers and no order above its contract's price.\n"; got != want {
+		t.Errorf("agent savings, nothing found: got %q, want %q", got, want)
+	}
+	spend := ok(`{"columns": [{"name": "vendor"}, {"name": "vendor_name"}, {"name": "currency"}, {"name": "spend_off_contract"}],
+		"rows": [[{"value": "100001"}, {"value": "Tyrell"}, {"value": "CAD"}, {"value": "4700.00", "currency": "CAD"}]]}`)
+	fakeAPI(t, sessionRoutes(routes{"GET /v1/legal-entities": {entities}, "POST /v1/analytics-queries": {spend, none, none, spend},
+		"GET /v1/business-partners": {ok(`{"items": [{"id": "s1"}]}`)}, "GET /v1/contracts": {ok(`{"items": []}`)},
+		"POST /v1/recommendations": {reply{201, `{"id": "r1", "object_type": "business_partner", "object_id": "s1", "kind": "bring_under_contract",
+			"content": "Spend off contract 4700.00 CAD\nNo contract."}`}}}))
+	model(t, llmtest.Tool("runAnalyticsQuery", map[string]any{"body": map[string]any{"measures": []any{"spend_off_contract"}}}),
+		llmtest.Tool("createRecommendation", map[string]any{"body": map[string]any{"session_id": agentSession, "object_type": "business_partner",
+			"object_id": "s1", "kind": "bring_under_contract", "content": "Spend off contract 4700.00 CAD\nNo contract."}}),
+		llmtest.Final("One opportunity."))
+	got := must(t, "agent", "savings", "-company", "3000", "-period", "2026-01-01..2026-11-15", "-max", "5")
+	if want := "Session " + agentSession + ": recommendations made 1, refused 0.\n  recommendation r1: bring_under_contract on business_partner s1 (100001 Tyrell): " +
+		"Spend off contract 4700.00 CAD\nOne opportunity.\n"; got != want {
+		t.Errorf("agent savings: got %q, want %q", got, want)
+	}
+	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
+	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "savings", "-company", "3000")
+}
+
 // TestRecommendingAdapterFailures: a recommending agent's evaluation
 // adapter fails its case on a task without its values and on an agent
 // that could not run.
@@ -432,6 +500,8 @@ func TestRecommendingAdapterFailures(t *testing.T) {
 		"support diagnosis without an id": supportEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{"run": "diagnose", "type": "supplier_invoice"}}),
 		"support diagnosis without its API": supportEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{},
 			Task: map[string]any{"run": "diagnose", "type": "supplier_invoice", "id": "01a1aa00-0000-7000-8000-000000000c01"}}),
+		"savings without a period":       savingsEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{"company": "3000"}}),
+		"savings without its API":        savingsEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"company": "3000", "period": "2026-01-01..2026-11-15"}}),
 		"collections without a key date": collectionsEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{"company": "3000"}}),
 		"collections without its API": collectionsEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{},
 			Task: map[string]any{"company": "3000", "key_date": "2026-11-15"}}),

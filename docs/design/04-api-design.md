@@ -1048,7 +1048,12 @@ on the document its `root_cause`, the class on the first line
 `permission`, `unknown`), citing the document's audit events by seq as
 the API returned them; a refused posting of a supplier invoice is
 audited on the invoice (outcome `refused`, the problem's code and
-detail). The collections agent
+detail). From such a cause of the class `configuration` that a user
+accepted (`erp agent support-fix -recommendation ID`, T108c) it drafts
+the change request of one setting the cause cites, has the draft
+simulated and recommends `ready_to_submit` or `simulation_failed` on the
+`change_request`, as the regulatory agent drafts (`internal/changedraft`);
+a person submits it. The collections agent
 (`erp agent collections -company CODE [-key-date D]`, agent type
 `collections`, T105b) recommends on each `business_partner` of a
 company's collection worklist (the first 20, the largest overdue amount
@@ -1065,6 +1070,16 @@ session and recommends on each (`check_endpoint`, `investigate`,
 `redeliver`, `pause`, `retransmit`), its first line naming the failed
 deliveries, the file's status or the failed migration run; pausing,
 redelivering and the other writes stay the administrator's.
+The savings opportunity agent
+(`erp agent savings -company CODE [-period FROM..TO] [-max N]`, agent
+type `savings`, T105d) reads the spend metrics (`runAnalyticsQuery`,
+which a recommending agent may call as an `x-autonomy: read` operation),
+the contracts and the orders, and recommends `bring_under_contract` on a
+supplier with spend off contract, `consolidate_suppliers` on an account
+bought from several suppliers and `use_contract_price` on an order priced
+above its supplier's contract, each starting with the spend it covers as
+the API returned it; it states no saving and creates no RFQ, contract or
+order.
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation

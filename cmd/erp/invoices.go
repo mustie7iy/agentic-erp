@@ -272,7 +272,7 @@ func agentInvoices(ctx context.Context) error {
 }
 
 // agentUsage names the delivery agents.
-const agentUsage = "agent invoices | config | migration | test | reconcile | close-accruals | close-variances | cash-variance | tax-draft | credit-score | access-roles | access-sod | access-review | bid-compare | regulatory-notice | regulatory-draft | support-ask | support-diagnose | collections | integration-monitor"
+const agentUsage = "agent invoices | config | migration | test | reconcile | close-accruals | close-variances | cash-variance | tax-draft | credit-score | access-roles | access-sod | access-review | bid-compare | regulatory-notice | regulatory-draft | support-ask | support-diagnose | support-fix | collections | integration-monitor | savings"
 
 // agents are the delivery agents but invoices, by their command's name,
 // each run with the arguments after it.
@@ -296,6 +296,8 @@ var agents = map[string]func(context.Context, []string) error{
 	"support-diagnose":    agentSupportDiagnose,
 	"collections":         agentCollections,
 	"integration-monitor": agentIntegrationMonitor,
+	"support-fix":         agentSupportFix,
+	"savings":             agentSavings,
 }
 
 // agentCmd runs a delivery agent with the agents' token.
