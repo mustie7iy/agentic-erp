@@ -658,6 +658,20 @@ func encodeCreateAssetTransferRequest(
 	return nil
 }
 
+func encodeCreateAuditEvidenceExportRequest(
+	req *AuditEvidenceExportCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateBillingDocumentRequest(
 	req *BillingDocumentCreate,
 	r *http.Request,

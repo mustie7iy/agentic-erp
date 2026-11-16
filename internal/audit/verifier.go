@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	trail "github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
@@ -84,16 +83,9 @@ func (v *Verifier) Verify(ctx context.Context, tenant uuid.UUID) (Verification, 
 		return Verification{}, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	res, err := trail.VerifyRange(ctx, tx, tenant, 1, 0)
+	res, anchors, err := verified(ctx, tx, v.Store, tenant, 1, 0)
 	if err != nil {
 		return Verification{}, err
-	}
-	anchors, brokenAnchor, err := checkAnchors(ctx, tx, v.Store, tenant, 1, 0)
-	if err != nil {
-		return Verification{}, err
-	}
-	if brokenAnchor != 0 && (res.BrokenAt == 0 || brokenAnchor < res.BrokenAt) {
-		res.BrokenAt = brokenAnchor
 	}
 	ver := Verification{TenantID: tenant, VerifiedAt: v.now(), HeadSeq: res.LastSeq, Checked: res.Checked, AnchorsChecked: anchors, BrokenAt: res.BrokenAt, OK: res.BrokenAt == 0}
 	var previouslyOK *bool

@@ -857,6 +857,10 @@ func (s *server) startOperations(runCtx context.Context) {
 		archiver := &records.Archiver{Endpoints: app.Records(apiCfg), Requesters: identity.Actors{}, Pool: pool, AppRole: cfg.AppRole,
 			WorkerRole: cfg.WorkerRole, Log: log}
 		s.spawn("records archiver", func() { archiver.Run(runCtx) })
+		// Audit evidence exports are written the same way (T101a).
+		evidence := &audit.EvidenceExporter{Endpoints: app.Audit(apiCfg), Requesters: identity.Actors{}, Pool: pool, AppRole: cfg.AppRole,
+			WorkerRole: cfg.WorkerRole, Log: log}
+		s.spawn("audit evidence exporter", func() { evidence.Run(runCtx) })
 	}
 	// Deletion runs blank blocked partners' personal data on a worker of
 	// every replica, as archiving runs are written (T100c, ADR-0079 §12).

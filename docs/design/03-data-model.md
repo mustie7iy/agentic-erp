@@ -2118,6 +2118,8 @@ leaves `catalog_item_id` as it was sets it to null (trigger
 of a draft's items does not name the column, and would otherwise leave a
 described item naming the catalog item of the row it replaced.
 
+The purchase-to-pay event log (T103a, ADR-0080) pages a company's orders by date and id through `purchase_order_by_date` (`tenant_id, legal_entity_id, order_date, id`; migration 000340).
+
 ## 3.9 Accounts payable (`payables`)
 
 ```mermaid
@@ -2564,6 +2566,8 @@ the employee's open item, which a payment run pays. Entering and posting
 need `payables.expense.write` and `payables.expense.post`, reading
 `payables.expense.read`; each is audited and publishes
 `ExpenseReportChanged`.
+
+The purchase-to-pay event log (T103a, ADR-0080) pages a company's supplier documents on no order by date and id through `supplier_invoice_without_order` (`tenant_id, legal_entity_id, invoice_date, id` where `purchase_order_id` is null; migration 000341).
 
 ## 3.10 Payments (`payments`)
 
@@ -3241,6 +3245,7 @@ activate, and orders under them are refused.
 | `chain_head` | `tenant_id` | Last sequence and hash per tenant |
 | `anchor` | `(tenant_id, seq)` | Chain heads written to write-once storage |
 | `verification` | `(tenant_id, verified_at)` | Insert-only; one row per scheduled verification round: head, events and anchors checked, the first broken sequence (ADR-0025) |
+| `evidence_export` | `(tenant_id, id)` | An auditor's evidence export (T101a, 000338; ADR-0011 As built): the companies it covers (`legal_entity_ids`, one to 100, those of the companies asked for the requester could act in, by code), the period (`period_from`..`period_to`, one day to 371), `with_client_addresses` (the requester held `audit.event.read`), its requester; `queued`, then `completed` with the manifest's key and SHA-256, its files (`files`, jsonb: name, SHA-256, size, records), the counts of audit events, journal entries and approval decisions and the chain's verification (`chain_verified`, `chain_last_seq`, `chain_checked`, `chain_anchors_checked`, `chain_broken_seq` when it did not verify), or `failed` with a problem code; either is its last change (`evidence_export_settled_fixed`), and the application changes only the settling columns and deletes none. Kept with the trail when a tenant is erased: ids, dates and counts, no personal data. The worker role reads `tenant_id` and `status` to find the tenants with queued exports. Permission `audit.evidence.export` |
 
 ## 3.13 Integration (`integration`)
 

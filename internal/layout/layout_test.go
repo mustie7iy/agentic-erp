@@ -89,8 +89,8 @@ var allowed = map[string][]string{
 	"apitools":                {"llm"},
 	"app":                     {"countrypack"}, // apitest releases a test's own country packs
 	"approvals":               {"config"},
-	"assets":                  {"config"}, // a leaf (ADR-0057 §2): configuration and tenancy through ports the composition root wires
-	"audit":                   {"operations"},
+	"assets":                  {"config"},                                       // a leaf (ADR-0057 §2): configuration and tenancy through ports the composition root wires
+	"audit":                   {"approvals", "ledger", "operations", "tenancy"}, // evidence exports (T101a): tenancy's legal entities, the ledger's journal and the approval requests on its entries' source documents through its ports, by the types their published APIs give
 	"capture":                 {"llm"},
 	"cash":                    {"config"}, // a leaf (ADR-0051 §2): the ledger, payments, payables and procurement through ports the composition root wires
 	"closeagent":              {"apitools", "llm"},
@@ -125,6 +125,7 @@ var allowed = map[string][]string{
 	"receivables":             {"config", "ledger", "partner", "tenancy"},                                         // as payables reads them (ADR-0063 §1)
 	"sales":                   {"capture", "config", "ledger", "operations", "partner", "receivables", "tenancy"}, // as receivables reads them; receivables itself for billing, which posts through it (ADR-0067 §1, §9); capture and operations for order capture, as payables' capture (ADR-0067 As built T90a)
 	"revenue":                 {"config", "ledger", "partner", "sales", "tenancy"},                                // a leaf (ADR-0068 §1): the sales context's orders (sales.Orders), partners' names, tenancy, the ledger's calendar and the configuration through its ports
+	"processmining":           {"audit", "payables", "payments", "procurement", "tenancy"},                        // a leaf (ADR-0080 §1): tenancy's legal entities, procurement's orders, payables' documents, payments' runs and the audit trail through its ports
 	"records":                 {"config", "ledger", "partner", "tenancy"},                                         // a leaf (ADR-0079 §1): tenancy's legal entities, the configuration's retention rules, the ledger's fiscal years and journal and the partner context's blocked personal data (§12) through its ports
 	"leases":                  {"config", "ledger", "partner", "tenancy"},                                         // a leaf (ADR-0073 §1): tenancy, the partner context's suppliers and names, the ledger's cost centers, calendar and postings and the configuration through its ports
 	"reconagent":              {"apitools", "llm"},
@@ -148,7 +149,7 @@ var allowed = map[string][]string{
 // composition root and commands wire them like any context, and a context
 // may ask one a question through a port it declares itself, as partner
 // asks cash about planning groups.
-var leaves = map[string]bool{"assets": true, "cash": true, "closing": true, "collections": true, "consolidation": true, "credit": true, "einvoicing": true, "revenue": true, "grc": true, "records": true, "leases": true}
+var leaves = map[string]bool{"assets": true, "cash": true, "closing": true, "collections": true, "consolidation": true, "credit": true, "einvoicing": true, "revenue": true, "grc": true, "records": true, "leases": true, "processmining": true}
 
 // unit is the context a package under internal/ belongs to: its first path
 // segment, the platform package itself, a delivery agent (each agent under

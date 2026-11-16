@@ -3320,7 +3320,7 @@ step_downpayment() {
 }
 
 step_audit() {
-  heading "Step 17 — The audit trail: who did what to Tyrell's invoices"
+  heading "Step 17 — The audit trail: who did what to Tyrell's invoices; an external auditor's evidence export of the current period"
   as ada
   local inv
   for inv in "$INVOICE" "$DUPLICATE" "$CREDIT"; do
@@ -3333,7 +3333,85 @@ step_audit() {
   wait_op
   excerpt '"audit chain \(if .result.verified then "intact" else "BROKEN" end): \(.result.checked) records checked, \(.result.anchors_checked) anchors"'
   expect "audit chain verified" "$(field .result.verified)" true
+  audit_evidence
   passed
+}
+
+# audit_evidence is T101a (ADR-0011 As built): Aldo, the external
+# auditor, asks for the evidence of the company's current period; the
+# server's exporter writes the period's audit events, journal entries and
+# approval decisions with a manifest to object storage. The manifest
+# counts the period's audit events up to the chain's head and the
+# company's entries of the period, as the trail and the ledgers list
+# them, and names the chain as verified.
+audit_evidence() {
+  local from to export manifest events token ledger listed
+  say "Aldo, the external auditor, gets a role of his own: audit evidence exports, the audit trail and the journal."
+  QUIET=1 api 201 '' createRole -body '{"code": "external_auditor", "name": "External auditor"}'
+  grant "$(field .id)" audit.evidence.export audit.event.read ledger.entry.read ledger.account.read
+  QUIET=1 api 200 '' listRoles -p page_size=100
+  cp "$WORK/last.json" "$WORK/roles.json"
+  person aldo "Aldo Auditor" external_auditor
+  as aldo
+  from="${TODAY:0:7}-01" to=$(month_end)
+  say "He asks for the evidence of $CC for the current period, $from to $to. The export is queued and the"
+  say "server's exporter writes its files to object storage in the background:"
+  api 201 '"evidence export of \([.companies[].company_code] | join(", ")), \(.from) to \(.to): \(.status), client addresses \(.with_client_addresses)"' \
+    createAuditEvidenceExport -body "{\"legal_entity_ids\": [\"$LE\"], \"from\": \"$from\", \"to\": \"$to\"}"
+  export=$(field .id)
+  wait_evidence "$export"
+  excerpt '"  \(.status): \(.audit_event_count) audit events, \(.journal_entry_count) journal entries, \(.approval_decision_count) approval decisions; chain \(if .chain.verified then "verified" else "BROKEN" end) to \(.chain.last_seq), \(.chain.anchors_checked) anchors", (.files[] | "  \(.name): \(.records) records, SHA-256 \(.sha256[0:16])…")'
+  cp "$WORK/last.json" "$WORK/evidence.json"
+  manifest="$WORK/evidence-manifest.json"
+  say "Aldo downloads the manifest and checks it against the export, and each file against the manifest:"
+  api 200 '' getAuditEvidenceExportFile -p "id=$export" -p name=manifest.json -out "$manifest"
+  expect "the manifest's SHA-256, the export's" "$(shasum -a 256 "$manifest" | cut -d' ' -f1)" "$(jq -r .manifest_sha256 "$WORK/evidence.json")"
+  for name in audit_events.jsonl journal_entries.jsonl approval_decisions.jsonl; do
+    QUIET=1 api 200 '' getAuditEvidenceExportFile -p "id=$export" -p "name=$name" -out "$WORK/evidence-$name"
+    expect "$name's SHA-256, the manifest's" "$(shasum -a 256 "$WORK/evidence-$name" | cut -d' ' -f1)" \
+      "$(jq -r --arg n "$name" '.files[] | select(.name == $n) | .sha256' "$manifest")"
+  done
+  expect "the chain named verified" "$(jq -r '"\(.chain.verified) \(.chain.from_seq)"' "$manifest")" "true 1"
+  events=0 token=''
+  while :; do
+    QUIET=1 api 200 '' listAuditEvents -p "occurred_from=$(jq -r .audit_events_from "$manifest")" -p "occurred_to=$(jq -r .audit_events_before "$manifest")" \
+      -p order_by=occurred_at -p page_size=500 ${token:+-p "page_token=$token"}
+    events=$((events + $(field "[.items[] | select(.seq <= $(jq -r .chain.last_seq "$manifest") and .occurred_at < \"$(jq -r .audit_events_before "$manifest")\")] | length")))
+    token=$(field '.next_page_token // ""')
+    [ -n "$token" ] || break
+  done
+  say "  the trail lists $events events of the period up to the chain's head; the manifest counts $(jq -r '.files[0].records' "$manifest")"
+  expect "the manifest's audit events, the trail's" "$(jq -r '.files[] | select(.name == "audit_events.jsonl") | .records' "$manifest")" "$events"
+  listed=0
+  QUIET=1 api 200 '' listLedgers
+  for ledger in $(field '.items[].id'); do
+    token=''
+    while :; do
+      QUIET=1 api 200 '' listJournalEntries -p "legal_entity_id=$LE" -p "ledger_id=$ledger" -p "posting_date_from=$from" -p "posting_date_to=$to" \
+        -p page_size=500 ${token:+-p "page_token=$token"}
+      listed=$((listed + $(field '.items | length')))
+      token=$(field '.next_page_token // ""')
+      [ -n "$token" ] || break
+    done
+  done
+  say "  the ledgers list $listed journal entries of $CC in the period; the manifest counts $(jq -r '.files[1].records' "$manifest")"
+  expect "the manifest's journal entries, the ledgers'" "$(jq -r '.files[] | select(.name == "journal_entries.jsonl") | .records' "$manifest")" "$listed"
+  as ada
+}
+
+# wait_evidence ID waits for the exporter to settle an evidence export.
+wait_evidence() {
+  local status i
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' getAuditEvidenceExport -p "id=$1"
+    status=$(field .status)
+    case "$status" in
+    completed) return 0 ;;
+    failed) fail "evidence export $1 failed: $(field .failure_code)" ;;
+    esac
+    sleep 0.25
+  done
+  fail "evidence export $1 still $status after a minute (attempt $i)"
 }
 
 step_capture() {
@@ -10719,6 +10797,52 @@ step_order_capture() {
   passed
 }
 
+# step_process_mining is T103a (ADR-0080): Pia, the process analyst,
+# reads the purchase-to-pay event log of the company's current month and
+# finds the case of the order of step_procure: its activities in order of
+# time, from the requisition's creation to the payment, each with the
+# kind of actor that did it and never who, as JSON and as CSV.
+step_process_mining() {
+  heading "Step 98 — The purchase-to-pay event log: the order of step 4 as a case, its activities from the requisition's creation to the payment, by time, each with the kind of actor; as JSON and as CSV"
+  local from to token found csv rows
+  as ada
+  person pia "Pia Process Analyst" finance_staff
+  as pia
+  from="${TODAY:0:7}-01" to=$(month_end)
+  say "Pia reads the purchase-to-pay event log of $CC for $from to $to, a page of cases at a time, and finds the order of step 4:"
+  token='' found=''
+  while :; do
+    QUIET=1 api 200 '' getProcessEventLog -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$from" -p "to=$to" -p page_size=500 \
+      ${token:+-p "page_token=$token"}
+    if [ -n "$(field ".cases[] | select(.case_id == \"$PO\") | .case_id")" ]; then
+      found=1
+      break
+    fi
+    token=$(field '.next_page_token // ""')
+    [ -n "$token" ] || break
+  done
+  [ -n "$found" ] || fail "the order $PO is no case of the log"
+  show erp call getProcessEventLog -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$from" -p "to=$to"
+  excerpt '"\(.process) of \(.company_code), \(.from) to \(.to): \(.case_count) cases"'
+  excerpt '.cases[] | select(.case_id == "'"$PO"'") | "case \(.case_kind) \(.document_number) of \(.document_date):", (.events[] | "  \(.occurred_at)  \(.activity) (\(.document_number)), by a \(.actor_kind)")'
+  expect "the case's first activity" "$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events[0].activity] | first')" "Create requisition"
+  expect "the activities from the requisition to the payment" \
+    "$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events[].activity | select(. == "Create requisition" or . == "Create purchase order" or . == "Receive goods" or . == "Post invoice" or . == "Pay invoice")] | unique_by(.) | length')" 5
+  expect "the payment after the invoice's posting" \
+    "$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events | (map(.activity) | index("Post invoice")) < (map(.activity) | index("Pay invoice"))] | first')" true
+  expect "the events in order of time" "$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events | map(.occurred_at) | . == sort] | first')" true
+  expect "actors by kind alone" "$(field '[.cases[].events[] | keys[] | select(test("actor_id|name"))] | length')" 0
+  rows=$(field '[.cases[] | select(.case_id == "'"$PO"'") | .events[]] | length')
+  say "The same page as CSV, a row per event:"
+  csv="$WORK/event-log.csv"
+  api 200 '' getProcessEventLog -p process=purchase_to_pay -p "legal_entity_id=$LE" -p "from=$from" -p "to=$to" -p page_size=500 \
+    ${token:+-p "page_token=$token"} -p format=csv -out "$csv"
+  head -1 "$csv" | sed 's/^/  /'
+  grep "^$PO," "$csv" | head -3 | sed 's/^/  /'
+  expect "the order's rows" "$(grep -c "^$PO," "$csv")" "$rows"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -12743,7 +12867,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_close'
 
 main() {
   stop_unseen

@@ -56,7 +56,7 @@ func (existsThenFails) Stat(context.Context, string) (int64, string, error) {
 func verify(t *testing.T, c apitest.Client, store blobstore.Store, from, to *int64) map[string]any {
 	t.Helper()
 	h := endpoints()
-	h.Anchors = store
+	h.Objects = store
 	var op gen.VerifyAuditChainRes
 	req := &gen.AuditVerify{}
 	if from != nil {
@@ -167,7 +167,7 @@ func TestAnchoring(t *testing.T) {
 	}
 	if err := apitest.InRequest(t, c.Tenant, c.Tenant.Human, func(ctx context.Context) error {
 		h := endpoints()
-		h.Anchors = failingStore{err: errors.New("store down")}
+		h.Objects = failingStore{err: errors.New("store down")}
 		_, err := h.VerifyAuditChain(ctx, &gen.AuditVerify{FromSeq: gen.NewOptInt64(1)}, gen.VerifyAuditChainParams{})
 		return err
 	}); err == nil || problem.From(err).Status < 500 {
@@ -351,7 +351,7 @@ func TestAnchoringFailures(t *testing.T) {
 	}
 	if err := apitest.InRequest(t, c.Tenant, c.Tenant.Human, func(ctx context.Context) error {
 		h := endpoints()
-		h.Anchors = failingStore{err: errors.New("store down")}
+		h.Objects = failingStore{err: errors.New("store down")}
 		_, err := h.VerifyAuditChain(ctx, &gen.AuditVerify{}, gen.VerifyAuditChainParams{})
 		return err
 	}); err == nil || problem.From(err).Status < 500 {
@@ -360,7 +360,7 @@ func TestAnchoringFailures(t *testing.T) {
 	// Every database statement of a verification without an explicit range failing in turn.
 	apitest.EveryFailure(t, c.Tenant, c.Tenant.Human, "verify from the last anchor", func(ctx context.Context) error {
 		h := endpoints()
-		h.Anchors = store
+		h.Objects = store
 		_, err := h.VerifyAuditChain(ctx, &gen.AuditVerify{}, gen.VerifyAuditChainParams{})
 		return err
 	})
