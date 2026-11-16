@@ -2671,9 +2671,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "fetchEInvoices audits its request in the caller's name (ADR-0011): starting the fetch records nothing for the person who asked, and what the fetch records it records as the system, so the audit trail does not show who fetched; the access agent classes einvoicing.einvoice.manage as use not recorded until then (accessagent.Unaudited, which then empties)",
-        "r": "internal/einvoicing/fetch.go FetchEInvoices · internal/accessagent Unaudited · ADR-0072 As built T106a",
+        "r": "internal/einvoicing/fetch.go FetchEInvoices · internal/accessagent Unaudited · ADR-0072 As built T106a · einvoicing.fetch.request audit record · accessagent.Unaudited removed · ADR-0061 As built",
         "src": "review:T106a",
         "c": []
        },

@@ -45,7 +45,9 @@ func (e *Endpoints) QueueEInvoiceFetch(ctx context.Context, operation, connector
 // connector is resolved as a fetch would resolve it, so one that cannot
 // be fetched from is refused now, and the fetch is queued as its
 // Operation, which the workflows dispatcher (or the in-process runner)
-// carries out.
+// carries out. The request is audited in the caller's name
+// (einvoicing.fetch.request, on the Operation; ADR-0011), since what the
+// fetch records it records as the system: the trail shows who fetched.
 func (e *Endpoints) FetchEInvoices(ctx context.Context, req *gen.EInvoiceFetch, _ gen.FetchEInvoicesParams) (gen.FetchEInvoicesRes, error) {
 	if e.Objects == nil {
 		return nil, noStore()
@@ -56,6 +58,10 @@ func (e *Endpoints) FetchEInvoices(ctx context.Context, req *gen.EInvoiceFetch, 
 	op, err := e.Runs.Start(ctx, connectorPath(req.ConnectorID), req)
 	if err != nil {
 		return nil, fmt.Errorf("einvoicing: operation of a fetch from connector %s: %w", req.ConnectorID, err)
+	}
+	if err := audit.Record(ctx, "einvoicing.fetch.request", "platform.operation", op.ID, map[string]any{"connector_id": req.ConnectorID,
+		"operation_id": op.ID}); err != nil {
+		return nil, err
 	}
 	return &gen.OperationHeaders{Location: gen.NewOptString("/v1/operations/" + op.ID.String()), Response: op}, nil
 }

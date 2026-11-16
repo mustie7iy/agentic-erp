@@ -266,14 +266,14 @@ func TestReviewKeep(t *testing.T) {
 // ledger's parking, which closing's accrual proposals need beside their
 // own, is used by her events in closing, though she has none in ledger;
 // the ledger's and the forecast's reads, which reads and writes both
-// need, are not recorded, and neither is the fetch of e-invoices, which
-// leaves no audit record in its caller's name; only the tax permission
-// is unused.
+// need, are not recorded; the tax permission and the fetch of e-invoices,
+// which audits its request in its caller's name (review:T106a), are
+// unused.
 func TestReviewThroughAnotherContext(t *testing.T) {
 	a := &fakeAPI{}
-	const remove, records = "Remove: tax.return.prepare", "Use not recorded: cash.forecast.read, einvoicing.einvoice.manage, ledger.entry.read"
+	const remove, records = "Remove: einvoicing.einvoice.manage, tax.return.prepare", "Use not recorded: cash.forecast.read, ledger.entry.read"
 	model := llmtest.New(t,
-		llmtest.ToolFn("createRecommendation", rec(closers, "remove_permissions", "Remove: ledger.entry.park, tax.return.prepare\n"+records)),
+		llmtest.ToolFn("createRecommendation", rec(closers, "remove_permissions", "Remove: einvoicing.einvoice.manage, ledger.entry.park, tax.return.prepare\n"+records)),
 		llmtest.ToolFn("createRecommendation", rec(closers, "remove_permissions", remove+"\n"+records+"\nCarla commented on a close.")),
 		llmtest.Final("Recommended removing the tax permission."))
 	res, err := (&accessagent.Agent{LLM: model.Runner(), API: client(t, a)}).Review(context.Background(), "close_reviewer", second)
@@ -293,7 +293,7 @@ func TestReviewThroughAnotherContext(t *testing.T) {
 		"- tax.return.prepare: not used: no holder has an audit event in tax (it is needed by prepareTaxReturn, withdrawTaxReturn)",
 		"- cash.forecast.read: use not recorded",
 		"- ledger.entry.read: use not recorded",
-		"- einvoicing.einvoice.manage: use not recorded",
+		"- einvoicing.einvoice.manage: not used: no holder has an audit event in einvoicing (it is needed by fetchEInvoices)",
 		"For remove_permissions the content starts with the line: " + remove,
 		"The content has the line: " + records,
 	} {
@@ -367,38 +367,6 @@ func TestNever(t *testing.T) {
 		if op.Permission == "identity.access.manage" && op.Method != http.MethodGet && !slices.Contains(accessagent.Never, id) {
 			t.Errorf("%s is an identity write the never list lacks", id)
 		}
-	}
-}
-
-// TestUnaudited: each permission listed as leaving no audit record in
-// its caller's name is one the contract names for an operation that
-// changes something and for no read: the list holds nothing the
-// classification would not otherwise call unused.
-func TestUnaudited(t *testing.T) {
-	ops, err := api.Operations()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, code := range accessagent.Unaudited {
-		t.Run(code, func(t *testing.T) {
-			writes, reads := 0, 0
-			for _, op := range ops {
-				if op.Permission != code && !slices.Contains(op.AlsoPermissions, code) {
-					continue
-				}
-				if op.Method == http.MethodGet || op.Reads {
-					reads++
-				} else {
-					writes++
-				}
-			}
-			if writes == 0 {
-				t.Errorf("writes that need it: got 0, want at least one")
-			}
-			if reads != 0 {
-				t.Errorf("reads that need it: got %d, want 0: a read already makes its use not recorded", reads)
-			}
-		})
 	}
 }
 

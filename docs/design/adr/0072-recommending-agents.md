@@ -332,15 +332,16 @@ A later slice adds its row here and its section under "As built".
   in. It rests on an operation that changes something leaving an audit
   record in its caller's name that carries the context of the
   operation's `x-permission`. Review found that to hold for the
-  contract's operations with one exception: `fetchEInvoices` only starts
+  contract's operations with one exception: `fetchEInvoices` only started
   an operation, and what the fetch records it records as the system, so
-  a holder who fetches every day shows no event. Its permission,
-  `einvoicing.einvoice.manage`, is therefore listed in
-  `accessagent.Unaudited` and classed "use not recorded" until the fetch
-  audits its request (tracked, review:T106a). Nothing enforces the
-  assumption for a new operation: one that audits nothing in its
-  caller's name joins that list, or its permission can be recommended
-  for removal while it is used.
+  a holder who fetched every day showed no event. Its permission,
+  `einvoicing.einvoice.manage`, was listed in `accessagent.Unaudited`
+  and classed "use not recorded" until the fetch audited its request
+  (review:T106a). It now does (`einvoicing.fetch.request`, in the
+  caller's name, on the fetch's Operation), so the list was empty and is
+  removed. Nothing enforces the assumption for a new operation: one that
+  audits nothing in its caller's name must audit its request, or its
+  permission can be recommended for removal while it is used.
 - Its check (`accessagent.review.check`) holds the recommendation to
   that, computed by the run, not judged by the model:
   `remove_permissions` is admitted only when somebody held the role and

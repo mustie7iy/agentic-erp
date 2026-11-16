@@ -2869,29 +2869,31 @@ func (UnimplementedHandler) ExcludeBankStatementLine(ctx context.Context, req *R
 //
 // Fetches, now, the documents the tenant's accredited e-invoicing provider holds for the companies of
 // an `einvoice_provider` connector (ADR-0061 §4, T65a; SAP Document and Reporting Compliance's
-// inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`) and carried out
-// as the workflow `FetchEInvoices`, or in process in a cell without a workflow engine, as a system
-// principal acting for the connector's companies. It lists the documents the provider has not had
-// acknowledged, and records each once per connector and the provider's message id: its bytes kept
-// write-once in object storage under their SHA-256, the document `received` with its company (the
-// connector's company whose participant identifier the provider listed it for; none when it names none
-// of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged;
-// after that commit the provider is told the document is kept (its acknowledgement), and
-// `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement
-// is sent again, so an acknowledgement lost is repaired by the next fetch. A message delivered again
-// under its id with other bytes (T65b) is not recorded again either: the document keeps its first
-// bytes, the legal original, and records the new bytes' SHA-256 as `changed_sha256` with `changed_at`,
-// with an audit record and EInvoiceChanged once per different bytes, so the same changed bytes
-// delivered again change nothing more. Its acknowledgement moves the document's version without an
-// event. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`,
-// `already_recorded`, `changed`: a message found with other bytes) and its `resource` the list of the
-// documents it recorded or found changed (`/v1/e-invoices?fetch_operation_id={id}`; a changed one
-// names the fetch as its `changed_fetch_operation_id`); a message not recorded fails the Operation
-// with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a
-// field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider,
-// the store or the database failed (after five tries in the workflow engine, one in process), which
-// the next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above
-// 10 MiB, not recorded until validation records it refused, T65c), which the next fetch meets again. A
+// inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`), the request
+// audited in the caller's name (`einvoicing.fetch.request`, the Operation its object, with the
+// connector), and carried out as the workflow `FetchEInvoices`, or in process in a cell without a
+// workflow engine, as a system principal acting for the connector's companies. It lists the documents
+// the provider has not had acknowledged, and records each once per connector and the provider's
+// message id: its bytes kept write-once in object storage under their SHA-256, the document `received`
+// with its company (the connector's company whose participant identifier the provider listed it for;
+// none when it names none of them), the fetch's Operation as its `fetch_operation_id`, an audit record
+// and EInvoiceChanged; after that commit the provider is told the document is kept (its
+// acknowledgement), and `acknowledged_at` is set. A document already recorded is not recorded again
+// and its acknowledgement is sent again, so an acknowledgement lost is repaired by the next fetch. A
+// message delivered again under its id with other bytes (T65b) is not recorded again either: the
+// document keeps its first bytes, the legal original, and records the new bytes' SHA-256 as
+// `changed_sha256` with `changed_at`, with an audit record and EInvoiceChanged once per different
+// bytes, so the same changed bytes delivered again change nothing more. Its acknowledgement moves the
+// document's version without an event. When the fetch is done its Operation succeeds with the counts
+// in its `result` (`recorded`, `already_recorded`, `changed`: a message found with other bytes) and
+// its `resource` the list of the documents it recorded or found changed
+// (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its
+// `changed_fetch_operation_id`); a message not recorded fails the Operation with
+// `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field
+// error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the
+// store or the database failed (after five tries in the workflow engine, one in process), which the
+// next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10
+// MiB, not recorded until validation records it refused, T65c), which the next fetch meets again. A
 // provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is
 // not an active `einvoice_provider` connector with credentials that resolve is refused before anything
 // is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409
