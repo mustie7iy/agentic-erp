@@ -29,7 +29,8 @@ import (
 )
 
 // TestEvidenceExporterRefuses: a requester blocked since the request, and
-// another manifest under the export's key, fail the export with their
+// another manifest under the export's key or one naming a file not the
+// export's, fail the export with their
 // code, audited; nothing is published.
 func TestEvidenceExporterRefuses(t *testing.T) {
 	for name, c := range map[string]struct {
@@ -37,12 +38,18 @@ func TestEvidenceExporterRefuses(t *testing.T) {
 		change func(w *audit.EvidenceExporter)
 		want   string
 	}{
-		"more journal lines than an export holds": {before: func(*testing.T, evidenceEnv, string) {},
-			change: func(w *audit.EvidenceExporter) { w.Endpoints.Journal = journal{lines: audit.MaxEvidenceRecords + 1} }, want: "failed audit.evidence_too_large"},
 		"the requester blocked": {before: func(t *testing.T, e evidenceEnv, _ string) {
 			t.Helper()
 			pgtest.Exec(t, `UPDATE identity.principal SET status = 'blocked', version = version + 1 WHERE id = $1`, e.Tenant.Human.ID)
 		}, want: "failed identity.principal_blocked"},
+		"a manifest naming another file": {before: func(t *testing.T, e evidenceEnv, id string) {
+			t.Helper()
+			key := blobstore.Key(e.Tenant.ID, blobstore.KindEvidence, id+"/manifest.json")
+			if err := e.objects.Put(context.Background(), key, []byte(`{"evidence_export_id": "`+id+`", "files": [{"name": "other.jsonl"}]}`),
+				blobstore.PutOptions{}); err != nil {
+				t.Fatal(err)
+			}
+		}, want: "failed audit.evidence_changed"},
 		"another manifest under its key": {before: func(t *testing.T, e evidenceEnv, id string) {
 			t.Helper()
 			key := blobstore.Key(e.Tenant.ID, blobstore.KindEvidence, id+"/manifest.json")
@@ -95,10 +102,15 @@ func TestEvidenceExporterWaits(t *testing.T) {
 		"the store not returning the manifest it holds": func(w *audit.EvidenceExporter) {
 			w.Endpoints.Objects = evidenceStore{Store: e.objects, put: blobstore.ErrExists, suffix: "manifest.json", get: down}
 		},
-		"no company":                    func(w *audit.EvidenceExporter) { w.Endpoints.LegalEntities = companies{} },
-		"the company not read":          func(w *audit.EvidenceExporter) { w.Endpoints.LegalEntities = companies{err: down} },
-		"the journal not read":          func(w *audit.EvidenceExporter) { w.Endpoints.Journal = journal{err: down} },
-		"the journal lines not counted": func(w *audit.EvidenceExporter) { w.Endpoints.Journal = journal{countErr: down} },
+		"the store refusing a file's last part": func(w *audit.EvidenceExporter) {
+			w.Endpoints.Objects = evidenceStore{Store: e.objects, put: down, suffix: "/approval_decisions."}
+		},
+		"the store refusing a part as it fills": func(w *audit.EvidenceExporter) {
+			w.Endpoints.Objects, w.Endpoints.PartRecords = evidenceStore{Store: e.objects, put: down, suffix: "/approval_decisions."}, 1
+		},
+		"no company":           func(w *audit.EvidenceExporter) { w.Endpoints.LegalEntities = companies{} },
+		"the company not read": func(w *audit.EvidenceExporter) { w.Endpoints.LegalEntities = companies{err: down} },
+		"the journal not read": func(w *audit.EvidenceExporter) { w.Endpoints.Journal = journal{err: down} },
 		"the approvals not read": func(w *audit.EvidenceExporter) {
 			w.Endpoints.Approvals = approvalsDown{}
 		},
@@ -129,19 +141,11 @@ func (x companies) Entity(context.Context, uuid.UUID) (tenancy.Entity, bool, err
 	return tenancy.Entity{}, false, x.err
 }
 
-// journal is a ledger whose journal cannot be read, or whose lines are
-// counted as lines, or not counted.
-type journal struct {
-	err, countErr error
-	lines         int
-}
+// journal is a ledger whose journal cannot be read.
+type journal struct{ err error }
 
 func (x journal) EntriesBetween(context.Context, uuid.UUID, time.Time, time.Time, func(ledger.ArchivedEntry) error) error {
 	return x.err
-}
-
-func (x journal) LinesBetween(context.Context, uuid.UUID, time.Time, time.Time) (int, error) {
-	return x.lines, x.countErr
 }
 
 // approvalsDown is an approvals context that cannot be read.
@@ -377,10 +381,6 @@ func TestEvidenceExportBrokenChain(t *testing.T) {
 // company asked for.
 type unsourced struct{}
 
-func (unsourced) LinesBetween(context.Context, uuid.UUID, time.Time, time.Time) (int, error) {
-	return 2, nil
-}
-
 func (unsourced) EntriesBetween(_ context.Context, _ uuid.UUID, _, _ time.Time, fn func(ledger.ArchivedEntry) error) error {
 	return fn(ledger.ArchivedEntry{ID: uuid.Must(uuid.NewV7()), Currency: "EUR", LocalCurrency: "EUR", GroupCurrency: "EUR"})
 }
@@ -403,9 +403,6 @@ func TestEvidenceManifestWithoutAFile(t *testing.T) {
 	}
 	for _, name := range []string{"audit_events.jsonl", "journal_entries.jsonl"} {
 		e.as(t).Problem(409, "audit.evidence_changed", "GET", "/v1/audit-evidence-exports/"+id+"/files/"+name, "", "")
-	}
-	if _, err := (ledger.Archive{}).LinesBetween(context.Background(), e.DE, time.Now(), time.Now()); err == nil {
-		t.Error("journal lines outside a unit of work: got nil error")
 	}
 	if _, err := (approvals.Evidence{}).About(context.Background(), nil); err == nil {
 		t.Error("approval requests outside a unit of work: got nil error")

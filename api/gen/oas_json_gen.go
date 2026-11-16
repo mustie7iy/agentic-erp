@@ -29691,6 +29691,12 @@ func (s *AuditEvidenceFile) encodeFields(e *jx.Encoder) {
 		e.Str(s.Name)
 	}
 	{
+		if s.Part.Set {
+			e.FieldStart("part")
+			s.Part.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("sha256")
 		e.Str(s.SHA256)
 	}
@@ -29704,11 +29710,12 @@ func (s *AuditEvidenceFile) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfAuditEvidenceFile = [4]string{
+var jsonFieldsNameOfAuditEvidenceFile = [5]string{
 	0: "name",
-	1: "sha256",
-	2: "size_bytes",
-	3: "records",
+	1: "part",
+	2: "sha256",
+	3: "size_bytes",
+	4: "records",
 }
 
 // Decode decodes AuditEvidenceFile from json.
@@ -29732,8 +29739,18 @@ func (s *AuditEvidenceFile) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"name\"")
 			}
+		case "part":
+			if err := func() error {
+				s.Part.Reset()
+				if err := s.Part.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"part\"")
+			}
 		case "sha256":
-			requiredBitSet[0] |= 1 << 1
+			requiredBitSet[0] |= 1 << 2
 			if err := func() error {
 				v, err := d.Str()
 				s.SHA256 = string(v)
@@ -29745,7 +29762,7 @@ func (s *AuditEvidenceFile) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"sha256\"")
 			}
 		case "size_bytes":
-			requiredBitSet[0] |= 1 << 2
+			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
 				v, err := d.Int64()
 				s.SizeBytes = int64(v)
@@ -29757,7 +29774,7 @@ func (s *AuditEvidenceFile) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"size_bytes\"")
 			}
 		case "records":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				v, err := d.Int32()
 				s.Records = int32(v)
@@ -29778,7 +29795,7 @@ func (s *AuditEvidenceFile) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00001111,
+		0b00011101,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

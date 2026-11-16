@@ -1,7 +1,7 @@
 package audit
 
 import (
-	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -16,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
+	"github.com/mustie7iy/agentic-erp/internal/platform/jsonl"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -33,14 +34,29 @@ const (
 
 var fileNames = []string{auditEventsName, journalEntriesName, decisionsName}
 
-// fileKey is the name in the store of an export's file: under the
-// export's id, named by its content's SHA-256 too, so that a round run
-// again after a lost commit, which may read more of a period still open,
-// writes its files beside the first round's instead of over them; the
-// manifest names the ones it holds.
+// fileKey is the name in the store of an export's file or a part of one:
+// under the export's id, by the file it belongs to and named by its
+// content's SHA-256 too, so that a round run again after a lost commit,
+// which may read more of a period still open, writes its files beside the
+// first round's instead of over them, and a part's key needs no number;
+// the manifest names the ones it holds.
 func fileKey(export uuid.UUID, name string, sum [32]byte) string {
-	stem, ext, _ := strings.Cut(name, ".")
-	return export.String() + "/" + stem + "." + hex.EncodeToString(sum[:]) + "." + ext
+	stem, _, _ := strings.Cut(name, ".")
+	return export.String() + "/" + stem + "." + hex.EncodeToString(sum[:]) + ".jsonl"
+}
+
+// fileOf is the file a file's or a part's name belongs to:
+// audit_events.part-2.jsonl is audit_events.jsonl's.
+func fileOf(name string) string {
+	stem, _, _ := strings.Cut(name, ".")
+	return stem + ".jsonl"
+}
+
+// partName is the name of the n-th part, from 1, of a file written in
+// parts.
+func partName(file string, n int) string {
+	stem, _, _ := strings.Cut(file, ".")
+	return fmt.Sprintf("%s.part-%d.jsonl", stem, n)
 }
 
 // manifestKey is where the export's manifest is kept, once.
@@ -120,84 +136,74 @@ type evidenceManifest struct {
 	Chain               manifestChain     `json:"chain"`
 }
 
-// evidence is an export's files and manifest as built.
-type evidence struct {
-	files    map[string][]byte
-	manifest []byte
+// The most records, and bytes, a part of an export's file holds
+// (ADR-0011 As built, review:batch75): a file is built and written to the
+// store a part at a time, so an export of any size holds one part of each
+// file in memory, and a part is downloaded whole as a file of its own. A
+// file that fits one part is that part, under the file's name.
+const (
+	EvidencePartRecords = 50_000
+	EvidencePartBytes   = 32 << 20
+)
+
+// fileParts writes one of an export's files in parts, each kept in the
+// store as it fills, and lists them as the manifest names them.
+type fileParts struct {
+	name  string
+	files []ExportFile
+	w     *jsonl.Writer
 }
 
-// lines encodes records as JSON Lines.
-type lines struct {
-	buf bytes.Buffer
-	enc *json.Encoder
-	n   int32
-}
-
-func newLines() *lines {
-	l := &lines{}
-	l.enc = json.NewEncoder(&l.buf)
-	l.enc.SetEscapeHTML(false)
-	return l
-}
-
-func (l *lines) add(v any) {
-	l.n++
-	_ = l.enc.Encode(v) // every record is strings, numbers, ids and JSON the database or json.Marshal gave: it always encodes
-}
-
-// MaxEvidenceRecords is the most audit events, and apart from them the
-// most journal lines, an export holds: its files are built in memory and
-// downloaded whole, so a larger export is refused rather than let fill a
-// replica's memory and fail on every replica that claims it again
-// (ADR-0011 As built; at about 500 bytes a record, some 100 MB a file).
-const MaxEvidenceRecords = 200_000
-
-// bounded refuses an export whose period holds more audit events, or
-// whose companies' entries of the period more lines, than an export
-// holds, before anything is read into memory.
-func (e *Endpoints) bounded(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, x Export) error {
-	var events int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND occurred_at >= $2 AND occurred_at < $3`,
-		tenant, x.From.UTC(), x.To.UTC().AddDate(0, 0, 1)).Scan(&events); err != nil {
-		return fmt.Errorf("audit: count the audit events of evidence export %s: %w", x.ID, err)
-	}
-	lines := 0
-	for _, c := range x.Companies {
-		n, err := e.Journal.LinesBetween(ctx, c.ID, x.From, x.To)
-		if err != nil {
-			return fmt.Errorf("audit: count the journal lines of evidence export %s: %w", x.ID, err)
+// parts starts the export's file of the name.
+func (e *Endpoints) parts(ctx context.Context, tenant, export uuid.UUID, name string) *fileParts {
+	f := &fileParts{name: name}
+	f.w = jsonl.New(cmp.Or(e.PartRecords, EvidencePartRecords), EvidencePartBytes, func(content []byte, records int32) error {
+		sum := sha256.Sum256(content)
+		if err := e.keep(ctx, blobstore.Key(tenant, blobstore.KindEvidence, fileKey(export, name, sum)), content); err != nil {
+			return err
 		}
-		lines += n
-	}
-	if events > MaxEvidenceRecords || lines > MaxEvidenceRecords {
-		return problem.Unprocessable("audit.evidence_too_large", fmt.Sprintf("The period holds %d audit events and the companies' entries %d journal lines; "+
-			"an export holds at most %d of each: ask for a shorter period or fewer companies.", events, lines, MaxEvidenceRecords))
-	}
-	return nil
+		f.files = append(f.files, ExportFile{Name: name, SHA256: hex.EncodeToString(sum[:]), SizeBytes: int64(len(content)), Records: records})
+		return nil
+	})
+	return f
 }
 
-// build writes the export's files and manifest: the chain's verification
-// to its head, the period's audit events up to that head, the companies'
-// journal entries and the decisions on their source documents.
-func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, x Export) (evidence, error) {
+// close writes the file's last part and returns its parts: one, under the
+// file's name, or several, each named and numbered as a part.
+func (f *fileParts) close() ([]ExportFile, error) {
+	if err := f.w.Close(); err != nil {
+		return nil, err
+	}
+	if len(f.files) > 1 {
+		for i := range f.files {
+			f.files[i].Name, f.files[i].Part = partName(f.name, i+1), int32(i+1) // #nosec G115 -- a part number, at most a file's records
+		}
+	}
+	return f.files, nil
+}
+
+// build writes the export's files, a part at a time, and returns its
+// manifest: the chain's verification to its head, the period's audit
+// events up to that head, the companies' journal entries and the
+// decisions on their source documents.
+func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, x Export) ([]byte, error) {
 	res, anchors, err := verified(ctx, tx, e.Objects, tenant, 1, 0)
 	if err != nil {
-		return evidence{}, fmt.Errorf("audit: verify the chain for evidence export %s: %w", x.ID, err)
+		return nil, fmt.Errorf("audit: verify the chain for evidence export %s: %w", x.ID, err)
 	}
 	from, before := x.From.UTC(), x.To.UTC().AddDate(0, 0, 1)
-	events, err := periodEvents(ctx, tx, tenant, from, before, res.LastSeq, x.WithClientAddresses)
-	if err != nil {
-		return evidence{}, fmt.Errorf("audit: evidence export %s: %w", x.ID, err)
+	events, entries, decisions := e.parts(ctx, tenant, x.ID, auditEventsName), e.parts(ctx, tenant, x.ID, journalEntriesName),
+		e.parts(ctx, tenant, x.ID, decisionsName)
+	if err := periodEvents(ctx, tx, tenant, from, before, res.LastSeq, x.WithClientAddresses, events.w); err != nil {
+		return nil, fmt.Errorf("audit: evidence export %s: %w", x.ID, err)
 	}
-	entries, sources, err := e.journal(ctx, tx, x)
+	sources, err := e.journal(ctx, tx, x, entries.w)
 	if err != nil {
-		return evidence{}, fmt.Errorf("audit: evidence export %s: %w", x.ID, err)
+		return nil, fmt.Errorf("audit: evidence export %s: %w", x.ID, err)
 	}
-	decisions, err := e.decisions(ctx, sources)
-	if err != nil {
-		return evidence{}, fmt.Errorf("audit: evidence export %s: %w", x.ID, err)
+	if err := e.decisions(ctx, sources, decisions.w); err != nil {
+		return nil, fmt.Errorf("audit: evidence export %s: %w", x.ID, err)
 	}
-	ev := evidence{files: map[string][]byte{}}
 	m := evidenceManifest{Format: EvidenceFormat, EvidenceExportID: x.ID, From: x.From.Format(time.DateOnly), To: x.To.Format(time.DateOnly),
 		AuditEventsFrom: from.Format(time.RFC3339), AuditEventsBefore: before.Format(time.RFC3339), WithClientAddresses: x.WithClientAddresses,
 		RequestedBy: x.RequestedBy, RequestedAt: x.CreatedAt.UTC().Format(time.RFC3339Nano),
@@ -206,23 +212,24 @@ func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, x Ex
 	for _, c := range x.Companies {
 		m.Companies = append(m.Companies, manifestCompany{LegalEntityID: c.ID, CompanyCode: c.Code})
 	}
-	for i, l := range []*lines{events, entries, decisions} {
-		sum := sha256.Sum256(l.buf.Bytes())
-		ev.files[fileNames[i]] = l.buf.Bytes()
-		m.Files = append(m.Files, ExportFile{Name: fileNames[i], SHA256: hex.EncodeToString(sum[:]), SizeBytes: int64(l.buf.Len()), Records: l.n})
+	for _, f := range []*fileParts{events, entries, decisions} {
+		files, err := f.close()
+		if err != nil {
+			return nil, fmt.Errorf("audit: evidence export %s: %w", x.ID, err)
+		}
+		m.Files = append(m.Files, files...)
 	}
-	ev.manifest, _ = json.MarshalIndent(m, "", "  ") // strings, numbers, booleans and ids: it always marshals
-	return ev, nil
+	manifest, _ := json.MarshalIndent(m, "", "  ") // strings, numbers, booleans and ids: it always marshals
+	return manifest, nil
 }
 
 // periodEvents is the tenant's audit events that occurred from one
 // instant to before another, up to the chain's head, by sequence number.
-func periodEvents(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, from, before time.Time, head int64, addresses bool) (*lines, error) {
+func periodEvents(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, from, before time.Time, head int64, addresses bool, out *jsonl.Writer) error {
 	rows, _ := tx.Query(ctx, `SELECT seq, occurred_at, actor_id, actor_kind, action, object_type, object_id, outcome, detail::text, trace_id,
 			CASE WHEN $5::boolean THEN host(client_address) END
 		FROM audit.audit_event WHERE tenant_id = $1 AND occurred_at >= $2 AND occurred_at < $3 AND seq <= $4
 		ORDER BY seq`, tenant, from, before, head, addresses)
-	out := newLines()
 	var (
 		r       eventRecord
 		at      time.Time
@@ -235,35 +242,33 @@ func periodEvents(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, from, before
 			if addresses {
 				r.ClientAddress, _ = json.Marshal(address) // a string or nil: it always marshals
 			}
-			out.add(r)
-			return nil
+			return out.Add(r)
 		})
 	if err != nil {
-		return nil, fmt.Errorf("audit events from %s: %w", from.Format(time.DateOnly), err)
+		return fmt.Errorf("audit events from %s: %w", from.Format(time.DateOnly), err)
 	}
-	return out, nil
+	return nil
 }
 
-// journal is the companies' journal entries of the period, company by
-// company in the export's order, and the entries of each source
-// document, in the order the documents first appear.
-func (e *Endpoints) journal(ctx context.Context, tx pgx.Tx, x Export) (*lines, sourceDocs, error) {
+// journal writes the companies' journal entries of the period, company by
+// company in the export's order, and returns the entries of each source
+// document, in the order the documents first appear: ids only, which the
+// decisions are read by.
+func (e *Endpoints) journal(ctx context.Context, tx pgx.Tx, x Export, out *jsonl.Writer) (sourceDocs, error) {
 	exps, err := currency.Load(ctx, tx)
 	if err != nil {
-		return nil, sourceDocs{}, fmt.Errorf("journal entries: %w", err)
+		return sourceDocs{}, fmt.Errorf("journal entries: %w", err)
 	}
-	out := newLines()
 	sources := sourceDocs{entries: map[uuid.UUID][]uuid.UUID{}}
 	for _, c := range x.Companies {
 		if err := e.Journal.EntriesBetween(ctx, c.ID, x.From, x.To, func(entry ledger.ArchivedEntry) error {
 			sources.add(entry)
-			out.add(entry.Record(exps))
-			return nil
+			return out.Add(entry.Record(exps))
 		}); err != nil {
-			return nil, sourceDocs{}, fmt.Errorf("journal entries of company %s: %w", c.Code, err)
+			return sourceDocs{}, fmt.Errorf("journal entries of company %s: %w", c.Code, err)
 		}
 	}
-	return out, sources, nil
+	return sources, nil
 }
 
 // sourceDocs are the source documents of the exported entries, in the
@@ -287,14 +292,13 @@ func (s *sourceDocs) add(entry ledger.ArchivedEntry) {
 // decisions is the decisions on the approval requests about the source
 // documents, request by request in the order they were raised, each
 // request's in the order they were taken, with who decided.
-func (e *Endpoints) decisions(ctx context.Context, sources sourceDocs) (*lines, error) {
-	out := newLines()
+func (e *Endpoints) decisions(ctx context.Context, sources sourceDocs, out *jsonl.Writer) error {
 	if len(sources.ids) == 0 {
-		return out, nil
+		return nil
 	}
 	requests, err := e.Approvals.About(ctx, sources.ids)
 	if err != nil {
-		return nil, fmt.Errorf("approval decisions: %w", err)
+		return fmt.Errorf("approval decisions: %w", err)
 	}
 	var deciders []uuid.UUID
 	for _, r := range requests {
@@ -304,30 +308,38 @@ func (e *Endpoints) decisions(ctx context.Context, sources sourceDocs) (*lines, 
 	}
 	names, err := e.People.PersonNames(ctx, deciders)
 	if err != nil {
-		return nil, fmt.Errorf("approval decisions: who decided: %w", err)
+		return fmt.Errorf("approval decisions: who decided: %w", err)
 	}
 	for _, r := range requests {
 		for _, d := range r.Decisions {
-			out.add(decisionRecord{ApprovalRequestID: r.ID, ObjectType: r.ObjectType, ObjectID: r.ObjectID, JournalEntryIDs: sources.entries[r.ObjectID],
+			if err := out.Add(decisionRecord{ApprovalRequestID: r.ID, ObjectType: r.ObjectType, ObjectID: r.ObjectID, JournalEntryIDs: sources.entries[r.ObjectID],
 				Title: r.Title, RequestStatus: r.Status, DecisionID: d.ID, StepNo: d.StepNo, Decision: d.Decision, DecidedBy: d.ActorID,
-				DecidedByName: names[d.ActorID], Comment: d.Comment, DecidedAt: d.DecidedAt.UTC().Format(time.RFC3339Nano)})
-		}
-	}
-	return out, nil
-}
-
-// fileSum is the SHA-256 the manifest names for the file.
-func fileSum(manifest []byte, name string) ([32]byte, error) {
-	var m evidenceManifest
-	_ = json.Unmarshal(manifest, &m) // the export's manifest, by its hash: the exporter read it before it completed the export; a manifest naming no file names none
-	for _, f := range m.Files {
-		var sum [32]byte
-		if f.Name == name {
-			if b, err := hex.DecodeString(f.SHA256); err == nil && len(b) == len(sum) {
-				copy(sum[:], b)
-				return sum, nil
+				DecidedByName: names[d.ActorID], Comment: d.Comment, DecidedAt: d.DecidedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
+				return err
 			}
 		}
 	}
-	return [32]byte{}, problem.Conflict("audit.evidence_changed", "The evidence export's manifest names no file "+name+" with its SHA-256.")
+	return nil
+}
+
+// fileSum is the SHA-256 the manifest names for the file or part. A name
+// the manifest does not list is not one of the export's files (404); one
+// it lists without a SHA-256 is not handed out unchecked (409).
+func fileSum(manifest []byte, name string) ([32]byte, error) {
+	var m evidenceManifest
+	_ = json.Unmarshal(manifest, &m) // the export's manifest, by its hash: the exporter read it before it completed the export; a manifest naming no file names none
+	var names []string
+	for _, f := range m.Files {
+		names = append(names, f.Name)
+		if f.Name != name {
+			continue
+		}
+		var sum [32]byte
+		if b, err := hex.DecodeString(f.SHA256); err == nil && len(b) == len(sum) {
+			copy(sum[:], b)
+			return sum, nil
+		}
+		return [32]byte{}, problem.Conflict("audit.evidence_changed", "The evidence export's manifest names no file "+name+" with its SHA-256.")
+	}
+	return [32]byte{}, problem.NotFound("An evidence export has no file " + name + "; its files are " + manifestName + " and " + strings.Join(names, ", ") + ".")
 }

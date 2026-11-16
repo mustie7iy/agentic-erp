@@ -9857,9 +9857,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "An evidence export cannot stream beyond its 200,000-row cap: an auditor whose company and period hold more rows is refused instead of served in parts, so the export has to be split by hand into periods (found in batch 75's integration).",
-        "r": "internal/audit evidence export · audit.evidence_export · GET /v1/audit-evidence-exports/{id}/file · ADR-0011 As built",
+        "r": "internal/audit evidence export · audit.evidence_export · GET /v1/audit-evidence-exports/{id}/file · ADR-0011 As built · files written and served in parts (internal/platform/jsonl, AuditEvidenceFile.part) · audit.evidence_too_large removed",
         "src": "review:batch75",
         "c": []
        },

@@ -29758,7 +29758,7 @@ paths:
       tags:
         - audit
       summary: Request an audit evidence export
-      description: "Requests the audit evidence of companies and a period (ADR-0011 As built, T101a), written by the evidence exporter in the background to object storage as files with a manifest (`getAuditEvidenceExport` then shows it `completed`, or `failed` with the problem code that stopped it): `audit_events.jsonl`, the tenant's audit events that occurred in the period (from `from` at 00:00 UTC to the end of `to` in UTC) up to the chain's head when the exporter read it, their details as stored and, only when the requester holds `audit.event.read` (the permission that reads them on `listAuditEvents`), their client addresses (`with_client_addresses`); `journal_entries.jsonl`, the journal entries of the companies posted in the period, of every ledger, with their lines; `approval_decisions.jsonl`, the decisions on the approval requests about those entries' source documents, with who decided; and `manifest.json`, each file's record count and SHA-256 and the result of verifying the audit chain from its first event to that head against its hashes and anchors. The audit trail is the tenant's (one chain per tenant), not a company's. The export covers the companies asked for that the caller may act in, in the order of their codes; when it covers none, 422 `request.validation_failed` names `legal_entity_ids`. The period is one day to 371 days, `to` not before `from` (422 `request.validation_failed`). Each request is a new export. The exporter refuses a requester blocked or deprovisioned since (the export fails with `identity.principal_blocked`), and a period whose audit events, or whose companies' journal lines, number more than 200,000 (`audit.evidence_too_large`: the files are built and downloaded whole). 503 while the server has no object storage to write the files to. Audited (`audit.evidence_export.request`); the completion is audited and published as AuditEvidenceExported. Human-only (`x-agent: false`)."
+      description: "Requests the audit evidence of companies and a period (ADR-0011 As built, T101a), written by the evidence exporter in the background to object storage as files with a manifest (`getAuditEvidenceExport` then shows it `completed`, or `failed` with the problem code that stopped it): `audit_events.jsonl`, the tenant's audit events that occurred in the period (from `from` at 00:00 UTC to the end of `to` in UTC) up to the chain's head when the exporter read it, their details as stored and, only when the requester holds `audit.event.read` (the permission that reads them on `listAuditEvents`), their client addresses (`with_client_addresses`); `journal_entries.jsonl`, the journal entries of the companies posted in the period, of every ledger, with their lines; `approval_decisions.jsonl`, the decisions on the approval requests about those entries' source documents, with who decided; and `manifest.json`, each file's record count and SHA-256 and the result of verifying the audit chain from its first event to that head against its hashes and anchors. The audit trail is the tenant's (one chain per tenant), not a company's. The export covers the companies asked for that the caller may act in, in the order of their codes; when it covers none, 422 `request.validation_failed` names `legal_entity_ids`. The period is one day to 371 days, `to` not before `from` (422 `request.validation_failed`). Each request is a new export. The exporter refuses a requester blocked or deprovisioned since (the export fails with `identity.principal_blocked`). A file of more than 50,000 records (or 32 MiB) is written and served in parts, each listed in `files` with its `part` number, so an export of any size completes; a file within one part keeps its name. 503 while the server has no object storage to write the files to. Audited (`audit.evidence_export.request`); the completion is audited and published as AuditEvidenceExported. Human-only (`x-agent: false`)."
       x-permission: audit.evidence.export
       x-agent: false
       x-problem-codes:
@@ -29881,7 +29881,7 @@ paths:
       tags:
         - audit
       summary: Download a file of an audit evidence export
-      description: "A file of a completed audit evidence export (T101a), byte for byte as the exporter wrote it to object storage: `manifest.json` (JSON), or one of the files it names, `audit_events.jsonl`, `journal_entries.jsonl` or `approval_decisions.jsonl` (JSON Lines, one record per line, in the form ADR-0011's As built documents). The manifest's SHA-256 is the export's `manifest_sha256`, and each other file's is the one the manifest names; both are checked before the file is handed out (409 `audit.evidence_changed` when the stored bytes no longer match). An export not completed has no files (409 `audit.evidence_not_completed`); another name is not found. The audit events of an export made `with_client_addresses` hold people's client addresses, so that file is handed only to a caller who holds `audit.event.read` too (403 `audit.client_addresses_withheld` otherwise). Human-only (`x-agent: false`). 503 while the server has no object storage or the store does not answer. An export covering a company the caller cannot act in is not found."
+      description: "A file of a completed audit evidence export (T101a), byte for byte as the exporter wrote it to object storage: `manifest.json` (JSON), or one of the files it names, `audit_events.jsonl`, `journal_entries.jsonl` or `approval_decisions.jsonl`, or a part of one written in parts (`audit_events.part-2.jsonl`; JSON Lines, one record per line, in the form ADR-0011's As built documents). The manifest's SHA-256 is the export's `manifest_sha256`, and each other file's is the one the manifest names; both are checked before the file is handed out (409 `audit.evidence_changed` when the stored bytes no longer match). An export not completed has no files (409 `audit.evidence_not_completed`); another name is not found. The audit events of an export made `with_client_addresses` hold people's client addresses, so that file, and each of its parts, is handed only to a caller who holds `audit.event.read` too (403 `audit.client_addresses_withheld` otherwise). Human-only (`x-agent: false`). 503 while the server has no object storage or the store does not answer. An export covering a company the caller cannot act in is not found."
       x-permission: audit.evidence.export
       x-agent: false
       x-problem-codes:
@@ -29893,7 +29893,7 @@ paths:
         - name: name
           in: path
           required: true
-          description: "The file's name: `manifest.json`, `audit_events.jsonl`, `journal_entries.jsonl` or `approval_decisions.jsonl`."
+          description: "The file's name: `manifest.json`, `audit_events.jsonl`, `journal_entries.jsonl` or `approval_decisions.jsonl`, or a part's as `files` lists it."
           schema:
             type: string
             minLength: 1
@@ -62923,7 +62923,7 @@ components:
         files:
           type: array
           items: {$ref: "#/components/schemas/AuditEvidenceFile"}
-          description: "Completed: the files the manifest names, in its order (`GET /v1/audit-evidence-exports/{id}/files/{name}` downloads each, and `manifest.json`); otherwise empty."
+          description: "Completed: the files the manifest names, in its order, a file of more records than a part holds as its parts in their order (`GET /v1/audit-evidence-exports/{id}/files/{name}` downloads each, and `manifest.json`); otherwise empty."
           readOnly: true
         manifest_sha256: {type: string, pattern: '^[0-9a-f]{64}$', description: "Completed: the SHA-256 of `manifest.json`, in hexadecimal.", readOnly: true}
         audit_event_count: {type: integer, format: int32, minimum: 0, description: "Completed: the audit events exported.", readOnly: true}
@@ -62931,7 +62931,7 @@ components:
         approval_decision_count: {type: integer, format: int32, minimum: 0, description: "Completed: the approval decisions exported.", readOnly: true}
         chain:
           $ref: "#/components/schemas/AuditEvidenceChain"
-        failure_code: {type: string, description: "Failed: the problem code that stopped the export (`identity.principal_blocked`, `audit.evidence_too_large` when the period holds more than 200,000 audit events or journal lines, `audit.evidence_changed` when the file store holds other bytes under the export's manifest).", readOnly: true}
+        failure_code: {type: string, description: "Failed: the problem code that stopped the export (`identity.principal_blocked`, `audit.evidence_changed` when the file store holds other bytes under the export's manifest; `audit.evidence_too_large` on an export failed before files were written in parts, when it held more than 200,000 audit events or journal lines).", readOnly: true}
         completed_at: {type: string, format: date-time, description: "When the exporter completed it.", readOnly: true}
         requested_by: {type: string, format: uuid, description: "Who asked for the export.", readOnly: true}
         requested_by_name: {type: string, description: "Their name, as the identity context gives it now.", readOnly: true}
@@ -62969,11 +62969,12 @@ components:
         company_code: {type: string, description: "Its code.", readOnly: true}
     AuditEvidenceFile:
       type: object
-      description: "A file of a completed evidence export, as its manifest names it."
+      description: "A file of a completed evidence export, or a part of one, as its manifest names it."
       required: [name, sha256, size_bytes, records]
       readOnly: true
       properties:
-        name: {type: string, description: "`audit_events.jsonl`, `journal_entries.jsonl` or `approval_decisions.jsonl`.", readOnly: true}
+        name: {type: string, description: "`audit_events.jsonl`, `journal_entries.jsonl` or `approval_decisions.jsonl`; a part of one written in parts, `<file>.part-<n>.jsonl` (`audit_events.part-2.jsonl`).", readOnly: true}
+        part: {type: integer, format: int32, minimum: 1, description: "A part of a file written in parts (one of more than 50,000 records or 32 MiB): its number, from 1; the parts' records, in this order, are the file's. Absent on a file within one part.", readOnly: true}
         sha256: {type: string, pattern: '^[0-9a-f]{64}$', description: "The SHA-256 of the file's content, in hexadecimal.", readOnly: true}
         size_bytes: {type: integer, format: int64, minimum: 0, description: "The file's size in bytes.", readOnly: true}
         records: {type: integer, format: int32, minimum: 0, description: "Its lines: one record each.", readOnly: true}

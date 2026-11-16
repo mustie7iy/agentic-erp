@@ -13128,11 +13128,11 @@ func (s *Server) handleCreateAssetTransferRequest(args [0]string, argsEscaped bo
 // none, 422 `request.validation_failed` names `legal_entity_ids`. The period is one day to 371 days,
 // `to` not before `from` (422 `request.validation_failed`). Each request is a new export. The exporter
 // refuses a requester blocked or deprovisioned since (the export fails with
-// `identity.principal_blocked`), and a period whose audit events, or whose companies' journal lines,
-// number more than 200,000 (`audit.evidence_too_large`: the files are built and downloaded whole). 503
-// while the server has no object storage to write the files to. Audited
-// (`audit.evidence_export.request`); the completion is audited and published as AuditEvidenceExported.
-// Human-only (`x-agent: false`).
+// `identity.principal_blocked`). A file of more than 50,000 records (or 32 MiB) is written and served
+// in parts, each listed in `files` with its `part` number, so an export of any size completes; a file
+// within one part keeps its name. 503 while the server has no object storage to write the files to.
+// Audited (`audit.evidence_export.request`); the completion is audited and published as
+// AuditEvidenceExported. Human-only (`x-agent: false`).
 //
 // POST /v1/audit-evidence-exports
 func (s *Server) handleCreateAuditEvidenceExportRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -36037,15 +36037,16 @@ func (s *Server) handleGetAuditEvidenceExportRequest(args [1]string, argsEscaped
 //
 // A file of a completed audit evidence export (T101a), byte for byte as the exporter wrote it to
 // object storage: `manifest.json` (JSON), or one of the files it names, `audit_events.jsonl`,
-// `journal_entries.jsonl` or `approval_decisions.jsonl` (JSON Lines, one record per line, in the form
-// ADR-0011's As built documents). The manifest's SHA-256 is the export's `manifest_sha256`, and each
-// other file's is the one the manifest names; both are checked before the file is handed out (409
-// `audit.evidence_changed` when the stored bytes no longer match). An export not completed has no
-// files (409 `audit.evidence_not_completed`); another name is not found. The audit events of an export
-// made `with_client_addresses` hold people's client addresses, so that file is handed only to a caller
-// who holds `audit.event.read` too (403 `audit.client_addresses_withheld` otherwise). Human-only
-// (`x-agent: false`). 503 while the server has no object storage or the store does not answer. An
-// export covering a company the caller cannot act in is not found.
+// `journal_entries.jsonl` or `approval_decisions.jsonl`, or a part of one written in parts
+// (`audit_events.part-2.jsonl`; JSON Lines, one record per line, in the form ADR-0011's As built
+// documents). The manifest's SHA-256 is the export's `manifest_sha256`, and each other file's is the
+// one the manifest names; both are checked before the file is handed out (409 `audit.evidence_changed`
+// when the stored bytes no longer match). An export not completed has no files (409
+// `audit.evidence_not_completed`); another name is not found. The audit events of an export made
+// `with_client_addresses` hold people's client addresses, so that file, and each of its parts, is
+// handed only to a caller who holds `audit.event.read` too (403 `audit.client_addresses_withheld`
+// otherwise). Human-only (`x-agent: false`). 503 while the server has no object storage or the store
+// does not answer. An export covering a company the caller cannot act in is not found.
 //
 // GET /v1/audit-evidence-exports/{id}/files/{name}
 func (s *Server) handleGetAuditEvidenceExportFileRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

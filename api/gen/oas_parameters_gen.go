@@ -23401,7 +23401,7 @@ type GetAuditEvidenceExportFileParams struct {
 	// Resource identifier (UUIDv7).
 	ID uuid.UUID
 	// The file's name: `manifest.json`, `audit_events.jsonl`, `journal_entries.jsonl` or
-	// `approval_decisions.jsonl`.
+	// `approval_decisions.jsonl`, or a part's as `files` lists it.
 	Name string
 }
 

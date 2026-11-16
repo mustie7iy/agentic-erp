@@ -64,7 +64,11 @@ func exportToAPI(x Export) gen.AuditEvidenceExport {
 		out.Companies[i] = gen.AuditEvidenceCompany{LegalEntityID: c.ID, CompanyCode: c.Code}
 	}
 	for _, f := range x.Files {
-		out.Files = append(out.Files, gen.AuditEvidenceFile{Name: f.Name, SHA256: f.SHA256, SizeBytes: f.SizeBytes, Records: f.Records})
+		file := gen.AuditEvidenceFile{Name: f.Name, SHA256: f.SHA256, SizeBytes: f.SizeBytes, Records: f.Records}
+		if f.Part > 0 {
+			file.Part.SetTo(f.Part)
+		}
+		out.Files = append(out.Files, file)
 	}
 	if x.ManifestKey != nil { // a completed export: the database check sets every figure with the key
 		out.ManifestSHA256.SetTo(hexOf(x.ManifestSHA256))

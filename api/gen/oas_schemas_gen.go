@@ -12727,9 +12727,9 @@ type AuditEvidenceExport struct {
 	// `queued` (until the exporter writes its files), `completed` or `failed`. Open enumeration: clients
 	// must accept and preserve values not listed here; values may be added within /v1.
 	Status string `json:"status"`
-	// Completed: the files the manifest names, in its order
-	// (`GET /v1/audit-evidence-exports/{id}/files/{name}` downloads each, and `manifest.json`); otherwise
-	// empty.
+	// Completed: the files the manifest names, in its order, a file of more records than a part holds as
+	// its parts in their order (`GET /v1/audit-evidence-exports/{id}/files/{name}` downloads each, and
+	// `manifest.json`); otherwise empty.
 	Files []AuditEvidenceFile `json:"files"`
 	// Completed: the SHA-256 of `manifest.json`, in hexadecimal.
 	ManifestSHA256 OptString `json:"manifest_sha256"`
@@ -12741,8 +12741,9 @@ type AuditEvidenceExport struct {
 	ApprovalDecisionCount OptInt32              `json:"approval_decision_count"`
 	Chain                 OptAuditEvidenceChain `json:"chain"`
 	// Failed: the problem code that stopped the export (`identity.principal_blocked`,
-	// `audit.evidence_too_large` when the period holds more than 200,000 audit events or journal lines,
-	// `audit.evidence_changed` when the file store holds other bytes under the export's manifest).
+	// `audit.evidence_changed` when the file store holds other bytes under the export's manifest;
+	// `audit.evidence_too_large` on an export failed before files were written in parts, when it held more
+	// than 200,000 audit events or journal lines).
 	FailureCode OptString `json:"failure_code"`
 	// When the exporter completed it.
 	CompletedAt OptDateTime `json:"completed_at"`
@@ -13048,11 +13049,15 @@ func (s *AuditEvidenceExportPage) SetNextPageToken(val OptString) {
 
 func (*AuditEvidenceExportPage) listAuditEvidenceExportsRes() {}
 
-// A file of a completed evidence export, as its manifest names it.
+// A file of a completed evidence export, or a part of one, as its manifest names it.
 // Ref: #/components/schemas/AuditEvidenceFile
 type AuditEvidenceFile struct {
-	// `audit_events.jsonl`, `journal_entries.jsonl` or `approval_decisions.jsonl`.
+	// `audit_events.jsonl`, `journal_entries.jsonl` or `approval_decisions.jsonl`; a part of one written
+	// in parts, `<file>.part-<n>.jsonl` (`audit_events.part-2.jsonl`).
 	Name string `json:"name"`
+	// A part of a file written in parts (one of more than 50,000 records or 32 MiB): its number, from 1;
+	// the parts' records, in this order, are the file's. Absent on a file within one part.
+	Part OptInt32 `json:"part"`
 	// The SHA-256 of the file's content, in hexadecimal.
 	SHA256 string `json:"sha256"`
 	// The file's size in bytes.
@@ -13064,6 +13069,11 @@ type AuditEvidenceFile struct {
 // GetName returns the value of Name.
 func (s *AuditEvidenceFile) GetName() string {
 	return s.Name
+}
+
+// GetPart returns the value of Part.
+func (s *AuditEvidenceFile) GetPart() OptInt32 {
+	return s.Part
 }
 
 // GetSHA256 returns the value of SHA256.
@@ -13084,6 +13094,11 @@ func (s *AuditEvidenceFile) GetRecords() int32 {
 // SetName sets the value of Name.
 func (s *AuditEvidenceFile) SetName(val string) {
 	s.Name = val
+}
+
+// SetPart sets the value of Part.
+func (s *AuditEvidenceFile) SetPart(val OptInt32) {
+	s.Part = val
 }
 
 // SetSHA256 sets the value of SHA256.
