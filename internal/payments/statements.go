@@ -421,8 +421,8 @@ func relinkNext(ctx context.Context, tx pgx.Tx, p reqctx.Principal, bank stateme
 func recordStatement(ctx context.Context, id uuid.UUID, bank statementBank, sum []byte, s bankstatement.Statement, exp int, status string, prev *uuid.UUID) error {
 	payload := map[string]any{"bank_statement_id": id, "house_bank_id": bank.ID, "legal_entity_id": bank.LegalEntityID, "format": s.Format,
 		"file_sha256": sha256Hex(sum), "statement_ref": s.ID, "sequence": s.Sequence, "line_count": len(s.Entries),
-		"opening_balance": map[string]any{"amount": s.Opening.Amount.Plain(exp), "currency": s.Currency},
-		"closing_balance": map[string]any{"amount": s.Closing.Amount.Plain(exp), "currency": s.Currency}, "previous_statement_id": prev, "status": status}
+		"opening_balance": money.EventAmount(s.Opening.Amount, s.Currency, exp),
+		"closing_balance": money.EventAmount(s.Closing.Amount, s.Currency, exp), "previous_statement_id": prev, "status": status}
 	return record(ctx, "payments.bank_statement.import", id, map[string]any{"statement_ref": s.ID, "sequence": s.Sequence, "file_sha256": sha256Hex(sum),
 		"status": status}, outbox.Event{Context: "payments", Name: "bank_statement_imported", AggregateType: "payments.bank_statement", AggregateID: id, Payload: withCompany(payload, bank.Company)})
 }

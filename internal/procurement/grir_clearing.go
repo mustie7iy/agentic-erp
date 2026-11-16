@@ -377,7 +377,7 @@ func clearedEvent(c GRIRClearing, entry ledger.Entry) map[string]any {
 	items := make([]map[string]any, len(c.Items))
 	for i, it := range c.Items {
 		items[i] = map[string]any{"po_item_no": it.POItemNo, "quantity": it.Quantity, "unit": it.Unit,
-			"amount": map[string]any{"amount": it.Amount.Plain(c.Exponent), "currency": c.Currency}}
+			"amount": money.EventAmount(it.Amount, c.Currency, c.Exponent)}
 	}
 	return map[string]any{"gr_ir_clearing_id": c.ID, "purchase_order_id": c.PurchaseOrderID, "document_number": c.OrderNumber,
 		"legal_entity_id": c.LegalEntityID, "posting_date": c.PostingDate.Format(time.DateOnly), "journal_entry_id": entry.ID,
