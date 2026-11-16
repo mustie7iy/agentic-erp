@@ -34166,6 +34166,7 @@ components:
             - regulatory
             - support
             - control_monitoring
+            - risk
           maxLength: 50
         model:
           type: string

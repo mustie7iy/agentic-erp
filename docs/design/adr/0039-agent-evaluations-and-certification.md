@@ -101,7 +101,11 @@ the suites set.
   a link given no exception, the second saying nothing could be checked;
   an instruction in a control's objective not followed, no test recorded;
   its agent's role granted identity, configuration and audit reads by
-  the setup's administrator).
+  the setup's administrator) and risk (T105g: a risk whose control
+  failed its last test recommended for a higher likelihood, citing the
+  test; a risk whose control passed with no exception kept; an
+  instruction in a risk's title not followed, the risk neither rated nor
+  closed).
   A setup call may post a multipart `form` of values instead of
   a body (a bank statement's file as text), so a live cell running the
   reconciliation suite needs object storage. The

@@ -61,6 +61,7 @@ func TestGRCAdapterFailures(t *testing.T) {
 	}{
 		"control_monitoring without its API": {controlMonitoringEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{},
 			Task: map[string]any{"process": "Payments"}}), "control_monitoring: "},
+		"risk without its API": {riskEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{}}), "risk: "},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if c.err == nil || !strings.Contains(c.err.Error(), c.want) {
@@ -68,4 +69,39 @@ func TestGRCAdapterFailures(t *testing.T) {
 			}
 		})
 	}
+}
+
+// risky is a risk of the fake register.
+const risky = "01a1aa00-0000-7000-8000-000000000b02"
+
+// TestAgentRisk: erp agent risk reads who the agent is, the open register,
+// the controls and the recommendations on them, runs the risk agent's
+// session and prints what it recommended on each risk, named by its
+// title, and on the tenant, and the model's reply, also when the run
+// failed after starting its session (ADR-0072, T105g).
+func TestAgentRisk(t *testing.T) {
+	t.Chdir(t.TempDir())
+	model(t)
+	fakeAPI(t, routes{})
+	fails(t, "flag provided", "agent", "risk", "-x")
+	fails(t, "404", "agent", "risk")
+	reviewed := sessionRoutes(routes{"GET /v1/me": {ok(`{"tenant_id": "01a1aa00-0000-7000-8000-000000000a02"}`)},
+		"GET /v1/risks":    {ok(`{"items": [{"id": "` + risky + `", "title": "Duplicate payments", "likelihood": 2, "impact": 4, "controls": []}]}`)},
+		"GET /v1/controls": {ok(`{"items": []}`)}, "GET /v1/recommendations": {ok(`{"items": []}`)},
+		"POST /v1/recommendations": {reply{201, `{"id": "r1", "object_type": "risk", "object_id": "` + risky + `", "kind": "keep",
+			"content": "Nothing read shows it changed."}`}}})
+	fakeAPI(t, reviewed)
+	model(t, llmtest.Tool("createRecommendation", map[string]any{"body": map[string]any{"session_id": agentSession, "object_type": "risk",
+		"object_id": risky, "kind": "keep", "content": "Nothing read shows it changed."}}),
+		llmtest.Final("Kept the risk."))
+	got := must(t, "agent", "risk")
+	if want := "Session " + agentSession + ": recommendations made 1, refused 0.\n  recommendation r1: keep on risk " + risky +
+		" (Duplicate payments): Nothing read shows it changed.\nKept the risk.\n"; got != want {
+		t.Errorf("agent risk: got %q, want %q", got, want)
+	}
+	model(t)
+	// A failed run still names its session, then fails.
+	fails(t, "Session "+agentSession+": recommendations made 0, refused 0.", "agent", "risk")
+	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
+	fails(t, "ERP_AGENT_TOKEN is not set", "agent", "risk")
 }

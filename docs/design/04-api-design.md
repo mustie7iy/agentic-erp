@@ -1030,6 +1030,12 @@ matrix: `exception_found`, its content's first line naming exactly the
 control's broken links and citing the audit events it read by their
 `seq`, or `no_exception`; recording a test stays a person's (`x-agent:
 false`, ADR-0078 §3).
+The risk agent (`erp agent risk`, agent type `risk`, T105g) recommends on
+each open `risk`: `rate_again`, its first line the likelihood and impact
+it proposes, citing the control tests, audit events or recommendations
+that show it, or `keep`; and on the `tenant` a risk the register does not
+have (`new_risk`, its title and category first); its role holds no
+`grc.risk.write`, and the register's writes are no tools of its.
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation

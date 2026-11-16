@@ -7,6 +7,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/controlagent"
 	"github.com/mustie7iy/agentic-erp/internal/eval"
+	"github.com/mustie7iy/agentic-erp/internal/riskagent"
 )
 
 // The recommending agents of controls and risks (ADR-0072, ADR-0078),
@@ -39,6 +40,35 @@ func controlMonitoringEval(ctx context.Context, env eval.Env) error {
 	res, err := (&controlagent.Agent{LLM: env.LLM, API: env.Agent}).Monitor(ctx, process)
 	if err != nil {
 		return fmt.Errorf("control_monitoring: %w", err)
+	}
+	graded(env, res)
+	return nil
+}
+
+// agentRisk has the risk agent review the tenant's open risks (ADR-0072,
+// T105g): the risk owner reads its recommendation on each risk, and on the
+// tenant a risk not yet in the register, and decides them, and rates or
+// records the risk, or not.
+func agentRisk(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("agent risk", flag.ContinueOnError)
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	c, err := client("ERP_AGENT_TOKEN")
+	if err != nil {
+		return err
+	}
+	res, runErr := (&riskagent.Agent{LLM: newRunner(c), API: c}).Review(ctx)
+	return recommended("agent risk", res, runErr)
+}
+
+// riskEval has the risk agent review the case's register as erp agent
+// risk does; what it recommended is the checks' to judge, and its reply
+// theirs too.
+func riskEval(ctx context.Context, env eval.Env) error {
+	res, err := (&riskagent.Agent{LLM: env.LLM, API: env.Agent}).Review(ctx)
+	if err != nil {
+		return fmt.Errorf("risk: %w", err)
 	}
 	graded(env, res)
 	return nil

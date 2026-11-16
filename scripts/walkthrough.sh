@@ -10327,6 +10327,108 @@ step_control_agent() {
   passed
 }
 
+# step_risk_agent is T105g (ADR-0072, ADR-0078): the risk agent, erp agent
+# risk through the model stand-in answering from a script of turns (its
+# suite's replay, evals/risk), reviews Maple's open risks. Olive tests
+# step 76's control PAY-01 again at quarter end and records it failed:
+# the rule that is to enforce it (step 77) is not in force, as the matrix
+# shows; a test is never changed, a correction is another test. The
+# agent's role reads the register and the control library and records
+# its sessions; Ada grants it identity data, the configuration's versions
+# and the audit trail. Its rating equal to the risk's is refused; it
+# recommends rating step 89's risk of duplicate payments again, more
+# likely, citing the failed test, and, on the tenant, a new risk of
+# payment runs released by whoever manages the organisation, citing the
+# control monitoring agent's exception of step 98 (CONTROL_AGENT_REC). Its
+# own rating is refused; Tara accepts the new rating and rates the risk
+# herself.
+step_risk_agent() {
+  heading "Step 99 — The risk agent: the risk mitigated by a control that failed its test recommended for a higher rating, citing the test; a new risk recommended from the control monitoring agent's exception; the risk owner decides and rates"
+  local role tenant risk test got session rec newrisk
+  [ -n "${CONTROL:-}" ] || fail "step 76's control is not there"
+  [ -n "${CONTROL_AGENT_REC:-}" ] || fail "step 98's exception is not there"
+  as ada
+  say "Ada sets up the risk agent (ADR-0072): an agent principal of type risk at autonomy level 1 on erp-default. Its"
+  say "role reads the risk register and the control library and records its sessions and recommendations; it holds"
+  say "no permission that records, rates or closes a risk."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "risk_agent", "name": "Risk agent"}'
+  role=$(field .id)
+  grant "$role" grc.risk.read grc.control.read agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "risk-agent", "display_name": "Risk agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "risk", "model": "erp-default", "description": "Reviews the risk register for a risk owner to decide (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token risk-agent "Risk agent"
+  say "As for the control monitoring agent, Ada grants its role identity data, the configuration's versions and the"
+  say "audit trail (product owner, 2026-11-12):"
+  for perm in identity.access.read config.version.read audit.event.read; do
+    api 201 '"  granted \(.permission_code) to the agent'"'"'s role"' grantRolePermission -p "id=$role" -body "{\"permission_code\": \"$perm\"}"
+  done
+  QUIET=1 api 200 '' getCurrentPrincipal
+  tenant=$(field .tenant_id)
+  as olive
+  say "Olive tests PAY-01 again at quarter end. The control matrix shows the rule that is to enforce it not in force"
+  say "yet (step 77), so she records the test as failed. A test is never changed: the correction is another test."
+  api 201 '"test of \(.control_code) on \(.tested_on): \(.result), by \(.tested_by_name)"' createControlTest -p "id=$CONTROL" \
+    -body "{\"tested_on\": \"$TODAY\", \"result\": \"failed\", \"note\": \"Quarter-end test: the segregation-of-duties rule linked to the control is not in force.\"}"
+  test=$(field .id)
+  as tara
+  QUIET=1 api 200 '' listRisks -p status=open
+  risk=$(field '.items[] | select(.title == "Duplicate payments to suppliers") | .id')
+  expect "the open register, the risk of step 89 at its rating" "$(field '[.items[] | "\(.id) \(.likelihood) \(.impact)"] | join(", ")')" "$risk 1 4"
+  jq -n --arg risk "$risk" --arg control "$CONTROL" --arg test "$test" --arg tenant "$tenant" --arg exception "$CONTROL_AGENT_REC" '
+    {session_id: "{{session}}", object_type: "risk", object_id: $risk, kind: "rate_again"} as $on |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "listControlTests", input: {id: $control}},
+      {tool: "listRecommendations", input: {object_type: "control"}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Rate: likelihood 1, impact 4\nAs rated."})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Rate: likelihood 2, impact 4\nPAY-01, the one control that mitigates the risk, failed its last test (control test \($test)): the rule that is to enforce it is not in force, so a duplicate payment is more likely than rated. The impact is as rated."})}},
+      {tool: "createRecommendation", input: {body: {session_id: "{{session}}", object_type: "tenant", object_id: $tenant, kind: "new_risk",
+        content: "New risk: Payment runs released by whoever manages the organisation\nCategory: Payments\nThe control monitoring agent found that the rule keeping whoever manages the organisation from releasing payment runs is not in force (recommendation \($exception)), and no risk of the register covers it."}}},
+      {final: "Recommended rating the risk of duplicate payments again and a new risk; the risk owner decides."}]}' >"$WORK/model-script.json"
+  say "The agent runs: erp agent risk reads the open register, the controls' last tests and the control monitoring"
+  say "agent's findings and starts a session on erp-default. The model is the stand-in, answering from a script of turns"
+  say "as the agent's evaluation suite replays them (evals/risk): it reads PAY-01's tests and the findings on controls;"
+  say "asks to rate the risk as it is (refused by the run: a new rating differs), then recommends a higher likelihood,"
+  say "citing the failed test, and a new risk, citing step 98's exception."
+  show ERP_AGENT_TOKEN=… erp agent risk
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/risk-agent") "$ERP" agent risk 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent risk failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 2, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): rate_again on risk $risk \\(Duplicate payments to suppliers\\): Rate: likelihood 2, impact 4\$/\\1/p")
+  [ -n "$rec" ] || fail "erp agent risk printed no rate_again on the risk of duplicate payments"
+  newrisk=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): new_risk on tenant $tenant \\(the tenant\\): New risk: Payment runs released by whoever manages the organisation\$/\\1/p")
+  [ -n "$newrisk" ] || fail "erp agent risk printed no new_risk on the tenant"
+  say "Tara, who owns the risk, reads the recommendation on it:"
+  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)"))' listRecommendations -p "object_id=$risk"
+  expect "the recommendations on the risk, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "made in its session" "$(field '.items[0].session_id')" "$session"
+  expect "citing the failed test" "$(field ".items[0].content | contains(\"control test $test\")")" true
+  as risk-agent
+  say "Recommending is all it may do: a rating is a write, which its autonomy level 1 does not reach, its role holds"
+  say "no permission to rate a risk, erp agent builds it no tool for it, and the API refuses its own call:"
+  refused 403 identity.autonomy_insufficient createRiskRating -p "id=$risk" -body '{"likelihood": 2, "impact": 4}'
+  api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "listControlTests listRecommendations createRecommendation createRecommendation createRecommendation"
+  as tara
+  say "Tara accepts the new rating. Accepting changes nothing; she rates the risk herself, through the normal operation:"
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "Until the rule is in force, duplicates are more likely."}'
+  QUIET=1 api 200 '' getRisk -p "id=$risk"
+  expect "the risk after the acceptance, as it was" "$(field '"\(.likelihood) \(.impact) \(.version)"')" "1 4 2"
+  api 201 '"  rating of the risk: likelihood \(.likelihood), impact \(.impact), score \(.score), by \(.rated_by_name)"' \
+    createRiskRating -p "id=$risk" -body '{"likelihood": 2, "impact": 4}'
+  expect "her rating" "$(field '"\(.likelihood) \(.impact) \(.score)"')" "2 4 8"
+  say "The new risk stays open for Tara to discuss with Ada; nobody recorded it."
+  QUIET=1 api 200 '' listRisks -p status=open
+  expect "the open register, no risk added" "$(field '[.items[].id] | join(" ")')" "$risk"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -12351,7 +12453,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_control_agent step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_control_agent step_risk_agent step_close'
 
 main() {
   stop_unseen
