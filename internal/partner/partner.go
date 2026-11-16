@@ -121,9 +121,12 @@ type Endpoints struct {
 	PlanningGroups PlanningGroups
 	Keys           *fieldcrypt.Keyring
 	Approvals      Opener
-	Schemas        extensions.Schemas // the tenant's custom field schemas (configuration context)
-	Rules          rules.Source       // the tenant's validation rules (configuration context)
-	OpenItems      OpenItems          // the partner's open items (ledger context), asked before its personal data is blocked
+	Schemas        Settings     // the tenant's custom field schemas and companies' time zones (configuration context)
+	Rules          rules.Source // the tenant's validation rules (configuration context)
+	OpenItems      OpenItems    // the partner's open items (ledger context), asked before its personal data is blocked
+	// Now is the clock partner's day is read at (partnerDay): nil is the
+	// transaction's start; tests fix an instant.
+	Now func() time.Time
 }
 
 // Ports are the other contexts and keys requests are checked and sealed with.
@@ -133,13 +136,19 @@ type Ports struct {
 	PaymentMethods PaymentMethods
 	PlanningGroups PlanningGroups
 	Keys           *fieldcrypt.Keyring
-	Schemas        extensions.Schemas
+	Schemas        Settings
 	Rules          rules.Source
+	Now            func() time.Time // as Endpoints.Now
 }
 
 func (e *Endpoints) ports() Ports {
 	return Ports{LegalEntities: e.LegalEntities, Accounts: e.Accounts, PaymentMethods: e.PaymentMethods, PlanningGroups: e.PlanningGroups, Keys: e.Keys,
-		Schemas: e.Schemas, Rules: e.Rules}
+		Schemas: e.Schemas, Rules: e.Rules, Now: e.Now}
+}
+
+// day is partner's day now (partnerDay).
+func (p Ports) day(ctx context.Context, tx pgx.Tx) (time.Time, error) {
+	return partnerDay(ctx, tx, p.Schemas, p.Now)
 }
 
 // checkRules evaluates the tenant's validation rules on a business partner

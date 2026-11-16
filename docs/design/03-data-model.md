@@ -654,13 +654,14 @@ model). Company-specific supplier data lives in `supplier_company`, and a
 customer's in `customer_company` (below). Bank
 accounts are effective-dated; a change creates a new row with `valid_from`,
 which drives the payment hold after bank changes. "Today" for a bank
-account is UTC's day, one rule for the whole partner, which serves
-companies in several time zones, not any one company's: partner refuses a
-`valid_from` before it as backdated (product owner 2026-10-31, ADR-0051
-as built). There is one exemption. A partner a migration run creates
+account, and for an address, is partner's day: the earliest of the
+tenant's companies' days in their time zones (UTC's when none is
+configured), one rule for the whole partner, which serves companies in
+several time zones, not any one company's: partner refuses a `valid_from`
+before it as backdated (product owner 2026-10-31; ADR-0051 as built,
+batch 74). There is one exemption. A partner a migration run creates
 (`partner.Migration.Create`) may have its bank accounts start the day
-before, and the run dates them so: on a cutover evening in a zone behind
-UTC, a payment run dated on the company's day must find them. Two days
+before, and the run dates them so (product owner 2026-11-02). Two days
 before is refused there too. No request can set that date: only a
 migration run (`integration.migration.run`) reaches it, for the suppliers
 it creates. Every other request, and a later change to an existing

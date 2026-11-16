@@ -62,10 +62,10 @@ PAUSE="${WALKTHROUGH_PAUSE:-0}"
 . "$ROOT/scripts/lib/on-exit.sh"
 TODAY=$(company_day)
 # A payment run is dated TODAY, the company's day. The migration (step 3)
-# loads the suppliers' bank accounts valid from the day before UTC's
-# (partner.Migration's one-day exemption from the backdating control,
-# ADR-0051 As built; PO 2026-11-02), never later than the company's day in
-# Toronto, so a Toronto evening's run finds them, on 31 December too.
+# loads the suppliers' bank accounts valid from the day before partner's
+# day, the earliest of the tenant's companies' days (partner.Migration's
+# one-day exemption from the backdating control, ADR-0051 As built; PO
+# 2026-11-02), so a Toronto evening's run finds them, on 31 December too.
 YEAR=${TODAY:0:4}
 PREV=$((YEAR - 1))
 CC=3000 # the pilot's SAP company code, Maple Industries Canada in the mock extract
@@ -1797,7 +1797,7 @@ step_procure() {
 # the address Tyrell takes orders at, which the document prints instead
 # of its legal one.
 order_document() {
-  local number change utc_today want
+  local number change want address_day
   number=$(field .document_number)
   say "Ben fetches the order's document to send to Tyrell (by hand: email and EDI are post-pilot). It names Maple"
   say "with its configured postal address, delivers there, as no item names an address of its own, and prints"
@@ -1819,15 +1819,16 @@ order_document() {
   # The item's own date is printed, not the requisition's: no item is left
   # to be delivered by it (ADR-0054 As built).
   if grep -qF "Needed by" "$WORK/last.json"; then fail "the order's document prints the requisition's date beside the item's own"; fi
-  # The address starts on the database's day, UTC's: a business partner
-  # belongs to no company and so has no zone, and its address may start no
-  # earlier than that day (partner.backdated_address, database.Today). It
-  # is read as the change is asked for, not when the run began, so a run
-  # that crosses 00:00 UTC (19:00 or 20:00 in Toronto) asks for that day.
-  utc_today=$(utc_day)
+  # The address starts on partner's day, the earliest of the tenant's
+  # companies' days (partner.Day; ADR-0051 As built): Maple's, in Toronto.
+  # An address dated on UTC's day would start tomorrow on a Toronto
+  # evening, and the order printed today would not show it. The day is read
+  # as the change is asked for, not when the run began, so a run that
+  # crosses midnight in Toronto asks for that day.
+  address_day=$(company_day)
   say "Tyrell takes orders at its Toronto order desk. Ben asks for that address; Carla, who approves supplier"
   say "master data, approves it, and the document prints it instead of the legal address from SAP."
-  api 201 '"partner change \(.id): \(.status)"' createPartnerChange -body "{\"partner_id\": \"$SUPPLIER\", \"kind\": \"update\", \"reason\": \"Order desk address confirmed by Tyrell\", \"payload\": {\"addresses\": [{\"purpose\": \"order_from\", \"line1\": \"220 King Street West\", \"line2\": \"Order desk, floor 3\", \"city\": \"Toronto\", \"region\": \"ON\", \"postal_code\": \"M5H 1K4\", \"country_code\": \"CA\", \"valid_from\": \"$utc_today\"}]}}"
+  api 201 '"partner change \(.id): \(.status)"' createPartnerChange -body "{\"partner_id\": \"$SUPPLIER\", \"kind\": \"update\", \"reason\": \"Order desk address confirmed by Tyrell\", \"payload\": {\"addresses\": [{\"purpose\": \"order_from\", \"line1\": \"220 King Street West\", \"line2\": \"Order desk, floor 3\", \"city\": \"Toronto\", \"region\": \"ON\", \"postal_code\": \"M5H 1K4\", \"country_code\": \"CA\", \"valid_from\": \"$address_day\"}]}}"
   change=$(field .id)
   approve carla "$(field .workflow_request_id)" "Address confirmed"
   as ben

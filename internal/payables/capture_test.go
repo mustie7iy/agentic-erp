@@ -55,7 +55,7 @@ func (orderNumbers) OrderByNumber(ctx context.Context, le uuid.UUID, number stri
 // endpoints is the payables wiring of the API, with a capture extractor.
 func endpoints(x capture.Extractor) *payables.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	return &payables.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{}, Orders: procurement.Orders{},
+	return &payables.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{Settings: configuration.Settings{}}, Orders: procurement.Orders{},
 		Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{},
 			Settings: configuration.Settings{}},
 		Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{}, Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}},

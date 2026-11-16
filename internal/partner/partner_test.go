@@ -104,7 +104,7 @@ func (e env) create(t *testing.T, body string) (map[string]any, map[string]any) 
 func (e env) apply(t *testing.T, change string) error {
 	t.Helper()
 	err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error {
-		_, err := partner.ApplyChange(ctx, configuration.Settings{}, uuid.MustParse(change))
+		_, err := partner.ApplyChange(ctx, configuration.Settings{}, nil, uuid.MustParse(change))
 		return err
 	})
 	if err != nil {
@@ -517,7 +517,7 @@ func TestApplyRejectCancel(t *testing.T) {
 	}
 	for name, fn := range map[string]func(context.Context, uuid.UUID) (partner.Change, error){
 		"apply": func(ctx context.Context, id uuid.UUID) (partner.Change, error) {
-			return partner.ApplyChange(ctx, configuration.Settings{}, id)
+			return partner.ApplyChange(ctx, configuration.Settings{}, nil, id)
 		},
 		"reject": partner.RejectChange, "cancel": partner.CancelChange,
 	} {
@@ -530,7 +530,7 @@ func TestApplyRejectCancel(t *testing.T) {
 		})
 	}
 	err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
-		_, err := partner.ApplyChange(ctx, configuration.Settings{}, uuid.New())
+		_, err := partner.ApplyChange(ctx, configuration.Settings{}, nil, uuid.New())
 		return err
 	})
 	pgtest.WantErr(t, err, "request.not_found")

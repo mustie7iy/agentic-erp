@@ -14,7 +14,7 @@ import (
 // number ranges and company dates through its ports, and posts through the
 // ledger's posting port with the account determination's accounts.
 func Leases(cfg Config) *leases.Endpoints {
-	return &leases.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Lessors: partner.Suppliers{}, Partners: partner.Payees{},
+	return &leases.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Lessors: partner.Suppliers{Settings: configuration.Settings{}}, Partners: partner.Payees{},
 		CostCenters: ledger.AssignmentBalances{}, Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{},
 		Postings: postings(), Accounts: ledger.Accounts{}, Now: cfg.Now}
 }

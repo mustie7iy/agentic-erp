@@ -525,7 +525,7 @@ func (e *Endpoints) load(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r R
 	if t.posted, err = e.postedCurrencies(ctx, ext, existing); err != nil {
 		return operations.Operation{}, err
 	}
-	if t.today, err = database.Today(ctx, tx); err != nil {
+	if t.today, err = e.Partners.Today(ctx); err != nil {
 		return operations.Operation{}, fmt.Errorf("integration: read the load date of migration run %s: %w", r.ID, err)
 	}
 	quality := checkQuality(ext, t)

@@ -49,6 +49,12 @@ func reviewed(principal string, wrong, number bool) func(string) any {
 // number not read are refused; one recommendation per principal; a
 // second run of the period starts no session and adds none.
 func TestPrepare(t *testing.T) {
+	// The role's last use is an instant the server renders in its own
+	// offset, not a date: it is checked as one between start and the
+	// prompt's reading, so neither the host's zone nor UTC's midnight
+	// during the test changes the answer; a minute allows for the
+	// database's clock running behind the host's.
+	start := time.Now().Truncate(time.Second)
 	c := newCell(t)
 	c.rule("")
 	c.assign(c.ten.Service.ID, c.role("taxer", "tax.return.prepare"), "")
@@ -103,7 +109,6 @@ func TestPrepare(t *testing.T) {
 	for _, want := range []string{
 		"3 principals to recommend on",
 		"- role taxer: not used in the period\n  permissions never used: tax.return.prepare",
-		"- role all: used, last at " + c.day(0),
 		"- role machine: use not recorded (only reads need its permissions)",
 		"- role capt: use not recorded (only reads need its permissions)",
 		"- breaks rule " + capture + " / " + post + ": " + capture + " through capt, " + post + " through poster",
@@ -111,6 +116,13 @@ func TestPrepare(t *testing.T) {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt: got %s, want it to contain %q", prompt, want)
 		}
+	}
+	used := regexp.MustCompile(`- role all: used, last at (\S+)\n`).FindStringSubmatch(prompt)
+	if used == nil {
+		t.Fatalf("prompt: got %s, want the role all used, last at an instant", prompt)
+	}
+	if at, err := time.Parse(time.RFC3339, used[1]); err != nil || at.Before(start.Add(-time.Minute)) || at.After(time.Now()) {
+		t.Errorf("role all last used: got %s (%v), want an instant from a minute before %s to now", used[1], err, start.Format(time.RFC3339))
 	}
 	if strings.Contains(prompt, "Olga") {
 		t.Errorf("prompt: got %s, want no blocked principal", prompt)

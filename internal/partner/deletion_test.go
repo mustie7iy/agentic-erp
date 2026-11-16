@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -28,7 +29,7 @@ func (e env) blank(t *testing.T, p map[string]any, at time.Time) bool {
 	t.Helper()
 	var did bool
 	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
-		did, err = partner.Privacy{Keys: apitest.FieldKeys(), OpenItems: openItems{}}.Blank(ctx, uuid.MustParse(id(p)), at)
+		did, err = partner.Privacy{Keys: apitest.FieldKeys(), OpenItems: openItems{}, Settings: configuration.Settings{}}.Blank(ctx, uuid.MustParse(id(p)), at)
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -55,7 +56,7 @@ func TestBlank(t *testing.T) {
 		t.Error("a block other than the run's: got blanked, want left")
 	}
 	if err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
-		did, err := partner.Privacy{Keys: apitest.FieldKeys(), OpenItems: openItems{e.le}}.Blank(ctx, uuid.MustParse(id(z)), at)
+		did, err := partner.Privacy{Keys: apitest.FieldKeys(), OpenItems: openItems{e.le}, Settings: configuration.Settings{}}.Blank(ctx, uuid.MustParse(id(z)), at)
 		if did {
 			t.Error("with an open item: got blanked, want left")
 		}
@@ -64,7 +65,7 @@ func TestBlank(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
-		_, err := partner.Privacy{Keys: apitest.FieldKeys(), OpenItems: failingItems{}}.Blank(ctx, uuid.MustParse(id(z)), at)
+		_, err := partner.Privacy{Keys: apitest.FieldKeys(), OpenItems: failingItems{}, Settings: configuration.Settings{}}.Blank(ctx, uuid.MustParse(id(z)), at)
 		return err
 	}); err == nil || !strings.Contains(err.Error(), "ledger down") {
 		t.Errorf("a ledger that does not answer: got %v, want its error", err)
@@ -160,7 +161,7 @@ func TestBlankFailures(t *testing.T) {
 	_, _ = e.create(t, e.supplier("Dup", 0))
 	e.blockPersonal(t, a)
 	at, pid := blockedAt(t, a), uuid.MustParse(id(a))
-	y := partner.Privacy{Keys: apitest.FieldKeys(), OpenItems: openItems{}}
+	y := partner.Privacy{Keys: apitest.FieldKeys(), OpenItems: openItems{}, Settings: configuration.Settings{}}
 	calls := map[string]func(ctx context.Context) error{
 		"blank": func(ctx context.Context) error { _, err := y.Blank(ctx, pid, at); return err },
 		"blocked": func(ctx context.Context) error {

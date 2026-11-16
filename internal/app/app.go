@@ -443,7 +443,7 @@ func Integration(cfg Config) *integration.Endpoints {
 	partners := partner.Ports{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys, Schemas: configuration.Settings{}, Rules: configuration.Settings{},
 		PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, PlanningGroups: cash.PlanningGroups{}}
 	return &integration.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Settings: configuration.Settings{},
-		Partners: partner.Migration{Ports: partners}, Suppliers: partner.Suppliers{}, Orders: procurementEndpoints(cfg), OrderLocks: procurement.Orders{}, OrderValues: procurement.Orders{},
+		Partners: partner.Migration{Ports: partners}, Suppliers: partner.Suppliers{Settings: configuration.Settings{}}, Orders: procurementEndpoints(cfg), OrderLocks: procurement.Orders{}, OrderValues: procurement.Orders{},
 		Invoices: payablesEndpoints(cfg, uploads(cfg)), InvoiceCounts: payables.Invoices{}, Invoiced: payables.Invoices{}, Postings: postings(), Reports: ledger.Reports{}, Centers: ledger.CenterMigration{}, Actuals: ledger.AssignmentBalances{},
 		Secrets: resolver(cfg.Secrets), Requesters: identity.Actors{}, Keys: cfg.FieldKeys, Resolver: net.DefaultResolver, Receiver: cfg.WebhookReceiver, ExtractDir: cfg.ExtractDir, Workflows: cfg.Workflows != nil, RefuseEBICS: cfg.RefuseEBICS,
 		Now: cfg.Now} // the clock a migration run's day is read from (the company's date, review:batch63)
@@ -451,7 +451,7 @@ func Integration(cfg Config) *integration.Endpoints {
 
 // procurementEndpoints is the procurement context as the API wires it.
 func procurementEndpoints(cfg Config) *procurement.Endpoints {
-	return &procurement.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{}, Partners: partner.Payees{},
+	return &procurement.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{Settings: configuration.Settings{}}, Partners: partner.Payees{},
 		AccountNames: ledger.AssetReads{}, Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{}, Calendar: calendar(),
 		Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{}, Approvals: opener(),
 		Invoices: payables.Invoices{}, Postings: postings(), SupplierNames: partner.Payees{}, Now: cfg.Now}
@@ -460,7 +460,7 @@ func procurementEndpoints(cfg Config) *procurement.Endpoints {
 // payablesEndpoints is the payables context as the API wires it, capturing
 // invoices through uploads.
 func payablesEndpoints(cfg Config, uploads *payables.Uploads) *payables.Endpoints {
-	return &payables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{},
+	return &payables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{Settings: configuration.Settings{}},
 		Orders: procurement.Orders{}, Postings: postings(), Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{},
 		Calendar: calendar(), Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{}, Rates: rates(), Approvals: opener(),
 		Payments: payments.Reservations{}, Methods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, OrderNumbers: procurement.Orders{},
@@ -474,7 +474,7 @@ func payablesEndpoints(cfg Config, uploads *payables.Uploads) *payables.Endpoint
 // reader.
 func Receivables(cfg Config) *receivables.Endpoints {
 	return &receivables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Customers: partner.Postings{}, CustomerData: partner.Customers{},
-		Terms: partner.Suppliers{}, Partners: partner.Payees{}, Accounts: ledger.Accounts{}, References: ledger.AssetReads{},
+		Terms: partner.Suppliers{Settings: configuration.Settings{}}, Partners: partner.Payees{}, Accounts: ledger.Accounts{}, References: ledger.AssetReads{},
 		Postings: postings(), Entries: ledger.OpenItems{}, Receipts: ledger.OpenItems{}, OpenItems: ledger.OpenItems{}, Statements: receivablesStatements{},
 		Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{}, Now: cfg.Now}
 }
@@ -499,7 +499,7 @@ func Sales(cfg Config) *sales.Endpoints {
 // salesCredit). Neither imports the other: credit stays a leaf.
 func salesAndCredit(cfg Config) (*sales.Endpoints, *credit.Endpoints) {
 	s := &sales.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Customers: partner.Postings{}, CustomerData: partner.Customers{},
-		Terms: partner.Suppliers{}, Partners: partner.Payees{},
+		Terms: partner.Suppliers{Settings: configuration.Settings{}}, Partners: partner.Payees{},
 		Accounts: ledger.Accounts{}, References: ledger.AssetReads{}, Invoices: Receivables(cfg), Entries: ledger.OpenItems{},
 		Numbers: configuration.Numbers{}, Calendar: calendar(),
 		Settings: configuration.Settings{}, Rates: ledger.Rates{LegalEntities: tenancy.Directory{}}, People: LedgerPeople{},
@@ -564,7 +564,7 @@ func Collections(cfg Config) *collections.Endpoints {
 // blocked partners' personal data through the partner context's (T100c).
 func Records(cfg Config) *records.Endpoints {
 	return &records.Endpoints{LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Calendar: calendar(), Journal: ledger.Archive{},
-		People: LedgerPeople{}, Privacy: partner.Privacy{Keys: cfg.FieldKeys, OpenItems: ledger.OpenItems{}}, Pages: cfg.Pages, Objects: cfg.Objects, Now: cfg.Now}
+		People: LedgerPeople{}, Privacy: partner.Privacy{Keys: cfg.FieldKeys, OpenItems: ledger.OpenItems{}, Settings: configuration.Settings{}}, Pages: cfg.Pages, Objects: cfg.Objects, Now: cfg.Now}
 }
 
 // Credit is the credit management context as the API wires it (ADR-0066

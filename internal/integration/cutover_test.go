@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/integration"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
@@ -26,8 +27,9 @@ import (
 // day, the run takes the address still valid that evening; at 01:00 in
 // Dubai, UTC still the day before, the one valid from that morning.
 // Before, both were chosen on UTC's day. The address starts on the
-// platform on partner's day, UTC's, as before: partner refuses an earlier
-// one, and a supplier's days are one rule for all its companies.
+// platform on partner's day, the earliest of the companies' days: partner
+// refuses an earlier one, and a supplier's days are one rule for all its
+// companies.
 func TestRunDayIsTheCompanysDay(t *testing.T) {
 	var utcDay time.Time
 	pgtest.Scan(t, `SELECT current_date`, nil, &utcDay)
@@ -62,6 +64,7 @@ func TestRunDayIsTheCompanysDay(t *testing.T) {
 				{ADDRNUMBER: "0000004711", DATE_FROM: "00010101", DATE_TO: first.AddDate(0, 0, -1).Format("20060102"), STREET: "Old street", HOUSE_NUM1: "1", CITY1: "Bonn"},
 				{ADDRNUMBER: "0000004711", DATE_FROM: first.Format("20060102"), DATE_TO: "99991231", STREET: "New street", HOUSE_NUM1: "1", CITY1: "Bonn"}}
 			write(t, e.dir, "tiny.json", x)
+			started := time.Now()
 			_, got := e.act(t, e.run(t, e.connector(t, "tiny.json"), "documents", false, e.DE.String()), "start")
 			if got["status"] != "loaded" {
 				t.Fatalf("run status: got %v, want loaded: %v", got["status"], got["report"])
@@ -80,8 +83,21 @@ func TestRunDayIsTheCompanysDay(t *testing.T) {
 			if line1 != c.want {
 				t.Errorf("address at %s (%s in UTC): got %q, want %q, the one valid on the company's day", at, at.UTC().Format(time.DateOnly), line1, c.want)
 			}
-			if !validFrom.Equal(utcDay) {
-				t.Errorf("address valid_from: got %s, want %s, partner's day", validFrom.Format(time.DateOnly), utcDay.Format(time.DateOnly))
+			// The address starts on partner's day, the earliest of the
+			// companies' days at the run's transaction, not the API's clock:
+			// 1000 is in UTC, 2000 in the case's zone.
+			doc := fixture.Document(t)
+			doc.Company("2000").TimeZone = c.zone
+			before, err := partner.Day(doc, started)
+			if err != nil {
+				t.Fatal(err)
+			}
+			late, err := partner.Day(doc, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !validFrom.Equal(before) && !validFrom.Equal(late) {
+				t.Errorf("address valid_from: got %s, want %s, partner's day", validFrom.Format(time.DateOnly), before.Format(time.DateOnly))
 			}
 		})
 	}

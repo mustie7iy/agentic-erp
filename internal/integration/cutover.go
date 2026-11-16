@@ -17,11 +17,11 @@ import (
 // is each company's date in its time zone (config.CompanyDay, product
 // owner 2026-10-31), not UTC's: at 23:30 on the cutover evening in Toronto
 // UTC is already tomorrow, and at 01:00 in Dubai still yesterday. What the
-// run writes with a date of the platform's keeps partner's own rule, UTC's
-// day (target.today): a supplier's bank account and address start on it
-// (the bank account the day before, product owner 2026-11-02), since a
-// supplier serves companies in several zones and partner refuses an
-// earlier start.
+// run writes with a date of the platform's keeps partner's own rule,
+// partner's day, the earliest of the tenant's companies' days
+// (target.today): a supplier's bank account and address start on it (the
+// bank account the day before, product owner 2026-11-02), since a supplier
+// serves companies in several zones and partner refuses an earlier start.
 
 // companyDays is the date at instant now of each of the run's company
 // codes in its time zone. A stored zone the binary cannot load fails the

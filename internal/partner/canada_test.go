@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -106,7 +107,7 @@ func TestPaymentAccounts(t *testing.T) {
 	e := setup(t)
 	now, later := uuid.MustParse(id(e.active(t, "Now", 0))), uuid.MustParse(id(e.active(t, "Later", 3)))
 	err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
-		got, err := partner.Suppliers{}.PaymentAccounts(ctx, []uuid.UUID{now, later})
+		got, err := partner.Suppliers{Settings: configuration.Settings{}}.PaymentAccounts(ctx, []uuid.UUID{now, later})
 		if err != nil {
 			return err
 		}

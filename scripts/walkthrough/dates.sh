@@ -37,8 +37,8 @@ date_add() {
 }
 
 # utc_day [SECONDS] is UTC's date now, or at SECONDS since the epoch: the
-# database's day (current_date), by which partner judges a business
-# partner's dates. company_day in zone UTC.
+# database's day (current_date), by which identity judges its grants and
+# the access agent its periods. company_day in zone UTC.
 utc_day() {
   ZONE=UTC company_day "$@"
 }

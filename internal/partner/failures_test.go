@@ -90,7 +90,7 @@ func TestDatabaseFailures(t *testing.T) {
 		Extensions: gen.NewOptExtensions(gen.Extensions{"segment": []byte(`"x"`)}), GroupCompanyID: gen.NewOptUUID(e.le), ConfirmDuplicate: gen.NewOptBool(true)}
 	calls := map[string]func(ctx context.Context) error{
 		"payment accounts": func(ctx context.Context) error {
-			_, err := partner.Suppliers{}.PaymentAccounts(ctx, []uuid.UUID{u(a)})
+			_, err := partner.Suppliers{Settings: configuration.Settings{}}.PaymentAccounts(ctx, []uuid.UUID{u(a)})
 			return err
 		},
 		"group company": func(ctx context.Context) error {
@@ -200,7 +200,7 @@ func TestDatabaseFailures(t *testing.T) {
 	}
 	for kind, change := range map[string]map[string]any{"create": create, "update": update, "bank add": bankAdd, "bank end": bankEnd, "unblock": unblock} {
 		calls["apply "+kind] = func(ctx context.Context) error {
-			_, err := partner.ApplyChange(ctx, configuration.Settings{}, u(change))
+			_, err := partner.ApplyChange(ctx, configuration.Settings{}, nil, u(change))
 			return err
 		}
 	}

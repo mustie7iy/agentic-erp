@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -34,9 +35,13 @@ const (
 // Privacy answers the records context's deletion runs, in the request's
 // transaction: which partners' personal data is blocked, and blanking
 // one. Keys seal the marker in place of an account or a tax identifier.
+// Settings and Now tell partner's day, on which a blanked account ends
+// (partnerDay; Now nil: the transaction's start).
 type Privacy struct {
 	Keys      *fieldcrypt.Keyring
 	OpenItems OpenItems // the ledger's open items: a partner with one is not blanked
+	Settings  config.Documents
+	Now       func() time.Time
 }
 
 // BlockedSubject is a partner whose personal data is blocked and not deleted:
@@ -133,14 +138,19 @@ func (y Privacy) blankRows(ctx context.Context, tx pgx.Tx, p reqctx.Principal, i
 	if err != nil {
 		return fmt.Errorf("partner: fingerprint the marker of business partner %s: %w", id, err)
 	}
-	// An account still valid ends today, or the day after it starts if it
-	// starts today or later: validity is never empty, nor ended in the past.
+	day, err := partnerDay(ctx, tx, y.Settings, y.Now)
+	if err != nil {
+		return err
+	}
+	// An account still valid ends today, partner's day, or the day after it
+	// starts if it starts today or later: validity is never empty, nor ended
+	// in the past.
 	if _, err := tx.Exec(ctx, `UPDATE partner.bank_account SET holder_name = $2, account_last4 = $3, bic = NULL,
 			institution_number = CASE WHEN institution_number IS NOT NULL THEN $4 END, transit_number = CASE WHEN transit_number IS NOT NULL THEN $5 END,
 			account_cipher = $6, account_fingerprint = $7,
-			valid_to = CASE WHEN valid_to IS NULL OR valid_to > greatest(current_date, valid_from + 1) THEN greatest(current_date, valid_from + 1) ELSE valid_to END,
-			ended_by = CASE WHEN valid_to IS NULL OR valid_to > greatest(current_date, valid_from + 1) THEN $8 ELSE ended_by END
-		WHERE partner_id = $1`, id, DeletedText, DeletedLast4, deletedInstitution, deletedTransit, cipher, print, p.ID); err != nil {
+			valid_to = CASE WHEN valid_to IS NULL OR valid_to > greatest($9::date, valid_from + 1) THEN greatest($9::date, valid_from + 1) ELSE valid_to END,
+			ended_by = CASE WHEN valid_to IS NULL OR valid_to > greatest($9::date, valid_from + 1) THEN $8 ELSE ended_by END
+		WHERE partner_id = $1`, id, DeletedText, DeletedLast4, deletedInstitution, deletedTransit, cipher, print, p.ID, day); err != nil {
 		return fmt.Errorf("partner: blank the bank accounts of business partner %s: %w", id, err)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE partner.tax_identifier SET value_cipher = $2, value_fingerprint = $3, value_last4 = $4, version = version + 1
