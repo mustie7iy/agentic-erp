@@ -242,7 +242,13 @@ func TestAdvise(t *testing.T) {
 	}
 	// The server cuts a query at 500 rows: the largest are kept. The run's
 	// own three queries come before the model's.
-	for _, q := range a.queries[:3] {
+	a.mu.Lock()
+	queries := slices.Clone(a.queries)
+	a.mu.Unlock()
+	if len(queries) < 3 {
+		t.Fatalf("spend queries: got %d, want at least 3", len(queries))
+	}
+	for _, q := range queries[:3] {
 		var body struct {
 			Measures []string `json:"measures"`
 			OrderBy  string   `json:"order_by"`
