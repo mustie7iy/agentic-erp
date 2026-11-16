@@ -616,3 +616,65 @@ func TestArchiveJournal(t *testing.T) {
 		t.Error("entries outside a unit of work: got nil error")
 	}
 }
+
+// TestArchiverRunTwiceInParts: a round in parts whose commit is lost
+// leaves the run queued with its parts written; the next round finds the
+// same bytes under the parts' keys and completes the run once, its parts
+// downloading as the run names them (ADR-0012).
+func TestArchiverRunTwiceInParts(t *testing.T) {
+	e := setupArchive(t, false)
+	id := e.queue(t)
+	inParts := func(w *records.Archiver) *records.Archiver { w.Endpoints.PartEntries = 1; return w }
+	lost := inParts(e.archiver())
+	lost.Begin = loseCommit(t)
+	if _, err := lost.RunOnce(context.Background()); !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("the lost commit: got %v, want the injected failure", err)
+	}
+	if got, objects := settled(t, id), e.objectsIn(t); got != records.RunQueued || len(objects) != 3 {
+		t.Fatalf("after the lost commit: got %s with %v, want queued with two parts and the manifest written", got, objects)
+	}
+	for range 2 {
+		if _, err := inParts(e.archiver()).RunOnce(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, objects := settled(t, id), e.objectsIn(t); got != records.RunCompleted || len(objects) != 3 {
+		t.Errorf("after two more rounds: got %s with %v, want completed with its two parts and manifest", got, objects)
+	}
+	for part := 1; part <= 2; part++ {
+		r := e.api.Do(apitest.Req{Method: http.MethodGet, Path: fmt.Sprintf("/v1/archiving-runs/%s/file?part=%d", id, part), Tenant: e.Tenant.ID, As: e.Tenant.Human})
+		if r.Code != http.StatusOK {
+			t.Errorf("part %d: got %d, want 200", part, r.Code)
+		}
+	}
+	if evs := apitest.Published(t, e.Tenant, outbox.Event{Context: "records", Name: "archiving_run_completed"}); len(evs) != 1 {
+		t.Errorf("events: got %d, want 1", len(evs))
+	}
+}
+
+// TestArchiveEmptyYear: a closed year without entries is archived as an
+// empty file, written whole, which downloads as no bytes with the empty
+// content's SHA-256.
+func TestArchiveEmptyYear(t *testing.T) {
+	e := setupArchive(t, false)
+	id := e.queue(t)
+	w := e.archiver()
+	w.Endpoints.Journal = empty{}
+	if _, err := w.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f := apitest.Object(t, e.run(t, id), "file")
+	code, content := e.file(t, id)
+	sum := sha256.Sum256(nil)
+	if got := fmt.Sprint(code, " ", len(content), " ", f["size_bytes"], " ", f["entry_count"], " ", f["sha256"] == hex.EncodeToString(sum[:]), " ", f["parts"]); got !=
+		"200 0 0 0 true <nil>" {
+		t.Errorf("the empty year: got %s, want 200 with no bytes, size 0, no entries, the empty SHA-256 and no parts", got)
+	}
+}
+
+// empty is a journal without entries.
+type empty struct{ ledger.Archive }
+
+func (empty) Entries(context.Context, uuid.UUID, int16, func(ledger.ArchivedEntry) error) error {
+	return nil
+}

@@ -5,6 +5,7 @@ import (
 	"github.com/ogen-go/ogen/middleware"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 // RefusalsAudited are the writes whose refusals the API audits on their
@@ -59,7 +60,9 @@ func auditRefusals(refused map[string]audit.Entry) middleware.Middleware {
 	return func(req middleware.Request, next middleware.Next) (middleware.Response, error) {
 		resp, err := next(req)
 		e, listed := refused[req.OperationID]
-		if err == nil || !listed {
+		// A body the contract's rules refuse may be refused before the
+		// handler reads the document, whose {id} may then be none.
+		if err == nil || !listed || problem.From(err).Code == "request.validation_failed" {
 			return resp, err
 		}
 		v, _ := req.Params.Path("id")

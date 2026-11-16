@@ -105,22 +105,25 @@ type writer struct {
 	size   int64
 	held   []byte
 	heldN  int32
-	parts  []ArchivePart
+	// holding tells that the first part is held: an empty year's one part
+	// is held as no bytes at all.
+	holding bool
+	parts   []ArchivePart
 }
 
 // part takes a full part (or the last).
 func (w *writer) part(content []byte, entries int32) error {
 	w.whole.Write(content) // a hash's Write never fails
 	w.size += int64(len(content))
-	if w.held == nil && len(w.parts) == 0 {
-		w.held, w.heldN = bytes.Clone(content), entries
+	if !w.holding && len(w.parts) == 0 {
+		w.held, w.heldN, w.holding = bytes.Clone(content), entries, true
 		return nil
 	}
-	if w.held != nil {
+	if w.holding {
 		if err := w.write(w.held, w.heldN); err != nil {
 			return err
 		}
-		w.held = nil
+		w.held, w.holding = nil, false
 	}
 	return w.write(content, entries)
 }
@@ -140,7 +143,7 @@ func (w *writer) write(content []byte, entries int32) error {
 // finish writes a file held in one part whole and returns the key the
 // run names: the file's, or its first part's.
 func (w *writer) finish() (string, error) {
-	if w.held == nil {
+	if !w.holding {
 		return blobstore.Key(w.tenant, blobstore.KindArchives, partName(w.run, 1)), nil
 	}
 	key := blobstore.Key(w.tenant, blobstore.KindArchives, fileName(w.run))

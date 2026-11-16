@@ -408,3 +408,47 @@ func TestEvidenceManifestWithoutAFile(t *testing.T) {
 		t.Error("approval requests outside a unit of work: got nil error")
 	}
 }
+
+// TestEvidenceExporterRunTwiceInParts: a round in parts whose commit is
+// lost leaves the export queued with its parts and manifest written; the
+// next rounds, which read one more audit event, complete it once with the
+// lost round's manifest, every part it names downloading (ADR-0012).
+func TestEvidenceExporterRunTwiceInParts(t *testing.T) {
+	e := setupEvidence(t)
+	id := e.queue(t)
+	inParts := func(w *audit.EvidenceExporter) *audit.EvidenceExporter { w.Endpoints.PartRecords = 1; return w }
+	lost := inParts(e.exporter(t))
+	lost.Begin = loseCommitOf(t)
+	if _, err := lost.RunOnce(context.Background()); !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("the lost commit: got %v, want the injected failure", err)
+	}
+	kept, _, err := e.objects.Get(context.Background(), blobstore.Key(e.Tenant.ID, blobstore.KindEvidence, id+"/manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		return trail.Add(ctx, trail.Entry{Action: "test.thing.do", ObjectType: "test.thing", Outcome: "succeeded"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if _, err := inParts(e.exporter(t)).RunOnce(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := settledExport(t, id); got != audit.ExportCompleted {
+		t.Fatalf("after two more rounds: got %s, want completed", got)
+	}
+	if _, manifest := e.file(t, id, "manifest.json"); string(manifest) != string(kept) {
+		t.Errorf("the manifest: got %s, want the one the lost round wrote", manifest)
+	}
+	for _, f := range apitest.List(t, e.export(t, id), "files") {
+		name := f.(map[string]any)["name"].(string)
+		if code, _ := e.file(t, id, name); code != 200 {
+			t.Errorf("%s: got %d, want 200", name, code)
+		}
+	}
+	if evs := apitest.Published(t, e.Tenant, outbox.Event{Context: "platform", Name: "audit_evidence_exported"}); len(evs) != 1 {
+		t.Errorf("events: got %d, want 1", len(evs))
+	}
+}

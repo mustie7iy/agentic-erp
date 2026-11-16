@@ -18,7 +18,8 @@ import (
 
 // TestAuditRefusals: a listed write refused with a business outcome is
 // recorded on its {id}, with the operation; a write that succeeds, one
-// not listed and one whose {id} is no uuid record nothing, and every
+// not listed, a body refused (perhaps before the document was read) and
+// one whose {id} is no uuid record nothing, and every
 // answer is the handler's.
 func TestAuditRefusals(t *testing.T) {
 	id := uuid.New()
@@ -33,6 +34,7 @@ func TestAuditRefusals(t *testing.T) {
 		{"refused", "postThing", id, refused, 1},
 		{"succeeded", "postThing", id, nil, 0},
 		{"not listed", "postOther", id, refused, 0},
+		{"a body refused", "postThing", id, problem.Unprocessable("request.validation_failed", "Bad body."), 0},
 		{"an id that is no uuid", "postThing", "x", refused, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {

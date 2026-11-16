@@ -196,7 +196,9 @@ why any other write on it had not happened. The general mechanism:
   write on a document's part (a purchase order's change, a GR/IR
   clearing, a delivery) is recorded on the document under the part's
   action. Requests rejected before the write (400, 401, 403, 404, 412,
-  428) record nothing: no write was attempted on a known object.
+  428) record nothing, nor does a body refused as invalid (422
+  `request.validation_failed`), which a handler may answer before it
+  reads the document, so its `{id}` may name none.
 - The list is every write on the documents the support agent diagnoses
   (`supportagent.Documents`: supplier and customer invoices, journal
   entries, purchase and sales orders, payment runs, change requests,
