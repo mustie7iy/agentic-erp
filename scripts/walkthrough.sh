@@ -10348,7 +10348,7 @@ enablement_help() {
       {tool: "reply", input: {text: ("`payables.match_required` refuses the posting: the contract requires \"" + $q + "\". " + $tolerance)}},
       {final: "Explained payables.match_required with the tolerance in force."}]}' >"$WORK/model-script.json"
   say "The agent explains the refusal's code: erp agent enablement-help reads the operation's description and problem codes"
-  say "from the contract compiled into it and the active version, starts a session and, through the stand-in's script,"
+  say "from the contract compiled into it, the active version and the roles, starts a session and, through the stand-in's script,"
   say "quotes words the contract does not write (refused by the run: every quotation is the contract's), then replies."
   show ERP_AGENT_TOKEN=… erp agent enablement-help -operation postSupplierInvoice -problem payables.match_required
   got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/enablement-agent") "$ERP" agent enablement-help -operation postSupplierInvoice -problem payables.match_required 2>"$WORK/stderr") ||

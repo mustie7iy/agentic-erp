@@ -120,7 +120,7 @@ var (
 	// ErrRole refuses a role named that is not one of the tenant's active
 	// roles: any text in backticks outside the citations, and any code
 	// joined by underscores.
-	ErrRole = errors.New("enablementagent: every text in backticks outside a citation, and every code joined by underscores, is one of the tenant's active roles")
+	ErrRole = errors.New("enablementagent: every text in backticks outside a citation, and every code joined by underscores, is one of the tenant's active roles or, in help, a name of the operation asked about")
 	// ErrNumber refuses a number outside the citations, in digits or in
 	// words, and "percent" that does not follow a cited setting.
 	ErrNumber = errors.New("enablementagent: every number is a setting cited as `path` = `value`, never in words; percent follows only a cited setting")
@@ -243,8 +243,16 @@ func (d *documenting) check(p recommend.Proposed, _ *recommend.Figures) error {
 }
 
 // rolesOnly refuses a text in backticks, or a code joined by underscores,
-// that is neither an active role nor one of the names allowed beside them.
+// that is neither an active role nor one of the names allowed beside them;
+// an allowed name is taken out first, so a part of it (match_required of
+// payables.match_required) is not read as a code of its own.
 func rolesOnly(prose string, roles map[string]bool, allowed []string) error {
+	for _, name := range allowed {
+		if name != "" {
+			prose = strings.ReplaceAll(prose, "`"+name+"`", " ")
+			prose = strings.ReplaceAll(prose, name, " ")
+		}
+	}
 	named := codeRe.FindAllString(spanRe.ReplaceAllString(prose, " "), -1)
 	for _, m := range spanRe.FindAllStringSubmatch(prose, -1) {
 		named = append(named, m[1])

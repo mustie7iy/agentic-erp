@@ -822,7 +822,9 @@ A later slice adds its row here and its section under "As built".
   list's numbering apart) is one the question's names write, and every
   text in backticks and every code joined by underscores is an active role
   of the tenant's, the field or problem code asked about, or the
-  operation's id, permission or one of its problem codes.
+  operation's id, permission or one of its problem codes; those names are
+  taken out before codes are looked for, so a problem code written without
+  backticks is not read as the code after its dot.
 - `evals/enablement`, version 2: three cases added (task `operation` with
   `field` or `problem`): `payables.match_required` of `postSupplierInvoice`
   explained with the tenant's tolerance cited; `gross_amount` of

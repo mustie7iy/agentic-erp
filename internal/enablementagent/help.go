@@ -73,16 +73,18 @@ fields.
 Answer once, with the tool reply. Name the field or problem code asked about. Quote what the contract says in double
 quotes, each passage exactly as the contract writes it. Cite each setting of the configuration that applies as its path
 and its value, each in backticks, as ` + "`companies[1000].invoice_tolerance.price_percent` = `2`" + `. Write a role as its code
-in backticks, and only roles the tenant has; put nothing else in backticks but the citations, the field or problem code
-asked about, the operation's id, its permission and its problem codes. Write no other number outside a quotation, in
+in backticks, and only roles the tenant has; put nothing else in backticks, and write no other code joined by
+underscores, than the citations, the field or problem code asked about, the operation's id, its permission and its
+problem codes. Write no other number outside a quotation, in
 digits or in words; "percent" follows only a cited percentage. You change nothing and have no tool that writes. After the
 reply, end with one short sentence.`
 
 // Help runs one session on the question: it refuses, before anything is
 // read or a model asked, a question that names an operation, field or
 // problem code the contract does not have; it reads the active
-// configuration version (one the agent may not read stops the run before
-// a session starts), offers the model its reads and its reply, and
+// configuration version and the tenant's roles (a version or roles the
+// agent may not read, without identity.access.read, stop the run before a
+// session starts), offers the model its reads and its reply, and
 // reports the reply its check admitted, also when the run fails after
 // replying.
 func (a *Agent) Help(ctx context.Context, q Question) (Helped, error) {

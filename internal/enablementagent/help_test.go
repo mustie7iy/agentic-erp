@@ -70,6 +70,18 @@ func TestHelp(t *testing.T) {
 		enablementagent.ErrSetting.Error(), enablementagent.ErrNumber.Error(), `not "percent"`, enablementagent.ErrHelpNumber.Error(), "not 2", enablementagent.ErrRole.Error(), "not AP_CLERK", enablementagent.ErrSecond.Error())
 }
 
+// TestHelpBareCode: the problem code asked about, written without
+// backticks, is the operation's name, not a role refused for the part
+// after its dot.
+func TestHelpBareCode(t *testing.T) {
+	bare := "The code payables.match_required means the invoice is posted only after " + passage + "."
+	model := llmtest.New(t, reply(bare), llmtest.Final("Explained."))
+	res, err := (&enablementagent.Agent{LLM: model.Runner(), API: client(t, &fakeAPI{})}).Help(context.Background(), refusedPost)
+	if err != nil || res.Reply != bare || res.Refused != 0 {
+		t.Errorf("got %q, %d refused (%v), want the reply admitted", res.Reply, res.Refused, err)
+	}
+}
+
 // TestHelpField: a field is explained from its own description, and a
 // problem code every operation may answer is named so in the prompt.
 func TestHelpField(t *testing.T) {
