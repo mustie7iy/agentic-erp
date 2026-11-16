@@ -272,7 +272,6 @@ func TestTools(t *testing.T) {
 	if text := r["content"].([]any)[0].(map[string]any)["text"].(string); r["isError"] != true || !strings.Contains(text, "connect") {
 		t.Errorf("unreachable API: got %v", r)
 	}
-	// A call the session does not record is the server's error.
 	// The empty cursor is the first page.
 	if r := one(t, s, `{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {"cursor": "", `+meta+`}}`)["result"].(map[string]any); len(r["tools"].([]any)) != 2 {
 		t.Errorf("empty cursor: got %v, want the tools", r)
