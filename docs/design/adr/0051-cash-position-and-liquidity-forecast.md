@@ -2849,6 +2849,19 @@ As built (business dates swept; hdates, review:batch75):
   previous release without the column. An insert that leaves the date out
   fails `requisition_dated` instead of dating the requisition on UTC's
   day. Evidence: `db.TestRequisitionDate`.
+- **Left on the database's day, for the product owner.** Identity's
+  role assignments and role permissions are dated and ended on the
+  database's day (`database.Today`), the day authorization judges them on
+  (`authz`, `identity`'s directory: `current_date` in SQL) and the
+  `end_validity` trigger (000001) enforces; they are the tenant's, not any
+  one company's. grc's test dates and links' state follow identity's day
+  (ADR-0078). Moving the day access starts and ends on is security
+  posture, so nothing is changed until the product owner decides. The
+  integration context has no UTC day left: its runs date on partner's day
+  and its cutover on each company's (batch 74). The other remaining UTC
+  days are read windows, not dates of a company: the metric watchers' and
+  the model simulation's lowest fiscal year (`clock.Now(...).Year()` less
+  two or fourteen years).
 
 ## Alternatives
 - **Cash position and forecast inside payments.** Fewer packages, but
