@@ -6716,6 +6716,13 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "A CSV export says what its JSON says: erp query -csv (analytics.WriteCSV) writes a money measure without its currency's column, so a column mixing currencies has amounts without their currency, and getReportRun's CSV leaves out that a kept result was truncated (pre-existing findings on T95d's review; the workbook refuses a truncated result)",
+      "r": "internal/analytics/render.go WriteCSV · internal/analytics/reports/runs_api.go resultCSV · ADR-0076 §8",
+      "src": "review:T95d",
+      "c": []
+     },
+     {
       "s": "P",
       "t": "Excel export",
       "c": [

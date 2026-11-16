@@ -10239,15 +10239,6 @@ step_expense_report() {
   passed
 }
 
-# step_close is the financial close (ADR-0058), the story's last step: it
-# stays last, and each slice of T64 adds its part before the sign-off
-# (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
-# the process owner approves; Carla reads the year's close calendar, each
-# period's planned first and last due dates on the company's business days.
-# Then the close's checklist (T64b), its depreciation check (T64k) with a
-# late asset in the previous period's close (T64l), its other checks
-# (T64c), its accrual proposals (T64e), its variances (T64h) and their
-# comments (T64i) and, last, its sign-off (T64d), which locks the period.
 # step_mcp is T102a (ADR-0081): an agent host reaches the API through erp
 # mcp, the Model Context Protocol over standard input and output. A
 # scripted host, as the support agent of step 88, discovers the server,
@@ -10273,7 +10264,7 @@ step_mcp() {
     fail "erp mcp failed ($(cat "$WORK/stderr"))"
   expect "answers, one per request" "$(jq -s length "$WORK/mcp.out")" 4
   jq -r 'select(.id == 1) | .result | "  server/discover: versions \(.supportedVersions | join(", ")), server \(._meta["io.modelcontextprotocol/serverInfo"].name)"' "$WORK/mcp.out"
-  expect "the versions served" "$(jq -r 'select(.id == 1) | .result.supportedVersions | join(" ")' "$WORK/mcp.out")" "2026-07-28 2025-11-25"
+  expect "the version a request names" "$(jq -r 'select(.id == 1) | .result.supportedVersions | join(" ")' "$WORK/mcp.out")" "2026-07-28"
   jq -r 'select(.id == 2) | .result | "  tools/list: \(.tools | length) tools, \([.tools[] | select(.annotations.readOnlyHint)] | length) of them reads; for example \([.tools[].name] | map(select(. == "listConfigVersions" or . == "createRecommendation")) | join(", "))"' "$WORK/mcp.out"
   expect "an operation closed to agents among the tools" "$(jq -r 'select(.id == 2) | [.result.tools[].name | select(. == "createPrincipal" or . == "approveApprovalRequest")] | length' "$WORK/mcp.out")" 0
   expect "a write above its level among the tools" "$(jq -r 'select(.id == 2) | [.result.tools[].name | select(. == "createConnector")] | length' "$WORK/mcp.out")" 0
@@ -10302,6 +10293,15 @@ step_mcp() {
   passed
 }
 
+# step_close is the financial close (ADR-0058), the story's last step: it
+# stays last, and each slice of T64 adds its part before the sign-off
+# (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
+# the process owner approves; Carla reads the year's close calendar, each
+# period's planned first and last due dates on the company's business days.
+# Then the close's checklist (T64b), its depreciation check (T64k) with a
+# late asset in the previous period's close (T64l), its other checks
+# (T64c), its accrual proposals (T64e), its variances (T64h) and their
+# comments (T64i) and, last, its sign-off (T64d), which locks the period.
 step_close() {
   heading "Final step — Financial close: the close template through a governed change, the year's close calendar, the checklist and its sign-off, and the group's consolidated figures finalized"
   as ada

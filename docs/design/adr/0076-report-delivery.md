@@ -229,6 +229,9 @@ Transitional), written with the standard library's `archive/zip` alone
   return as `_xHHHH_`, text shaped like an escape with its underscore
   escaped); no cell has a formula, so text starting with `=`, `+`, `-` or
   `@` stays text (xlsx-minimal §8).
+- a result cut at the rows a query answers (`truncated`) is refused as a
+  workbook (422 `analytics.result_truncated`): the workbook holds the rows
+  alone and could not say they were cut; its JSON says so.
 
 A query is a POST with an `Idempotency-Key`: its workbook is kept with
 the key as bytes (`platform.idempotency_key.response_bytes`, ADR-0008),
@@ -385,7 +388,8 @@ bytes.
 - Contract: `format` (`json`, `xlsx`) on `runAnalyticsQuery` and `xlsx`
   among `getReportRun`'s formats, each with the workbook media type
   beside JSON (and CSV); a format not listed is 422
-  `request.validation_failed`.
+  `request.validation_failed`; a truncated result is 422
+  `analytics.result_truncated` as a workbook (review round 1).
 - `internal/analytics`: `WriteXLSX` (§8), `Records` (the layout the
   run's CSV and the workbook share) and `DecodeResult` (a result as the
   endpoint writes it, now read by the run's CSV and workbook too);

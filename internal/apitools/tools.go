@@ -102,7 +102,9 @@ var ErrNotRecorded = errors.New("apitools: tool call not recorded")
 // returns the API's answer, whatever its status: Execute for a model's
 // runner, and erp mcp for an agent host (T102a). An input the call could
 // not be made from, a guard's refusal or an unreachable API is an error,
-// recorded too; a call the session failed to record is ErrNotRecorded.
+// recorded too; a call the session failed to record is ErrNotRecorded,
+// with the API's answer, if it gave one, so the caller can show it before
+// it stops.
 func (t *Tool) Invoke(ctx context.Context, input map[string]any) (Response, error) {
 	if t.exclusive != nil {
 		t.exclusive.Lock()
@@ -117,7 +119,7 @@ func (t *Tool) Invoke(ctx context.Context, input map[string]any) (Response, erro
 	}
 	if t.session != nil {
 		if rerr := t.session.record(ctx, t.name, input, summary, isError); rerr != nil {
-			return Response{}, fmt.Errorf("%w: %w", ErrNotRecorded, rerr)
+			return resp, fmt.Errorf("%w: %w", ErrNotRecorded, rerr)
 		}
 	}
 	if err != nil {
@@ -238,20 +240,16 @@ func Tools(client *Client, session *Session, operationIDs ...string) ([]*Tool, e
 // client and recording into session: what an agent host is offered
 // (erp mcp, T102a), narrowed to the session's level with Offered.
 func Agent(client *Client, session *Session) []*Tool {
-	c := embedded()
+	// The embedded contract parses (api's TestSpec) and every operation of
+	// it builds a tool (TestAgentTools), so neither is an error here.
+	ops, _ := api.Operations()
 	var ids []string
-	paths, _ := c.spec["paths"].(map[string]any)
-	for _, item := range paths {
-		methods, _ := item.(map[string]any)
-		for _, v := range methods {
-			if op, ok := v.(map[string]any); ok && op["operationId"] != nil && op["x-agent"] != false {
-				ids = append(ids, fmt.Sprint(op["operationId"]))
-			}
+	for id, op := range ops {
+		if op.AgentAllowed {
+			ids = append(ids, id)
 		}
 	}
 	slices.Sort(ids)
-	// Every operation of the embedded contract builds a tool
-	// (TestAgentTools), so none is an error here.
 	tools, _ := Tools(client, session, ids...)
 	return tools
 }

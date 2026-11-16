@@ -222,8 +222,13 @@ func (e *Endpoints) GetReportRun(ctx context.Context, params gen.GetReportRunPar
 	if err != nil {
 		return nil, err
 	}
-	if f == "csv" {
+	switch {
+	case f == "csv":
 		return resultCSV(picked), nil
+	case picked.Truncated:
+		// The workbook holds the rows alone and could not say they were cut.
+		return nil, problem.Unprocessable("analytics.result_truncated",
+			"The result was cut at the rows a query answers; a workbook could not say so. Read it as JSON, which does.")
 	}
 	return resultXLSX(picked), nil
 }

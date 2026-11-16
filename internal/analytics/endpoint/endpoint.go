@@ -81,6 +81,9 @@ func (e *Endpoints) RunAnalyticsQuery(ctx context.Context, req *gen.AnalyticsQue
 	}
 	res.ConfigVersion = version
 	if format == "xlsx" {
+		if res.Truncated {
+			return nil, errTruncated()
+		}
 		var b bytes.Buffer
 		// A bytes.Buffer never fails a write, so neither does the workbook.
 		_ = analytics.WriteXLSX(&b, analytics.SheetQuery, res)
@@ -88,6 +91,13 @@ func (e *Endpoints) RunAnalyticsQuery(ctx context.Context, req *gen.AnalyticsQue
 			Response: gen.RunAnalyticsQueryOKApplicationVndOpenxmlformatsOfficedocumentSpreadsheetmlSheet{Data: &b}}, nil
 	}
 	return &gen.AnalyticsResultHeaders{Response: toAPI(res)}, nil
+}
+
+// errTruncated refuses a workbook of a result cut at the rows a query
+// answers: the workbook holds its rows alone and could not say so.
+func errTruncated() error {
+	return problem.Unprocessable("analytics.result_truncated",
+		"The result was cut at the rows a query answers; a workbook could not say so. Narrow the query or give it a limit.")
 }
 
 // answer runs q under m as the caller, over the companies asked for

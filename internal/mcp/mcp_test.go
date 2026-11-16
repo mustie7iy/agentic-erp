@@ -143,6 +143,7 @@ func TestProtocolErrors(t *testing.T) {
 		"an unknown method":       {`{"jsonrpc": "2.0", "id": 1, "method": "resources/list", "params": {` + meta + `}}`, -32601},
 		"ping, modern":            {`{"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {` + meta + `}}`, -32601},
 		"a cursor":                {`{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {"cursor": "x", ` + meta + `}}`, -32602},
+		"discover in 2025-11-25":  {`{"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {"_meta": {"io.modelcontextprotocol/protocolVersion": "2025-11-25", "io.modelcontextprotocol/clientCapabilities": {}}}}`, -32022},
 		"initialize, no version":  {`{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}`, -32602},
 		"a call without a name":   {`{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {` + meta + `}}`, -32602},
 		"an unknown tool":         {`{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "createPrincipal", ` + meta + `}}`, -32602},
@@ -172,7 +173,7 @@ func TestVersions(t *testing.T) {
 	s := server(t, &api{})
 	refused := one(t, s, `{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {"_meta": {"io.modelcontextprotocol/protocolVersion": "2099-01-01"}}}`)
 	e := refused["error"].(map[string]any)
-	if b, _ := json.Marshal(e); e["code"] != float64(-32022) || !strings.Contains(string(b), `"data":{"requested":"2099-01-01","supported":["2026-07-28","2025-11-25"]}`) {
+	if b, _ := json.Marshal(e); e["code"] != float64(-32022) || !strings.Contains(string(b), `"data":{"requested":"2099-01-01","supported":["2026-07-28"]}`) {
 		t.Errorf("unsupported version: got %s", b)
 	}
 	d := one(t, s, `{"jsonrpc": "2.0", "id": 2, "method": "server/discover", "params": {`+meta+`}}`)["result"].(map[string]any)
@@ -180,9 +181,10 @@ func TestVersions(t *testing.T) {
 		!strings.Contains(string(b), `"cacheScope":"public","capabilities":{"tools":{}}`) || d["resultType"] != "complete" {
 		t.Errorf("discover: got %s", b)
 	}
-	// Legacy: before initialize, ping is a request without _meta.
-	if got := errorCode(one(t, s, `{"jsonrpc": "2.0", "id": 3, "method": "ping"}`)); got != float64(-32602) {
-		t.Errorf("ping before initialize: got %v, want -32602", got)
+	// Legacy: ping is answered before initialize too; any other request
+	// without _meta is not.
+	if b, _ := json.Marshal(one(t, s, `{"jsonrpc": "2.0", "id": 3, "method": "ping"}`)); string(b) != `{"id":3,"jsonrpc":"2.0","result":{}}` {
+		t.Errorf("ping before initialize: got %s, want an empty result", b)
 	}
 	got := exchange(t, s, `{"jsonrpc": "2.0", "id": 4, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "h", "version": "1"}}}`,
 		`{"jsonrpc": "2.0", "method": "notifications/initialized"}`,
@@ -271,9 +273,21 @@ func TestTools(t *testing.T) {
 		t.Errorf("unreachable API: got %v", r)
 	}
 	// A call the session does not record is the server's error.
+	// The empty cursor is the first page.
+	if r := one(t, s, `{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {"cursor": "", `+meta+`}}`)["result"].(map[string]any); len(r["tools"].([]any)) != 2 {
+		t.Errorf("empty cursor: got %v, want the tools", r)
+	}
+	// A call the session does not record is the server's error, with the
+	// API's answer, and nothing after it is served: the API may have acted.
 	a.unrecorded = true
-	if got := errorCode(one(t, s, `{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "listLegalEntities", `+meta+`}}`)); got != float64(-32603) {
-		t.Errorf("unrecorded call: got %v, want -32603", got)
+	var out bytes.Buffer
+	err := s.Serve(context.Background(), strings.NewReader(`{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "listLegalEntities", `+meta+`}}`+"\n"+
+		`{"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {`+meta+`}}`), &out)
+	if !errors.Is(err, apitools.ErrNotRecorded) {
+		t.Errorf("serving after an unrecorded call: got %v, want ErrNotRecorded", err)
+	}
+	if got := out.String(); strings.Count(got, "\n") != 1 || !strings.Contains(got, `"code":-32603`) || !strings.Contains(got, `"data":{"body":{"items":[{"code":"3000"}]},"etag":"","status":200}`) {
+		t.Errorf("unrecorded call: got %s, want one error carrying the API's answer", got)
 	}
 }
 

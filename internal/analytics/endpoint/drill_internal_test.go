@@ -3,6 +3,7 @@ package endpoint
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -81,5 +82,30 @@ func TestDrillFailures(t *testing.T) {
 			fresh(t, ctx)
 			pgtest.CheckErr(t, drill(store(wire.Row{Currency: "EUR", Exponent: 2, Amount: -100}), ctx), "loopback")
 		})
+	})
+}
+
+// TestTruncatedWorkbook (T95d): a result cut at the rows a query answers
+// is refused as a workbook, which could not say so; as JSON it says it.
+func TestTruncatedWorkbook(t *testing.T) {
+	rows := make([]wire.Row, 501)
+	for i := range rows {
+		rows[i] = wire.Row{By: []string{fmt.Sprintf("%06d", 400000+i)}, Currency: "EUR", Exponent: 2, Amount: -100}
+	}
+	e := (&Endpoints{Configs: seed{}, Companies: codes{}, Loopback: &httpapi.Loopback{}, Reader: drillReader{sums: rows}}).Init()
+	req := &gen.AnalyticsQuery{Measures: []string{"revenue"}, By: []string{"account"}}
+	inRequestWith(t, allPermissions, 0, func(ctx context.Context) {
+		fresh(t, ctx)
+		res, err := e.RunAnalyticsQuery(ctx, req, gen.RunAnalyticsQueryParams{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r := res.(*gen.AnalyticsResultHeaders).Response; !r.Truncated || len(r.Rows) != 500 {
+			t.Fatalf("JSON: got %d rows, truncated %v, want 500 and truncated", len(r.Rows), r.Truncated)
+		}
+		_, err = e.RunAnalyticsQuery(ctx, req, gen.RunAnalyticsQueryParams{Format: gen.NewOptString("xlsx")})
+		if problem.From(err).Code != "analytics.result_truncated" {
+			t.Errorf("workbook: got %v, want analytics.result_truncated", err)
+		}
 	})
 }

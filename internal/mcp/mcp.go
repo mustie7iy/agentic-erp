@@ -31,8 +31,10 @@ const (
 	Legacy = "2025-11-25"
 )
 
-// supported is what server/discover and a refused version name.
-var supported = []string{Modern, Legacy}
+// supported is what server/discover and a refused version name: the
+// versions a request's _meta may name. A host on Legacy reaches it
+// through initialize instead.
+var supported = []string{Modern}
 
 // The _meta keys of 2026-07-28 (RequestMetaObject, ResultMetaObject).
 const (
@@ -65,7 +67,8 @@ type Server struct {
 	Version string
 
 	byName map[string]*apitools.Tool
-	legacy bool // a 2025-11-25 host initialized this process
+	legacy bool  // a 2025-11-25 host initialized this process
+	halt   error // a call the session did not record: serving stops
 }
 
 // Serve reads newline-delimited JSON-RPC messages from in until its end
@@ -84,6 +87,9 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 				if werr := write(out, answer); werr != nil {
 					return werr
 				}
+			}
+			if s.halt != nil {
+				return s.halt
 			}
 		}
 		switch {
@@ -206,6 +212,11 @@ func (s *Server) call(ctx context.Context, method string, raw json.RawMessage) (
 	if method == "initialize" {
 		return s.initialize(p)
 	}
+	if _, modern := p.Meta[metaVersion]; method == "ping" && !modern {
+		// 2025-11-25's ping, which a host may send before initialize too;
+		// 2026-07-28 has none.
+		return map[string]any{}, nil
+	}
 	modern, err := s.version(p)
 	if err != nil {
 		return nil, err
@@ -217,11 +228,6 @@ func (s *Server) call(ctx context.Context, method string, raw json.RawMessage) (
 		}
 		return s.complete(map[string]any{"supportedVersions": supported, "capabilities": capabilities(),
 			"instructions": Instructions, "ttlMs": 0, "cacheScope": "public"}), nil
-	case "ping":
-		if modern {
-			break
-		}
-		return map[string]any{}, nil
 	case "tools/list":
 		return s.list(p, modern)
 	case "tools/call":
@@ -278,9 +284,9 @@ func (s *Server) complete(result map[string]any) map[string]any {
 }
 
 // list is every tool, in the order of their names; the list is one page,
-// so no cursor names another.
+// so no cursor but the empty one names a page.
 func (s *Server) list(p params, modern bool) (any, *rpcError) {
-	if p.Cursor != nil {
+	if p.Cursor != nil && *p.Cursor != "" { // "" is the first page's
 		return nil, fail(codeInvalidParams, "Invalid params: unknown cursor %q", *p.Cursor)
 	}
 	tools := make([]map[string]any, 0, len(s.Tools))
@@ -320,7 +326,12 @@ func (s *Server) toolCall(ctx context.Context, p params, modern bool) (any, *rpc
 	}
 	resp, err := t.Invoke(ctx, input)
 	if errors.Is(err, apitools.ErrNotRecorded) {
-		return nil, fail(codeInternal, "Internal error: %v", err)
+		// The API may have acted: its answer goes back with the error, and
+		// no further call is served unrecorded (the session ends failed).
+		s.halt = fmt.Errorf("mcp: %s: %w", t.Name(), err)
+		e := fail(codeInternal, "Internal error: the call was not recorded in the agent's session; erp mcp stops")
+		e.Data = toolResult(resp, nil)["structuredContent"]
+		return nil, e
 	}
 	result := toolResult(resp, err)
 	if !modern {

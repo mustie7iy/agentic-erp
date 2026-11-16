@@ -55,7 +55,9 @@ versions hosts speak today is not settled there.
    can correct itself; a body that is not JSON is a string, or base64 when
    it is not UTF-8. A call the API cannot be reached for is `isError` with
    the reason; a call the session fails to record is an internal error
-   (-32603), since the API may have acted.
+   (-32603) carrying the API's answer in its `data`, and `erp mcp` then
+   stops serving and ends the session failed: the API may have acted, and
+   no further call goes unrecorded (as `apitools.Run` stops on it).
 4. **Malformed input changes nothing.** A line that is not JSON is -32700;
    a message that is not one JSON-RPC 2.0 request object (a batch, a null
    or fractional id) is -32600; parameters that are not an object, a call
@@ -68,12 +70,18 @@ versions hosts speak today is not settled there.
    version must be 2026-07-28 (else -32022 with `supported` and
    `requested`), `clientCapabilities` must be there (else -32602), and the
    result carries `resultType` and `_meta.serverInfo`; `server/discover`
-   names both versions and the tools capability; `tools/list` is one page
+   names the tools capability and, as `supportedVersions`, 2026-07-28
+   alone, the only version a request's `_meta` may name (the schema has
+   the list as the versions "for use in subsequent requests"; 2025-11-25 is
+   reached through `initialize`, not `_meta`); `tools/list` is one page
    (`ttlMs` 0, `cacheScope` private, since it follows the caller's level).
    A host on 2025-11-25 opens with `initialize`, answered with that
    version whatever version it asked for, and its requests without `_meta`
-   are then served with 2025-11-25's results, `ping` among them. Before
-   `initialize`, a request without `_meta` is -32602. The tools are the
+   are then served with 2025-11-25's results. `ping` without `_meta` is
+   answered at any time, as 2025-11-25's lifecycle allows it before
+   `initialize`; with `_meta` it is unknown (-32601), 2026-07-28 having
+   removed it. Before `initialize`, any other request without `_meta` is
+   -32602. The tools are the
    same set in both.
 
 ## Alternatives
@@ -130,8 +138,10 @@ versions hosts speak today is not settled there.
   host after `initialize` lists the same tools; the session holds the one
   call and ended completed.
 - Decided by default while building: §3's body encodings, §4's checks of
-  required arguments before the call, `ttlMs` 0, one page of tools, the
-  session's purpose and model as flags.
+  required arguments before the call, `ttlMs` 0, one page of tools (the
+  empty cursor names it too), the session's purpose and model as flags.
+- Review round 1: an unrecorded call stops serving (§3); `supportedVersions`
+  names 2026-07-28 alone (§5); `ping` before `initialize` is answered (§5).
 - Not checked: a real agent host against `erp mcp`. None is available to
   the build; the messages follow the supplied schemas, and the tests and
   the walkthrough drive the server with scripted messages.

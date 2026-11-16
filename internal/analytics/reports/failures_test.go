@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -337,22 +338,36 @@ func TestRunsDatabaseFailures(t *testing.T) {
 			t.Errorf("list: got %v, want the names' failure", err)
 		}
 	})
+	// kept is a run's results of one result, its revenue the figure and
+	// truncated or not.
+	kept := func(figure string, truncated bool) string {
+		return `{"report_id": "` + id.String() + `", "title": "T", "data_through": "", "spec": {"title": "T"}, "results": [{"query_id": "q", ` +
+			`"columns": [{"name": "revenue", "label": "Revenue", "kind": "measure", "type": "money"}], "rows": [[{"value": "` + figure + `", "currency": "EUR"}]], ` +
+			`"source": "database", "as_of": "2026-01-01T00:00:00Z", "data_through": "", "config_version": 1, "definitions": [], "truncated": ` + fmt.Sprint(truncated) + `}]}`
+	}
 	t.Run("results that do not read", func(t *testing.T) {
 		for name, c := range map[string]struct {
-			body, format, date string
+			body, format, date, want string
 		}{
-			"not JSON": {`[`, "", "2026-01-01"},
+			"not JSON": {`[`, "", "2026-01-01", "report run"},
 			// A figure that is not a decimal, kept with its SHA-256, fails
 			// rather than be served wrong.
-			"a figure that is not a decimal": {`{"report_id": "` + id.String() + `", "title": "T", "data_through": "", "spec": {"title": "T"}, "results": [{"query_id": "q", ` +
-				`"columns": [{"name": "revenue", "label": "Revenue", "kind": "measure", "type": "money"}], "rows": [[{"value": "5x", "currency": "EUR"}]], ` +
-				`"source": "database", "as_of": "2026-01-01T00:00:00Z", "data_through": "", "definitions": [], "truncated": false}]}`, "csv", "2026-01-02"},
+			"a figure that is not a decimal": {kept("5x", false), "csv", "2026-01-02", `"5x"`},
 		} {
 			t.Run(name, func(t *testing.T) {
-				if err := in(t, h, keptRun(t, e, id, c.date, []byte(c.body), c.format)); err == nil || problem.From(err).Status != 500 {
-					t.Errorf("got %v, want an error", err)
+				err := in(t, h, keptRun(t, e, id, c.date, []byte(c.body), c.format))
+				if problem.From(err).Status != 500 || !strings.Contains(err.Error(), c.want) {
+					t.Errorf("got %v, want a failure naming %s", err, c.want)
 				}
 			})
+		}
+	})
+	// A result cut at the rows a query answers is refused as a workbook,
+	// which could not say so (T95d).
+	t.Run("a truncated result as a workbook", func(t *testing.T) {
+		err := in(t, h, keptRun(t, e, id, "2026-01-03", []byte(kept("5.00", true)), "xlsx"))
+		if p := problem.From(err); p.Code != "analytics.result_truncated" {
+			t.Errorf("got %v, want analytics.result_truncated", err)
 		}
 	})
 }
