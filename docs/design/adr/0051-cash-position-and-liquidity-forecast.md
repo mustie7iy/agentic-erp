@@ -1107,7 +1107,7 @@ company's time zone):
   were routed, `created_at`'s date in UTC, without touching their version
   or `updated_at`; the previous release's inserts in a mixed cell take the
   column's default, its own UTC rule; the not-null rule is validated in
-  000171. The default was dropped in 000343 (the contract step; hdates,
+  000171. The default was dropped in 000346 (the contract step; hdates,
   below): an insert that leaves the date out now fails.
 - **Not this rule.** Procurement's other dates are different decisions,
   each read on the company's date by its own step: a goods movement
@@ -2842,7 +2842,7 @@ As built (business dates swept; hdates, review:batch75):
   `procurement.TestOrderDocumentTimeZone` (an order desk moving on 11
   March: the legal address at 22:30 on 10 March in Toronto, the new desk
   at 01:00 on 11 March in Dubai), `TestOrderDocumentZoneLost`.
-- **The requisition date's default dropped (000343).** The contract step
+- **The requisition date's default dropped (000346).** The contract step
   T72n5's review asked for once no release before T72n5 runs: none does,
   since no cell has been deployed (the product owner put deployment last,
   2026-11-02), so the first deployed release is past T72n5 and has no
@@ -2863,7 +2863,7 @@ As built (business dates swept; hdates, review:batch75):
   the model simulation's lowest fiscal year (`clock.Now(...).Year()` less
   two or fourteen years). `ledger.tax_code`'s end trigger keeps
   `current_date`: nothing ends a tax code yet.
-- **The end of an address or a bank account (000344).** The database's
+- **The end of an address or a bank account (000347).** The database's
   end trigger, `platform.end_validity`, refused a `valid_to` before
   `current_date`, UTC's day, while partner ends addresses and bank
   accounts on partner's day: from 19:00 in Toronto, ending one "today"

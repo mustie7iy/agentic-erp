@@ -11,7 +11,7 @@ import (
 // TestRequisitionDate: every requisition has a date (T72n5, migrations
 // 000170-000171). The application dates it in its company's time zone; an
 // insert that leaves the date out fails, no longer dated on UTC's day by a
-// default (000343, the contract step), and none is without a date.
+// default (000346, the contract step), and none is without a date.
 func TestRequisitionDate(t *testing.T) {
 	need(t)
 	for _, c := range []struct {

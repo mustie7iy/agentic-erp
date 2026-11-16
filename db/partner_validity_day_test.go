@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestPartnerValidityCompanyDay (migration 000344; ADR-0051 As built,
+// TestPartnerValidityCompanyDay (migration 000347; ADR-0051 As built,
 // hdates): a business partner's address and bank account may be ended on
 // the database's yesterday, the day partner's day (the earliest of the
 // companies' days) is in Toronto from 19:00, but not before it; identity's

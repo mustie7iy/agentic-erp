@@ -72,7 +72,7 @@ assignments, company access, SoD rules, tax codes, approval policies.
 Assignments are ended, never rewritten: `platform.end_validity()` permits only
 setting or shortening `valid_to` (not into the past: before the database's
 date, or for a partner's addresses and bank accounts before the day before
-it, since partner ends them on its companies' days, migration 000344) with
+it, since partner ends them on its companies' days, migration 000347) with
 `ended_by`, and the
 application role may update only those columns. Exchange rates are
 insert-only; a new rate is a new row with a later `valid_from`. A rate is
@@ -309,7 +309,7 @@ one change: setting `valid_to` (or bringing it forward), not into the past,
 with `ended_by`; `ended_at` is stamped by the database. The access a
 principal had on any past date can therefore be reconstructed for audit.
 Partner bank accounts and addresses follow the same pattern, ended no
-earlier than the database's yesterday (partner's day, ADR-0051; migration 000344).
+earlier than the database's yesterday (partner's day, ADR-0051; migration 000347).
 
 ## 3.5 Configuration (`config`)
 
