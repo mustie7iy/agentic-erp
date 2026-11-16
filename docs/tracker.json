@@ -3670,6 +3670,13 @@
        },
        {
         "s": "T",
+        "t": "CostCenterPlanActual and PlanLine give cost_center_id and account_id with no code, number or name: a consumer, the planning agent among them, has to read the cost centers and the accounts again to name a line (an identifier without the name its consumer needs, found in T105e's review).",
+        "r": "api/openapi.yaml CostCenterPlanActual, PlanLine · internal/planningagent (listAccounts, cost center reads)",
+        "src": "review:T105e",
+        "c": []
+       },
+       {
+        "s": "T",
         "t": "later: planning agent variants: proposals written into a plan version directly as proposals to accept line by line, drivers and scenarios, explanations of plan and actual variances for centers (T56j), planning across companies, evaluation against the live Claude API (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week3.md §T105e, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
@@ -6000,6 +6007,13 @@
        },
        {
         "s": "T",
+        "t": "The T99b archiver builds a whole fiscal year in memory before it writes its file: a company with a very large year holds all its rows at once (found in batch 75's integration; it should write the year in parts).",
+        "r": "internal/records archiving run · records.archiving_run · GET /v1/archiving-runs/{id}/file · ADR-0079",
+        "src": "review:batch75",
+        "c": []
+       },
+       {
+        "s": "T",
         "t": "later: archiving run variants: deleting archived documents from the database (needs the product owner: the ledger and the audit trail are append-only), reading a document back from the archive, archiving on a schedule, document kinds beyond journal entries, archive formats an auditor's tools read, destroying an archive at the end of its retention (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week3.md §T99b, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
@@ -6885,6 +6899,13 @@
         "t": "A process analyst reads the event log of the purchase-to-pay flow for a company and a period: per purchase order each activity with its time and whether a person, an agent or the system did it, from requisition to payment, as JSON or CSV (GET /v1/process-event-logs)",
         "r": "T103a · docs/design/plan-breadth-week3.md §T103a · internal/processmining · db/migrations/000339-000341 · GET /v1/process-event-logs · processmining.log.read · procurement.ProcessLog, payables.ProcessLog, payments.ProcessLog, audit.Trail · TestEventLogBudget · walkthrough step_process_mining · ADR-0080",
         "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "getProcessEventLog has no x-snapshot, no x-slo-class report and no row in 01 §1.3: its case_count and its page are separate statements, so a page can disagree with the count beside it (found in T103a's review).",
+        "r": "api/openapi.yaml getProcessEventLog · internal/processmining · docs/design/01-requirements.md §1.3",
+        "src": "review:T103a",
         "c": []
        },
        {
@@ -9830,6 +9851,20 @@
        },
        {
         "s": "T",
+        "t": "An index on approval_request.object_id: the evidence export and the approvals read an object's requests by its id and, without the index, read the tenant's requests (found in batch 75's integration; a migration, expand-only, built concurrently).",
+        "r": "approvals.approval_request (object_id) · audit evidence export reads · 06 §6.4 (indexes built concurrently)",
+        "src": "review:batch75",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "An evidence export cannot stream beyond its 200,000-row cap: an auditor whose company and period hold more rows is refused instead of served in parts, so the export has to be split by hand into periods (found in batch 75's integration).",
+        "r": "internal/audit evidence export · audit.evidence_export · GET /v1/audit-evidence-exports/{id}/file · ADR-0011 As built",
+        "src": "review:batch75",
+        "c": []
+       },
+       {
+        "s": "T",
         "t": "later: audit evidence export variants: samples drawn by the auditor's criteria, evidence per control of the library, subledger documents and their attachments, a read-only auditor role with a time limit, export in an audit tool's format, a signed manifest (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week3.md §T101a, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
@@ -11332,6 +11367,13 @@
         "c": []
        },
        {
+        "s": "T",
+        "t": "Identity, grc and integration still call database.Today for business dates where the company's day belongs: a date they stamp or compare is UTC's, off by a day for a company in Toronto between 19:00 and 24:00 (found in batch 75's integration; the contexts T72n4 to T72n6 and batch 74 moved are not among them).",
+        "r": "internal/identity · internal/grc · internal/integration (database.Today) · ADR-0051 · tenancy.LegalEntities company day",
+        "src": "review:batch75",
+        "c": []
+       },
+       {
         "s": "D",
         "t": "A migration run's new supplier may have its first bank account start on UTC's day minus one, so that on a cutover evening in Toronto a payment run dated on the company's day finds it; only partner.Migration.Create, for the partner that call creates, and never two days back; people, agents, the API and a later change to an existing partner keep the backdating control; the walkthrough dates its payment runs on the company's day and no longer stops on New Year's Eve",
         "r": "product owner 2026-11-02 (option A) · ADR-0051 as built (the migration's bank accounts on a cutover evening) · internal/partner migration.go backdating (unexported), Migration.Create → createPartner/applyChange · changes.go sealBanks, applyCreate/insertBank · internal/integration banks.go supplierBank · TestMigrationBackdating · TestCutoverEveningBankAccount · TestWalkthroughDates · 03-data-model (bank accounts) · docs/migration.md · walkthrough step 7 (run on the company's day)",
@@ -11431,6 +11473,13 @@
       "t": "The walkthrough reads UTC's day when step 4 asks for the supplier's order desk address, not when the run began (finding of the T57a review): a run crossing 00:00 UTC (19:00 or 20:00 in Toronto) sent the day before as the address's start and was refused partner.backdated_address, since a business partner's dates are judged on the database's day (database.Today, UTC); UTC's day is used nowhere else, and the company's days are Toronto's, which 00:00 UTC does not change",
       "r": "scripts/walkthrough.sh order_document · scripts/walkthrough/dates.sh utc_day",
       "src": "review:T57a",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "suppliers.OrderAddress takes the tenant-wide day, not the company's: the supplier's order desk address in force on a date is chosen on UTC's (database.Today) day where the company's own day decides, the business date class of ADR-0051 (found in batch 75's integration).",
+      "r": "internal/suppliers OrderAddress · database.Today · ADR-0051 · ADR-0050 (business dates on the company's day)",
+      "src": "review:batch75",
       "c": []
      }
     ]
