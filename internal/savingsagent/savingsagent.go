@@ -29,6 +29,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/recommend"
 )
 
@@ -109,14 +110,14 @@ var (
 )
 
 // Advise runs one session on the company's purchasing in the period
-// (FROM..TO; "" is the year to today in the company's time zone): it finds the company, reads
+// (FROM..TO; "" is the year to today, UTC): it finds the company, reads
 // the spend, the contracts and the orders and works out the
 // opportunities (anything the agent may not read stops the run before a
 // session starts), then offers the model the tools and reports what it
 // recommended, also when the run fails after recommending. A period
 // without opportunities starts no session and says so.
 func (a *Agent) Advise(ctx context.Context, company, period string) (recommend.Result, error) {
-	from, to, err := parsePeriod(period)
+	from, to, err := a.period(period)
 	if err != nil {
 		return recommend.Result{}, err
 	}
@@ -131,12 +132,6 @@ func (a *Agent) Advise(ctx context.Context, company, period string) (recommend.R
 	if err != nil {
 		return recommend.Result{}, err
 	}
-	if period == "" {
-		if from, to, err = a.yearToToday(ctx, le); err != nil {
-			return recommend.Result{}, fmt.Errorf("savingsagent: company %s: %w", company, err)
-		}
-	}
-
 	s := &scan{api: a.API, company: company, le: le, from: from, to: to}
 	found, err := s.opportunities(ctx)
 	if err != nil {
@@ -163,21 +158,11 @@ func (a *Agent) Advise(ctx context.Context, company, period string) (recommend.R
 	return res, err
 }
 
-// yearToToday is the default period: the year to today, the legal
-// entity's company's day (apitools.Days, review:batch77).
-func (a *Agent) yearToToday(ctx context.Context, le string) (string, string, error) {
-	today, err := apitools.Days{API: a.API, Now: a.Now}.Of(ctx, le)
-	if err != nil {
-		return "", "", err
-	}
-	to, _ := time.Parse(time.DateOnly, today) // Days gives a date in this form
-	return to.AddDate(-1, 0, 1).Format(time.DateOnly), today, nil
-}
-
-// parsePeriod is the run's period as given, FROM..TO; "" is none yet.
-func parsePeriod(p string) (string, string, error) {
+// period is the run's period: the one given, or the year to today, UTC.
+func (a *Agent) period(p string) (string, string, error) {
 	if p == "" {
-		return "", "", nil
+		to := clock.Now(a.Now).UTC()
+		return to.AddDate(-1, 0, 1).Format(time.DateOnly), to.Format(time.DateOnly), nil
 	}
 	from, to, ok := strings.Cut(p, "..")
 	f, err1 := time.Parse(time.DateOnly, from)

@@ -175,9 +175,7 @@ func TestAdvise(t *testing.T) {
 		rec(partly, "send_reminder", "Overdue 900.00 CAD, part of it disputed.\nDraft message: Dear Tyrell, please pay the items not in dispute."),
 		rec(plain, "call", "Overdue 250.00 CAD.\nDraft message: we will call."),
 		llmtest.Final("Recommended on each customer."))
-	// 21:00 UTC on the 14th is already the 15th in Dubai, the company's
-	// zone: the default key date is the company's day (review:batch77).
-	now := func() time.Time { return time.Date(2026, 11, 14, 21, 0, 0, 0, time.UTC) }
+	now := func() time.Time { return time.Date(2026, 11, 14, 23, 30, 0, 0, time.FixedZone("EST", -5*3600)) }
 	res, err := (&collectionsagent.Agent{LLM: model.Runner(), API: client(t, a), Now: now}).Advise(context.Background(), "3000", "")
 	if err != nil {
 		t.Fatal(err)

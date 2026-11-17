@@ -1424,15 +1424,12 @@ A later slice adds its row here and its section under "As built".
   port, `apitools.Days`: a run of one company is dated in the company's
   time zone, as the API judges every date of the company
   (`getLegalEntityToday`, over `config.DocumentDay`), any other run in
-  UTC. The credit agent's "today", the collections agent's default key
-  date and the savings agent's default period (the year to today) are the
-  company's; the analytics agent's is the asked company's
+  UTC. The credit agent's "today" and the collections agent's default key
+  date are the company's; the analytics agent's is the asked company's
   when the question is asked of one company (`-companies` naming one),
   else UTC's; the access agent's stays UTC's (product owner 2026-11-16).
   At 23:30 in Toronto the credit agent's run is on that day, no longer on
-  UTC's tomorrow. Without a clock of its own the port takes the API's date, so a
-  client whose clock is off agrees with the API; a zone the API does not
-  give is refused, never taken for UTC.
+  UTC's tomorrow.
 
 ## Defaults taken (for the product owner's digest)
 

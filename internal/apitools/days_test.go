@@ -19,11 +19,9 @@ func TestDays(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/v1/legal-entities":
-			_, _ = w.Write([]byte(`{"items": [{"id": "to", "code": "3000"}, {"id": "bad", "code": "9000"}, {"id": "gone", "code": "8000"}, {"id": "none", "code": "6000"}]}`)) // a test's answer
+			_, _ = w.Write([]byte(`{"items": [{"id": "to", "code": "3000"}, {"id": "bad", "code": "9000"}, {"id": "gone", "code": "8000"}]}`)) // a test's answer
 		case "/v1/legal-entities/to/today":
 			_, _ = w.Write([]byte(`{"date": "2026-11-12", "time_zone": "America/Toronto"}`)) // a test's answer
-		case "/v1/legal-entities/none/today":
-			_, _ = w.Write([]byte(`{"date": "2026-11-12"}`)) // a test's answer
 		case "/v1/legal-entities/bad/today":
 			_, _ = w.Write([]byte(`{"date": "2026-11-12", "time_zone": "Mars/Olympus"}`)) // a test's answer
 		default:
@@ -60,7 +58,6 @@ func TestDays(t *testing.T) {
 		"unknown company":   {days, []string{"7000"}, "no company 7000"},
 		"no such entity":    {days, []string{"8000"}, "API 404"},
 		"unknown time zone": {days, []string{"9000"}, `time zone "Mars/Olympus"`},
-		"no time zone":      {days, []string{"6000"}, `time zone "": the API gave none`},
 		"API unreachable":   {apitools.Days{API: &apitools.Client{BaseURL: "http://127.0.0.1:1", Token: "t"}}, []string{"3000"}, "today of company 3000"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -68,9 +65,6 @@ func TestDays(t *testing.T) {
 				t.Errorf("today: got %v, want an error saying %q", err, c.want)
 			}
 		})
-	}
-	if got, err := (apitools.Days{API: days.API}).Of(ctx, "to"); err != nil || got != "2026-11-12" {
-		t.Errorf("today without a clock: got %q, %v, want the API's date 2026-11-12", got, err)
 	}
 	if _, err := (apitools.Days{API: &apitools.Client{BaseURL: "http://127.0.0.1:1", Token: "t"}}).Of(ctx, "to"); err == nil {
 		t.Error("today of an unreachable API: got a date, want an error")

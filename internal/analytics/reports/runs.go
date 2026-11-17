@@ -155,13 +155,12 @@ func (s *Scheduler) runReport(ctx context.Context, sc scheduled) (bool, error) {
 	return ran && err == nil, err
 }
 
-// store writes the run's results under its day's key, which names what
-// they are computed from and read under (label). An earlier attempt at
-// the day under the same label that stored them and was never kept (a
-// replica that stopped after the write, or one whose day another replica
-// kept) left results there: those are the day's, and the run keeps them,
-// with their digest and data date, rather than leave them referred to by
-// no run (review:batch77).
+// store writes the run's results under its day's key. An earlier attempt
+// at the day that stored them and was never kept (a replica that stopped
+// after the write, or one whose day another replica kept) left results
+// there: those are the day's, and the run keeps them, with their digest
+// and data date, rather than leave them referred to by no run
+// (review:batch77).
 func (s *Scheduler) store(ctx context.Context, run *keptRun, body []byte) error {
 	err := s.Reports.Objects.Put(ctx, run.ObjectKey, body, blobstore.PutOptions{ContentType: "application/json"})
 	if errors.Is(err, blobstore.ErrExists) {
@@ -176,29 +175,13 @@ func (s *Scheduler) store(ctx context.Context, run *keptRun, body []byte) error 
 	return nil
 }
 
-// label is the digest of what a run's results are computed from and read
-// under: the report's specification and queries, and the companies and
-// permissions the run is kept with (ADR-0076 §7). It is part of the
-// results' key, so an earlier attempt's results found at the key were
-// computed from the same definition over the same access, and the run
-// that keeps them is labelled as they were made; an attempt under another
-// definition or access writes, and keeps, its own (review:batch77).
-func label(r Report, companies, permissions []string) string {
-	// Plain data of strings, maps and slices: it always encodes.
-	b, _ := json.Marshal(map[string]any{"spec": r.Spec, "queries": r.Queries, "companies": companies, "permissions": permissions})
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:16])
-}
-
-// adopt makes the results an earlier attempt stored the run's: they must
-// be the report's, under the same label (label).
+// adopt makes the results an earlier attempt stored the run's.
 func adopt(run *keptRun, stored []byte) error {
 	var res struct {
-		ReportID    string `json:"report_id"`
 		DataThrough string `json:"data_through"`
 	}
-	if err := json.Unmarshal(stored, &res); err != nil || res.ReportID != run.Report.ID.String() {
-		return fmt.Errorf("the results stored before are not report %s's (%v)", run.Report.ID, err)
+	if err := json.Unmarshal(stored, &res); err != nil {
+		return fmt.Errorf("the results stored before are not a report's: %w", err)
 	}
 	sum := sha256.Sum256(stored)
 	run.SHA256, run.DataThrough = sum[:], res.DataThrough
@@ -319,7 +302,7 @@ func (s *Scheduler) execute(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	api := resultsToAPI(res)
 	body, _ := api.MarshalJSON() // the generated type always encodes
 	sum := sha256.Sum256(body)
-	key := blobstore.Key(p.TenantID, blobstore.KindReportRuns, run.Report.ID.String()+"/"+run.Date.Format(time.DateOnly)+"/"+label(run.Report, companies, permissions)+".json")
+	key := blobstore.Key(p.TenantID, blobstore.KindReportRuns, run.Report.ID.String()+"/"+run.Date.Format(time.DateOnly)+".json")
 	run.ObjectKey, run.SHA256, run.DataThrough, run.Companies, run.Permissions = key, sum[:], res.DataThrough, companies, permissions
 	return body, nil
 }

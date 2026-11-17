@@ -328,7 +328,7 @@ func regulatoryEval(ctx context.Context, env eval.Env) error {
 func agentCollections(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("agent collections", flag.ContinueOnError)
 	company := fs.String("company", "", "company code")
-	keyDate := fs.String("key-date", "", "the worklist's key date, YYYY-MM-DD (default: today in the company's time zone)")
+	keyDate := fs.String("key-date", "", "the worklist's key date, YYYY-MM-DD (default: today, UTC)")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}

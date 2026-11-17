@@ -132,7 +132,7 @@ func Body(input map[string]any) map[string]any {
 // exponent, since fmt.Sprint would write 1000000 as 1e+06, which the API
 // refuses.
 func paramText(v any) string {
-	//nolint:forbidigo // only a Go caller gives a float64 (DecodeInput keeps numbers as json.Number); a parameter is spelled, never summed
+	//nolint:forbidigo // encoding/json decodes every number in map[string]any as float64; a parameter is spelled, never summed
 	if f, ok := v.(float64); ok {
 		return strconv.FormatFloat(f, 'f', -1, 64)
 	}
