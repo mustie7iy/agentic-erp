@@ -217,7 +217,7 @@ func firstBusinessDay(t *testing.T, doc *config.Config, day string, lags []int) 
 // defaults); TestWalkthroughListeners keeps them equal to the
 // WALKTHROUGH_*_ADDR variables the script names.
 var walkthroughListeners = []string{"WALKTHROUGH_API_ADDR", "WALKTHROUGH_ADMIN_ADDR", "WALKTHROUGH_MODEL_ADDR",
-	"WALKTHROUGH_SFTP_ADDR", "WALKTHROUGH_NATS_ADDR", "WALKTHROUGH_HOOK_ADDR", "WALKTHROUGH_PROVIDER_ADDR"}
+	"WALKTHROUGH_SFTP_ADDR", "WALKTHROUGH_NATS_ADDR", "WALKTHROUGH_HOOK_ADDR", "WALKTHROUGH_PROVIDER_ADDR", "WALKTHROUGH_VAULT_ADDR"}
 
 // TestWalkthroughListeners: TestWalkthrough gives a free port to every
 // listener the walkthrough configures through a WALKTHROUGH_*_ADDR
