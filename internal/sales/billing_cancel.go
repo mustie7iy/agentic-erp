@@ -238,17 +238,17 @@ func insertCancellation(ctx context.Context, tx pgx.Tx, p reqctx.Principal, b Bi
 // null for a document cancelled before it was posted.
 func recordCancellation(ctx context.Context, b BillingDocument, before string, c cancelling) error {
 	amount := func(m money.Minor) any { return money.EventAmount(m, b.Currency, b.Exponent) }
-	var tax, gross, memo, memoNumber, year, entry, entryNumber, reference any // null for a document cancelled before it was posted
+	var tax, gross, memo, memoNumber, year, entry, entryNumber, reference, referenceNumber any // null for a document cancelled before it was posted
 	if v := c.memo; v != nil {
-		tax, gross, memo, memoNumber, year, entry, entryNumber, reference = amount(v.Tax), amount(v.Gross), v.ID, v.DocumentNumber, v.EntryYear, v.EntryID,
-			c.entryNumber, b.InvoiceID
+		tax, gross, memo, memoNumber, year, entry, entryNumber, reference, referenceNumber = amount(v.Tax), amount(v.Gross), v.ID, v.DocumentNumber,
+			v.EntryYear, v.EntryID, c.entryNumber, b.InvoiceID, b.InvoiceNumber
 	}
 	on := c.date.Format(time.DateOnly)
 	payload := map[string]any{"billing_document_id": b.ID, "document_number": b.DocumentNumber, "legal_entity_id": b.LegalEntityID,
 		"legal_entity_code": c.le.Code, "customer_id": b.CustomerID, "customer_number": c.customerNumber, "sales_order_id": b.OrderID,
 		"sales_order_number": b.OrderNumber, "cancellation_id": c.id, "cancellation_number": c.number, "cancellation_date": on,
 		"reason": b.Cancellation.Reason, "net_amount": amount(b.Net), "tax_amount": tax, "gross_amount": gross, "customer_invoice_id": memo,
-		"customer_invoice_number": memoNumber, "reference_invoice_id": reference, "journal_entry_id": entry, "journal_entry_year": year,
+		"customer_invoice_number": memoNumber, "reference_invoice_id": reference, "reference_invoice_number": referenceNumber, "journal_entry_id": entry, "journal_entry_year": year,
 		"journal_entry_number": entryNumber, "status": b.Status, "status_before": before, "version": b.Version}
 	detail := map[string]any{"document_number": b.DocumentNumber, "customer_id": b.CustomerID, "sales_order_id": b.OrderID, "status": b.Status,
 		"status_before": before, "cancellation_id": c.id, "cancellation_number": c.number, "cancellation_date": on, "reason": b.Cancellation.Reason,

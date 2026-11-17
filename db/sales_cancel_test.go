@@ -101,6 +101,13 @@ func TestBillingCancellationRules(t *testing.T) {
 		{"a created document cancelled with a credit memo", func(tx pgx.Tx, s scene) error {
 			return all(tx, billed(s, reversed(s))...)
 		}, "its document is not a created one, or a posted one with its credit memo"},
+		{"a cancellation naming another order than its document's", func(tx pgx.Tx, s scene) error {
+			return all(tx, billed(s, step(strings.Replace(cancel, "id, sales_order_id, '2026", "id, gen_random_uuid(), '2026", 1), s.doc, "BD2", "Wrong", noID, none, noYear, noID))...)
+		}, "billing_cancellation_document_fkey"},
+		{"a cancellation in another company", func(tx pgx.Tx, s scene) error {
+			return all(tx, billed(s, step(strings.Replace(cancel, "SELECT tenant_id, gen_random_uuid(), $2, legal_entity_id,", "SELECT tenant_id, gen_random_uuid(), $2, gen_random_uuid(),", 1),
+				s.doc, "BD2", "Wrong", noID, none, noYear, noID))...)
+		}, "its document is not a created one, or a posted one with its credit memo"},
 		{"cancelled twice", func(tx pgx.Tx, s scene) error {
 			return all(tx, billed(s, unposted(s), step(cancel, s.doc, "BD3", "Again", noID, none, noYear, noID))...)
 		}, "billing_cancellation_once"},

@@ -107,8 +107,9 @@ posted billing document (SAP's VF11); the cancellation is numbered from
 the `billing_document` range and is its credit memo's source; (7) the
 credit memo is not cleared against the invoice: it stands as the
 customer's open credit item and clears by the ledger's clearing, as
-T85d's does; (8) the revenue contract of a changed or cancelled order is
-not changed (the consumer reads confirmations only).
+T85d's does; (8) a confirmed order with a revenue contract keeps its
+items' quantities and prices and is not cancelled (409), since the
+contract holds their values and does not follow a change.
 
 **Later for these variants:** adding and removing items, changing the
 payment term, the customer or the currency; schedule lines; reversing a

@@ -4963,7 +4963,7 @@
        },
        {
         "s": "T",
-        "t": "later: billing posting variants: revenue account determination by customer and item group, reversal of a posted billing document, credit and debit memos from billing, posting to a profit center or segment derived from the sales organization, cost of goods sold, rebate accruals, a tax date other than the billing date (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "later: billing posting variants: revenue account determination by customer and item group, credit and debit memos from billing, posting to a profit center or segment derived from the sales organization, cost of goods sold, rebate accruals, a tax date other than the billing date (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T79b, Later",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []

@@ -294,16 +294,29 @@ func (e *Endpoints) creditCheck(ctx context.Context, tx pgx.Tx, o Order, le tena
 	if c.gross, c.amount, err = v.value(ctx, openOrder{Number: o.DocumentNumber, Date: o.OrderDate, Currency: o.Currency, Lines: lines}); err != nil {
 		return checked{}, err
 	}
-	if c.answer, err = e.Credit.Check(ctx, le.ID, o.CustomerID, c.amount); err != nil {
-		return checked{}, fmt.Errorf("sales: credit check of sales order %s: %w", o.DocumentNumber, err)
+	return c, e.creditDecision(ctx, tx, o, le, &c, true)
+}
+
+// creditDecision asks credit whether c's amount is within the order's customer's
+// limit, when ask says to, blocks c when it is not, and gives c the
+// company currency's minor-unit digits the audit record writes its
+// amounts in.
+func (e *Endpoints) creditDecision(ctx context.Context, tx pgx.Tx, o Order, le tenancy.Entity, c *checked, ask bool) error {
+	if ask {
+		var err error
+		if c.answer, err = e.Credit.Check(ctx, le.ID, o.CustomerID, c.amount); err != nil {
+			return fmt.Errorf("sales: credit check of sales order %s: %w", o.DocumentNumber, err)
+		}
+		if !c.answer.Within {
+			c.block = Blocked
+		}
 	}
-	if !c.answer.Within {
-		c.block = Blocked
+	exp, err := currency.Exponent(ctx, tx, le.LocalCurrency, nil) // a legal entity's currency exists
+	if err != nil {
+		return fmt.Errorf("sales: currency of company %s: %w", le.Code, err)
 	}
-	if c.exp, err = currency.Exponent(ctx, tx, le.LocalCurrency, nil); err != nil { // a legal entity's currency exists
-		return checked{}, fmt.Errorf("sales: currency of company %s: %w", le.Code, err)
-	}
-	return c, nil
+	c.exp = exp
+	return nil
 }
 
 // increaseCheck checks a change that raises a confirmed order's value
@@ -333,18 +346,7 @@ func (e *Endpoints) increaseCheck(ctx context.Context, tx pgx.Tx, o Order, after
 		}
 	}
 	c.amount = inCompany[1] - inCompany[0] // two amounts in range, neither negative
-	if c.amount > 0 {
-		if c.answer, err = e.Credit.Check(ctx, le.ID, o.CustomerID, c.amount); err != nil {
-			return checked{}, fmt.Errorf("sales: credit check of a change of sales order %s: %w", o.DocumentNumber, err)
-		}
-		if !c.answer.Within {
-			c.block = Blocked
-		}
-	}
-	if c.exp, err = currency.Exponent(ctx, tx, le.LocalCurrency, nil); err != nil { // a legal entity's currency exists
-		return checked{}, fmt.Errorf("sales: currency of company %s: %w", le.Code, err)
-	}
-	return c, nil
+	return c, e.creditDecision(ctx, tx, o, le, &c, c.amount > 0)
 }
 
 // blockedEvent is SalesOrderCreditBlocked for the confirmed order: its
@@ -391,6 +393,9 @@ func (e *Endpoints) ReleaseCreditBlock(ctx context.Context, id uuid.UUID, ifMatc
 	}
 	if err := ifMatch(o.Version); err != nil {
 		return Order{}, err
+	}
+	if o.Status == Cancelled {
+		return Order{}, problem.Conflict("sales.invalid_status", "Sales order "+o.DocumentNumber+" is cancelled; its credit block is not released.")
 	}
 	if o.CreditBlock != Blocked {
 		return Order{}, problem.Conflict("sales.order_not_credit_blocked",

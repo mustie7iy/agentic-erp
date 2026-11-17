@@ -1,6 +1,7 @@
 package revenue_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/revenue"
 )
 
 // TestContractCreatedOnRequest: a person creates the contract of a
@@ -228,4 +230,12 @@ func TestContractsListed(t *testing.T) {
 	t.Run("an unknown sort field", func(t *testing.T) {
 		e.In(t).Problem(400, "request.invalid_order_by", "GET", contracts+"?order_by=status", "", "")
 	})
+}
+
+// TestOrderContractsOutsideARequest: the sales context's question is
+// answered in a request's transaction alone.
+func TestOrderContractsOutsideARequest(t *testing.T) {
+	if _, err := (revenue.OrderContracts{}).HasContract(context.Background(), uuid.New()); err == nil {
+		t.Error("outside a unit of work: got nil error, want an error")
+	}
 }

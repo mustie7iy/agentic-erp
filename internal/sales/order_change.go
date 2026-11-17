@@ -1,9 +1,11 @@
 package sales
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -197,6 +199,11 @@ func (e *Endpoints) change(ctx context.Context, tx pgx.Tx, o Order, le tenancy.E
 	if len(c.changes) == 0 && sameDay(c.delivery, o.DeliveryDate) {
 		return changed{}, problem.Unprocessable("sales.nothing_changed", "The request changes nothing of sales order "+o.DocumentNumber+".")
 	}
+	if len(c.changes) > 0 {
+		if err := e.withoutContract(ctx, o, "its items' quantities and prices stay"); err != nil {
+			return changed{}, err
+		}
+	}
 	nets := make([]money.Minor, len(c.items))
 	for i, it := range c.items {
 		nets[i] = it.Net
@@ -212,6 +219,27 @@ func (e *Endpoints) change(ctx context.Context, tx pgx.Tx, o Order, le tenancy.E
 		c.check = &check
 	}
 	return c, nil
+}
+
+// withoutContract refuses a confirmed order that has a revenue contract
+// (409 sales.revenue_contract_exists): the contract holds its items' net
+// values as its obligations' (ADR-0068 §3), and a contract follows no
+// change of them yet, so what would be recognized and billed would never
+// meet (decided by default, money: refuse rather than diverge). A draft
+// has none: contracts are made for confirmed orders.
+func (e *Endpoints) withoutContract(ctx context.Context, o Order, what string) error {
+	if o.Status != Confirmed {
+		return nil
+	}
+	has, err := e.Revenue.HasContract(ctx, o.ID)
+	if err != nil {
+		return fmt.Errorf("sales: revenue contract of sales order %s: %w", o.ID, err)
+	}
+	if has {
+		return problem.Conflict("sales.revenue_contract_exists", "Sales order "+o.DocumentNumber+" has a revenue contract, which holds its items' values, so "+
+			what+".")
+	}
+	return nil
 }
 
 // sameDay says whether two optional dates are the same.
@@ -281,6 +309,7 @@ func (e *Endpoints) changeItems(ctx context.Context, tx pgx.Tx, o Order, le tena
 			UnitPriceBefore: plan.item.UnitPrice, UnitPriceAfter: after.UnitPrice, PriceUnitBefore: plan.item.PriceUnit, PriceUnitAfter: after.PriceUnit,
 			NetBefore: plan.item.Net, NetAfter: after.Net})
 	}
+	slices.SortFunc(changes, func(a, b ItemChange) int { return cmp.Compare(a.ItemNo, b.ItemNo) }) // kept by item number, as the contract says
 	return items, changes, nil
 }
 
@@ -428,6 +457,9 @@ func (e *Endpoints) CancelOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 			return Order{}, problem.Conflict("sales.order_delivered", fmt.Sprintf(
 				"Item %d of sales order %s has %s %s delivered; an order is cancelled while nothing of it is delivered.", it.ItemNo, o.DocumentNumber, it.Delivered, it.Unit))
 		}
+	}
+	if err := e.withoutContract(ctx, o, "it is not cancelled"); err != nil {
+		return Order{}, err
 	}
 	le, _, err := e.LegalEntities.Entity(ctx, o.LegalEntityID) // a stored order's legal entity exists
 	if err != nil {

@@ -4783,7 +4783,7 @@ components:
       examples:
         - name: posted document cancelled
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001107, source: /erp/eu-1/sales, type: com.example.erp.sales.billing_document_cancelled.v1, subject: 0192a000-0000-7000-8000-000000001311, time: '2026-11-21T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {billing_document_id: 0192a000-0000-7000-8000-000000001311, document_number: BD100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, sales_order_id: 0192a000-0000-7000-8000-000000001111, sales_order_number: SO100001, cancellation_id: 0192a000-0000-7000-8000-000000001321, cancellation_number: BD100002, cancellation_date: '2026-11-21', reason: Billed at the wrong price., net_amount: {amount: '1500.00', currency: CAD}, tax_amount: {amount: '75.00', currency: CAD}, gross_amount: {amount: '1575.00', currency: CAD}, customer_invoice_id: 0192a000-0000-7000-8000-000000001412, customer_invoice_number: CI100008, reference_invoice_id: 0192a000-0000-7000-8000-000000001411, journal_entry_id: 0192a000-0000-7000-8000-000000001512, journal_entry_year: 2026, journal_entry_number: DG100001, status: cancelled, status_before: posted, version: 3}
+          payload: {billing_document_id: 0192a000-0000-7000-8000-000000001311, document_number: BD100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, sales_order_id: 0192a000-0000-7000-8000-000000001111, sales_order_number: SO100001, cancellation_id: 0192a000-0000-7000-8000-000000001321, cancellation_number: BD100002, cancellation_date: '2026-11-21', reason: Billed at the wrong price., net_amount: {amount: '1500.00', currency: CAD}, tax_amount: {amount: '75.00', currency: CAD}, gross_amount: {amount: '1575.00', currency: CAD}, customer_invoice_id: 0192a000-0000-7000-8000-000000001412, customer_invoice_number: CI100008, reference_invoice_id: 0192a000-0000-7000-8000-000000001411, reference_invoice_number: CI100007, journal_entry_id: 0192a000-0000-7000-8000-000000001512, journal_entry_year: 2026, journal_entry_number: DG100001, status: cancelled, status_before: posted, version: 3}
     ReturnsOrderChanged:
       name: ReturnsOrderChanged
       title: Returns order changed
@@ -5993,7 +5993,7 @@ components:
         version: {type: integer, description: "The document's version after the change."}
     BillingDocumentCancelledV1:
       type: object
-      required: [billing_document_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, sales_order_id, sales_order_number, cancellation_id, cancellation_number, cancellation_date, reason, net_amount, tax_amount, gross_amount, customer_invoice_id, customer_invoice_number, reference_invoice_id, journal_entry_id, journal_entry_year, journal_entry_number, status, status_before, version]
+      required: [billing_document_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, sales_order_id, sales_order_number, cancellation_id, cancellation_number, cancellation_date, reason, net_amount, tax_amount, gross_amount, customer_invoice_id, customer_invoice_number, reference_invoice_id, reference_invoice_number, journal_entry_id, journal_entry_year, journal_entry_number, status, status_before, version]
       properties:
         billing_document_id: {$ref: '#/components/schemas/Uuid', description: '`sales.billing_document.id`.'}
         document_number: {type: string, description: "The billing document's number."}
@@ -6013,6 +6013,7 @@ components:
         customer_invoice_id: {type: [string, 'null'], format: uuid, description: '`receivables.customer_invoice.id` of the credit memo; null when the document was not posted.'}
         customer_invoice_number: {type: [string, 'null'], description: "The credit memo's document number; null when the document was not posted."}
         reference_invoice_id: {type: [string, 'null'], format: uuid, description: 'The customer invoice the document posted as, which the credit memo credits; null when the document was not posted.'}
+        reference_invoice_number: {type: [string, 'null'], description: "That customer invoice's document number; null when the document was not posted."}
         journal_entry_id: {type: [string, 'null'], format: uuid, description: "`ledger.journal_entry.id` of the credit memo's entry; null when the document was not posted."}
         journal_entry_year: {type: [integer, 'null'], description: "The entry's fiscal year; null when the document was not posted."}
         journal_entry_number: {type: [string, 'null'], description: "The entry's document number; null when the document was not posted."}

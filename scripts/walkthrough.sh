@@ -11971,16 +11971,17 @@ enablement_help() {
 # step_sales_order_change is T78d (ADR-0067, As built T78d): Ruth sets
 # Northwind's credit limit 1,000.00 CAD above its exposure, so the step's
 # figures do not depend on what earlier steps left open. Sally creates an
-# order directly and confirms it within the limit, then changes it in
-# place: more brackets at a lower price and a requested delivery date.
-# The change is kept, numbered, with its values before and after. A
-# change that raises the order's value beyond the limit blocks it again,
-# and Ruth releases it. A second order is cancelled with a reason, once;
-# the delivered order of step 63 cannot be. Nothing is posted.
+# order directly and, before confirming it, changes it in place: more
+# brackets at a lower price and a requested delivery date. The change is
+# kept, numbered, with its values before and after; a stale version is
+# refused. Once confirmed, the order may have a revenue contract (made
+# when it is confirmed), which holds its items' values: its delivery date
+# still changes. A second order is cancelled with a reason, once; the
+# delivered order of step 63 cannot be. Nothing is posted.
 # SALES_CHANGED_ORDER is the changed order, which step_billing_cancellation
 # delivers and bills.
 step_sales_order_change() {
-  heading "Step 109 — Sales orders changed and cancelled: an order's quantity, price and requested delivery date changed in place, the change kept with its values before and after; a change beyond the customer's credit limit blocks the order again; an undelivered order cancelled once with a reason, a delivered one refused; nothing posted"
+  heading "Step 109 — Sales orders changed and cancelled: an order's quantity, price and requested delivery date changed in place, the change kept with its values before and after; a stale version refused; an undelivered order cancelled once with a reason, a delivered one refused; nothing posted"
   local customer=$CUSTOMER sales item order number second exposure limit id day later tag open
   [ -n "$customer" ] || fail "step 47's customer is not there"
   as ruth
@@ -11998,53 +11999,45 @@ step_sales_order_change() {
   open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
   sales=$(account 4000)
   item="{\"item_key\": \"BRACKET-M10\", \"description\": \"Machined bracket M10\", \"quantity\": {\"value\": \"40\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"15.00\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
-  say "Northwind orders 40 M10 brackets at 15.00. Sally creates the order directly and confirms it: 600.00 net,"
-  say "630.00 with GST, within the limit."
+  say "Northwind orders 40 M10 brackets at 15.00. Sally creates the order directly: 600.00 net."
   api 201 '"sales order \(.document_number): \(.status), net \(.net_amount.amount) \(.net_amount.currency)"' \
     createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"currency\": \"CAD\", \"items\": [$item]}"
   order=$(field .id)
   number=$(field .document_number)
   day=$(field .order_date)
   expect "the new order's changes and requested delivery date" "$(field '"\(.changes) \(.requested_delivery_date // "none")"')" "0 none"
-  api 200 '"sales order \(.document_number): \(.status), credit block \(.credit_block), version \(.version)"' confirmSalesOrder -p "id=$order" -if-match '"1"'
-  expect "the confirmed order" "$(field '"\(.status) \(.credit_block) \(.version)"')" "confirmed none 2"
   later=$(jq -rn --arg d "$day" '$d | strptime("%Y-%m-%d") | mktime + 14 * 86400 | strftime("%Y-%m-%d")')
-  say "Northwind calls back: 50 brackets, at 14.00 since they take more, delivered by $later. Sally changes the"
-  say "confirmed order in place at the version she read (ADR-0067, As built T78d). The item is priced again on the"
-  say "order's date: 50 at 14.00 are 700.00; the order's net value is its items' again."
+  say "Northwind calls back: 50 brackets, at 14.00 since they take more, delivered by $later. Sally changes the order in"
+  say "place at the version she read (ADR-0067, As built T78d). The item is priced again on the order's date: 50 at 14.00"
+  say "are 700.00; the order's net value is its items' again."
   api 200 '"sales order \(.document_number): \(.status), version \(.version), change \(.changes), net \(.net_amount.amount), deliver by \(.requested_delivery_date)", (.items[] | "  item \(.item_no) \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) = \(.net_amount.amount)")' \
-    changeSalesOrder -p "id=$order" -if-match '"2"' \
+    changeSalesOrder -p "id=$order" -if-match '"1"' \
     -body "{\"reason\": \"Northwind takes 50 at the price for 50\", \"requested_delivery_date\": \"$later\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"50\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"14.00\", \"currency\": \"CAD\"}}]}"
-  expect "the changed order" "$(field '"\(.status) \(.version) \(.changes) \(.net_amount.amount) \(.requested_delivery_date) \(.credit_block)"')" \
-    "confirmed 3 1 700.00 $later none"
+  expect "the changed order" "$(field '"\(.status) \(.version) \(.changes) \(.net_amount.amount) \(.requested_delivery_date)"')" "draft 2 1 700.00 $later"
   say "The change is kept, numbered within the order, with what it changed before and after:"
   api 200 '.items[] | "  change \(.change_no) to version \(.version) by \(.created_by[0:8])…: \(.reason // "-"); net \(.net_amount_before.amount) > \(.net_amount_after.amount), deliver by \(.requested_delivery_date_before // "-") > \(.requested_delivery_date_after // "-")", (.items[] | "    item \(.item_no): \(.quantity_before.value) > \(.quantity_after.value) \(.quantity_after.unit), \(.unit_price_before.amount) > \(.unit_price_after.amount), \(.net_amount_before.amount) > \(.net_amount_after.amount)")' \
     listSalesOrderChanges -p "id=$order"
   expect "the order's change" \
     "$(field '[.items[] | "\(.change_no) \(.version) \(.net_amount_before.amount)>\(.net_amount_after.amount) " + ([.items[] | "\(.quantity_before.value)>\(.quantity_after.value) \(.unit_price_before.amount)>\(.unit_price_after.amount)"] | join(" "))] | join(", ")')" \
-    "1 3 600.00>700.00 40>50 15.00>14.00"
+    "1 2 600.00>700.00 40>50 15.00>14.00"
   say "Her earlier version is stale now: a change with it is refused."
-  refused 412 request.version_mismatch changeSalesOrder -p "id=$order" -if-match '"2"' -body '{"items": [{"item_no": 1, "quantity": {"value": "60", "unit": "EA"}}]}'
-  say "Then Northwind asks for 70. 980.00 net is 1,029.00 with GST, more than the limit has room for: the change is"
-  say "checked for credit on its increase, and the order is blocked again (ADR-0066), until the credit manager releases it."
-  api 200 '"sales order \(.document_number): version \(.version), change \(.changes), net \(.net_amount.amount), credit block \(.credit_block)"' \
-    changeSalesOrder -p "id=$order" -if-match '"3"' -body '{"reason": "Northwind takes 70", "items": [{"item_no": 1, "quantity": {"value": "70", "unit": "EA"}}]}'
-  expect "the order blocked again" "$(field '"\(.version) \(.changes) \(.net_amount.amount) \(.credit_block)"')" "4 2 980.00 blocked"
-  QUIET=1 api 200 '' listSalesOrderChanges -p "id=$order" -p "order_by=change_no desc" -p page_size=1
-  expect "the second change's credit block" "$(field '.items[0] | "\(.change_no) \(.credit_block_before)>\(.credit_block_after)"')" "2 none>blocked"
-  as ruth
-  say "Ruth agrees the larger order and releases the block:"
-  api 200 '"sales order \(.document_number): credit block \(.credit_block), version \(.version)"' releaseSalesOrderCreditBlock -p "id=$order" -if-match '"4"'
-  expect "the released order" "$(field '"\(.credit_block) \(.version)"')" "released 5"
-  as sally
+  refused 412 request.version_mismatch changeSalesOrder -p "id=$order" -if-match '"1"' -body '{"items": [{"item_no": 1, "quantity": {"value": "60", "unit": "EA"}}]}'
+  say "Sally confirms the order: 735.00 with GST, within the limit. A confirmed order has a revenue contract once"
+  say "revenue accounting makes it, which holds the items' values, so from then on only its delivery date changes:"
+  api 200 '"sales order \(.document_number): \(.status), credit block \(.credit_block), version \(.version)"' confirmSalesOrder -p "id=$order" -if-match '"2"'
+  expect "the confirmed order" "$(field '"\(.status) \(.credit_block) \(.version)"')" "confirmed none 3"
+  later=$(jq -rn --arg d "$day" '$d | strptime("%Y-%m-%d") | mktime + 21 * 86400 | strftime("%Y-%m-%d")')
+  api 200 '"sales order \(.document_number): change \(.changes), deliver by \(.requested_delivery_date)"' changeSalesOrder -p "id=$order" -if-match '"3"' \
+    -body "{\"reason\": \"Northwind's warehouse opens a week later\", \"requested_delivery_date\": \"$later\"}"
+  expect "the order after its second change" "$(field '"\(.changes) \(.version) \(.requested_delivery_date) \(.net_amount.amount)"')" "2 4 $later 700.00"
   say "A second order for 5 brackets was entered by mistake. Sally cancels it with a reason; it is cancelled once, and"
   say "a cancelled order is not changed:"
   api 201 '"sales order \(.document_number): \(.status)"' \
     createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"currency\": \"CAD\", \"items\": [${item/\"40\"/\"5\"}]}"
   second=$(field .id)
-  api 200 '"sales order \(.document_number): \(.status), \(.cancellation_reason), version \(.version)"' cancelSalesOrder -p "id=$second" -if-match '"1"' \
+  api 200 '"sales order \(.document_number): \(.status), \(.cancellation_reason), by \(.cancelled_by_name), version \(.version)"' cancelSalesOrder -p "id=$second" -if-match '"1"' \
     -body '{"reason": "Entered twice by mistake"}'
-  expect "the cancelled order" "$(field '"\(.status) \(.version) \(.cancelled_by != null) \(.cancelled_at != null)"')" "cancelled 2 true true"
+  expect "the cancelled order" "$(field '"\(.status) \(.version) \(.cancelled_by != null) \(.cancelled_at != null) \(.cancelled_by_name)"')" "cancelled 2 true true Sally Sales"
   refused 409 sales.invalid_status cancelSalesOrder -p "id=$second" -if-match '"2"' -body '{"reason": "Again"}'
   refused 409 sales.invalid_status changeSalesOrder -p "id=$second" -if-match '"2"' -body '{"items": [{"item_no": 1, "quantity": {"value": "6", "unit": "EA"}}]}'
   say "Step 63's order is delivered, so it is not cancelled:"
@@ -12063,34 +12056,34 @@ step_sales_order_change() {
 # billing range, whose customer credit memo names the invoice and the
 # cancellation and moves receivables, revenue and GST back by exactly the
 # invoice's amounts; Northwind's open amount is where it was before the
-# billing. The order's items show nothing billed; Sally corrects their
-# price and a new billing document bills them at it, the cancelled one
-# reading as it was billed; a second cancellation is refused.
+# billing. The order's items show nothing billed, a new billing document
+# bills them again, the cancelled one reading as it was billed; a second
+# cancellation is refused.
 step_billing_cancellation() {
-  heading "Step 110 — Billing documents cancelled: a posted billing document cancelled by a cancellation document whose credit memo reverses the invoice's receivable, revenue and GST exactly; the order's items billable again, their price corrected and billed by a new document; cancelled once"
+  heading "Step 110 — Billing documents cancelled: a posted billing document cancelled by a cancellation document whose credit memo reverses the invoice's receivable, revenue and GST exactly; the order's items billable again and billed by a new document; cancelled once"
   local customer=$CUSTOMER order=$SALES_CHANGED_ORDER day doc number invoice cancel memo entry before after
   [ -n "$order" ] || fail "step 109's order is not there"
   as sally
   day=$(company_day)
-  say "The 70 brackets of step 109's order leave; Sally confirms the delivery:"
+  say "The 50 brackets of step 109's order leave; Sally confirms the delivery:"
   api 201 '"delivery \(.delivery_no) of sales order \(.sales_order_number) on \(.delivery_date)"' confirmSalesDelivery -p "id=$order" \
-    -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"70\", \"unit\": \"EA\"}}]}"
+    -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"50\", \"unit\": \"EA\"}}]}"
   as ruth
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer" -p page_size=200
   before=$(field '[.items[].amount.amount | sub("\\."; "") | tonumber] | add // 0')
-  say "Ruth bills the order and posts the billing document: 980.00 net, 49.00 GST, 1,029.00 owed."
+  say "Ruth bills the order and posts the billing document: 700.00 net, 35.00 GST, 735.00 owed."
   api 201 '"billing document \(.document_number): \(.status), net \(.net_amount.amount) \(.net_amount.currency)"' createBillingDocument -body "{\"sales_order_id\": \"$order\"}"
   doc=$(field .id)
   number=$(field .document_number)
   api 200 '"billing document \(.document_number): \(.status) as customer invoice \(.customer_invoice_number)"' postBillingDocument -p "id=$doc" -if-match '"1"'
   invoice=$(field .customer_invoice_id)
   QUIET=1 api 200 '' getCustomerInvoice -p "id=$invoice"
-  expect "the invoice's net, tax and gross" "$(field '"\(.net_amount.amount) \(.tax_amount.amount) \(.gross_amount.amount)"')" "980.00 49.00 1029.00"
-  say "Northwind points out that the price agreed for 70 was lower. Ruth cancels the posted document (SAP's VF11): a"
-  say "cancellation numbered from the billing range, and a customer credit memo in accounts receivable naming the invoice,"
-  say "posted in the same transaction, which gives back the invoice's net, its GST and its gross to the cent."
+  expect "the invoice's net, tax and gross" "$(field '"\(.net_amount.amount) \(.tax_amount.amount) \(.gross_amount.amount)"')" "700.00 35.00 735.00"
+  say "The invoice was sent to the wrong address and is to be issued again. Ruth cancels the posted document (SAP's"
+  say "VF11): a cancellation numbered from the billing range, and a customer credit memo in accounts receivable naming"
+  say "the invoice, posted in the same transaction, which gives back the invoice's net, its GST and its gross to the cent."
   api 200 '"billing document \(.document_number): \(.status), version \(.version); cancellation \(.cancellation.document_number) on \(.cancellation.cancellation_date): \(.cancellation.reason), credit memo \(.cancellation.customer_invoice_number), entry \(.cancellation.journal_entry_number)"' \
-    cancelBillingDocument -p "id=$doc" -if-match '"2"' -body '{"reason": "Billed at the price for 50; the price for 70 is lower"}'
+    cancelBillingDocument -p "id=$doc" -if-match '"2"' -body '{"reason": "Issued to the wrong billing address"}'
   expect "the cancelled document" "$(field '"\(.status) \(.version) \(.customer_invoice_id)"')" "cancelled 3 $invoice"
   cancel=$(field .cancellation.id)
   memo=$(field .cancellation.customer_invoice_id)
@@ -12100,29 +12093,24 @@ step_billing_cancellation() {
     getCustomerInvoice -p "id=$memo"
   expect "the credit memo names the invoice and the cancellation" "$(field '"\(.kind) \(.status) \(.reference_invoice_id) \(.source_document_id)"')" \
     "credit_memo posted $invoice $cancel"
-  expect "net, tax and gross" "$(field '"\(.net_amount.amount) \(.tax_amount.amount) \(.gross_amount.amount)"')" "980.00 49.00 1029.00"
+  expect "net, tax and gross" "$(field '"\(.net_amount.amount) \(.tax_amount.amount) \(.gross_amount.amount)"')" "700.00 35.00 735.00"
   say "The DG entry credits Northwind on 1200 and debits 4000 Sales and 2300 GST/HST payable: receivables, revenue and"
   say "output tax moved back by exactly the invoice's amounts."
   api 200 '"journal entry \(.document_number), \(.document_type)", (.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' getJournalEntry -p "id=$entry"
-  expect "the entry's amounts" "$(field '[.lines[].amount.amount] | join(" ")')" "-1029.00 980.00 49.00"
+  expect "the entry's amounts" "$(field '[.lines[].amount.amount] | join(" ")')" "-735.00 700.00 35.00"
   expect "the entry's accounts" "$(field '[.lines[].account_id] | join(" ")')" "$(account 1200) $(account 4000) $(account 2300)"
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer" -p page_size=200
   after=$(field '[.items[].amount.amount | sub("\\."; "") | tonumber] | add // 0')
   expect "Northwind's open amount, the invoice and its credit memo together" "$after" "$before"
-  say "The order's brackets are billable again, so their price can be corrected: Sally changes it to 13.50 (T78d)."
-  as sally
+  say "The order's brackets are billable again; a new billing document bills them, and the cancelled one still reads as"
+  say "it was billed:"
   QUIET=1 api 200 '' getSalesOrder -p "id=$order"
-  expect "the order's billed quantity" "$(field '.items[0] | "\(.delivered_quantity.value) \(.billed_quantity.value)"')" "70 0"
-  api 200 '"sales order \(.document_number): change \(.changes), net \(.net_amount.amount)"' changeSalesOrder -p "id=$order" -if-match "$ETAG" \
-    -body '{"reason": "The price agreed for 70", "items": [{"item_no": 1, "unit_price": {"amount": "13.50", "currency": "CAD"}}]}'
-  expect "the corrected order" "$(field '"\(.changes) \(.net_amount.amount)"')" "3 945.00"
-  as ruth
-  say "A new billing document bills the brackets at the corrected price; the cancelled one still reads as it was billed:"
+  expect "the order's billed quantity" "$(field '.items[0] | "\(.delivered_quantity.value) \(.billed_quantity.value)"')" "50 0"
   api 201 '"billing document \(.document_number): \(.status), \(.items[0].quantity.value) \(.items[0].quantity.unit) at \(.items[0].unit_price.amount), net \(.net_amount.amount)"' \
     createBillingDocument -body "{\"sales_order_id\": \"$order\"}"
-  expect "the new document" "$(field '"\(.status) \(.items[0].unit_price.amount) \(.net_amount.amount)"')" "created 13.50 945.00"
+  expect "the new document" "$(field '"\(.status) \(.items[0].quantity.value) \(.net_amount.amount)"')" "created 50 700.00"
   QUIET=1 api 200 '' getBillingDocument -p "id=$doc"
-  expect "the cancelled document's price" "$(field '"\(.items[0].unit_price.amount) \(.net_amount.amount)"')" "14.00 980.00"
+  expect "the cancelled document" "$(field '"\(.status) \(.items[0].unit_price.amount) \(.net_amount.amount)"')" "cancelled 14.00 700.00"
   say "A document is cancelled once:"
   refused 409 sales.invalid_status cancelBillingDocument -p "id=$doc" -if-match '"3"' -body '{"reason": "Again"}'
   passed

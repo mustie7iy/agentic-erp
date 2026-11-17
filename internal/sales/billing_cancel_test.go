@@ -145,6 +145,16 @@ func TestBillingCancelRefused(t *testing.T) {
 			}
 		})
 	}
+	t.Run("a date before the posting, after the billing", func(t *testing.T) {
+		order, _ := e.deliveredOrder(t, []string{e.item(line{})}, "1 1 EA")
+		early, _ := e.In(t).Must(201, "POST", billings, bill(order, `, "billing_date": "2026-01-02"`), "")
+		e.In(t).Must(200, "POST", posting(early["id"].(string)), "", `"1"`)
+		got := e.In(t).Problem(422, "sales.invalid_cancellation_date", "POST", cancelBilling(early["id"].(string)),
+			`{"reason": "Wrong", "cancellation_date": "2026-01-02"}`, `"2"`)
+		if f := field(got); f != "cancellation_date" {
+			t.Errorf("field: got %v, want cancellation_date", f)
+		}
+	})
 	t.Run("a customer blocked for posting", func(t *testing.T) {
 		pgtest.Exec(t, `UPDATE partner.customer_company SET is_posting_blocked = true, version = version + 1 WHERE tenant_id = $1 AND partner_id = $2`, e.Tenant.ID, e.customer)
 		got := e.In(t).Problem(422, "receivables.customer_not_usable", "POST", cancelBilling(doc), `{"reason": "Wrong"}`, `"2"`)

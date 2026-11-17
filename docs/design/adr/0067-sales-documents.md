@@ -1659,13 +1659,31 @@ delivered, are the reference.
   `sales.order_item_billed` naming `items[i]`; a quantity below what is
   delivered 422 `sales.quantity_below_delivered`; a requested delivery
   date before the order's date 422 `sales.invalid_requested_delivery_date`
-  (on `createSalesOrder` too); T78a's item refusals.
+  (on `createSalesOrder` too); a confirmed order with a revenue contract
+  changing an item's quantity or price 409 `sales.revenue_contract_exists`
+  (its requested delivery date still changes); T78a's item refusals. The
+  kept change lists its items by item number.
 - `POST /v1/sales-orders/{id}:cancel` (`sales.order.write`, `If-Match`,
   idempotent, human-only, a `reason`): 409 `sales.invalid_status` for an
   order already cancelled, 409 `sales.order_delivered` for one with a
-  quantity delivered. A cancelled order takes no change, confirmation,
-  delivery or billing document and leaves the customer's open orders
-  (`OpenOrders` reads confirmed ones).
+  quantity delivered, 409 `sales.revenue_contract_exists` for a confirmed
+  one with a revenue contract. A cancelled order takes no change,
+  confirmation, delivery, billing document or credit release (409
+  `sales.invalid_status`; it keeps the block it had) and leaves the
+  customer's open orders (`OpenOrders` reads confirmed ones), with who
+  cancelled it by id and by name then (`cancelled_by_name`, as a credit
+  release keeps its releaser's).
+- **The revenue contract.** A contract holds the order items' net values
+  as its obligations' (ADR-0068 §3) and follows no change of them, so a
+  changed price or quantity, or a cancellation, would leave what is
+  recognized and what is billed never meeting. Sales declares the port
+  `RevenueContracts` (`HasContract`), the revenue context answers it
+  (`revenue.OrderContracts`) and `app.Sales` wires it: revenue already
+  imports sales, so the dependency's direction does not change. A
+  confirmed order with a contract, draft or active, keeps its items'
+  quantities and prices and is not cancelled (money rule, decided by
+  default as the safer one and listed for the product owner); a draft
+  order has none.
 - `GET /v1/sales-orders/{id}/changes`: the changes by number, each with
   the order's version after it, its reason, who and when, and its net
   value, requested delivery date, credit block and items changed before
@@ -1683,10 +1701,14 @@ delivered, are the reference.
   (reason).
 - Walkthrough step 109 (`step_sales_order_change`): Ruth sets
   Northwind's limit 1,000.00 above its exposure; Sally creates an order,
-  confirms it, changes its quantity, price and requested delivery date
-  and reads the change back; a stale version is refused; a change beyond
-  the limit blocks the order again and Ruth releases it; a second order
-  is cancelled once; step 63's delivered order refuses a cancellation.
+  changes its quantity, price and requested delivery date while it is a
+  draft and reads the change back; a stale version is refused; she
+  confirms it and changes its delivery date again (the revenue contract
+  made on confirmation, asynchronously, keeps its values, so the step
+  changes none); a second order is cancelled once, by name; step 63's
+  delivered order refuses a cancellation. The credit check of an
+  increase (blocked again, then released) is shown by
+  `TestOrderChangeCreditCheck`, where no contract is made.
 - **Decided by default:** (1) a change is a custom method (`:change`),
   not `PATCH`, since a confirmed order is no draft (04 §4.3); (2) only an
   item's quantity and price and the requested delivery date (a header
@@ -1703,9 +1725,9 @@ delivered, are the reference.
   again over it, clearing an earlier release (the audit trail keeps
   it); a blocked order is not checked again; (6) `:change` and `:cancel`
   take `sales.order.write` (no new permission); (7) a cancelled order's
-  quotation stays ordered; (8) the revenue contract of a changed or
-  cancelled order is not changed: the `revenue-contracts` consumer reads
-  confirmations alone (a gap for the product owner).
+  quotation stays ordered; (8) a confirmed order with a revenue contract
+  keeps its items' values and is not cancelled (above); a contract that
+  follows an order's change is later.
 
 ### T79c Billing document cancelled (migration 000351)
 
@@ -1757,7 +1779,7 @@ its own whose accounting document reverses the invoice) is the reference.
 - `BillingDocumentCancelled` (not `x-webhook`, product owner 2026-11-12):
   the cancellation by id and number, its date and reason, the net value
   and, for a posted document, the credit memo's tax and gross, the credit
-  memo, the invoice it credits and its entry. The audit record
+  memo, the invoice it credits (id and number) and its entry. The audit record
   `sales.billing_document.cancel`.
 - `sales.Orders.Order`: a cancelled posted document stays among an
   item's billings, and its cancellation is one more, negative, on its
@@ -1768,10 +1790,11 @@ its own whose accounting document reverses the invoice) is the reference.
   cancelled before it was created.
 - Walkthrough step 110 (`step_billing_cancellation`): step 109's order
   delivered, billed, posted and cancelled; the credit memo reverses 1200,
-  4000 and 2300 by the invoice's 1,029.00, 980.00 and 49.00; Northwind's
-  open amount is back where it was; Sally corrects the price to 13.50 and
-  a new document bills 945.00 while the cancelled one reads 14.00; a
-  second cancellation is refused.
+  4000 and 2300 by the invoice's 735.00, 700.00 and 35.00; Northwind's
+  open amount is back where it was; a new document bills the 50 brackets
+  again while the cancelled one reads as it was billed; a second
+  cancellation is refused. `TestCancelledBillingKeepsItsPrice` shows a
+  price corrected between (an order without a revenue contract).
 - **Decided by default:** (1) `:cancel` serves a created and a posted
   document alike (SAP's VF11 for both), a custom method creating a new
   document as 04 §4.3's corrections do; (2) the cancellation takes its

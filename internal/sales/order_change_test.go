@@ -311,3 +311,49 @@ func TestOrderChangeRacingDelivery(t *testing.T) {
 		t.Error("delivered above ordered: got true, want false")
 	}
 }
+
+// TestOrderWithRevenueContract: a confirmed order with a revenue contract
+// keeps its items' quantities and prices and is not cancelled; its
+// requested delivery date still changes (T78d, decided by default).
+func TestOrderWithRevenueContract(t *testing.T) {
+	e := setup(t)
+	id, today := e.confirmed(t, e.item(line{quantity: "3"}))
+	pgtest.Exec(t, `INSERT INTO revenue.contract (tenant_id, id, legal_entity_id, customer_id, sales_order_id, sales_order_number, currency,
+			transaction_price, status, created_by, updated_by)
+		SELECT tenant_id, gen_random_uuid(), legal_entity_id, customer_id, id, document_number, currency, net_amount, 'draft', created_by, created_by
+		FROM sales.sales_order WHERE tenant_id = $1 AND id = $2`, e.Tenant.ID, id)
+	e.Problem(409, "sales.revenue_contract_exists", "POST", changing(id), changeBody("", itemChange("1 4 EA", "")), `"2"`)
+	e.Problem(409, "sales.revenue_contract_exists", "POST", cancelling(id), `{"reason": "Withdrawn"}`, `"2"`)
+	e.Must(200, "POST", changing(id), fmt.Sprintf(`{"requested_delivery_date": %q}`, today), `"2"`)
+}
+
+// TestOrderChangeKeptByItemNumber: a change naming items out of order
+// keeps them by item number.
+func TestOrderChangeKeptByItemNumber(t *testing.T) {
+	e := setup(t)
+	id := e.ordered(t)
+	e.Must(200, "POST", changing(id), changeBody("", itemChange("1 2 EA", "")), `"1"`)
+	got, _ := e.Must(201, "POST", "/v1/sales-orders", e.direct(e.customer, "", e.item(line{}), e.item(line{})), "")
+	two := got["id"].(string)
+	e.Must(200, "POST", changing(two), changeBody("", itemChange("2 5 EA", ""), itemChange("1 4 EA", "")), `"1"`)
+	page, _ := e.Must(200, "GET", "/v1/sales-orders/"+two+"/changes", "", "")
+	var nos []any
+	for _, it := range items(t, items(t, page)[0]) {
+		nos = append(nos, it["item_no"])
+	}
+	if fmt.Sprint(nos) != "[1 2]" {
+		t.Errorf("items changed: got %v, want [1 2]", nos)
+	}
+}
+
+// TestCancelledOrderNotReleased: a cancelled order keeps the credit block
+// it had, and its release is refused naming its status.
+func TestCancelledOrderNotReleased(t *testing.T) {
+	e := setup(t)
+	buyer := e.buyer(t, "BP70000052", "1.00")
+	placed := e.placed(t, buyer, e.item(line{}))
+	fields(t, placed, map[string]any{"credit_block": "blocked"})
+	id := placed["id"].(string)
+	e.Must(200, "POST", cancelling(id), `{"reason": "Over the limit"}`, `"2"`)
+	e.Problem(409, "sales.invalid_status", "POST", "/v1/sales-orders/"+id+":releaseCreditBlock", "", `"3"`)
+}

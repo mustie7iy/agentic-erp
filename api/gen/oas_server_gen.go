@@ -503,11 +503,13 @@ type Handler interface {
 	// T78d), at the version the caller read (`If-Match`), with a reason: the order is read under a row
 	// lock and moves to `cancelled` once, naming the reason, who cancelled it and when. An order already
 	// cancelled is refused (409 `sales.invalid_status`), as is one with a quantity delivered (409
-	// `sales.order_delivered`): since only what is delivered is billed, nothing of a cancelled order is
-	// billed. A cancelled order takes no change, delivery or billing document, and leaves the customer's
-	// open orders (`getCreditExposure`). The quotation it came from stays ordered. Nothing is posted.
-	// Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the
-	// cancelled order. Human-only (`x-agent: false`).
+	// `sales.order_delivered`) and a confirmed one with a revenue contract (409
+	// `sales.revenue_contract_exists`), whose obligations hold the order's values: since only what is
+	// delivered is billed, nothing of a cancelled order is billed. A cancelled order takes no change,
+	// delivery or billing document, and leaves the customer's open orders (`getCreditExposure`). The
+	// quotation it came from stays ordered. Nothing is posted. Audited, and published as
+	// SalesOrderChanged. A retry with the same `Idempotency-Key` answers the cancelled order. Human-only
+	// (`x-agent: false`).
 	//
 	// POST /v1/sales-orders/{id}:cancel
 	CancelSalesOrder(ctx context.Context, req *ReasonInput, params CancelSalesOrderParams) (CancelSalesOrderRes, error)
@@ -578,8 +580,11 @@ type Handler interface {
 	// quantity is never below what is delivered of it (422 `sales.quantity_below_delivered` naming
 	// `items[i].quantity.value`), and an item of which something is billed keeps its quantity and price
 	// (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first
-	// (`cancelBillingDocument`). `requested_delivery_date` is on or after the order's date (422
-	// `sales.invalid_requested_delivery_date`); `null` clears it. A request that changes nothing is
+	// (`cancelBillingDocument`). A confirmed order with a revenue contract (`createRevenueContract`, or
+	// made when the order is confirmed) keeps its items' quantities and prices (409
+	// `sales.revenue_contract_exists`): the contract holds their values, and follows no change of them;
+	// its requested delivery date still changes. `requested_delivery_date` is on or after the order's date
+	// (422 `sales.invalid_requested_delivery_date`); `null` clears it. A request that changes nothing is
 	// refused (422 `sales.nothing_changed`). The order's net value is the sum of its items' again. A
 	// change that raises a confirmed order's net value checks the customer's credit for the increase, as a
 	// confirmation checks the order (`confirmSalesOrder`): an order that no longer fits the limit is
@@ -6889,11 +6894,11 @@ type Handler interface {
 	// the order takes deliveries and is billed as any confirmed order, and it counts in the customer's
 	// exposure, which may then exceed the limit: the release is the credit manager's decision, whatever
 	// the amount. An order without a block, or whose block is already released, is refused (409
-	// `sales.order_not_credit_blocked`). The release is by its own permission,
-	// `sales.order.credit_release`; no rule sets the person who releases apart from the one who confirmed
-	// the order. Nothing is checked again and nothing is posted. Audited, and published as
-	// SalesOrderCreditReleased. A retry with the same `Idempotency-Key` answers the released order.
-	// Human-only (`x-agent: false`).
+	// `sales.order_not_credit_blocked`), and a cancelled one too (409 `sales.invalid_status`). The release
+	// is by its own permission, `sales.order.credit_release`; no rule sets the person who releases apart
+	// from the one who confirmed the order. Nothing is checked again and nothing is posted. Audited, and
+	// published as SalesOrderCreditReleased. A retry with the same `Idempotency-Key` answers the released
+	// order. Human-only (`x-agent: false`).
 	//
 	// POST /v1/sales-orders/{id}:releaseCreditBlock
 	ReleaseSalesOrderCreditBlock(ctx context.Context, params ReleaseSalesOrderCreditBlockParams) (ReleaseSalesOrderCreditBlockRes, error)
