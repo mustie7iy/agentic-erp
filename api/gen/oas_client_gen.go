@@ -1716,7 +1716,8 @@ type Invoker interface {
 	CreateMetricWatcher(ctx context.Context, request *MetricWatcherCreate, params CreateMetricWatcherParams) (CreateMetricWatcherRes, error)
 	// CreateMigrationRun invokes createMigrationRun operation.
 	//
-	// Creates a migration run in status `queued`.
+	// Creates a migration run in status `queued`. An agent creates only rehearsals (`is_rehearsal` true):
+	// another is refused with 403 `identity.agent_not_allowed`.
 	//
 	// POST /v1/migration-runs
 	CreateMigrationRun(ctx context.Context, request *MigrationRunCreate, params CreateMigrationRunParams) (CreateMigrationRunRes, error)
@@ -7473,7 +7474,8 @@ type Invoker interface {
 	// StartMigrationRun invokes startMigrationRun operation.
 	//
 	// Extracts, transforms and loads the scope; the run becomes `loaded`, or `failed`. Requires status
-	// `queued`.
+	// `queued`. An agent starts only a rehearsal: a run that is not one is refused with 403
+	// `identity.agent_not_allowed`, whoever created it.
 	//
 	// POST /v1/migration-runs/{id}:start
 	StartMigrationRun(ctx context.Context, params StartMigrationRunParams) (StartMigrationRunRes, error)
@@ -23206,7 +23208,8 @@ func (c *Client) sendCreateMetricWatcher(ctx context.Context, request *MetricWat
 
 // CreateMigrationRun invokes createMigrationRun operation.
 //
-// Creates a migration run in status `queued`.
+// Creates a migration run in status `queued`. An agent creates only rehearsals (`is_rehearsal` true):
+// another is refused with 403 `identity.agent_not_allowed`.
 //
 // POST /v1/migration-runs
 func (c *Client) CreateMigrationRun(ctx context.Context, request *MigrationRunCreate, params CreateMigrationRunParams) (CreateMigrationRunRes, error) {
@@ -103739,7 +103742,8 @@ func (c *Client) sendStartDepreciationRun(ctx context.Context, request *Deprecia
 // StartMigrationRun invokes startMigrationRun operation.
 //
 // Extracts, transforms and loads the scope; the run becomes `loaded`, or `failed`. Requires status
-// `queued`.
+// `queued`. An agent starts only a rehearsal: a run that is not one is refused with 403
+// `identity.agent_not_allowed`, whoever created it.
 //
 // POST /v1/migration-runs/{id}:start
 func (c *Client) StartMigrationRun(ctx context.Context, params StartMigrationRunParams) (StartMigrationRunRes, error) {

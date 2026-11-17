@@ -20462,7 +20462,8 @@ func (s *Server) handleCreateMetricWatcherRequest(args [0]string, argsEscaped bo
 
 // handleCreateMigrationRunRequest handles createMigrationRun operation.
 //
-// Creates a migration run in status `queued`.
+// Creates a migration run in status `queued`. An agent creates only rehearsals (`is_rehearsal` true):
+// another is refused with 403 `identity.agent_not_allowed`.
 //
 // POST /v1/migration-runs
 func (s *Server) handleCreateMigrationRunRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -112379,7 +112380,8 @@ func (s *Server) handleStartDepreciationRunRequest(args [0]string, argsEscaped b
 // handleStartMigrationRunRequest handles startMigrationRun operation.
 //
 // Extracts, transforms and loads the scope; the run becomes `loaded`, or `failed`. Requires status
-// `queued`.
+// `queued`. An agent starts only a rehearsal: a run that is not one is refused with 403
+// `identity.agent_not_allowed`, whoever created it.
 //
 // POST /v1/migration-runs/{id}:start
 func (s *Server) handleStartMigrationRunRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
