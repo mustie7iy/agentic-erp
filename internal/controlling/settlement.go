@@ -47,6 +47,16 @@ type settlement struct {
 	Accounts                 int32
 	CreatedAt                time.Time
 	CreatedBy                uuid.UUID
+	Reversal                 *settlementReversal
+}
+
+// settlementReversal is a row of controlling.order_settlement_reversal
+// (T60i).
+type settlementReversal struct {
+	EntryID        uuid.UUID
+	DocumentNumber string
+	CreatedAt      time.Time
+	CreatedBy      uuid.UUID
 }
 
 const settlementColumns = `s.id, s.internal_order_id, s.fiscal_year, s.fiscal_period, s.posting_date, s.receiver_cost_center_id, s.journal_entry_id,
@@ -59,12 +69,39 @@ func scanSettlement(r pgx.Row) (settlement, error) {
 	return s, errs.Wrapf(err, "controlling: scan order settlement")
 }
 
+// reversedSettlementSQL reads settlements (s) with their reversals (r),
+// when they have one.
+const reversedSettlementSQL = `SELECT ` + settlementColumns + `, r.journal_entry_id, r.document_number, r.created_at, r.created_by
+	FROM controlling.order_settlement s LEFT JOIN controlling.order_settlement_reversal r ON r.tenant_id = s.tenant_id AND r.settlement_id = s.id`
+
+// scanReversedSettlement scans a row of reversedSettlementSQL.
+func scanReversedSettlement(r pgx.Row) (settlement, error) {
+	var s settlement
+	var entry *uuid.UUID
+	var number *string
+	var at *time.Time
+	var by *uuid.UUID
+	err := r.Scan(&s.ID, &s.OrderID, &s.FiscalYear, &s.FiscalPeriod, &s.PostingDate, &s.ReceiverID, &s.EntryID, &s.DocumentNumber, &s.Amount, &s.Accounts,
+		&s.CreatedAt, &s.CreatedBy, &entry, &number, &at, &by)
+	if err == nil && entry != nil {
+		s.Reversal = &settlementReversal{EntryID: *entry, DocumentNumber: *number, CreatedAt: *at, CreatedBy: *by}
+	}
+	return s, errs.Wrapf(err, "controlling: scan order settlement")
+}
+
 func settlementToAPI(currency string, exp int) func(settlement) gen.InternalOrderSettlement {
 	return func(s settlement) gen.InternalOrderSettlement {
-		return gen.InternalOrderSettlement{ID: s.ID, InternalOrderID: s.OrderID, FiscalYear: int32(s.FiscalYear), FiscalPeriod: int32(s.FiscalPeriod),
+		out := gen.InternalOrderSettlement{ID: s.ID, InternalOrderID: s.OrderID, FiscalYear: int32(s.FiscalYear), FiscalPeriod: int32(s.FiscalPeriod),
 			PostingDate: s.PostingDate, ReceiverCostCenterID: s.ReceiverID, ReceiverCostCenterCode: s.ReceiverCode,
 			Amount: apitypes.Money(s.Amount, currency, exp), AccountCount: s.Accounts, JournalEntryID: s.EntryID, JournalEntryNumber: s.DocumentNumber,
 			CreatedAt: s.CreatedAt, CreatedBy: s.CreatedBy}
+		if r := s.Reversal; r != nil {
+			out.ReversalJournalEntryID.SetTo(r.EntryID)
+			out.ReversalJournalEntryNumber.SetTo(r.DocumentNumber)
+			out.ReversedAt.SetTo(r.CreatedAt)
+			out.ReversedBy.SetTo(r.CreatedBy)
+		}
+		return out
 	}
 }
 
@@ -134,13 +171,16 @@ func (e *Endpoints) SettleInternalOrder(ctx context.Context, req *gen.InternalOr
 // one the order was last settled up to. An earlier settlement's credit is
 // dated its own period's last day, so the order's balance up to an
 // earlier period still holds what that settlement moved, and settling it
-// would move the same cost a second time. Read under the order's lock,
+// would move the same cost a second time. A reversed settlement (T60i)
+// no longer holds anything: its entry and the reversal net to nothing in
+// its period. Read under the order's lock,
 // which every settlement holds. The same period or a later one is taken:
 // what was posted since is unsettled there.
 func notBeforeLastSettlement(ctx context.Context, tx pgx.Tx, order uuid.UUID, period ledger.FiscalPeriod) error {
 	var year, number int16
-	err := tx.QueryRow(ctx, `SELECT fiscal_year, fiscal_period FROM controlling.order_settlement WHERE internal_order_id = $1
-		ORDER BY fiscal_year DESC, fiscal_period DESC LIMIT 1`, order).Scan(&year, &number)
+	err := tx.QueryRow(ctx, `SELECT s.fiscal_year, s.fiscal_period FROM controlling.order_settlement s WHERE s.internal_order_id = $1
+			AND NOT EXISTS (SELECT FROM controlling.order_settlement_reversal r WHERE r.tenant_id = s.tenant_id AND r.settlement_id = s.id)
+		ORDER BY s.fiscal_year DESC, s.fiscal_period DESC LIMIT 1`, order).Scan(&year, &number)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -243,9 +283,9 @@ func (e *Endpoints) ListInternalOrderSettlements(ctx context.Context, params gen
 	if err != nil {
 		return nil, err
 	}
-	q, args := ks.SQL(`SELECT `+settlementColumns+` FROM controlling.order_settlement s WHERE s.internal_order_id = $1`, []any{o.ID})
+	q, args := ks.SQL(reversedSettlementSQL+` WHERE s.internal_order_id = $1`, []any{o.ID})
 	rows, _ := tx.Query(ctx, q, args...)
-	list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (settlement, error) { return scanSettlement(r) })
+	list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (settlement, error) { return scanReversedSettlement(r) })
 	if err != nil {
 		return nil, fmt.Errorf("controlling: list the settlements of internal order %s: %w", o.ID, err)
 	}

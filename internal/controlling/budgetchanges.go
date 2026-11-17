@@ -202,7 +202,7 @@ func (e *Endpoints) returned(ctx context.Context, o Order, le uuid.UUID, exp int
 		return 0, problem.Conflict("controlling.order_budget_return_too_large", fmt.Sprintf("At most %s %s of the budget may be returned:"+
 			" the budget less the order's actual costs.", max(budget-floor, 0).Plain(exp), currency))
 	}
-	return budget - amount, nil
+	return budget - amount, nil // amount is at most budget, so the result is zero or more
 }
 
 var changeSort = pagination.Sort{Default: "version", DefaultDesc: true,

@@ -529,7 +529,8 @@ adding up to 100, all active and of one company.
      receiver's, so a settlement to a cost center of another profit
      center moves the cost between profit centers.
   8. A settlement is not reversed (plan, Later): the ledger refuses to
-     reverse an entry another context posted.
+     reverse an entry another context posted. Since T60i the order's
+     latest settlement is reversed through its own path (As built, T60i).
   9. An order is settled up to the period of its last settlement or a
      later one, never an earlier one (SAP's settlement likewise does not
      go back before the last settlement period; stated from memory, for
@@ -912,3 +913,68 @@ with mail to the person responsible, error).
   it a warning limit of 30 % and a refusal limit of 100 % (the order at
   37.50 %, `above_warning`), lists its five versions; Alex's CAD 2,600.00
   posting to the order is refused (`budget_exceeded`).
+
+### T60i: a settlement reversed (migration 000351)
+The settlement variant of plan-depth-1 §T60i. SAP S/4HANA's KO88 in
+reversal mode is the reference, stated from memory for the specialist to
+confirm: it reverses the last settlement run of a period, and an earlier
+run only once the later ones are reversed.
+- **Table** `controlling.order_settlement_reversal` (000351): one row per
+  reversed settlement (primary key; a foreign key to the settlement), the
+  reversal's entry (once) and its number; insert-only. Schema test:
+  `TestOrderSettlementReversalRules`.
+- **API**: `POST /v1/internal-orders/{id}/settlements/{settlement_id}:reverse`
+  (`controlling.order.settle` and `ledger.entry.read`, `x-agent: false`,
+  `If-Match` the order's version, which the reversal does not move; 200
+  with the settlement and its reversal). `InternalOrderSettlement` gains
+  `reversal_journal_entry_id`, `reversal_journal_entry_number`,
+  `reversed_at` and `reversed_by`, also in the listing. Event
+  `InternalOrderSettlementReversed`; audit action
+  `controlling.internal_order.reverse_settlement`.
+- **The reversal** is the ledger's (`ledger.Postings.Reverse`, the
+  settlement's entry reversed in every ledger it was posted to) on the
+  settlement's own posting date, so the settled period must still be
+  open (409 `ledger.period_not_open`); the lines copy the order and the
+  receiver, so the order's balance per account is what it was before
+  the settlement and the receiver's report gives the cost back.
+- **Refused**: a settlement that is none of the order's (404), an order
+  not released or closed (409, as for settling), a settlement reversed
+  already (409 `controlling.settlement_reversed`), and one that is not
+  the order's latest settlement in force (409
+  `controlling.settlement_not_latest`; latest by creation, which among
+  the settlements in force is also latest by period). Both are read under
+  the order's lock, so two reversals serialize and the second is refused
+  (`TestInternalOrderSettlementReversedOnce`).
+- **Settling after a reversal**: `notBeforeLastSettlement` reads only
+  settlements in force, so the order may be settled again up to the
+  reversed one's period or any period not before the last one in force.
+- **The ledger's `:reverse`** of a controlling entry names the path
+  (409 `ledger.entry_owned_elsewhere`): a settlement is reversed here, so
+  that its reversal is kept; a cycle run's entry is not reversed.
+- **The lock order**: the settlement's entry lock first (a new port
+  method, `ledger.Postings.LockEntries`, exclusive, as the ledger's
+  reversal takes it), then the order `FOR UPDATE`, then the ledger's
+  reversal (the entry lock again, held already; period statuses; the
+  order `FOR SHARE`, its own; the number range). The ledger's reversal of
+  a manual entry naming the order takes the entry lock and then the
+  order `FOR SHARE`, the same order, so the two cannot wait for each
+  other in a cycle when their entries share a lock bucket. While the
+  reversal waits for the entry lock it holds nothing of the order's: a
+  posting to the order goes through
+  (`TestInternalOrderSettlementReversalLockOrder`).
+- **Decided by default:**
+  1. The reversal is dated the settlement's own posting date, never a
+     later one: reversing into a later open period, when the settled
+     one is closed, is in the plan's "Later".
+  2. Only the latest settlement in force is reversed; earlier ones
+     after it (SAP likewise, from memory).
+  3. Reversing is a person's under `controlling.order.settle` (the plan
+     adds no permission), as settling is.
+  4. A closed order's settlement is not reversed: closing needed a zero
+     balance, and a reversal would leave a closed order holding costs.
+- **Walkthrough**: `step_order_settlement` extended: after settling
+  `FAIR-<year>`, Carla reverses the settlement (the order's totals CAD
+  3,000.00 debit, 1,500.00 credit, 1,500.00 balance; CC-1100's report
+  back where it was), a second reversal is refused, she settles the
+  order again (CC-1100 shows the CAD 1,500.00 once) and the listing
+  shows both settlements, the first reversed; the order is then closed.

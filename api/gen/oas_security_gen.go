@@ -575,6 +575,7 @@ var operationRolesOidc = map[string][]string{
 	ReverseAssetRetirementOperation:                []string{},
 	ReverseAssetTransferOperation:                  []string{},
 	ReverseGoodsReceiptOperation:                   []string{},
+	ReverseInternalOrderSettlementOperation:        []string{},
 	ReverseJournalEntryOperation:                   []string{},
 	ReverseSupplierInvoiceOperation:                []string{},
 	RotateWebhookSubscriptionSecretOperation:       []string{},

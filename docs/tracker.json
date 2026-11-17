@@ -3508,9 +3508,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A controller reverses an order's latest settlement in its settled period: the order's balance is restored, the receiver's cost taken back, and the order can be settled again",
-        "r": "T60i · docs/design/plan-depth-1.md §T60i",
+        "r": "T60i · docs/design/plan-depth-1.md §T60i · migration 000351 · internal/controlling/settlementreversal.go · ledger.Postings.LockEntries · ADR-0064 As built T60i · scripts/walkthrough.sh step_order_settlement",
         "src": "split:T60e · adr:ADR-0064",
         "c": []
        },

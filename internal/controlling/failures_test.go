@@ -78,6 +78,10 @@ func TestPlanDatabaseFailures(t *testing.T) {
 		c.Must(200, "POST", settledPath+":settle", settleBody(2026, m), `"3"`)
 	}
 	unsettled, settled := uuid.MustParse(unsettledID), uuid.MustParse(settledID)
+	// The settled order's June settlement, its latest, to reverse (T60i).
+	var lastSettlement uuid.UUID
+	pgtest.Scan(t, `SELECT id FROM controlling.order_settlement WHERE tenant_id = $1 AND internal_order_id = $2 AND fiscal_period = 6`,
+		[]any{c.Tenant.ID, settled}, &lastSettlement)
 	settlements := gen.ListInternalOrderSettlementsParams{ID: settled, PageSize: gen.NewOptInt32(1)}
 	// A cycle run for May, with costs to run for June, and a second cycle.
 	ranCycle := uuid.MustParse(c.cycle(t, "RAN", share{c.c.Sales, "100"}))
@@ -180,6 +184,10 @@ func TestPlanDatabaseFailures(t *testing.T) {
 			next := settlements
 			next.PageToken = gen.NewOptString(res.(*gen.InternalOrderSettlementPage).NextPageToken.Or("none"))
 			_, err = h.ListInternalOrderSettlements(ctx, next)
+			return err
+		},
+		"reverse an order's settlement": func(ctx context.Context) error {
+			_, err := h.ReverseInternalOrderSettlement(ctx, gen.ReverseInternalOrderSettlementParams{ID: settled, SettlementID: lastSettlement, IfMatch: `"3"`})
 			return err
 		},
 		"close an order": func(ctx context.Context) error {

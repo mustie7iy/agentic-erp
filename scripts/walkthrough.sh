@@ -6265,7 +6265,9 @@ cents_plain() { printf '%d.%02d' $(($1 / 100)) $(($1 % 100)); }
 # settles the order up to this period: one entry moves the order's costs
 # to the receiver on the account they were posted on, the order's balance
 # is zero and the cost center's report shows the cost; settling again
-# posts nothing. The settled order is closed and takes no posting.
+# posts nothing. She reverses the settlement (T60i), which gives the order
+# its cost back, and settles it again. The settled order is closed and
+# takes no posting.
 step_order_settlement() {
   heading "Step 51 — An order's settlement: the trade fair's order names the cost center that receives its costs, is settled to it on the original account, and is closed"
   as carla
@@ -6327,9 +6329,24 @@ step_order_settlement() {
   api 200 '"order \(.internal_order_code) settled up to \(.fiscal_year)/\(.fiscal_period): \(if .settled then "an entry posted" else "nothing to settle" end)"' \
     settleInternalOrder -p "id=$order" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
   expect "a second settlement" "$(field '"\(.settled) \(.settlement // "none")"')" "false none"
-  api 200 '.items[] | "  settlement up to \(.fiscal_year)/\(.fiscal_period): \(.amount.amount) \(.amount.currency) to \(.receiver_cost_center_code), entry \(.journal_entry_number)"' \
+  say "Carla finds the fair's costs were settled to the wrong period's report and reverses the settlement (T60i): its"
+  say "entry is reversed on its own date, so the order holds the cost again and the cost center gives it back."
+  api 200 '"settlement up to \(.fiscal_year)/\(.fiscal_period) of \(.amount.amount) \(.amount.currency) reversed by entry \(.reversal_journal_entry_number)"' \
+    reverseInternalOrderSettlement -p "id=$order" -p "settlement_id=$settlement" -if-match "$tag"
+  expect "the reversal names its entry" "$(field '.reversal_journal_entry_id != null')" true
+  QUIET=1 api 200 '' listInternalOrderBalances -p "internal_order_id=$order" -p "fiscal_year=$YEAR"
+  expect "the order's balance restored" "$(field '"\(.totals.debit.amount) \(.totals.credit.amount) \(.totals.balance.amount)"')" "3000.00 1500.00 1500.00"
+  expect "the cost center's cost taken back, in cents" "$(( $(center_costs "$cc" "$expense") - before ))" 0
+  say "A settlement is reversed once:"
+  refused 409 controlling.settlement_reversed reverseInternalOrderSettlement -p "id=$order" -p "settlement_id=$settlement" -if-match "$tag"
+  say "She settles the order again; the reversed settlement no longer stands in the way:"
+  api 200 '"order \(.internal_order_code) settled up to \(.fiscal_year)/\(.fiscal_period): \(.settlement.amount.amount) \(.settlement.amount.currency) to \(.settlement.receiver_cost_center_code)"' \
+    settleInternalOrder -p "id=$order" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  expect "settled again" "$(field '"\(.settled) \(.settlement.amount.amount)"')" "true 1500.00"
+  expect "the cost center's cost again, in cents" "$(( $(center_costs "$cc" "$expense") - before ))" 150000
+  api 200 '.items[] | "  settlement up to \(.fiscal_year)/\(.fiscal_period): \(.amount.amount) \(.amount.currency) to \(.receiver_cost_center_code), entry \(.journal_entry_number)\(if .reversal_journal_entry_number then ", reversed by \(.reversal_journal_entry_number)" else "" end)"' \
     listInternalOrderSettlements -p "id=$order"
-  expect "the order's settlements" "$(field '[.items[].id] | join(" ")')" "$settlement"
+  expect "the order's settlements, latest first" "$(field '[.items[] | (.reversal_journal_entry_number != null)] | map(tostring) | join(" ")')" "false true"
   say "Carla closes the settled order. A closed order takes no posting:"
   api 200 '"internal order \(.code): \(.status), version \(.version)"' closeInternalOrder -p "id=$order" -if-match "$tag"
   expect "the closed order's status" "$(field .status)" closed

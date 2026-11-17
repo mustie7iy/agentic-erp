@@ -406,3 +406,50 @@ func TestOrderBudgetChangeRules(t *testing.T) {
 		}
 	})
 }
+
+// A settlement reversed (T60i, migration 000351; ADR-0064 §3): once per
+// settlement, with its own entry, insert-only.
+
+const settlementReversalSQL = `INSERT INTO controlling.order_settlement_reversal (tenant_id, settlement_id, journal_entry_id, document_number, created_by)
+	VALUES ($1, $2, $3, $4, $5)`
+
+func TestOrderSettlementReversalRules(t *testing.T) {
+	need(t)
+	f := newOrders(t)
+	settled, other, entry := id(), id(), id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		for _, args := range [][]any{{f.tenant, settled, f.released, f.entity, 5, f.cc, id(), "100000001", 500, 1, f.actor},
+			{f.tenant, other, f.released, f.entity, 6, f.cc, id(), "100000002", 500, 1, f.actor}} {
+			if err := exec(tx, orderSettlementSQL, args...); err != nil {
+				return err
+			}
+		}
+		return exec(tx, settlementReversalSQL, f.tenant, settled, entry, "100000003", f.actor)
+	})
+	for name, c := range map[string]struct {
+		sql  string
+		args []any
+		want string
+	}{
+		"a settlement reversed twice":     {settlementReversalSQL, []any{f.tenant, settled, id(), "1", f.actor}, "order_settlement_reversal_pkey"},
+		"a reversal of no settlement":     {settlementReversalSQL, []any{f.tenant, id(), id(), "1", f.actor}, "order_settlement_reversal_settlement"},
+		"an entry reversing two":          {settlementReversalSQL, []any{f.tenant, other, entry, "1", f.actor}, "order_settlement_reversal_entry_once"},
+		"a reversal without its number":   {settlementReversalSQL, []any{f.tenant, other, id(), "", f.actor}, "order_settlement_reversal_number"},
+		"a reversal without its entry":    {settlementReversalSQL, []any{f.tenant, other, nil, "1", f.actor}, "journal_entry_id"},
+		"a reversal changed":              {`UPDATE controlling.order_settlement_reversal SET document_number = '9' WHERE settlement_id = $1`, []any{settled}, "permission denied"},
+		"a reversal deleted (taken back)": {`DELETE FROM controlling.order_settlement_reversal WHERE settlement_id = $1`, []any{settled}, "permission denied"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			failsWith(t, f.try(t, c.sql, c.args...), c.want)
+		})
+	}
+	t.Run("another tenant sees none", func(t *testing.T) {
+		var n int
+		mustApp(t, id(), func(tx pgx.Tx) error {
+			return tx.QueryRow(t.Context(), `SELECT count(*) FROM controlling.order_settlement_reversal`).Scan(&n)
+		})
+		if n != 0 {
+			t.Errorf("reversals another tenant sees: got %d, want 0", n)
+		}
+	})
+}

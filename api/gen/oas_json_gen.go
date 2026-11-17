@@ -139176,9 +139176,33 @@ func (s *InternalOrderSettlement) encodeFields(e *jx.Encoder) {
 		e.FieldStart("created_by")
 		json.EncodeUUID(e, s.CreatedBy)
 	}
+	{
+		if s.ReversalJournalEntryID.Set {
+			e.FieldStart("reversal_journal_entry_id")
+			s.ReversalJournalEntryID.Encode(e)
+		}
+	}
+	{
+		if s.ReversalJournalEntryNumber.Set {
+			e.FieldStart("reversal_journal_entry_number")
+			s.ReversalJournalEntryNumber.Encode(e)
+		}
+	}
+	{
+		if s.ReversedAt.Set {
+			e.FieldStart("reversed_at")
+			s.ReversedAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
+		if s.ReversedBy.Set {
+			e.FieldStart("reversed_by")
+			s.ReversedBy.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfInternalOrderSettlement = [13]string{
+var jsonFieldsNameOfInternalOrderSettlement = [17]string{
 	0:  "id",
 	1:  "internal_order_id",
 	2:  "fiscal_year",
@@ -139192,6 +139216,10 @@ var jsonFieldsNameOfInternalOrderSettlement = [13]string{
 	10: "journal_entry_number",
 	11: "created_at",
 	12: "created_by",
+	13: "reversal_journal_entry_id",
+	14: "reversal_journal_entry_number",
+	15: "reversed_at",
+	16: "reversed_by",
 }
 
 // Decode decodes InternalOrderSettlement from json.
@@ -139199,7 +139227,7 @@ func (s *InternalOrderSettlement) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode InternalOrderSettlement to nil")
 	}
-	var requiredBitSet [2]uint8
+	var requiredBitSet [3]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -139357,6 +139385,46 @@ func (s *InternalOrderSettlement) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"created_by\"")
 			}
+		case "reversal_journal_entry_id":
+			if err := func() error {
+				s.ReversalJournalEntryID.Reset()
+				if err := s.ReversalJournalEntryID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reversal_journal_entry_id\"")
+			}
+		case "reversal_journal_entry_number":
+			if err := func() error {
+				s.ReversalJournalEntryNumber.Reset()
+				if err := s.ReversalJournalEntryNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reversal_journal_entry_number\"")
+			}
+		case "reversed_at":
+			if err := func() error {
+				s.ReversedAt.Reset()
+				if err := s.ReversedAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reversed_at\"")
+			}
+		case "reversed_by":
+			if err := func() error {
+				s.ReversedBy.Reset()
+				if err := s.ReversedBy.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reversed_by\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -139366,9 +139434,10 @@ func (s *InternalOrderSettlement) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [2]uint8{
+	for i, mask := range [3]uint8{
 		0b11111111,
 		0b00011111,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -229731,6 +229800,234 @@ func (s *ReverseGoodsReceiptUnprocessableEntity) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *ReverseGoodsReceiptUnprocessableEntity) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReverseInternalOrderSettlementBadRequest as json.
+func (s *ReverseInternalOrderSettlementBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReverseInternalOrderSettlementBadRequest from json.
+func (s *ReverseInternalOrderSettlementBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReverseInternalOrderSettlementBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReverseInternalOrderSettlementBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReverseInternalOrderSettlementBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReverseInternalOrderSettlementBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReverseInternalOrderSettlementForbidden as json.
+func (s *ReverseInternalOrderSettlementForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReverseInternalOrderSettlementForbidden from json.
+func (s *ReverseInternalOrderSettlementForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReverseInternalOrderSettlementForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReverseInternalOrderSettlementForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReverseInternalOrderSettlementForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReverseInternalOrderSettlementForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReverseInternalOrderSettlementNotFound as json.
+func (s *ReverseInternalOrderSettlementNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReverseInternalOrderSettlementNotFound from json.
+func (s *ReverseInternalOrderSettlementNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReverseInternalOrderSettlementNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReverseInternalOrderSettlementNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReverseInternalOrderSettlementNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReverseInternalOrderSettlementNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReverseInternalOrderSettlementPreconditionFailed as json.
+func (s *ReverseInternalOrderSettlementPreconditionFailed) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReverseInternalOrderSettlementPreconditionFailed from json.
+func (s *ReverseInternalOrderSettlementPreconditionFailed) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReverseInternalOrderSettlementPreconditionFailed to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReverseInternalOrderSettlementPreconditionFailed(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReverseInternalOrderSettlementPreconditionFailed) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReverseInternalOrderSettlementPreconditionFailed) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReverseInternalOrderSettlementPreconditionRequired as json.
+func (s *ReverseInternalOrderSettlementPreconditionRequired) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReverseInternalOrderSettlementPreconditionRequired from json.
+func (s *ReverseInternalOrderSettlementPreconditionRequired) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReverseInternalOrderSettlementPreconditionRequired to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReverseInternalOrderSettlementPreconditionRequired(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReverseInternalOrderSettlementPreconditionRequired) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReverseInternalOrderSettlementPreconditionRequired) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReverseInternalOrderSettlementUnprocessableEntity as json.
+func (s *ReverseInternalOrderSettlementUnprocessableEntity) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReverseInternalOrderSettlementUnprocessableEntity from json.
+func (s *ReverseInternalOrderSettlementUnprocessableEntity) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReverseInternalOrderSettlementUnprocessableEntity to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReverseInternalOrderSettlementUnprocessableEntity(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReverseInternalOrderSettlementUnprocessableEntity) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReverseInternalOrderSettlementUnprocessableEntity) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

@@ -26954,6 +26954,7 @@ func (*ConflictHeaders) reverseAssetAcquisitionRes()               {}
 func (*ConflictHeaders) reverseAssetRetirementRes()                {}
 func (*ConflictHeaders) reverseAssetTransferRes()                  {}
 func (*ConflictHeaders) reverseGoodsReceiptRes()                   {}
+func (*ConflictHeaders) reverseInternalOrderSettlementRes()        {}
 func (*ConflictHeaders) reverseJournalEntryRes()                   {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()                {}
 func (*ConflictHeaders) rotateWebhookSubscriptionSecretRes()       {}
@@ -53893,7 +53894,8 @@ func (s *InternalOrderSettle) SetFiscalPeriod(val int32) {
 }
 
 // A settlement of an internal order (ADR-0064 §3): the journal entry that moved the order's unsettled
-// balance up to a period to the receiving cost center, account by account. Never changed.
+// balance up to a period to the receiving cost center, account by account. Never changed; its reversal
+// (T60i) is shown beside it.
 // Ref: #/components/schemas/InternalOrderSettlement
 type InternalOrderSettlement struct {
 	// The settlement's id.
@@ -53925,6 +53927,15 @@ type InternalOrderSettlement struct {
 	CreatedAt time.Time `json:"created_at"`
 	// The principal who settled it.
 	CreatedBy uuid.UUID `json:"created_by"`
+	// The entry that reversed the settlement's entry (`GET /v1/journal-entries/{id}`), dated the
+	// settlement's posting date. Absent while the settlement is not reversed.
+	ReversalJournalEntryID OptUUID `json:"reversal_journal_entry_id"`
+	// The reversal entry's document number. Absent while the settlement is not reversed.
+	ReversalJournalEntryNumber OptString `json:"reversal_journal_entry_number"`
+	// When the settlement was reversed (UTC). Absent while it is not.
+	ReversedAt OptDateTime `json:"reversed_at"`
+	// The principal who reversed it. Absent while it is not.
+	ReversedBy OptUUID `json:"reversed_by"`
 }
 
 // GetID returns the value of ID.
@@ -53992,6 +54003,26 @@ func (s *InternalOrderSettlement) GetCreatedBy() uuid.UUID {
 	return s.CreatedBy
 }
 
+// GetReversalJournalEntryID returns the value of ReversalJournalEntryID.
+func (s *InternalOrderSettlement) GetReversalJournalEntryID() OptUUID {
+	return s.ReversalJournalEntryID
+}
+
+// GetReversalJournalEntryNumber returns the value of ReversalJournalEntryNumber.
+func (s *InternalOrderSettlement) GetReversalJournalEntryNumber() OptString {
+	return s.ReversalJournalEntryNumber
+}
+
+// GetReversedAt returns the value of ReversedAt.
+func (s *InternalOrderSettlement) GetReversedAt() OptDateTime {
+	return s.ReversedAt
+}
+
+// GetReversedBy returns the value of ReversedBy.
+func (s *InternalOrderSettlement) GetReversedBy() OptUUID {
+	return s.ReversedBy
+}
+
 // SetID sets the value of ID.
 func (s *InternalOrderSettlement) SetID(val uuid.UUID) {
 	s.ID = val
@@ -54056,6 +54087,65 @@ func (s *InternalOrderSettlement) SetCreatedAt(val time.Time) {
 func (s *InternalOrderSettlement) SetCreatedBy(val uuid.UUID) {
 	s.CreatedBy = val
 }
+
+// SetReversalJournalEntryID sets the value of ReversalJournalEntryID.
+func (s *InternalOrderSettlement) SetReversalJournalEntryID(val OptUUID) {
+	s.ReversalJournalEntryID = val
+}
+
+// SetReversalJournalEntryNumber sets the value of ReversalJournalEntryNumber.
+func (s *InternalOrderSettlement) SetReversalJournalEntryNumber(val OptString) {
+	s.ReversalJournalEntryNumber = val
+}
+
+// SetReversedAt sets the value of ReversedAt.
+func (s *InternalOrderSettlement) SetReversedAt(val OptDateTime) {
+	s.ReversedAt = val
+}
+
+// SetReversedBy sets the value of ReversedBy.
+func (s *InternalOrderSettlement) SetReversedBy(val OptUUID) {
+	s.ReversedBy = val
+}
+
+// InternalOrderSettlementHeaders wraps InternalOrderSettlement with response headers.
+type InternalOrderSettlementHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           InternalOrderSettlement
+}
+
+// GetETag returns the value of ETag.
+func (s *InternalOrderSettlementHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *InternalOrderSettlementHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *InternalOrderSettlementHeaders) GetResponse() InternalOrderSettlement {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *InternalOrderSettlementHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *InternalOrderSettlementHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *InternalOrderSettlementHeaders) SetResponse(val InternalOrderSettlement) {
+	s.Response = val
+}
+
+func (*InternalOrderSettlementHeaders) reverseInternalOrderSettlementRes() {}
 
 // One page of an internal order's settlements.
 // Ref: #/components/schemas/InternalOrderSettlementPage
@@ -92021,6 +92111,30 @@ type ReverseGoodsReceiptUnprocessableEntity Problem
 
 func (*ReverseGoodsReceiptUnprocessableEntity) reverseGoodsReceiptRes() {}
 
+type ReverseInternalOrderSettlementBadRequest Problem
+
+func (*ReverseInternalOrderSettlementBadRequest) reverseInternalOrderSettlementRes() {}
+
+type ReverseInternalOrderSettlementForbidden Problem
+
+func (*ReverseInternalOrderSettlementForbidden) reverseInternalOrderSettlementRes() {}
+
+type ReverseInternalOrderSettlementNotFound Problem
+
+func (*ReverseInternalOrderSettlementNotFound) reverseInternalOrderSettlementRes() {}
+
+type ReverseInternalOrderSettlementPreconditionFailed Problem
+
+func (*ReverseInternalOrderSettlementPreconditionFailed) reverseInternalOrderSettlementRes() {}
+
+type ReverseInternalOrderSettlementPreconditionRequired Problem
+
+func (*ReverseInternalOrderSettlementPreconditionRequired) reverseInternalOrderSettlementRes() {}
+
+type ReverseInternalOrderSettlementUnprocessableEntity Problem
+
+func (*ReverseInternalOrderSettlementUnprocessableEntity) reverseInternalOrderSettlementRes() {}
+
 type ReverseJournalEntryBadRequest Problem
 
 func (*ReverseJournalEntryBadRequest) reverseJournalEntryRes() {}
@@ -97872,6 +97986,7 @@ func (*ServiceUnavailableHeaders) reverseAssetAcquisitionRes()               {}
 func (*ServiceUnavailableHeaders) reverseAssetRetirementRes()                {}
 func (*ServiceUnavailableHeaders) reverseAssetTransferRes()                  {}
 func (*ServiceUnavailableHeaders) reverseGoodsReceiptRes()                   {}
+func (*ServiceUnavailableHeaders) reverseInternalOrderSettlementRes()        {}
 func (*ServiceUnavailableHeaders) reverseJournalEntryRes()                   {}
 func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()                {}
 func (*ServiceUnavailableHeaders) rotateWebhookSubscriptionSecretRes()       {}
@@ -103345,6 +103460,7 @@ func (*TooManyRequestsHeaders) reverseAssetAcquisitionRes()               {}
 func (*TooManyRequestsHeaders) reverseAssetRetirementRes()                {}
 func (*TooManyRequestsHeaders) reverseAssetTransferRes()                  {}
 func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()                   {}
+func (*TooManyRequestsHeaders) reverseInternalOrderSettlementRes()        {}
 func (*TooManyRequestsHeaders) reverseJournalEntryRes()                   {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()                {}
 func (*TooManyRequestsHeaders) rotateWebhookSubscriptionSecretRes()       {}
@@ -104235,6 +104351,7 @@ func (*UnauthorizedHeaders) reverseAssetAcquisitionRes()               {}
 func (*UnauthorizedHeaders) reverseAssetRetirementRes()                {}
 func (*UnauthorizedHeaders) reverseAssetTransferRes()                  {}
 func (*UnauthorizedHeaders) reverseGoodsReceiptRes()                   {}
+func (*UnauthorizedHeaders) reverseInternalOrderSettlementRes()        {}
 func (*UnauthorizedHeaders) reverseJournalEntryRes()                   {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()                {}
 func (*UnauthorizedHeaders) rotateWebhookSubscriptionSecretRes()       {}

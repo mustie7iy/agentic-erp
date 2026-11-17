@@ -77549,10 +77549,10 @@ func (s *Server) handleListInternalOrderBudgetChangesRequest(args [1]string, arg
 // The settlements of one internal order (ADR-0064 §3), latest first: each with its period, the day it
 // was posted on, the receiving cost center with its code, the amount moved in the legal entity's local
 // currency, the number of accounts it moved and its journal entry (`GET /v1/journal-entries/{id}`),
-// which shows the lines. A settlement is never changed. An order of a legal entity the caller cannot
-// act in is answered as missing (404). Sortable by: `posting_date`. The amounts are ledger amounts, so
-// besides `controlling.order.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
-// `identity.permission_missing` otherwise).
+// which shows the lines, and its reversal when it was reversed (T60i). A settlement is never changed.
+// An order of a legal entity the caller cannot act in is answered as missing (404). Sortable by:
+// `posting_date`. The amounts are ledger amounts, so besides `controlling.order.read` the caller needs
+// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
 //
 // GET /v1/internal-orders/{id}/settlements
 func (s *Server) handleListInternalOrderSettlementsRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -109435,6 +109435,221 @@ func (s *Server) handleReverseGoodsReceiptRequest(args [1]string, argsEscaped bo
 	}
 
 	if err := encodeReverseGoodsReceiptResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleReverseInternalOrderSettlementRequest handles reverseInternalOrderSettlement operation.
+//
+// Reverses an internal order's latest settlement (ADR-0064 §3, T60i): the settlement's journal entry
+// is reversed through the ledger in every ledger it was posted to, dated the settlement's own posting
+// date, the settled period's last day, so the period must still be open (409
+// `ledger.period_not_open`). Per account the order is debited and the receiving cost center credited
+// again: the order's balance is what it was before the settlement, and the cost center's report gives
+// the cost back. The reversed settlement no longer bounds the period the order is next settled up to,
+// and the order may be settled again. Only the order's latest settlement that is not reversed is
+// reversed (409 `controlling.settlement_not_latest`: reverse the later ones first), and once (409
+// `controlling.settlement_reversed`). The order must be released (409
+// `controlling.internal_order_not_released`) and not closed (409 `controlling.internal_order_closed`).
+// `If-Match` is the order's version, as `:settle` takes it; a reversal does not move it. The order is
+// held under a row lock, so two reversals never reverse one settlement twice. Kept on the settlement
+// (`GET /v1/internal-orders/{id}/settlements`), audited and published as
+// InternalOrderSettlementReversed. A settlement that is none of the order's, or an order of a legal
+// entity the caller cannot act in, is answered as missing (404). The amounts are ledger amounts, so
+// besides `controlling.order.settle` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
+// `identity.permission_missing` otherwise). Agents may not reverse a settlement.
+//
+// POST /v1/internal-orders/{id}/settlements/{settlement_id}:reverse
+func (s *Server) handleReverseInternalOrderSettlementRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("reverseInternalOrderSettlement"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/internal-orders/{id}/settlements/{settlement_id}:reverse"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ReverseInternalOrderSettlementOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ReverseInternalOrderSettlementOperation,
+			ID:   "reverseInternalOrderSettlement",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ReverseInternalOrderSettlementOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeReverseInternalOrderSettlementParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ReverseInternalOrderSettlementRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ReverseInternalOrderSettlementOperation,
+			OperationSummary: "Reverse an internal order's settlement",
+			OperationID:      "reverseInternalOrderSettlement",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "settlement_id",
+					In:   "path",
+				}: params.SettlementID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ReverseInternalOrderSettlementParams
+			Response = ReverseInternalOrderSettlementRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackReverseInternalOrderSettlementParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ReverseInternalOrderSettlement(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ReverseInternalOrderSettlement(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeReverseInternalOrderSettlementResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)

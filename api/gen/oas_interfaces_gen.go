@@ -2093,6 +2093,10 @@ type ReverseGoodsReceiptRes interface {
 	reverseGoodsReceiptRes()
 }
 
+type ReverseInternalOrderSettlementRes interface {
+	reverseInternalOrderSettlementRes()
+}
+
 type ReverseJournalEntryRes interface {
 	reverseJournalEntryRes()
 }

@@ -6307,10 +6307,10 @@ func (UnimplementedHandler) ListInternalOrderBudgetChanges(ctx context.Context, 
 // The settlements of one internal order (ADR-0064 §3), latest first: each with its period, the day it
 // was posted on, the receiving cost center with its code, the amount moved in the legal entity's local
 // currency, the number of accounts it moved and its journal entry (`GET /v1/journal-entries/{id}`),
-// which shows the lines. A settlement is never changed. An order of a legal entity the caller cannot
-// act in is answered as missing (404). Sortable by: `posting_date`. The amounts are ledger amounts, so
-// besides `controlling.order.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
-// `identity.permission_missing` otherwise).
+// which shows the lines, and its reversal when it was reversed (T60i). A settlement is never changed.
+// An order of a legal entity the caller cannot act in is answered as missing (404). Sortable by:
+// `posting_date`. The amounts are ledger amounts, so besides `controlling.order.read` the caller needs
+// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
 //
 // GET /v1/internal-orders/{id}/settlements
 func (UnimplementedHandler) ListInternalOrderSettlements(ctx context.Context, params ListInternalOrderSettlementsParams) (r ListInternalOrderSettlementsRes, _ error) {
@@ -8665,6 +8665,31 @@ func (UnimplementedHandler) ReverseAssetTransfer(ctx context.Context, req *Asset
 //
 // POST /v1/goods-receipts/{id}:reverse
 func (UnimplementedHandler) ReverseGoodsReceipt(ctx context.Context, req OptGoodsReceiptReverse, params ReverseGoodsReceiptParams) (r ReverseGoodsReceiptRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ReverseInternalOrderSettlement implements reverseInternalOrderSettlement operation.
+//
+// Reverses an internal order's latest settlement (ADR-0064 §3, T60i): the settlement's journal entry
+// is reversed through the ledger in every ledger it was posted to, dated the settlement's own posting
+// date, the settled period's last day, so the period must still be open (409
+// `ledger.period_not_open`). Per account the order is debited and the receiving cost center credited
+// again: the order's balance is what it was before the settlement, and the cost center's report gives
+// the cost back. The reversed settlement no longer bounds the period the order is next settled up to,
+// and the order may be settled again. Only the order's latest settlement that is not reversed is
+// reversed (409 `controlling.settlement_not_latest`: reverse the later ones first), and once (409
+// `controlling.settlement_reversed`). The order must be released (409
+// `controlling.internal_order_not_released`) and not closed (409 `controlling.internal_order_closed`).
+// `If-Match` is the order's version, as `:settle` takes it; a reversal does not move it. The order is
+// held under a row lock, so two reversals never reverse one settlement twice. Kept on the settlement
+// (`GET /v1/internal-orders/{id}/settlements`), audited and published as
+// InternalOrderSettlementReversed. A settlement that is none of the order's, or an order of a legal
+// entity the caller cannot act in, is answered as missing (404). The amounts are ledger amounts, so
+// besides `controlling.order.settle` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
+// `identity.permission_missing` otherwise). Agents may not reverse a settlement.
+//
+// POST /v1/internal-orders/{id}/settlements/{settlement_id}:reverse
+func (UnimplementedHandler) ReverseInternalOrderSettlement(ctx context.Context, params ReverseInternalOrderSettlementParams) (r ReverseInternalOrderSettlementRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

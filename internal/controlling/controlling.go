@@ -38,7 +38,12 @@
 // with the version the budget's reader saw, the order held FOR UPDATE;
 // each change is audited with the amounts before and after and
 // published. The read compares it with the order's actual costs over
-// every year; nothing is refused for a budget.
+// every year. Since T60h a budget is also supplemented and returned (a
+// return never below the actual), every change one version kept in its
+// history, and it may carry an availability control: the ledger asks
+// CostObjects.Consume for every posting that adds to an order, which holds
+// the budget FOR UPDATE after the order's FOR SHARE, refuses a posting
+// above the refusal limit and publishes one above the warning limit.
 //
 // An order's settlement rule (ADR-0064 §3, T60d) names its one receiver,
 // a cost center the ledger's port checks (an active one of the order's
@@ -59,6 +64,10 @@
 // is closed by a person at the version read, its balance zero on every
 // account under the same lock; a closed order takes no posting. Both are
 // a person's (controlling.order.settle), audited and published.
+// An order's latest settlement in force is reversed (T60i): its entry
+// reversed through the ledger's port on its own date, the entry's lock
+// taken before the order FOR UPDATE as the ledger's reversals take them;
+// the reversal is kept beside the settlement, audited and published.
 //
 // An allocation cycle (ADR-0064 §5, T60f) has one sender cost center and
 // receiver cost centers with fixed percentages adding up to 100, all
@@ -137,9 +146,12 @@ type Ledger interface {
 
 // Postings is what controlling posts its entries through (ledger.Postings,
 // wired with CostObjects so its lines may name orders): settlements and
-// the runs of allocation cycles.
+// the runs of allocation cycles; and the reversal of a settlement's entry
+// (T60i), whose entry lock it takes first.
 type Postings interface {
 	Post(ctx context.Context, in ledger.Posting) (ledger.Entry, error)
+	Reverse(ctx context.Context, entryID uuid.UUID, postingDate *time.Time, headerText *string) (ledger.Entry, error)
+	LockEntries(ctx context.Context, ids []uuid.UUID) error
 }
 
 // Calendar reads a company's regular posting periods with their dates

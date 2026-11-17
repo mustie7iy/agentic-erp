@@ -480,7 +480,17 @@ posting date (409 `controlling.settlement_receiver_not_valid`), and what
 the ledger refuses of the entry (409 `ledger.period_not_open`, 422
 `ledger.cost_center_invalid`, ...). Published as `InternalOrderSettled`.
 `GET /v1/internal-orders/{id}/settlements` (`controlling.order.read` and
-`ledger.entry.read`) pages them, latest first (`posting_date`). `POST
+`ledger.entry.read`) pages them, latest first (`posting_date`), each with
+its reversal when it has one. `POST
+/v1/internal-orders/{id}/settlements/{settlement_id}:reverse` (T60i; the
+same permissions, `If-Match` the order's version) reverses the order's
+latest settlement in force through the ledger on its own posting date
+(409 `controlling.settlement_not_latest`, 409
+`controlling.settlement_reversed`, and the ledger's refusals such as 409
+`ledger.period_not_open`), answering the settlement with its reversal's
+entry, published as `InternalOrderSettlementReversed`; the ledger's own
+`:reverse` of a settlement's entry names this path (409
+`ledger.entry_owned_elsewhere`). `POST
 /v1/internal-orders/{id}:close` (also `ledger.entry.read`; `If-Match`
 the order's version) closes a
 released order whose balance is zero on every account (409
