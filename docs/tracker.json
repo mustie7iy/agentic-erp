@@ -2968,8 +2968,22 @@
        },
        {
         "s": "T",
-        "t": "later: dunning variants: charges and interest, letters and e-mails, grace days and minimum amounts, dunning blocks, procedures per customer, scheduled and large runs as a workflow, cancelling a confirmed run (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T76b, Later",
+        "t": "A credit controller's dunning run charges each notice its level's dunning charge and interest on the items of the levels that charge it, at the company's annual rate for the days overdue; it leaves out items within the company's grace days and the notices below its minimum amount, which it counts",
+        "r": "T76d · docs/design/plan-depth-1.md §T76d · companies[].dunning grace_days, minimum_amount, interest_rate_percent, levels[].charge, .interest (tier 2) · dunning_run, dunning_notice, dunning_notice_item charges and interest · DunningRun, DunningNotice, DunningNoticeItem · DunningNoticeIssued, DunningRunChanged · walkthrough step_dunning_charges · ADR-0065 As built",
+        "src": "split:T76b · po:2026-11-17",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A credit controller blocks a customer or one of its open items from dunning in a company, with a reason and an end date, and releases the block; a dunning run leaves blocked items out and names them, and a proposal with an item blocked since is stale",
+        "r": "T76e · docs/design/plan-depth-1.md §T76e · collections.dunning_block · dunning_run.blocked_items · POST /v1/dunning-blocks · GET /v1/dunning-blocks · GET /v1/dunning-blocks/{id} · POST /v1/dunning-blocks/{id}:release · collections.dunning.block · walkthrough step_dunning_blocks · ADR-0065 As built",
+        "src": "split:T76b · po:2026-11-17",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: dunning variants: letters and e-mails, procedures per customer, charges and minimum amounts per currency, posting dunning charges and interest, blocks in the collection worklist, scheduled and large runs as a workflow, cancelling a confirmed run (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T76b, Later · docs/design/plan-depth-1.md §T76e, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
