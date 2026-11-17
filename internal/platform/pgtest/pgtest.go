@@ -47,11 +47,11 @@ func Main(m *testing.M) {
 	if err := backoff.Retry(ctx, 20, backoff.Linear(250*time.Millisecond), func() error {
 		c, err := pgx.Connect(ctx, admin)
 		if err != nil {
-			return err
+			return fmt.Errorf("connecting: %w", err)
 		}
 		if _, err := c.Exec(ctx, "CREATE DATABASE "+name); err != nil {
 			_ = c.Close(ctx) // the CREATE failure is the one reported if every attempt fails
-			return err
+			return fmt.Errorf("creating %s: %w", name, err)
 		}
 		conn = c
 		return nil

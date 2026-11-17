@@ -55,10 +55,11 @@ func Server(tb testing.TB) string {
 	// Up to a minute, every 200 ms.
 	if err := backoff.Retry(context.Background(), 300, backoff.Constant(200*time.Millisecond), func() error {
 		c, err := client.DialContext(context.Background(), client.Options{HostPort: addr})
-		if err == nil {
-			c.Close()
+		if err != nil {
+			return fmt.Errorf("dialing %s: %w", addr, err)
 		}
-		return err
+		c.Close()
+		return nil
 	}); err != nil {
 		_ = cmd.Process.Kill()
 		tb.Fatalf("workflowtest: the development server did not come up: %v", err)

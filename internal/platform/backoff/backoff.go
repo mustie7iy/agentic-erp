@@ -9,6 +9,7 @@ package backoff
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -18,7 +19,7 @@ func Wait(ctx context.Context, d time.Duration) error {
 	defer t.Stop()
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("backoff: %w", ctx.Err())
 	case <-t.C:
 		return nil
 	}
