@@ -86948,6 +86948,11 @@ type Requisition struct {
 	Status string `json:"status"`
 	// Approval request (workflow context), once submitted.
 	WorkflowRequestID OptUUID `json:"workflow_request_id"`
+	// The request for quotation last created from the requisition (T82e), at `/v1/rfqs/{rfq_id}`; while
+	// the requisition is `in_sourcing` it is the RFQ sourcing it. Absent when none was.
+	RfqID OptUUID `json:"rfq_id"`
+	// That RFQ's document number; absent with it.
+	RfqDocumentNumber OptString `json:"rfq_document_number"`
 	// Items.
 	Items []RequisitionItem `json:"items"`
 	// Derived total of the items.
@@ -87036,6 +87041,16 @@ func (s *Requisition) GetStatus() string {
 // GetWorkflowRequestID returns the value of WorkflowRequestID.
 func (s *Requisition) GetWorkflowRequestID() OptUUID {
 	return s.WorkflowRequestID
+}
+
+// GetRfqID returns the value of RfqID.
+func (s *Requisition) GetRfqID() OptUUID {
+	return s.RfqID
+}
+
+// GetRfqDocumentNumber returns the value of RfqDocumentNumber.
+func (s *Requisition) GetRfqDocumentNumber() OptString {
+	return s.RfqDocumentNumber
 }
 
 // GetItems returns the value of Items.
@@ -87136,6 +87151,16 @@ func (s *Requisition) SetStatus(val string) {
 // SetWorkflowRequestID sets the value of WorkflowRequestID.
 func (s *Requisition) SetWorkflowRequestID(val OptUUID) {
 	s.WorkflowRequestID = val
+}
+
+// SetRfqID sets the value of RfqID.
+func (s *Requisition) SetRfqID(val OptUUID) {
+	s.RfqID = val
+}
+
+// SetRfqDocumentNumber sets the value of RfqDocumentNumber.
+func (s *Requisition) SetRfqDocumentNumber(val OptString) {
+	s.RfqDocumentNumber = val
 }
 
 // SetItems sets the value of Items.
@@ -91602,6 +91627,11 @@ type Rfq struct {
 	ContractID OptUUID `json:"contract_id"`
 	// That contract's document number; absent until the RFQ is awarded.
 	ContractDocumentNumber OptString `json:"contract_document_number"`
+	// The requisition the RFQ was created from (T82e), at `/v1/requisitions/{requisition_id}`; absent for
+	// an RFQ created with its own items.
+	RequisitionID OptUUID `json:"requisition_id"`
+	// That requisition's document number; absent with it.
+	RequisitionDocumentNumber OptString `json:"requisition_document_number"`
 	// The items asked for, by item number.
 	Items []RfqItem `json:"items"`
 	// The suppliers invited, in the order they were named.
@@ -91681,6 +91711,16 @@ func (s *Rfq) GetContractID() OptUUID {
 // GetContractDocumentNumber returns the value of ContractDocumentNumber.
 func (s *Rfq) GetContractDocumentNumber() OptString {
 	return s.ContractDocumentNumber
+}
+
+// GetRequisitionID returns the value of RequisitionID.
+func (s *Rfq) GetRequisitionID() OptUUID {
+	return s.RequisitionID
+}
+
+// GetRequisitionDocumentNumber returns the value of RequisitionDocumentNumber.
+func (s *Rfq) GetRequisitionDocumentNumber() OptString {
+	return s.RequisitionDocumentNumber
 }
 
 // GetItems returns the value of Items.
@@ -91766,6 +91806,16 @@ func (s *Rfq) SetContractID(val OptUUID) {
 // SetContractDocumentNumber sets the value of ContractDocumentNumber.
 func (s *Rfq) SetContractDocumentNumber(val OptString) {
 	s.ContractDocumentNumber = val
+}
+
+// SetRequisitionID sets the value of RequisitionID.
+func (s *Rfq) SetRequisitionID(val OptUUID) {
+	s.RequisitionID = val
+}
+
+// SetRequisitionDocumentNumber sets the value of RequisitionDocumentNumber.
+func (s *Rfq) SetRequisitionDocumentNumber(val OptString) {
+	s.RequisitionDocumentNumber = val
 }
 
 // SetItems sets the value of Items.
@@ -92311,16 +92361,20 @@ func (s *RfqComparisonSupplier) SetPrices(val []RfqComparisonPrice) {
 	s.Prices = val
 }
 
-// Create a draft request for quotation.
+// Create a draft request for quotation, with its own items or from a requisition (`requisition_id`).
 // Ref: #/components/schemas/RfqCreate
 type RfqCreate struct {
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// The currency quotations are given in.
-	Currency string `json:"currency"`
+	// An approved requisition of the legal entity the RFQ is created from (T82e): its items become the
+	// RFQ's, and `items` is not sent.
+	RequisitionID OptUUID `json:"requisition_id"`
+	// The currency quotations are given in; required without `requisition_id`, and the requisition's (its
+	// default) with it.
+	Currency OptString `json:"currency"`
 	// The date quotations are due; not before the legal entity's date today.
 	DueDate time.Time `json:"due_date"`
-	// The items asked for.
+	// The items asked for; required without `requisition_id`, not sent with it.
 	Items []RfqItemInput `json:"items"`
 	// The suppliers invited (business partner ids), each once.
 	SupplierIds []uuid.UUID `json:"supplier_ids"`
@@ -92331,8 +92385,13 @@ func (s *RfqCreate) GetLegalEntityID() uuid.UUID {
 	return s.LegalEntityID
 }
 
+// GetRequisitionID returns the value of RequisitionID.
+func (s *RfqCreate) GetRequisitionID() OptUUID {
+	return s.RequisitionID
+}
+
 // GetCurrency returns the value of Currency.
-func (s *RfqCreate) GetCurrency() string {
+func (s *RfqCreate) GetCurrency() OptString {
 	return s.Currency
 }
 
@@ -92356,8 +92415,13 @@ func (s *RfqCreate) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
 }
 
+// SetRequisitionID sets the value of RequisitionID.
+func (s *RfqCreate) SetRequisitionID(val OptUUID) {
+	s.RequisitionID = val
+}
+
 // SetCurrency sets the value of Currency.
-func (s *RfqCreate) SetCurrency(val string) {
+func (s *RfqCreate) SetCurrency(val OptString) {
 	s.Currency = val
 }
 
@@ -92444,6 +92508,12 @@ type RfqItem struct {
 	AccountNumber string `json:"account_number"`
 	// The account's name.
 	AccountName string `json:"account_name"`
+	// The date the item is wanted by: as sent, or the need date of the requisition the RFQ was created
+	// from; absent for none.
+	DeliveryDate OptDate `json:"delivery_date"`
+	// The item of the RFQ's requisition this item was taken from (T82e); absent for an RFQ not created
+	// from a requisition.
+	RequisitionItemNo OptInt32 `json:"requisition_item_no"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -92481,6 +92551,16 @@ func (s *RfqItem) GetAccountName() string {
 	return s.AccountName
 }
 
+// GetDeliveryDate returns the value of DeliveryDate.
+func (s *RfqItem) GetDeliveryDate() OptDate {
+	return s.DeliveryDate
+}
+
+// GetRequisitionItemNo returns the value of RequisitionItemNo.
+func (s *RfqItem) GetRequisitionItemNo() OptInt32 {
+	return s.RequisitionItemNo
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *RfqItem) SetItemNo(val OptInt32) {
 	s.ItemNo = val
@@ -92516,6 +92596,16 @@ func (s *RfqItem) SetAccountName(val string) {
 	s.AccountName = val
 }
 
+// SetDeliveryDate sets the value of DeliveryDate.
+func (s *RfqItem) SetDeliveryDate(val OptDate) {
+	s.DeliveryDate = val
+}
+
+// SetRequisitionItemNo sets the value of RequisitionItemNo.
+func (s *RfqItem) SetRequisitionItemNo(val OptInt32) {
+	s.RequisitionItemNo = val
+}
+
 // An item of a request for quotation as it is created: what is asked for, without a price.
 // Ref: #/components/schemas/RfqItemInput
 type RfqItemInput struct {
@@ -92530,6 +92620,9 @@ type RfqItemInput struct {
 	Quantity Quantity `json:"quantity"`
 	// General ledger account the item is bought on.
 	AccountID uuid.UUID `json:"account_id"`
+	// The date the item is wanted by; none when omitted. A purchase order an award creates takes it as its
+	// item's delivery date (T82f).
+	DeliveryDate OptDate `json:"delivery_date"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -92557,6 +92650,11 @@ func (s *RfqItemInput) GetAccountID() uuid.UUID {
 	return s.AccountID
 }
 
+// GetDeliveryDate returns the value of DeliveryDate.
+func (s *RfqItemInput) GetDeliveryDate() OptDate {
+	return s.DeliveryDate
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *RfqItemInput) SetItemNo(val OptInt32) {
 	s.ItemNo = val
@@ -92580,6 +92678,11 @@ func (s *RfqItemInput) SetQuantity(val Quantity) {
 // SetAccountID sets the value of AccountID.
 func (s *RfqItemInput) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
+}
+
+// SetDeliveryDate sets the value of DeliveryDate.
+func (s *RfqItemInput) SetDeliveryDate(val OptDate) {
+	s.DeliveryDate = val
 }
 
 // One page of requests for quotation.

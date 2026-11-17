@@ -50,6 +50,9 @@ type Item struct {
 	// (T84b, ADR-0071 §6), whose key is then its MaterialKey; nil for an
 	// item the requester described, and for contracts' and orders' items.
 	CatalogItemID *uuid.UUID `json:"catalog_item_id,omitempty"`
+	// RequisitionItemNo is the requisition item an RFQ item was taken from
+	// (T82e), nil for an RFQ's own item and for the other documents' items.
+	RequisitionItemNo *int32 `json:"requisition_item_no,omitempty"`
 }
 
 // assignment is the item's account assignment, none when it has none
@@ -107,13 +110,17 @@ type Requisition struct {
 	NeededBy          *time.Time
 	Status            string
 	WorkflowRequestID *uuid.UUID
-	Extensions        map[string]any
-	Items             []Item
-	Version           int32
-	CreatedAt         time.Time
-	CreatedBy         uuid.UUID
-	UpdatedAt         time.Time
-	UpdatedBy         uuid.UUID
+	// RFQID and RFQNumber are the RFQ last created from the requisition
+	// (T82e): while it is InSourcing, the RFQ sourcing it; nil for none.
+	RFQID      *uuid.UUID
+	RFQNumber  *string
+	Extensions map[string]any
+	Items      []Item
+	Version    int32
+	CreatedAt  time.Time
+	CreatedBy  uuid.UUID
+	UpdatedAt  time.Time
+	UpdatedBy  uuid.UUID
 }
 
 // Total is the estimated value of the live items.
@@ -121,6 +128,8 @@ func (r Requisition) Total() money.Minor { return total(r.Items) }
 
 const requisitionSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.requester_id, r.supplier_id, r.contract_id, r.currency, c.exponent,
 		r.requisition_date, r.needed_by, r.status, r.workflow_request_id, r.extensions, r.version, r.created_at, r.created_by, r.updated_at, r.updated_by,
+		(SELECT q.id FROM procurement.rfq q WHERE q.tenant_id = r.tenant_id AND q.requisition_id = r.id ORDER BY q.created_at DESC, q.id DESC LIMIT 1) AS rfq_id,
+		(SELECT q.document_number FROM procurement.rfq q WHERE q.tenant_id = r.tenant_id AND q.requisition_id = r.id ORDER BY q.created_at DESC, q.id DESC LIMIT 1) AS rfq_document_number,
 		coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'material_id', i.material_id, 'description', i.description,
 			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code, 'unit_price', i.unit_price, 'price_unit', i.price_unit,
 			'account_id', i.account_id, 'account_assignment', i.account_assignment, 'cost_center_id', i.cost_center_id,
@@ -132,7 +141,8 @@ const requisitionSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.
 func scanRequisition(row pgx.Row) (Requisition, error) {
 	var r Requisition
 	if err := row.Scan(&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.RequesterID, &r.SupplierID, &r.ContractID, &r.Currency, &r.Exponent,
-		&r.RequisitionDate, &r.NeededBy, &r.Status, &r.WorkflowRequestID, &r.Extensions, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy, &r.Items); err != nil {
+		&r.RequisitionDate, &r.NeededBy, &r.Status, &r.WorkflowRequestID, &r.Extensions, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy,
+		&r.RFQID, &r.RFQNumber, &r.Items); err != nil {
 		return Requisition{}, fmt.Errorf("scan requisition: %w", err)
 	}
 	return r, nil

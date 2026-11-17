@@ -2029,7 +2029,18 @@ type Invoker interface {
 	// error naming `supplier_ids[i]`). The due date is not before the legal entity's date today in its
 	// company's time zone (422 `procurement.rfq_due_date_past`, naming that date and zone). The RFQ is
 	// numbered from the company's `rfq` number range for that date's fiscal year. A draft is not changed:
-	// it is published (`:publish`) as created. Audited, and published as RfqChanged.
+	// it is published (`:publish`) as created. An RFQ from a requisition (`requisition_id`, T82e) takes
+	// its items from it and none are sent (422 `procurement.rfq_items_from_requisition` otherwise): every
+	// live item of an `approved` requisition of the legal entity (409 `procurement.invalid_status`; 422
+	// `procurement.requisition_mismatch` for another legal entity or currency) becomes an item of the RFQ
+	// in its order, with its description, quantity, unit and account, its catalog key as material key (or
+	// `<requisition number>/<item no>` for an item without one or sharing it with another), the
+	// requisition's need date as delivery date and its item number as `requisition_item_no`; the currency
+	// defaults to the requisition's. The requisition is read under a row lock and becomes `in_sourcing`,
+	// naming the RFQ, in the same transaction, so a second RFQ from it is refused (409
+	// `procurement.invalid_status`); while in sourcing it is neither ordered directly nor cancelled.
+	// Without a requisition, `currency` and `items` are required (422 `request.validation_failed`).
+	// Audited, and published as RfqChanged.
 	//
 	// POST /v1/rfqs
 	CreateRfq(ctx context.Context, request *RfqCreate, params CreateRfqParams) (CreateRfqRes, error)
@@ -25915,7 +25926,18 @@ func (c *Client) sendCreateRevenueRecognitionRun(ctx context.Context, request *R
 // error naming `supplier_ids[i]`). The due date is not before the legal entity's date today in its
 // company's time zone (422 `procurement.rfq_due_date_past`, naming that date and zone). The RFQ is
 // numbered from the company's `rfq` number range for that date's fiscal year. A draft is not changed:
-// it is published (`:publish`) as created. Audited, and published as RfqChanged.
+// it is published (`:publish`) as created. An RFQ from a requisition (`requisition_id`, T82e) takes
+// its items from it and none are sent (422 `procurement.rfq_items_from_requisition` otherwise): every
+// live item of an `approved` requisition of the legal entity (409 `procurement.invalid_status`; 422
+// `procurement.requisition_mismatch` for another legal entity or currency) becomes an item of the RFQ
+// in its order, with its description, quantity, unit and account, its catalog key as material key (or
+// `<requisition number>/<item no>` for an item without one or sharing it with another), the
+// requisition's need date as delivery date and its item number as `requisition_item_no`; the currency
+// defaults to the requisition's. The requisition is read under a row lock and becomes `in_sourcing`,
+// naming the RFQ, in the same transaction, so a second RFQ from it is refused (409
+// `procurement.invalid_status`); while in sourcing it is neither ordered directly nor cancelled.
+// Without a requisition, `currency` and `items` are required (422 `request.validation_failed`).
+// Audited, and published as RfqChanged.
 //
 // POST /v1/rfqs
 func (c *Client) CreateRfq(ctx context.Context, request *RfqCreate, params CreateRfqParams) (CreateRfqRes, error) {
@@ -83238,6 +83260,23 @@ func (c *Client) sendListRfqs(ctx context.Context, params ListRfqsParams) (res L
 
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.SupplierID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "requisition_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "requisition_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.RequisitionID.Get(); ok {
 				return e.EncodeValue(conv.UUIDToString(val))
 			}
 			return nil

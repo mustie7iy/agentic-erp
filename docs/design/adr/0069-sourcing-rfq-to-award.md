@@ -400,3 +400,72 @@ as missing (04 §4.9). None is an approval permission in T82a and T82b.
 - **Walkthrough.** `step_rfq_award` (step 66): the RFQ of `step_rfq` is
   awarded to the quotation ranked first; the draft contract carries its
   prices and supplier, names the RFQ and is released.
+
+### T82e RFQ created from a requisition (migrations 000350, 000351)
+
+The first of the depth variants (`plan-depth-1.md` §T82e, product owner
+2026-11-17). §1's "an RFQ is free-standing" now holds for an RFQ with
+its own items; one may instead be created from a requisition.
+
+- **API.** `POST /v1/rfqs` takes `requisition_id`: the items come from
+  the requisition and are not sent (422
+  `procurement.rfq_items_from_requisition`, `items`), the currency
+  defaults to the requisition's (another is 422
+  `procurement.requisition_mismatch`, `currency`). The requisition must be
+  `approved` (409 `procurement.invalid_status`) and of the RFQ's legal
+  entity (422 `procurement.requisition_mismatch`, `requisition_id`); one
+  the caller cannot see is 422 `request.reference_not_found`. Without a
+  requisition, `currency` and `items` are required (422
+  `request.validation_failed`, one field error each; they were required
+  by the schema before, a relaxation of the request). `GET /v1/rfqs`
+  filters by `requisition_id`. An RFQ shows `requisition_id` and
+  `requisition_document_number`, each item `delivery_date` and
+  `requisition_item_no`; a buyer's own item may carry a `delivery_date`.
+  A requisition shows `rfq_id` and `rfq_document_number`, the RFQ last
+  created from it, and the status `in_sourcing` (both open enumerations).
+- **Behaviour.** The requisition is read under its row lock
+  (`getRequisition`, as `orderedRequisition` reads it) and moved to
+  `in_sourcing` by `setStatus` before the RFQ is written, in the same
+  transaction, so a second RFQ from it finds it in sourcing (409). Every
+  live item becomes an RFQ item in its order through `rfqItems` (the
+  account is checked again: one no longer postable is refused by the RFQ
+  item it would become, `items[i].account_id`), with its description,
+  quantity, unit and account, the requisition's need date as delivery
+  date and its item number as `requisition_item_no`. Its material key is
+  the item's catalog key, or `<requisition number>/<item no>` for an item
+  without one or sharing it with another (`sourcedInputs`). A requisition
+  in sourcing is neither ordered directly (`orderedRequisition` asks for
+  `approved`) nor cancelled (`cancelRequisition` refuses it): both 409, the
+  existing rules unchanged. No agent below level 2 gets this far: creating
+  an RFQ is already a write.
+- **Schema.** `procurement.rfq.requisition_id` (a foreign key to the
+  requisition, added NOT VALID and validated by 000351, as is the wider
+  requisition status check), `rfq_item.delivery_date` and
+  `rfq_item.requisition_item_no`, index `rfq_by_requisition`. `check_rfq`
+  refuses an RFQ from a requisition that is not in sourcing, of its
+  company and in its currency (`rfq_of_requisition_in_sourcing`, the
+  requisition read FOR SHARE) or that already has an open RFQ, one not
+  awarded (`rfq_one_open_per_requisition`), and keeps an RFQ's
+  requisition (`rfq_identity_kept`). Trigger `rfq_item_of_requisition`:
+  an item names a live item of its RFQ's requisition exactly when the RFQ
+  has one. The revert refuses while an RFQ names a requisition. Schema
+  tests in `db/rfq_requisition_test.go`.
+- **Events and audit.** `RfqChanged` and `RfqPublished` carry
+  `requisition_id` and `requisition_document_number` when the RFQ has a
+  requisition (added within v1). The requisition's move is audited
+  (`procurement.requisition.in_sourcing`) and publishes no requisition
+  event: `RfqChanged` (`created`) names it.
+- **Code.** `internal/procurement/rfq_requisition.go` (`sourced`,
+  `sourcedInputs`); `createRFQ` and `writeRFQ` in `rfq.go`
+  (`rfqContent`); the requisition's `rfq_id` in `requisitionSelect`.
+- **Walkthrough.** `step_rfq_requisition` (step 109): Ben raises a
+  requisition for two items, Priya approves it, and Ben creates an RFQ
+  from it, which takes its items, quantities and need date; the
+  requisition reads `in_sourcing` naming the RFQ; a second RFQ from it and
+  items sent beside it are refused; the RFQ is published.
+- **Defaults** (20-23, for the digest): a requisition is sourced as a
+  whole, its status marking all its items; the RFQ is created through
+  `POST /v1/rfqs`, not a custom method of the requisition; a requisition
+  in sourcing is neither cancelled nor ordered directly until its RFQ is
+  awarded (closing an RFQ without an award stays later); no requisition
+  event is published for the move to `in_sourcing`.

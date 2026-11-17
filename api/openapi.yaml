@@ -10399,6 +10399,7 @@ paths:
               - rejected
               - cancelled
               - ordered
+              - in_sourcing
         - name: requester_id
           in: query
           required: false
@@ -12516,6 +12517,13 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: requisition_id
+          in: query
+          required: false
+          description: "Only the RFQs created from this requisition (T82e)."
+          schema:
+            type: string
+            format: uuid
         - name: status
           in: query
           required: false
@@ -12552,7 +12560,7 @@ paths:
       tags:
         - procurement
       summary: Create a request for quotation
-      description: "Creates a draft RFQ of a legal entity (ADR-0069 §1-§2): the currency quotations are given in, the date they are due, the items asked for (a quantity and unit each, no price) and the suppliers invited. Each item names what is bought by a description and a material key, once per RFQ (422 `procurement.duplicate_material_key`), and the account it is bought on, one the legal entity can post to. Each supplier is named once (422 `procurement.rfq_supplier_repeated`) and must be one an order could be placed with in the legal entity: an active business partner in the supplier role, set up in the legal entity and not blocked for posting (422 `procurement.supplier_not_usable`, the field error naming `supplier_ids[i]`). The due date is not before the legal entity's date today in its company's time zone (422 `procurement.rfq_due_date_past`, naming that date and zone). The RFQ is numbered from the company's `rfq` number range for that date's fiscal year. A draft is not changed: it is published (`:publish`) as created. Audited, and published as RfqChanged."
+      description: "Creates a draft RFQ of a legal entity (ADR-0069 §1-§2): the currency quotations are given in, the date they are due, the items asked for (a quantity and unit each, no price) and the suppliers invited. Each item names what is bought by a description and a material key, once per RFQ (422 `procurement.duplicate_material_key`), and the account it is bought on, one the legal entity can post to. Each supplier is named once (422 `procurement.rfq_supplier_repeated`) and must be one an order could be placed with in the legal entity: an active business partner in the supplier role, set up in the legal entity and not blocked for posting (422 `procurement.supplier_not_usable`, the field error naming `supplier_ids[i]`). The due date is not before the legal entity's date today in its company's time zone (422 `procurement.rfq_due_date_past`, naming that date and zone). The RFQ is numbered from the company's `rfq` number range for that date's fiscal year. A draft is not changed: it is published (`:publish`) as created. An RFQ from a requisition (`requisition_id`, T82e) takes its items from it and none are sent (422 `procurement.rfq_items_from_requisition` otherwise): every live item of an `approved` requisition of the legal entity (409 `procurement.invalid_status`; 422 `procurement.requisition_mismatch` for another legal entity or currency) becomes an item of the RFQ in its order, with its description, quantity, unit and account, its catalog key as material key (or `<requisition number>/<item no>` for an item without one or sharing it with another), the requisition's need date as delivery date and its item number as `requisition_item_no`; the currency defaults to the requisition's. The requisition is read under a row lock and becomes `in_sourcing`, naming the RFQ, in the same transaction, so a second RFQ from it is refused (409 `procurement.invalid_status`); while in sourcing it is neither ordered directly nor cancelled. Without a requisition, `currency` and `items` are required (422 `request.validation_failed`). Audited, and published as RfqChanged."
       x-permission: procurement.rfq.manage
       x-problem-codes:
         - config.no_number_range
@@ -12563,8 +12571,11 @@ paths:
         - procurement.duplicate_material_key
         - procurement.invalid_item_no
         - procurement.invalid_quantity
+        - procurement.invalid_status
         - procurement.legal_entity_not_active
+        - procurement.requisition_mismatch
         - procurement.rfq_due_date_past
+        - procurement.rfq_items_from_requisition
         - procurement.rfq_supplier_repeated
         - procurement.supplier_not_usable
         - procurement.unknown_currency
@@ -46335,11 +46346,21 @@ components:
                 - rejected
                 - cancelled
                 - ordered
+                - in_sourcing
               readOnly: true
             workflow_request_id:
               type: string
               format: uuid
               description: Approval request (workflow context), once submitted.
+              readOnly: true
+            rfq_id:
+              type: string
+              format: uuid
+              description: "The request for quotation last created from the requisition (T82e), at `/v1/rfqs/{rfq_id}`; while the requisition is `in_sourcing` it is the RFQ sourcing it. Absent when none was."
+              readOnly: true
+            rfq_document_number:
+              type: string
+              description: "That RFQ's document number; absent with it."
               readOnly: true
             items:
               type: array
@@ -47666,6 +47687,10 @@ components:
           type: string
           format: uuid
           description: General ledger account the item is bought on.
+        delivery_date:
+          type: string
+          format: date
+          description: "The date the item is wanted by; none when omitted. A purchase order an award creates takes it as its item's delivery date (T82f)."
       additionalProperties: false
       examples:
         - material_key: CHAIR-ERGO-01
@@ -47713,6 +47738,15 @@ components:
         account_name:
           type: string
           description: The account's name.
+        delivery_date:
+          type: string
+          format: date
+          description: "The date the item is wanted by: as sent, or the need date of the requisition the RFQ was created from; absent for none."
+        requisition_item_no:
+          type: integer
+          format: int32
+          description: "The item of the RFQ's requisition this item was taken from (T82e); absent for an RFQ not created from a requisition."
+          minimum: 1
       examples:
         - material_key: CHAIR-ERGO-01
           description: Office chairs, ergonomic
@@ -47805,6 +47839,15 @@ components:
               type: string
               description: "That contract's document number; absent until the RFQ is awarded."
               readOnly: true
+            requisition_id:
+              type: string
+              format: uuid
+              description: "The requisition the RFQ was created from (T82e), at `/v1/requisitions/{requisition_id}`; absent for an RFQ created with its own items."
+              readOnly: true
+            requisition_document_number:
+              type: string
+              description: "That requisition's document number; absent with it."
+              readOnly: true
             items:
               type: array
               items:
@@ -47846,21 +47889,23 @@ components:
               supplier_name: Tyrell Office Products
     RfqCreate:
       type: object
-      description: Create a draft request for quotation.
+      description: "Create a draft request for quotation, with its own items or from a requisition (`requisition_id`)."
       required:
         - legal_entity_id
-        - currency
         - due_date
-        - items
         - supplier_ids
       properties:
         legal_entity_id:
           type: string
           format: uuid
           description: Legal entity.
+        requisition_id:
+          type: string
+          format: uuid
+          description: "An approved requisition of the legal entity the RFQ is created from (T82e): its items become the RFQ's, and `items` is not sent."
         currency:
           type: string
-          description: The currency quotations are given in.
+          description: "The currency quotations are given in; required without `requisition_id`, and the requisition's (its default) with it."
           pattern: "^[A-Z]{3}$"
           example: EUR
         due_date:
@@ -47871,7 +47916,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/RfqItemInput"
-          description: The items asked for.
+          description: "The items asked for; required without `requisition_id`, not sent with it."
           minItems: 1
           maxItems: 1000
         supplier_ids:

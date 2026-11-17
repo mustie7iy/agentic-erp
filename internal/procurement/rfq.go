@@ -18,10 +18,11 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
-// Requests for quotation (ADR-0069). An RFQ is free-standing: a buyer
-// creates it for a company with the items asked for and the suppliers
-// invited, and publishes it once; from then on nothing changes it and the
-// suppliers' quotations are recorded against it.
+// Requests for quotation (ADR-0069). A buyer creates an RFQ for a company
+// with the items asked for, or from an approved requisition whose items
+// it takes (T82e), and the suppliers invited, and publishes it once; from
+// then on nothing changes it and the suppliers' quotations are recorded
+// against it.
 
 // RFQPublished is the status of an RFQ that was published to the suppliers
 // invited; before that it is a Draft, and an award (rfq_award.go) makes
@@ -58,11 +59,15 @@ type RFQ struct {
 	// until the RFQ is awarded.
 	ContractID     *uuid.UUID
 	ContractNumber *string
-	Version        int32
-	CreatedAt      time.Time
-	CreatedBy      uuid.UUID
-	UpdatedAt      time.Time
-	UpdatedBy      uuid.UUID
+	// The requisition the RFQ was created from and its number (T82e); nil
+	// for an RFQ with its own items.
+	RequisitionID     *uuid.UUID
+	RequisitionNumber *string
+	Version           int32
+	CreatedAt         time.Time
+	CreatedBy         uuid.UUID
+	UpdatedAt         time.Time
+	UpdatedBy         uuid.UUID
 }
 
 // RFQSupplier is a supplier invited to quote. Number and Name are the
@@ -76,8 +81,11 @@ type RFQSupplier struct {
 const rfqSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.currency, cu.exponent, r.due_date, r.status, r.version, r.created_at, r.created_by,
 		r.updated_at, r.updated_by, r.contract_id,
 		(SELECT ct.document_number FROM procurement.contract ct WHERE ct.tenant_id = r.tenant_id AND ct.id = r.contract_id) AS contract_document_number,
+		r.requisition_id,
+		(SELECT rq.document_number FROM procurement.requisition rq WHERE rq.tenant_id = r.tenant_id AND rq.id = r.requisition_id) AS requisition_document_number,
 		coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'material_key', i.material_key, 'description', i.description,
-			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code, 'account_id', i.account_id) ORDER BY i.item_no)
+			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code, 'account_id', i.account_id, 'delivery_date', ` + deliveryDate + `,
+			'requisition_item_no', i.requisition_item_no) ORDER BY i.item_no)
 		 FROM procurement.rfq_item i WHERE i.tenant_id = r.tenant_id AND i.rfq_id = r.id), '[]'),
 		ARRAY(SELECT s.supplier_id FROM procurement.rfq_supplier s WHERE s.tenant_id = r.tenant_id AND s.rfq_id = r.id ORDER BY s.invite_no)
 	FROM procurement.rfq r JOIN ref.currency cu ON cu.code = r.currency`
@@ -86,7 +94,7 @@ func scanRFQ(row pgx.Row) (RFQ, error) {
 	var r RFQ
 	var suppliers []uuid.UUID
 	if err := row.Scan(&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.Currency, &r.Exponent, &r.DueDate, &r.Status, &r.Version, &r.CreatedAt, &r.CreatedBy,
-		&r.UpdatedAt, &r.UpdatedBy, &r.ContractID, &r.ContractNumber, &r.Items, &suppliers); err != nil {
+		&r.UpdatedAt, &r.UpdatedBy, &r.ContractID, &r.ContractNumber, &r.RequisitionID, &r.RequisitionNumber, &r.Items, &suppliers); err != nil {
 		return RFQ{}, fmt.Errorf("scan RFQ: %w", err)
 	}
 	r.Suppliers = make([]RFQSupplier, len(suppliers))
@@ -187,25 +195,50 @@ func (e *Endpoints) named(ctx context.Context, rfqs ...RFQ) ([]RFQ, error) {
 	return rfqs, nil
 }
 
-// NewRFQ is the input of createRFQ.
+// NewRFQ is the input of createRFQ: an RFQ with its own items in a
+// currency, or one from a requisition (RequisitionID), which gives both.
 type NewRFQ struct {
 	LegalEntityID uuid.UUID
-	Currency      string
+	RequisitionID *uuid.UUID
+	Currency      string // "" from a requisition: the requisition's
 	DueDate       time.Time
-	Items         []ItemInput // without prices
+	Items         []ItemInput // without prices; none from a requisition
 	Suppliers     []uuid.UUID
 }
 
 // rfqItems validates an RFQ's items: each numbered by its place, its
 // material key once, a described positive quantity, on an account the
-// legal entity can post to.
+// legal entity can post to, with the delivery date given, if any.
 func (e *Endpoints) rfqItems(ctx context.Context, le uuid.UUID, in []ItemInput) ([]Item, error) {
 	return e.keyedItems(ctx, le, in, "RFQ", func(field string, it ItemInput) (Item, error) {
 		if err := problem.RequireText(field+".description", it.Description); err != nil {
 			return Item{}, err
 		}
-		return Item{Quantity: it.Quantity}, quantity(it.Quantity, field+".quantity")
+		return Item{Quantity: it.Quantity, DeliveryDate: it.DeliveryDate}, quantity(it.Quantity, field+".quantity")
 	})
+}
+
+// rfqContent is what the RFQ asks for and in which currency: the request's
+// items and currency, both required, or a requisition's (sourced).
+func (e *Endpoints) rfqContent(ctx context.Context, tx pgx.Tx, le uuid.UUID, in NewRFQ) (string, []Item, *Requisition, error) {
+	if in.RequisitionID != nil {
+		return e.sourced(ctx, tx, le, in)
+	}
+	var missing []problem.FieldError
+	if in.Currency == "" {
+		missing = append(missing, problem.FieldError{Field: "currency", Code: "required", Message: "the currency quotations are given in, without a requisition"})
+	}
+	if len(in.Items) == 0 {
+		missing = append(missing, problem.FieldError{Field: "items", Code: "required", Message: "the items asked for, without a requisition"})
+	}
+	if len(missing) > 0 {
+		return "", nil, nil, problem.Unprocessable("request.validation_failed", "An RFQ without a requisition names its currency and items.", missing...)
+	}
+	if _, err := exponent(ctx, tx, in.Currency, "currency"); err != nil {
+		return "", nil, nil, err
+	}
+	items, err := e.rfqItems(ctx, le, in.Items)
+	return in.Currency, items, nil, err
 }
 
 // once refuses a supplier named twice, by the place of its second naming.
@@ -260,14 +293,11 @@ func (e *Endpoints) createRFQ(ctx context.Context, in NewRFQ) (RFQ, error) {
 	if err != nil {
 		return RFQ{}, err
 	}
-	if _, err := exponent(ctx, tx, in.Currency, "currency"); err != nil {
-		return RFQ{}, err
-	}
 	day, err := e.notPast(ctx, le.ID, in.DueDate)
 	if err != nil {
 		return RFQ{}, err
 	}
-	items, err := e.rfqItems(ctx, le.ID, in.Items)
+	currency, items, req, err := e.rfqContent(ctx, tx, le.ID, in)
 	if err != nil {
 		return RFQ{}, err
 	}
@@ -281,35 +311,44 @@ func (e *Endpoints) createRFQ(ctx context.Context, in NewRFQ) (RFQ, error) {
 	if err != nil {
 		return RFQ{}, err
 	}
-	r := RFQ{ID: uuid.Must(uuid.NewV7()), DocumentNumber: number, LegalEntityID: le.ID, Currency: in.Currency, DueDate: in.DueDate,
-		Items: items, Suppliers: make([]RFQSupplier, len(in.Suppliers))}
+	r := RFQ{ID: uuid.Must(uuid.NewV7()), DocumentNumber: number, LegalEntityID: le.ID, Currency: currency, DueDate: in.DueDate,
+		Items: items, Suppliers: make([]RFQSupplier, len(in.Suppliers)), RequisitionID: in.RequisitionID}
 	for i, id := range in.Suppliers {
 		r.Suppliers[i].ID = id
+	}
+	if req != nil { // in sourcing before the RFQ names it (000350)
+		if _, err := e.setStatus(ctx, tx, p, *req, InSourcing, req.WorkflowRequestID, "", nil); err != nil {
+			return RFQ{}, err
+		}
 	}
 	if err := writeRFQ(ctx, tx, p, r); err != nil {
 		return RFQ{}, err
 	}
-	return e.recorded(ctx, tx, r.ID, "create", "created", map[string]any{"document_number": number, "legal_entity_id": le.ID, "currency": in.Currency,
-		"due_date": in.DueDate.Format(time.DateOnly), "items": len(items)})
+	return e.recorded(ctx, tx, r.ID, "create", "created", map[string]any{"document_number": number, "legal_entity_id": le.ID, "currency": currency,
+		"due_date": in.DueDate.Format(time.DateOnly), "items": len(items), "requisition_id": in.RequisitionID})
 }
 
 // writeRFQ inserts a draft RFQ with its items and the suppliers invited,
 // numbered in the order given.
 func writeRFQ(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r RFQ) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.rfq (tenant_id, id, document_number, legal_entity_id, currency, due_date, status,
-			created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7, $7)`, p.TenantID, r.ID, r.DocumentNumber, r.LegalEntityID, r.Currency, r.DueDate, p.ID); err != nil {
+			requisition_id, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7, $8, $8)`, p.TenantID, r.ID, r.DocumentNumber, r.LegalEntityID, r.Currency, r.DueDate,
+		r.RequisitionID, p.ID); err != nil {
 		return fmt.Errorf("procurement: create RFQ %s: %w", r.DocumentNumber, err)
 	}
 	n := len(r.Items)
 	nos, keys, descriptions, quantities, units, accounts := make([]int32, n), make([]string, n), make([]string, n), make([]string, n), make([]string, n), make([]uuid.UUID, n)
+	dates, sources := make([]*time.Time, n), make([]*int32, n)
 	for i, it := range r.Items {
 		nos[i], keys[i], descriptions[i], quantities[i], units[i], accounts[i] = it.No, it.MaterialKey, it.Description, it.Quantity, it.Unit, it.AccountID
+		dates[i], sources[i] = it.DeliveryDate, it.RequisitionItemNo
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO procurement.rfq_item (tenant_id, rfq_id, item_no, material_key, description, quantity, uom_code, account_id)
-		SELECT $1, $2, n, k, d, q, u, a
-		FROM unnest($3::int[], $4::text[], $5::text[], $6::numeric[], $7::text[], $8::uuid[]) AS x(n, k, d, q, u, a)`,
-		p.TenantID, r.ID, nos, keys, descriptions, quantities, units, accounts); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO procurement.rfq_item (tenant_id, rfq_id, item_no, material_key, description, quantity, uom_code, account_id,
+			delivery_date, requisition_item_no)
+		SELECT $1, $2, n, k, d, q, u, a, dd, ri
+		FROM unnest($3::int[], $4::text[], $5::text[], $6::numeric[], $7::text[], $8::uuid[], $9::date[], $10::int[]) AS x(n, k, d, q, u, a, dd, ri)`,
+		p.TenantID, r.ID, nos, keys, descriptions, quantities, units, accounts, dates, sources); err != nil {
 		return fmt.Errorf("procurement: write items of RFQ %s: %w", r.ID, err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.rfq_supplier (tenant_id, rfq_id, supplier_id, invite_no)
@@ -337,9 +376,13 @@ func (e *Endpoints) recorded(ctx context.Context, tx pgx.Tx, id uuid.UUID, actio
 	stored := shown[0]
 	detail["supplier_ids"] = stored.supplierIDs()
 	payload := func() map[string]any {
-		return map[string]any{"rfq_id": stored.ID, "document_number": stored.DocumentNumber, "legal_entity_id": stored.LegalEntityID,
+		out := map[string]any{"rfq_id": stored.ID, "document_number": stored.DocumentNumber, "legal_entity_id": stored.LegalEntityID,
 			"legal_entity_code": stored.CompanyCode,
 			"currency":          stored.Currency, "due_date": stored.DueDate.Format(time.DateOnly), "item_count": len(stored.Items)}
+		if stored.RequisitionID != nil {
+			out["requisition_id"], out["requisition_document_number"] = *stored.RequisitionID, *stored.RequisitionNumber
+		}
+		return out
 	}
 	changed := payload()
 	changed["status"], changed["change"], changed["supplier_count"] = stored.Status, change, len(stored.Suppliers)

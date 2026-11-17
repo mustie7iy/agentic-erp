@@ -7665,6 +7665,8 @@ components:
         change: {"type": "string", "description": "Open enum: created, published, awarded."}
         item_count: {"type": "integer", "description": "The items asked for."}
         supplier_count: {"type": "integer", "description": "The suppliers invited."}
+        requisition_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.requisition.id`: the requisition the RFQ was created from (T82e), which is `in_sourcing` from then on; absent for an RFQ created with its own items. Added within v1."}
+        requisition_document_number: {"type": "string", "description": "That requisition's document number; absent with it. Added within v1."}
     RfqPublishedV1:
       type: object
       required: ["rfq_id", "document_number", "legal_entity_id", "legal_entity_code", "currency", "due_date", "item_count", "suppliers"]
@@ -7676,6 +7678,8 @@ components:
         currency: {"type": "string", "description": "The ISO 4217 currency quotations are given in."}
         due_date: {"$ref": "#/components/schemas/Date", "description": "The date quotations are due."}
         item_count: {"type": "integer", "description": "The items asked for."}
+        requisition_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.requisition.id`: the requisition the RFQ was created from (T82e); absent for an RFQ created with its own items. Added within v1."}
+        requisition_document_number: {"type": "string", "description": "That requisition's document number; absent with it. Added within v1."}
         suppliers:
           type: array
           description: "The suppliers invited, in the order they were named."

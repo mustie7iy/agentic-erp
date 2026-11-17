@@ -95972,6 +95972,8 @@ type ListRfqsParams struct {
 	LegalEntityID OptUUID `json:",omitempty,omitzero"`
 	// Only the RFQs this supplier (business partner id) is invited to.
 	SupplierID OptUUID `json:",omitempty,omitzero"`
+	// Only the RFQs created from this requisition (T82e).
+	RequisitionID OptUUID `json:",omitempty,omitzero"`
 	// Only RFQs in this status.
 	Status OptString `json:",omitempty,omitzero"`
 	// Only the document with this human document number.
@@ -96006,6 +96008,15 @@ func unpackListRfqsParams(packed middleware.Parameters) (params ListRfqsParams) 
 		}
 		if v, ok := packed[key]; ok {
 			params.SupplierID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "requisition_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.RequisitionID = v.(OptUUID)
 		}
 	}
 	{
@@ -96145,6 +96156,47 @@ func decodeListRfqsParams(args [0]string, argsEscaped bool, r *http.Request) (pa
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "supplier_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: requisition_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "requisition_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotRequisitionIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotRequisitionIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.RequisitionID.SetTo(paramsDotRequisitionIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "requisition_id",
 			In:   "query",
 			Err:  err,
 		}

@@ -4460,9 +4460,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A buyer creates an RFQ from an approved requisition: its items, quantities, units, accounts and need date become the RFQ's, the RFQ names the requisition, and the requisition is in sourcing until an award orders it (POST /v1/rfqs with requisition_id)",
-        "r": "T82e · docs/design/plan-depth-1.md §T82e · ADR-0069 As built · walkthrough step_rfq_requisition",
+        "r": "T82e · docs/design/plan-depth-1.md §T82e · migrations 000350, 000351 · internal/procurement/rfq_requisition.go, rfq.go · POST /v1/rfqs requisition_id · ADR-0069 As built · walkthrough step_rfq_requisition",
         "src": "split:T82b · po:2026-11-17",
         "c": []
        },
