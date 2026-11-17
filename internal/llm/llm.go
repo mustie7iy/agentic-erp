@@ -1,7 +1,8 @@
 // Package llm holds what every Claude agent in the platform shares: client
 // setup, request defaults, tool result helpers and stop-reason handling. The
 // agents are API clients whose tools are the API's operations (04-api-design
-// §4.13).
+// §4.13), whose model calls go through the cell's model gateway (ADR-0036),
+// and whose behaviour is certified by evaluation suites (ADR-0039).
 package llm
 
 import (
@@ -20,6 +21,8 @@ import (
 // otherwise; the cell's gateway routes it to a model (ADR-0036).
 const DefaultModel = "erp-default"
 
+// Runner is a configured client of the Messages API and the model alias
+// its requests name: an agent's (Gateway) calls the cell's gateway.
 type Runner struct {
 	Client anthropic.Client
 	Model  string

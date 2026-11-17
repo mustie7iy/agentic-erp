@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -65,5 +67,59 @@ func TestHandle(t *testing.T) {
 	person := &apitools.Client{BaseURL: srv.URL, Token: f.API.Issuer.Token(t, f.Tenant.ID, f.Tenant.Human.Subject, nil)}
 	if _, err := (&configagent.Agent{LLM: model.Runner(), API: person}).Handle(context.Background(), "x", nil); err == nil {
 		t.Fatal("a person ran the agent")
+	}
+}
+
+// TestHandleOwnChangesOnly: the session changes only the change requests
+// it created: a person's is refused before the API, and creations the
+// model sends in one turn, which the runner executes concurrently, are
+// each kept (run with -race, review:batch76). An operation the contract
+// does not have ends the session rather than leave it running.
+func TestHandleOwnChangesOnly(t *testing.T) {
+	f := fixture.New(t, "config.change.read", "config.change.propose", "config.version.read", "agents.session.record", "agents.session.read")
+	srv := httptest.NewServer(f.API.Handler)
+	defer srv.Close()
+	api := &apitools.Client{BaseURL: srv.URL, Token: f.API.Issuer.Token(t, f.Tenant.ID, f.Tenant.Agent.Subject, nil)}
+	b, _ := json.Marshal(map[string]any{"title": "A person's", "rationale": "r", "base_version": 1, "proposed": fixture.Document(t)})
+	theirs, _ := f.Must(201, "POST", "/v1/change-requests", string(b), "")
+	var proposed map[string]any
+	if err := json.Unmarshal(b, &proposed); err != nil {
+		t.Fatalf("decode the change request: %v", err)
+	}
+	create := llmtest.Tool("createChangeRequest", map[string]any{"body": proposed})
+	model := llmtest.New(t,
+		llmtest.Together(create, create),
+		llmtest.Tool("withdrawChangeRequest", map[string]any{"id": theirs["id"], "if_match": `"1"`}),
+		llmtest.ToolFn("withdrawChangeRequest", func(body string) any {
+			return map[string]any{"id": regexp.MustCompile(`\\"id\\":\\"([0-9a-f-]{36})\\"`).FindStringSubmatch(body)[1], "if_match": `"1"`, "body": map[string]any{"reason": "Not wanted."}}
+		}),
+		llmtest.Final("Filed and withdrawn."))
+	res, err := (&configagent.Agent{LLM: model.Runner(), API: api}).Handle(context.Background(), "Twice", nil)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if len(res.ChangeRequests) != 2 {
+		t.Errorf("change requests: got %v, want 2", res.ChangeRequests)
+	}
+	if !strings.Contains(model.Requests[2], configagent.ErrNotCreated.Error()) {
+		t.Errorf("the withdrawal of a person's: got %s, want it refused", llmtest.LastToolResult(model.Requests[2]))
+	}
+	got, _ := f.Must(200, "GET", "/v1/change-requests/"+theirs["id"].(string), "", "")
+	if got["status"] != "draft" {
+		t.Errorf("the person's change request: got %v, want draft", got["status"])
+	}
+	if !strings.Contains(llmtest.LastToolResult(model.Requests[3]), `"status":200`) {
+		t.Errorf("the withdrawal of its own: got %s, want 200", llmtest.LastToolResult(model.Requests[3]))
+	}
+	tools := configagent.Tools
+	configagent.Tools = append(slices.Clone(tools), "noSuchOperation")
+	t.Cleanup(func() { configagent.Tools = tools })
+	if _, err := (&configagent.Agent{LLM: llmtest.New(t).Runner(), API: api}).Handle(context.Background(), "x", nil); err == nil ||
+		!strings.Contains(err.Error(), "noSuchOperation") {
+		t.Errorf("an operation not in the contract: got %v, want it named", err)
+	}
+	sessions, _ := f.Must(200, "GET", "/v1/agent-sessions?status=running", "", "")
+	if items := sessions["items"].([]any); len(items) != 0 {
+		t.Errorf("sessions running: got %v, want none", items)
 	}
 }

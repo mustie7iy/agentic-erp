@@ -159,7 +159,12 @@ func (g *Gateway) serve(ctx context.Context, p reqctx.Principal, c call) (answer
 		return answer{}, err
 	}
 	started := clock.Now(g.Now)
-	status, raw, sendErr := g.Provider.Messages(ctx, req.body, c.betas)
+	// The call is bounded by the gateway's timeout, which its reservation
+	// and its answer's write deadline are set from: an answer later than
+	// that would be written past both (review:batch76).
+	callCtx, cancel := context.WithTimeout(ctx, g.timeout())
+	status, raw, sendErr := g.Provider.Messages(callCtx, req.body, c.betas)
+	cancel()
 	rec := g.meter(status, raw, sendErr, req.model, pr)
 	rec.id, rec.alias, rec.duration, rec.redactions = res.call, req.alias, clock.Now(g.Now).Sub(started), req.redactions
 	if err := c.record(context.WithoutCancel(ctx), func(ctx context.Context, tx pgx.Tx) error {

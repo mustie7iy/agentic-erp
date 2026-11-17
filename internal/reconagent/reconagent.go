@@ -7,16 +7,22 @@
 // (x-autonomy: propose); it cannot match, exclude, post or approve, and
 // the API would refuse it if it tried (x-agent: false, ADR-0010). Bank
 // accounts reach it masked to their last four characters, as the API
-// shows them to agents. Its evaluation suite is evals/reconciliation
-// (ADR-0039).
+// shows them to agents. Its guard holds a proposal to the run's statement,
+// line and session, whatever a remittance text asks. Its evaluation suite
+// is evals/reconciliation (ADR-0039).
 package reconagent
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
+	"strings"
+	"sync"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 
@@ -27,7 +33,7 @@ import (
 // Tools are the operations the agent may call: reads, and the one that
 // proposes.
 var Tools = []string{"getBankStatement", "listBankStatementMatches", "getBankStatementRules", "listPaymentRuns", "listPayments",
-	"getBusinessPartner", "listBankAccounts", "proposeBankStatementLine"}
+	"getBusinessPartner", "listBankAccounts", Proposer}
 
 const system = `You reconcile bank statement lines that the company's matching rules could not settle, for a person to decide.
 
@@ -136,23 +142,66 @@ func (a *Agent) open(ctx context.Context, statement string) ([]int32, error) {
 	return out, nil
 }
 
+// ErrOtherLine refuses a proposal that is not for the run's line: another
+// statement, another line, or another session, whatever a remittance text
+// asks. The API holds a proposal to the agent's own running session; the
+// statement and line are the run's to hold.
+var ErrOtherLine = errors.New("reconagent: a proposal names this run's statement, its line and its session")
+
 // investigate runs one session on a line and reports whether it proposed.
 func (a *Agent) investigate(ctx context.Context, statement string, lineNo int32) (bool, error) {
 	s, err := apitools.StartSession(ctx, a.API, fmt.Sprintf("Reconcile line %d of bank statement %s", lineNo, statement), a.LLM.Model)
 	if err != nil {
 		return false, err
 	}
-	tools, err := apitools.Tools(a.API, s, Tools...)
+	tools, err := s.Tools(ctx, Tools...)
 	if err != nil {
 		return false, err
 	}
-	made := false
+	l := &lineRun{statement: statement, line: lineNo, session: s.ID}
 	for _, t := range tools {
-		if t.Name() == "proposeBankStatementLine" {
-			t.Observe(func(r apitools.Response) { made = made || r.OK() })
+		if t.Name() == Proposer {
+			t.Guard(l.guard)
+			t.Observe(l.observe)
+			t.Exclusive(&l.mu)
 		}
 	}
 	prompt := fmt.Sprintf("Bank statement %s, line %d, needs a proposal.\nYour session id is %s.", statement, lineNo, s.ID)
 	_, err = apitools.Run(ctx, a.LLM, s, tools, a.LLM.Params(system, anthropic.NewBetaTextBlock(prompt)), 16)
-	return made, err
+	return l.made, err
 }
+
+// Proposer is the one operation of Tools that is not a read.
+const Proposer = "proposeBankStatementLine"
+
+// lineRun is what one line's session holds its proposal to, and whether
+// the API took one. Its tool runs each call whole under mu (apitools
+// Exclusive): the runner executes one turn's tool calls concurrently.
+type lineRun struct {
+	mu        sync.Mutex
+	statement string
+	line      int32
+	session   string
+	made      bool
+}
+
+// guard refuses a proposal for another statement, line or session.
+func (l *lineRun) guard(in map[string]any) error {
+	b, _ := in["body"].(map[string]any) // no body: refused below, as the API would
+	if !strings.EqualFold(fmt.Sprint(in["id"]), l.statement) || !l.sameLine(in["line_no"]) || fmt.Sprint(b["session_id"]) != l.session {
+		return ErrOtherLine
+	}
+	return nil
+}
+
+// sameLine reports whether a line number as the model sent it, a JSON
+// number or its text, is the run's: written back as JSON, since a large
+// number prints in exponent form and JSON writes it whole.
+func (l *lineRun) sameLine(v any) bool {
+	b, _ := json.Marshal(v) // a value decoded from JSON encodes again
+	want := strconv.Itoa(int(l.line))
+	return string(b) == want || string(b) == strconv.Quote(want)
+}
+
+// observe keeps whether the API took the proposal.
+func (l *lineRun) observe(r apitools.Response) { l.made = l.made || r.OK() }

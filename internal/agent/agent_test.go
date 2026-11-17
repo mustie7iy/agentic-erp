@@ -82,7 +82,7 @@ func TestReview(t *testing.T) {
 	if !strings.Contains(res.Errors[0], "no recommendation") {
 		t.Errorf("review error: got %q, want it to mention no recommendation", res.Errors[0])
 	}
-	if names := model.ToolNames(); len(names) != len(agent.Tools) {
+	if names := model.ToolNames(); len(names) != len(agent.Tools()) {
 		t.Fatalf("tools offered: %v", names)
 	}
 	recs, _ := f.Must(200, "GET", "/v1/recommendations?object_id="+first, "", "")
@@ -124,5 +124,40 @@ func TestReview(t *testing.T) {
 				t.Error("Review: got nil error, want a failure")
 			}
 		})
+	}
+}
+
+// TestReviewHeldToTheInvoice: a recommendation on another invoice, or a
+// second on the run's, is refused before the API, whatever the supplier's
+// text asks, and recommendations the model sends in one turn, which the
+// runner executes concurrently, each run whole (run with -race,
+// review:batch76).
+func TestReviewHeldToTheInvoice(t *testing.T) {
+	f := fixture.New(t, perms...)
+	f.Tenant.AllCompanies(t, f.Tenant.Agent)
+	srv := httptest.NewServer(f.API.Handler)
+	defer srv.Close()
+	api := &apitools.Client{BaseURL: srv.URL, Token: f.API.Issuer.Token(t, f.Tenant.ID, f.Tenant.Agent.Subject, nil)}
+	first, other := held(t, f, "H-1"), held(t, f, "H-2")
+	elsewhere := func(body string) any { // the invoice the run was not given
+		in := recommend(body).(map[string]any)
+		b := in["body"].(map[string]any)
+		b["object_id"] = map[bool]string{true: other, false: first}[b["object_id"] == first]
+		return in
+	}
+	model := llmtest.New(t,
+		llmtest.Together(llmtest.ToolFn("createRecommendation", recommend), llmtest.ToolFn("createRecommendation", recommend),
+			llmtest.ToolFn("createRecommendation", elsewhere)),
+		llmtest.Final("Recommended a credit note."))
+	res, err := (&agent.Agent{LLM: model.Runner(), API: api, MaxInvoices: 1}).Review(context.Background())
+	if err != nil {
+		t.Fatalf("review: %v", err)
+	}
+	if res.Recommendations != 1 {
+		t.Errorf("recommendations: got %d, want 1", res.Recommendations)
+	}
+	recs, _ := f.Must(200, "GET", "/v1/recommendations", "", "")
+	if got := len(recs["items"].([]any)); got != 1 {
+		t.Errorf("recommendations recorded: got %d, want 1, on the run's invoice", got)
 	}
 }

@@ -122,6 +122,9 @@ func (e *Endpoints) CreateRun(ctx context.Context, in NewRun) (Run, Connector, e
 	if in.Mode != "documents" && in.Mode != "balances" {
 		return Run{}, Connector{}, problem.Invalid("integration.unknown_mode", "mode", "documents or balances")
 	}
+	if err := rehearsalOnly(p, in.IsRehearsal); err != nil {
+		return Run{}, Connector{}, err
+	}
 	c, err := getConnector(ctx, tx, in.ConnectorID, false)
 	if err != nil {
 		return Run{}, Connector{}, problem.Reference(err, "connector_id", "connector", "no connector with this id")
@@ -363,7 +366,17 @@ func finish(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, op operat
 // migration workflow's; without one it completes within the request.
 func (e *Endpoints) StartRun(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (operations.Operation, error) {
 	return e.runStep(ctx, id, ifMatch, step{from: Queued, refusal: "Only a queued migration run can be started",
-		kind: "integration.migrate", action: "integration.migration_run.start", work: e.load})
+		kind: "integration.migrate", action: "integration.migration_run.start", work: e.load, rehearsalsForAgents: true})
+}
+
+// rehearsalOnly refuses an agent a migration run that is not a rehearsal:
+// an agent rehearses, rolled back after its report, and only a person or
+// an integration loads a scope for good (ADR-0010, review:batch76).
+func rehearsalOnly(p reqctx.Principal, isRehearsal bool) error {
+	if p.Kind == reqctx.KindAgent && !isRehearsal {
+		return problem.Forbidden("identity.agent_not_allowed", "An agent creates and starts only rehearsals; a person loads a migration run.")
+	}
+	return nil
 }
 
 // QueuedRuns lists, across tenants and in the order they were queued, the
@@ -389,10 +402,12 @@ func QueuedRuns(ctx context.Context, tx pgx.Tx) ([]operations.Waiting, error) {
 // step is one move of a migration run: the status it starts from, the
 // refusal when the run is elsewhere (runStep appends "; this one is
 // <status>."), the operation kind and audit action, and the work done
-// within the request when there is no workflow engine.
+// within the request when there is no workflow engine. rehearsalsForAgents
+// refuses an agent the step of a run that is not a rehearsal.
 type step struct {
 	from, refusal, kind, action string
 	work                        func(context.Context, pgx.Tx, reqctx.Principal, Run, operations.Operation, target, *sap.Extract, Connector) (operations.Operation, error)
+	rehearsalsForAgents         bool
 }
 
 // runStep moves the run on: with a workflow engine its work is handed to
@@ -405,6 +420,11 @@ func (e *Endpoints) runStep(ctx context.Context, id uuid.UUID, ifMatch func(int3
 	r, err := getRun(ctx, tx, id, true)
 	if err != nil {
 		return operations.Operation{}, err
+	}
+	if st.rehearsalsForAgents {
+		if err := rehearsalOnly(p, r.IsRehearsal); err != nil {
+			return operations.Operation{}, err
+		}
 	}
 	if err := ifMatch(r.Version); err != nil {
 		return operations.Operation{}, err

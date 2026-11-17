@@ -213,3 +213,34 @@ func TestExplainRefusals(t *testing.T) {
 		t.Errorf("the session was not ended: %v", a.calls)
 	}
 }
+
+// TestExplainTogether: proposals the model sends in one turn, which the
+// runner executes concurrently, are each guarded and recorded whole: the
+// run's lists and count see every one (run with -race, review:batch76).
+func TestExplainTogether(t *testing.T) {
+	a := &api{}
+	model := llmtest.New(t,
+		llmtest.Together(llmtest.ToolFn("proposeForecastVarianceComment", comment("c1", nil)),
+			llmtest.ToolFn("proposeForecastVarianceComment", comment("c2", nil)),
+			llmtest.ToolFn("proposeForecastVarianceComment", comment("refuse", nil)),
+			llmtest.ToolFn("proposeMemoRecord", memo("m1", nil)),
+			llmtest.ToolFn("proposeMemoRecord", memo("m2", nil)),
+			llmtest.ToolFn("proposeMemoRecord", memo("other company", map[string]any{"legal_entity_id": session}))),
+		llmtest.Final("Done."))
+	res, err := (&cashagent.Agent{LLM: model.Runner(), API: client(t, a)}).Explain(context.Background(),
+		cashagent.Period{Company: "3000", From: "2026-04-17", To: "2026-04-17", Lag: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(res.Comments)
+	slices.Sort(res.Memos)
+	if got, want := strings.Join(res.Comments, " "), "c1 c2"; got != want {
+		t.Errorf("comments: got %q, want %q", got, want)
+	}
+	if got, want := strings.Join(res.Memos, " "), "m1 m2"; got != want {
+		t.Errorf("memo records: got %q, want %q", got, want)
+	}
+	if res.Refused != 2 {
+		t.Errorf("refused: got %d, want 2: the API's one and the guard's one", res.Refused)
+	}
+}

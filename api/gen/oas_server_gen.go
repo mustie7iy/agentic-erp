@@ -1695,7 +1695,8 @@ type Handler interface {
 	CreateMetricWatcher(ctx context.Context, req *MetricWatcherCreate, params CreateMetricWatcherParams) (CreateMetricWatcherRes, error)
 	// CreateMigrationRun implements createMigrationRun operation.
 	//
-	// Creates a migration run in status `queued`.
+	// Creates a migration run in status `queued`. An agent creates only rehearsals (`is_rehearsal` true):
+	// another is refused with 403 `identity.agent_not_allowed`.
 	//
 	// POST /v1/migration-runs
 	CreateMigrationRun(ctx context.Context, req *MigrationRunCreate, params CreateMigrationRunParams) (CreateMigrationRunRes, error)
@@ -7452,7 +7453,8 @@ type Handler interface {
 	// StartMigrationRun implements startMigrationRun operation.
 	//
 	// Extracts, transforms and loads the scope; the run becomes `loaded`, or `failed`. Requires status
-	// `queued`.
+	// `queued`. An agent starts only a rehearsal: a run that is not one is refused with 403
+	// `identity.agent_not_allowed`, whoever created it.
 	//
 	// POST /v1/migration-runs/{id}:start
 	StartMigrationRun(ctx context.Context, params StartMigrationRunParams) (StartMigrationRunRes, error)

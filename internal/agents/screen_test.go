@@ -95,19 +95,40 @@ func TestDocumentsWithheld(t *testing.T) {
 	}
 }
 
-// TestScreenPassesWhatItCannotRead: content in a shape the gateway does
-// not know is passed for the provider to judge; an unreadable list of
-// countries fails the call.
-func TestScreenPassesWhatItCannotRead(t *testing.T) {
+// TestScreenRefusesWhatItCannotRead: content in a shape the screener
+// cannot read would leave unredacted, so it is refused, 400, and nothing
+// reaches the provider (fail-closed, review:batch76); a block's type is
+// the provider's to judge; an unreadable list of countries fails the call.
+func TestScreenRefusesWhatItCannotRead(t *testing.T) {
 	priced(t, "claude-opus-5-5")
 	ten := pgtest.NewTenant(t)
 	p := &provider{status: 400, body: `{"type": "error"}`}
 	g := gateway(t, p)
-	if rec := post(t, g, principal(ten), `{"model": "erp-default", "max_tokens": 8, "system": 7, "messages": [{"role": "user", "content": [{"type": 1}]}]}`, nil); rec.Code != 400 {
-		t.Errorf("status: got %d, want the provider's 400", rec.Code)
+	for name, fields := range map[string]string{
+		"a system prompt of a number":        `"system": 7, "messages": []`,
+		"a system prompt of an object":       `"system": {"text": "DE89370400440532013000"}, "messages": []`,
+		"messages of an object":              `"messages": {"role": "user"}`,
+		"a message's content of a number":    `"messages": [{"role": "user", "content": 7}]`,
+		"a block that is no object":          `"messages": [{"role": "user", "content": ["DE89370400440532013000"]}]`,
+		"a block's text of an object":        `"messages": [{"role": "user", "content": [{"type": "text", "text": {"iban": "DE89370400440532013000"}}]}]`,
+		"a nested content of a number":       `"messages": [{"role": "user", "content": [{"type": "tool_result", "content": 7}]}]`,
+		"a block in a nested list, its text": `"messages": [{"role": "user", "content": [{"type": "tool_result", "content": [{"text": 7}]}]}]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := post(t, g, principal(ten), `{"model": "erp-default", "max_tokens": 8, `+fields+`}`, nil)
+			if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "request.invalid_body") {
+				t.Errorf("answer: got %d %s, want 400 request.invalid_body", rec.Code, rec.Body)
+			}
+		})
 	}
-	if !strings.Contains(string(p.sent), `"system":7`) {
-		t.Errorf("forwarded: got %s, want the system prompt as it was", p.sent)
+	if p.sent != nil {
+		t.Errorf("forwarded: got %s, want nothing", p.sent)
+	}
+	if rec := post(t, g, principal(ten), `{"model": "erp-default", "max_tokens": 8, "messages": [{"role": "user", "content": [{"type": 1}]}]}`, nil); rec.Code != 400 {
+		t.Errorf("a block's type of a number: got %d, want the provider's 400", rec.Code)
+	}
+	if p.sent == nil {
+		t.Error("a block's type of a number: got nothing forwarded, want it forwarded for the provider to judge")
 	}
 	g.Countries = func(context.Context, pgx.Tx) ([]string, error) { return nil, errors.New("tenancy unreadable") }
 	if rec := post(t, g, principal(ten), `{"model": "erp-default", "max_tokens": 8, "messages": []}`, nil); rec.Code != http.StatusInternalServerError {

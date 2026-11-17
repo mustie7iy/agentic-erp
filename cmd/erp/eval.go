@@ -43,7 +43,7 @@ import (
 
 // evalAgents are the adapters of the agents a suite may evaluate, by agent
 // type (ADR-0039).
-var evalAgents = map[string]eval.Agent{"analytics": analyticsEval, "ap_exceptions": apExceptions, "capture": captureEval, "order_capture": orderCaptureEval,
+var evalAgents = map[string]eval.Agent{"analytics": analyticsEval, agent.Type: apExceptions, "capture": captureEval, "order_capture": orderCaptureEval,
 	"close": closeEval, "configuration": configurationEval, "migration": migrationEval, "reconciliation": reconciliationEval, "tax": taxEval, "test": testEval,
 	cashagent.Type: cashForecastEval, creditagent.Type: creditScoringEval, accessagent.Type: accessEval, bidagent.Type: bidComparisonEval,
 	regulatoryagent.Type: regulatoryEval, supportagent.Type: supportEval, collectionsagent.Type: collectionsEval, integrationagent.Type: integrationEval,

@@ -207,3 +207,25 @@ func TestAccrualsFailures(t *testing.T) {
 		})
 	}
 }
+
+// TestAccrualsTogether: proposals the model sends in one turn, which the
+// runner executes concurrently, are each guarded and recorded whole: the
+// same proposal twice is reported once and the refusals are all counted
+// (run with -race, review:batch76).
+func TestAccrualsTogether(t *testing.T) {
+	a := setup(t)
+	model := llmtest.New(t,
+		llmtest.Together(llmtest.ToolFn("proposeAccrual", a.proposal(t, "", a.invoice.String())),
+			llmtest.ToolFn("proposeAccrual", a.proposal(t, "", a.invoice.String())),
+			llmtest.ToolFn("proposeAccrual", a.proposal(t, uuid.NewString(), a.invoice.String())),
+			llmtest.ToolFn("proposeAccrual", a.proposal(t, uuid.NewString(), a.invoice.String()))),
+		llmtest.Final("Proposed."))
+	res, err := (&closeagent.Agent{LLM: model.Runner(), API: a.api}).Accruals(context.Background(), a.close)
+	if err != nil {
+		t.Fatalf("accruals: %v", err)
+	}
+	checks{
+		"proposals reported": {len(res.Proposals), 1},
+		"proposals refused":  {res.Refused, 2},
+	}.check(t)
+}

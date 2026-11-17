@@ -162,3 +162,19 @@ func TestHelpTools(t *testing.T) {
 		t.Errorf("tools: got %v, want %v", got, want)
 	}
 }
+
+// TestHelpToolsUnknown: an operation the contract does not have ends the
+// session rather than leave it running (review:batch76).
+func TestHelpToolsUnknown(t *testing.T) {
+	reads := enablementagent.HelpReads
+	enablementagent.HelpReads = append(slices.Clone(reads), "noSuchOperation")
+	t.Cleanup(func() { enablementagent.HelpReads = reads })
+	a := &fakeAPI{}
+	_, err := (&enablementagent.Agent{LLM: llmtest.New(t).Runner(), API: client(t, a)}).Help(context.Background(), refusedPost)
+	if err == nil || !strings.Contains(err.Error(), "noSuchOperation") {
+		t.Errorf("help: got %v, want the operation named", err)
+	}
+	if got := a.sent(":end"); got != 1 {
+		t.Errorf("sessions ended: got %d, want 1", got)
+	}
+}

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
@@ -33,7 +35,12 @@ func (g *Gateway) screen(ctx context.Context, tx pgx.Tx, pol Policy, req *reques
 	s := &screener{r: redact.For(countries)}
 	for _, field := range []string{"system", "messages"} {
 		if raw, ok := req.fields[field]; ok {
-			req.fields[field] = s.content(raw, field == "messages")
+			screened, err := s.content(raw, field == "messages")
+			if err != nil {
+				return problem.BadRequest("request.invalid_body", field+" must be text or a list of content blocks, each an object whose text is text.").
+					WithCause(err)
+			}
+			req.fields[field] = screened
 		}
 	}
 	if s.documents && !pol.DocumentsToModels {
@@ -52,52 +59,67 @@ type screener struct {
 	documents bool
 }
 
+// errShape is content the screener cannot read: it would pass
+// unredacted, so it is refused (fail-closed, review:batch76).
+var errShape = errors.New("agents: content is neither text nor a list of objects")
+
 // content screens a system prompt or the messages: a string, or a list of
-// blocks; with messages, a list of messages whose content is either. What
-// is neither passes as it is, for the provider to judge.
-func (s *screener) content(raw json.RawMessage, messages bool) json.RawMessage {
+// blocks; with messages, a list of messages whose content is either.
+// What is neither cannot be redacted and is refused.
+func (s *screener) content(raw json.RawMessage, messages bool) (json.RawMessage, error) {
 	var text string
 	if json.Unmarshal(raw, &text) == nil {
-		return s.text(text)
+		return s.text(text), nil
 	}
 	var items []map[string]json.RawMessage
-	if json.Unmarshal(raw, &items) != nil {
-		return raw
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, fmt.Errorf("%w: %w", errShape, err)
 	}
 	for _, item := range items {
-		if messages {
-			if c, ok := item["content"]; ok {
-				item["content"] = s.content(c, false)
-			}
-			continue
+		var err error
+		if !messages {
+			err = s.block(item)
+		} else if c, ok := item["content"]; ok {
+			item["content"], err = s.content(c, false)
 		}
-		s.block(item)
+		if err != nil {
+			return nil, err
+		}
 	}
 	out, _ := json.Marshal(items) // decoded raw messages always encode
-	return out
+	return out, nil
 }
 
 // block screens one content block in place. A type the gateway does not
 // know is screened all the same: its text, its nested content and its
-// input; fail-closed for data, the provider judges the shape.
-func (s *screener) block(b map[string]json.RawMessage) {
+// input; fail-closed for data, the provider judges the shape. A text that
+// is not text, or nested content of no shape the screener reads, is
+// refused.
+func (s *screener) block(b map[string]json.RawMessage) error {
 	var kind string
 	_ = json.Unmarshal(b["type"], &kind) // a block without a string type is the provider's to refuse
 	if kind == "document" || kind == "image" {
 		s.documents = true
 	}
-	var text string
-	if t, ok := b["text"]; ok && json.Unmarshal(t, &text) == nil {
+	if t, ok := b["text"]; ok {
+		var text string
+		if err := json.Unmarshal(t, &text); err != nil {
+			return fmt.Errorf("%w: a block's text: %w", errShape, err)
+		}
 		b["text"] = s.text(text)
 	}
 	if c, ok := b["content"]; ok {
-		b["content"] = s.content(c, false)
+		var err error
+		if b["content"], err = s.content(c, false); err != nil {
+			return err
+		}
 	}
 	if in, ok := b["input"]; ok {
 		var n int
 		b["input"], n = redactJSON(s.r, in)
 		s.n += n
 	}
+	return nil
 }
 
 func (s *screener) text(text string) json.RawMessage {

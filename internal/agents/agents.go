@@ -3,7 +3,9 @@
 // here, also through the API, the sessions they work in, every tool call
 // they make and the recommendations they leave for people. Agents
 // recommend; people decide: only a person records what was done with a
-// recommendation.
+// recommendation. The sessions, their autonomy levels, the model gateway
+// and its budgets are ADR-0036; the evaluations that certify an agent are
+// ADR-0039; the one pattern of the recommending agents is ADR-0072.
 package agents
 
 import (

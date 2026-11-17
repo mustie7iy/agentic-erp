@@ -32217,7 +32217,7 @@ paths:
       tags:
         - integration
       summary: Define a migration run
-      description: "Creates a migration run in status `queued`."
+      description: "Creates a migration run in status `queued`. An agent creates only rehearsals (`is_rehearsal` true): another is refused with 403 `identity.agent_not_allowed`."
       x-permission: integration.migration.run
       x-problem-codes:
         - integration.legal_entity_not_active
@@ -32299,7 +32299,7 @@ paths:
       tags:
         - integration
       summary: Start a migration run
-      description: "Extracts, transforms and loads the scope; the run becomes `loaded`, or `failed`. Requires status `queued`."
+      description: "Extracts, transforms and loads the scope; the run becomes `loaded`, or `failed`. Requires status `queued`. An agent starts only a rehearsal: a run that is not one is refused with 403 `identity.agent_not_allowed`, whoever created it."
       x-permission: integration.migration.run
       x-problem-codes:
         - config.no_number_range

@@ -1364,6 +1364,37 @@ A later slice adds its row here and its section under "As built".
   "Later"). No migration, no new operation, permission, event or problem
   code.
 
+### Hardening 2 (review:batch76): every agent's writes held to its run
+
+- **Concurrent calls.** The runner executes one turn's tool calls
+  concurrently, so every tool whose guard or observer shares a run's state
+  runs each call whole under the run's lock (`apitools.Tool.Exclusive`),
+  as the pattern's tools and the tax agent's already did: the cash
+  forecast agent's two proposing tools, the close agent's proposing tool,
+  the reconciliation agent's proposal, and the configuration, test and
+  migration agents' writes. Each has a replay test with several calls in
+  one turn (`llmtest.Together`), run with `-race`.
+- **Sessions and tools.** A session whose tools cannot be built is ended,
+  failed, rather than left running (`apitools.Session.Tools`, used by
+  every agent, the support and enablement agents' reads included); tools
+  are found by name, never by position.
+- **The run's object.** The accounts payable exceptions agent is an agent
+  of this pattern (`agent.Type` `ap_exceptions`): its one recommendation
+  is held to the run's session and invoice by the pattern's guard, with
+  the pattern's rules added to its prompt. Agents that write outside the
+  pattern hold the write to the run themselves: the reconciliation
+  agent's proposal names the run's statement, line and session
+  (`reconagent.ErrOtherLine`); the configuration agent changes, submits,
+  simulates or withdraws only the change requests its session created
+  (`configagent.ErrNotCreated`), never a person's; the test agent records
+  one recommendation, on the change request it was given, and captures at
+  most one regression suite; the migration agent creates only rehearsals
+  and starts only a rehearsal its session created, and the API refuses an
+  agent a run that is not a rehearsal (403 `identity.agent_not_allowed`,
+  ADR-0010), whoever created it. The tax agent keeps its own guards (its
+  adjustment entries are a write the pattern does not hold); moving its
+  recommendation half onto the pattern is left to the backlog.
+
 ## Defaults taken (for the product owner's digest)
 
 1. The shared run is a package, `internal/recommend`, not a copy per

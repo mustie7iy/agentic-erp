@@ -623,3 +623,25 @@ func TestRoutesAreTheAliases(t *testing.T) {
 		t.Errorf("routes: got %v, want %v", got, want)
 	}
 }
+
+// TestGatewayTimeout: a provider slower than the gateway's timeout is cut
+// at it, as its reservation and write deadline are, and the call fails as
+// unreachable (review:batch76).
+func TestGatewayTimeout(t *testing.T) {
+	priced(t, "claude-opus-5-5")
+	ten := pgtest.NewTenant(t)
+	g := gateway(t, waiting{})
+	g.Timeout = 50 * time.Millisecond
+	rec := post(t, g, principal(ten), `{"model": "erp-default", "max_tokens": 8, "messages": []}`, nil)
+	if rec.Code != http.StatusBadGateway || !strings.Contains(rec.Body.String(), "agents.model_unreachable") {
+		t.Errorf("answer: got %d %s, want 502 agents.model_unreachable", rec.Code, rec.Body)
+	}
+}
+
+// waiting is a provider that answers only when its call is cancelled.
+type waiting struct{}
+
+func (waiting) Messages(ctx context.Context, _ []byte, _ []string) (int, []byte, error) {
+	<-ctx.Done()
+	return 0, nil, ctx.Err()
+}

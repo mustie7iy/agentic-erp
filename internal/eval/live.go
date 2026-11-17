@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -42,7 +43,7 @@ func (cp *ControlPlane) New(ctx context.Context, body any) (Tenant, error) {
 	if subject == "" {
 		return nil, errors.New("eval: the suite's tenant names no administrator subject")
 	}
-	b = copyMap(b)
+	b = maps.Clone(b)
 	name := "eval-" + uuid.NewString()
 	b["name"] = name
 	var created struct {
@@ -89,7 +90,7 @@ func (cp *ControlPlane) control(ctx context.Context, method, path string, body a
 		return fmt.Errorf("eval: %s %s: %w", method, path, err)
 	}
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("%s %s answered %d: %s", method, path, resp.StatusCode, answer)
+		return fmt.Errorf("eval: %s %s answered %d: %s", method, path, resp.StatusCode, answer)
 	}
 	if into == nil {
 		return nil
@@ -165,12 +166,4 @@ func client(h *http.Client) *http.Client {
 		return http.DefaultClient
 	}
 	return h
-}
-
-func copyMap(m map[string]any) map[string]any {
-	out := make(map[string]any, len(m))
-	for k, v := range m {
-		out[k] = v
-	}
-	return out
 }

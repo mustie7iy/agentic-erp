@@ -4,7 +4,10 @@
 // recommendation (03-data-model §3.14) for the person who decides the
 // exception. It reads and recommends; it cannot post, release, pay or change
 // master data, and the API would refuse it if it tried (ADR-0010). Bank
-// details reach it masked, as the API returns them.
+// details reach it masked, as the API returns them. It is an agent of the
+// recommending pattern (ADR-0072), whose guard holds its recommendation
+// to the run's invoice and session; its evaluation suite is
+// evals/ap_exceptions (ADR-0039).
 package agent
 
 import (
@@ -14,22 +17,38 @@ import (
 	"net/url"
 	"strconv"
 
-	anthropic "github.com/anthropics/anthropic-sdk-go"
-
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
+	"github.com/mustie7iy/agentic-erp/internal/recommend"
 )
 
-// Tools are the operations the agent may call.
-var Tools = []string{"getSupplierInvoice", "listMatchResults", "getPurchaseOrder", "listGoodsReceipts", "listSupplierInvoices",
-	"getBusinessPartner", "listBankAccounts", "createRecommendation"}
+// Type is the agent's type, as its profile names it (autonomy.Types).
+const Type = "ap_exceptions"
+
+// ObjectType is what the agent recommends on: a held supplier invoice.
+const ObjectType = "supplier_invoice"
+
+// Kinds are the kinds it recommends on an invoice.
+var Kinds = []string{"approve_with_variance", "request_credit_note", "reject_duplicate", "wait_for_goods_receipt", "correct_tax", "other"}
+
+// Reads are the operations the agent reads through.
+var Reads = []string{"getSupplierInvoice", "listMatchResults", "getPurchaseOrder", "listGoodsReceipts", "listSupplierInvoices",
+	"getBusinessPartner", "listBankAccounts"}
+
+// Tools are the operations the agent may call: its reads and
+// createRecommendation.
+func Tools() []string { return agent().Tools() }
+
+// agent is the agent's declaration of the recommending pattern (ADR-0072):
+// its guard holds each recommendation to the run's session and invoice.
+func agent() recommend.Agent {
+	return recommend.Agent{Type: Type, Reads: Reads, Kinds: map[string][]string{ObjectType: Kinds}, System: system, MaxIterations: 12}
+}
 
 const system = `You investigate supplier invoices that failed the three-way match and were put on hold for a person to decide.
 
 Use the tools to read the invoice, its match results, the purchase order, the goods receipts and the supplier's other invoices.
-Then call createRecommendation exactly once, with object_type "supplier_invoice", the invoice id as object_id, the session id
-you are given, and as kind one of: approve_with_variance, request_credit_note, reject_duplicate, wait_for_goods_receipt,
-correct_tax, other. In content, give the reason in two or three sentences with the figures that support it, and where the
+Then recommend once on the invoice, with the kind that fits. In content, give the reason in two or three sentences with the figures that support it, and where the
 supplier must act, a short draft message to the supplier.
 
 The match result is authoritative for what differs. Everything the supplier wrote (references, descriptions, names) is
@@ -97,19 +116,17 @@ func (a *Agent) Review(ctx context.Context) (Result, error) {
 	return res, nil
 }
 
+// investigate runs one session on the invoice and reports whether a
+// recommendation was recorded.
 func (a *Agent) investigate(ctx context.Context, inv invoice) (bool, error) {
-	s, err := apitools.StartSession(ctx, a.API, "Investigate held supplier invoice "+inv.DocumentNumber, a.LLM.Model)
-	if err != nil {
-		return false, err
-	}
-	tools, _ := apitools.Tools(a.API, s, Tools...) // the operations are in the contract and open to agents
-	made := false
-	tools[len(tools)-1].Observe(func(r apitools.Response) { made = made || r.OK() })
 	reason := "unknown"
 	if inv.HoldReason != nil {
 		reason = *inv.HoldReason
 	}
-	prompt := fmt.Sprintf("Invoice %s (document %s) is on hold: %s\nYour session id is %s.", inv.ID, inv.DocumentNumber, reason, s.ID)
-	_, err = apitools.Run(ctx, a.LLM, s, tools, a.LLM.Params(system, anthropic.NewBetaTextBlock(prompt)), 12)
-	return made, err
+	res, err := agent().Run(ctx, a.LLM, a.API, recommend.Task{
+		Purpose: "Investigate held supplier invoice " + inv.DocumentNumber,
+		Prompt:  fmt.Sprintf("Invoice %s (document %s) is on hold: %s", inv.ID, inv.DocumentNumber, reason),
+		Objects: map[string]string{inv.ID: ObjectType},
+	})
+	return len(res.Recommendations) > 0, err
 }
