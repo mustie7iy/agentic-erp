@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	"gopkg.in/yaml.v3"
@@ -88,9 +90,25 @@ func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) ([]anthropic.Be
 	out, _ := json.Marshal(map[string]any{"status": resp.Status, "etag": resp.ETag, "body": json.RawMessage(nonEmpty(resp.Body))})
 	text := string(out)
 	if len(text) > maxResult {
-		text = text[:maxResult] + "... (truncated; ask for a smaller page)"
+		cut := maxResult
+		for cut > 0 && !utf8.RuneStart(text[cut]) {
+			cut-- // never inside a character: the model would read a broken one
+		}
+		text = text[:cut] + "... (truncated; ask for a smaller page)"
 	}
 	return []anthropic.BetaToolResultBlockParamContentUnion{{OfText: &anthropic.BetaTextBlockParam{Text: text}}}, nil
+}
+
+// paramText is a parameter's value as the URL carries it. The model's
+// input is decoded JSON, whose numbers are float64: fmt.Sprint would write
+// 1000000 as 1e+06, which the API refuses; a number is written in full,
+// as strconv's shortest form without exponent.
+func paramText(v any) string {
+	//nolint:forbidigo // encoding/json decodes every number in map[string]any as float64; a parameter is spelled, never summed
+	if f, ok := v.(float64); ok {
+		return strconv.FormatFloat(f, 'f', -1, 64)
+	}
+	return fmt.Sprint(v)
 }
 
 // ErrNotRecorded is a call the session did not record: the API may have
@@ -155,18 +173,18 @@ func (t *Tool) call(ctx context.Context, input map[string]any) (Response, error)
 			continue
 		}
 		if p.in == "path" {
-			path = strings.ReplaceAll(path, "{"+p.name+"}", url.PathEscape(fmt.Sprint(v)))
+			path = strings.ReplaceAll(path, "{"+p.name+"}", url.PathEscape(paramText(v)))
 			continue
 		}
 		if list, isList := v.([]any); isList && p.array {
 			values := make([]string, len(list))
 			for i, x := range list {
-				values[i] = fmt.Sprint(x)
+				values[i] = paramText(x)
 			}
 			query.Set(p.name, strings.Join(values, ","))
 			continue
 		}
-		query.Set(p.name, fmt.Sprint(v))
+		query.Set(p.name, paramText(v))
 	}
 	if strings.Contains(path, "{") {
 		return Response{}, fmt.Errorf("missing path parameter in %s", path)
