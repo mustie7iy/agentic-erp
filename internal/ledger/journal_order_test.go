@@ -187,7 +187,7 @@ func (failingOrders) Orders(context.Context, []uuid.UUID, bool) (map[uuid.UUID]l
 	return nil, errors.New("controlling is away")
 }
 
-func (failingOrders) Consume(context.Context, uuid.UUID, string, map[uuid.UUID]money.Minor) (uuid.UUID, error) {
+func (failingOrders) Consume(context.Context, uuid.UUID, string, uuid.UUID, map[uuid.UUID]money.Minor) (uuid.UUID, error) {
 	return uuid.Nil, errors.New("controlling is away")
 }
 
@@ -195,7 +195,7 @@ func (failingOrders) Consume(context.Context, uuid.UUID, string, map[uuid.UUID]m
 // not for their budgets (T60h).
 type budgetsAway struct{ orders.CostObjects }
 
-func (budgetsAway) Consume(context.Context, uuid.UUID, string, map[uuid.UUID]money.Minor) (uuid.UUID, error) {
+func (budgetsAway) Consume(context.Context, uuid.UUID, string, uuid.UUID, map[uuid.UUID]money.Minor) (uuid.UUID, error) {
 	return uuid.Nil, errors.New("budgets are away")
 }
 
@@ -334,5 +334,25 @@ func TestInternalOrderNamedByPort(t *testing.T) {
 	got, _ := a.Must(200, "GET", "/v1/journal-entries/"+posted["id"].(string), "", "")
 	if o := orderOf(apitest.List(t, got, "lines")[0]); o != fair+":<nil>" {
 		t.Errorf("the line's order: got %s, want %s without a code", o, fair)
+	}
+}
+
+// TestInternalOrderBudgetLeadingLedgerOnly: an order's budget is set
+// against the leading ledger's actual costs (ADR-0064 §2, T60h), so an
+// entry posted to a parallel ledger alone is never checked against it,
+// while the same entry in the leading ledger is refused above the limit.
+func TestInternalOrderBudgetLeadingLedgerOnly(t *testing.T) {
+	a := setupAssigned(t) // company 2000 keeps 0L and the parallel 2L
+	fair := a.internalOrder(t, a.de, "FAIR", a.cc1000, true)
+	pgtest.Exec(t, `INSERT INTO controlling.order_budget (tenant_id, internal_order_id, amount, refuse_percent, created_by, updated_by)
+		VALUES ($1, $2, 100, 100, $3, $3)`, a.ten.ID, fair, a.ten.Human.ID)
+	var local string
+	pgtest.Scan(t, `SELECT id::text FROM ledger.ledger WHERE tenant_id = $1 AND code = '2L'`, []any{a.ten.ID}, &local)
+	body := centeredEntry(a.de, "2026-05-10", centeredLine{account: a.office.String(), amount: "5.00", order: fair},
+		centeredLine{account: a.bank.String(), amount: "-5.00"})
+	a.Must(201, "POST", "/v1/journal-entries", with(body, `"ledger_id": "`+local+`"`), "")
+	refused := a.Problem(422, "ledger.internal_order_invalid", "POST", "/v1/journal-entries", body, "")
+	if got := fmt.Sprint(refused["errors"]); !strings.Contains(got, "budget_exceeded") {
+		t.Errorf("the entry in the leading ledger: got %s, want budget_exceeded", got)
 	}
 }

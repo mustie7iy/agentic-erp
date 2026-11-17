@@ -396,10 +396,13 @@ func (e *Endpoints) postAll(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	// same assignment (ADR-0050 §5) and trading partners (ADR-0059 §4); a
 	// reversal carries its original's. The
 	// centers are locked after the period statuses and before the number
-	// range, which every posting of the company waits for.
+	// range, which every posting of the company waits for. The entries'
+	// ids are drawn first, so that the orders' budgets are checked
+	// against the leading ledger's entry by its id (T60h).
+	ids := entryIDs(len(targets))
 	if d.reversalOf == nil {
 		d.lines = slices.Clone(d.lines)
-		if err := e.assignOrders(ctx, d.entity, d.lines); err != nil {
+		if err := e.assignOrders(ctx, d.entity, d.lines, leadingEntry(targets, ids)); err != nil {
 			return nil, err
 		}
 		if err := assign(ctx, tx, d.entity.ID, year, d.postingDate, d.lines, true); err != nil {
@@ -423,7 +426,7 @@ func (e *Endpoints) postAll(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 			return nil, err
 		}
 	}
-	group := uuid.Must(uuid.NewV7())
+	group := ids[0]
 	cols := lineColumnsOf(d.lines)
 	// Every copy carries the same lines: their tax codes are held once for
 	// the posting group (T61a).
@@ -432,16 +435,33 @@ func (e *Endpoints) postAll(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	}
 	entries := make([]Entry, len(targets))
 	for i, t := range targets {
-		id := group
-		if i > 0 {
-			id = uuid.Must(uuid.NewV7())
-		}
-		if entries[i], err = insertEntry(ctx, tx, p, d, cols, header{id: id, group: group, ledger: t.ledger, leading: t.leading, year: year,
+		if entries[i], err = insertEntry(ctx, tx, p, d, cols, header{id: ids[i], group: group, ledger: t.ledger, leading: t.leading, year: year,
 			period: number, number: docNumber}); err != nil {
 			return nil, err
 		}
 	}
 	return entries, nil
+}
+
+// entryIDs are the ids of a posting group's n entries; the first is the
+// group's id.
+func entryIDs(n int) []uuid.UUID {
+	ids := make([]uuid.UUID, n)
+	for i := range ids {
+		ids[i] = uuid.Must(uuid.NewV7())
+	}
+	return ids
+}
+
+// leadingEntry is the id of the posting group's entry in the leading
+// ledger, nil when the posting does not reach it.
+func leadingEntry(targets []target, ids []uuid.UUID) *uuid.UUID {
+	for i, t := range targets {
+		if t.leading {
+			return &ids[i]
+		}
+	}
+	return nil
 }
 
 // header is what one entry of a posting group is posted with.

@@ -46,7 +46,7 @@ type budgetControl struct {
 // order, in id order, whose consumption with the posting would be above
 // its refusal limit, or uuid.Nil, and publishes a warning for each order
 // above its warning limit. An order without limits is not checked.
-func (CostObjects) Consume(ctx context.Context, le uuid.UUID, cur string, posted map[uuid.UUID]money.Minor) (uuid.UUID, error) {
+func (CostObjects) Consume(ctx context.Context, le uuid.UUID, cur string, entry uuid.UUID, posted map[uuid.UUID]money.Minor) (uuid.UUID, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return uuid.Nil, err
@@ -72,7 +72,7 @@ func (CostObjects) Consume(ctx context.Context, le uuid.UUID, cur string, posted
 		case availabilityAboveRefusal:
 			return c.OrderID, nil
 		case availabilityAboveWarning:
-			if err := warn(ctx, tx, le, cur, c, consumption, posted[c.OrderID]); err != nil {
+			if err := warn(ctx, tx, warning{le: le, currency: cur, entry: entry, control: c, consumption: consumption, posted: posted[c.OrderID]}); err != nil {
 				return uuid.Nil, err
 			}
 		}
@@ -91,19 +91,32 @@ func consumptionOf(ctx context.Context, le, order uuid.UUID, posted money.Minor)
 	return sum, errs.Wrapf(err, "controlling: consumption of internal order %s", order)
 }
 
+// warning is a posting above an order's warning limit: the company and
+// its currency, the leading ledger's entry being posted, the order's
+// budget, its consumption with the posting and what the posting adds.
+type warning struct {
+	le                  uuid.UUID
+	currency            string
+	entry               uuid.UUID
+	control             budgetControl
+	consumption, posted money.Minor
+}
+
 // warn publishes InternalOrderBudgetWarned for a posting that takes the
-// order above its warning limit. The posting is audited by the ledger; the
-// warning changes nothing of the order's, so it is published, not audited.
-func warn(ctx context.Context, tx pgx.Tx, le uuid.UUID, cur string, c budgetControl, consumption, posted money.Minor) error {
-	exp, err := currency.Exponent(ctx, tx, cur, nil)
+// order above its warning limit, naming the entry. The posting is audited
+// by the ledger; the warning changes nothing of the order's, so it is
+// published, not audited.
+func warn(ctx context.Context, tx pgx.Tx, w warning) error {
+	exp, err := currency.Exponent(ctx, tx, w.currency, nil)
 	if err != nil {
-		return fmt.Errorf("controlling: digits of %s: %w", cur, err)
+		return fmt.Errorf("controlling: digits of %s: %w", w.currency, err)
 	}
-	payload := map[string]any{"internal_order_id": c.OrderID, "legal_entity_id": le, "code": c.Code, "name": c.Name,
-		"budget": money.EventAmount(c.Amount, cur, exp), "consumption": money.EventAmount(consumption, cur, exp),
-		"posted": money.EventAmount(posted, cur, exp), "warn_percent": *c.Warn}
+	c := w.control
+	payload := map[string]any{"internal_order_id": c.OrderID, "legal_entity_id": w.le, "code": c.Code, "name": c.Name, "journal_entry_id": w.entry,
+		"budget": money.EventAmount(c.Amount, w.currency, exp), "consumption": money.EventAmount(w.consumption, w.currency, exp),
+		"posted": money.EventAmount(w.posted, w.currency, exp), "warn_percent": *c.Warn}
 	if c.Amount != 0 {
-		payload["consumed_percent"] = money.PercentOf(consumption, c.Amount)
+		payload["consumed_percent"] = money.PercentOf(w.consumption, c.Amount)
 	}
 	_, err = outbox.Add(ctx, outbox.Event{Context: "controlling", Name: "internal_order_budget_warned", AggregateType: "controlling.internal_order",
 		AggregateID: c.OrderID, Payload: payload})

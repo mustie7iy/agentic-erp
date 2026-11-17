@@ -860,14 +860,18 @@ with mail to the person responsible, error).
 - **The check** is a second method of `ledger.CostObjects`, `Consume`,
   asked by the ledger's `assignOrders` after the orders are held, for the
   orders a posting debits on balance (the local amounts of its lines on
-  the order total more than zero). Controlling holds the budgets that
+  the order total more than zero), when the posting reaches the leading
+  ledger: the actual is the leading ledger's, so an entry in parallel
+  ledgers alone is not checked (review round 1). The ledger draws the
+  posting group's entry ids before it asks, and passes the leading
+  entry's id. Controlling holds the budgets that
   have a control `FOR UPDATE` in order id order, reads the actual under
   that lock and returns the first order above its refusal limit, which
   the ledger refuses on the first line naming it (422
   `ledger.internal_order_invalid`, reason `budget_exceeded`); an order
   above its warning limit is published as `InternalOrderBudgetWarned`
-  (every such posting, not only the first to cross the limit) and
-  posted. "Above" is strict: a consumption equal to a limit is within
+  (every such posting, not only the first to cross the limit), naming
+  the leading entry (`journal_entry_id`), and posted. "Above" is strict: a consumption equal to a limit is within
   it (`money.AbovePercent`, exact in big integers).
 - **The lock order** extends T60e's: period statuses `FOR SHARE`, orders
   `FOR SHARE`, the orders' budgets `FOR UPDATE`, centers, number range.

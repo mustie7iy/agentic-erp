@@ -6329,8 +6329,8 @@ step_order_settlement() {
   api 200 '"order \(.internal_order_code) settled up to \(.fiscal_year)/\(.fiscal_period): \(if .settled then "an entry posted" else "nothing to settle" end)"' \
     settleInternalOrder -p "id=$order" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
   expect "a second settlement" "$(field '"\(.settled) \(.settlement // "none")"')" "false none"
-  say "Carla finds the fair's costs were settled to the wrong period's report and reverses the settlement (T60i): its"
-  say "entry is reversed on its own date, so the order holds the cost again and the cost center gives it back."
+  say "Carla reverses the settlement, as when it was run too early (T60i): its entry is reversed on its own date, so"
+  say "the order holds the cost again and the cost center gives it back."
   api 200 '"settlement up to \(.fiscal_year)/\(.fiscal_period) of \(.amount.amount) \(.amount.currency) reversed by entry \(.reversal_journal_entry_number)"' \
     reverseInternalOrderSettlement -p "id=$order" -p "settlement_id=$settlement" -if-match "$tag"
   expect "the reversal names its entry" "$(field '.reversal_journal_entry_id != null')" true

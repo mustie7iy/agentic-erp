@@ -205,7 +205,7 @@ func TestInternalOrderAvailabilityControl(t *testing.T) {
 	got, _ := p.Must(200, "GET", path, "", "")
 	want(t, "at the warning limit", availabilityLine(got), "budget 1000.00 actual 500.00 consumed 50.00 limits 50/100 within")
 	want(t, "no warning at the limit", len(p.events(t, "internal_order_budget_warned")), 0)
-	p.charge(t, id, "2026-05-11", p.office, "100.00")
+	above, _ := p.charge(t, id, "2026-05-11", p.office, "100.00")
 	got, _ = p.Must(200, "GET", path, "", "")
 	want(t, "above the warning limit", availabilityLine(got), "budget 1000.00 actual 600.00 consumed 60.00 limits 50/100 above_warning")
 	warned := p.events(t, "internal_order_budget_warned")
@@ -215,6 +215,7 @@ func TestInternalOrderAvailabilityControl(t *testing.T) {
 	w := warned[0]
 	want(t, "the warning", fmt.Sprintf("%v %v %v %v %v %v", w["code"], w["budget"].(map[string]any)["amount"], w["consumption"].(map[string]any)["amount"],
 		w["posted"].(map[string]any)["amount"], w["consumed_percent"], w["warn_percent"]), "FAIR-26 1000.00 600.00 100.00 60.00 50")
+	want(t, "the warning names the entry", w["journal_entry_id"], above["id"])
 
 	m := p.Problem(422, "ledger.internal_order_invalid", "POST", "/v1/journal-entries", fmt.Sprintf(`{"legal_entity_id": %q, "document_date": "2026-05-12",
 		"posting_date": "2026-05-12", "currency": "EUR", "lines": [{"account_id": %q, "amount": {"amount": "-400.01", "currency": "EUR"}},
@@ -254,7 +255,7 @@ func TestInternalOrderAvailabilityControl(t *testing.T) {
 }
 
 // TestInternalOrderAvailabilityZeroBudget: a budget of zero with a
-// control refuses any cost and warns of none.
+// warning limit warns of any cost, and its warning has no percent.
 func TestInternalOrderAvailabilityZeroBudget(t *testing.T) {
 	p := setup(t)
 	id := p.releasedOrder(t, "FAIR-26")
@@ -283,6 +284,9 @@ func TestInternalOrderAvailabilitySerialized(t *testing.T) {
 		t.Fatalf("first posting: %v", first)
 	}
 	want(t, "second posting", problem.From(second).Code, "ledger.internal_order_invalid")
+	if errs := problem.From(second).Errors; len(errs) != 1 || errs[0].Code != "budget_exceeded" {
+		t.Errorf("why the second posting is refused: got %v, want budget_exceeded", errs)
+	}
 	got, _ := p.Must(200, "GET", "/v1/internal-orders/"+id+"/budget", "", "")
 	want(t, "the order's consumption", availabilityLine(got), "budget 100.00 actual 60.00 consumed 60.00 limits <nil>/100 within")
 }

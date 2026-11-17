@@ -62,10 +62,15 @@ type settlementReversal struct {
 const settlementColumns = `s.id, s.internal_order_id, s.fiscal_year, s.fiscal_period, s.posting_date, s.receiver_cost_center_id, s.journal_entry_id,
 	s.document_number, s.amount, s.account_count, s.created_at, s.created_by`
 
+// targets are where settlementColumns scan to.
+func (s *settlement) targets() []any {
+	return []any{&s.ID, &s.OrderID, &s.FiscalYear, &s.FiscalPeriod, &s.PostingDate, &s.ReceiverID, &s.EntryID, &s.DocumentNumber, &s.Amount, &s.Accounts,
+		&s.CreatedAt, &s.CreatedBy}
+}
+
 func scanSettlement(r pgx.Row) (settlement, error) {
 	var s settlement
-	err := r.Scan(&s.ID, &s.OrderID, &s.FiscalYear, &s.FiscalPeriod, &s.PostingDate, &s.ReceiverID, &s.EntryID, &s.DocumentNumber, &s.Amount, &s.Accounts,
-		&s.CreatedAt, &s.CreatedBy)
+	err := r.Scan(s.targets()...)
 	return s, errs.Wrapf(err, "controlling: scan order settlement")
 }
 
@@ -81,8 +86,7 @@ func scanReversedSettlement(r pgx.Row) (settlement, error) {
 	var number *string
 	var at *time.Time
 	var by *uuid.UUID
-	err := r.Scan(&s.ID, &s.OrderID, &s.FiscalYear, &s.FiscalPeriod, &s.PostingDate, &s.ReceiverID, &s.EntryID, &s.DocumentNumber, &s.Amount, &s.Accounts,
-		&s.CreatedAt, &s.CreatedBy, &entry, &number, &at, &by)
+	err := r.Scan(append(s.targets(), &entry, &number, &at, &by)...)
 	if err == nil && entry != nil {
 		s.Reversal = &settlementReversal{EntryID: *entry, DocumentNumber: *number, CreatedAt: *at, CreatedBy: *by}
 	}

@@ -60,9 +60,11 @@ type CostObjects interface {
 	// control: it returns the first order, in id order, whose consumption
 	// with the posting would be above its refusal limit, or uuid.Nil.
 	// Asked after Orders with hold, for the orders the posting debits on
-	// balance; it holds their budgets until the transaction ends, so two
-	// postings to an order are checked one after the other.
-	Consume(ctx context.Context, legalEntity uuid.UUID, currency string, posted map[uuid.UUID]money.Minor) (uuid.UUID, error)
+	// balance, when it reaches the leading ledger, whose entry it names
+	// (its id, drawn before the entry is inserted); it holds their budgets
+	// until the transaction ends, so two postings to an order are checked
+	// one after the other.
+	Consume(ctx context.Context, legalEntity uuid.UUID, currency string, entry uuid.UUID, posted map[uuid.UUID]money.Minor) (uuid.UUID, error)
 }
 
 // CostOrder is an internal order as a posting reads it: its company, its
@@ -247,8 +249,11 @@ func entered(l Line) bool {
 // ledger.internal_order_invalid, naming the line and why). The orders are
 // held until the transaction ends. A posting whose lines name none asks
 // nothing. The orders the posting debits on balance are then checked
-// against their budgets' availability control (consume).
-func (e *Endpoints) assignOrders(ctx context.Context, le tenancy.Entity, lines []Line) error {
+// against their budgets' availability control (consume), when the posting
+// reaches the leading ledger, whose entry is leading: an order's actual
+// costs, which its budget is set against, are the leading ledger's
+// (ADR-0064 §2), so an entry in parallel ledgers alone consumes none.
+func (e *Endpoints) assignOrders(ctx context.Context, le tenancy.Entity, lines []Line, leading *uuid.UUID) error {
 	ids := centerIDs(lines, func(l Line) *uuid.UUID { return l.InternalOrderID })
 	if len(ids) == 0 {
 		return nil
@@ -268,7 +273,10 @@ func (e *Endpoints) assignOrders(ctx context.Context, le tenancy.Entity, lines [
 		}
 		l.orderCenter = &o.CostCenterID
 	}
-	return e.consume(ctx, le, lines)
+	if leading == nil {
+		return nil
+	}
+	return e.consume(ctx, le, lines, *leading)
 }
 
 // consume asks the controlling context about the orders the lines add to
@@ -277,7 +285,7 @@ func (e *Endpoints) assignOrders(ctx context.Context, le tenancy.Entity, lines [
 // and is never refused for it; a reversal is never asked (holdOrders). A
 // refused order is named on its first line (422
 // ledger.internal_order_invalid, budget_exceeded).
-func (e *Endpoints) consume(ctx context.Context, le tenancy.Entity, lines []Line) error {
+func (e *Endpoints) consume(ctx context.Context, le tenancy.Entity, lines []Line, entry uuid.UUID) error {
 	totals := map[uuid.UUID]money.Minor{}
 	for _, l := range lines {
 		if l.InternalOrderID != nil {
@@ -292,7 +300,7 @@ func (e *Endpoints) consume(ctx context.Context, le tenancy.Entity, lines []Line
 	if len(totals) == 0 {
 		return nil
 	}
-	refused, err := e.CostObjects.Consume(ctx, le.ID, le.LocalCurrency, totals)
+	refused, err := e.CostObjects.Consume(ctx, le.ID, le.LocalCurrency, entry, totals)
 	if err != nil {
 		return fmt.Errorf("ledger: budgets of the internal orders of the lines: %w", err)
 	}

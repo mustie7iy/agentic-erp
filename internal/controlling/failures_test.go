@@ -156,7 +156,7 @@ func TestPlanDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"a posting checked against an order's budget, with a warning": func(ctx context.Context) error {
-			_, err := controlling.CostObjects{}.Consume(ctx, c.DE, "EUR", map[uuid.UUID]money.Minor{warned: 600})
+			_, err := controlling.CostObjects{}.Consume(ctx, c.DE, "EUR", uuid.New(), map[uuid.UUID]money.Minor{warned: 600})
 			return err
 		},
 		"the ledger's balance of an order": func(ctx context.Context) error {
