@@ -279,10 +279,20 @@ func (v *validator) company(p string, co *Company) {
 	}
 	v.houseBanks(p, co)
 	v.paymentMethods(p, co)
-	v.bankStatements(p, co, exp, known)
+	v.cashIn(p, co, exp, known)
 	v.companyControlling(p, co)
 	v.operations(p, co)
 	v.closes(p, co, exp, known)
+}
+
+// cashIn checks how the company's money comes in: its bank statements
+// (ADR-0047) and, with a known currency to read amounts in, its payment
+// tolerance (ADR-0063 §6, T75f).
+func (v *validator) cashIn(p string, co *Company, exp int, known bool) {
+	v.bankStatements(p, co, exp, known)
+	if known {
+		v.receivables(p, co, exp)
+	}
 }
 
 // operations checks the company's settings that post nothing and decide
@@ -758,6 +768,12 @@ func (v *validator) accountDetermination(p string, co *Company) {
 		check("lease_liability", ad.LeaseLiability, Liability, false)
 	}
 	v.leaseRunAccounts(p, co)
+	if ad.PaymentDifferenceExpense != "" {
+		check("payment_difference_expense", ad.PaymentDifferenceExpense, Expense, false)
+	}
+	if ad.PaymentDifferenceRevenue != "" {
+		check("payment_difference_revenue", ad.PaymentDifferenceRevenue, Revenue, false)
+	}
 }
 
 // leaseRunAccounts checks the accounts a lease run posts to (ADR-0073 §9):

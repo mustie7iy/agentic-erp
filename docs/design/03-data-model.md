@@ -4513,14 +4513,33 @@ erDiagram
     uuid receipt_account_id "ledger: the incoming payments clearing account"
     date posting_date
     char currency
-    bigint amount "above 0: the receipt's, the items' sum"
+    bigint amount "above 0: the receipt's"
+    bigint difference "written off within tolerance (T75f)"
+    bigint on_account_amount "T75g: left on account"
+    int on_account_line_no
+    uuid on_account_account_id "ledger: the customer's account"
     smallint clearing_entry_year
     uuid clearing_entry_id "ledger: cleared receipt and items" }
   incoming_payment_item { int item_no PK
     smallint fiscal_year
     uuid journal_entry_id "ledger: the open item"
     int line_no
-    bigint amount "debit positive; a credit negative" }
+    bigint amount "debit positive; a credit negative"
+    bigint residual_amount "T75f: what stayed open, under amount"
+    int residual_line_no "its line in the clearing entry"
+    text residual_reason
+    text residual_reason_text
+    int application_no "T75g: 0 the payment's own" }
+  incoming_payment ||--o{ incoming_payment_application : "credit applied"
+  incoming_payment_application { int application_no PK
+    date posting_date
+    uuid credit_entry_id "ledger: the credit consumed, once"
+    int credit_line_no
+    bigint amount "above 0"
+    bigint difference
+    bigint on_account_amount "left on account"
+    int on_account_line_no
+    uuid clearing_entry_id "ledger" }
 ```
 
 - `receivables.customer_invoice`: amounts are minor units of `currency`,
@@ -4563,11 +4582,36 @@ erDiagram
   each with the amount it stood at in the payment's currency, never zero
   (`incoming_payment_item_amount_not_zero`), a credit of the customer's
   negative; an open item is applied once (`incoming_payment_item_once`).
-  Insert-only. The items add up to the payment's amount, which the ledger
-  holds the application to (`ledger.Postings.ApplyReceipt`).
+  Insert-only. The items, less their residuals, add up to the payment's
+  amount and `difference`, which the ledger holds the application to
+  (`ledger.Postings.ApplyReceipt`). T75f (migration 000350): an item paid
+  in part names its residual item, a line of the clearing entry, with
+  what stayed open, more than zero and less than the item, which is a
+  debit, and its reason, all together (`incoming_payment_item_residual`;
+  a reason of 1 to 40 characters,
+  `incoming_payment_item_residual_reason_length`, and a free text of 1
+  to 200, `incoming_payment_item_residual_text_length`); the payment's
+  `difference`, 0 by default, is what the items net of their residuals
+  exceed the receipt by, written off within the company's payment
+  tolerance. The down migration is refused while either holds a value.
+  T75g (migration 000352): a payment's `on_account_amount` (default 0),
+  `on_account_line_no` and `on_account_account_id` are what it left on
+  the customer's account, its line in the clearing entry and the account,
+  all set or none (`incoming_payment_on_account`); an item's
+  `application_no` (default 0, `incoming_payment_item_application_no_check`)
+  names the application that applied it.
+- `receivables.incoming_payment_application` (T75g): an application of a
+  payment's credit on account, numbered from 1 per payment, with the
+  credit line it consumed, once (`incoming_payment_application_credit_once`),
+  what that stood at, above zero
+  (`incoming_payment_application_amount_positive`), the difference written
+  off, what it left on account with its line or zero without
+  (`incoming_payment_application_on_account`) and its clearing entry, one
+  application's (`incoming_payment_application_entry_once`). Insert-only.
+  The down migration is refused while anything was left on account.
 - `receivables.outbox`, `receivables.inbox`: the context's events
   (`CustomerInvoiceChanged`, `CustomerInvoicePosted`,
-  `IncomingPaymentApplied`).
+  `IncomingPaymentApplied`, `IncomingPaymentOnAccountApplied`).
 - Permissions `receivables.invoice.read`, `.write` and `.post`, and
   `receivables.payment.apply`.
 - In the ledger, `ledger.open_item_terms` keeps the terms of a customer
@@ -5761,7 +5805,9 @@ erDiagram
   `lease_liability`, and `ledger.journal_entry` the source context
   `leases` (T88b, both checks validated by 000328); and the lease run's
   keys `lease_interest`, `right_of_use_depreciation` and
-  `right_of_use_accumulated_depreciation` (T88c, validated by 000333).
+  `right_of_use_accumulated_depreciation` (T88c, validated by 000333);
+  and the payment difference keys `payment_difference_expense` and
+  `payment_difference_revenue` (T75f, validated by 000351).
 - `leases.outbox`, `leases.inbox`: the context's events
   (`LeaseContractChanged`, `LeaseRunPosted`).
 - Permissions `leases.contract.read`, `.write` and `.activate`, and

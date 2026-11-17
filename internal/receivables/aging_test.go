@@ -309,7 +309,7 @@ func TestAgingFarDates(t *testing.T) {
 }
 
 // hugeItems is a ledger whose two customer items do not add up in range.
-type hugeItems struct{}
+type hugeItems struct{ ledger.OpenItems }
 
 func (hugeItems) Receivable(context.Context, uuid.UUID, []uuid.UUID) ([]ledger.ReceivableItem, error) {
 	return []ledger.ReceivableItem{{AmountLC: math.MaxInt64}, {AmountLC: 1}}, nil

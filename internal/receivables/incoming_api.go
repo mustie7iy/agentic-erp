@@ -10,6 +10,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
@@ -18,10 +19,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
-
-// paymentVersion is the version of an incoming payment: it is written once
-// and never changed, so its ETag never moves.
-const paymentVersion = 1
 
 // paymentReferences are what incoming payments name by id, as their
 // consumer reads them (REVIEW.md, API-consumer classes): the companies,
@@ -36,6 +33,8 @@ type paymentReferences struct {
 	numbers    map[uuid.UUID]string
 	references map[uuid.UUID]string
 	statements map[uuid.UUID]StatementLine
+	// closed are the payments' credits on account no longer open.
+	closed map[ledger.ItemRef]bool
 }
 
 // paymentReferences reads what the payments name by id, once for all of
@@ -43,10 +42,16 @@ type paymentReferences struct {
 func (e *Endpoints) paymentReferences(ctx context.Context, payments []IncomingPayment) (paymentReferences, error) {
 	refs := paymentReferences{companies: map[uuid.UUID]tenancy.Entity{}}
 	var partners, accounts, entries, items []uuid.UUID
-	var receipts []ledger.ItemRef
+	var receipts, credits []ledger.ItemRef
 	for _, v := range payments {
 		partners, accounts = append(partners, v.CustomerID), append(accounts, v.ReceiptAccountID)
 		entries, receipts = append(entries, v.ReceiptEntryID, v.EntryID), append(receipts, ledger.ItemRef{FiscalYear: v.ReceiptYear, EntryID: v.ReceiptEntryID})
+		for _, a := range v.Applications {
+			entries = append(entries, a.EntryID)
+		}
+		if credit, _, ok := v.credit(); ok {
+			credits = append(credits, credit)
+		}
 		for _, it := range v.Items {
 			items = append(items, it.EntryID)
 		}
@@ -75,6 +80,9 @@ func (e *Endpoints) paymentReferences(ctx context.Context, payments []IncomingPa
 	if refs.statements, err = e.Statements.Lines(ctx, receipts); err != nil {
 		return paymentReferences{}, fmt.Errorf("receivables: statement lines of the receipts of %d incoming payments: %w", len(payments), err)
 	}
+	if refs.closed, err = e.OpenItems.Closed(ctx, credits); err != nil {
+		return paymentReferences{}, fmt.Errorf("receivables: credits on account of %d incoming payments: %w", len(payments), err)
+	}
 	return refs, nil
 }
 
@@ -83,42 +91,114 @@ func (e *Endpoints) paymentReferences(ctx context.Context, payments []IncomingPa
 // created, by whoever created it.
 func paymentToAPI(v IncomingPayment, refs paymentReferences) gen.IncomingPayment {
 	le, customer, account := refs.companies[v.LegalEntityID], refs.partners[v.CustomerID], refs.accounts[v.ReceiptAccountID]
-	out := gen.IncomingPayment{ID: v.ID, Version: paymentVersion, CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, UpdatedAt: v.CreatedAt,
-		UpdatedBy: gen.NewOptUUID(v.CreatedBy), DocumentNumber: v.DocumentNumber, LegalEntityID: v.LegalEntityID, CompanyCode: le.Code,
+	version, updatedAt, updatedBy := v.version()
+	out := gen.IncomingPayment{ID: v.ID, Version: version, CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, UpdatedAt: updatedAt,
+		UpdatedBy: gen.NewOptUUID(updatedBy), DocumentNumber: v.DocumentNumber, LegalEntityID: v.LegalEntityID, CompanyCode: le.Code,
 		CompanyName: le.Name, CustomerID: v.CustomerID, CustomerNumber: customer.Number, CustomerName: customer.Name, PostingDate: v.PostingDate,
-		Currency: v.Currency, Amount: apitypes.Money(v.Amount, v.Currency, v.Exponent), ReceiptJournalEntryID: v.ReceiptEntryID,
+		Currency: v.Currency, Amount: apitypes.Money(v.Amount, v.Currency, v.Exponent), Difference: apitypes.Money(v.Difference, v.Currency, v.Exponent),
+		ReceiptJournalEntryID:   v.ReceiptEntryID,
 		ReceiptJournalEntryYear: int32(v.ReceiptYear), ReceiptJournalEntryNumber: refs.numbers[v.ReceiptEntryID], ReceiptAccountID: v.ReceiptAccountID,
 		ReceiptAccountNumber: account.Number, ReceiptAccountName: account.Name, JournalEntryID: v.EntryID, JournalEntryYear: int32(v.EntryYear),
-		JournalEntryNumber: refs.numbers[v.EntryID], Items: make([]gen.IncomingPaymentItem, len(v.Items))}
+		JournalEntryNumber: refs.numbers[v.EntryID], Items: make([]gen.IncomingPaymentItem, len(v.Items)),
+		Applications: make([]gen.IncomingPaymentApplication, len(v.Applications))}
 	if line, ok := refs.statements[v.ReceiptEntryID]; ok {
 		out.ReceiptBankStatementID.SetTo(line.StatementID)
 		out.ReceiptBankStatementRef.SetTo(line.StatementRef)
 		out.ReceiptBankStatementLineNo.SetTo(line.LineNo)
 	}
 	for i, it := range v.Items {
-		out.Items[i] = gen.IncomingPaymentItem{ItemNo: it.ItemNo, FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID, LineNo: it.LineNo,
-			JournalEntryNumber: refs.numbers[it.EntryID], Reference: refs.references[it.EntryID], Amount: apitypes.Money(it.Amount, v.Currency, v.Exponent)}
+		out.Items[i] = gen.IncomingPaymentItem{ItemNo: it.ItemNo, ApplicationNo: it.ApplicationNo, FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID,
+			LineNo: it.LineNo, JournalEntryNumber: refs.numbers[it.EntryID], Reference: refs.references[it.EntryID],
+			Amount: apitypes.Money(it.Amount, v.Currency, v.Exponent)}
+		if it.ResidualAmount != nil { // stored with its line and reason (incoming_payment_item_residual)
+			year, entry := v.clearing(it.ApplicationNo)
+			out.Items[i].Residual.SetTo(gen.IncomingPaymentResidual{Amount: apitypes.Money(*it.ResidualAmount, v.Currency, v.Exponent), Reason: *it.ResidualReason,
+				ReasonText: apitypes.OptString(it.ResidualText), FiscalYear: int32(year), JournalEntryID: entry, JournalEntryNumber: refs.numbers[entry],
+				LineNo: *it.ResidualLineNo})
+		}
+	}
+	amount := func(m money.Minor) gen.Money { return apitypes.Money(m, v.Currency, v.Exponent) }
+	for i, a := range v.Applications {
+		day, _ := time.Parse(time.DateOnly, a.PostingDate) // a date column, as json_build_object writes it
+		out.Applications[i] = gen.IncomingPaymentApplication{ApplicationNo: a.No, PostingDate: day, Amount: amount(a.Amount), Difference: amount(a.Difference),
+			OnAccountAmount: amount(a.OnAccount), JournalEntryID: a.EntryID, JournalEntryYear: int32(a.EntryYear), JournalEntryNumber: refs.numbers[a.EntryID],
+			CreatedAt: a.CreatedAt, CreatedBy: a.CreatedBy}
+	}
+	if v.OnAccount != 0 {
+		on := gen.IncomingPaymentOnAccount{Amount: amount(v.OnAccount), OpenAmount: amount(0)}
+		if credit, open, ok := v.credit(); ok {
+			if !refs.closed[credit] {
+				on.OpenAmount = amount(open)
+				on.FiscalYear.SetTo(int32(credit.FiscalYear))
+				on.JournalEntryID.SetTo(credit.EntryID)
+				on.JournalEntryNumber.SetTo(refs.numbers[credit.EntryID])
+				on.LineNo.SetTo(credit.LineNo)
+			}
+		}
+		out.OnAccount.SetTo(on)
 	}
 	return out
+}
+
+// clearing is the clearing entry of the application with the number, the
+// payment's own for 0.
+func (v IncomingPayment) clearing(application int32) (int16, uuid.UUID) {
+	for _, a := range v.Applications {
+		if a.No == application {
+			return a.EntryYear, a.EntryID
+		}
+	}
+	return v.EntryYear, v.EntryID
 }
 
 // CreateIncomingPayment implements POST /v1/incoming-payments.
 func (e *Endpoints) CreateIncomingPayment(ctx context.Context, req *gen.IncomingPaymentCreate, _ gen.CreateIncomingPaymentParams) (gen.CreateIncomingPaymentRes, error) {
 	in := PaymentInput{LegalEntityID: req.LegalEntityID, CustomerID: req.CustomerID, ReceiptEntryID: req.ReceiptJournalEntryID,
-		PostingDate: apitypes.Ptr[time.Time](req.PostingDate), Items: make([]ledger.ItemRef, len(req.Items))}
-	for i, it := range req.Items {
-		in.Items[i] = ledger.ItemRef{FiscalYear: int16(it.FiscalYear), EntryID: it.JournalEntryID, LineNo: it.LineNo} // the contract bounds fiscal_year to 1900..2999
-	}
+		PostingDate: apitypes.Ptr[time.Time](req.PostingDate), OnAccount: req.OnAccount.Or(false)}
+	in.Items, in.Residuals = itemsOf(req.Items)
 	v, err := e.ApplyPayment(ctx, in)
 	if err != nil {
 		return nil, err
 	}
+	return e.paymentAnswer(ctx, v)
+}
+
+// itemsOf reads the items of a request with their residuals, nil for an
+// item without one.
+func itemsOf(req []gen.IncomingPaymentItemRef) ([]ledger.ItemRef, []*ResidualInput) {
+	items, residuals := make([]ledger.ItemRef, len(req)), make([]*ResidualInput, len(req))
+	for i, it := range req {
+		items[i] = ledger.ItemRef{FiscalYear: int16(it.FiscalYear), EntryID: it.JournalEntryID, LineNo: it.LineNo} // the contract bounds fiscal_year to 1900..2999
+		if r, ok := it.Residual.Get(); ok {
+			residuals[i] = &ResidualInput{Value: r.Amount.Amount, Currency: r.Amount.Currency, Reason: r.Reason, Text: apitypes.Ptr[string](r.ReasonText)}
+		}
+	}
+	return items, residuals
+}
+
+// paymentAnswer is the payment created or changed, with its ETag and
+// where to read it.
+func (e *Endpoints) paymentAnswer(ctx context.Context, v IncomingPayment) (*gen.IncomingPaymentHeaders, error) {
 	refs, err := e.paymentReferences(ctx, []IncomingPayment{v})
 	if err != nil {
 		return nil, err
 	}
-	return &gen.IncomingPaymentHeaders{ETag: gen.NewOptString(etag.Format(paymentVersion)), Location: gen.NewOptString("/v1/incoming-payments/" + v.ID.String()),
+	version, _, _ := v.version()
+	return &gen.IncomingPaymentHeaders{ETag: gen.NewOptString(etag.Format(version)), Location: gen.NewOptString("/v1/incoming-payments/" + v.ID.String()),
 		Response: paymentToAPI(v, refs)}, nil
+}
+
+// ApplyIncomingPaymentOnAccount implements POST
+// /v1/incoming-payments/{id}/applications.
+func (e *Endpoints) ApplyIncomingPaymentOnAccount(ctx context.Context, req *gen.IncomingPaymentApplicationCreate,
+	params gen.ApplyIncomingPaymentOnAccountParams) (gen.ApplyIncomingPaymentOnAccountRes, error) {
+	in := CreditInput{PaymentID: params.ID, PostingDate: apitypes.Ptr[time.Time](req.PostingDate)}
+	in.Items, in.Residuals = itemsOf(req.Items)
+	v, err := e.ApplyOnAccount(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	return e.paymentAnswer(ctx, v)
 }
 
 // GetIncomingPayment implements GET /v1/incoming-payments/{id}.
@@ -131,7 +211,8 @@ func (e *Endpoints) GetIncomingPayment(ctx context.Context, params gen.GetIncomi
 	if err != nil {
 		return nil, err
 	}
-	return &gen.GetIncomingPaymentOKHeaders{ETag: gen.NewOptString(etag.Format(paymentVersion)), Response: paymentToAPI(v, refs)}, nil
+	version, _, _ := v.version()
+	return &gen.GetIncomingPaymentOKHeaders{ETag: gen.NewOptString(etag.Format(version)), Response: paymentToAPI(v, refs)}, nil
 }
 
 var paymentSort = pagination.Sort{Default: "posting_date", Fields: []pagination.Field{

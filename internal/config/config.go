@@ -305,6 +305,10 @@ type Company struct {
 	// on expense reports, each posting to its expense account (ADR-0074
 	// §2). None: the company takes no expense reports.
 	ExpenseTypes []ExpenseType `yaml:"expense_types,omitempty" json:"expense_types,omitempty"`
+	// Receivables is how the company applies its customers' incoming
+	// payments (ADR-0063 §6): the payment differences it writes off
+	// (T75f). None: a receipt is applied exactly.
+	Receivables Receivables `yaml:"receivables,omitempty" json:"receivables,omitzero"`
 }
 
 // YearEnd is a company's year-end settings (ADR-0060 §4). Without a
@@ -507,6 +511,14 @@ type AccountDetermination struct {
 	LeaseInterest                     string `yaml:"lease_interest,omitempty" json:"lease_interest,omitempty"`
 	RightOfUseDepreciation            string `yaml:"right_of_use_depreciation,omitempty" json:"right_of_use_depreciation,omitempty"`
 	RightOfUseAccumulatedDepreciation string `yaml:"right_of_use_accumulated_depreciation,omitempty" json:"right_of_use_accumulated_depreciation,omitempty"`
+	// PaymentDifferenceExpense and PaymentDifferenceRevenue take what an
+	// incoming payment applied to a customer's items differs from them
+	// within the company's payment tolerance (ADR-0063 §6, T75f): an
+	// underpayment written off is an expense, an overpayment kept a
+	// revenue. Each is required by the tolerance of its direction
+	// (Receivables.PaymentTolerance).
+	PaymentDifferenceExpense string `yaml:"payment_difference_expense,omitempty" json:"payment_difference_expense,omitempty"`
+	PaymentDifferenceRevenue string `yaml:"payment_difference_revenue,omitempty" json:"payment_difference_revenue,omitempty"`
 }
 
 // WithholdingTaxCode is a withholding tax deducted from what a supplier is

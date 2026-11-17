@@ -67,6 +67,7 @@ var operationRolesOidc = map[string][]string{
 	ActivateRevenueContractOperation:               []string{},
 	AddHierarchyNodeOperation:                      []string{},
 	ApplyCountryPackOperation:                      []string{},
+	ApplyIncomingPaymentOnAccountOperation:         []string{},
 	ApplyPlanBatchOperation:                        []string{},
 	ApproveApprovalRequestOperation:                []string{},
 	AssignProfitCenterOperation:                    []string{},

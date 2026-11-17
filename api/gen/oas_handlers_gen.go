@@ -3194,6 +3194,234 @@ func (s *Server) handleApplyCountryPackRequest(args [0]string, argsEscaped bool,
 	}
 }
 
+// handleApplyIncomingPaymentOnAccountRequest handles applyIncomingPaymentOnAccount operation.
+//
+// Applies what an incoming payment left on the customer's account (T75g, `createIncomingPayment` with
+// `on_account`) to the customer's open items, as SAP clears an account with a payment on account. The
+// credit applied is the one still open: the payment's own before any application, else what the last
+// application left; one that is no longer open, all applied or cleared otherwise, is refused (409
+// `receivables.no_credit_on_account`, or 409 `ledger.item_already_cleared` when another request
+// cleared it meanwhile, as two applications racing for it end). The items are the customer's open
+// items in the company, invoices and credits, in the payment's currency, refused as
+// `createIncomingPayment` refuses them, each naming its place in the request as the field `items[i]`,
+// and each may name a `residual` as there. Together, net of their residuals, they may be less than the
+// credit: what is left stays on account as a new credit of the customer's, a line of the application's
+// clearing entry, at the credit's rate. More than the credit is refused (422
+// `ledger.clearing_not_balanced`) but for an underpayment within the company's payment tolerance,
+// written off to its `payment_difference_expense` account. One clearing entry, document type `DZ`,
+// `source_context` `receivables`, its source document the payment, offsets the credit and the items at
+// the amounts they were booked at and clears them all; an exchange difference is realized as
+// `createIncomingPayment` realizes one. The posting date is the request's, else today, the company's
+// date in its time zone, in an open period and on or after the latest posting date of the credit and
+// the items. The application is numbered in the payment from 1; its items join the payment's items
+// with its number. The payment's `version` moves with each application (`ETag`), and the answer is the
+// payment with the application, which its `applications` list last. Audited, and published as
+// IncomingPaymentOnAccountApplied. One of a company the caller may not act in is not found. A retry
+// with the same `Idempotency-Key` answers the payment as the first answered it. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/incoming-payments/{id}/applications
+func (s *Server) handleApplyIncomingPaymentOnAccountRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("applyIncomingPaymentOnAccount"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/incoming-payments/{id}/applications"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ApplyIncomingPaymentOnAccountOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ApplyIncomingPaymentOnAccountOperation,
+			ID:   "applyIncomingPaymentOnAccount",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ApplyIncomingPaymentOnAccountOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeApplyIncomingPaymentOnAccountParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeApplyIncomingPaymentOnAccountRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response ApplyIncomingPaymentOnAccountRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ApplyIncomingPaymentOnAccountOperation,
+			OperationSummary: "Apply an incoming payment's credit on account to open items",
+			OperationID:      "applyIncomingPaymentOnAccount",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *IncomingPaymentApplicationCreate
+			Params   = ApplyIncomingPaymentOnAccountParams
+			Response = ApplyIncomingPaymentOnAccountRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackApplyIncomingPaymentOnAccountParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ApplyIncomingPaymentOnAccount(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ApplyIncomingPaymentOnAccount(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeApplyIncomingPaymentOnAccountResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleApplyPlanBatchRequest handles applyPlanBatch operation.
 //
 // Uploads the plan of a category, legal entity and fiscal year for some of its centers (ADR-0050 §8):
@@ -18933,24 +19161,43 @@ func (s *Server) handleCreateHierarchyRequest(args [0]string, argsEscaped bool, 
 
 // handleCreateIncomingPaymentRequest handles createIncomingPayment operation.
 //
-// Applies an incoming payment to a customer's open items, in full and exactly (ADR-0063 §6, T75c;
-// plan default 4). The payment is a receipt: the journal entry a bank statement line matched as
-// incoming posted, whose credit line waits as an open item on the house bank's incoming payments
-// clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are open items of the
-// customer on customer reconciliation accounts of the company (`GET /v1/open-items`), invoices and
-// credits alike, in the receipt's currency; together they equal the receipt exactly (422
-// `ledger.clearing_not_balanced`): no partial payment, no difference and no cash discount. One
-// clearing entry, document type `DZ`, `source_context` `receivables`, offsets the receipt and every
-// item at the amounts they were booked at and clears them all; what that leaves in local or group
-// currency, receipt and items having been booked at different rates, is a realized exchange difference
-// on the company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The
-// posting date is the request's, else today, the company's date in its time zone; it must be in an
-// open period (409 `ledger.period_not_open`) and on or after the latest posting date of the receipt
-// and the items, since nothing is cleared before it was posted (422 `ledger.clearing_before_item`
-// naming `posting_date`, its message giving that date). The application is a document with a number
-// from the company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are
-// written with it. A receipt that is not waiting on an incoming payments clearing account of the
-// company is refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409
+// Applies an incoming payment to a customer's open items (ADR-0063 §6, T75c, T75f). The payment is a
+// receipt: the journal entry a bank statement line matched as incoming posted, whose credit line waits
+// as an open item on the house bank's incoming payments clearing account (ADR-0047);
+// `listUnappliedReceipts` lists them. The items are open items of the customer on customer
+// reconciliation accounts of the company (`GET /v1/open-items`), invoices and credits alike, in the
+// receipt's currency. An item paid in part names its `residual`: what stays open of it, more than zero
+// and less than the item, which is an amount the customer owes (422 `ledger.invalid_residual` naming
+// `items[i].residual.amount`), more than zero (422 `receivables.amount_not_positive`) in the receipt's
+// currency (422 `receivables.currency_mismatch`), with a reason (422
+// `receivables.unknown_residual_reason`) and, if wanted, a free text that is not white space alone
+// (422 `request.validation_failed`). Together the items, net of their residuals, equal the receipt,
+// but for a payment difference within the company's payment tolerance
+// (`companies[].receivables.payment_tolerance`, SAP OBA3: per direction an amount in the company's
+// currency and a percent of the items applied, the lower binding; none configured, none allowed);
+// anything more is refused, 422 `ledger.clearing_not_balanced`, its message giving the difference. No
+// cash discount is granted. One clearing entry, document type `DZ`, `source_context` `receivables`,
+// offsets the receipt and every item at the amounts they were booked at and clears them all; each
+// residual is a new open item of the customer, a debit line of that entry on the item's account at the
+// item's rate, with the item's payment terms but no cash discount tier, so it falls due when the item
+// did; a difference is a line on the company's `payment_difference_expense` account (an underpayment)
+// or `payment_difference_revenue` account (an overpayment), at the receipt's rate (422
+// `ledger.no_payment_difference_account` without it); what that leaves in local or group currency,
+// receipt and items having been booked at different rates, is a realized exchange difference on the
+// company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date
+// is the request's, else today, the company's date in its time zone; it must be in an open period (409
+// `ledger.period_not_open`) and on or after the latest posting date of the receipt and the items,
+// since nothing is cleared before it was posted (422 `ledger.clearing_before_item` naming
+// `posting_date`, its message giving that date). With `on_account`, what the receipt leaves after the
+// items, the whole receipt when there are none, is posted to the customer's reconciliation account
+// (its company data, 422 `receivables.customer_not_usable` without it) as a credit of the customer's
+// at the receipt's rate, a line of the clearing entry, which `applyIncomingPaymentOnAccount` applies
+// later; an overpayment is then left on account rather than kept within the tolerance, and something
+// must be left (422 `receivables.nothing_left_on_account`); without it the items are required (422
+// `ledger.no_items`). The application is a document with a number from the company's
+// `incoming_payment` number range; an audit record and IncomingPaymentApplied are written with it. A
+// receipt that is not waiting on an incoming payments clearing account of the company is refused, 422
+// `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409
 // `receivables.receipt_already_applied` when an incoming payment applied it. An item that is not an
 // open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as
 // are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a
@@ -46204,12 +46451,13 @@ func (s *Server) handleGetHierarchyNodeRequest(args [2]string, argsEscaped bool,
 
 // handleGetIncomingPaymentRequest handles getIncomingPayment operation.
 //
-// One incoming payment applied (ADR-0063 §6, T75c) with its company's code and name, its customer's
-// number and name, its amount, the receipt it applied (the journal entry the statement line posted,
-// with its number, the incoming payments clearing account's number and name and the bank statement and
-// line that posted it), the clearing entry that cleared receipt and items, and the items it was
-// applied to, each with its journal entry's number and reference and the amount it stood at, a credit
-// of the customer's negative. One of a company the caller may not act in is not found.
+// One incoming payment applied (ADR-0063 §6, T75c; T75f, T75g: its residual items, its difference,
+// what it left on account and that credit's applications) with its company's code and name, its
+// customer's number and name, its amount, the receipt it applied (the journal entry the statement line
+// posted, with its number, the incoming payments clearing account's number and name and the bank
+// statement and line that posted it), the clearing entry that cleared receipt and items, and the items
+// it was applied to, each with its journal entry's number and reference and the amount it stood at, a
+// credit of the customer's negative. One of a company the caller may not act in is not found.
 //
 // GET /v1/incoming-payments/{id}
 func (s *Server) handleGetIncomingPaymentRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

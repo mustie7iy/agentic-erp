@@ -418,10 +418,11 @@ func (s Setup) applyCompany(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 		WHERE d.account_id <> EXCLUDED.account_id`,
 		p.TenantID, le.ID, chart, p.ID, []string{"ap_reconciliation", "input_tax", "bank", "fx_gain", "fx_loss", "gr_ir", "price_difference",
 			"cash_discount", "down_payment", "retained_earnings", "contract_asset", "contract_liability", "right_of_use_asset", "lease_liability",
-			"lease_interest", "right_of_use_depreciation", "right_of_use_accumulated_depreciation"}, []string{ad.APReconciliation, ad.InputTax,
+			"lease_interest", "right_of_use_depreciation", "right_of_use_accumulated_depreciation", "payment_difference_expense",
+			"payment_difference_revenue"}, []string{ad.APReconciliation, ad.InputTax,
 			ad.Bank, ad.FXGain, ad.FXLoss, ad.GRIR, ad.PriceDifference, ad.CashDiscount, ad.DownPayment, co.YearEnd.RetainedEarningsAccount,
 			ad.ContractAsset, ad.ContractLiability, ad.RightOfUseAsset, ad.LeaseLiability, ad.LeaseInterest, ad.RightOfUseDepreciation,
-			ad.RightOfUseAccumulatedDepreciation}); err != nil {
+			ad.RightOfUseAccumulatedDepreciation, ad.PaymentDifferenceExpense, ad.PaymentDifferenceRevenue}); err != nil {
 		return fmt.Errorf("ledger: apply company %s: account determination: %w", co.Code, err)
 	}
 	if err := applyCompanyLedgers(ctx, tx, p, le.ID, co); err != nil {

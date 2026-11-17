@@ -257,8 +257,8 @@ func TestApplyReceiptRefusals(t *testing.T) {
 	}{
 		{"no items", app(receipt, north), "ledger.no_items", ""},
 		{"an item twice", app(receipt, north, invoice, invoice), "ledger.duplicate_item", ""},
-		{"less than the receipt", app(receipt, north, small), "ledger.clearing_not_balanced", "receipt of 100.00 EUR: they differ from it by -0.01"},
-		{"more than the receipt", app(receipt, north, invoice, small), "ledger.clearing_not_balanced", "differ from it by 99.99"},
+		{"less than the receipt", app(receipt, north, small), "ledger.clearing_not_balanced", "receipt of 100.00 EUR by -0.01"},
+		{"more than the receipt", app(receipt, north, invoice, small), "ledger.clearing_not_balanced", "by 99.99: an underpayment"},
 		{"another customer's item", app(receipt, north, souths), "ledger.not_the_customers_item", "Item 1"},
 		{"a supplier's item", app(receipt, r.supplier, ledger.ItemRef{FiscalYear: 2026, EntryID: suppliers.ID, LineNo: 2}), "ledger.not_the_customers_item", ""},
 		{"another company's item", app(receipt, north, elsewhere), "ledger.not_an_open_item", "Item 1"},

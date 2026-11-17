@@ -111,7 +111,8 @@ func determinationKeys(ad AccountDetermination) [][2]string {
 		{"cash_discount", ad.CashDiscount}, {"down_payment", ad.DownPayment}, {"contract_asset", ad.ContractAsset},
 		{"contract_liability", ad.ContractLiability},
 		{"right_of_use_asset", ad.RightOfUseAsset}, {"lease_liability", ad.LeaseLiability}, {"lease_interest", ad.LeaseInterest},
-		{"right_of_use_depreciation", ad.RightOfUseDepreciation}, {"right_of_use_accumulated_depreciation", ad.RightOfUseAccumulatedDepreciation}}
+		{"right_of_use_depreciation", ad.RightOfUseDepreciation}, {"right_of_use_accumulated_depreciation", ad.RightOfUseAccumulatedDepreciation},
+		{"payment_difference_expense", ad.PaymentDifferenceExpense}, {"payment_difference_revenue", ad.PaymentDifferenceRevenue}}
 }
 
 // AutomaticAccounts are the accounts the company's automatic postings use

@@ -1634,7 +1634,10 @@ migrated_down_payment() {
 # customer invoices, incoming payments, quotations, sales orders, billing
 # documents and RFQs come from the pack since Canada 2026.9), the
 # right-of-use asset (1660) and lease liability (2650) accounts a lease's
-# activation posts to (T88b, ADR-0073 §7; no pack ships them),
+# activation posts to (T88b, ADR-0073 §7; no pack ships them), the
+# customer payment tolerance and its accounts 6850 and 4850 (T75f, SAP
+# OBA3: underpayments up to CAD 5.00 and 1% written off, overpayments up to
+# CAD 1.00 and 0.5% kept; no pack ships them),
 # and two codes of tax alone for the return's adjustments (kind adjustment,
 # rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
@@ -1667,12 +1670,18 @@ PILOT_SETTINGS='
       {"number": "2650", "name": "Lease liabilities", "type": "liability"},
       {"number": "1669", "name": "Right-of-use assets, accumulated depreciation", "type": "asset"},
       {"number": "6720", "name": "Interest on lease liabilities", "type": "expense"},
-      {"number": "6730", "name": "Depreciation of right-of-use assets", "type": "expense"}]
+      {"number": "6730", "name": "Depreciation of right-of-use assets", "type": "expense"},
+      {"number": "6850", "name": "Customer payment differences", "type": "expense"},
+      {"number": "4850", "name": "Customer overpayments kept", "type": "revenue"}]
     | .account_determination.right_of_use_asset = "1660"
     | .account_determination.lease_liability = "2650"
     | .account_determination.lease_interest = "6720"
     | .account_determination.right_of_use_depreciation = "6730"
     | .account_determination.right_of_use_accumulated_depreciation = "1669"
+    | .account_determination.payment_difference_expense = "6850"
+    | .account_determination.payment_difference_revenue = "4850"
+    | .receivables.payment_tolerance = {"underpayment_amount": "5.00", "underpayment_percent": "1", "overpayment_amount": "1.00",
+        "overpayment_percent": "0.5"}
     | .tax_codes = ((.tax_codes // []) + [{"code": "GO5", "description": "GST 5% on sales (walkthrough; the Canada pack codes purchases)",
         "direction": "output", "kind": "standard", "category": "S", "components": [{"key": "gst", "jurisdiction": "CA",
         "account_key": "output", "account": "2300", "rates": [{"rate_percent": "5", "valid_from": "@PREV@-01-01"}]}]},
@@ -11968,6 +11977,150 @@ enablement_help() {
   expect "the invoice" "$(field .status)" cancelled
 }
 
+# northwind_invoice NET posts Maple's invoice to Northwind for NET CAD
+# without tax, on today, as Ruth: INVOICE_ENTRY is its entry, its open
+# item line 1, due 30 days from today on Northwind's NT30.
+northwind_invoice() {
+  as ruth
+  api 201 '"customer invoice \(.document_number) to \(.customer_name): \(.gross_amount.amount) \(.currency)"' createCustomerInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [{\"description\": \"Consulting\", \"account_id\": \"$(account 4000)\", \"net_amount\": {\"amount\": \"$1\", \"currency\": \"CAD\"}}]}"
+  api 200 '"  posted as journal entry \(.journal_entry_number), due \(.net_due_date)"' postCustomerInvoice -p "id=$(field .id)" -if-match "$ETAG" \
+    -body "{\"posting_date\": \"$TODAY\"}"
+  INVOICE_ENTRY=$(field .journal_entry_id)
+}
+
+# northwind_receipt AMOUNT is Northwind's payment of AMOUNT CAD on RBC's
+# next statement of the day, imported, matched as incoming and posted by
+# Tom as in step 54: RECEIPT is the entry that waits on 1015.
+northwind_receipt() {
+  local last st
+  as tom
+  QUIET=1 api 200 '' listBankStatements -p "house_bank_id=$RBC"
+  last=$(field '[.items[] | select(.closing_date == "'"$TODAY"'")] | max_by(.sequence | tonumber) | "\(.sequence) \(.closing_balance.amount)"')
+  rbc_incoming "$1" $((${last%% *} + 1)) "${last##* }"
+  QUIET=1 api 201 '' importBankStatements -body "{\"house_bank_id\": \"$RBC\", \"format\": \"camt.053\"}" -file file=@camt053-incoming.xml
+  st=$(field '.statements[0].id')
+  if [ -z "$st" ] || [ "$st" = null ]; then fail "the statement was not imported"; fi
+  QUIET=1 api 200 '' getBankStatement -p "id=$st"
+  QUIET=1 api 201 '' matchBankStatementLine -p "id=$st" -p line_no=1 -if-match "$ETAG" -body '{"incoming": true, "reason": "Northwind Traders pays."}'
+  api 200 '"  RBC statement line posted in journal entry \(.journal_entry_id[0:8])…, waiting on 1015"' \
+    postBankStatementLine -p "id=$st" -p line_no=1 -if-match "$ETAG"
+  RECEIPT=$(field .journal_entry_id)
+  if [ -z "$RECEIPT" ] || [ "$RECEIPT" = null ]; then fail "the incoming line was not posted"; fi
+}
+
+# step_partial_payment is T75f (ADR-0063 §6 As built): Northwind pays CAD
+# 600.00 of an invoice of 1,000.00 and disputes the rest. Ruth applies the
+# receipt with a residual item of 400.00, reason disputed: the invoice is
+# cleared, the residual is Northwind's open item, a line of the clearing
+# entry, due when the invoice was. A second invoice of 500.00 is paid
+# 499.97: the 0.03 short is within Maple's payment tolerance (step 2:
+# CAD 5.00 and 1%) and written off to 6850. A third receipt, 480.00 for an
+# invoice of 500.00, is 20.00 short, more than 1%: refused. Its receipt
+# and invoice wait for step_payment_on_account: PARTIAL_RESIDUAL is the
+# residual item ("year entry line"), SHORT_RECEIPT and SHORT_INVOICE_ENTRY
+# the refused application's receipt and invoice.
+step_partial_payment() {
+  heading "Step 109 — Partial payments: a receipt short of the invoice leaves a residual item with its reason, due when the invoice was; cents short within the company's payment tolerance are written off; a shortfall beyond it is refused"
+  local item body clearing due
+  [ -n "$CUSTOMER" ] || fail "step 47's customer is not there"
+  due=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
+  say "Maple invoices Northwind Traders CAD 1,000.00 for consulting:"
+  northwind_invoice 1000.00
+  say "Northwind pays CAD 600.00; its remittance disputes the second day's work, CAD 400.00:"
+  northwind_receipt 600.00
+  as ruth
+  say "Ruth applies the receipt to the invoice and leaves the disputed CAD 400.00 open as a residual item, reason"
+  say "disputed (T75f, SAP's residual item): the invoice is cleared, and the residual is a new open item of Northwind"
+  say "linked to it, due when the invoice was:"
+  item="{\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$INVOICE_ENTRY\", \"line_no\": 1, \"residual\": {\"amount\": {\"amount\": \"400.00\", \"currency\": \"CAD\"}, \"reason\": \"disputed\", \"reason_text\": \"The second day of consulting is disputed.\"}}"
+  body="{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"receipt_journal_entry_id\": \"$RECEIPT\", \"posting_date\": \"$TODAY\", \"items\": [$item]}"
+  api 201 '"incoming payment \(.document_number): \(.amount.amount) \(.amount.currency), difference \(.difference.amount)", (.items[] | "  item \(.item_no): reference \(.reference), \(.amount.amount) \(.amount.currency)\(if .residual then ", residual \(.residual.amount.amount) (\(.residual.reason): \(.residual.reason_text)) on line \(.residual.line_no) of entry \(.residual.journal_entry_number)" else "" end)")' \
+    createIncomingPayment -body "$body"
+  clearing=$(field .journal_entry_id)
+  expect "the payment" "$(field '"\(.amount.amount) \(.difference.amount) \(.items[0].amount.amount)"')" "600.00 0.00 1000.00"
+  expect "the residual" "$(field '.items[0].residual | "\(.amount.amount) \(.reason) \(.journal_entry_id) \(.line_no)"')" "400.00 disputed $clearing 3"
+  say "The clearing entry credits the invoice in full on 1200 and debits the residual back to Northwind:"
+  api 200 '(.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' getJournalEntry -p "id=$clearing"
+  expect "the clearing entry's amounts" "$(field '[.lines[].amount.amount] | join(" ")')" "600.00 -1000.00 400.00"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$CUSTOMER" -p page_size=100
+  expect "the residual open, the invoice cleared" \
+    "$(field "[.items[] | select(.journal_entry_id == \"$clearing\" or .journal_entry_id == \"$INVOICE_ENTRY\") | \"\(.journal_entry_id) \(.line_no) \(.amount.amount) \(.payment_terms.net_due_date)\"] | join(\", \")")" \
+    "$clearing 3 400.00 $due"
+  PARTIAL_RESIDUAL="${TODAY:0:4} $clearing 3"
+  say "A second invoice of CAD 500.00 is paid CAD 499.97. The CAD 0.03 short is within Maple's payment tolerance"
+  say "(underpayments up to CAD 5.00 and 1% of the items), so the invoice is cleared in full and the difference"
+  say "written off to 6850 Customer payment differences:"
+  northwind_invoice 500.00
+  northwind_receipt 499.97
+  as ruth
+  item="{\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$INVOICE_ENTRY\", \"line_no\": 1}"
+  api 201 '"incoming payment \(.document_number): \(.amount.amount) \(.amount.currency), difference \(.difference.amount) written off"' createIncomingPayment \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"receipt_journal_entry_id\": \"$RECEIPT\", \"posting_date\": \"$TODAY\", \"items\": [$item]}"
+  expect "the difference" "$(field '.difference.amount')" 0.03
+  QUIET=1 api 200 '' getJournalEntry -p "id=$(field .journal_entry_id)"
+  expect "the clearing entry" "$(field '[.lines[] | "\(.account_id) \(.amount.amount)"] | join(", ")')" \
+    "$(account 1015) 499.97, $(account 1200) -500.00, $(account 6850) 0.03"
+  say "A third invoice of CAD 500.00 is paid CAD 480.00: CAD 20.00 short, more than 1% of the invoice. Applied in"
+  say "full it is refused, with the difference, and nothing posts:"
+  northwind_invoice 500.00
+  northwind_receipt 480.00
+  as ruth
+  item="{\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$INVOICE_ENTRY\", \"line_no\": 1}"
+  refused 422 ledger.clearing_not_balanced createIncomingPayment \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"receipt_journal_entry_id\": \"$RECEIPT\", \"posting_date\": \"$TODAY\", \"items\": [$item]}"
+  SHORT_RECEIPT=$RECEIPT SHORT_INVOICE_ENTRY=$INVOICE_ENTRY
+  passed
+}
+
+# step_payment_on_account is T75g (ADR-0063 §6 As built): the CAD 480.00
+# step 109 could not apply goes on Northwind's account as a credit, its
+# remittance naming no invoice. Ruth applies CAD 400.00 of it to the
+# disputed residual of step 109 once Northwind settles the dispute; CAD
+# 80.00 stay on account. Then she applies those to the CAD 500.00 invoice
+# step 109 left open, leaving CAD 420.00 of it as a residual item, reason
+# short_payment; nothing is left on account, and a further application is
+# refused.
+step_payment_on_account() {
+  heading "Step 110 — Payments on account: a receipt naming no invoice goes on the customer's account as a credit; applied later to open items in part, the rest staying on account, then in full"
+  local payment ref residual
+  [ -n "$SHORT_RECEIPT" ] && [ -n "$PARTIAL_RESIDUAL" ] || fail "step 109's receipt and residual are not there"
+  as ruth
+  say "Northwind's CAD 480.00 of step 109 names no invoice Ruth can match. She puts it on Northwind's account: a"
+  say "credit of Northwind's on 1200, which clears the receipt on 1015:"
+  api 201 '"incoming payment \(.document_number): \(.amount.amount) \(.amount.currency), on account \(.on_account.amount.amount), open \(.on_account.open_amount.amount) on line \(.on_account.line_no) of entry \(.on_account.journal_entry_number)"' \
+    createIncomingPayment -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"receipt_journal_entry_id\": \"$SHORT_RECEIPT\", \"posting_date\": \"$TODAY\", \"items\": [], \"on_account\": true}"
+  payment=$(field .id)
+  expect "on account" "$(field '"\(.on_account.amount.amount) \(.on_account.open_amount.amount) \(.on_account.journal_entry_id) \(.on_account.line_no)"')" \
+    "480.00 480.00 $(field .journal_entry_id) 2"
+  local credit
+  credit=$(field .journal_entry_id)
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$CUSTOMER" -p page_size=100
+  expect "the credit among Northwind's open items" "$(field "[.items[] | select(.journal_entry_id == \"$credit\") | .amount.amount] | join(\" \")")" -480.00
+  read -r _ residual _ <<<"$PARTIAL_RESIDUAL"
+  say "Northwind settles the dispute of step 109 and asks Maple to use its credit. Ruth applies CAD 400.00 of it to the"
+  say "residual item; the CAD 80.00 left stay on account as a new credit line:"
+  ref="{\"fiscal_year\": ${PARTIAL_RESIDUAL%% *}, \"journal_entry_id\": \"$residual\", \"line_no\": ${PARTIAL_RESIDUAL##* }}"
+  api 201 '"incoming payment \(.document_number), version \(.version): application \(.applications[-1].application_no) applied \(.applications[-1].amount.amount), left \(.applications[-1].on_account_amount.amount) on account, entry \(.applications[-1].journal_entry_number)"' \
+    applyIncomingPaymentOnAccount -p "id=$payment" -body "{\"posting_date\": \"$TODAY\", \"items\": [$ref]}"
+  expect "the application" "$(field '"\(.version) \(.applications[0].amount.amount) \(.applications[0].on_account_amount.amount) \(.on_account.open_amount.amount) \(.items[0].application_no)"')" \
+    "2 480.00 80.00 80.00 1"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$CUSTOMER" -p page_size=100
+  expect "the residual cleared" "$(field "[.items[] | select(.journal_entry_id == \"$residual\")] | length")" 0
+  say "The CAD 80.00 go to the CAD 500.00 invoice of step 109; Northwind still owes CAD 420.00 of it, a residual item"
+  say "with the reason short_payment. Nothing is left on account:"
+  ref="{\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$SHORT_INVOICE_ENTRY\", \"line_no\": 1, \"residual\": {\"amount\": {\"amount\": \"420.00\", \"currency\": \"CAD\"}, \"reason\": \"short_payment\"}}"
+  api 201 '"incoming payment \(.document_number), version \(.version): application \(.applications[-1].application_no) applied \(.applications[-1].amount.amount), left \(.applications[-1].on_account_amount.amount) on account", (.items[] | "  item \(.item_no) of application \(.application_no): \(.amount.amount)\(if .residual then ", residual \(.residual.amount.amount) (\(.residual.reason))" else "" end)")' \
+    applyIncomingPaymentOnAccount -p "id=$payment" -body "{\"posting_date\": \"$TODAY\", \"items\": [$ref]}"
+  expect "the second application" "$(field '"\(.version) \(.applications[1].amount.amount) \(.applications[1].on_account_amount.amount) \(.on_account.open_amount.amount) \(.items[1].residual.amount.amount)"')" \
+    "3 80.00 0.00 0.00 420.00"
+  say "Read back, the payment shows both applications; a third is refused, nothing being left on account:"
+  QUIET=1 api 200 '' getIncomingPayment -p "id=$payment"
+  expect "the applications" "$(field '[.applications[] | "\(.application_no) \(.amount.amount)"] | join(", ")')" "1 480.00, 2 80.00"
+  refused 409 receivables.no_credit_on_account applyIncomingPaymentOnAccount -p "id=$payment" -body "{\"items\": [$ref]}"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -13998,7 +14151,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_close'
 
 main() {
   stop_unseen
