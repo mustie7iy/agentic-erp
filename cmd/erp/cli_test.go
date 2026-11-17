@@ -287,6 +287,13 @@ func TestMigrateErrors(t *testing.T) {
 	if code, got := cli(t, "migrate", "-connector", "c", "-legal-entities", "le"); code != 0 || !strings.Contains(got, "reconciled") {
 		t.Fatalf("waiting for the operation: %d %s", code, got)
 	}
+	// A context that ends while the operation is still queued ends the wait.
+	fakeAPI(t, migration(routes{"POST " + runPath + ":start": {ok(`{"id": "op1", "status": "queued"}`)}}))
+	pollInterval = time.Hour
+	stopped, stop := context.WithTimeout(context.Background(), 2*time.Second) // ends during the hour's wait, after the calls before it
+	defer stop()
+	pgtest.CheckErr(t, migrate(stopped, []string{"-connector", "c", "-legal-entities", "le"}), "deadline exceeded")
+	pollInterval = time.Millisecond
 	fakeAPI(t, migration(routes{"GET " + runPath: {ok(`{}`), failed}}))
 	_, got := cli(t, "migrate")
 	for _, want := range []string{"FAIL", "difference 1000 211000", "1 SAP documents are not on the platform"} {

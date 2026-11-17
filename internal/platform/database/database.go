@@ -8,6 +8,7 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -225,7 +226,15 @@ func setRole(ctx context.Context, tx pgx.Tx, role string) error {
 // needs two roles and commits or fails as one: offboarding erases a
 // tenant's rows as the worker and records the erasure, with the counts it
 // returned, as the application in the tenant's scope (ADR-0021).
+//
+// It fails closed: a scope without a role is refused (Begin's "keep the
+// login role" would here keep the previous role, which may bypass
+// row-level security), and so is one asking for a read-only transaction
+// or an isolation level, which a transaction under way cannot take.
 func Rescope(ctx context.Context, tx pgx.Tx, s Scope) error {
+	if s.Role == "" || s.ReadOnly || s.Isolation != "" {
+		return errors.New("database: rescope: a role is required, and a transaction under way takes no read-only mode or isolation level")
+	}
 	tenant := ""
 	if s.TenantID != uuid.Nil {
 		tenant = s.TenantID.String()

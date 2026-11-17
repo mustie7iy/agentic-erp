@@ -52,9 +52,11 @@ func Server(tb testing.TB) string {
 		tb.Fatalf("workflowtest: %v", err)
 	}
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	// Up to a minute, every 200 ms.
-	if err := backoff.Retry(context.Background(), 300, backoff.Constant(200*time.Millisecond), func() error {
-		c, err := client.DialContext(context.Background(), client.Options{HostPort: addr})
+	// Every 200 ms, for a minute at most.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := backoff.Retry(ctx, 300, backoff.Constant(200*time.Millisecond), func() error {
+		c, err := client.DialContext(ctx, client.Options{HostPort: addr})
 		if err != nil {
 			return fmt.Errorf("dialing %s: %w", addr, err)
 		}

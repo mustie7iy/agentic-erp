@@ -252,6 +252,24 @@ func TestRescope(t *testing.T) {
 			t.Errorf("app.tenant_id: got %q, want %q", tenant, ten.ID)
 		}
 	})
+	t.Run("refused", func(t *testing.T) {
+		for name, s := range map[string]database.Scope{
+			"no role":   {TenantID: ten.ID},
+			"read-only": {Role: "erp_app", TenantID: ten.ID, ReadOnly: true},
+			"isolation": {Role: "erp_app", TenantID: ten.ID, Isolation: pgx.Serializable},
+		} {
+			t.Run(name, func(t *testing.T) {
+				tx, err := pool.Begin(ctx, database.Scope{Role: "erp_worker"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer tx.Rollback(ctx)
+				if err := database.Rescope(ctx, tx, s); err == nil {
+					t.Errorf("rescope to %+v: got nil, want it refused", s)
+				}
+			})
+		}
+	})
 	t.Run("failing", func(t *testing.T) {
 		for name, at := range map[string]int{"tenant": 1, "role": 2} {
 			t.Run(name, func(t *testing.T) {

@@ -338,7 +338,8 @@ func (e *Endpoints) dropPayment(ctx context.Context, tx pgx.Tx, actor reqctx.Pri
 // master data (a partner may be a person) out of them; whether a supplier's
 // name may go into an event delivered by webhook is a question of security
 // posture for the product owner (ADR-0038, as built). A supplier the
-// partner context does not hold is an error, as supplierNamed's.
+// partner context does not hold is an error, as supplierNamed's. A down
+// payment's names the request it frees by id and number.
 func (e *Endpoints) recordExcluded(ctx context.Context, r Run, p Payment, reason string, freed int64) error {
 	company, err := e.companyCode(ctx, r.LegalEntityID)
 	if err != nil {
@@ -348,11 +349,18 @@ func (e *Endpoints) recordExcluded(ctx context.Context, r Run, p Payment, reason
 	if err != nil {
 		return fmt.Errorf("payments: name supplier %s: %w", p.SupplierID, err)
 	}
-	return record(ctx, "payments.payment_run.drop_payment", r.ID, map[string]any{"payment_id": p.ID, "supplier_id": p.SupplierID,
-		"reason": reason, "freed_items": freed},
-		runEvent(r, company, "payment_excluded", map[string]any{"payment_id": p.ID, "supplier_id": p.SupplierID,
-			"supplier_number": named[p.SupplierID].Number, "reason_code": reason,
-			"amount": money.EventAmount(p.Amount, r.Currency, r.Exponent), "released_item_count": freed}))
+	detail := map[string]any{"payment_id": p.ID, "supplier_id": p.SupplierID, "reason": reason, "freed_items": freed}
+	payload := map[string]any{"payment_id": p.ID, "supplier_id": p.SupplierID, "supplier_number": named[p.SupplierID].Number, "reason_code": reason,
+		"amount": money.EventAmount(p.Amount, r.Currency, r.Exponent), "released_item_count": freed}
+	if p.RequestID != nil { // a down payment's: the request it frees, by id and number, as the run's exclusion names it
+		d, err := e.DownPayments.Request(ctx, *p.RequestID)
+		if err != nil {
+			return err
+		}
+		detail["down_payment_request_id"], detail["down_payment_request_number"] = d.ID, d.DocumentNumber
+		payload["down_payment_request_id"], payload["down_payment_request_number"] = d.ID, d.DocumentNumber
+	}
+	return record(ctx, "payments.payment_run.drop_payment", r.ID, detail, runEvent(r, company, "payment_excluded", payload))
 }
 
 // paymentOf reads one payment of the run, dropped or not.

@@ -152,7 +152,7 @@ type conflict struct {
 // first to commit, and its check, a statement of its own at READ
 // COMMITTED, then sees the first's row and refuses the conflict.
 func sodConflict(ctx context.Context, tx pgx.Tx, principal, role, rule uuid.UUID) error {
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('identity.sod:' || current_setting('app.tenant_id'), 0))`); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('identity.sod:' || platform.require_tenant()::text, 0))`); err != nil {
 		return fmt.Errorf("identity: lock segregation of duties: %w", err)
 	}
 	var c conflict

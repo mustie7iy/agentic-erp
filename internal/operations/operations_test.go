@@ -606,9 +606,15 @@ func TestWaitingSkipsMalformedResources(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := pgtest.Pool(t).InTx(context.Background(), database.Scope{Role: "erp_worker", ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
-				got, err := list(ctx, tx, "test.waiting")
+				all, err := list(ctx, tx, "test.waiting")
 				if err != nil {
 					return err
+				}
+				var got []operations.Waiting
+				for _, w := range all { // the package's other tenants' operations (an earlier run of this test) are theirs
+					if w.TenantID == ten.ID {
+						got = append(got, w)
+					}
 				}
 				if len(got) != 1 || got[0].ID != good.ID || got[0].Resource != good.ID {
 					t.Errorf("waiting: got %+v, want operation %s on resource %s alone", got, good.ID, good.ID)

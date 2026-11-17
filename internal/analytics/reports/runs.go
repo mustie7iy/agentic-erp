@@ -137,13 +137,19 @@ func (s *Scheduler) runReport(ctx context.Context, sc scheduled) (bool, error) {
 		}
 	}
 	ran := false
-	err := s.asOwner(ctx, sc, func(ctx context.Context, tx pgx.Tx, owner reqctx.Principal) error {
+	err := s.asOwner(ctx, sc, func(ctx context.Context, tx pgx.Tx, p reqctx.Principal) error {
+		// The report may have been removed or unscheduled while its results
+		// were stored, or the day kept by another replica: then nothing is kept.
+		r, err := report(ctx, tx, owner(p.ID), sc.report, false)
+		if err != nil || r.Schedule == nil {
+			return err
+		}
 		done, err := kept(ctx, tx, run.Report.ID, run.Date)
 		if err != nil || done {
 			return err
 		}
 		ran = true
-		return keep(ctx, tx, owner, *run)
+		return keep(ctx, tx, p, *run)
 	})
 	return ran && err == nil, err
 }
