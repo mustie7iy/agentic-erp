@@ -302,10 +302,18 @@ func (v *Verifier) OperatorMiddleware(next http.Handler) http.Handler {
 	return middleware(v.VerifyOperator, next)
 }
 
+// Bearer is the token of an Authorization header of the Bearer scheme,
+// whose name is case-insensitive (RFC 9110 §11.1): the cell and the
+// router read a header alike, so a request one takes the other takes too.
+func Bearer(header string) (string, bool) {
+	scheme, raw, ok := strings.Cut(header, " ")
+	return raw, ok && strings.EqualFold(scheme, "Bearer") && raw != ""
+}
+
 func middleware(verify func(context.Context, string) (reqctx.Claims, error), next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		scheme, raw, ok := strings.Cut(r.Header.Get("Authorization"), " ")
-		if !ok || !strings.EqualFold(scheme, "Bearer") || raw == "" {
+		raw, ok := Bearer(r.Header.Get("Authorization"))
+		if !ok {
 			problem.Write(w, r, problem.Unauthorized("A bearer token is required."))
 			return
 		}
