@@ -127,6 +127,10 @@ var untakenBranches = []untaken{
 		by:    []string{"(*" + module + "/internal/procurement.Endpoints).ReleaseLoadedOrder"},
 		param: "loaded", taking: "gr_ir",
 		why: "valuation refuses only an order a migration run loaded as valued through GR/IR; the API's and the approval's releases pass \"\""},
+	{gate: module + "/internal/sales.deliveryDateFrom", code: "sales.invalid_requested_delivery_date",
+		by:     []string{"(*" + module + "/internal/sales.Endpoints).CreateSalesOrder", module + "/internal/sales.changeInput"},
+		fields: [][3]string{{module + "/internal/sales", "OrderInput", "DeliveryDate"}, {module + "/internal/sales", "OrderChangeInput", "DeliveryDate"}},
+		why:    "deliveryDateFrom refuses only a requested delivery date a request gave; order capture gives none"},
 }
 
 // outsideTheAPI are tables only other listeners write, whose constraints'

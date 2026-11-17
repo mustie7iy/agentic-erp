@@ -4282,11 +4282,13 @@ components:
       name: SalesOrderChanged
       x-webhook: true
       title: Sales order changed
-      summary: A sales order was created or confirmed.
+      summary: A sales order was created, confirmed, changed or cancelled.
       description: |
         Emitted at each change of a sales order's status (ADR-0067 §6,
         T78b): when it is created (`draft`, status_before null) and when it
-        is confirmed (`confirmed`, status_before `draft`). It carries the
+        is confirmed (`confirmed`, status_before `draft`); and when it is
+        changed (T78d: its status kept, status_before the same, `changes`
+        its number of changes) or cancelled (`cancelled`). It carries the
         order's net value, not its items, names the customer by id and
         number, never by name, and the quotation the order was created
         from (null for an order created directly). `credit_block` is the
@@ -4384,7 +4386,10 @@ components:
         checked against, and names the customer by id and number, never
         by name. The order is confirmed (SalesOrderChanged says so, with
         the same version) and takes no delivery until its block is
-        released (SalesOrderCreditReleased).
+        released (SalesOrderCreditReleased). It is emitted too when a
+        change raises a confirmed order's value beyond the limit (T78d):
+        the order is blocked again, and the amount checked is the
+        increase of its gross value.
         `GET /v1/sales-orders/{id}` returns the order at `version` or
         later. Subject is the sales order id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
@@ -5627,10 +5632,12 @@ components:
         order_date: {$ref: '#/components/schemas/Date', description: "The day it was created, the company's date."}
         payment_term_code: {type: string, description: 'The payment term the order is billed with.'}
         net_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' net values."}
-        status: {type: string, description: "The order's status after the change. Open enum: draft, confirmed."}
+        status: {type: string, description: "The order's status after the change. Open enum: draft, confirmed, cancelled."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
         credit_block: {type: string, description: "The order's credit block after the change. Open enum: none, blocked, released. Always given from T77b on; not among the required fields, since a field added to a published event is not required of it (ADR-0041)."}
         version: {type: integer, description: "The order's version after the change."}
+        changes: {type: integer, description: "How many changes the order has had (`changeSalesOrder`, T78d); not among the required fields, since a field added to a published event is not required of it (ADR-0041)."}
+        requested_delivery_date: {type: [string, 'null'], format: date, description: "The day the customer asks to be delivered on; null when none is asked for (T78d)."}
     SalesOrderCreditBlockedV1:
       type: object
       required: [sales_order_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, gross_amount, checked_amount, limit, exposure, version]

@@ -11968,6 +11968,95 @@ enablement_help() {
   expect "the invoice" "$(field .status)" cancelled
 }
 
+# step_sales_order_change is T78d (ADR-0067, As built T78d): Ruth sets
+# Northwind's credit limit 1,000.00 CAD above its exposure, so the step's
+# figures do not depend on what earlier steps left open. Sally creates an
+# order directly and confirms it within the limit, then changes it in
+# place: more brackets at a lower price and a requested delivery date.
+# The change is kept, numbered, with its values before and after. A
+# change that raises the order's value beyond the limit blocks it again,
+# and Ruth releases it. A second order is cancelled with a reason, once;
+# the delivered order of step 63 cannot be. Nothing is posted.
+# SALES_CHANGED_ORDER is the changed order, which step_billing_cancellation
+# delivers and bills.
+step_sales_order_change() {
+  heading "Step 109 — Sales orders changed and cancelled: an order's quantity, price and requested delivery date changed in place, the change kept with its values before and after; a change beyond the customer's credit limit blocks the order again; an undelivered order cancelled once with a reason, a delivered one refused; nothing posted"
+  local customer=$CUSTOMER sales item order number second exposure limit id day later tag open
+  [ -n "$customer" ] || fail "step 47's customer is not there"
+  as ruth
+  QUIET=1 api 200 '' getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  exposure=$(field .exposure.amount)
+  limit=$(awk -v x="$exposure" 'BEGIN { printf "%.2f", x + 1000 }')
+  QUIET=1 api 200 '' listCreditLimits -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  id=$(field '.items[0].id')
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  say "Ruth sets Northwind's limit at $limit CAD, 1,000.00 above what it owes and has on order:"
+  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), version \(.version)"' \
+    updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"limit\": {\"amount\": \"$limit\", \"currency\": \"CAD\"}}"
+  as sally
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
+  sales=$(account 4000)
+  item="{\"item_key\": \"BRACKET-M10\", \"description\": \"Machined bracket M10\", \"quantity\": {\"value\": \"40\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"15.00\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
+  say "Northwind orders 40 M10 brackets at 15.00. Sally creates the order directly and confirms it: 600.00 net,"
+  say "630.00 with GST, within the limit."
+  api 201 '"sales order \(.document_number): \(.status), net \(.net_amount.amount) \(.net_amount.currency)"' \
+    createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"currency\": \"CAD\", \"items\": [$item]}"
+  order=$(field .id)
+  number=$(field .document_number)
+  day=$(field .order_date)
+  expect "the new order's changes and requested delivery date" "$(field '"\(.changes) \(.requested_delivery_date // "none")"')" "0 none"
+  api 200 '"sales order \(.document_number): \(.status), credit block \(.credit_block), version \(.version)"' confirmSalesOrder -p "id=$order" -if-match '"1"'
+  expect "the confirmed order" "$(field '"\(.status) \(.credit_block) \(.version)"')" "confirmed none 2"
+  later=$(jq -rn --arg d "$day" '$d | strptime("%Y-%m-%d") | mktime + 14 * 86400 | strftime("%Y-%m-%d")')
+  say "Northwind calls back: 50 brackets, at 14.00 since they take more, delivered by $later. Sally changes the"
+  say "confirmed order in place at the version she read (ADR-0067, As built T78d). The item is priced again on the"
+  say "order's date: 50 at 14.00 are 700.00; the order's net value is its items' again."
+  api 200 '"sales order \(.document_number): \(.status), version \(.version), change \(.changes), net \(.net_amount.amount), deliver by \(.requested_delivery_date)", (.items[] | "  item \(.item_no) \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) = \(.net_amount.amount)")' \
+    changeSalesOrder -p "id=$order" -if-match '"2"' \
+    -body "{\"reason\": \"Northwind takes 50 at the price for 50\", \"requested_delivery_date\": \"$later\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"50\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"14.00\", \"currency\": \"CAD\"}}]}"
+  expect "the changed order" "$(field '"\(.status) \(.version) \(.changes) \(.net_amount.amount) \(.requested_delivery_date) \(.credit_block)"')" \
+    "confirmed 3 1 700.00 $later none"
+  say "The change is kept, numbered within the order, with what it changed before and after:"
+  api 200 '.items[] | "  change \(.change_no) to version \(.version) by \(.created_by[0:8])…: \(.reason // "-"); net \(.net_amount_before.amount) > \(.net_amount_after.amount), deliver by \(.requested_delivery_date_before // "-") > \(.requested_delivery_date_after // "-")", (.items[] | "    item \(.item_no): \(.quantity_before.value) > \(.quantity_after.value) \(.quantity_after.unit), \(.unit_price_before.amount) > \(.unit_price_after.amount), \(.net_amount_before.amount) > \(.net_amount_after.amount)")' \
+    listSalesOrderChanges -p "id=$order"
+  expect "the order's change" \
+    "$(field '[.items[] | "\(.change_no) \(.version) \(.net_amount_before.amount)>\(.net_amount_after.amount) " + ([.items[] | "\(.quantity_before.value)>\(.quantity_after.value) \(.unit_price_before.amount)>\(.unit_price_after.amount)"] | join(" "))] | join(", ")')" \
+    "1 3 600.00>700.00 40>50 15.00>14.00"
+  say "Her earlier version is stale now: a change with it is refused."
+  refused 412 request.version_mismatch changeSalesOrder -p "id=$order" -if-match '"2"' -body '{"items": [{"item_no": 1, "quantity": {"value": "60", "unit": "EA"}}]}'
+  say "Then Northwind asks for 70. 980.00 net is 1,029.00 with GST, more than the limit has room for: the change is"
+  say "checked for credit on its increase, and the order is blocked again (ADR-0066), until the credit manager releases it."
+  api 200 '"sales order \(.document_number): version \(.version), change \(.changes), net \(.net_amount.amount), credit block \(.credit_block)"' \
+    changeSalesOrder -p "id=$order" -if-match '"3"' -body '{"reason": "Northwind takes 70", "items": [{"item_no": 1, "quantity": {"value": "70", "unit": "EA"}}]}'
+  expect "the order blocked again" "$(field '"\(.version) \(.changes) \(.net_amount.amount) \(.credit_block)"')" "4 2 980.00 blocked"
+  QUIET=1 api 200 '' listSalesOrderChanges -p "id=$order" -p "order_by=change_no desc" -p page_size=1
+  expect "the second change's credit block" "$(field '.items[0] | "\(.change_no) \(.credit_block_before)>\(.credit_block_after)"')" "2 none>blocked"
+  as ruth
+  say "Ruth agrees the larger order and releases the block:"
+  api 200 '"sales order \(.document_number): credit block \(.credit_block), version \(.version)"' releaseSalesOrderCreditBlock -p "id=$order" -if-match '"4"'
+  expect "the released order" "$(field '"\(.credit_block) \(.version)"')" "released 5"
+  as sally
+  say "A second order for 5 brackets was entered by mistake. Sally cancels it with a reason; it is cancelled once, and"
+  say "a cancelled order is not changed:"
+  api 201 '"sales order \(.document_number): \(.status)"' \
+    createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"currency\": \"CAD\", \"items\": [${item/\"40\"/\"5\"}]}"
+  second=$(field .id)
+  api 200 '"sales order \(.document_number): \(.status), \(.cancellation_reason), version \(.version)"' cancelSalesOrder -p "id=$second" -if-match '"1"' \
+    -body '{"reason": "Entered twice by mistake"}'
+  expect "the cancelled order" "$(field '"\(.status) \(.version) \(.cancelled_by != null) \(.cancelled_at != null)"')" "cancelled 2 true true"
+  refused 409 sales.invalid_status cancelSalesOrder -p "id=$second" -if-match '"2"' -body '{"reason": "Again"}'
+  refused 409 sales.invalid_status changeSalesOrder -p "id=$second" -if-match '"2"' -body '{"items": [{"item_no": 1, "quantity": {"value": "6", "unit": "EA"}}]}'
+  say "Step 63's order is delivered, so it is not cancelled:"
+  QUIET=1 api 200 '' getSalesOrder -p "id=$SALES_ORDER"
+  refused 409 sales.order_delivered cancelSalesOrder -p "id=$SALES_ORDER" -if-match "$ETAG" -body '{"reason": "Too late"}'
+  say "Changing and cancelling orders posts nothing: Northwind's open items are as they were."
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  SALES_CHANGED_ORDER=$order
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -13998,7 +14087,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_sales_order_change step_close'
 
 main() {
   stop_unseen

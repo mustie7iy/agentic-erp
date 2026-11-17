@@ -4853,8 +4853,20 @@ erDiagram
     char currency
     text payment_term_code "the order's, else the customer's"
     bigint net_amount "sum of the items'"
-    text status "draft, confirmed"
+    text status "draft, confirmed, cancelled"
+    date requested_delivery_date "optional, on order_date or later (T78d)"
+    int changes "the changes kept (T78d)"
+    text cancellation_reason "when cancelled (T78d)"
     int version
+  }
+  sales_order ||--o{ sales_order_change : "is changed by"
+  sales_order_change { uuid id PK
+    uuid sales_order_id "unique with change_no"
+    int change_no "from 1 within the order"
+    int order_version "the order's after the change"
+    bigint net_amount_before
+    bigint net_amount_after
+    jsonb items "each item changed, before and after"
   }
   sales_order_item { uuid sales_order_id PK
     int item_no PK
@@ -5030,7 +5042,25 @@ erDiagram
   (`sales_order_one_per_upload`); written when the order is created and
   never changed. The same migration indexes `partner.tax_identifier` by
   `(tenant_id, value_fingerprint)` (`tax_identifier_by_fingerprint`), by
-  which capture finds a customer's tax number of any scheme.
+  which capture finds a customer's tax number of any scheme. T78d
+  (migration 000350; ADR-0067, As built T78d) adds changing and
+  cancelling: the status `cancelled`, with `cancellation_reason` (not
+  white space, at most 2,000 characters,
+  `sales_order_cancellation_reason_check`), `cancelled_at` and
+  `cancelled_by` set exactly when cancelled (`sales_order_cancelled`); an
+  optional `requested_delivery_date` on `order_date` or later
+  (`sales_order_requested_delivery`); `changes`, the number of changes
+  kept (`sales_order_changes_check`); `none` is the block of a draft
+  alone now (`sales_order_credit_block_confirmed`), so a cancelled order
+  keeps the block it had. The change rule (`sales_order_confirmed_once`)
+  admits besides: an order that is not cancelled changed, its status
+  kept, its `changes` moved by one to a change kept in
+  `sales.sales_order_change` under that number, its block kept or, when
+  confirmed, set to `blocked`; and an order that is not cancelled
+  cancelled once, while no item has anything delivered. A cancelled
+  order changes no more. The application may also update
+  `requested_delivery_date`, `net_amount`, `changes` and the
+  cancellation's three columns.
 - `sales.sales_order_item`: a quotation item's columns and rules, with
   `delivered_quantity` and `billed_quantity`, 0 when created:
   `0 <= billed_quantity <= delivered_quantity <= quantity`
@@ -5039,7 +5069,25 @@ erDiagram
   trigger alone (T78c) and `billed_quantity` by the billing document's
   (T79a). T85a (migration 000306) adds `returned_quantity`, 0 by
   default and at most `billed_quantity` (`sales_order_item_returned`),
-  moved by the returns order item's trigger alone.
+  moved by the returns order item's trigger alone. T78d (migration
+  000350) lets the application update an item's `quantity`,
+  `unit_price`, `price_unit`, `price_source`, `conditions` and
+  `net_amount` (what it names, its unit, account and tax code stay): the
+  trigger `sales_order_item_change`, on an update that sets one of them,
+  refuses an item with anything billed and an item of a cancelled order,
+  for the tables' owner too; a quantity stays at least what is delivered
+  (`sales_order_item_quantities`).
+- `sales.sales_order_change` (T78d, migration 000350): a change of an
+  order, numbered from 1 within it (`sales_order_change_no_positive`,
+  `sales_order_change_once`), with the order's version after it
+  (`sales_order_change_version_positive`), an optional reason (not white
+  space, at most 500 characters, `sales_order_change_reason_check`), its
+  net value before and after (above zero), its requested delivery date
+  and credit block before and after, and `items`, a JSON array of the
+  items changed, each with its quantity, unit price, price unit and net
+  value before and after (`sales_order_change_items_check`). Insert-only
+  (`platform.forbid_mutation`); the list reads an order's changes by
+  number.
 - `sales.delivery` (T78c, migration 000292): a confirmation that
   quantities of an order's items were delivered on `delivery_date`,
   numbered within its order (`delivery_no_positive`, `delivery_no_once`).

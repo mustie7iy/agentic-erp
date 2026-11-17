@@ -27,6 +27,7 @@ func TestDatabaseFailures(t *testing.T) {
 				PriceUnit: gen.NewOptInt32(1), AccountID: e.other, TaxCode: gen.NewOptString("A1")}}}
 	quotation := uuid.MustParse(e.accepted(t, e.customer, e.item(line{code: "A1"})))
 	order, draft := uuid.MustParse(e.ordered(t)), uuid.MustParse(e.ordered(t))
+	e.Must(200, "POST", changing(order.String()), changeBody("", itemChange("1 2 EA", "")), `"1"`)
 	shipped, _ := e.confirmed(t, e.item(line{quantity: "3"}), e.item(line{quantity: "2", unit: "KG"}))
 	deliveredOrder := uuid.MustParse(shipped)
 	e.Must(201, "POST", deliveries(shipped), `{"delivery_date": "2026-01-02", "items": [{"item_no": 1, "quantity": {"value": "1", "unit": "EA"}}]}`, "")
@@ -117,6 +118,19 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"confirm a returns order": func(ctx context.Context) error {
 			_, err := h.ConfirmReturnsOrder(ctx, gen.ConfirmReturnsOrderParams{ID: returns, IfMatch: `"1"`})
+			return err
+		},
+		"change an order, its increase checked for credit": func(ctx context.Context) error {
+			_, err := h.ChangeSalesOrder(ctx, &gen.SalesOrderChangeRequest{Reason: gen.NewOptString("More"), Items: []gen.SalesOrderItemChange{
+				{ItemNo: 2, Quantity: gen.NewOptQuantity(gen.Quantity{Value: "3", Unit: "KG"})}}}, gen.ChangeSalesOrderParams{ID: deliveredOrder, IfMatch: `"3"`})
+			return err
+		},
+		"cancel an order": func(ctx context.Context) error {
+			_, err := h.CancelSalesOrder(ctx, &gen.ReasonInput{Reason: "Withdrawn"}, gen.CancelSalesOrderParams{ID: draft, IfMatch: `"1"`})
+			return err
+		},
+		"list an order's changes": func(ctx context.Context) error {
+			_, err := h.ListSalesOrderChanges(ctx, gen.ListSalesOrderChangesParams{ID: order})
 			return err
 		},
 		"release a credit block": func(ctx context.Context) error {
@@ -211,6 +225,10 @@ func TestDatabaseFailures(t *testing.T) {
 	lists := map[string]func(ctx context.Context) error{
 		"orders": func(ctx context.Context) error {
 			_, err := h.ListSalesOrders(ctx, gen.ListSalesOrdersParams{PageSize: gen.NewOptInt32(0)})
+			return err
+		},
+		"order changes": func(ctx context.Context) error {
+			_, err := h.ListSalesOrderChanges(ctx, gen.ListSalesOrderChangesParams{ID: order, PageSize: gen.NewOptInt32(0)})
 			return err
 		},
 		"deliveries": func(ctx context.Context) error {

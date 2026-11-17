@@ -145,6 +145,10 @@ type CancelRevaluationRunRes interface {
 	cancelRevaluationRunRes()
 }
 
+type CancelSalesOrderRes interface {
+	cancelSalesOrderRes()
+}
+
 type CancelSupplierInvoiceRes interface {
 	cancelSupplierInvoiceRes()
 }
@@ -155,6 +159,10 @@ type CaptureSalesOrderRes interface {
 
 type CaptureSupplierInvoiceRes interface {
 	captureSupplierInvoiceRes()
+}
+
+type ChangeSalesOrderRes interface {
+	changeSalesOrderRes()
 }
 
 type CheckCloseTaskRes interface {
@@ -1715,6 +1723,10 @@ type ListRolesRes interface {
 
 type ListSalesDeliveriesRes interface {
 	listSalesDeliveriesRes()
+}
+
+type ListSalesOrderChangesRes interface {
+	listSalesOrderChangesRes()
 }
 
 type ListSalesOrdersRes interface {

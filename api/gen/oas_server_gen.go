@@ -466,6 +466,20 @@ type Handler interface {
 	//
 	// POST /v1/revaluation-runs/{id}:cancel
 	CancelRevaluationRun(ctx context.Context, req *ReasonInput, params CancelRevaluationRunParams) (CancelRevaluationRunRes, error)
+	// CancelSalesOrder implements cancelSalesOrder operation.
+	//
+	// Cancels a `draft` or `confirmed` sales order of which nothing is delivered (ADR-0067, As built
+	// T78d), at the version the caller read (`If-Match`), with a reason: the order is read under a row
+	// lock and moves to `cancelled` once, naming the reason, who cancelled it and when. An order already
+	// cancelled is refused (409 `sales.invalid_status`), as is one with a quantity delivered (409
+	// `sales.order_delivered`): since only what is delivered is billed, nothing of a cancelled order is
+	// billed. A cancelled order takes no change, delivery or billing document, and leaves the customer's
+	// open orders (`getCreditExposure`). The quotation it came from stays ordered. Nothing is posted.
+	// Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the
+	// cancelled order. Human-only (`x-agent: false`).
+	//
+	// POST /v1/sales-orders/{id}:cancel
+	CancelSalesOrder(ctx context.Context, req *ReasonInput, params CancelSalesOrderParams) (CancelSalesOrderRes, error)
 	// CancelSupplierInvoice implements cancelSupplierInvoice operation.
 	//
 	// Cancels a parked or held invoice (status `cancelled`); its supplier reference can then be entered
@@ -518,6 +532,34 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices:capture
 	CaptureSupplierInvoice(ctx context.Context, req *SupplierInvoiceCaptureMultipart, params CaptureSupplierInvoiceParams) (CaptureSupplierInvoiceRes, error)
+	// ChangeSalesOrder implements changeSalesOrder operation.
+	//
+	// Changes a `draft` or `confirmed` sales order in place (ADR-0067, As built T78d), at the version the
+	// caller read (`If-Match`): items' quantities and unit prices and the order's requested delivery date.
+	// The order is read under a row lock; a cancelled order is not changed (409 `sales.invalid_status`).
+	// Each item named by its number (422 `sales.unknown_order_item` naming `items[i].item_no`, once: 422
+	// `sales.item_repeated`) takes the quantity given, in its own unit (422 `sales.unit_mismatch`), and
+	// the unit price given, in the order's currency, with its price unit; what is not given stays. A
+	// changed item is checked and priced again as an item given directly is (`createSalesOrder`), on the
+	// order's date: an entered price stays entered, an item priced from the price records takes the record
+	// valid on that date again, with the pricing procedure's discounts; its account and tax code are
+	// checked again on that date (422 `sales.account_not_postable`, `sales.unknown_tax_code`). An item's
+	// quantity is never below what is delivered of it (422 `sales.quantity_below_delivered` naming
+	// `items[i].quantity.value`), and an item of which something is billed keeps its quantity and price
+	// (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first.
+	// `requested_delivery_date` is on or after the order's date (422
+	// `sales.invalid_requested_delivery_date`); `null` clears it. A request that changes nothing is
+	// refused (422 `sales.nothing_changed`). The order's net value is the sum of its items' again. A
+	// change that raises a confirmed order's net value checks the customer's credit for the increase, as a
+	// confirmation checks the order (`confirmSalesOrder`): an order that no longer fits the limit is
+	// blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked), whatever an earlier
+	// release; a lower value leaves the block as it is. The change is kept, numbered within the order,
+	// with its reason and its values before and after (`listSalesOrderChanges`), and the order's `changes`
+	// counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
+	// `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`).
+	//
+	// POST /v1/sales-orders/{id}:change
+	ChangeSalesOrder(ctx context.Context, req *SalesOrderChangeRequest, params ChangeSalesOrderParams) (ChangeSalesOrderRes, error)
 	// CheckCloseTask implements checkCloseTask operation.
 	//
 	// Runs a check task's check now and records its result on the task (ADR-0058 §6, T64c):
@@ -761,20 +803,20 @@ type Handler interface {
 	// Confirms a `draft` sales order (ADR-0067 §5, T78b), at the version the caller read (`If-Match`):
 	// the order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused
 	// (409 `sales.invalid_status`). Confirming is by permission, without an approval; a confirmed order is
-	// not changed or cancelled in the first version. Nothing is posted. The confirmation checks the
-	// customer's credit (ADR-0066, T77b), once: the order's gross value, its net value plus the output tax
-	// its items' tax codes give on the order's date, in the company's currency (an order in another
-	// currency at the average rate valid on its date), is compared with the customer's credit limit in the
-	// company less its exposure, its open items and its other confirmed orders not yet billed, as
-	// `getCreditExposure` gives them. An order that is within the limit, and every order of a customer
-	// without a limit, is confirmed with `credit_block` `none`. One that is not is confirmed all the same,
-	// with `credit_block` `blocked`: it takes no delivery, and so no billing, until a person holding
-	// `sales.order.credit_release` releases it (`releaseSalesOrderCreditBlock`). Two orders of one
-	// customer confirmed at once are checked one after the other, so they cannot both take the room only
-	// one fits. The order is not checked again after its confirmation. The value must be calculable: a tax
-	// code that is no longer an output tax code on the order's date (422 `sales.unknown_tax_code`), an
-	// order in another currency without a rate into the company's on its date (422
-	// `ledger.no_exchange_rate`) or a value with its tax too large for an amount (422
+	// changed (`changeSalesOrder`) and cancelled (`cancelSalesOrder`) as a draft is. Nothing is posted.
+	// The confirmation checks the customer's credit (ADR-0066, T77b), once: the order's gross value, its
+	// net value plus the output tax its items' tax codes give on the order's date, in the company's
+	// currency (an order in another currency at the average rate valid on its date), is compared with the
+	// customer's credit limit in the company less its exposure, its open items and its other confirmed
+	// orders not yet billed, as `getCreditExposure` gives them. An order that is within the limit, and
+	// every order of a customer without a limit, is confirmed with `credit_block` `none`. One that is not
+	// is confirmed all the same, with `credit_block` `blocked`: it takes no delivery, and so no billing,
+	// until a person holding `sales.order.credit_release` releases it (`releaseSalesOrderCreditBlock`).
+	// Two orders of one customer confirmed at once are checked one after the other, so they cannot both
+	// take the room only one fits. The order is not checked again after its confirmation. The value must
+	// be calculable: a tax code that is no longer an output tax code on the order's date (422
+	// `sales.unknown_tax_code`), an order in another currency without a rate into the company's on its
+	// date (422 `ledger.no_exchange_rate`) or a value with its tax too large for an amount (422
 	// `sales.amount_too_large`) refuses the confirmation, whether the customer has a limit or not, since a
 	// confirmed order counts in its exposure. An exposure that adds up, with the order, to more than an
 	// amount holds is refused too (422 `credit.amount_too_large`). Audited, with the amount checked, the
@@ -5669,6 +5711,17 @@ type Handler interface {
 	//
 	// GET /v1/sales-orders/{id}/deliveries
 	ListSalesDeliveries(ctx context.Context, params ListSalesDeliveriesParams) (ListSalesDeliveriesRes, error)
+	// ListSalesOrderChanges implements listSalesOrderChanges operation.
+	//
+	// The changes of a sales order (ADR-0067, As built T78d), each as `changeSalesOrder` made it: its
+	// number within the order, the order's version after it, its reason, who made it and when, and what it
+	// changed with its values before and after: the net value, the requested delivery date, the credit
+	// block and each item changed. A change is kept as it was made and never altered. An order of a
+	// company the caller may not act in is not found (404), as one that does not exist. Sortable by:
+	// `change_no`.
+	//
+	// GET /v1/sales-orders/{id}/changes
+	ListSalesOrderChanges(ctx context.Context, params ListSalesOrderChangesParams) (ListSalesOrderChangesRes, error)
 	// ListSalesOrders implements listSalesOrders operation.
 	//
 	// The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as

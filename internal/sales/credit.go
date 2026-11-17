@@ -306,6 +306,47 @@ func (e *Endpoints) creditCheck(ctx context.Context, tx pgx.Tx, o Order, le tena
 	return c, nil
 }
 
+// increaseCheck checks a change that raises a confirmed order's value
+// against its customer's credit limit (ADR-0066; ADR-0067, As built
+// T78d): the increase of the order's gross value in the company's
+// currency, the items after the change valued as the items before it
+// are, with the customer's exposure, which holds the order's open part
+// before the change already. An increase that is not within the limit
+// blocks the order again; a customer without a limit is never blocked.
+func (e *Endpoints) increaseCheck(ctx context.Context, tx pgx.Tx, o Order, after []OrderItem, le tenancy.Entity) (checked, error) {
+	v, err := e.valuation(ctx, le)
+	if err != nil {
+		return checked{}, err
+	}
+	value := func(items []OrderItem) (money.Minor, money.Minor, error) {
+		lines := make([]openLine, len(items))
+		for i, it := range items {
+			lines[i] = openLine{ItemNo: it.ItemNo, Net: it.Net, TaxCode: it.TaxCode}
+		}
+		return v.value(ctx, openOrder{Number: o.DocumentNumber, Date: o.OrderDate, Currency: o.Currency, Lines: lines})
+	}
+	c := checked{block: NoBlock}
+	var inCompany [2]money.Minor // before and after the change
+	for i, items := range [][]OrderItem{o.Items, after} {
+		if c.gross, inCompany[i], err = value(items); err != nil {
+			return checked{}, err
+		}
+	}
+	c.amount = inCompany[1] - inCompany[0] // two amounts in range, neither negative
+	if c.amount > 0 {
+		if c.answer, err = e.Credit.Check(ctx, le.ID, o.CustomerID, c.amount); err != nil {
+			return checked{}, fmt.Errorf("sales: credit check of a change of sales order %s: %w", o.DocumentNumber, err)
+		}
+		if !c.answer.Within {
+			c.block = Blocked
+		}
+	}
+	if c.exp, err = currency.Exponent(ctx, tx, le.LocalCurrency, nil); err != nil { // a legal entity's currency exists
+		return checked{}, fmt.Errorf("sales: currency of company %s: %w", le.Code, err)
+	}
+	return c, nil
+}
+
 // blockedEvent is SalesOrderCreditBlocked for the confirmed order: its
 // gross value, the amount checked, and the limit and the exposure it was
 // checked against, the last three in the company's currency.

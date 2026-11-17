@@ -1622,3 +1622,87 @@ capture creates a draft order at the printed price; a person confirms.
   `sales.order.capture`) and an invoice's with `getUpload`, each answering
   404 for an upload of the other purpose.
 
+
+### T78d Sales order changed and cancelled (migration 000350)
+
+`docs/design/plan-depth-1.md` §T78d (product owner 2026-11-17: the
+variants start). It lifts §5's "an order is not changed or cancelled in
+the first version" for what the slice names; SAP's VA02 change in place
+with its change documents, and its cancellation of an order with nothing
+delivered, are the reference.
+
+- `internal/sales/order_change.go` (`ChangeOrder`, `CancelOrder`,
+  `changeItems`, `planItems`, `writeChange`), `order_change_api.go`
+  (`changeSalesOrder`, `cancelSalesOrder`, `listSalesOrderChanges`);
+  `credit.go`'s `increaseCheck`; `orders.go` reads and writes the new
+  columns and `createSalesOrder` takes `requested_delivery_date`.
+- Migration 000350: on `sales.sales_order` the status `cancelled` with
+  its reason, who and when (`sales_order_cancelled`), an optional
+  `requested_delivery_date` on the order's date or later, and `changes`,
+  the number of changes kept; the change rule admits an order that is not
+  cancelled changed with a change kept under its next number, its status
+  kept and, when confirmed, its block set to `blocked`, and cancelled
+  once while nothing is delivered (`sales_order_confirmed_once`); the
+  trigger `sales_order_item_change` keeps an item with anything billed,
+  or of a cancelled order, as it is; table `sales.sales_order_change`,
+  insert-only. Schema tests in `db/sales_change_test.go`
+  (`TestSalesOrderChangeRules`).
+- `POST /v1/sales-orders/{id}:change` (`sales.order.write`, `If-Match`,
+  idempotent, human-only): items by number with a new quantity and/or
+  unit price, and `requested_delivery_date` (`null` clears it). Each
+  item changed is checked and priced again by T78a's `itemCheck.item` on
+  the order's date; an item that comes out as it was is no change, and a
+  request that changes nothing is 422 `sales.nothing_changed`. Refusals:
+  a cancelled order 409 `sales.invalid_status`; an unknown or repeated
+  item 422 `sales.unknown_order_item`, `sales.item_repeated`; another
+  unit `sales.unit_mismatch`; an item with anything billed 422
+  `sales.order_item_billed` naming `items[i]`; a quantity below what is
+  delivered 422 `sales.quantity_below_delivered`; a requested delivery
+  date before the order's date 422 `sales.invalid_requested_delivery_date`
+  (on `createSalesOrder` too); T78a's item refusals.
+- `POST /v1/sales-orders/{id}:cancel` (`sales.order.write`, `If-Match`,
+  idempotent, human-only, a `reason`): 409 `sales.invalid_status` for an
+  order already cancelled, 409 `sales.order_delivered` for one with a
+  quantity delivered. A cancelled order takes no change, confirmation,
+  delivery or billing document and leaves the customer's open orders
+  (`OpenOrders` reads confirmed ones).
+- `GET /v1/sales-orders/{id}/changes`: the changes by number, each with
+  the order's version after it, its reason, who and when, and its net
+  value, requested delivery date, credit block and items changed before
+  and after.
+- The order is read under its row lock (ADR-0008) before anything else
+  of it; the change is inserted before the order's update, which the
+  change rule finds, and the items are updated under the same lock. A
+  change and a delivery of one order wait for one another
+  (`TestOrderChangeRacingDelivery`).
+- `SalesOrderChanged` for a change (status kept, `status_before` the
+  same) and for a cancellation (`cancelled`), with `changes` and
+  `requested_delivery_date` added to the payload (optional, ADR-0041);
+  the audit records `sales.sales_order.change` (change number, reason,
+  items changed, net value before) and `sales.sales_order.cancel`
+  (reason).
+- Walkthrough step 109 (`step_sales_order_change`): Ruth sets
+  Northwind's limit 1,000.00 above its exposure; Sally creates an order,
+  confirms it, changes its quantity, price and requested delivery date
+  and reads the change back; a stale version is refused; a change beyond
+  the limit blocks the order again and Ruth releases it; a second order
+  is cancelled once; step 63's delivered order refuses a cancellation.
+- **Decided by default:** (1) a change is a custom method (`:change`),
+  not `PATCH`, since a confirmed order is no draft (04 §4.3); (2) only an
+  item's quantity and price and the requested delivery date (a header
+  date, SAP's VBAK-VDATU; per item dates stay with schedule lines) change;
+  items are not added or removed and the payment term stays; (3) an item
+  with anything billed keeps its quantity and price, so billed amounts
+  never need working out again (cancel the billing document first,
+  T79c); (4) a changed item is priced again on the order's date: an
+  entered price stays entered, a price-list price is determined again
+  with the procedure's discounts, and its account and tax code are
+  checked again; (5) a change that raises a confirmed, unblocked order's
+  value checks the increase of its gross value against the limit, the
+  exposure already holding the order as it was, and blocks the order
+  again over it, clearing an earlier release (the audit trail keeps
+  it); a blocked order is not checked again; (6) `:change` and `:cancel`
+  take `sales.order.write` (no new permission); (7) a cancelled order's
+  quotation stays ordered; (8) the revenue contract of a changed or
+  cancelled order is not changed: the `revenue-contracts` consumer reads
+  confirmations alone (a gap for the product owner).

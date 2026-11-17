@@ -487,6 +487,20 @@ type Invoker interface {
 	//
 	// POST /v1/revaluation-runs/{id}:cancel
 	CancelRevaluationRun(ctx context.Context, request *ReasonInput, params CancelRevaluationRunParams) (CancelRevaluationRunRes, error)
+	// CancelSalesOrder invokes cancelSalesOrder operation.
+	//
+	// Cancels a `draft` or `confirmed` sales order of which nothing is delivered (ADR-0067, As built
+	// T78d), at the version the caller read (`If-Match`), with a reason: the order is read under a row
+	// lock and moves to `cancelled` once, naming the reason, who cancelled it and when. An order already
+	// cancelled is refused (409 `sales.invalid_status`), as is one with a quantity delivered (409
+	// `sales.order_delivered`): since only what is delivered is billed, nothing of a cancelled order is
+	// billed. A cancelled order takes no change, delivery or billing document, and leaves the customer's
+	// open orders (`getCreditExposure`). The quotation it came from stays ordered. Nothing is posted.
+	// Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the
+	// cancelled order. Human-only (`x-agent: false`).
+	//
+	// POST /v1/sales-orders/{id}:cancel
+	CancelSalesOrder(ctx context.Context, request *ReasonInput, params CancelSalesOrderParams) (CancelSalesOrderRes, error)
 	// CancelSupplierInvoice invokes cancelSupplierInvoice operation.
 	//
 	// Cancels a parked or held invoice (status `cancelled`); its supplier reference can then be entered
@@ -539,6 +553,34 @@ type Invoker interface {
 	//
 	// POST /v1/supplier-invoices:capture
 	CaptureSupplierInvoice(ctx context.Context, request *SupplierInvoiceCaptureMultipart, params CaptureSupplierInvoiceParams) (CaptureSupplierInvoiceRes, error)
+	// ChangeSalesOrder invokes changeSalesOrder operation.
+	//
+	// Changes a `draft` or `confirmed` sales order in place (ADR-0067, As built T78d), at the version the
+	// caller read (`If-Match`): items' quantities and unit prices and the order's requested delivery date.
+	// The order is read under a row lock; a cancelled order is not changed (409 `sales.invalid_status`).
+	// Each item named by its number (422 `sales.unknown_order_item` naming `items[i].item_no`, once: 422
+	// `sales.item_repeated`) takes the quantity given, in its own unit (422 `sales.unit_mismatch`), and
+	// the unit price given, in the order's currency, with its price unit; what is not given stays. A
+	// changed item is checked and priced again as an item given directly is (`createSalesOrder`), on the
+	// order's date: an entered price stays entered, an item priced from the price records takes the record
+	// valid on that date again, with the pricing procedure's discounts; its account and tax code are
+	// checked again on that date (422 `sales.account_not_postable`, `sales.unknown_tax_code`). An item's
+	// quantity is never below what is delivered of it (422 `sales.quantity_below_delivered` naming
+	// `items[i].quantity.value`), and an item of which something is billed keeps its quantity and price
+	// (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first.
+	// `requested_delivery_date` is on or after the order's date (422
+	// `sales.invalid_requested_delivery_date`); `null` clears it. A request that changes nothing is
+	// refused (422 `sales.nothing_changed`). The order's net value is the sum of its items' again. A
+	// change that raises a confirmed order's net value checks the customer's credit for the increase, as a
+	// confirmation checks the order (`confirmSalesOrder`): an order that no longer fits the limit is
+	// blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked), whatever an earlier
+	// release; a lower value leaves the block as it is. The change is kept, numbered within the order,
+	// with its reason and its values before and after (`listSalesOrderChanges`), and the order's `changes`
+	// counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
+	// `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`).
+	//
+	// POST /v1/sales-orders/{id}:change
+	ChangeSalesOrder(ctx context.Context, request *SalesOrderChangeRequest, params ChangeSalesOrderParams) (ChangeSalesOrderRes, error)
 	// CheckCloseTask invokes checkCloseTask operation.
 	//
 	// Runs a check task's check now and records its result on the task (ADR-0058 §6, T64c):
@@ -782,20 +824,20 @@ type Invoker interface {
 	// Confirms a `draft` sales order (ADR-0067 §5, T78b), at the version the caller read (`If-Match`):
 	// the order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused
 	// (409 `sales.invalid_status`). Confirming is by permission, without an approval; a confirmed order is
-	// not changed or cancelled in the first version. Nothing is posted. The confirmation checks the
-	// customer's credit (ADR-0066, T77b), once: the order's gross value, its net value plus the output tax
-	// its items' tax codes give on the order's date, in the company's currency (an order in another
-	// currency at the average rate valid on its date), is compared with the customer's credit limit in the
-	// company less its exposure, its open items and its other confirmed orders not yet billed, as
-	// `getCreditExposure` gives them. An order that is within the limit, and every order of a customer
-	// without a limit, is confirmed with `credit_block` `none`. One that is not is confirmed all the same,
-	// with `credit_block` `blocked`: it takes no delivery, and so no billing, until a person holding
-	// `sales.order.credit_release` releases it (`releaseSalesOrderCreditBlock`). Two orders of one
-	// customer confirmed at once are checked one after the other, so they cannot both take the room only
-	// one fits. The order is not checked again after its confirmation. The value must be calculable: a tax
-	// code that is no longer an output tax code on the order's date (422 `sales.unknown_tax_code`), an
-	// order in another currency without a rate into the company's on its date (422
-	// `ledger.no_exchange_rate`) or a value with its tax too large for an amount (422
+	// changed (`changeSalesOrder`) and cancelled (`cancelSalesOrder`) as a draft is. Nothing is posted.
+	// The confirmation checks the customer's credit (ADR-0066, T77b), once: the order's gross value, its
+	// net value plus the output tax its items' tax codes give on the order's date, in the company's
+	// currency (an order in another currency at the average rate valid on its date), is compared with the
+	// customer's credit limit in the company less its exposure, its open items and its other confirmed
+	// orders not yet billed, as `getCreditExposure` gives them. An order that is within the limit, and
+	// every order of a customer without a limit, is confirmed with `credit_block` `none`. One that is not
+	// is confirmed all the same, with `credit_block` `blocked`: it takes no delivery, and so no billing,
+	// until a person holding `sales.order.credit_release` releases it (`releaseSalesOrderCreditBlock`).
+	// Two orders of one customer confirmed at once are checked one after the other, so they cannot both
+	// take the room only one fits. The order is not checked again after its confirmation. The value must
+	// be calculable: a tax code that is no longer an output tax code on the order's date (422
+	// `sales.unknown_tax_code`), an order in another currency without a rate into the company's on its
+	// date (422 `ledger.no_exchange_rate`) or a value with its tax too large for an amount (422
 	// `sales.amount_too_large`) refuses the confirmation, whether the customer has a limit or not, since a
 	// confirmed order counts in its exposure. An exposure that adds up, with the order, to more than an
 	// amount holds is refused too (422 `credit.amount_too_large`). Audited, with the amount checked, the
@@ -5690,6 +5732,17 @@ type Invoker interface {
 	//
 	// GET /v1/sales-orders/{id}/deliveries
 	ListSalesDeliveries(ctx context.Context, params ListSalesDeliveriesParams) (ListSalesDeliveriesRes, error)
+	// ListSalesOrderChanges invokes listSalesOrderChanges operation.
+	//
+	// The changes of a sales order (ADR-0067, As built T78d), each as `changeSalesOrder` made it: its
+	// number within the order, the order's version after it, its reason, who made it and when, and what it
+	// changed with its values before and after: the net value, the requested delivery date, the credit
+	// block and each item changed. A change is kept as it was made and never altered. An order of a
+	// company the caller may not act in is not found (404), as one that does not exist. Sortable by:
+	// `change_no`.
+	//
+	// GET /v1/sales-orders/{id}/changes
+	ListSalesOrderChanges(ctx context.Context, params ListSalesOrderChangesParams) (ListSalesOrderChangesRes, error)
 	// ListSalesOrders invokes listSalesOrders operation.
 	//
 	// The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as
@@ -14047,6 +14100,174 @@ func (c *Client) sendCancelRevaluationRun(ctx context.Context, request *ReasonIn
 	return result, nil
 }
 
+// CancelSalesOrder invokes cancelSalesOrder operation.
+//
+// Cancels a `draft` or `confirmed` sales order of which nothing is delivered (ADR-0067, As built
+// T78d), at the version the caller read (`If-Match`), with a reason: the order is read under a row
+// lock and moves to `cancelled` once, naming the reason, who cancelled it and when. An order already
+// cancelled is refused (409 `sales.invalid_status`), as is one with a quantity delivered (409
+// `sales.order_delivered`): since only what is delivered is billed, nothing of a cancelled order is
+// billed. A cancelled order takes no change, delivery or billing document, and leaves the customer's
+// open orders (`getCreditExposure`). The quotation it came from stays ordered. Nothing is posted.
+// Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the
+// cancelled order. Human-only (`x-agent: false`).
+//
+// POST /v1/sales-orders/{id}:cancel
+func (c *Client) CancelSalesOrder(ctx context.Context, request *ReasonInput, params CancelSalesOrderParams) (CancelSalesOrderRes, error) {
+	res, err := c.sendCancelSalesOrder(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCancelSalesOrder(ctx context.Context, request *ReasonInput, params CancelSalesOrderParams) (res CancelSalesOrderRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("cancelSalesOrder"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/sales-orders/{id}:cancel"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CancelSalesOrderOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/sales-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":cancel"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCancelSalesOrderRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CancelSalesOrderOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCancelSalesOrderResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CancelSupplierInvoice invokes cancelSupplierInvoice operation.
 //
 // Cancels a parked or held invoice (status `cancelled`); its supplier reference can then be entered
@@ -14494,6 +14715,188 @@ func (c *Client) sendCaptureSupplierInvoice(ctx context.Context, request *Suppli
 
 	stage = "DecodeResponse"
 	result, err := decodeCaptureSupplierInvoiceResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ChangeSalesOrder invokes changeSalesOrder operation.
+//
+// Changes a `draft` or `confirmed` sales order in place (ADR-0067, As built T78d), at the version the
+// caller read (`If-Match`): items' quantities and unit prices and the order's requested delivery date.
+// The order is read under a row lock; a cancelled order is not changed (409 `sales.invalid_status`).
+// Each item named by its number (422 `sales.unknown_order_item` naming `items[i].item_no`, once: 422
+// `sales.item_repeated`) takes the quantity given, in its own unit (422 `sales.unit_mismatch`), and
+// the unit price given, in the order's currency, with its price unit; what is not given stays. A
+// changed item is checked and priced again as an item given directly is (`createSalesOrder`), on the
+// order's date: an entered price stays entered, an item priced from the price records takes the record
+// valid on that date again, with the pricing procedure's discounts; its account and tax code are
+// checked again on that date (422 `sales.account_not_postable`, `sales.unknown_tax_code`). An item's
+// quantity is never below what is delivered of it (422 `sales.quantity_below_delivered` naming
+// `items[i].quantity.value`), and an item of which something is billed keeps its quantity and price
+// (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first.
+// `requested_delivery_date` is on or after the order's date (422
+// `sales.invalid_requested_delivery_date`); `null` clears it. A request that changes nothing is
+// refused (422 `sales.nothing_changed`). The order's net value is the sum of its items' again. A
+// change that raises a confirmed order's net value checks the customer's credit for the increase, as a
+// confirmation checks the order (`confirmSalesOrder`): an order that no longer fits the limit is
+// blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked), whatever an earlier
+// release; a lower value leaves the block as it is. The change is kept, numbered within the order,
+// with its reason and its values before and after (`listSalesOrderChanges`), and the order's `changes`
+// counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
+// `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`).
+//
+// POST /v1/sales-orders/{id}:change
+func (c *Client) ChangeSalesOrder(ctx context.Context, request *SalesOrderChangeRequest, params ChangeSalesOrderParams) (ChangeSalesOrderRes, error) {
+	res, err := c.sendChangeSalesOrder(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendChangeSalesOrder(ctx context.Context, request *SalesOrderChangeRequest, params ChangeSalesOrderParams) (res ChangeSalesOrderRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("changeSalesOrder"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/sales-orders/{id}:change"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ChangeSalesOrderOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/sales-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":change"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeChangeSalesOrderRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ChangeSalesOrderOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeChangeSalesOrderResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -16933,20 +17336,20 @@ func (c *Client) sendConfirmSalesDelivery(ctx context.Context, request *SalesDel
 // Confirms a `draft` sales order (ADR-0067 §5, T78b), at the version the caller read (`If-Match`):
 // the order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused
 // (409 `sales.invalid_status`). Confirming is by permission, without an approval; a confirmed order is
-// not changed or cancelled in the first version. Nothing is posted. The confirmation checks the
-// customer's credit (ADR-0066, T77b), once: the order's gross value, its net value plus the output tax
-// its items' tax codes give on the order's date, in the company's currency (an order in another
-// currency at the average rate valid on its date), is compared with the customer's credit limit in the
-// company less its exposure, its open items and its other confirmed orders not yet billed, as
-// `getCreditExposure` gives them. An order that is within the limit, and every order of a customer
-// without a limit, is confirmed with `credit_block` `none`. One that is not is confirmed all the same,
-// with `credit_block` `blocked`: it takes no delivery, and so no billing, until a person holding
-// `sales.order.credit_release` releases it (`releaseSalesOrderCreditBlock`). Two orders of one
-// customer confirmed at once are checked one after the other, so they cannot both take the room only
-// one fits. The order is not checked again after its confirmation. The value must be calculable: a tax
-// code that is no longer an output tax code on the order's date (422 `sales.unknown_tax_code`), an
-// order in another currency without a rate into the company's on its date (422
-// `ledger.no_exchange_rate`) or a value with its tax too large for an amount (422
+// changed (`changeSalesOrder`) and cancelled (`cancelSalesOrder`) as a draft is. Nothing is posted.
+// The confirmation checks the customer's credit (ADR-0066, T77b), once: the order's gross value, its
+// net value plus the output tax its items' tax codes give on the order's date, in the company's
+// currency (an order in another currency at the average rate valid on its date), is compared with the
+// customer's credit limit in the company less its exposure, its open items and its other confirmed
+// orders not yet billed, as `getCreditExposure` gives them. An order that is within the limit, and
+// every order of a customer without a limit, is confirmed with `credit_block` `none`. One that is not
+// is confirmed all the same, with `credit_block` `blocked`: it takes no delivery, and so no billing,
+// until a person holding `sales.order.credit_release` releases it (`releaseSalesOrderCreditBlock`).
+// Two orders of one customer confirmed at once are checked one after the other, so they cannot both
+// take the room only one fits. The order is not checked again after its confirmation. The value must
+// be calculable: a tax code that is no longer an output tax code on the order's date (422
+// `sales.unknown_tax_code`), an order in another currency without a rate into the company's on its
+// date (422 `ledger.no_exchange_rate`) or a value with its tax too large for an amount (422
 // `sales.amount_too_large`) refuses the confirmation, whether the customer has a limit or not, since a
 // confirmed order counts in its exposure. An exposure that adds up, with the order, to more than an
 // amount holds is refused too (422 `credit.amount_too_large`). Audited, with the amount checked, the
@@ -84617,6 +85020,198 @@ func (c *Client) sendListSalesDeliveries(ctx context.Context, params ListSalesDe
 
 	stage = "DecodeResponse"
 	result, err := decodeListSalesDeliveriesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListSalesOrderChanges invokes listSalesOrderChanges operation.
+//
+// The changes of a sales order (ADR-0067, As built T78d), each as `changeSalesOrder` made it: its
+// number within the order, the order's version after it, its reason, who made it and when, and what it
+// changed with its values before and after: the net value, the requested delivery date, the credit
+// block and each item changed. A change is kept as it was made and never altered. An order of a
+// company the caller may not act in is not found (404), as one that does not exist. Sortable by:
+// `change_no`.
+//
+// GET /v1/sales-orders/{id}/changes
+func (c *Client) ListSalesOrderChanges(ctx context.Context, params ListSalesOrderChangesParams) (ListSalesOrderChangesRes, error) {
+	res, err := c.sendListSalesOrderChanges(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListSalesOrderChanges(ctx context.Context, params ListSalesOrderChangesParams) (res ListSalesOrderChangesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listSalesOrderChanges"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/sales-orders/{id}/changes"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListSalesOrderChangesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/sales-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/changes"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListSalesOrderChangesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListSalesOrderChangesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
