@@ -34,7 +34,7 @@ type paymentReferences struct {
 	references map[uuid.UUID]string
 	statements map[uuid.UUID]StatementLine
 	// closed are the payments' credits on account no longer open.
-	closed map[ledger.ItemRef]string
+	closed map[ledger.ItemRef]bool
 }
 
 // paymentReferences reads what the payments name by id, once for all of
@@ -80,7 +80,7 @@ func (e *Endpoints) paymentReferences(ctx context.Context, payments []IncomingPa
 	if refs.statements, err = e.Statements.Lines(ctx, receipts); err != nil {
 		return paymentReferences{}, fmt.Errorf("receivables: statement lines of the receipts of %d incoming payments: %w", len(payments), err)
 	}
-	if refs.closed, err = e.OpenItems.Unpayable(ctx, credits); err != nil {
+	if refs.closed, err = e.OpenItems.Closed(ctx, credits); err != nil {
 		return paymentReferences{}, fmt.Errorf("receivables: credits on account of %d incoming payments: %w", len(payments), err)
 	}
 	return refs, nil
@@ -127,7 +127,7 @@ func paymentToAPI(v IncomingPayment, refs paymentReferences) gen.IncomingPayment
 	if v.OnAccount != 0 {
 		on := gen.IncomingPaymentOnAccount{Amount: amount(v.OnAccount), OpenAmount: amount(0)}
 		if credit, open, ok := v.credit(); ok {
-			if _, closed := refs.closed[credit]; !closed {
+			if !refs.closed[credit] {
 				on.OpenAmount = amount(open)
 				on.FiscalYear.SetTo(int32(credit.FiscalYear))
 				on.JournalEntryID.SetTo(credit.EntryID)

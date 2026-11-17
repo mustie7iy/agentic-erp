@@ -541,7 +541,7 @@ func TestIncomingPaymentResidualRules(t *testing.T) {
 	var none *int64
 	var noLine *int32
 	var noText *string
-	amount, line, reason, text := int64(4000), int32(3), "disputed", "The second visit"
+	amount, line, reason, text, zeroLine := int64(4000), int32(3), "disputed", "The second visit", int32(0)
 	long, longText := strings.Repeat("r", 41), strings.Repeat("t", 201)
 	cases := []struct {
 		name string
@@ -557,6 +557,7 @@ func TestIncomingPaymentResidualRules(t *testing.T) {
 		{"a residual of a credit", []any{int64(-10000), &amount, &line, &reason, noText}, "incoming_payment_item_residual"},
 		{"a reason of 41 characters", []any{int64(10000), &amount, &line, &long, noText}, "incoming_payment_item_residual_reason_length"},
 		{"a text of 201 characters", []any{int64(10000), &amount, &line, &reason, &longText}, "incoming_payment_item_residual_text_length"},
+		{"a residual on line 0", []any{int64(10000), &amount, &zeroLine, &reason, noText}, "incoming_payment_item_residual"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -682,6 +683,22 @@ func TestPaymentOnAccountRules(t *testing.T) {
 		{"a line with nothing on account", func(tx pgx.Tx, s scene) error {
 			return all(tx, step(header, s.tenant, s.doc, "IP1", int64(0), &line, &s.account))
 		}, "incoming_payment_on_account"},
+		{"on account on line 0", func(tx pgx.Tx, s scene) error {
+			zero := int32(0)
+			return all(tx, step(header, s.tenant, s.doc, "IP1", int64(10000), &zero, &s.account))
+		}, "incoming_payment_on_account"},
+		{"an application of credit line 0", func(tx pgx.Tx, s scene) error {
+			return all(tx, paid(s), step(`INSERT INTO receivables.incoming_payment_application (tenant_id, incoming_payment_id, application_no, posting_date,
+				credit_entry_year, credit_entry_id, credit_line_no, amount, on_account_amount, clearing_entry_year, clearing_entry_id, created_by)
+				VALUES ($1, $2, 1, '2026-03-22', 2026, $3, 0, 100, 0, 2026, gen_random_uuid(), $1)`, s.tenant, s.doc, s.credit))
+		}, "incoming_payment_application_credit_line_no_check"},
+		{"an application leaving a negative amount", func(tx pgx.Tx, s scene) error {
+			return all(tx, paid(s), step(app, s.tenant, s.doc, 1, s.credit, int64(10000), int64(-1), noLine, id()))
+		}, "incoming_payment_application_on_account"},
+		{"an application leaving its amount on line 0", func(tx pgx.Tx, s scene) error {
+			zero := int32(0)
+			return all(tx, paid(s), step(app, s.tenant, s.doc, 1, s.credit, int64(10000), int64(4000), &zero, id()))
+		}, "incoming_payment_application_on_account"},
 		{"negative on account", func(tx pgx.Tx, s scene) error {
 			return all(tx, step(header, s.tenant, s.doc, "IP1", int64(-1), &line, &s.account))
 		}, "incoming_payment_on_account"},

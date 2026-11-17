@@ -25,7 +25,10 @@ import (
 
 // Incoming payments applied (ADR-0063 §6, T75c): a receipt a bank
 // statement posted to a house bank's incoming payments clearing account
-// (ADR-0047) is applied to a customer's open items in full and exactly.
+// (ADR-0047) is applied to a customer's open items: in full and exactly,
+// or with residual items and a difference within the company's tolerance
+// (T75f, residual.go), what is left put on the customer's account (T75g,
+// onaccount.go).
 // The application is a receivables document, written once; the clearing
 // is the ledger's (ledger.Postings.ApplyReceipt).
 
@@ -155,8 +158,10 @@ func GetPayment(ctx context.Context, id uuid.UUID) (IncomingPayment, error) {
 // ApplyPayment applies the receipt to the customer's items (ADR-0063 §6):
 // the ledger posts one entry that offsets the receipt and every item at
 // their booked amounts and clears them all, refusing items that are not
-// the customer's open items in the company or do not equal the receipt
-// exactly in its currency; the application is then written as a document
+// the customer's open items in the company or do not, net of their
+// residuals, equal the receipt in its currency but for a difference within
+// the tolerance or what goes on account; the application is then written
+// as a document
 // with its items, its audit record and IncomingPaymentApplied, all in the
 // request's transaction.
 //

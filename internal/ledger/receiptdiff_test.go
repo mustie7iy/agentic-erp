@@ -274,6 +274,26 @@ func TestApplyReceiptOnAccount(t *testing.T) {
 	if again.OnAccount != 7000 || again.OnAccountLine != 3 {
 		t.Errorf("left on account: got %d on line %d, want 7000 on line 3", again.OnAccount, again.OnAccountLine)
 	}
+	t.Run("which lines are closed", func(t *testing.T) {
+		left := ledger.ItemRef{FiscalYear: again.Entry.FiscalYear, EntryID: again.Entry.ID, LineNo: again.OnAccountLine}
+		var closed map[ledger.ItemRef]bool
+		if err := apitest.InRequest(t, r.ten, r.ten.Human, func(ctx context.Context) (err error) {
+			closed, err = ledger.OpenItems{}.Closed(ctx, []ledger.ItemRef{credit, left, invoice})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := fmt.Sprint(closed[credit], closed[left], closed[invoice], len(closed)), "true false true 2"; got != want {
+			t.Errorf("closed (credit, what is left, invoice, count): got %s, want %s", got, want)
+		}
+		if _, err := (ledger.OpenItems{}).Closed(context.Background(), nil); err == nil {
+			t.Error("outside a unit of work: got nil error, want an error")
+		}
+		apitest.EveryFailure(t, r.ten, r.ten.Human, "read which lines are closed", func(ctx context.Context) error {
+			_, err := ledger.OpenItems{}.Closed(ctx, []ledger.ItemRef{credit})
+			return err
+		})
+	})
 	t.Run("the credit applied twice", func(t *testing.T) {
 		if code, _ := r.refused(t, later); code != "ledger.item_already_cleared" {
 			t.Errorf("got %s, want ledger.item_already_cleared", code)

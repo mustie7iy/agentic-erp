@@ -41,7 +41,8 @@ type ReceiptApplication struct {
 	Receipt          ItemRef
 	// CustomerID is the customer whose items Items are: open items on
 	// customer reconciliation accounts, invoices and credits alike, that
-	// together are the receipt exactly.
+	// together, net of Residuals, are the receipt but for what OnAccount
+	// takes or the tolerance writes off.
 	CustomerID uuid.UUID
 	Items      []ItemRef
 	// Residuals, one per item or none, are what stays open of the items
@@ -101,10 +102,13 @@ type AppliedReceipt struct {
 // ApplyReceipt posts the entry that applies the receipt to the customer's
 // items and clears them all with it: Dr the receipt's account and Cr (or,
 // for a credit of the customer's, Dr) each item's account with the
-// customer, each at the amounts it was booked at, and the difference in
-// local or group currency on the account determination's fx_gain or
-// fx_loss account. The items must total the receipt exactly in its
-// currency (422 ledger.clearing_not_balanced): nothing is left open.
+// customer, each at the amounts it was booked at; then each item's
+// residual item, what the receipt leaves on the customer's account
+// (OnAccount) or the payment difference within the tolerance (Under,
+// Over), and the difference in local or group currency on the account
+// determination's fx_gain or fx_loss account (applicationLines). The
+// items, net of their residuals, must total the receipt in its currency
+// but for those (422 ledger.clearing_not_balanced).
 //
 // The receipt's line and the items are read in one loadItems, under one
 // sorted set of entry locks taken before any number range, as a clearing

@@ -11,6 +11,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 // Partial payments and payments on account (ADR-0063 §6 As built, T75f
@@ -244,15 +245,41 @@ func receiptRate(receipt item, tc money.Minor) (lc, gc money.Minor, err error) {
 	return lc, gc, err
 }
 
-// prorate is x's share part/whole, rounded half away from zero; whole is
-// never zero (an open item's amount).
+// prorate is x's share part/whole, rounded half away from zero (share);
+// whole is never zero (an open item's amount).
 func prorate(x, part, whole money.Minor) (money.Minor, error) {
-	num := new(big.Int).Mul(big.NewInt(int64(x)), big.NewInt(int64(part)))
-	v, err := money.Round(new(big.Rat).SetFrac(num, big.NewInt(int64(whole))), 0)
+	v, err := share(x, big.NewRat(int64(part), 1), big.NewRat(int64(whole), 1))
 	if err != nil {
 		return 0, errTotalTooLarge("items")
 	}
 	return v, nil
+}
+
+// Closed returns which of the lines are no longer open: cleared, or of a
+// reversed entry or a reversal; lines still open, or not found, are left
+// out. It takes no lock, so a reader calls it without taking the entries'
+// locks out of their one sorted call (lockEntries): its answer is advice,
+// which a posting checks again under those locks (ApplyReceipt's
+// checkCredit, clearing_item_pkey).
+func (OpenItems) Closed(ctx context.Context, refs []ItemRef) (map[ItemRef]bool, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	years, entries, nos := columns(refs)
+	rows, _ := tx.Query(ctx, `SELECT l.fiscal_year, l.journal_entry_id, l.line_no
+		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) AS x(y, je, n)
+		JOIN ledger.journal_line l ON l.fiscal_year = x.y AND l.journal_entry_id = x.je AND l.line_no = x.n
+			AND EXISTS (SELECT FROM ledger.ledger g WHERE g.tenant_id = l.tenant_id AND g.id = l.ledger_id AND g.is_leading)
+		WHERE EXISTS (SELECT FROM ledger.clearing_item ci WHERE ci.tenant_id = l.tenant_id AND ci.fiscal_year = l.fiscal_year
+				AND ci.journal_entry_id = l.journal_entry_id AND ci.line_no = l.line_no)
+			OR `+reversedLine, years, entries, nos)
+	out := map[ItemRef]bool{}
+	var ref ItemRef
+	if _, err := pgx.ForEachRow(rows, []any{&ref.FiscalYear, &ref.EntryID, &ref.LineNo}, func() error { out[ref] = true; return nil }); err != nil {
+		return nil, fmt.Errorf("ledger: which of %d lines are closed: %w", len(refs), err)
+	}
+	return out, nil
 }
 
 // lineTotals adds up the lines in each currency.

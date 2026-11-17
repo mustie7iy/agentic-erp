@@ -941,7 +941,9 @@ The second variant of §6 (`plan-depth-1.md` §T75g).
   customer's account, the customer's), with residuals and the
   underpayment tolerance as T75f; what the items leave stays on account
   as a new credit line of the application's entry, at the credit's rate.
-  The credit is checked open first (`ledger.OpenItems.Unpayable`; 409
+  The credit is checked open first (`ledger.OpenItems.Closed`, a read
+  that takes no lock, so the entries' locks are taken once, in the
+  ledger's one sorted call before any number range; 409
   `receivables.no_credit_on_account` when it is all applied or was
   cleared otherwise, a manual clearing or netted by another payment);
   two applications racing for one credit both pass that read and the

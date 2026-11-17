@@ -89,9 +89,11 @@ type CreditInput struct {
 // record and IncomingPaymentOnAccountApplied in the request's transaction.
 //
 // A credit no longer open, all applied or cleared otherwise, is refused,
-// 409 receivables.no_credit_on_account. The read takes no lock: two
-// applications racing for one credit both find it open, and the ledger,
-// marking it cleared under the entries' locks, refuses the second (409
+// 409 receivables.no_credit_on_account. That read takes no lock
+// (ledger.OpenItems.Closed), so the entries' locks are taken once, in the
+// ledger's one sorted call before any number range: two applications
+// racing for one credit both find it open, and the ledger, marking it
+// cleared under those locks, refuses the second (409
 // ledger.item_already_cleared), which rolls back whole.
 func (e *Endpoints) ApplyOnAccount(ctx context.Context, in CreditInput) (IncomingPayment, error) {
 	tx, p, err := reqctx.Request(ctx)
@@ -134,12 +136,11 @@ func (e *Endpoints) ApplyOnAccount(ctx context.Context, in CreditInput) (Incomin
 func (e *Endpoints) openCredit(ctx context.Context, v IncomingPayment) (ledger.ItemRef, error) {
 	credit, _, ok := v.credit()
 	if ok {
-		closed, err := e.OpenItems.Unpayable(ctx, []ledger.ItemRef{credit})
+		closed, err := e.OpenItems.Closed(ctx, []ledger.ItemRef{credit})
 		if err != nil {
 			return ledger.ItemRef{}, fmt.Errorf("receivables: credit on account of incoming payment %s: %w", v.DocumentNumber, err)
 		}
-		_, cleared := closed[credit]
-		ok = !cleared
+		ok = !closed[credit]
 	}
 	if !ok {
 		return ledger.ItemRef{}, problem.Conflict("receivables.no_credit_on_account",

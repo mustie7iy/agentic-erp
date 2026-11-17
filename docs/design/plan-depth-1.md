@@ -61,7 +61,7 @@ account as an unapplied credit, and later applies that credit to the
 customer's open items, in full or in part.
 
 - **Reuses:** T75f's application (residuals, tolerance), the customer's
-  reconciliation account (partner context, T74a), `OpenItems.Unpayable`.
+  reconciliation account (partner context, T74a), `OpenItems.Closed` (new, a read without lock).
 - **Adds:** `on_account` on `POST /v1/incoming-payments` (items may then
   be empty): what the receipt leaves after the items is a credit line on
   the customer's reconciliation account; `POST
