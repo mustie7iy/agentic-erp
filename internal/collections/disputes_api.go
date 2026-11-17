@@ -35,26 +35,34 @@ type caseRefs struct {
 // customers and people, as their consumer reads them (REVIEW.md,
 // API-consumer classes).
 func (e *Endpoints) refs(ctx context.Context, cases []Case) (caseRefs, error) {
+	les, customers := make([]uuid.UUID, len(cases)), make([]uuid.UUID, len(cases))
+	for i, c := range cases {
+		les[i], customers[i] = c.LegalEntityID, c.CustomerID
+	}
+	people := append(idref.Of(cases, func(c Case) *uuid.UUID { return c.Assignee }), idref.Of(cases, func(c Case) *uuid.UUID { return c.ClosedBy })...)
+	return e.named(ctx, "dispute cases", les, customers, people)
+}
+
+// named reads the companies, customers and people that rows of a kind
+// (what) name, once each.
+func (e *Endpoints) named(ctx context.Context, what string, les, customers []uuid.UUID, people []uuid.UUID) (caseRefs, error) {
 	out := caseRefs{companies: map[uuid.UUID]tenancy.Entity{}}
-	var customers []uuid.UUID
-	for _, c := range cases {
-		customers = append(customers, c.CustomerID)
-		if _, ok := out.companies[c.LegalEntityID]; ok {
+	for _, id := range les {
+		if _, ok := out.companies[id]; ok {
 			continue
 		}
-		le, _, err := e.LegalEntities.Entity(ctx, c.LegalEntityID) // a stored case's legal entity exists
+		le, _, err := e.LegalEntities.Entity(ctx, id) // a stored row's legal entity exists
 		if err != nil {
-			return caseRefs{}, fmt.Errorf("collections: company of dispute case %s: %w", c.ID, err)
+			return caseRefs{}, fmt.Errorf("collections: company %s of %s: %w", id, what, err)
 		}
-		out.companies[c.LegalEntityID] = le
+		out.companies[id] = le
 	}
 	var err error
 	if out.customers, err = e.Partners.Names(ctx, customers); err != nil {
-		return caseRefs{}, fmt.Errorf("collections: customers of %d dispute cases: %w", len(cases), err)
+		return caseRefs{}, fmt.Errorf("collections: customers of %d %s: %w", len(customers), what, err)
 	}
-	people := append(idref.Of(cases, func(c Case) *uuid.UUID { return c.Assignee }), idref.Of(cases, func(c Case) *uuid.UUID { return c.ClosedBy })...)
 	if out.people, err = idref.Resolve(ctx, e.People.PersonNames, people, personRef); err != nil {
-		return caseRefs{}, fmt.Errorf("collections: people of %d dispute cases: %w", len(cases), err)
+		return caseRefs{}, fmt.Errorf("collections: people of %d %s: %w", len(customers), what, err)
 	}
 	return out, nil
 }

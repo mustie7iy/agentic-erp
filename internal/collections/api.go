@@ -47,12 +47,20 @@ func runToAPI(r Run, companies map[uuid.UUID]tenancy.Entity) gen.DunningRun {
 		GraceDays: r.GraceDays, MinimumAmount: apitypes.Money(r.MinimumAmount, r.Currency, r.Exponent),
 		InterestRatePercent: apitypes.OptString(r.InterestRate), BelowMinimumNoticeCount: r.BelowMinimumCount,
 		BelowMinimumAmount: apitypes.Money(r.BelowMinimumAmount, r.Currency, r.Exponent), DisputedItemCount: int32(len(r.Disputed)),
-		DisputedAmount: apitypes.Money(r.DisputedLC(), r.Currency, r.Exponent), DisputedItems: make([]gen.DunningRunDisputedItem, len(r.Disputed))}
+		DisputedAmount: apitypes.Money(r.DisputedLC(), r.Currency, r.Exponent), DisputedItems: make([]gen.DunningRunDisputedItem, len(r.Disputed)),
+		BlockedItemCount: int32(len(r.Blocked)), BlockedAmount: apitypes.Money(r.BlockedLC(), r.Currency, r.Exponent),
+		BlockedItems: make([]gen.DunningRunBlockedItem, len(r.Blocked))}
 	for i, d := range r.Disputed {
 		out.DisputedItems[i] = gen.DunningRunDisputedItem{DisputeCaseID: d.CaseID, CustomerID: d.CustomerID, CustomerNumber: d.CustomerNumber,
 			FiscalYear: int32(d.FiscalYear), JournalEntryID: d.EntryID, LineNo: d.LineNo, DocumentNumber: d.DocumentNumber,
 			Reference: apitypes.OptString(d.Reference), NetDueDate: d.NetDueDate, DaysOverdue: d.DaysOverdue,
 			Amount: apitypes.Money(d.Amount, d.Currency, d.Exponent), LocalAmount: apitypes.Money(d.AmountLC, r.Currency, r.Exponent)}
+	}
+	for i, b := range r.Blocked {
+		out.BlockedItems[i] = gen.DunningRunBlockedItem{DunningBlockID: b.BlockID, CustomerID: b.CustomerID, CustomerNumber: b.CustomerNumber,
+			FiscalYear: int32(b.FiscalYear), JournalEntryID: b.EntryID, LineNo: b.LineNo, DocumentNumber: b.DocumentNumber,
+			Reference: apitypes.OptString(b.Reference), NetDueDate: b.NetDueDate, DaysOverdue: b.DaysOverdue,
+			Amount: apitypes.Money(b.Amount, b.Currency, b.Exponent), LocalAmount: apitypes.Money(b.AmountLC, r.Currency, r.Exponent)}
 	}
 	return out
 }

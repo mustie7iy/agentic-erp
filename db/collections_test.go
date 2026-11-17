@@ -11,8 +11,9 @@ import (
 )
 
 // TestCollectionsPermissions (T76a, migration 000273; T76c, 000278; T86a,
-// 000324; ADR-0065 §7): the dunning permissions, the worklist's and the
-// dispute cases' are seeded and are no approval permissions.
+// 000324; T76e, 000351; ADR-0065 §7): the dunning permissions, the
+// worklist's, the dispute cases' and the dunning blocks' are seeded and
+// are no approval permissions.
 func TestCollectionsPermissions(t *testing.T) {
 	need(t)
 	rows, err := testDB.Query(context.Background(), `SELECT code FROM ref.permission WHERE code LIKE 'collections.%' AND NOT is_approval ORDER BY code`)
@@ -23,7 +24,7 @@ func TestCollectionsPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "collections.dispute.read collections.dispute.write collections.dunning.read collections.dunning.run collections.worklist.read"; got != want {
+	if got, want := strings.Join(codes, " "), "collections.dispute.read collections.dispute.write collections.dunning.block collections.dunning.read collections.dunning.run collections.worklist.read"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }
@@ -604,4 +605,109 @@ func TestDunningCharges(t *testing.T) {
 		})
 		failsWith(t, err, "permission denied")
 	})
+}
+
+// dunningBlock places a block of item $3's line 1 for tenant $1, id $2.
+const dunningBlock = `INSERT INTO collections.dunning_block (tenant_id, id, legal_entity_id, customer_id, customer_number, fiscal_year, journal_entry_id,
+	line_no, document_number, reason, valid_to, created_by, updated_by)
+	VALUES ($1, $2, gen_random_uuid(), gen_random_uuid(), 'BP1', 2026, $3, 1, 'DR1', 'Delivery checked', '2027-01-31', $1, $1)`
+
+// TestDunningBlockRules (T76e, migration 000351): a block names its
+// customer by number and an item by its whole journal line with its
+// document number, or none of them; its reason is more than white space
+// and at most 500 characters; a released block has when and by whom; the
+// application releases a block and changes nothing else of it, once;
+// it deletes none. A run's blocked items are a list, empty by default.
+func TestDunningBlockRules(t *testing.T) {
+	need(t)
+	type scene struct{ tenant, id, entry uuid.UUID }
+	place := func(s scene) stmt { return step(dunningBlock, s.tenant, s.id, s.entry) }
+	with := func(s scene, from, to string) stmt {
+		return step(strings.Replace(dunningBlock, from, to, 1), s.tenant, s.id, s.entry)
+	}
+	const release = `UPDATE collections.dunning_block SET released_at = now(), released_by = $1, version = version + 1, updated_by = $1 WHERE id = $2`
+	cases := []struct {
+		name string
+		run  func(s scene) []stmt
+		want string // empty: allowed
+	}{
+		{"an item's block", func(s scene) []stmt { return []stmt{place(s)} }, ""},
+		{"a customer's block", func(s scene) []stmt {
+			return []stmt{with(s, "2026, $3, 1, 'DR1'", "NULL, NULLIF($3::uuid, $3::uuid), NULL, NULL")}
+		}, ""},
+		{"no customer number", func(s scene) []stmt { return []stmt{with(s, "'BP1'", "''")} }, "dunning_block_customer_number_check"},
+		{"line 0", func(s scene) []stmt { return []stmt{with(s, "$3, 1, 'DR1'", "$3, 0, 'DR1'")} }, "dunning_block_line_no_check"},
+		{"no document number", func(s scene) []stmt { return []stmt{with(s, "'DR1'", "''")} }, "dunning_block_document_number_check"},
+		{"a line without its year", func(s scene) []stmt { return []stmt{with(s, "2026, $3", "NULL, $3")} }, "dunning_block_item_check"},
+		{"a year alone", func(s scene) []stmt {
+			return []stmt{with(s, "2026, $3, 1, 'DR1'", "2026, NULLIF($3::uuid, $3::uuid), NULL, NULL")}
+		},
+			"dunning_block_item_check"},
+		{"a line without its document number", func(s scene) []stmt { return []stmt{with(s, "'DR1'", "NULL")} }, "dunning_block_item_check"},
+		{"a reason of white space", func(s scene) []stmt { return []stmt{with(s, "'Delivery checked'", "'  '")} }, "dunning_block_reason_check"},
+		{"a reason of 501 characters", func(s scene) []stmt { return []stmt{with(s, "'Delivery checked'", "repeat('x', 501)")} }, "dunning_block_reason_check"},
+		{"a reason of 500 characters", func(s scene) []stmt { return []stmt{with(s, "'Delivery checked'", "repeat('x', 500)")} }, ""},
+		{"version 0", func(s scene) []stmt {
+			return []stmt{step(strings.Replace(strings.Replace(dunningBlock, "valid_to, created_by", "valid_to, version, created_by", 1),
+				"'2027-01-31', $1", "'2027-01-31', 0, $1", 1), s.tenant, s.id, s.entry)}
+		}, "dunning_block_version_check"},
+		{"released", func(s scene) []stmt { return []stmt{place(s), step(release, s.tenant, s.id)} }, ""},
+		{"released without by whom", func(s scene) []stmt {
+			return []stmt{place(s), step(`UPDATE collections.dunning_block SET released_at = now(), version = version + 1 WHERE id = $1`, s.id)}
+		}, "dunning_block_released_check"},
+		{"released twice", func(s scene) []stmt {
+			return []stmt{place(s), step(release, s.tenant, s.id), step(release, s.tenant, s.id)}
+		},
+			"a released block is not changed"},
+		{"the end date changed", func(s scene) []stmt {
+			return []stmt{place(s), step(`UPDATE collections.dunning_block SET valid_to = '2027-12-31' WHERE id = $1`, s.id)}
+		}, "permission denied"},
+		{"the reason changed", func(s scene) []stmt {
+			return []stmt{place(s), step(`UPDATE collections.dunning_block SET reason = 'x' WHERE id = $1`, s.id)}
+		}, "permission denied"},
+		{"a block deleted", func(s scene) []stmt { return []stmt{place(s), step(`DELETE FROM collections.dunning_block`)} }, "permission denied"},
+		{"a run's blocked items an object", func(s scene) []stmt {
+			return []stmt{step(`INSERT INTO collections.dunning_run (tenant_id, id, legal_entity_id, key_date, status, currency, notice_count, item_count,
+				overdue_amount, blocked_items, created_by, updated_by) VALUES ($1, $2, gen_random_uuid(), '2026-06-30', 'proposed', 'EUR', 0, 0, 0, '{}', $1, $1)`,
+				s.tenant, s.id)}
+		}, "dunning_run_blocked_items_check"},
+		{"a run's blocked items by default", func(s scene) []stmt {
+			return []stmt{step(`INSERT INTO collections.dunning_run (tenant_id, id, legal_entity_id, key_date, status, currency, notice_count, item_count,
+				overdue_amount, created_by, updated_by) VALUES ($1, $2, gen_random_uuid(), '2026-06-30', 'proposed', 'EUR', 0, 0, 0, $1, $1)`, s.tenant, s.id),
+				step(`DO $$ BEGIN IF (SELECT blocked_items FROM collections.dunning_run) <> '[]'::jsonb THEN RAISE 'not empty'; END IF; END $$`)}
+		}, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), id: id(), entry: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, c.run(s)...) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestDunningBlockReleasedForTheOwner (T76e, migration 000351): a
+// released block is not changed by any role, the table's owner included:
+// the trigger, not the grant, keeps it.
+func TestDunningBlockReleasedForTheOwner(t *testing.T) {
+	need(t)
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	tenant, b := id(), id()
+	if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, tenant.String()), step(dunningBlock, tenant, b, id()),
+		step(`UPDATE collections.dunning_block SET released_at = now(), released_by = $1, version = version + 1 WHERE id = $2`, tenant, b)); err != nil {
+		t.Fatal(err)
+	}
+	_, err = tx.Exec(ctx, `UPDATE collections.dunning_block SET valid_to = '2099-12-31' WHERE id = $1`, b)
+	failsWith(t, err, "a released block is not changed")
 }

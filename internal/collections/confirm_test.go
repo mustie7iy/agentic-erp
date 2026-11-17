@@ -226,7 +226,7 @@ func TestStaleProposal(t *testing.T) {
 		}
 	}
 	t.Run("an item cleared since", func(t *testing.T) {
-		stale(t, a, aTag, "of its 3 items, 1 cleared and 0 dunned by another run")
+		stale(t, a, aTag, "of its 3 items, 1 cleared, 0 dunned by another run and 0 blocked")
 		if got := e.dunned(t); got != "" {
 			t.Errorf("recorded levels: got %q, want none", got)
 		}
@@ -243,7 +243,7 @@ func TestStaleProposal(t *testing.T) {
 	})
 	const recorded = "CI-A 1 2026-06-30, CI-USD 1 2026-06-30"
 	t.Run("items dunned by another run since", func(t *testing.T) {
-		stale(t, b, bTag, "of its 3 items, 1 cleared and 2 dunned by another run")
+		stale(t, b, bTag, "of its 3 items, 1 cleared, 2 dunned by another run and 0 blocked")
 		if got := e.dunned(t); got != recorded {
 			t.Errorf("recorded levels: got %q, want %q", got, recorded)
 		}
@@ -294,7 +294,7 @@ func TestConfirmationsSerialize(t *testing.T) {
 			t.Fatalf("proposed: got %q, want %q", got, want)
 		}
 		first, second := apitest.Serialized(t, e.Tenant, e.Tenant.Human, confirm(stay), confirm(twin))
-		if p := problem.From(second); first != nil || p.Code != "collections.proposal_stale" || !strings.Contains(p.Detail, "of its 4 items, 0 cleared and 4 dunned") {
+		if p := problem.From(second); first != nil || p.Code != "collections.proposal_stale" || !strings.Contains(p.Detail, "of its 4 items, 0 cleared, 4 dunned") {
 			t.Errorf("got %v and %v, want the first confirmed and the second refused as collections.proposal_stale for its 4 items", first, second)
 		}
 	})

@@ -12071,6 +12071,81 @@ step_dunning_charges() {
   passed
 }
 
+# step_dunning_blocks is T76e (ADR-0065 As built): Lakeshore Hardware,
+# step_dunning_charges' customer, says the gasket of its small invoice
+# never arrived. Ruth blocks that invoice from dunning until the matter is
+# settled, and a run at step_dunning_charges' last key date names it as
+# blocked and duns the pump invoice alone; an end date already past is
+# refused. A colleague's proposal at that key date still duns the pump;
+# Ruth agrees a payment plan with Lakeshore and blocks the whole customer
+# for ten days, and the colleague's proposal is refused as stale. A run at
+# the key date duns nothing of Lakeshore's, each invoice named with its
+# block; once the customer's block has ended the pump is dunned again.
+# The gasket is found: Ruth releases its block, once, and the next run
+# duns both invoices. The key dates are the requests'; the end dates are
+# after today.
+step_dunning_blocks() {
+  heading "Step 110 — Dunning blocks: an invoice and a whole customer blocked from dunning with a reason and an end date; a run names the blocked items and duns the rest; a stale proposal refused; after the end date and after a release the items are dunned again"
+  local customer=$LAKESHORE small=$LAKESHORE_SMALL large=$LAKESHORE_LARGE key=$LAKESHORE_KEY item year line until whole whole_until after id tag twin twin_tag body
+  [ -n "$customer" ] || fail "step 109's customer is not there"
+  until=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 120 * 86400 | strftime("%Y-%m-%d")')
+  whole_until=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 110 * 86400 | strftime("%Y-%m-%d")')
+  after=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 115 * 86400 | strftime("%Y-%m-%d")')
+  as ruth
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  item=$(field "[.items[] | select(.journal_entry_id == \"$small\")][0]")
+  [ "$item" != null ] || fail "the gasket invoice of step 109 is not open any more"
+  year=$(jq -r .fiscal_year <<<"$item") line=$(jq -r .line_no <<<"$item")
+  say "Lakeshore says the gasket set of its CAD 30.00 invoice never arrived. Until the warehouse has checked, Ruth"
+  say "blocks that invoice from dunning (T76e), with the reason, up to $until:"
+  body="{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"fiscal_year\": $year, \"journal_entry_id\": \"$small\", \"line_no\": $line,
+    \"reason\": \"Gasket delivery being checked by the warehouse\", \"valid_to\": \"$until\"}"
+  api 201 '"dunning block of \(.customer_number) \(.customer_name) in \(.company_code): \(.status), entry \(.document_number), until \(.valid_to): \(.reason)"' \
+    createDunningBlock -body "$body"
+  id=$(field .id) tag=$ETAG
+  expect "the block" "$(field '"\(.status) \(.customer_id) \(.journal_entry_id) \(.valid_to) \(.version)"')" "active $customer $small $until 1"
+  say "A block ends on a day still to come: one that ended yesterday would hold for no run, and is refused:"
+  refused 422 collections.invalid_block_end createDunningBlock -body "${body/$until/$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime - 86400 | strftime("%Y-%m-%d")')}"
+  say "A run at $key names the gasket invoice as blocked, outside its totals, and duns the pump invoice alone:"
+  api 201 '"dunning run at \(.key_date): \(.notice_count) notice(s), \(.blocked_item_count) blocked (\(.blocked_amount.amount) \(.blocked_amount.currency))", (.blocked_items[] | "  blocked: entry \(.document_number) (\(.reference)) of \(.customer_number), \(.days_overdue) days overdue, \(.local_amount.amount) \(.local_amount.currency)")' \
+    createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$key\"}"
+  expect "the gasket invoice blocked" "$(field "[.blocked_items[] | select(.journal_entry_id == \"$small\") | .dunning_block_id] | join(\" \")")" "$id"
+  QUIET=1 api 200 '' listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "Lakeshore's notice" "$(field '[.items[] | "\(.overdue_amount.amount) \([.items[].journal_entry_id] | join(" "))"] | join(", ")')" "600.00 $large"
+  say "A colleague starts a proposal at the same key date, which duns the pump. Then Lakeshore agrees a payment plan"
+  say "with Ruth, and she blocks the whole customer up to $whole_until:"
+  QUIET=1 api 201 '' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$key\"}"
+  twin=$(field .id) twin_tag=$ETAG
+  api 201 '"dunning block of \(.customer_number) \(.customer_name): \(.status), the whole customer, until \(.valid_to): \(.reason)"' \
+    createDunningBlock -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"reason\": \"Payment plan agreed\", \"valid_to\": \"$whole_until\"}"
+  whole=$(field .id)
+  expect "the customer's block names no item" "$(field '"\(.status) \(has("journal_entry_id"))"')" "active false"
+  say "The colleague's proposal would dun a customer blocked since it was started: it is stale."
+  refused 409 collections.proposal_stale confirmDunningRun -p "id=$twin" -if-match "$twin_tag"
+  say "A run at $key duns nothing of Lakeshore's, and names each invoice with the block that holds it:"
+  api 201 '"dunning run at \(.key_date): \(.blocked_item_count) blocked item(s)"' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$key\"}"
+  expect "Lakeshore's blocked invoices" \
+    "$(field "[.blocked_items[] | select(.customer_id == \"$customer\") | \"\(.journal_entry_id) \(.dunning_block_id)\"] | sort | join(\", \")")" \
+    "$(printf '%s\n' "$large $whole" "$small $id" | sort | paste -sd, - | sed 's/,/, /')"
+  QUIET=1 api 200 '' listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "Lakeshore's notices" "$(field '.items | length')" 0
+  say "On $after the payment plan's block has ended: the pump is dunned again, the gasket still blocked."
+  api 201 '"dunning run at \(.key_date): \(.blocked_item_count) blocked item(s)"' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$after\"}"
+  QUIET=1 api 200 '' listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "Lakeshore's notice after the customer's block" "$(field '[.items[].items[].journal_entry_id] | join(" ")')" "$large"
+  say "The warehouse finds the gasket was delivered. Ruth releases its block, once:"
+  api 200 '"dunning block \(.status) by \(.released_by_name), version \(.version)"' releaseDunningBlock -p "id=$id" -if-match "$tag"
+  expect "the released block" "$(field '"\(.status) \(.version)"')" "released 2"
+  refused 409 collections.block_released releaseDunningBlock -p "id=$id" -if-match "$ETAG"
+  QUIET=1 api 201 '' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$after\"}"
+  api 200 '.items[] | "notice for \(.customer_number) \(.customer_name): level \(.level), \(.overdue_amount.amount) + \(.charge_amount.amount) + \(.interest_amount.amount) = \(.total_amount.amount) \(.total_amount.currency)"' \
+    listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "both invoices dunned again" "$(field '[.items[].items[].journal_entry_id] | sort | join(" ")')" "$(printf '%s\n' "$small" "$large" | sort | paste -sd' ' -)"
+  QUIET=1 api 200 '' listDunningBlocks -p "customer_id=$customer"
+  expect "Lakeshore's blocks" "$(field '[.items[] | "\(.id) \(.status)"] | join(", ")')" "$whole active, $id released"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -14101,7 +14176,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_dunning_charges step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_dunning_charges step_dunning_blocks step_close'
 
 main() {
   stop_unseen

@@ -26770,6 +26770,7 @@ func (*ConflictHeaders) createCreditMemoRequestRes()               {}
 func (*ConflictHeaders) createCustomerInvoiceRes()                 {}
 func (*ConflictHeaders) createDisputeCaseRes()                     {}
 func (*ConflictHeaders) createDownPaymentRequestRes()              {}
+func (*ConflictHeaders) createDunningBlockRes()                    {}
 func (*ConflictHeaders) createDunningRunRes()                      {}
 func (*ConflictHeaders) createEntryTemplateRes()                   {}
 func (*ConflictHeaders) createExchangeRateRes()                    {}
@@ -26928,6 +26929,7 @@ func (*ConflictHeaders) rejectPaymentRunRes()                      {}
 func (*ConflictHeaders) rejectVarianceCommentRes()                 {}
 func (*ConflictHeaders) releaseContractRes()                       {}
 func (*ConflictHeaders) releaseCreditMemoRequestRes()              {}
+func (*ConflictHeaders) releaseDunningBlockRes()                   {}
 func (*ConflictHeaders) releaseInternalOrderRes()                  {}
 func (*ConflictHeaders) releasePaymentRunRes()                     {}
 func (*ConflictHeaders) releasePurchaseOrderRes()                  {}
@@ -33789,6 +33791,22 @@ type CreateDownPaymentRequestUnprocessableEntity Problem
 
 func (*CreateDownPaymentRequestUnprocessableEntity) createDownPaymentRequestRes() {}
 
+type CreateDunningBlockBadRequest Problem
+
+func (*CreateDunningBlockBadRequest) createDunningBlockRes() {}
+
+type CreateDunningBlockForbidden Problem
+
+func (*CreateDunningBlockForbidden) createDunningBlockRes() {}
+
+type CreateDunningBlockPreconditionRequired Problem
+
+func (*CreateDunningBlockPreconditionRequired) createDunningBlockRes() {}
+
+type CreateDunningBlockUnprocessableEntity Problem
+
+func (*CreateDunningBlockUnprocessableEntity) createDunningBlockRes() {}
+
 type CreateDunningRunBadRequest Problem
 
 func (*CreateDunningRunBadRequest) createDunningRunRes() {}
@@ -40114,6 +40132,451 @@ type DrillAnalyticsQueryUnprocessableEntity Problem
 
 func (*DrillAnalyticsQueryUnprocessableEntity) drillAnalyticsQueryRes() {}
 
+// Merged schema.
+// Ref: #/components/schemas/DunningBlock
+type DunningBlock struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The company that does not dun.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number when the block was placed.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The fiscal year of the blocked item's journal entry; absent when the whole customer is blocked.
+	FiscalYear OptInt32 `json:"fiscal_year"`
+	// The journal entry whose line is the blocked item (`GET /v1/journal-entries/{id}`); absent when the
+	// whole customer is blocked.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The line of the journal entry that is the blocked item; absent when the whole customer is blocked.
+	LineNo OptInt32 `json:"line_no"`
+	// The journal entry's document number; absent when the whole customer is blocked.
+	DocumentNumber OptString `json:"document_number"`
+	// Why the customer or the item is not dunned.
+	Reason string `json:"reason"`
+	// The last key date the block holds for: a run at a later key date duns the items again.
+	ValidTo time.Time `json:"valid_to"`
+	// `active`: a run at a key date up to `valid_to` leaves the blocked items out; `released`: released
+	// before (`releaseDunningBlock`), and holds for no run. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// When the block was released; absent while it is active.
+	ReleasedAt OptDateTime `json:"released_at"`
+	// Who released it; absent while it is active.
+	ReleasedBy OptUUID `json:"released_by"`
+	// The name of who released it, as it is now; absent while it is active.
+	ReleasedByName OptString `json:"released_by_name"`
+}
+
+// GetID returns the value of ID.
+func (s *DunningBlock) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *DunningBlock) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *DunningBlock) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *DunningBlock) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *DunningBlock) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *DunningBlock) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *DunningBlock) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *DunningBlock) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *DunningBlock) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *DunningBlock) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *DunningBlock) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *DunningBlock) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *DunningBlock) GetFiscalYear() OptInt32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DunningBlock) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *DunningBlock) GetLineNo() OptInt32 {
+	return s.LineNo
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *DunningBlock) GetDocumentNumber() OptString {
+	return s.DocumentNumber
+}
+
+// GetReason returns the value of Reason.
+func (s *DunningBlock) GetReason() string {
+	return s.Reason
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *DunningBlock) GetValidTo() time.Time {
+	return s.ValidTo
+}
+
+// GetStatus returns the value of Status.
+func (s *DunningBlock) GetStatus() string {
+	return s.Status
+}
+
+// GetReleasedAt returns the value of ReleasedAt.
+func (s *DunningBlock) GetReleasedAt() OptDateTime {
+	return s.ReleasedAt
+}
+
+// GetReleasedBy returns the value of ReleasedBy.
+func (s *DunningBlock) GetReleasedBy() OptUUID {
+	return s.ReleasedBy
+}
+
+// GetReleasedByName returns the value of ReleasedByName.
+func (s *DunningBlock) GetReleasedByName() OptString {
+	return s.ReleasedByName
+}
+
+// SetID sets the value of ID.
+func (s *DunningBlock) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *DunningBlock) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *DunningBlock) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *DunningBlock) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *DunningBlock) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *DunningBlock) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *DunningBlock) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *DunningBlock) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *DunningBlock) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *DunningBlock) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *DunningBlock) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *DunningBlock) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *DunningBlock) SetFiscalYear(val OptInt32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DunningBlock) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *DunningBlock) SetLineNo(val OptInt32) {
+	s.LineNo = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *DunningBlock) SetDocumentNumber(val OptString) {
+	s.DocumentNumber = val
+}
+
+// SetReason sets the value of Reason.
+func (s *DunningBlock) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *DunningBlock) SetValidTo(val time.Time) {
+	s.ValidTo = val
+}
+
+// SetStatus sets the value of Status.
+func (s *DunningBlock) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetReleasedAt sets the value of ReleasedAt.
+func (s *DunningBlock) SetReleasedAt(val OptDateTime) {
+	s.ReleasedAt = val
+}
+
+// SetReleasedBy sets the value of ReleasedBy.
+func (s *DunningBlock) SetReleasedBy(val OptUUID) {
+	s.ReleasedBy = val
+}
+
+// SetReleasedByName sets the value of ReleasedByName.
+func (s *DunningBlock) SetReleasedByName(val OptString) {
+	s.ReleasedByName = val
+}
+
+// Block a customer, or one of its open items, from dunning in a company. It is created `active`.
+// Ref: #/components/schemas/DunningBlockCreate
+type DunningBlockCreate struct {
+	// The company that is not to dun: a legal entity the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The customer (a business partner): blocked whole, or, with the journal line, the owner of the
+	// blocked item.
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The fiscal year of the blocked item's journal entry; absent for a block of the whole customer.
+	FiscalYear OptInt32 `json:"fiscal_year"`
+	// The journal entry whose line is the blocked open item (as `listOpenItems` and a dunning notice's
+	// item name it); absent for a block of the whole customer.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The line of the journal entry that is the blocked open item; absent for a block of the whole
+	// customer.
+	LineNo OptInt32 `json:"line_no"`
+	// Why the customer or the item is not dunned.
+	Reason string `json:"reason"`
+	// The last key date the block holds for: not before the company's today, at most 2100-12-31.
+	ValidTo time.Time `json:"valid_to"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *DunningBlockCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *DunningBlockCreate) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *DunningBlockCreate) GetFiscalYear() OptInt32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DunningBlockCreate) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *DunningBlockCreate) GetLineNo() OptInt32 {
+	return s.LineNo
+}
+
+// GetReason returns the value of Reason.
+func (s *DunningBlockCreate) GetReason() string {
+	return s.Reason
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *DunningBlockCreate) GetValidTo() time.Time {
+	return s.ValidTo
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *DunningBlockCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *DunningBlockCreate) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *DunningBlockCreate) SetFiscalYear(val OptInt32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DunningBlockCreate) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *DunningBlockCreate) SetLineNo(val OptInt32) {
+	s.LineNo = val
+}
+
+// SetReason sets the value of Reason.
+func (s *DunningBlockCreate) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *DunningBlockCreate) SetValidTo(val time.Time) {
+	s.ValidTo = val
+}
+
+// DunningBlockHeaders wraps DunningBlock with response headers.
+type DunningBlockHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           DunningBlock
+}
+
+// GetETag returns the value of ETag.
+func (s *DunningBlockHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *DunningBlockHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *DunningBlockHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *DunningBlockHeaders) GetResponse() DunningBlock {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *DunningBlockHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *DunningBlockHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *DunningBlockHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *DunningBlockHeaders) SetResponse(val DunningBlock) {
+	s.Response = val
+}
+
+func (*DunningBlockHeaders) createDunningBlockRes() {}
+
+// One page of dunning blocks.
+// Ref: #/components/schemas/DunningBlockPage
+type DunningBlockPage struct {
+	// The dunning blocks on this page.
+	Items []DunningBlock `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *DunningBlockPage) GetItems() []DunningBlock {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *DunningBlockPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *DunningBlockPage) SetItems(val []DunningBlock) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *DunningBlockPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*DunningBlockPage) listDunningBlocksRes() {}
+
 // A dunning notice (collections, ADR-0065 §3): what a dunning run proposes for one customer.
 // Ref: #/components/schemas/DunningNotice
 type DunningNotice struct {
@@ -40552,6 +41015,16 @@ type DunningRun struct {
 	// customer and item; in no notice and in none of the run's totals. Empty when none was disputed, and
 	// for runs started before dispute cases existed.
 	DisputedItems []DunningRunDisputedItem `json:"disputed_items"`
+	// The items the run left out for a dunning block (`blocked_items`); 0 when none was blocked.
+	BlockedItemCount int32 `json:"blocked_item_count"`
+	// What those items add up to in the company's currency, as they were booked (the sum of
+	// `blocked_items[].local_amount`): not dunned, not counted in `overdue_amount`.
+	BlockedAmount Money `json:"blocked_amount"`
+	// The items the run would have proposed but left out, each for an active dunning block of the item or
+	// its customer whose end date is on or after the key date (T76e), by customer and item; in no notice
+	// and in none of the run's totals. An item both blocked and disputed is listed here alone. Empty when
+	// none was blocked, and for runs started before dunning blocks existed.
+	BlockedItems []DunningRunBlockedItem `json:"blocked_items"`
 }
 
 // GetID returns the value of ID.
@@ -40684,6 +41157,21 @@ func (s *DunningRun) GetDisputedItems() []DunningRunDisputedItem {
 	return s.DisputedItems
 }
 
+// GetBlockedItemCount returns the value of BlockedItemCount.
+func (s *DunningRun) GetBlockedItemCount() int32 {
+	return s.BlockedItemCount
+}
+
+// GetBlockedAmount returns the value of BlockedAmount.
+func (s *DunningRun) GetBlockedAmount() Money {
+	return s.BlockedAmount
+}
+
+// GetBlockedItems returns the value of BlockedItems.
+func (s *DunningRun) GetBlockedItems() []DunningRunBlockedItem {
+	return s.BlockedItems
+}
+
 // SetID sets the value of ID.
 func (s *DunningRun) SetID(val uuid.UUID) {
 	s.ID = val
@@ -40812,6 +41300,174 @@ func (s *DunningRun) SetDisputedAmount(val Money) {
 // SetDisputedItems sets the value of DisputedItems.
 func (s *DunningRun) SetDisputedItems(val []DunningRunDisputedItem) {
 	s.DisputedItems = val
+}
+
+// SetBlockedItemCount sets the value of BlockedItemCount.
+func (s *DunningRun) SetBlockedItemCount(val int32) {
+	s.BlockedItemCount = val
+}
+
+// SetBlockedAmount sets the value of BlockedAmount.
+func (s *DunningRun) SetBlockedAmount(val Money) {
+	s.BlockedAmount = val
+}
+
+// SetBlockedItems sets the value of BlockedItems.
+func (s *DunningRun) SetBlockedItems(val []DunningRunBlockedItem) {
+	s.BlockedItems = val
+}
+
+// An item a dunning run left out for a dunning block (T76e): a customer's open item overdue on the
+// run's key date that would have reached a dunning level, as the run read it.
+// Ref: #/components/schemas/DunningRunBlockedItem
+type DunningRunBlockedItem struct {
+	// The block that held the item when the run was started, the item's own or its customer's
+	// (`GET /v1/dunning-blocks/{id}`).
+	DunningBlockID uuid.UUID `json:"dunning_block_id"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The fiscal year of the item's journal entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry whose line is the open item (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The line of the journal entry that is the open item.
+	LineNo int32 `json:"line_no"`
+	// The journal entry's document number.
+	DocumentNumber string `json:"document_number"`
+	// The journal entry's reference, a customer invoice's document number for one; absent when it has
+	// none.
+	Reference OptString `json:"reference"`
+	// The item's net due date: by the payment terms it was posted with, or, posted without any, its
+	// document date.
+	NetDueDate time.Time `json:"net_due_date"`
+	// The days from the net due date to the run's key date.
+	DaysOverdue int32 `json:"days_overdue"`
+	// What the customer owes on the item, in the item's currency.
+	Amount Money `json:"amount"`
+	// The same in the company's currency, as it was booked.
+	LocalAmount Money `json:"local_amount"`
+}
+
+// GetDunningBlockID returns the value of DunningBlockID.
+func (s *DunningRunBlockedItem) GetDunningBlockID() uuid.UUID {
+	return s.DunningBlockID
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *DunningRunBlockedItem) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *DunningRunBlockedItem) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *DunningRunBlockedItem) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DunningRunBlockedItem) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *DunningRunBlockedItem) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *DunningRunBlockedItem) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetReference returns the value of Reference.
+func (s *DunningRunBlockedItem) GetReference() OptString {
+	return s.Reference
+}
+
+// GetNetDueDate returns the value of NetDueDate.
+func (s *DunningRunBlockedItem) GetNetDueDate() time.Time {
+	return s.NetDueDate
+}
+
+// GetDaysOverdue returns the value of DaysOverdue.
+func (s *DunningRunBlockedItem) GetDaysOverdue() int32 {
+	return s.DaysOverdue
+}
+
+// GetAmount returns the value of Amount.
+func (s *DunningRunBlockedItem) GetAmount() Money {
+	return s.Amount
+}
+
+// GetLocalAmount returns the value of LocalAmount.
+func (s *DunningRunBlockedItem) GetLocalAmount() Money {
+	return s.LocalAmount
+}
+
+// SetDunningBlockID sets the value of DunningBlockID.
+func (s *DunningRunBlockedItem) SetDunningBlockID(val uuid.UUID) {
+	s.DunningBlockID = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *DunningRunBlockedItem) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *DunningRunBlockedItem) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *DunningRunBlockedItem) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DunningRunBlockedItem) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *DunningRunBlockedItem) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *DunningRunBlockedItem) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetReference sets the value of Reference.
+func (s *DunningRunBlockedItem) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetNetDueDate sets the value of NetDueDate.
+func (s *DunningRunBlockedItem) SetNetDueDate(val time.Time) {
+	s.NetDueDate = val
+}
+
+// SetDaysOverdue sets the value of DaysOverdue.
+func (s *DunningRunBlockedItem) SetDaysOverdue(val int32) {
+	s.DaysOverdue = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *DunningRunBlockedItem) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetLocalAmount sets the value of LocalAmount.
+func (s *DunningRunBlockedItem) SetLocalAmount(val Money) {
+	s.LocalAmount = val
 }
 
 // Start a dunning run. It is created `proposed`, with one notice per customer that has items overdue
@@ -46569,6 +47225,46 @@ func (s *GetDownPaymentRequestOKHeaders) SetResponse(val DownPaymentRequest) {
 }
 
 func (*GetDownPaymentRequestOKHeaders) getDownPaymentRequestRes() {}
+
+type GetDunningBlockBadRequest Problem
+
+func (*GetDunningBlockBadRequest) getDunningBlockRes() {}
+
+type GetDunningBlockForbidden Problem
+
+func (*GetDunningBlockForbidden) getDunningBlockRes() {}
+
+type GetDunningBlockNotFound Problem
+
+func (*GetDunningBlockNotFound) getDunningBlockRes() {}
+
+// GetDunningBlockOKHeaders wraps DunningBlock with response headers.
+type GetDunningBlockOKHeaders struct {
+	ETag     OptString
+	Response DunningBlock
+}
+
+// GetETag returns the value of ETag.
+func (s *GetDunningBlockOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetDunningBlockOKHeaders) GetResponse() DunningBlock {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetDunningBlockOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetDunningBlockOKHeaders) SetResponse(val DunningBlock) {
+	s.Response = val
+}
+
+func (*GetDunningBlockOKHeaders) getDunningBlockRes() {}
 
 type GetDunningRunBadRequest Problem
 
@@ -60268,6 +60964,14 @@ func (*ListDownPaymentRequestsBadRequest) listDownPaymentRequestsRes() {}
 type ListDownPaymentRequestsForbidden Problem
 
 func (*ListDownPaymentRequestsForbidden) listDownPaymentRequestsRes() {}
+
+type ListDunningBlocksBadRequest Problem
+
+func (*ListDunningBlocksBadRequest) listDunningBlocksRes() {}
+
+type ListDunningBlocksForbidden Problem
+
+func (*ListDunningBlocksForbidden) listDunningBlocksRes() {}
 
 type ListDunningNoticesBadRequest Problem
 
@@ -84950,6 +85654,65 @@ type ReleaseCreditMemoRequestPreconditionRequired Problem
 
 func (*ReleaseCreditMemoRequestPreconditionRequired) releaseCreditMemoRequestRes() {}
 
+type ReleaseDunningBlockBadRequest Problem
+
+func (*ReleaseDunningBlockBadRequest) releaseDunningBlockRes() {}
+
+type ReleaseDunningBlockForbidden Problem
+
+func (*ReleaseDunningBlockForbidden) releaseDunningBlockRes() {}
+
+type ReleaseDunningBlockNotFound Problem
+
+func (*ReleaseDunningBlockNotFound) releaseDunningBlockRes() {}
+
+// ReleaseDunningBlockOKHeaders wraps DunningBlock with response headers.
+type ReleaseDunningBlockOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           DunningBlock
+}
+
+// GetETag returns the value of ETag.
+func (s *ReleaseDunningBlockOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ReleaseDunningBlockOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ReleaseDunningBlockOKHeaders) GetResponse() DunningBlock {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ReleaseDunningBlockOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ReleaseDunningBlockOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ReleaseDunningBlockOKHeaders) SetResponse(val DunningBlock) {
+	s.Response = val
+}
+
+func (*ReleaseDunningBlockOKHeaders) releaseDunningBlockRes() {}
+
+type ReleaseDunningBlockPreconditionFailed Problem
+
+func (*ReleaseDunningBlockPreconditionFailed) releaseDunningBlockRes() {}
+
+type ReleaseDunningBlockPreconditionRequired Problem
+
+func (*ReleaseDunningBlockPreconditionRequired) releaseDunningBlockRes() {}
+
 type ReleaseInternalOrderBadRequest Problem
 
 func (*ReleaseInternalOrderBadRequest) releaseInternalOrderRes() {}
@@ -102521,6 +103284,7 @@ func (*TooManyRequestsHeaders) createCreditMemoRequestRes()               {}
 func (*TooManyRequestsHeaders) createCustomerInvoiceRes()                 {}
 func (*TooManyRequestsHeaders) createDisputeCaseRes()                     {}
 func (*TooManyRequestsHeaders) createDownPaymentRequestRes()              {}
+func (*TooManyRequestsHeaders) createDunningBlockRes()                    {}
 func (*TooManyRequestsHeaders) createDunningRunRes()                      {}
 func (*TooManyRequestsHeaders) createEntryTemplateRes()                   {}
 func (*TooManyRequestsHeaders) createExchangeRateRes()                    {}
@@ -102649,6 +103413,7 @@ func (*TooManyRequestsHeaders) getCustomerInvoiceRes()                    {}
 func (*TooManyRequestsHeaders) getDepreciationRunRes()                    {}
 func (*TooManyRequestsHeaders) getDisputeCaseRes()                        {}
 func (*TooManyRequestsHeaders) getDownPaymentRequestRes()                 {}
+func (*TooManyRequestsHeaders) getDunningBlockRes()                       {}
 func (*TooManyRequestsHeaders) getDunningRunRes()                         {}
 func (*TooManyRequestsHeaders) getEInvoiceContentRes()                    {}
 func (*TooManyRequestsHeaders) getEInvoiceRes()                           {}
@@ -102794,6 +103559,7 @@ func (*TooManyRequestsHeaders) listCustomerInvoicesRes()                  {}
 func (*TooManyRequestsHeaders) listDepreciationRunsRes()                  {}
 func (*TooManyRequestsHeaders) listDisputeCasesRes()                      {}
 func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()               {}
+func (*TooManyRequestsHeaders) listDunningBlocksRes()                     {}
 func (*TooManyRequestsHeaders) listDunningNoticesRes()                    {}
 func (*TooManyRequestsHeaders) listDunningRunsRes()                       {}
 func (*TooManyRequestsHeaders) listEInvoicesRes()                         {}
@@ -102936,6 +103702,7 @@ func (*TooManyRequestsHeaders) rejectPaymentRunRes()                      {}
 func (*TooManyRequestsHeaders) rejectVarianceCommentRes()                 {}
 func (*TooManyRequestsHeaders) releaseContractRes()                       {}
 func (*TooManyRequestsHeaders) releaseCreditMemoRequestRes()              {}
+func (*TooManyRequestsHeaders) releaseDunningBlockRes()                   {}
 func (*TooManyRequestsHeaders) releaseInternalOrderRes()                  {}
 func (*TooManyRequestsHeaders) releasePaymentRunRes()                     {}
 func (*TooManyRequestsHeaders) releasePurchaseOrderRes()                  {}
@@ -103409,6 +104176,7 @@ func (*UnauthorizedHeaders) createCreditMemoRequestRes()               {}
 func (*UnauthorizedHeaders) createCustomerInvoiceRes()                 {}
 func (*UnauthorizedHeaders) createDisputeCaseRes()                     {}
 func (*UnauthorizedHeaders) createDownPaymentRequestRes()              {}
+func (*UnauthorizedHeaders) createDunningBlockRes()                    {}
 func (*UnauthorizedHeaders) createDunningRunRes()                      {}
 func (*UnauthorizedHeaders) createEntryTemplateRes()                   {}
 func (*UnauthorizedHeaders) createExchangeRateRes()                    {}
@@ -103537,6 +104305,7 @@ func (*UnauthorizedHeaders) getCustomerInvoiceRes()                    {}
 func (*UnauthorizedHeaders) getDepreciationRunRes()                    {}
 func (*UnauthorizedHeaders) getDisputeCaseRes()                        {}
 func (*UnauthorizedHeaders) getDownPaymentRequestRes()                 {}
+func (*UnauthorizedHeaders) getDunningBlockRes()                       {}
 func (*UnauthorizedHeaders) getDunningRunRes()                         {}
 func (*UnauthorizedHeaders) getEInvoiceContentRes()                    {}
 func (*UnauthorizedHeaders) getEInvoiceRes()                           {}
@@ -103682,6 +104451,7 @@ func (*UnauthorizedHeaders) listCustomerInvoicesRes()                  {}
 func (*UnauthorizedHeaders) listDepreciationRunsRes()                  {}
 func (*UnauthorizedHeaders) listDisputeCasesRes()                      {}
 func (*UnauthorizedHeaders) listDownPaymentRequestsRes()               {}
+func (*UnauthorizedHeaders) listDunningBlocksRes()                     {}
 func (*UnauthorizedHeaders) listDunningNoticesRes()                    {}
 func (*UnauthorizedHeaders) listDunningRunsRes()                       {}
 func (*UnauthorizedHeaders) listEInvoicesRes()                         {}
@@ -103824,6 +104594,7 @@ func (*UnauthorizedHeaders) rejectPaymentRunRes()                      {}
 func (*UnauthorizedHeaders) rejectVarianceCommentRes()                 {}
 func (*UnauthorizedHeaders) releaseContractRes()                       {}
 func (*UnauthorizedHeaders) releaseCreditMemoRequestRes()              {}
+func (*UnauthorizedHeaders) releaseDunningBlockRes()                   {}
 func (*UnauthorizedHeaders) releaseInternalOrderRes()                  {}
 func (*UnauthorizedHeaders) releasePaymentRunRes()                     {}
 func (*UnauthorizedHeaders) releasePurchaseOrderRes()                  {}

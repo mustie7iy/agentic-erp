@@ -96,7 +96,7 @@ func (e *Endpoints) ProposeRun(ctx context.Context, in RunInput) (Run, error) {
 }
 
 // proposal reads the company's open items, what is recorded of them and
-// its open dispute cases, and gives the run's notices, completed and
+// what holds them back, and gives the run's notices, completed and
 // charged, with the run's totals.
 func (e *Endpoints) proposal(ctx context.Context, tx pgx.Tx, le tenancy.Entity, run *Run, proc procedure) ([]Notice, error) {
 	open, err := e.OpenItems.Receivable(ctx, le.ID, nil)
@@ -108,12 +108,12 @@ func (e *Endpoints) proposal(ctx context.Context, tx pgx.Tx, le tenancy.Entity, 
 	if err != nil {
 		return nil, err
 	}
-	disputes, err := openCases(ctx, tx, le.ID)
+	h, err := holdsOf(ctx, tx, le.ID, run.KeyDate)
 	if err != nil {
 		return nil, err
 	}
-	notices, disputed := propose(due, proc, previous, disputes)
-	run.Disputed = disputed
+	notices, disputed, blocked := propose(due, proc, previous, h)
+	run.Disputed, run.Blocked = disputed, blocked
 	if notices, err = charge(run, notices, proc); err != nil {
 		return nil, err
 	}
@@ -190,31 +190,70 @@ func refsOf(items []overdueItem) []ledger.ItemRef {
 	return refs
 }
 
+// holds are what keeps an item a run would propose out of its notices:
+// the company's open dispute cases, by item (T86b), and its dunning
+// blocks in force on the run's key date, by item and by customer (T76e).
+type holds struct {
+	disputes  map[ledger.ItemRef]openCase
+	items     map[ledger.ItemRef]block
+	customers map[uuid.UUID]block
+}
+
+// holdsOf reads the company's open dispute cases and its dunning blocks in
+// force on the key date.
+func holdsOf(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, keyDate time.Time) (holds, error) {
+	disputes, err := openCases(ctx, tx, legalEntity)
+	if err != nil {
+		return holds{}, err
+	}
+	items, customers, err := blocksInForce(ctx, tx, legalEntity, keyDate)
+	return holds{disputes: disputes, items: items, customers: customers}, err
+}
+
+// blockOf is the block that holds the item: its own, else its customer's.
+func (h holds) blockOf(it ledger.ReceivableItem) (block, bool) {
+	if b, ok := h.items[it.ItemRef]; ok {
+		return b, true
+	}
+	b, ok := h.customers[it.PartnerID]
+	return b, ok
+}
+
+// held is what a run keeps of an item it holds back, its customer named
+// by number.
+func held(it overdueItem, customerNumber string) HeldItem {
+	return HeldItem{CustomerID: it.PartnerID, CustomerNumber: customerNumber, ItemRef: it.ItemRef, DocumentNumber: it.Number, Reference: it.Reference,
+		NetDueDate: it.NetDueDate(), DaysOverdue: int32(it.days), Currency: it.Currency, Exponent: it.Exponent, Amount: it.Amount, AmountLC: it.AmountLC}
+}
+
 // propose is the proposal of a run: of the overdue items, in the ledger's
 // order of customer and item, those that reach a dunning level, each from
 // the level the confirmed runs recorded for it (previous; none: never
 // dunned, level 0), one notice per customer in that order, its items
 // numbered from 1. An item dunned before is proposed at its level again
 // even when its days no longer reach it at an earlier key date, as long
-// as it is overdue then: a level never falls. An item that would be
-// proposed but has an open dispute case is left out whole and listed as
-// disputed, in the same order (T86b). An item overdue by no more than
-// the company's grace days is not proposed (T76d). The notices' ids,
-// numbers and totals are charge's and total's.
-func propose(due []overdueItem, proc procedure, previous map[ledger.ItemRef]dunned,
-	disputes map[ledger.ItemRef]openCase) ([]Notice, []DisputedItem) {
+// as it is overdue then: a level never falls. An item overdue by no more
+// than the company's grace days is not proposed (T76d). An item that
+// would be proposed but is blocked from dunning, itself or its customer,
+// is left out and listed as blocked (T76e); one with an open dispute case
+// is left out whole and listed as disputed (T86b); each list in the same
+// order. The notices' ids, numbers and totals are charge's and total's.
+func propose(due []overdueItem, proc procedure, previous map[ledger.ItemRef]dunned, h holds) ([]Notice, []DisputedItem, []BlockedItem) {
 	var notices []Notice
 	var disputed []DisputedItem
+	var blocked []BlockedItem
 	for _, it := range due {
 		before := previous[it.ItemRef]
 		level := reach(proc.levels, it.days, int(before.Level))
 		if level == 0 || it.days <= proc.grace {
 			continue
 		}
-		if c, ok := disputes[it.ItemRef]; ok {
-			disputed = append(disputed, DisputedItem{CaseID: c.ID, CustomerID: it.PartnerID, CustomerNumber: c.CustomerNumber, ItemRef: it.ItemRef,
-				DocumentNumber: it.Number, Reference: it.Reference, NetDueDate: it.NetDueDate(), DaysOverdue: int32(it.days), Currency: it.Currency,
-				Exponent: it.Exponent, Amount: it.Amount, AmountLC: it.AmountLC})
+		if b, ok := h.blockOf(it.ReceivableItem); ok {
+			blocked = append(blocked, BlockedItem{BlockID: b.ID, HeldItem: held(it, b.CustomerNumber)})
+			continue
+		}
+		if c, ok := h.disputes[it.ItemRef]; ok {
+			disputed = append(disputed, DisputedItem{CaseID: c.ID, HeldItem: held(it, c.CustomerNumber)})
 			continue
 		}
 		if n := len(notices); n == 0 || notices[n-1].CustomerID != it.PartnerID {
@@ -225,7 +264,7 @@ func propose(due []overdueItem, proc procedure, previous map[ledger.ItemRef]dunn
 			DocumentDate: it.DocumentDate, NetDueDate: it.NetDueDate(), DaysOverdue: int32(it.days), Currency: it.Currency, Amount: it.Amount,
 			AmountLC: it.AmountLC, PreviousLevel: before.Level, Level: int32(level), PreviousDunnings: before.Times})
 	}
-	return notices, disputed
+	return notices, disputed, blocked
 }
 
 // adder adds amounts and remembers that a sum was out of range, so a
@@ -311,10 +350,10 @@ func (e *Endpoints) total(ctx context.Context, run *Run, notices []Notice) error
 		overdue[i], charges[i], interest[i] = n.OverdueAmount, n.ChargeAmount, n.InterestAmount
 		run.ItemCount += n.ItemCount
 	}
-	// Checked once all are counted, so a run whose items are all disputed is held to it too.
-	if int(run.ItemCount)+len(run.Disputed) > limit {
+	// Checked once all are counted, so a run whose items are all disputed or blocked is held to it too.
+	if int(run.ItemCount)+len(run.Disputed)+len(run.Blocked) > limit {
 		return problem.Unprocessable("collections.run_too_large", fmt.Sprintf("The run would take more than %d overdue items, "+
-			"the most one run proposes or names as disputed; larger runs are not supported yet.", limit))
+			"the most one run proposes or names as disputed or blocked; larger runs are not supported yet.", limit))
 	}
 	run.NoticeCount = int32(len(notices))
 	if err := sums(run, overdue, charges, interest); err != nil {
@@ -336,36 +375,46 @@ func (e *Endpoints) total(ctx context.Context, run *Run, notices []Notice) error
 
 // sums sets the run's overdue, charge and interest amounts, the sums of
 // its notices', and checks the amounts the API gives besides: the run's
-// total and its disputed amount. Out of range is refused.
+// total and its disputed and blocked amounts. Out of range is refused.
 func sums(run *Run, overdue, charges, interest []money.Minor) error {
 	var a adder
 	run.OverdueAmount, run.ChargeAmount, run.InterestAmount = a.sum(overdue...), a.sum(charges...), a.sum(interest...)
 	a.sum(run.OverdueAmount, run.ChargeAmount, run.InterestAmount)
-	disputed := make([]money.Minor, len(run.Disputed))
-	for i, d := range run.Disputed {
-		disputed[i] = d.AmountLC
+	var held []money.Minor
+	for _, d := range run.Disputed {
+		held = append(held, d.AmountLC)
 	}
-	a.sum(disputed...)
+	a.sum(held...)
+	held = held[:0]
+	for _, b := range run.Blocked {
+		held = append(held, b.AmountLC)
+	}
+	a.sum(held...)
 	return a.err
 }
 
 // insertRun writes the run with its notices and their items, in the
 // company's currency.
 func insertRun(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le tenancy.Entity, run Run, notices []Notice) error {
-	// Stored as a list, empty and not null without any, each item without
+	// Stored as lists, empty and not null without any, each item without
 	// its currency's digits, which the run is read with.
 	disputed := make([]DisputedItem, len(run.Disputed))
 	for i, d := range run.Disputed {
 		d.Exponent = 0
 		disputed[i] = d
 	}
+	blocked := make([]BlockedItem, len(run.Blocked))
+	for i, b := range run.Blocked {
+		b.Exponent = 0
+		blocked[i] = b
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO collections.dunning_run (tenant_id, id, legal_entity_id, key_date, status, currency, notice_count,
 			item_count, overdue_amount, disputed_items, grace_days, minimum_amount, interest_rate_percent, charge_amount, interest_amount,
-			below_minimum_count, below_minimum_amount, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13::numeric, $14, $15, $16, $17, $18, $18)`,
+			below_minimum_count, below_minimum_amount, blocked_items, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13::numeric, $14, $15, $16, $17, $18::jsonb, $19, $19)`,
 		p.TenantID, run.ID, run.LegalEntityID, run.KeyDate, Proposed, le.LocalCurrency, run.NoticeCount, run.ItemCount, run.OverdueAmount,
 		disputed, run.GraceDays, run.MinimumAmount, run.InterestRate, run.ChargeAmount, run.InterestAmount, run.BelowMinimumCount,
-		run.BelowMinimumAmount, p.ID); err != nil {
+		run.BelowMinimumAmount, blocked, p.ID); err != nil {
 		return fmt.Errorf("collections: insert dunning run %s: %w", run.ID, err)
 	}
 	n := len(notices)

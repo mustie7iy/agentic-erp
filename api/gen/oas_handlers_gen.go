@@ -10425,14 +10425,15 @@ func (s *Server) handleCompleteYearCloseTaskRequest(args [2]string, argsEscaped 
 // confirmed, the proposal is compared with the open items again: when an item of it was cleared since
 // the run was started, or was dunned since by another confirmed run of the company (its recorded level
 // is no longer the run's `previous_level`), the proposal is stale and refused (409
-// `collections.proposal_stale`), nothing of it is recorded, and a new run is started with
-// `createDunningRun`; the stale run stays `proposed`. A dispute case opened on an item after the run
-// was started does not make the proposal stale: the run is confirmed as proposed and the item recorded
-// as dunned (T86b). A run that is not `proposed` is refused (409 `collections.invalid_status`), so a
-// second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers
-// the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is
-// not cancelled. A run of a company the caller may not act in is not found (404). Human-only
-// (`x-agent: false`).
+// `collections.proposal_stale`); so is a proposal with an item that an active dunning block of the
+// item or its customer, placed since and holding for the run's key date, blocks (T76e). Nothing of a
+// stale proposal is recorded, and a new run is started with `createDunningRun`; the stale run stays
+// `proposed`. A dispute case opened on an item after the run was started does not make the proposal
+// stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that is not
+// `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and
+// publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without
+// notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company
+// the caller may not act in is not found (404). Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs/{id}:confirm
 func (s *Server) handleConfirmDunningRunRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -17420,6 +17421,224 @@ func (s *Server) handleCreateDownPaymentRequestRequest(args [0]string, argsEscap
 	}
 }
 
+// handleCreateDunningBlockRequest handles createDunningBlock operation.
+//
+// Places a dunning block (ADR-0065 As built, T76e): the customer (`customer_id`), or one of its open
+// items named by its journal line (`fiscal_year`, `journal_entry_id`, `line_no`, as a dunning notice's
+// item names it), is not dunned in the company, for a reason, up to an end date. The company is one
+// the caller may act in (422 `request.reference_not_found` naming `legal_entity_id`); the customer a
+// business partner of the tenant (422 `request.reference_not_found` naming `customer_id`); an item an
+// open item on a customer reconciliation account of the company in the leading ledger that this
+// customer owes (422 `collections.item_not_open` naming `journal_entry_id`); the journal line is named
+// whole or not at all (422 `request.validation_failed`). `valid_to` is the last key date the block
+// holds for: not before the company's today and at most 2100-12-31 (422
+// `collections.invalid_block_end` naming `valid_to`). `reason` is a text of more than white space (422
+// `request.validation_failed`). The block is created `active`. A dunning run started while it is
+// active, at a key date up to `valid_to`, leaves the blocked items out of its notices and names them
+// in `blocked_items`; a run proposed before the block is refused as stale when it is confirmed
+// (`confirmDunningRun`). Several blocks of one customer or item may be active at once; each holds
+// until its own end date or release. Placing a block posts nothing and changes nothing on the items.
+// Audited. A retry with the same `Idempotency-Key` answers the block placed. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/dunning-blocks
+func (s *Server) handleCreateDunningBlockRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createDunningBlock"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/dunning-blocks"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CreateDunningBlockOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CreateDunningBlockOperation,
+			ID:   "createDunningBlock",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CreateDunningBlockOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCreateDunningBlockParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCreateDunningBlockRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CreateDunningBlockRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CreateDunningBlockOperation,
+			OperationSummary: "Block a customer or one of its open items from dunning",
+			OperationID:      "createDunningBlock",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *DunningBlockCreate
+			Params   = CreateDunningBlockParams
+			Response = CreateDunningBlockRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCreateDunningBlockParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CreateDunningBlock(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CreateDunningBlock(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCreateDunningBlockResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCreateDunningRunRequest handles createDunningRun operation.
 //
 // Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a):
@@ -17435,25 +17654,27 @@ func (s *Server) handleCreateDownPaymentRequestRequest(args [0]string, argsEscap
 // dunned and reduce nothing, with or without terms. An item with an open dispute case
 // (`createDisputeCase`) is in no notice, whatever part of it is disputed: the run lists it in
 // `disputed_items` with its case, and it counts in none of the run's totals; once the case is closed a
-// new run proposes it again (T86b). An item rises one level per confirmed run at most, from the level
-// the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would
-// reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days,
-// and one at the highest level stays there. A notice's level is the highest among its items. The
-// company's dunning procedure applies as the configuration has it when the run is started, and the run
-// keeps it (T76d): an item overdue by no more than `companies[].dunning.grace_days` is not proposed; a
-// customer whose notice's overdue amount would be below `companies[].dunning.minimum_amount` gets no
-// notice, and the run counts it in `below_minimum_notice_count` and `below_minimum_amount`; a notice
-// is charged its level's `charge`, and each item at a level that charges `interest` is charged
-// interest at `interest_rate_percent` a year for its days overdue (`local_amount` × rate ÷ 100 ×
-// `days_overdue` ÷ 365, rounded half away from zero in the company's currency); a notice's
-// `total_amount` is what it asks for in all. Charges and interest are what the notices ask for:
-// nothing is posted. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`,
-// naming `key_date`). A company without dunning levels is refused (422
-// `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed ones it
-// lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet) and one
-// whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date
-// at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key`
-// answers the run started. Human-only (`x-agent: false`).
+// new run proposes it again (T86b). An item with an active dunning block (`createDunningBlock`) of its
+// own or of its customer, whose `valid_to` is on or after the key date, is in no notice either: the
+// run lists it in `blocked_items` with its block, outside its totals, and not in `disputed_items`
+// (T76e). An item rises one level per confirmed run at most, from the level the confirmed runs
+// recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one
+// dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the
+// highest level stays there. A notice's level is the highest among its items. The company's dunning
+// procedure applies as the configuration has it when the run is started, and the run keeps it (T76d):
+// an item overdue by no more than `companies[].dunning.grace_days` is not proposed; a customer whose
+// notice's overdue amount would be below `companies[].dunning.minimum_amount` gets no notice, and the
+// run counts it in `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its
+// level's `charge`, and each item at a level that charges `interest` is charged interest at
+// `interest_rate_percent` a year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue`
+// ÷ 365, rounded half away from zero in the company's currency); a notice's `total_amount` is what it
+// asks for in all. Charges and interest are what the notices ask for: nothing is posted. A key date
+// after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company
+// without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than
+// 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`:
+// larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422
+// `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices.
+// A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs
 func (s *Server) handleCreateDunningRunRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -43704,6 +43925,196 @@ func (s *Server) handleGetDownPaymentRequestRequest(args [1]string, argsEscaped 
 	}
 
 	if err := encodeGetDownPaymentRequestResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetDunningBlockRequest handles getDunningBlock operation.
+//
+// One dunning block (ADR-0065 As built, T76e) with its company's code and name, its customer's number
+// and name, the open item it blocks by journal line and document number (none for a block of the whole
+// customer), its reason, its end date and its status, and once released who released it when. One of a
+// company the caller may not act in is not found (404), as one that does not exist.
+//
+// GET /v1/dunning-blocks/{id}
+func (s *Server) handleGetDunningBlockRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getDunningBlock"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/dunning-blocks/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetDunningBlockOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetDunningBlockOperation,
+			ID:   "getDunningBlock",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetDunningBlockOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetDunningBlockParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetDunningBlockRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetDunningBlockOperation,
+			OperationSummary: "Get a dunning block",
+			OperationID:      "getDunningBlock",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetDunningBlockParams
+			Response = GetDunningBlockRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetDunningBlockParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetDunningBlock(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetDunningBlock(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetDunningBlockResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -73194,6 +73605,217 @@ func (s *Server) handleListDownPaymentRequestsRequest(args [0]string, argsEscape
 	}
 
 	if err := encodeListDownPaymentRequestsResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleListDunningBlocksRequest handles listDunningBlocks operation.
+//
+// The dunning blocks of the companies the caller may act in (ADR-0065 As built, T76e), each as
+// `getDunningBlock` gives it: with its company's code and name, its customer's number and name, the
+// open item it blocks (none for a block of the whole customer), its reason, its end date and its
+// status. Filtered by company, customer and status. Sortable by: `created_at` (default, the latest
+// first).
+//
+// GET /v1/dunning-blocks
+func (s *Server) handleListDunningBlocksRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listDunningBlocks"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/dunning-blocks"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListDunningBlocksOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListDunningBlocksOperation,
+			ID:   "listDunningBlocks",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListDunningBlocksOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListDunningBlocksParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListDunningBlocksRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListDunningBlocksOperation,
+			OperationSummary: "List dunning blocks",
+			OperationID:      "listDunningBlocks",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "legal_entity_id",
+					In:   "query",
+				}: params.LegalEntityID,
+				{
+					Name: "customer_id",
+					In:   "query",
+				}: params.CustomerID,
+				{
+					Name: "status",
+					In:   "query",
+				}: params.Status,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListDunningBlocksParams
+			Response = ListDunningBlocksRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListDunningBlocksParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListDunningBlocks(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListDunningBlocks(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListDunningBlocksResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -103708,6 +104330,207 @@ func (s *Server) handleReleaseCreditMemoRequestRequest(args [1]string, argsEscap
 	}
 
 	if err := encodeReleaseCreditMemoRequestResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleReleaseDunningBlockRequest handles releaseDunningBlock operation.
+//
+// Releases an `active` dunning block once, before its end date (ADR-0065 As built, T76e), at the
+// version the caller read (`If-Match`; 412 when another change came first): the block is read under a
+// row lock and becomes `released`; a run started from then on duns the items again. A released block
+// is refused (409 `collections.block_released`). A block past its end date is released too, which
+// changes nothing for runs. Audited. A retry with the same `Idempotency-Key` answers the released
+// block. A block of a company the caller may not act in is not found (404). Human-only
+// (`x-agent: false`).
+//
+// POST /v1/dunning-blocks/{id}:release
+func (s *Server) handleReleaseDunningBlockRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("releaseDunningBlock"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/dunning-blocks/{id}:release"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ReleaseDunningBlockOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ReleaseDunningBlockOperation,
+			ID:   "releaseDunningBlock",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ReleaseDunningBlockOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeReleaseDunningBlockParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ReleaseDunningBlockRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ReleaseDunningBlockOperation,
+			OperationSummary: "Release a dunning block",
+			OperationID:      "releaseDunningBlock",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ReleaseDunningBlockParams
+			Response = ReleaseDunningBlockRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackReleaseDunningBlockParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ReleaseDunningBlock(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ReleaseDunningBlock(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeReleaseDunningBlockResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)

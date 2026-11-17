@@ -690,3 +690,83 @@ rule of law is built in.
   the day count of interest on late payment, or caps dunning charges,
   for business customers: not built in, the tenant's rate and charges
   apply as configured.
+
+### T76e Dunning blocks (migration 000351)
+
+Decided by default under this ADR (`plan-depth-1.md` §T76e; SAP
+S/4HANA's dunning block on the customer's company code data and on the
+line item, MANSP, as the reference), each listed for the product owner's
+digest.
+
+- **Schema.** `collections.dunning_block`: the company, the customer (id
+  and number when placed), the open item by its journal line with its
+  document number or none of them (a block of the whole customer), the
+  reason (free text up to 500 characters: SAP's blocking reasons are
+  codes; a reason list is later), `valid_to`, the last key date it holds
+  for, and once released when and by whom. The checks are in 03 §3.27 and
+  `db/collections_test.go` (`TestDunningBlockRules`,
+  `TestDunningBlockReleasedForTheOwner`). The application may set the
+  release's columns, the version and `updated_by` alone; the trigger
+  `dunning_block_released_once` keeps a released block as it is for
+  every role. Permission `collections.dunning.block` places and releases
+  blocks; `collections.dunning.read` reads them (a block is part of
+  dunning, decided by default).
+- **What a block names.** A customer that is a business partner of the
+  tenant (422 `request.reference_not_found` naming `customer_id`) and,
+  for an item, an open item of the company the customer owes, read as a
+  dispute case's is (422 `collections.item_not_open` naming
+  `journal_entry_id`; the shared message now names both). A journal line
+  named in part is 422 `request.validation_failed`. The end date is
+  required (the brief: a reason and an end date), not before the
+  company's today in its time zone, so a block holds for some run, and at
+  most 2100-12-31, the last key date (422 `collections.invalid_block_end`
+  naming `valid_to`, today and the zone in the detail). The clock is the
+  endpoints' (`Endpoints.Now`, the composition root's).
+- **In force.** A block holds for a run started while it is not released
+  whose key date is on or before `valid_to`; the run reads the company's
+  unreleased blocks ending on or after its key date
+  (`collections.blocksInForce`, index `dunning_block_in_force`). Blocks
+  are not exclusive: several of one customer or item may be active, each
+  ending or released on its own, so no unique key refuses a second one
+  (a run names the latest placed).
+- **The run.** An item that would reach a level and is blocked, by its
+  own block or its customer's, is in no notice and in none of the run's
+  totals; the run lists it in `dunning_run.blocked_items` (a JSON list
+  as `disputed_items`, written once, left out of the update grant), with
+  the block, the customer's number and what the run read of the item,
+  and gives `blocked_item_count` and `blocked_amount`. A blocked item is
+  not listed as disputed too: the block is checked first. Blocked items
+  count towards the 5,000 a run takes, as disputed ones do. The minimum
+  amount (T76d) applies to what is left.
+- **Stale on confirmation.** Unlike a dispute case opened after a
+  proposal (T86b, plan acceptance), a block in force for the run's key
+  date when the run is confirmed makes the proposal stale (409
+  `collections.proposal_stale`, the detail counting the blocked items):
+  a block is the explicit instruction not to dun (the safer default).
+  The check reads the blocks after the company's advisory lock; a block
+  placed while a confirmation is running takes no lock and may commit
+  after the confirmation read the blocks, as if placed after it.
+- **Release.** `POST /v1/dunning-blocks/{id}:release` with `If-Match`
+  reads the block `FOR UPDATE`, refuses a released one (409
+  `collections.block_released`) and updates it guarded by
+  `released_at IS NULL` (ADR-0008). The end date is not changed: a new
+  block is placed instead (decided by default, no patch).
+- **Lock order.** Placing takes no row lock (it reads the open items and
+  inserts); releasing locks the one block row. A confirmation takes the
+  company's advisory lock and reads blocks without locking them, so no
+  two writers take locks in opposite orders.
+- **Audit, no event.** Audit actions `collections.dunning_block.place`
+  and `.release`, whose detail holds the reason. No event: a block
+  changes nothing outside the context, and the runs started afterwards
+  name the items it holds back (decided by default).
+- **Not in the worklist.** The collection worklist does not show blocks
+  yet (later).
+- **Walkthrough.** `step_dunning_blocks` (step 110): Ruth blocks
+  Lakeshore's gasket invoice up to a date 120 days away and a run at
+  step 109's last key date names it as blocked and duns the pump invoice
+  alone; an end date in the past is refused; a colleague's proposal is
+  refused as stale once Ruth blocks the whole customer for a payment
+  plan; a run at the key date duns nothing of Lakeshore's, each invoice
+  named with its block; after the customer's block has ended the pump
+  is dunned again; the gasket's block released, once, the next run duns
+  both.

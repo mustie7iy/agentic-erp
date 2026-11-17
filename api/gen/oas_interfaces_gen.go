@@ -325,6 +325,10 @@ type CreateDownPaymentRequestRes interface {
 	createDownPaymentRequestRes()
 }
 
+type CreateDunningBlockRes interface {
+	createDunningBlockRes()
+}
+
 type CreateDunningRunRes interface {
 	createDunningRunRes()
 }
@@ -835,6 +839,10 @@ type GetDisputeCaseRes interface {
 
 type GetDownPaymentRequestRes interface {
 	getDownPaymentRequestRes()
+}
+
+type GetDunningBlockRes interface {
+	getDunningBlockRes()
 }
 
 type GetDunningRunRes interface {
@@ -1417,6 +1425,10 @@ type ListDownPaymentRequestsRes interface {
 	listDownPaymentRequestsRes()
 }
 
+type ListDunningBlocksRes interface {
+	listDunningBlocksRes()
+}
+
 type ListDunningNoticesRes interface {
 	listDunningNoticesRes()
 }
@@ -1983,6 +1995,10 @@ type ReleaseContractRes interface {
 
 type ReleaseCreditMemoRequestRes interface {
 	releaseCreditMemoRequestRes()
+}
+
+type ReleaseDunningBlockRes interface {
+	releaseDunningBlockRes()
 }
 
 type ReleaseInternalOrderRes interface {

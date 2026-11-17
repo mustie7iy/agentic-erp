@@ -17764,6 +17764,198 @@ paths:
           $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/dunning-blocks:
+    get:
+      operationId: listDunningBlocks
+      tags:
+        - collections
+      summary: List dunning blocks
+      description: "The dunning blocks of the companies the caller may act in (ADR-0065 As built, T76e), each as `getDunningBlock` gives it: with its company's code and name, its customer's number and name, the open item it blocks (none for a block of the whole customer), its reason, its end date and its status. Filtered by company, customer and status. Sortable by: `created_at` (default, the latest first)."
+      x-permission: collections.dunning.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: customer_id
+          in: query
+          required: false
+          description: Only the blocks of this customer (business partner id), of the customer and of its items.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only blocks in this status.
+          schema:
+            type: string
+            description: "Dunning block status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - active
+              - released
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of dunning blocks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DunningBlockPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createDunningBlock
+      tags:
+        - collections
+      summary: Block a customer or one of its open items from dunning
+      description: "Places a dunning block (ADR-0065 As built, T76e): the customer (`customer_id`), or one of its open items named by its journal line (`fiscal_year`, `journal_entry_id`, `line_no`, as a dunning notice's item names it), is not dunned in the company, for a reason, up to an end date. The company is one the caller may act in (422 `request.reference_not_found` naming `legal_entity_id`); the customer a business partner of the tenant (422 `request.reference_not_found` naming `customer_id`); an item an open item on a customer reconciliation account of the company in the leading ledger that this customer owes (422 `collections.item_not_open` naming `journal_entry_id`); the journal line is named whole or not at all (422 `request.validation_failed`). `valid_to` is the last key date the block holds for: not before the company's today and at most 2100-12-31 (422 `collections.invalid_block_end` naming `valid_to`). `reason` is a text of more than white space (422 `request.validation_failed`). The block is created `active`. A dunning run started while it is active, at a key date up to `valid_to`, leaves the blocked items out of its notices and names them in `blocked_items`; a run proposed before the block is refused as stale when it is confirmed (`confirmDunningRun`). Several blocks of one customer or item may be active at once; each holds until its own end date or release. Placing a block posts nothing and changes nothing on the items. Audited. A retry with the same `Idempotency-Key` answers the block placed. Human-only (`x-agent: false`)."
+      x-permission: collections.dunning.block
+      x-agent: false
+      x-problem-codes:
+        - collections.invalid_block_end
+        - collections.item_not_open
+        - config.not_bootstrapped
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The dunning block to place.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DunningBlockCreate"
+            examples:
+              item:
+                summary: An invoice blocked while the customer checks a delivery
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  fiscal_year: 2026
+                  journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+                  line_no: 1
+                  reason: The customer checks the delivery with its warehouse
+                  valid_to: "2027-01-31"
+              customer:
+                summary: A customer blocked during a payment plan
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  reason: Payment plan agreed until the end of January
+                  valid_to: "2027-01-31"
+      responses:
+        "201":
+          description: "Created; the new dunning block."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DunningBlock"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/dunning-blocks/{id}":
+    get:
+      operationId: getDunningBlock
+      tags:
+        - collections
+      summary: Get a dunning block
+      description: "One dunning block (ADR-0065 As built, T76e) with its company's code and name, its customer's number and name, the open item it blocks by journal line and document number (none for a block of the whole customer), its reason, its end date and its status, and once released who released it when. One of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: collections.dunning.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The dunning block.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DunningBlock"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/dunning-blocks/{id}:release":
+    post:
+      operationId: releaseDunningBlock
+      tags:
+        - collections
+      summary: Release a dunning block
+      description: "Releases an `active` dunning block once, before its end date (ADR-0065 As built, T76e), at the version the caller read (`If-Match`; 412 when another change came first): the block is read under a row lock and becomes `released`; a run started from then on duns the items again. A released block is refused (409 `collections.block_released`). A block past its end date is released too, which changes nothing for runs. Audited. A retry with the same `Idempotency-Key` answers the released block. A block of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
+      x-permission: collections.dunning.block
+      x-agent: false
+      x-problem-codes:
+        - collections.block_released
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The dunning block, released."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DunningBlock"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/dunning-runs:
     get:
       operationId: listDunningRuns
@@ -17825,7 +18017,7 @@ paths:
       tags:
         - collections
       summary: Start a dunning run
-      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit) and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. The net due date is that of the payment terms the item was posted with; an item posted without payment terms (a manual or migrated entry's) is due on its document date and is proposed like any other. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing, with or without terms. An item with an open dispute case (`createDisputeCase`) is in no notice, whatever part of it is disputed: the run lists it in `disputed_items` with its case, and it counts in none of the run's totals; once the case is closed a new run proposes it again (T86b). An item rises one level per confirmed run at most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the highest level stays there. A notice's level is the highest among its items. The company's dunning procedure applies as the configuration has it when the run is started, and the run keeps it (T76d): an item overdue by no more than `companies[].dunning.grace_days` is not proposed; a customer whose notice's overdue amount would be below `companies[].dunning.minimum_amount` gets no notice, and the run counts it in `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its level's `charge`, and each item at a level that charges `interest` is charged interest at `interest_rate_percent` a year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue` ÷ 365, rounded half away from zero in the company's currency); a notice's `total_amount` is what it asks for in all. Charges and interest are what the notices ask for: nothing is posted. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
+      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit) and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. The net due date is that of the payment terms the item was posted with; an item posted without payment terms (a manual or migrated entry's) is due on its document date and is proposed like any other. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing, with or without terms. An item with an open dispute case (`createDisputeCase`) is in no notice, whatever part of it is disputed: the run lists it in `disputed_items` with its case, and it counts in none of the run's totals; once the case is closed a new run proposes it again (T86b). An item with an active dunning block (`createDunningBlock`) of its own or of its customer, whose `valid_to` is on or after the key date, is in no notice either: the run lists it in `blocked_items` with its block, outside its totals, and not in `disputed_items` (T76e). An item rises one level per confirmed run at most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the highest level stays there. A notice's level is the highest among its items. The company's dunning procedure applies as the configuration has it when the run is started, and the run keeps it (T76d): an item overdue by no more than `companies[].dunning.grace_days` is not proposed; a customer whose notice's overdue amount would be below `companies[].dunning.minimum_amount` gets no notice, and the run counts it in `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its level's `charge`, and each item at a level that charges `interest` is charged interest at `interest_rate_percent` a year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue` ÷ 365, rounded half away from zero in the company's currency); a notice's `total_amount` is what it asks for in all. Charges and interest are what the notices ask for: nothing is posted. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
       x-permission: collections.dunning.run
       x-agent: false
       x-problem-codes:
@@ -17914,7 +18106,7 @@ paths:
       tags:
         - collections
       summary: Confirm a dunning run
-      description: "Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`; an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written with it. From then on a run started for the company reads the recorded level as the item's `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is confirmed, the proposal is compared with the open items again: when an item of it was cleared since the run was started, or was dunned since by another confirmed run of the company (its recorded level is no longer the run's `previous_level`), the proposal is stale and refused (409 `collections.proposal_stale`), nothing of it is recorded, and a new run is started with `createDunningRun`; the stale run stays `proposed`. A dispute case opened on an item after the run was started does not make the proposal stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
+      description: "Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`; an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written with it. From then on a run started for the company reads the recorded level as the item's `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is confirmed, the proposal is compared with the open items again: when an item of it was cleared since the run was started, or was dunned since by another confirmed run of the company (its recorded level is no longer the run's `previous_level`), the proposal is stale and refused (409 `collections.proposal_stale`); so is a proposal with an item that an active dunning block of the item or its customer, placed since and holding for the run's key date, blocks (T76e). Nothing of a stale proposal is recorded, and a new run is started with `createDunningRun`; the stale run stays `proposed`. A dispute case opened on an item after the run was started does not make the proposal stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
       x-permission: collections.dunning.run
       x-agent: false
       x-problem-codes:
@@ -55063,12 +55255,99 @@ components:
       properties:
         legal_entity_id: {type: string, format: uuid, description: "The company whose customers are dunned: a legal entity the caller may act in, with dunning levels in the configuration."}
         key_date: {type: string, format: date, description: "The date the items' days overdue are counted on. An item due on this date is not overdue. 2100-12-31 at the latest."}
+    DunningBlockCreate:
+      type: object
+      description: "Block a customer, or one of its open items, from dunning in a company. It is created `active`."
+      required: [legal_entity_id, customer_id, reason, valid_to]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company that is not to dun: a legal entity the caller may act in."}
+        customer_id: {type: string, format: uuid, description: "The customer (a business partner): blocked whole, or, with the journal line, the owner of the blocked item."}
+        fiscal_year: {type: integer, format: int32, minimum: 1900, maximum: 2100, description: "The fiscal year of the blocked item's journal entry; absent for a block of the whole customer."}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the blocked open item (as `listOpenItems` and a dunning notice's item name it); absent for a block of the whole customer."}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the blocked open item; absent for a block of the whole customer."}
+        reason: {type: string, minLength: 1, maxLength: 500, description: "Why the customer or the item is not dunned."}
+        valid_to: {type: string, format: date, description: "The last key date the block holds for: not before the company's today, at most 2100-12-31."}
+    DunningBlock:
+      description: "A dunning block (collections, ADR-0065 As built, T76e): a customer, or one of its open items, that a company does not dun up to an end date."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, reason, valid_to, status]
+          properties:
+            legal_entity_id: {type: string, format: uuid, description: "The company that does not dun.", readOnly: true}
+            company_code: {type: string, description: "The company's code.", readOnly: true}
+            company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+            customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+            customer_number: {type: string, description: "The customer's business partner number when the block was placed.", readOnly: true}
+            customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+            fiscal_year: {type: integer, format: int32, description: "The fiscal year of the blocked item's journal entry; absent when the whole customer is blocked.", readOnly: true}
+            journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the blocked item (`GET /v1/journal-entries/{id}`); absent when the whole customer is blocked.", readOnly: true}
+            line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the blocked item; absent when the whole customer is blocked.", readOnly: true}
+            document_number: {type: string, description: "The journal entry's document number; absent when the whole customer is blocked.", readOnly: true}
+            reason: {type: string, description: "Why the customer or the item is not dunned.", readOnly: true}
+            valid_to: {type: string, format: date, description: "The last key date the block holds for: a run at a later key date duns the items again.", readOnly: true}
+            status:
+              type: string
+              x-extensible-enum: [active, released]
+              description: "`active`: a run at a key date up to `valid_to` leaves the blocked items out; `released`: released before (`releaseDunningBlock`), and holds for no run. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            released_at: {type: string, format: date-time, description: "When the block was released; absent while it is active.", readOnly: true}
+            released_by: {type: string, format: uuid, description: "Who released it; absent while it is active.", readOnly: true}
+            released_by_name: {type: string, description: "The name of who released it, as it is now; absent while it is active.", readOnly: true}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d93"
+          version: 1
+          created_at: "2026-12-01T09:12:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-12-01T09:12:00Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          fiscal_year: 2026
+          journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          line_no: 1
+          document_number: "1800000007"
+          reason: The customer checks the delivery with its warehouse
+          valid_to: "2027-01-31"
+          status: active
+    DunningBlockPage:
+      type: object
+      description: One page of dunning blocks.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/DunningBlock"}
+          description: The dunning blocks on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    DunningRunBlockedItem:
+      type: object
+      description: "An item a dunning run left out for a dunning block (T76e): a customer's open item overdue on the run's key date that would have reached a dunning level, as the run read it."
+      required: [dunning_block_id, customer_id, customer_number, fiscal_year, journal_entry_id, line_no, document_number, net_due_date, days_overdue, amount, local_amount]
+      properties:
+        dunning_block_id: {type: string, format: uuid, description: "The block that held the item when the run was started, the item's own or its customer's (`GET /v1/dunning-blocks/{id}`).", readOnly: true}
+        customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+        customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: "The fiscal year of the item's journal entry.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the open item (`GET /v1/journal-entries/{id}`).", readOnly: true}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the open item.", readOnly: true}
+        document_number: {type: string, description: "The journal entry's document number.", readOnly: true}
+        reference: {type: string, description: "The journal entry's reference, a customer invoice's document number for one; absent when it has none.", readOnly: true}
+        net_due_date: {type: string, format: date, description: "The item's net due date: by the payment terms it was posted with, or, posted without any, its document date.", readOnly: true}
+        days_overdue: {type: integer, format: int32, minimum: 1, description: "The days from the net due date to the run's key date.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "What the customer owes on the item, in the item's currency."}
+        local_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, as it was booked."}
     DunningRun:
       description: "A dunning run (collections, ADR-0065 §3): a company's customer items overdue on a key date, proposed for dunning."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
-          required: [legal_entity_id, company_code, company_name, key_date, status, currency, notice_count, item_count, overdue_amount, charge_amount, interest_amount, total_amount, grace_days, minimum_amount, below_minimum_notice_count, below_minimum_amount, disputed_item_count, disputed_amount, disputed_items]
+          required: [legal_entity_id, company_code, company_name, key_date, status, currency, notice_count, item_count, overdue_amount, charge_amount, interest_amount, total_amount, grace_days, minimum_amount, below_minimum_notice_count, below_minimum_amount, disputed_item_count, disputed_amount, disputed_items, blocked_item_count, blocked_amount, blocked_items]
           properties:
             legal_entity_id: {type: string, format: uuid, description: "The company whose customers the run duns.", readOnly: true}
             company_code: {type: string, description: "The company's code.", readOnly: true}
@@ -55098,6 +55377,13 @@ components:
               items: {$ref: "#/components/schemas/DunningRunDisputedItem"}
               description: "The items the run would have proposed but left out, each for its open dispute case (T86b), by customer and item; in no notice and in none of the run's totals. Empty when none was disputed, and for runs started before dispute cases existed."
               readOnly: true
+            blocked_item_count: {type: integer, format: int32, minimum: 0, description: "The items the run left out for a dunning block (`blocked_items`); 0 when none was blocked.", readOnly: true}
+            blocked_amount: {$ref: "#/components/schemas/Money", description: "What those items add up to in the company's currency, as they were booked (the sum of `blocked_items[].local_amount`): not dunned, not counted in `overdue_amount`."}
+            blocked_items:
+              type: array
+              items: {$ref: "#/components/schemas/DunningRunBlockedItem"}
+              description: "The items the run would have proposed but left out, each for an active dunning block of the item or its customer whose end date is on or after the key date (T76e), by customer and item; in no notice and in none of the run's totals. An item both blocked and disputed is listed here alone. Empty when none was blocked, and for runs started before dunning blocks existed."
+              readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
           version: 1
@@ -55124,6 +55410,9 @@ components:
           below_minimum_amount: {amount: "12.50", currency: CAD}
           disputed_item_count: 1
           disputed_amount: {amount: "400.00", currency: CAD}
+          blocked_item_count: 0
+          blocked_amount: {amount: "0.00", currency: CAD}
+          blocked_items: []
           disputed_items:
             - dispute_case_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
               customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"

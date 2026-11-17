@@ -4605,7 +4605,9 @@ T86b (migration 000325) leaves an item with an open case out of a run's
 notices and lists it on the run. T76d (migration 000350) applies the
 company's dunning procedure: a run keeps its grace days, minimum amount
 and interest rate, and charges its notices their level's charge and
-their items interest; nothing is posted.
+their items interest; nothing is posted. T76e (migration 000351) adds the
+dunning block: a customer, or one of its open items, that the company
+does not dun up to an end date; a run lists the items it holds back.
 
 ```mermaid
 erDiagram
@@ -4628,6 +4630,7 @@ erDiagram
     bigint interest_amount "the notices'"
     int below_minimum_count "notices left out"
     bigint below_minimum_amount "their amount"
+    jsonb blocked_items "items left out for a block"
     int version }
   dunning_notice { uuid id PK
     uuid dunning_run_id FK
@@ -4661,6 +4664,19 @@ erDiagram
     uuid dunning_run_id PK "the confirmed run"
     smallint level "1-9"
     date dunning_date "the run's key date" }
+  dunning_block { uuid id PK
+    uuid legal_entity_id "tenancy"
+    uuid customer_id "partner"
+    text customer_number "when placed"
+    smallint fiscal_year "ledger: the item's line, or none"
+    uuid journal_entry_id
+    int line_no
+    text document_number
+    text reason
+    date valid_to "the last key date it holds for"
+    timestamptz released_at
+    uuid released_by
+    int version }
   dispute_case { uuid id PK
     uuid legal_entity_id "tenancy"
     uuid customer_id "partner"
@@ -4746,6 +4762,22 @@ erDiagram
   (`dunned_item_level_check`); insert-only. An item's level is the
   highest among its rows and its last dunning date the latest; an item at
   the highest level gets a row per confirmed run that took it.
+- `collections.dunning_block` (T76e, migration 000351): a customer, by
+  its number (`dunning_block_customer_number_check`), and either an open
+  item by its whole journal line with its document number or none of
+  them (`dunning_block_item_check`, `dunning_block_line_no_check`,
+  `dunning_block_document_number_check`); a reason of more than white
+  space, at most 500 characters (`dunning_block_reason_check`); released
+  with when and by whom or neither (`dunning_block_released_check`);
+  version from 1 (`dunning_block_version_check`). A released block is not
+  changed (the trigger `dunning_block_released_once`, for every role);
+  the application may set the release's columns, the version and
+  `updated_by` alone, and deletes none. A run reads a company's
+  unreleased blocks by end date (`dunning_block_in_force`), the list the
+  tenant's by creation (`dunning_block_by_created_at`).
+  `dunning_run.blocked_items` lists the items a run left out for a block,
+  a JSON list (`dunning_run_blocked_items_check`), empty by default,
+  written with the run and not changed.
 - `collections.dispute_case` (T86a, migration 000324): an open item of
   the ledger, named by its journal line (`dispute_case_line_no_check`),
   with its customer's number and its document number

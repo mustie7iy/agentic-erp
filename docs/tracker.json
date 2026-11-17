@@ -2974,9 +2974,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A credit controller blocks a customer or one of its open items from dunning in a company, with a reason and an end date, and releases the block; a dunning run leaves blocked items out and names them, and a proposal with an item blocked since is stale",
-        "r": "T76e · docs/design/plan-depth-1.md §T76e · collections.dunning_block · dunning_run.blocked_items · POST /v1/dunning-blocks · GET /v1/dunning-blocks · GET /v1/dunning-blocks/{id} · POST /v1/dunning-blocks/{id}:release · collections.dunning.block · walkthrough step_dunning_blocks · ADR-0065 As built",
+        "r": "T76e · docs/design/plan-depth-1.md §T76e · db/migrations/000351 · collections.dunning_block · dunning_run.blocked_items · POST /v1/dunning-blocks · GET /v1/dunning-blocks · GET /v1/dunning-blocks/{id} · POST /v1/dunning-blocks/{id}:release · collections.dunning.block · walkthrough step_dunning_blocks · ADR-0065 As built",
         "src": "split:T76b · po:2026-11-17",
         "c": []
        },
