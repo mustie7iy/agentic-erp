@@ -12,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -185,9 +186,9 @@ func TestPostingAndPeriodCloseSerialize(t *testing.T) {
 			Lines: []ledger.PostingLine{{AccountID: expense, Amount: 500}, {AccountID: ap, Amount: -500, PartnerID: &e.supplier}}})
 		return err
 	}
-	setStatus := func(change func(context.Context, uuid.UUID, func(int32) error) (ledger.Period, error)) func(ctx context.Context) error {
+	setStatus := func(change func(context.Context, ledger.PaymentReleases, uuid.UUID, func(int32) error) (ledger.Period, error)) func(ctx context.Context) error {
 		return func(ctx context.Context) error {
-			_, err := change(ctx, period, func(int32) error { return nil })
+			_, err := change(ctx, payments.PeriodReleases{}, period, func(int32) error { return nil })
 			return err
 		}
 	}
@@ -201,7 +202,9 @@ func TestPostingAndPeriodCloseSerialize(t *testing.T) {
 			t.Errorf("posting after the close: got %v, want ledger.period_not_open", second)
 		}
 	})
-	if err := apitest.Committed(t, e.ten, e.ten.Human, setStatus(ledger.OpenPeriod)); err != nil {
+	if err := apitest.Committed(t, e.ten, e.ten.Human, setStatus(func(ctx context.Context, _ ledger.PaymentReleases, id uuid.UUID, ifMatch func(int32) error) (ledger.Period, error) {
+		return ledger.OpenPeriod(ctx, id, ifMatch)
+	})); err != nil {
 		t.Fatalf("reopen the period: %v", err)
 	}
 	t.Run("posting first", func(t *testing.T) {
@@ -225,7 +228,7 @@ func TestPeriodOfAnotherCompanyIsNotLocked(t *testing.T) {
 	pgtest.Scan(t, `SELECT s.id FROM ledger.period_status s JOIN ledger.ledger l ON l.tenant_id = s.tenant_id AND l.id = s.ledger_id AND l.is_leading
 		WHERE s.tenant_id = $1 AND s.legal_entity_id = $2 AND s.fiscal_year = 2026 AND s.period = 5`, []any{e.ten.ID, e.de}, &period)
 	err := apitest.Committed(t, e.ten, e.ten.Agent, func(ctx context.Context) error {
-		_, err := ledger.ClosePeriod(ctx, period, func(int32) error { return nil })
+		_, err := ledger.ClosePeriod(ctx, payments.PeriodReleases{}, period, func(int32) error { return nil })
 		if got := problem.From(err).Status; got != 404 {
 			t.Errorf("close without access: got %v, want not found", err)
 		}

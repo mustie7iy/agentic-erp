@@ -12,8 +12,11 @@ import (
 // ReturnPeriods is the ledger's port for the posting periods a tax return
 // touches (ADR-0049 §11, T32): preparing one needs its companies' periods
 // in its tax period closed, so no posting is under way, and recording it
-// filed locks them.
-type ReturnPeriods struct{}
+// filed locks them. Releases is asked before a period is locked
+// (LockPeriod).
+type ReturnPeriods struct {
+	Releases PaymentReleases
+}
 
 // Overlapping returns the leading ledger's regular posting periods of the
 // legal entities, each one the caller may act in, that overlap start to
@@ -37,6 +40,6 @@ func (ReturnPeriods) Overlapping(ctx context.Context, legalEntities []uuid.UUID,
 // published as that is. No version is asked: the caller read the period
 // in its own transaction, and the lock reads it again FOR UPDATE and
 // refuses one that is no longer closed.
-func (ReturnPeriods) Lock(ctx context.Context, id uuid.UUID) (Period, error) {
-	return LockPeriod(ctx, id, func(int32) error { return nil })
+func (r ReturnPeriods) Lock(ctx context.Context, id uuid.UUID) (Period, error) {
+	return LockPeriod(ctx, r.Releases, id, func(int32) error { return nil })
 }

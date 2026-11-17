@@ -1543,3 +1543,44 @@ refused as before: nothing is posted, so it is rejected and proposed
 again. The new reason is allowed by the three exclusion tables' checks
 (000348, validated by 000349) and listed in the exclusion's open
 enumeration and in `PaymentExcludedV1.reason_code`.
+
+## As built: a release's period stays open, and a resumed release drops a down payment it can no longer post (coordinator 2026-11-17, ERP practice, review:batch77)
+
+The batch 77 review found two more conditions that would refuse a
+resumed release for good, after some payments posted: the run date's
+period closed or locked since the stop (`ledger.period_not_open` at every
+later posting), and a down payment request's tax code no longer valid on
+the run date, or its rate changed (`ledger.unknown_tax_code`,
+`ledger.tax_code_components`). Coordinator 2026-11-17, ERP practice
+(decision 1 of the batch 77 re-review): a period is not closed or locked
+while a payment run of its company is releasing, or stopped and waiting to
+be resumed, with payments not posted yet dated in it: `:close` and
+`:lock` of a fiscal period answer 409 `ledger.payment_release_pending`
+(new; contract additive), naming the runs by number and id, and so do the
+period close's and year close's sign-offs and a tax return's filing,
+which lock periods the same way. The ledger asks the payments context
+through a port of its own (`ledger.PaymentReleases`, implemented by
+`payments.PeriodReleases` and wired by the app, as the tax filing
+context's `TaxReturns` is), with the period's row held FOR UPDATE, which a
+posting holds FOR SHARE: a payment posting under way finishes before the
+runs are read, and a release that starts after they were read finds the
+period closed at its first posting and, nothing posted, goes back to
+proposed. A special period is not checked: a run posts in its run date's
+regular period. A ledger wired without the port refuses the close rather
+than closing unchecked. A resumed release drops a down payment whose tax
+can no longer be paid on the run date (`checkTax`, as the proposal leaves
+such a request out), excluding its request with `tax_code_invalid` and
+naming the code and rates, as the proposal's exclusion does; the request
+stays open for a later run.
+
+Swept for other changed conditions that refuse a resumed release for good
+(rule 17): every other refusal of a payment's posting can be cured
+forward without the run being rejected. A blocked account is unblocked,
+a missing exchange rate is entered, and an account determination
+(`down_payment`, `cash_discount`, `fx_gain`/`fx_loss`) is added; a
+determined `down_payment` account never goes (`ledger.Setup.Check`). An
+item's withholding is read from the item's own records, not the
+configuration. A releaser no longer active is replaced by whoever
+resumes, who becomes the releaser. A house bank is read as it was
+proposed. Unpayable items and suppliers are dropped already (review
+batch 76).

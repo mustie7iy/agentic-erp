@@ -17,8 +17,11 @@ import (
 // ClosePeriods is the ledger's port for the posting periods a financial
 // close reads (ADR-0058 §2-§4): the close calendar is one row per regular
 // period of a company's leading ledger, and a period close covers a
-// period of each ledger it names.
-type ClosePeriods struct{}
+// period of each ledger it names. Releases is asked before a period is
+// locked (LockPeriod).
+type ClosePeriods struct {
+	Releases PaymentReleases
+}
 
 // Leading returns the leading ledger's regular posting periods of the
 // legal entity in the fiscal year, by period: none for a legal entity the
@@ -191,6 +194,6 @@ func (ClosePeriods) LockYear(ctx context.Context, legalEntity uuid.UUID, fiscalY
 // the order postings take them, the leading ledger first, then by code
 // (postingPeriod), so a sign-off and a posting never wait on each other's
 // periods in opposite orders.
-func (ClosePeriods) Lock(ctx context.Context, id uuid.UUID, version int32) (Period, error) {
-	return LockPeriod(ctx, id, etag.IfMatch(etag.Format(version)))
+func (c ClosePeriods) Lock(ctx context.Context, id uuid.UUID, version int32) (Period, error) {
+	return LockPeriod(ctx, c.Releases, id, etag.IfMatch(etag.Format(version)))
 }

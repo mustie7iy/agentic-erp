@@ -399,8 +399,8 @@ const (
 // balance (payRequests); a request left out by the proposal has its
 // exclusion in payments.request_exclusion and no payment, which leaves
 // the items paid. A resumed release drops a down payment's payment whose
-// supplier can no longer be paid (dropUnpaidSuppliers) with an exclusion
-// of its request there, as the proposal would have left it out.
+// supplier, or whose tax, can no longer be paid (dropUnpayable) with an
+// exclusion of its request there, as the proposal would have left it out.
 const dropped = `(CASE WHEN p.kind = 'down_payment'
 		THEN EXISTS (SELECT FROM payments.request_exclusion x WHERE x.tenant_id = p.tenant_id
 			AND x.payment_run_id = p.payment_run_id AND x.down_payment_request_id = p.down_payment_request_id)

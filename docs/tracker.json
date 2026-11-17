@@ -1097,8 +1097,15 @@
      {
       "s": "D",
       "t": "A resumed release (:release of a run whose release failed or was cancelled with payments posted) checks again only the payments not posted and drops each whose supplier can no longer be paid as proposed, its items back to open and the supplier excluded with the reason (bank_account_changed new), a down payment's by its request; before, it refused the whole run, which stayed releasing for good (R4 B1 of the batch 76 review).",
-      "r": "internal/payments StartRelease, dropUnpaidSuppliers, supplierReasons, dropPayment, dropped (down payments) · migrations 000348-000349 · api/openapi.yaml exclusion reason_code · api/asyncapi.yaml PaymentExcludedV1 · ADR-0038 as built · TestResumedReleaseDropsUnpayableSuppliers · db TestExclusionReasons",
+      "r": "internal/payments StartRelease, dropUnpaidSuppliers (dropUnpayable since review:batch77), supplierReasons, dropPayment, dropped (down payments) · migrations 000348-000349 · api/openapi.yaml exclusion reason_code · api/asyncapi.yaml PaymentExcludedV1 · ADR-0038 as built · TestResumedReleaseDropsUnpayableSuppliers · db TestExclusionReasons",
       "src": "po:2026-11-16 · review:batch76",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "A payment run's release stopped with payments posted is no longer stuck for good by its period or a down payment's tax code (R4 B1 of the batch 77 review): closing or locking the run date's period is refused (409 ledger.payment_release_pending) while a run of the company is releasing with payments not posted yet dated in it, and a resumed release drops a down payment whose tax can no longer be paid on the run date (tax_code_invalid, its request excluded).",
+      "r": "internal/ledger releasing.go (PaymentReleases, noRelease), periods.go ClosePeriod/LockPeriod, ClosePeriods and ReturnPeriods Releases · internal/payments releasing.go PeriodReleases, release.go dropUnpayable/dropReason, downpayments.go requestTax · api/openapi.yaml closeFiscalPeriod, lockFiscalPeriod, signOffPeriodClose, signOffYearClose, fileTaxReturn problem codes and exclusion reason_code · api/asyncapi.yaml PaymentExcludedV1 · ADR-0038 as built · TestReleaseHoldsItsPeriodOpen, TestResumedReleaseDropsAnEndedTaxCode, TestNoRelease",
+      "src": "review:batch77",
       "c": []
      }
     ]

@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/countrypack"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -173,7 +174,7 @@ func newLifecycleScene(t *testing.T) lifecycleScene {
 		t.Fatal(err)
 	}
 	s.h = endpoints(t, time.Date(2027, 1, 15, 12, 0, 0, 0, time.UTC))
-	s.h.Packs, s.h.Items, s.h.Periods = lib, ledger.TaxItems{}, ledger.ReturnPeriods{}
+	s.h.Packs, s.h.Items, s.h.Periods = lib, ledger.TaxItems{}, ledger.ReturnPeriods{Releases: payments.PeriodReleases{}}
 	s.h.Approvals = approvals.Approvals{Settings: configuration.Settings{}, Roles: identity.Directory{}}
 	return s
 }

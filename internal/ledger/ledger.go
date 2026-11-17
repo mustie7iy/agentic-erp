@@ -103,6 +103,9 @@ type Endpoints struct {
 	People People
 	// PersonNames names the people who ran a carry-forward (ADR-0060 §7).
 	PersonNames PersonNames
+	// Releases tells which payment runs are being released, which a period
+	// is not closed or locked under (ADR-0038 As built).
+	Releases PaymentReleases
 }
 
 // PersonNames is the identity context's names of principals by id; an id

@@ -9158,7 +9158,10 @@ func (s *Server) handleCloseDisputeCaseRequest(args [1]string, argsEscaped bool,
 
 // handleCloseFiscalPeriodRequest handles closeFiscalPeriod operation.
 //
-// Closes the period for postings. Requires status `open`.
+// Closes the period for postings. Requires status `open`. Refused while a payment run of the company
+// is being released, or stopped and waiting to be resumed, with payments dated in the period not
+// posted yet (409 `ledger.payment_release_pending`, naming the runs): resume the release (`:release`)
+// and let it finish first.
 //
 // POST /v1/fiscal-periods/{id}:close
 func (s *Server) handleCloseFiscalPeriodRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -92886,7 +92889,9 @@ func (s *Server) handleLockCostCenterRequest(args [1]string, argsEscaped bool, w
 //
 // Locks the period for good: a locked period refuses postings, reversals and clearings dated in it, as
 // a closed one does, and `:open` cannot reopen it; only an approved unlock request returns it to
-// `closed`. Requires status `closed`, so the postings under way have finished. Human-only.
+// `closed`. Requires status `closed`, so the postings under way have finished, and no payment run of
+// the company being released, or stopped and waiting to be resumed, with payments dated in the period
+// not posted yet (409 `ledger.payment_release_pending`). Human-only.
 //
 // POST /v1/fiscal-periods/{id}:lock
 func (s *Server) handleLockFiscalPeriodRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

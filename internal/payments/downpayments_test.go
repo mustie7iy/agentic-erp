@@ -29,10 +29,11 @@ func downPaymentSetup(t *testing.T) env {
 	return downPaymentSetupWith(t, func(*app.Config) {})
 }
 
-// downPaymentSetupWith is downPaymentSetup with more API wiring.
-func downPaymentSetupWith(t *testing.T, configure func(*app.Config)) env {
+// downPaymentSetupWith is downPaymentSetup with more API wiring and more
+// permissions.
+func downPaymentSetupWith(t *testing.T, configure func(*app.Config), more ...string) env {
 	t.Helper()
-	e := setupWith(t, []string{"payables.down_payment.request"}, configure)
+	e := setupWith(t, append([]string{"payables.down_payment.request"}, more...), configure)
 	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 		return ledger.Setup{LegalEntities: tenancy.Directory{}}.Apply(ctx, downPaymentDoc(t))
 	}); err != nil {

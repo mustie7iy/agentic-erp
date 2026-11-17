@@ -18,6 +18,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -155,7 +156,7 @@ func TestTaxDateHoldSerializes(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := endpoints(t, time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC))
-	h.Packs, h.Items, h.Periods = lib, ledger.TaxItems{}, ledger.ReturnPeriods{}
+	h.Packs, h.Items, h.Periods = lib, ledger.TaxItems{}, ledger.ReturnPeriods{Releases: payments.PeriodReleases{}}
 	h.Approvals = approvals.Approvals{Settings: configuration.Settings{}, Roles: identity.Directory{}}
 	lg := &ledger.Endpoints{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}, Approvals: fixture.Approvals(),
 		Settings: configuration.Settings{}, TaxReturns: taxfiling.Holds{}}
