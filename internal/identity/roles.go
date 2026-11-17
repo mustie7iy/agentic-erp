@@ -172,6 +172,9 @@ func GrantPermission(ctx context.Context, role uuid.UUID, permission string, fro
 	if err != nil {
 		return RolePermission{}, fmt.Errorf("identity: grant permission %s to role %s: %w", permission, role, err)
 	}
+	if err := lockGrants(ctx, tx); err != nil {
+		return RolePermission{}, err
+	}
 	if err := agentApprovalsNow(ctx, tx); err != nil {
 		return RolePermission{}, err
 	}

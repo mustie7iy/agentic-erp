@@ -326,6 +326,9 @@ func BlockPrincipal(ctx context.Context, id uuid.UUID, ifMatch func(int32) error
 	if err != nil {
 		return Principal{}, err
 	}
+	if err := lockBlockers(ctx, tx, actor.ID, id); err != nil {
+		return Principal{}, err
+	}
 	p, err := getPrincipal(ctx, tx, id, true)
 	if err != nil {
 		return Principal{}, err
@@ -349,6 +352,25 @@ func BlockPrincipal(ctx context.Context, id uuid.UUID, ifMatch func(int32) error
 	return updated, audit.Record(ctx, "identity.principal.block", "identity.principal", id, map[string]any{"reason": reason},
 		outbox.Event{Context: "identity", Name: "principal_blocked", AggregateType: "identity.principal", AggregateID: id,
 			Payload: map[string]any{"principal_id": id, "kind": p.Kind, "previous_status": p.Status, "status": Blocked}})
+}
+
+// lockBlockers locks the principal to block and the actor, in id order,
+// and refuses an actor that is no longer active. Locking the principal
+// alone, two administrators blocking each other at once would each lock
+// only the other and both commit, leaving neither active; under both
+// locks the second waits for the first and then finds itself blocked
+// (ADR-0008). The id order keeps the two from deadlocking.
+func lockBlockers(ctx context.Context, tx pgx.Tx, actor, id uuid.UUID) error {
+	var active bool
+	err := tx.QueryRow(ctx, `WITH locked AS (SELECT id, status FROM identity.principal WHERE id IN ($1, $2) ORDER BY id FOR UPDATE)
+		SELECT coalesce(bool_and(status = 'active') FILTER (WHERE id = $1), true) FROM locked`, actor, id).Scan(&active)
+	if err != nil {
+		return fmt.Errorf("identity: lock principals %s and %s: %w", actor, id, err)
+	}
+	if !active {
+		return problem.Forbidden("identity.principal_blocked", "You were blocked or deprovisioned while this request ran; it blocks no one.")
+	}
+	return nil
 }
 
 func changedFields(pairs ...any) []string {

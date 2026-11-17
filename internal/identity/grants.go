@@ -78,6 +78,9 @@ func AssignRole(ctx context.Context, principal, role uuid.UUID, from, to *time.T
 	if err != nil {
 		return RoleAssignment{}, fmt.Errorf("identity: assign role %s to principal %s: %w", role, principal, err)
 	}
+	if err := lockGrants(ctx, tx); err != nil {
+		return RoleAssignment{}, err
+	}
 	if err := agentApprovalsNow(ctx, tx); err != nil {
 		return RoleAssignment{}, err
 	}
@@ -296,6 +299,9 @@ func CreateSodRule(ctx context.Context, a, b, description string, from, to *time
 		actor.TenantID, uuid.Must(uuid.NewV7()), a, b, description, v.From, v.To, actor.ID))
 	if err != nil {
 		return SodRule{}, fmt.Errorf("identity: create segregation-of-duties rule %s/%s: %w", a, b, err)
+	}
+	if err := lockGrants(ctx, tx); err != nil {
+		return SodRule{}, err
 	}
 	if err := sodConflict(ctx, tx, uuid.Nil, uuid.Nil, r.ID); err != nil {
 		return SodRule{}, err

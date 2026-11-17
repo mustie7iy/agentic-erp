@@ -45,3 +45,18 @@ refusal (ADR-0046): it refused nothing. `TestRetryableAnswersLeaveTheKey`
 covers each class and `TestLockTimeoutRetryRuns` a real lock timeout; a
 409 without `Retry-After` is stored and replayed as before
 (`TestErrorsKeepTheAnswerNotTheChanges`).
+
+## As built: checks across rows run under a lock that spans them (review:batch77)
+
+A check that reads rows the request does not lock is write skew when two
+requests can each pass it before the other commits. Three were found and
+now take a lock both requests share before checking, each with a test
+racing two transactions (`apitest.Race`): moving an org unit takes the
+legal entity's tree lock (`tenancy.org_unit_tree`) before its cycle check
+(two units moved under each other were already kept apart by the parent's
+foreign key lock, three were not); the agent-approval check of a role
+assignment or a permission grant runs after the tenant's
+segregation-of-duties lock (`identity.lockGrants`), as the SoD check did;
+and blocking a principal locks the principal and the actor in id order and
+refuses an actor blocked meanwhile (403 `identity.principal_blocked`), so
+two administrators blocking each other leave one active.
