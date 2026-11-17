@@ -123,10 +123,7 @@ func (a *Agent) Help(ctx context.Context, q Question) (Helped, error) {
 	prompt := fmt.Sprintf("The tenant's active configuration is version %d (id %s).\nThe user asks what %s of %s means.\n%s",
 		v.Number, v.ID, h.asked, q.Operation, contract(e))
 	h.numbers = recommend.Numbers(q.Operation + " " + h.name)
-	iterations := a.MaxIterations
-	if iterations <= 0 {
-		iterations = 20
-	}
+	iterations := recommend.Iterations(a.MaxIterations, 20)
 	if _, err := apitools.Run(ctx, a.LLM, s, tools, a.LLM.Params(helpSystem, anthropic.NewBetaTextBlock(prompt)), iterations); err != nil {
 		return res, err
 	}

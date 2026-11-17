@@ -390,6 +390,7 @@ func TestHarnessFailures(t *testing.T) {
 		{"no currency", func(_ *eval.Runner, ts *tenants) { ts.api.currency = "" }, nil, "no stated currency"},
 		{"usage unreadable", func(_ *eval.Runner, ts *tenants) { ts.api.usage = "down" }, nil, "answered 503"},
 		{"usage not an amount", func(_ *eval.Runner, ts *tenants) { ts.api.cost = "lots" }, nil, "lots"},
+		{"usage in no currency", func(_ *eval.Runner, ts *tenants) { ts.api.currency = "XXQ" }, nil, "XXQ, which is no currency"},
 		{"policy unreadable for the model", func(_ *eval.Runner, ts *tenants) { ts.api.usage = "policy down" }, nil, "answered 503"},
 		{"the alias routed nowhere", func(_ *eval.Runner, ts *tenants) { ts.api.usage = "unrouted" }, nil, "routes no alias"},
 		{"check of a server failing", nil, func(y string) string { return strings.Replace(y, `get: "/v1/things/{{thing}}"`, `get: /v1/down`, 1) }, "answered 502"},

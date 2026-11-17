@@ -141,7 +141,7 @@ func (d *Draft) create(in map[string]any) error {
 	if d.draft != "" {
 		return ErrNotTheDraft
 	}
-	b, _ := in["body"].(map[string]any)                      // no body: refused below
+	b := apitools.Body(in)
 	if fmt.Sprint(b["base_version"]) != fmt.Sprint(d.Base) { // a JSON number prints as the integer it is
 		return fmt.Errorf("%w: %d", ErrBase, d.Base)
 	}
@@ -155,7 +155,7 @@ func (d *Draft) update(in map[string]any) error {
 	if d.draft == "" || in["id"] != d.draft {
 		return ErrNotTheDraft
 	}
-	b, _ := in["body"].(map[string]any) // no body: the API refuses it
+	b := apitools.Body(in)
 	if base, ok := b["base_version"]; ok && fmt.Sprint(base) != fmt.Sprint(d.Base) {
 		return fmt.Errorf("%w: %d", ErrBase, d.Base)
 	}

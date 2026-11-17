@@ -175,7 +175,7 @@ func TestToolsCallTheAPIInASession(t *testing.T) {
 	for _, bad := range []struct {
 		tool  *apitools.Tool
 		input string
-	}{{tools[1], `{}`}, {tools[1], `[1]`}, {tools[0], `{"body": {}}`}} {
+	}{{tools[1], `{}`}, {tools[1], `[1]`}, {tools[1], `{"id": "x"} {}`}, {tools[0], `{"body": {}}`}} {
 		t.Run(bad.tool.Name()+" "+bad.input, func(t *testing.T) {
 			if _, err := bad.tool.Execute(ctx, json.RawMessage(bad.input)); err == nil {
 				t.Errorf("%s %s: got no error, want one", bad.tool.Name(), bad.input)
@@ -212,8 +212,15 @@ func TestToolsCallTheAPIInASession(t *testing.T) {
 	if err := s.End(ctx, "completed", anthropic.BetaUsage{}); err == nil {
 		t.Fatal("ended twice")
 	}
+	// The API answered a call the session could not record: its observer
+	// still sees the answer, so the agent's guards close (review:batch77).
+	var unrecorded []int
+	tools[1].Observe(func(r apitools.Response) { unrecorded = append(unrecorded, r.Status) })
 	if _, err := tools[1].Execute(ctx, json.RawMessage(`{"id": "`+id+`"}`)); !errors.Is(err, apitools.ErrNotRecorded) {
 		t.Fatalf("recorded into an ended session: got %v, want ErrNotRecorded", err)
+	}
+	if fmt.Sprint(unrecorded) != "[200]" {
+		t.Errorf("observed without a record: got %v, want [200]", unrecorded)
 	}
 	// Transport failures surface as errors.
 	down := &apitools.Client{BaseURL: "http://127.0.0.1:1", Token: "x"}

@@ -33,6 +33,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
+	"github.com/mustie7iy/agentic-erp/internal/recommend"
 )
 
 // Type is the forecast agent's type, as its profile names it and its
@@ -179,10 +180,7 @@ func (a *Agent) Explain(ctx context.Context, p Period) (Result, error) {
 	}
 	prompt := fmt.Sprintf("The forecast variance of company %s (legal entity %s) from %s to %s at lag %d.\nYour session id is %s.",
 		p.Company, le, p.From, p.To, p.Lag, s.ID)
-	iterations := a.MaxIterations
-	if iterations <= 0 {
-		iterations = 40
-	}
+	iterations := recommend.Iterations(a.MaxIterations, 40)
 	msg, err := apitools.Run(ctx, a.LLM, s, tools, a.LLM.Params(system, anthropic.NewBetaTextBlock(prompt)), iterations)
 	if msg != nil {
 		res.Reply = llm.Text(msg)
@@ -201,16 +199,12 @@ func (r *Result) guard(ok func(map[string]any) bool) func(map[string]any) error 
 	}
 }
 
-// body is a proposal's body; none is the API's to refuse.
-func body(in map[string]any) map[string]any {
-	b, _ := in["body"].(map[string]any) // no body: the API refuses it as it refuses any
-	return b
-}
-
-// sameCompany admits a proposal for the run's legal entity.
+// sameCompany admits a proposal for the run's legal entity, and refuses
+// one that names none: the API would refuse it too, and a guard that let
+// it through would count it as the run's (review:batch77).
 func sameCompany(in map[string]any, le string) bool {
-	id, ok := body(in)["legal_entity_id"]
-	return !ok || fmt.Sprint(id) == le
+	id, ok := apitools.Body(in)["legal_entity_id"]
+	return ok && fmt.Sprint(id) == le
 }
 
 // DefaultLag is the lag the API takes for a variance or proposal that
@@ -218,12 +212,13 @@ func sameCompany(in map[string]any, le string) bool {
 const DefaultLag = 7
 
 // sameVariance admits a comment proposal for the run's legal entity,
-// period and lag.
+// period and lag; one that leaves the period out is refused, the lag
+// alone having a default.
 func sameVariance(in map[string]any, le string, p Period) bool {
-	b := body(in)
+	b := apitools.Body(in)
 	same := func(k, want string) bool {
 		v, ok := b[k]
-		return !ok || fmt.Sprint(v) == want
+		return ok && fmt.Sprint(v) == want
 	}
 	lag, named := b["lag"]
 	lagOK := named && fmt.Sprint(lag) == strconv.Itoa(p.Lag) || !named && p.Lag == DefaultLag

@@ -144,10 +144,7 @@ func (a *Agent) Ask(ctx context.Context, question string) (Result, error) {
 		t.Exclusive(&mu) // the reply's guard and answer share the result
 	}
 	prompt := fmt.Sprintf("The tenant's active configuration is version %d (id %s).\n<question>\n%s\n</question>", v.Number, v.ID, question)
-	iterations := a.MaxIterations
-	if iterations <= 0 {
-		iterations = 20
-	}
+	iterations := recommend.Iterations(a.MaxIterations, 20)
 	if _, err := apitools.Run(ctx, a.LLM, s, tools, a.LLM.Params(system, anthropic.NewBetaTextBlock(prompt)), iterations); err != nil {
 		return res, err
 	}

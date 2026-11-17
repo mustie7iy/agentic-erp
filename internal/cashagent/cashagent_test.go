@@ -112,7 +112,7 @@ func client(t *testing.T, a *api) *apitools.Client {
 // TestExplain: the agent explains company 3000's variance in one session,
 // reading through its tools and proposing; a proposal the API answers
 // twice is one, the API's refusals and the run's own guard (another
-// company, period or lag) are counted, and nothing outside the run's
+// company, period or lag, or one left out) are counted, and nothing outside the run's
 // variance reaches the API.
 func TestExplain(t *testing.T) {
 	a := &api{}
@@ -125,6 +125,8 @@ func TestExplain(t *testing.T) {
 		llmtest.ToolFn("proposeForecastVarianceComment", comment("other lag", map[string]any{"lag": 7})),
 		llmtest.ToolFn("proposeForecastVarianceComment", comment("default lag", map[string]any{"lag": nil})),
 		llmtest.ToolFn("proposeForecastVarianceComment", comment("other company", map[string]any{"legal_entity_id": session})),
+		llmtest.ToolFn("proposeForecastVarianceComment", comment("no company", map[string]any{"legal_entity_id": nil})),
+		llmtest.ToolFn("proposeForecastVarianceComment", comment("no period", map[string]any{"from": nil})),
 		llmtest.ToolFn("proposeMemoRecord", memo("m1", nil)),
 		llmtest.ToolFn("proposeMemoRecord", memo("other company", map[string]any{"legal_entity_id": session})),
 		llmtest.Final("OP_SUPPLIERS: proposed. TAX: not explained, no document behind it."))
@@ -139,8 +141,8 @@ func TestExplain(t *testing.T) {
 	if got, want := strings.Join(res.Memos, " "), "m1"; got != want {
 		t.Errorf("memo records: got %q, want %q", got, want)
 	}
-	if res.Refused != 6 {
-		t.Errorf("refused: got %d, want 6: the API's one and the guard's five", res.Refused)
+	if res.Refused != 8 {
+		t.Errorf("refused: got %d, want 8: the API's one and the guard's seven, a missing company or period among them", res.Refused)
 	}
 	if res.Session != session || !strings.Contains(res.Reply, "not explained") {
 		t.Errorf("session and reply: got %s %q", res.Session, res.Reply)

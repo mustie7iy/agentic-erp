@@ -1,10 +1,12 @@
 package apitools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"slices"
 	"strconv"
@@ -75,12 +77,9 @@ func (t *Tool) Exclusive(mu *sync.Mutex) { t.exclusive = mu }
 // Execute calls the operation and records the call in the session. API
 // answers, problems included, go back to the model as the result.
 func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) ([]anthropic.BetaToolResultBlockParamContentUnion, error) {
-	var input map[string]any
-	if err := json.Unmarshal(raw, &input); err != nil {
-		return nil, fmt.Errorf("tool input is not a JSON object: %w", err)
-	}
-	if input == nil {
-		input = map[string]any{}
+	input, err := DecodeInput(raw)
+	if err != nil {
+		return nil, err
 	}
 	resp, err := t.Invoke(ctx, input)
 	if err != nil {
@@ -99,10 +98,39 @@ func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) ([]anthropic.Be
 	return []anthropic.BetaToolResultBlockParamContentUnion{{OfText: &anthropic.BetaTextBlockParam{Text: text}}}, nil
 }
 
-// paramText is a parameter's value as the URL carries it. The model's
-// input is decoded JSON, whose numbers are float64: fmt.Sprint would write
-// 1000000 as 1e+06, which the API refuses; a number is written in full,
-// as strconv's shortest form without exponent.
+// DecodeInput is a tool's input as Invoke takes it, an object, its
+// numbers kept as their text (json.Number): decoded as float64, an
+// integer past 2^53 would change on its way to the API (review:batch77).
+// JSON null is an empty input.
+func DecodeInput(raw []byte) (map[string]any, error) {
+	var input map[string]any
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&input); err != nil {
+		return nil, fmt.Errorf("tool input is not a JSON object: %w", err)
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("tool input is not one JSON object: more follows it")
+	}
+	if input == nil {
+		input = map[string]any{}
+	}
+	return input, nil
+}
+
+// Body is the object a tool's input sends as its body, or nil when it
+// sends none or one that is no object, which the API refuses as it
+// refuses any: what an agent's guard checks before the call.
+func Body(input map[string]any) map[string]any {
+	b, _ := input["body"].(map[string]any) // no object: nil, as documented
+	return b
+}
+
+// paramText is a parameter's value as the URL carries it. A number of
+// a decoded input is its text (DecodeInput); one a Go caller gives as a
+// float64 is written in full, as strconv's shortest form without
+// exponent, since fmt.Sprint would write 1000000 as 1e+06, which the API
+// refuses.
 func paramText(v any) string {
 	//nolint:forbidigo // encoding/json decodes every number in map[string]any as float64; a parameter is spelled, never summed
 	if f, ok := v.(float64); ok {
@@ -135,6 +163,13 @@ func (t *Tool) Invoke(ctx context.Context, input map[string]any) (Response, erro
 	} else {
 		summary = err.Error()
 	}
+	// The observer sees every answer the API gave, before the record: a
+	// write the API took is the agent's even when the session failed to
+	// record it, so its guards close (one recommendation per object)
+	// rather than let a retry write again (review:batch77).
+	if err == nil && t.observe != nil {
+		t.observe(resp)
+	}
 	if t.session != nil {
 		if rerr := t.session.record(ctx, t.name, input, summary, isError); rerr != nil {
 			return resp, fmt.Errorf("%w: %w", ErrNotRecorded, rerr)
@@ -142,9 +177,6 @@ func (t *Tool) Invoke(ctx context.Context, input map[string]any) (Response, erro
 	}
 	if err != nil {
 		return Response{}, err
-	}
-	if t.observe != nil {
-		t.observe(resp)
 	}
 	return resp, nil
 }
