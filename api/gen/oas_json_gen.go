@@ -229127,6 +229127,24 @@ func (s *Rfq) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.PurchaseOrderID.Set {
+			e.FieldStart("purchase_order_id")
+			s.PurchaseOrderID.Encode(e)
+		}
+	}
+	{
+		if s.PurchaseOrderDocumentNumber.Set {
+			e.FieldStart("purchase_order_document_number")
+			s.PurchaseOrderDocumentNumber.Encode(e)
+		}
+	}
+	{
+		if s.AwardReason.Set {
+			e.FieldStart("award_reason")
+			s.AwardReason.Encode(e)
+		}
+	}
+	{
 		if s.RequisitionID.Set {
 			e.FieldStart("requisition_id")
 			s.RequisitionID.Encode(e)
@@ -229156,7 +229174,7 @@ func (s *Rfq) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfRfq = [19]string{
+var jsonFieldsNameOfRfq = [22]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -229172,10 +229190,13 @@ var jsonFieldsNameOfRfq = [19]string{
 	12: "status",
 	13: "contract_id",
 	14: "contract_document_number",
-	15: "requisition_id",
-	16: "requisition_document_number",
-	17: "items",
-	18: "suppliers",
+	15: "purchase_order_id",
+	16: "purchase_order_document_number",
+	17: "award_reason",
+	18: "requisition_id",
+	19: "requisition_document_number",
+	20: "items",
+	21: "suppliers",
 }
 
 // Decode decodes Rfq from json.
@@ -229361,6 +229382,36 @@ func (s *Rfq) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"contract_document_number\"")
 			}
+		case "purchase_order_id":
+			if err := func() error {
+				s.PurchaseOrderID.Reset()
+				if err := s.PurchaseOrderID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"purchase_order_id\"")
+			}
+		case "purchase_order_document_number":
+			if err := func() error {
+				s.PurchaseOrderDocumentNumber.Reset()
+				if err := s.PurchaseOrderDocumentNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"purchase_order_document_number\"")
+			}
+		case "award_reason":
+			if err := func() error {
+				s.AwardReason.Reset()
+				if err := s.AwardReason.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"award_reason\"")
+			}
 		case "requisition_id":
 			if err := func() error {
 				s.RequisitionID.Reset()
@@ -229382,7 +229433,7 @@ func (s *Rfq) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"requisition_document_number\"")
 			}
 		case "items":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[2] |= 1 << 4
 			if err := func() error {
 				s.Items = make([]RfqItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -229400,7 +229451,7 @@ func (s *Rfq) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"items\"")
 			}
 		case "suppliers":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[2] |= 1 << 5
 			if err := func() error {
 				s.Suppliers = make([]RfqSupplier, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -229429,7 +229480,7 @@ func (s *Rfq) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11011111,
 		0b00011111,
-		0b00000110,
+		0b00110000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -229489,19 +229540,37 @@ func (s *RfqAward) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.QuotationID)
 	}
 	{
-		e.FieldStart("valid_from")
-		json.EncodeDate(e, s.ValidFrom)
+		if s.AwardTo.Set {
+			e.FieldStart("award_to")
+			s.AwardTo.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("valid_to")
-		json.EncodeDate(e, s.ValidTo)
+		if s.ValidFrom.Set {
+			e.FieldStart("valid_from")
+			s.ValidFrom.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		if s.ValidTo.Set {
+			e.FieldStart("valid_to")
+			s.ValidTo.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		if s.Reason.Set {
+			e.FieldStart("reason")
+			s.Reason.Encode(e)
+		}
 	}
 }
 
-var jsonFieldsNameOfRfqAward = [3]string{
+var jsonFieldsNameOfRfqAward = [5]string{
 	0: "quotation_id",
-	1: "valid_from",
-	2: "valid_to",
+	1: "award_to",
+	2: "valid_from",
+	3: "valid_to",
+	4: "reason",
 }
 
 // Decode decodes RfqAward from json.
@@ -229525,12 +229594,20 @@ func (s *RfqAward) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"quotation_id\"")
 			}
-		case "valid_from":
-			requiredBitSet[0] |= 1 << 1
+		case "award_to":
 			if err := func() error {
-				v, err := json.DecodeDate(d)
-				s.ValidFrom = v
-				if err != nil {
+				s.AwardTo.Reset()
+				if err := s.AwardTo.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"award_to\"")
+			}
+		case "valid_from":
+			if err := func() error {
+				s.ValidFrom.Reset()
+				if err := s.ValidFrom.Decode(d, json.DecodeDate); err != nil {
 					return err
 				}
 				return nil
@@ -229538,16 +229615,24 @@ func (s *RfqAward) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"valid_from\"")
 			}
 		case "valid_to":
-			requiredBitSet[0] |= 1 << 2
 			if err := func() error {
-				v, err := json.DecodeDate(d)
-				s.ValidTo = v
-				if err != nil {
+				s.ValidTo.Reset()
+				if err := s.ValidTo.Decode(d, json.DecodeDate); err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"valid_to\"")
+			}
+		case "reason":
+			if err := func() error {
+				s.Reason.Reset()
+				if err := s.Reason.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reason\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
@@ -229559,7 +229644,7 @@ func (s *RfqAward) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00000111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

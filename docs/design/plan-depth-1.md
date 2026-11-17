@@ -95,8 +95,8 @@ an order.
   price units, with their delivery dates and, from a requisition, the
   requisition items' account assignments; the order's date is the
   company's date today; an RFQ from a requisition is awarded to a
-  purchase order only (409 `procurement.rfq_from_requisition` for a
-  contract); RFQ, quotations, order and requisition change in one
+  purchase order only (422 `procurement.rfq_from_requisition`, naming
+  `award_to`, for a contract); RFQ, quotations, order and requisition change in one
   transaction; the database holds an awarded RFQ to exactly one of a
   contract or an order of its company, currency and winning supplier.
 - **Depends on:** T82d, T82e.

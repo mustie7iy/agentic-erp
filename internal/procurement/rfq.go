@@ -59,6 +59,11 @@ type RFQ struct {
 	// until the RFQ is awarded.
 	ContractID     *uuid.UUID
 	ContractNumber *string
+	// The draft purchase order an award to an order created and its
+	// number (T82f), and the reason recorded with the award; nil without.
+	PurchaseOrderID     *uuid.UUID
+	PurchaseOrderNumber *string
+	AwardReason         *string
 	// The requisition the RFQ was created from and its number (T82e); nil
 	// for an RFQ with its own items.
 	RequisitionID     *uuid.UUID
@@ -81,7 +86,9 @@ type RFQSupplier struct {
 const rfqSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.currency, cu.exponent, r.due_date, r.status, r.version, r.created_at, r.created_by,
 		r.updated_at, r.updated_by, r.contract_id,
 		(SELECT ct.document_number FROM procurement.contract ct WHERE ct.tenant_id = r.tenant_id AND ct.id = r.contract_id) AS contract_document_number,
-		r.requisition_id,
+		r.purchase_order_id,
+		(SELECT po.document_number FROM procurement.purchase_order po WHERE po.tenant_id = r.tenant_id AND po.id = r.purchase_order_id) AS purchase_order_document_number,
+		r.award_reason, r.requisition_id,
 		(SELECT rq.document_number FROM procurement.requisition rq WHERE rq.tenant_id = r.tenant_id AND rq.id = r.requisition_id) AS requisition_document_number,
 		coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'material_key', i.material_key, 'description', i.description,
 			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code, 'account_id', i.account_id, 'delivery_date', ` + deliveryDate + `,
@@ -94,7 +101,7 @@ func scanRFQ(row pgx.Row) (RFQ, error) {
 	var r RFQ
 	var suppliers []uuid.UUID
 	if err := row.Scan(&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.Currency, &r.Exponent, &r.DueDate, &r.Status, &r.Version, &r.CreatedAt, &r.CreatedBy,
-		&r.UpdatedAt, &r.UpdatedBy, &r.ContractID, &r.ContractNumber, &r.RequisitionID, &r.RequisitionNumber, &r.Items, &suppliers); err != nil {
+		&r.UpdatedAt, &r.UpdatedBy, &r.ContractID, &r.ContractNumber, &r.PurchaseOrderID, &r.PurchaseOrderNumber, &r.AwardReason, &r.RequisitionID, &r.RequisitionNumber, &r.Items, &suppliers); err != nil {
 		return RFQ{}, fmt.Errorf("scan RFQ: %w", err)
 	}
 	r.Suppliers = make([]RFQSupplier, len(suppliers))

@@ -11973,12 +11973,14 @@ enablement_help() {
 # Priya approves it; he then asks Tyrell and step 3's DP_SUPPLIER to
 # quote for it by an RFQ created from the requisition, which takes its
 # items, quantities, accounts and need date. The requisition is in
-# sourcing, naming the RFQ, until an award orders it. It keeps the RFQ
-# (SOURCING_RFQ) and the requisition (SOURCING_REQ).
+# sourcing, naming the RFQ, until an award orders it. Then (T82f) both
+# suppliers quote; Ben awards the dearer one, which can deliver by the
+# need date, to a purchase order with his reason: the order carries the
+# quoted prices, the need date and the requisition, which is ordered.
 step_rfq_requisition() {
-  heading "Step 109 — An RFQ from a requisition: an approved requisition's items, quantities and need date taken into an RFQ; the requisition in sourcing, naming the RFQ; a second RFQ from it refused; the RFQ published"
+  heading "Step 109 — An RFQ from a requisition: an approved requisition's items, quantities and need date taken into an RFQ; the requisition in sourcing, naming the RFQ; awarded with a reason to the dearer quotation as a purchase order naming the requisition, which is ordered"
   as ben
-  local needed due expense req request rfq body
+  local needed due expense req request rfq body valid tyrells award po
   accounts
   expense=$(account 6000)
   needed=$(date_add "$(company_day)" 21)
@@ -12015,7 +12017,42 @@ step_rfq_requisition() {
   api 200 '"RFQ \(.document_number): \(.status)"' publishRfq -p "id=$rfq" -if-match "$ETAG"
   api 200 '.items[] | "  RFQ \(.document_number) from \(.requisition_document_number): \(.status)"' listRfqs -p "requisition_id=$req"
   expect "the RFQs of the requisition" "$(field '[.items[].id] | join(" ")')" "$rfq"
-  SOURCING_RFQ=$rfq SOURCING_REQ=$req
+  valid=$(date_add "$(company_day)" 30)
+  say "Both suppliers quote. $DP_NAME is cheaper, 300.00 a monitor and 170.00 a dock; Tyrell asks 310.00 and 175.00 but"
+  say "is the one that can deliver by the need date:"
+  api 201 '"quotation \(.supplier_reference) of \(.supplier_number): total \(.total.amount) \(.total.currency)"' createSupplierQuotation -p "id=$rfq" \
+    -body "{\"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TY-Q-131\", \"valid_until\": \"$valid\", \"items\": [
+      {\"rfq_item_no\": 1, \"unit_price\": {\"amount\": \"310.00\", \"currency\": \"CAD\"}}, {\"rfq_item_no\": 2, \"unit_price\": {\"amount\": \"175.00\", \"currency\": \"CAD\"}}]}"
+  tyrells=$(field .id)
+  api 201 '"quotation \(.supplier_reference) of \(.supplier_number): total \(.total.amount) \(.total.currency)"' createSupplierQuotation -p "id=$rfq" \
+    -body "{\"supplier_id\": \"$DP_SUPPLIER\", \"supplier_reference\": \"CB-7790\", \"valid_until\": \"$valid\", \"items\": [
+      {\"rfq_item_no\": 1, \"unit_price\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}}, {\"rfq_item_no\": 2, \"unit_price\": {\"amount\": \"170.00\", \"currency\": \"CAD\"}}]}"
+  api 200 '.suppliers[] | "  rank \(.rank): \(.supplier_number) \(.supplier_name), total \(.total.amount) \(.total.currency)"' getRfqComparison -p "id=$rfq"
+  expect "Tyrell ranked second" "$(field ".suppliers[] | select(.supplier_quotation_id == \"$tyrells\") | .rank")" 2
+  say "Ben awards the RFQ to Tyrell's quotation as a purchase order (T82f): an RFQ from a requisition is awarded to"
+  say "an order, which names the requisition, and an award to any quotation but the lowest records why it wins:"
+  QUIET=1 api 200 '' getRfq -p "id=$rfq"
+  award="{\"quotation_id\": \"$tyrells\", \"award_to\": \"purchase_order\"}"
+  refused 422 procurement.rfq_from_requisition awardRfq -p "id=$rfq" -if-match "$ETAG" \
+    -body "{\"quotation_id\": \"$tyrells\", \"valid_from\": \"$(company_day)\", \"valid_to\": \"$valid\", \"reason\": \"Delivery date\"}"
+  QUIET=1 api 200 '' getRfq -p "id=$rfq"
+  refused 422 procurement.award_reason_required awardRfq -p "id=$rfq" -if-match "$ETAG" -body "$award"
+  QUIET=1 api 200 '' getRfq -p "id=$rfq"
+  api 200 '"RFQ \(.document_number): \(.status) to purchase order \(.purchase_order_document_number), because: \(.award_reason)"' awardRfq -p "id=$rfq" -if-match "$ETAG" \
+    -body "{\"quotation_id\": \"$tyrells\", \"award_to\": \"purchase_order\", \"reason\": \"The only supplier that delivers by the need date\"}"
+  po=$(field .purchase_order_id)
+  expect "the RFQ awarded to an order, with its reason" "$(field '"\(.status) \(.award_reason)"')" "awarded The only supplier that delivers by the need date"
+  say "The draft order carries Tyrell, the quoted prices, the need date and the requisition, which is ordered now:"
+  api 200 '"purchase order \(.document_number) of \(.order_date) from requisition \(.requisition_id): \(.status), \(.total_amount.amount) \(.total_amount.currency)", (.items[] | "  item \(.item_no) \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) by \(.delivery_date)")' \
+    getPurchaseOrder -p "id=$po"
+  expect "the order" "$(field '"\(.supplier_id) \(.requisition_id) \(.order_date) \(.total_amount.amount) \(.total_amount.currency)"')" "$SUPPLIER $req $(company_day) 5820.00 CAD"
+  expect "its items" "$(field '[.items[] | "\(.unit_price.amount) \(.delivery_date)"] | join(", ")')" "310.00 $needed, 175.00 $needed"
+  api 200 '"requisition \(.document_number): \(.status)"' getRequisition -p "id=$req"
+  expect "the requisition" "$(field .status)" ordered
+  say "Ben releases the order as any other; within the requisition's approved total, it needs no further approval:"
+  QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
+  api 200 '"purchase order \(.document_number): \(.status)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  expect "the released order" "$(field .status)" released
   passed
 }
 

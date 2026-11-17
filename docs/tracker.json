@@ -4516,9 +4516,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The buyer awards an RFQ to one quotation as a draft purchase order in place of a contract, the order at the quoted prices and naming the requisition the RFQ came from; an award to any quotation but the lowest needs a recorded reason (POST /v1/rfqs/{id}:award with award_to purchase_order, reason)",
-        "r": "T82f · docs/design/plan-depth-1.md §T82f · ADR-0069 As built · walkthrough step_rfq_requisition",
+        "r": "T82f · docs/design/plan-depth-1.md §T82f · migrations 000352, 000353 · internal/procurement/rfq_award.go, rfq_award_order.go · RfqAwardedToOrder · ADR-0069 As built · walkthrough step_rfq_requisition",
         "src": "split:T82d · po:2026-11-17",
         "c": []
        },

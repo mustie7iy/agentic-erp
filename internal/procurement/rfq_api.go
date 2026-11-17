@@ -36,7 +36,9 @@ func rfqToAPI(r RFQ) gen.Rfq {
 		CompanyName: r.CompanyName, Currency: r.Currency,
 		DueDate: r.DueDate, Status: r.Status, ContractID: apitypes.OptUUID(r.ContractID), ContractDocumentNumber: apitypes.OptString(r.ContractNumber),
 		RequisitionID: apitypes.OptUUID(r.RequisitionID), RequisitionDocumentNumber: apitypes.OptString(r.RequisitionNumber),
-		Items: make([]gen.RfqItem, len(r.Items)), Suppliers: make([]gen.RfqSupplier, len(r.Suppliers))}
+		PurchaseOrderID: apitypes.OptUUID(r.PurchaseOrderID), PurchaseOrderDocumentNumber: apitypes.OptString(r.PurchaseOrderNumber),
+		AwardReason: apitypes.OptString(r.AwardReason),
+		Items:       make([]gen.RfqItem, len(r.Items)), Suppliers: make([]gen.RfqSupplier, len(r.Suppliers))}
 	for i, it := range r.Items {
 		out.Items[i] = gen.RfqItem{ItemNo: gen.NewOptInt32(it.No), MaterialKey: it.MaterialKey, Description: it.Description,
 			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, AccountID: it.AccountID,
@@ -255,7 +257,9 @@ func (e *Endpoints) GetRfqComparison(ctx context.Context, params gen.GetRfqCompa
 
 // AwardRfq implements POST /v1/rfqs/{id}:award.
 func (e *Endpoints) AwardRfq(ctx context.Context, req *gen.RfqAward, params gen.AwardRfqParams) (gen.AwardRfqRes, error) {
-	r, err := e.awardRFQ(ctx, params.ID, etag.IfMatch(params.IfMatch), Award{QuotationID: req.QuotationID, ValidFrom: req.ValidFrom, ValidTo: req.ValidTo})
+	to := req.AwardTo.Or(AwardToContract)
+	r, err := e.awardRFQ(ctx, params.ID, etag.IfMatch(params.IfMatch), Award{QuotationID: req.QuotationID, To: to,
+		ValidFrom: apitypes.Ptr[time.Time](req.ValidFrom), ValidTo: apitypes.Ptr[time.Time](req.ValidTo), Reason: apitypes.Ptr[string](req.Reason)})
 	if err != nil {
 		return nil, err
 	}

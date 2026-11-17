@@ -339,6 +339,9 @@ type NewOrder struct {
 	ContractID      *uuid.UUID
 	Items           []ItemInput
 	Extensions      map[string]any
+	// sourcedBy is the RFQ whose award creates the order (T82f): its
+	// requisition, in sourcing, is ordered by it (sourcedFrom).
+	sourcedBy *uuid.UUID
 }
 
 // header is the order's header as created: what the rules judge
@@ -441,8 +444,8 @@ func orderedRequisition(ctx context.Context, tx pgx.Tx, in *NewOrder, le uuid.UU
 		return Requisition{}, problem.Reference(err, "requisition_id", "requisition", "no requisition with this id that you can access")
 	}
 	switch {
-	case req.Status != Approved:
-		return Requisition{}, statusConflict("requisition", req.Status, "ordering", Approved)
+	case req.Status != in.sourcedFrom():
+		return Requisition{}, statusConflict("requisition", req.Status, "ordering", in.sourcedFrom())
 	case req.LegalEntityID != le || req.Currency != in.Currency:
 		return Requisition{}, problem.Invalid("procurement.requisition_mismatch", "requisition_id", "a requisition of the legal entity in the order currency")
 	}

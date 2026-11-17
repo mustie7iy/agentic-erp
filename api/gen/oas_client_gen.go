@@ -313,9 +313,20 @@ type Invoker interface {
 	// `procurement.invalid_amount`, `target_value.amount`). The RFQ becomes `awarded` and names the
 	// contract (`contract_id`, `contract_document_number`), the quotation becomes `awarded` and the RFQ's
 	// other quotations `not_awarded`, all in one transaction. The contract is a draft: it is released with
-	// `contracts/{id}:release` as any other. No approval is asked for. Human-only: an award commits the
-	// company to a supplier. Audited, and published as RfqAwarded, which names the supplier by id and
-	// number, and RfqChanged.
+	// `contracts/{id}:release` as any other. With `award_to` `purchase_order` (T82f) the award creates a
+	// draft purchase order instead, as `POST /v1/purchase-orders` would with its checks, number and audit
+	// record: with the quotation's supplier and its payment terms, in the RFQ's currency, dated the legal
+	// entity's date today, its items the RFQ's at the quoted prices and price units with their delivery
+	// dates and, for an RFQ from a requisition, naming the requisition, whose items' account assignments
+	// they take and which becomes `ordered`; the RFQ names the order (`purchase_order_id`,
+	// `purchase_order_document_number`) and is released with `purchase-orders/{id}:release` as any other.
+	// `valid_from` and `valid_to` are required for a contract and not sent for an order (422
+	// `request.validation_failed`). An RFQ from a requisition is awarded to a purchase order only (422
+	// `procurement.rfq_from_requisition`, naming `award_to`). A quotation not ranked first needs a
+	// `reason` (422 `procurement.award_reason_required`, naming `reason`); a reason given is kept as
+	// `award_reason`. No approval is asked for. Human-only: an award commits the company to a supplier.
+	// Audited, and published as RfqAwarded for a contract or RfqAwardedToOrder for a purchase order, each
+	// naming the supplier by id and number, and RfqChanged.
 	//
 	// POST /v1/rfqs/{id}:award
 	AwardRfq(ctx context.Context, request *RfqAward, params AwardRfqParams) (AwardRfqRes, error)
@@ -11095,9 +11106,20 @@ func (c *Client) sendAssignProfitCenter(ctx context.Context, request *ProfitCent
 // `procurement.invalid_amount`, `target_value.amount`). The RFQ becomes `awarded` and names the
 // contract (`contract_id`, `contract_document_number`), the quotation becomes `awarded` and the RFQ's
 // other quotations `not_awarded`, all in one transaction. The contract is a draft: it is released with
-// `contracts/{id}:release` as any other. No approval is asked for. Human-only: an award commits the
-// company to a supplier. Audited, and published as RfqAwarded, which names the supplier by id and
-// number, and RfqChanged.
+// `contracts/{id}:release` as any other. With `award_to` `purchase_order` (T82f) the award creates a
+// draft purchase order instead, as `POST /v1/purchase-orders` would with its checks, number and audit
+// record: with the quotation's supplier and its payment terms, in the RFQ's currency, dated the legal
+// entity's date today, its items the RFQ's at the quoted prices and price units with their delivery
+// dates and, for an RFQ from a requisition, naming the requisition, whose items' account assignments
+// they take and which becomes `ordered`; the RFQ names the order (`purchase_order_id`,
+// `purchase_order_document_number`) and is released with `purchase-orders/{id}:release` as any other.
+// `valid_from` and `valid_to` are required for a contract and not sent for an order (422
+// `request.validation_failed`). An RFQ from a requisition is awarded to a purchase order only (422
+// `procurement.rfq_from_requisition`, naming `award_to`). A quotation not ranked first needs a
+// `reason` (422 `procurement.award_reason_required`, naming `reason`); a reason given is kept as
+// `award_reason`. No approval is asked for. Human-only: an award commits the company to a supplier.
+// Audited, and published as RfqAwarded for a contract or RfqAwardedToOrder for a purchase order, each
+// naming the supplier by id and number, and RfqChanged.
 //
 // POST /v1/rfqs/{id}:award
 func (c *Client) AwardRfq(ctx context.Context, request *RfqAward, params AwardRfqParams) (AwardRfqRes, error) {

@@ -91627,6 +91627,14 @@ type Rfq struct {
 	ContractID OptUUID `json:"contract_id"`
 	// That contract's document number; absent until the RFQ is awarded.
 	ContractDocumentNumber OptString `json:"contract_document_number"`
+	// The draft purchase order an award to a purchase order created (T82f), at
+	// `/v1/purchase-orders/{purchase_order_id}`; absent otherwise.
+	PurchaseOrderID OptUUID `json:"purchase_order_id"`
+	// That purchase order's document number; absent with it.
+	PurchaseOrderDocumentNumber OptString `json:"purchase_order_document_number"`
+	// The reason recorded with the award; absent when none was given (a quotation ranked first needs
+	// none).
+	AwardReason OptString `json:"award_reason"`
 	// The requisition the RFQ was created from (T82e), at `/v1/requisitions/{requisition_id}`; absent for
 	// an RFQ created with its own items.
 	RequisitionID OptUUID `json:"requisition_id"`
@@ -91711,6 +91719,21 @@ func (s *Rfq) GetContractID() OptUUID {
 // GetContractDocumentNumber returns the value of ContractDocumentNumber.
 func (s *Rfq) GetContractDocumentNumber() OptString {
 	return s.ContractDocumentNumber
+}
+
+// GetPurchaseOrderID returns the value of PurchaseOrderID.
+func (s *Rfq) GetPurchaseOrderID() OptUUID {
+	return s.PurchaseOrderID
+}
+
+// GetPurchaseOrderDocumentNumber returns the value of PurchaseOrderDocumentNumber.
+func (s *Rfq) GetPurchaseOrderDocumentNumber() OptString {
+	return s.PurchaseOrderDocumentNumber
+}
+
+// GetAwardReason returns the value of AwardReason.
+func (s *Rfq) GetAwardReason() OptString {
+	return s.AwardReason
 }
 
 // GetRequisitionID returns the value of RequisitionID.
@@ -91808,6 +91831,21 @@ func (s *Rfq) SetContractDocumentNumber(val OptString) {
 	s.ContractDocumentNumber = val
 }
 
+// SetPurchaseOrderID sets the value of PurchaseOrderID.
+func (s *Rfq) SetPurchaseOrderID(val OptUUID) {
+	s.PurchaseOrderID = val
+}
+
+// SetPurchaseOrderDocumentNumber sets the value of PurchaseOrderDocumentNumber.
+func (s *Rfq) SetPurchaseOrderDocumentNumber(val OptString) {
+	s.PurchaseOrderDocumentNumber = val
+}
+
+// SetAwardReason sets the value of AwardReason.
+func (s *Rfq) SetAwardReason(val OptString) {
+	s.AwardReason = val
+}
+
 // SetRequisitionID sets the value of RequisitionID.
 func (s *Rfq) SetRequisitionID(val OptUUID) {
 	s.RequisitionID = val
@@ -91828,17 +91866,26 @@ func (s *Rfq) SetSuppliers(val []RfqSupplier) {
 	s.Suppliers = val
 }
 
-// Award an RFQ to one of its quotations: the quotation that wins and the validity of the draft
-// contract created from it.
+// Award an RFQ to one of its quotations: the quotation that wins, what the award creates (a draft
+// contract, valid from `valid_from` to `valid_to`, or a draft purchase order) and, for a quotation not
+// ranked first, the reason.
 // Ref: #/components/schemas/RfqAward
 type RfqAward struct {
 	// The supplier quotation awarded (its `id` in `rfqs/{id}/quotations`, `supplier_quotation_id` in the
 	// comparison): one of this RFQ, complete and not expired.
 	QuotationID uuid.UUID `json:"quotation_id"`
-	// The first day the contract is valid.
-	ValidFrom time.Time `json:"valid_from"`
-	// The last day the contract is valid; on or after `valid_from`.
-	ValidTo time.Time `json:"valid_to"`
+	// What the award creates: a draft `contract` (the default) or a draft `purchase_order` (T82f); another
+	// value is refused (422 `request.validation_failed`). An RFQ created from a requisition is awarded to
+	// a purchase order. Open enumeration: values may be added within /v1.
+	AwardTo OptString `json:"award_to"`
+	// The first day the contract is valid; required for an award to a contract, not sent for one to a
+	// purchase order.
+	ValidFrom OptDate `json:"valid_from"`
+	// The last day the contract is valid; on or after `valid_from`; required with it.
+	ValidTo OptDate `json:"valid_to"`
+	// Why this quotation wins: required when it is not ranked first in the comparison (the lowest total),
+	// optional otherwise. Kept on the RFQ (`award_reason`).
+	Reason OptString `json:"reason"`
 }
 
 // GetQuotationID returns the value of QuotationID.
@@ -91846,14 +91893,24 @@ func (s *RfqAward) GetQuotationID() uuid.UUID {
 	return s.QuotationID
 }
 
+// GetAwardTo returns the value of AwardTo.
+func (s *RfqAward) GetAwardTo() OptString {
+	return s.AwardTo
+}
+
 // GetValidFrom returns the value of ValidFrom.
-func (s *RfqAward) GetValidFrom() time.Time {
+func (s *RfqAward) GetValidFrom() OptDate {
 	return s.ValidFrom
 }
 
 // GetValidTo returns the value of ValidTo.
-func (s *RfqAward) GetValidTo() time.Time {
+func (s *RfqAward) GetValidTo() OptDate {
 	return s.ValidTo
+}
+
+// GetReason returns the value of Reason.
+func (s *RfqAward) GetReason() OptString {
+	return s.Reason
 }
 
 // SetQuotationID sets the value of QuotationID.
@@ -91861,14 +91918,24 @@ func (s *RfqAward) SetQuotationID(val uuid.UUID) {
 	s.QuotationID = val
 }
 
+// SetAwardTo sets the value of AwardTo.
+func (s *RfqAward) SetAwardTo(val OptString) {
+	s.AwardTo = val
+}
+
 // SetValidFrom sets the value of ValidFrom.
-func (s *RfqAward) SetValidFrom(val time.Time) {
+func (s *RfqAward) SetValidFrom(val OptDate) {
 	s.ValidFrom = val
 }
 
 // SetValidTo sets the value of ValidTo.
-func (s *RfqAward) SetValidTo(val time.Time) {
+func (s *RfqAward) SetValidTo(val OptDate) {
 	s.ValidTo = val
+}
+
+// SetReason sets the value of Reason.
+func (s *RfqAward) SetReason(val OptString) {
+	s.Reason = val
 }
 
 // The comparison of an RFQ's quotations by price (ADR-0069 §7): the suppliers invited, the ranked

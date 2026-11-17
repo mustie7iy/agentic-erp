@@ -95,7 +95,7 @@ func TestRFQAwardRules(t *testing.T) {
 		want string
 	}{
 		"a draft RFQ awarded":            {one(awardSQL, f.draft, f.contract), "only a published RFQ is awarded"},
-		"a contract without an award":    {one(`UPDATE procurement.rfq SET contract_id = $2, version = version + 1 WHERE id = $1`, f.published, f.contract), "rfq_awarded_to_contract"},
+		"a contract without an award":    {one(`UPDATE procurement.rfq SET contract_id = $2, version = version + 1 WHERE id = $1`, f.published, f.contract), "rfq_awarded_to_one_document"},
 		"an award to no quotation":       {one(awardSQL, f.published, f.contract), notOfQuotation},
 		"an award without a contract":    {awarding(f.quotation, f.published, uuid.Nil), notOfQuotation},
 		"another supplier's contract":    {awarding(f.quotation, f.published, f.otherContract), notOfQuotation},
