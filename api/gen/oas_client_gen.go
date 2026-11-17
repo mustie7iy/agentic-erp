@@ -1440,13 +1440,22 @@ type Invoker interface {
 	// new run proposes it again (T86b). An item rises one level per confirmed run at most, from the level
 	// the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would
 	// reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days,
-	// and one at the highest level stays there. A notice's level is the highest among its items. A key
-	// date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company
-	// without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than
-	// 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`:
-	// larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422
-	// `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices.
-	// A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`).
+	// and one at the highest level stays there. A notice's level is the highest among its items. The
+	// company's dunning procedure applies as the configuration has it when the run is started, and the run
+	// keeps it (T76d): an item overdue by no more than `companies[].dunning.grace_days` is not proposed; a
+	// customer whose notice's overdue amount would be below `companies[].dunning.minimum_amount` gets no
+	// notice, and the run counts it in `below_minimum_notice_count` and `below_minimum_amount`; a notice
+	// is charged its level's `charge`, and each item at a level that charges `interest` is charged
+	// interest at `interest_rate_percent` a year for its days overdue (`local_amount` × rate ÷ 100 ×
+	// `days_overdue` ÷ 365, rounded half away from zero in the company's currency); a notice's
+	// `total_amount` is what it asks for in all. Charges and interest are what the notices ask for:
+	// nothing is posted. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`,
+	// naming `key_date`). A company without dunning levels is refused (422
+	// `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed ones it
+	// lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet) and one
+	// whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date
+	// at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key`
+	// answers the run started. Human-only (`x-agent: false`).
 	//
 	// POST /v1/dunning-runs
 	CreateDunningRun(ctx context.Context, request *DunningRunCreate, params CreateDunningRunParams) (CreateDunningRunRes, error)
@@ -21177,13 +21186,22 @@ func (c *Client) sendCreateDownPaymentRequest(ctx context.Context, request *Down
 // new run proposes it again (T86b). An item rises one level per confirmed run at most, from the level
 // the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would
 // reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days,
-// and one at the highest level stays there. A notice's level is the highest among its items. A key
-// date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company
-// without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than
-// 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`:
-// larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422
-// `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices.
-// A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`).
+// and one at the highest level stays there. A notice's level is the highest among its items. The
+// company's dunning procedure applies as the configuration has it when the run is started, and the run
+// keeps it (T76d): an item overdue by no more than `companies[].dunning.grace_days` is not proposed; a
+// customer whose notice's overdue amount would be below `companies[].dunning.minimum_amount` gets no
+// notice, and the run counts it in `below_minimum_notice_count` and `below_minimum_amount`; a notice
+// is charged its level's `charge`, and each item at a level that charges `interest` is charged
+// interest at `interest_rate_percent` a year for its days overdue (`local_amount` × rate ÷ 100 ×
+// `days_overdue` ÷ 365, rounded half away from zero in the company's currency); a notice's
+// `total_amount` is what it asks for in all. Charges and interest are what the notices ask for:
+// nothing is posted. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`,
+// naming `key_date`). A company without dunning levels is refused (422
+// `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed ones it
+// lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet) and one
+// whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date
+// at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key`
+// answers the run started. Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs
 func (c *Client) CreateDunningRun(ctx context.Context, request *DunningRunCreate, params CreateDunningRunParams) (CreateDunningRunRes, error) {

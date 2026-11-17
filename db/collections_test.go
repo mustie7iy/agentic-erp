@@ -528,3 +528,80 @@ func TestDunningRunDisputedItems(t *testing.T) {
 		})
 	}
 }
+
+// TestDunningCharges (T76d, migration 000350): a run's grace days are 0 to
+// 365, its minimum amount, charges and interest are not negative, its
+// interest rate above 0 and below 100 percent; a run counts notices below
+// the minimum with their amount and only with a minimum; a notice's
+// charge and interest and an item's interest are not negative. Each
+// defaults to none, as the previous version's rows have it, and the
+// application's update grant leaves them out.
+func TestDunningCharges(t *testing.T) {
+	need(t)
+	const run = `INSERT INTO collections.dunning_run (tenant_id, id, legal_entity_id, key_date, status, currency, notice_count, item_count,
+		overdue_amount, created_by, updated_by%s) VALUES ($1, $2, gen_random_uuid(), '2026-06-30', 'proposed', 'EUR', 1, 1, 10000, $1, $1%s)`
+	const notice = `INSERT INTO collections.dunning_notice (tenant_id, id, dunning_run_id, customer_id, customer_number, level, item_count,
+		overdue_amount%s) VALUES ($1, $3, $2, gen_random_uuid(), 'BP1', 1, 1, 10000%s)`
+	const item = `INSERT INTO collections.dunning_notice_item (tenant_id, dunning_run_id, dunning_notice_id, item_no, fiscal_year, journal_entry_id,
+		line_no, document_number, document_date, net_due_date, days_overdue, currency, amount, amount_lc, previous_level, level, previous_dunnings%s)
+		VALUES ($1, $2, $3, 1, 2026, gen_random_uuid(), 1, 'DR1', '2026-03-01', '2026-03-31', 91, 'EUR', 10000, 10000, 0, 1, 0%s)`
+	for _, c := range []struct{ name, runCols, runVals, noticeCols, noticeVals, itemCols, itemVals, want string }{
+		{"none given", "", "", "", "", "", "", ""},
+		{"all given", ", grace_days, minimum_amount, interest_rate_percent, charge_amount, interest_amount, below_minimum_count, below_minimum_amount",
+			", 365, 2500, 99.999, 1500, 248, 1, 1250", ", charge_amount, interest_amount", ", 1500, 248", ", interest_amount", ", 248", ""},
+		{"negative grace days", ", grace_days", ", -1", "", "", "", "", "dunning_run_grace_days_check"},
+		{"more than a year's grace", ", grace_days", ", 366", "", "", "", "", "dunning_run_grace_days_check"},
+		{"a negative minimum", ", minimum_amount", ", -1", "", "", "", "", "dunning_run_minimum_amount_check"},
+		{"a rate of 0", ", interest_rate_percent", ", 0", "", "", "", "", "dunning_run_interest_rate_check"},
+		{"a rate of 100", ", interest_rate_percent", ", 100", "", "", "", "", "dunning_run_interest_rate_check"},
+		{"a rate of four places", ", interest_rate_percent", ", 9.1234", "", "", "", "", ""},
+		{"a negative charge", ", charge_amount", ", -1", "", "", "", "", "dunning_run_charge_amount_check"},
+		{"negative interest", ", interest_amount", ", -1", "", "", "", "", "dunning_run_interest_amount_check"},
+		{"a negative count below the minimum", ", minimum_amount, below_minimum_count, below_minimum_amount", ", 100, -1, 50", "", "", "", "", "dunning_run_below_minimum_count_check"},
+		{"a negative amount below the minimum", ", minimum_amount, below_minimum_count, below_minimum_amount", ", 100, 1, -1", "", "", "", "", "dunning_run_below_minimum_amount_check"},
+		{"notices below the minimum without their amount", ", minimum_amount, below_minimum_count", ", 100, 1", "", "", "", "",
+			"dunning_run_below_minimum_check"},
+		{"an amount below the minimum without notices", ", minimum_amount, below_minimum_amount", ", 100, 1", "", "", "", "",
+			"dunning_run_below_minimum_check"},
+		{"notices below no minimum", ", below_minimum_count, below_minimum_amount", ", 1, 100", "", "", "", "", "dunning_run_below_minimum_check"},
+		{"a notice's negative charge", "", "", ", charge_amount", ", -1", "", "", "dunning_notice_charge_amount_check"},
+		{"a notice's negative interest", "", "", ", interest_amount", ", -1", "", "", "dunning_notice_interest_amount_check"},
+		{"an item's negative interest", "", "", "", "", ", interest_amount", ", -1", "dunning_notice_item_interest_amount_check"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tenant, r, n := id(), id(), id()
+			err := asApp(t, tenant, func(tx pgx.Tx) error {
+				if err := all(tx, step(fmt.Sprintf(run, c.runCols, c.runVals), tenant, r), step(fmt.Sprintf(notice, c.noticeCols, c.noticeVals), tenant, r, n),
+					step(fmt.Sprintf(item, c.itemCols, c.itemVals), tenant, r, n)); err != nil {
+					return err
+				}
+				var got string
+				if err := tx.QueryRow(context.Background(), `SELECT concat_ws(' ', r.grace_days, r.minimum_amount, r.interest_rate_percent, r.charge_amount,
+						r.interest_amount, r.below_minimum_count, r.below_minimum_amount, n.charge_amount, n.interest_amount, i.interest_amount)
+					FROM collections.dunning_run r JOIN collections.dunning_notice n ON n.dunning_run_id = r.id
+					JOIN collections.dunning_notice_item i ON i.dunning_notice_id = n.id WHERE r.id = $1`, r).Scan(&got); err != nil {
+					return err
+				}
+				if c.runCols == "" && c.noticeCols == "" && c.itemCols == "" && got != "0 0 0 0 0 0 0 0 0" {
+					t.Errorf("defaults: got %s, want 0 0 0 0 0 0 0 0 0, no rate", got)
+				}
+				return nil
+			})
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+	t.Run("the application changes no charge", func(t *testing.T) {
+		tenant, r, n := id(), id(), id()
+		err := asApp(t, tenant, func(tx pgx.Tx) error {
+			return all(tx, step(fmt.Sprintf(run, "", ""), tenant, r), step(fmt.Sprintf(notice, "", ""), tenant, r, n),
+				step(`UPDATE collections.dunning_run SET charge_amount = 1, version = version + 1`))
+		})
+		failsWith(t, err, "permission denied")
+	})
+}

@@ -46,11 +46,66 @@ func TestDunningLevelsValid(t *testing.T) {
 		{"fewer days than the level before", []DunningLevel{{Level: 1, DaysOverdue: 10}, {Level: 2, DaysOverdue: 9}}, levels + "[2].days_overdue",
 			"more days overdue than the level before (10)"},
 		{"ten levels", ten, levels, "at most 9 dunning levels"},
+		{"a charge that is no amount", []DunningLevel{{Level: 1, DaysOverdue: 1, Charge: "5.001"}}, levels + "[1].charge", "decimal"},
+		{"a negative charge", []DunningLevel{{Level: 1, DaysOverdue: 1, Charge: "-5.00"}}, levels + "[1].charge", "must not be negative"},
+		{"interest without a rate", []DunningLevel{{Level: 1, DaysOverdue: 1, Interest: true}}, levels + "[1].interest", "set dunning.interest_rate_percent"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			c := fixture(t)
 			c.Company("1000").Dunning.Levels = tc.levels
+			fs := Validate(c, currency.Seeded())
+			if !slices.ContainsFunc(fs, func(f Finding) bool {
+				return f.Severity == SevError && f.Path == tc.path && strings.Contains(f.Message, tc.message)
+			}) {
+				t.Errorf("findings: got %v, want an error at %s saying %q", fs, tc.path, tc.message)
+			}
+		})
+	}
+}
+
+// TestDunningProcedure: grace days, a minimum amount, an interest rate
+// and the levels' charges and interest validate within their bounds and
+// are read in minor units and thousandths of a percent (T76d); each rule
+// refuses its own field.
+func TestDunningProcedure(t *testing.T) {
+	c := withDunning(t)
+	d := &c.Company("1000").Dunning
+	d.GraceDays, d.MinimumAmount, d.InterestRatePercent = MaxGraceDays, "25.00", "9.125"
+	d.Levels[1].Charge, d.Levels[1].Interest = "15.00", true
+	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
+		t.Fatalf("a full procedure: got %v, want no errors", fs)
+	}
+	if got := d.Minimum(2); got != 2500 {
+		t.Errorf("minimum: got %d, want 2500", got)
+	}
+	if got := d.InterestRate(); got != 9125 {
+		t.Errorf("interest rate: got %d, want 9125", got)
+	}
+	if got := d.Levels[1].ChargeOf(2); got != 1500 {
+		t.Errorf("level 2's charge: got %d, want 1500", got)
+	}
+	if got, rate := d.Levels[0].ChargeOf(2), (Dunning{}).InterestRate(); got != 0 || rate != 0 || (Dunning{}).Minimum(2) != 0 {
+		t.Errorf("none set: got charge %d, rate %d, minimum %d, want 0 each", got, rate, (Dunning{}).Minimum(2))
+	}
+	const p = "companies[1000].dunning"
+	cases := []struct {
+		name          string
+		change        func(*Dunning)
+		path, message string
+	}{
+		{"negative grace days", func(d *Dunning) { d.GraceDays = -1 }, p + ".grace_days", "must be 0-365 days"},
+		{"more than a year's grace", func(d *Dunning) { d.GraceDays = MaxGraceDays + 1 }, p + ".grace_days", "must be 0-365 days"},
+		{"a minimum that is no amount", func(d *Dunning) { d.MinimumAmount = "ten" }, p + ".minimum_amount", "decimal"},
+		{"a negative minimum", func(d *Dunning) { d.MinimumAmount = "-1.00" }, p + ".minimum_amount", "must not be negative"},
+		{"a rate of four places", func(d *Dunning) { d.InterestRatePercent = "9.1234" }, p + ".interest_rate_percent", "decimal"},
+		{"a rate of 0", func(d *Dunning) { d.InterestRatePercent = "0" }, p + ".interest_rate_percent", "above 0% and below 100%"},
+		{"a rate of 100", func(d *Dunning) { d.InterestRatePercent = "100" }, p + ".interest_rate_percent", "above 0% and below 100%"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := withDunning(t)
+			tc.change(&c.Company("1000").Dunning)
 			fs := Validate(c, currency.Seeded())
 			if !slices.ContainsFunc(fs, func(f Finding) bool {
 				return f.Severity == SevError && f.Path == tc.path && strings.Contains(f.Message, tc.message)
@@ -69,12 +124,15 @@ func TestDunningLevelsTier(t *testing.T) {
 	later.Company("1000").Dunning.Levels[1].DaysOverdue = 20
 	fourth := withDunning(t)
 	fourth.Company("1000").Dunning.Levels = append(fourth.Company("1000").Dunning.Levels, DunningLevel{Level: 4, DaysOverdue: 60})
+	charged := withDunning(t)
+	charged.Company("1000").Dunning.GraceDays, charged.Company("1000").Dunning.Levels[1].Charge = 3, "15.00"
 	cases := []struct {
 		name      string
 		old, new  *Config
 		wantPaths string
 	}{
 		{"set", fixture(t), withDunning(t), "companies[1000].dunning.levels[1] companies[1000].dunning.levels[2] companies[1000].dunning.levels[3]"},
+		{"grace days and a charge", withDunning(t), charged, "companies[1000].dunning.grace_days companies[1000].dunning.levels[2].charge"},
 		{"a level's days", withDunning(t), later, "companies[1000].dunning.levels[2].days_overdue"},
 		{"a level more", withDunning(t), fourth, "companies[1000].dunning.levels[4]"},
 	}

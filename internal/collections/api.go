@@ -42,7 +42,11 @@ func runToAPI(r Run, companies map[uuid.UUID]tenancy.Entity) gen.DunningRun {
 	out := gen.DunningRun{ID: r.ID, Version: r.Version, CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy, UpdatedAt: r.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(r.UpdatedBy), LegalEntityID: r.LegalEntityID, CompanyCode: le.Code, CompanyName: le.Name, KeyDate: r.KeyDate,
 		Status: r.Status, Currency: r.Currency, NoticeCount: r.NoticeCount, ItemCount: r.ItemCount,
-		OverdueAmount: apitypes.Money(r.OverdueAmount, r.Currency, r.Exponent), DisputedItemCount: int32(len(r.Disputed)),
+		OverdueAmount: apitypes.Money(r.OverdueAmount, r.Currency, r.Exponent), ChargeAmount: apitypes.Money(r.ChargeAmount, r.Currency, r.Exponent),
+		InterestAmount: apitypes.Money(r.InterestAmount, r.Currency, r.Exponent), TotalAmount: apitypes.Money(r.Total(), r.Currency, r.Exponent),
+		GraceDays: r.GraceDays, MinimumAmount: apitypes.Money(r.MinimumAmount, r.Currency, r.Exponent),
+		InterestRatePercent: apitypes.OptString(r.InterestRate), BelowMinimumNoticeCount: r.BelowMinimumCount,
+		BelowMinimumAmount: apitypes.Money(r.BelowMinimumAmount, r.Currency, r.Exponent), DisputedItemCount: int32(len(r.Disputed)),
 		DisputedAmount: apitypes.Money(r.DisputedLC(), r.Currency, r.Exponent), DisputedItems: make([]gen.DunningRunDisputedItem, len(r.Disputed))}
 	for i, d := range r.Disputed {
 		out.DisputedItems[i] = gen.DunningRunDisputedItem{DisputeCaseID: d.CaseID, CustomerID: d.CustomerID, CustomerNumber: d.CustomerNumber,
@@ -143,13 +147,16 @@ type shown struct {
 func noticeToAPI(n Notice, s shown) gen.DunningNotice {
 	out := gen.DunningNotice{ID: n.ID, DunningRunID: n.RunID, CustomerID: n.CustomerID, CustomerNumber: n.CustomerNumber,
 		CustomerName: s.customers[n.CustomerID].Name, Level: n.Level, ItemCount: n.ItemCount,
-		OverdueAmount: apitypes.Money(n.OverdueAmount, s.run.Currency, s.run.Exponent), Items: make([]gen.DunningNoticeItem, len(n.Items))}
+		OverdueAmount:  apitypes.Money(n.OverdueAmount, s.run.Currency, s.run.Exponent),
+		ChargeAmount:   apitypes.Money(n.ChargeAmount, s.run.Currency, s.run.Exponent),
+		InterestAmount: apitypes.Money(n.InterestAmount, s.run.Currency, s.run.Exponent),
+		TotalAmount:    apitypes.Money(n.Total(), s.run.Currency, s.run.Exponent), Items: make([]gen.DunningNoticeItem, len(n.Items))}
 	for i, it := range n.Items {
 		out.Items[i] = gen.DunningNoticeItem{ItemNo: it.ItemNo, FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID, LineNo: it.LineNo,
 			DocumentNumber: it.DocumentNumber, Reference: apitypes.OptString(it.Reference), DocumentDate: it.DocumentDate, NetDueDate: it.NetDueDate,
 			DaysOverdue: it.DaysOverdue, Amount: apitypes.Money(it.Amount, it.Currency, it.Exponent),
 			LocalAmount:   apitypes.Money(it.AmountLC, s.run.Currency, s.run.Exponent),
-			PreviousLevel: it.PreviousLevel, Level: it.Level}
+			PreviousLevel: it.PreviousLevel, Level: it.Level, InterestAmount: apitypes.Money(it.InterestAmount, s.run.Currency, s.run.Exponent)}
 	}
 	return out
 }

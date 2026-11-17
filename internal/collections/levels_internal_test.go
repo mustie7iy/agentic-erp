@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 )
 
 // TestReach: an item reaches the last level whose days overdue it has
@@ -45,4 +46,32 @@ func TestReach(t *testing.T) {
 			t.Errorf("never dunned and dunned once: got %s, want 1 1", got)
 		}
 	})
+}
+
+// TestInterestOn: interest is amount × rate × days ÷ 365, the rate in
+// thousandths of a percent a year, rounded half away from zero in the
+// amount's minor units; out of range is an error (T76d).
+func TestInterestOn(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		amount money.Minor
+		rate   int64
+		days   int32
+		want   money.Minor
+	}{
+		{"160.00 at 9% for 61 days", 16000, 9000, 61, 241},
+		{"half a cent rounds up", 18250, 1000, 1, 1},
+		{"short of half a cent rounds down", 18249, 1000, 1, 0},
+		{"a year at 10%", 100000, 10000, 365, 10000},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := interestOn(c.amount, c.rate, c.days)
+			if err != nil || got != c.want {
+				t.Errorf("got %d (%v), want %d", got, err, c.want)
+			}
+		})
+	}
+	if _, err := interestOn(money.Minor(1)<<62, 99999, 30000); err == nil {
+		t.Error("interest out of range: got no error, want one")
+	}
 }

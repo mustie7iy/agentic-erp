@@ -51,7 +51,13 @@ func dunning(doc *config.Config) {
 
 func setup(t *testing.T) env {
 	t.Helper()
-	f := fixture.NewWith(t, nil, dunning, perms...)
+	return setupWith(t, dunning)
+}
+
+// setupWith is setup with the configuration as configure leaves it.
+func setupWith(t *testing.T, configure func(*config.Config)) env {
+	t.Helper()
+	f := fixture.NewWith(t, nil, configure, perms...)
 	e := env{Env: f, receivable: f.Account(t, "2000", "120000"), revenue: f.Account(t, "2000", "400000")}
 	// Numbered against their names' order, so the notices' order by number is seen.
 	e.north = e.customer(t, "BP70000002", "Northwind Traders")
@@ -142,6 +148,10 @@ func (e env) story(t *testing.T) []ledger.Entry {
 		item{customer: e.south, amount: 20000, currency: "USD", day: "2026-03-31", ref: "CI-USD"},
 		item{customer: e.east, amount: 9000, currency: "EUR", day: "2026-06-15", ref: "CI-E"})
 }
+
+// zero is no amount of the company's currency, as an event gives it: a
+// run without charges or interest.
+var zero = map[string]any{"amount": "0.00", "currency": "EUR"}
 
 // run is the JSON of a dunning run of the company at the key date.
 func run(company uuid.UUID, key string) string {
@@ -301,7 +311,7 @@ func (e env) recorded(t *testing.T, id string) {
 	}
 	want := map[string]any{"dunning_run_id": id, "legal_entity_id": e.DE.String(), "legal_entity_code": "2000", "key_date": keyDate,
 		"notice_count": float64(2), "item_count": float64(3), "overdue_amount": map[string]any{"amount": "310.00", "currency": "EUR"},
-		"status": "proposed", "status_before": nil, "version": float64(1)}
+		"charge_amount": zero, "interest_amount": zero, "status": "proposed", "status_before": nil, "version": float64(1)}
 	if a, b := mustJSON(t, events[0]), mustJSON(t, want); a != b {
 		t.Errorf("event payload: got %s, want %s", a, b)
 	}

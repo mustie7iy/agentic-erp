@@ -17825,7 +17825,7 @@ paths:
       tags:
         - collections
       summary: Start a dunning run
-      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit) and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. The net due date is that of the payment terms the item was posted with; an item posted without payment terms (a manual or migrated entry's) is due on its document date and is proposed like any other. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing, with or without terms. An item with an open dispute case (`createDisputeCase`) is in no notice, whatever part of it is disputed: the run lists it in `disputed_items` with its case, and it counts in none of the run's totals; once the case is closed a new run proposes it again (T86b). An item rises one level per confirmed run at most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the highest level stays there. A notice's level is the highest among its items. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
+      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit) and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. The net due date is that of the payment terms the item was posted with; an item posted without payment terms (a manual or migrated entry's) is due on its document date and is proposed like any other. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing, with or without terms. An item with an open dispute case (`createDisputeCase`) is in no notice, whatever part of it is disputed: the run lists it in `disputed_items` with its case, and it counts in none of the run's totals; once the case is closed a new run proposes it again (T86b). An item rises one level per confirmed run at most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the highest level stays there. A notice's level is the highest among its items. The company's dunning procedure applies as the configuration has it when the run is started, and the run keeps it (T76d): an item overdue by no more than `companies[].dunning.grace_days` is not proposed; a customer whose notice's overdue amount would be below `companies[].dunning.minimum_amount` gets no notice, and the run counts it in `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its level's `charge`, and each item at a level that charges `interest` is charged interest at `interest_rate_percent` a year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue` ÷ 365, rounded half away from zero in the company's currency); a notice's `total_amount` is what it asks for in all. Charges and interest are what the notices ask for: nothing is posted. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
       x-permission: collections.dunning.run
       x-agent: false
       x-problem-codes:
@@ -55068,7 +55068,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
-          required: [legal_entity_id, company_code, company_name, key_date, status, currency, notice_count, item_count, overdue_amount, disputed_item_count, disputed_amount, disputed_items]
+          required: [legal_entity_id, company_code, company_name, key_date, status, currency, notice_count, item_count, overdue_amount, charge_amount, interest_amount, total_amount, grace_days, minimum_amount, below_minimum_notice_count, below_minimum_amount, disputed_item_count, disputed_amount, disputed_items]
           properties:
             legal_entity_id: {type: string, format: uuid, description: "The company whose customers the run duns.", readOnly: true}
             company_code: {type: string, description: "The company's code.", readOnly: true}
@@ -55083,6 +55083,14 @@ components:
             notice_count: {type: integer, format: int32, minimum: 0, description: "The notices the run proposed, one per customer; 0 when nothing was overdue.", readOnly: true}
             item_count: {type: integer, format: int32, minimum: 0, description: "The overdue items in those notices.", readOnly: true}
             overdue_amount: {$ref: "#/components/schemas/Money", description: "The sum of the notices' `overdue_amount`: the items' amounts in the company's currency, as they were booked."}
+            charge_amount: {$ref: "#/components/schemas/Money", description: "The sum of the notices' `charge_amount`, in the company's currency (T76d); 0 when their levels charge none."}
+            interest_amount: {$ref: "#/components/schemas/Money", description: "The sum of the notices' `interest_amount`, in the company's currency (T76d); 0 when their levels charge none."}
+            total_amount: {$ref: "#/components/schemas/Money", description: "What the notices ask for in all: `overdue_amount`, `charge_amount` and `interest_amount` together. Nothing is posted."}
+            grace_days: {type: integer, format: int32, minimum: 0, maximum: 365, description: "The company's grace days when the run was started (`companies[].dunning.grace_days`, T76d): an item overdue by no more days was not proposed; 0 for none, and for runs started before grace days existed.", readOnly: true}
+            minimum_amount: {$ref: "#/components/schemas/Money", description: "The company's minimum amount when the run was started (`companies[].dunning.minimum_amount`, T76d), in its currency: a notice whose `overdue_amount` would have been below it was not proposed; 0 for none."}
+            interest_rate_percent: {type: string, pattern: "^[0-9]{1,2}\\.[0-9]{3}$", description: "The company's annual dunning interest rate when the run was started (`companies[].dunning.interest_rate_percent`, T76d), in percent with three places; absent when it has none.", readOnly: true}
+            below_minimum_notice_count: {type: integer, format: int32, minimum: 0, description: "The customers whose notice the run left out because its overdue amount was below `minimum_amount` (T76d); their items are in no notice, are not recorded as dunned when the run is confirmed, and count in none of the run's other totals.", readOnly: true}
+            below_minimum_amount: {$ref: "#/components/schemas/Money", description: "What those notices' items add up to in the company's currency, as they were booked; 0 when none was below the minimum."}
             disputed_item_count: {type: integer, format: int32, minimum: 0, description: "The items the run left out for their open dispute cases (`disputed_items`); 0 when none was disputed.", readOnly: true}
             disputed_amount: {$ref: "#/components/schemas/Money", description: "What those items add up to in the company's currency, as they were booked (the sum of `disputed_items[].local_amount`): held back from dunning, not counted in `overdue_amount`."}
             disputed_items:
@@ -55106,6 +55114,14 @@ components:
           notice_count: 1
           item_count: 1
           overdue_amount: {amount: "1050.00", currency: CAD}
+          charge_amount: {amount: "15.00", currency: CAD}
+          interest_amount: {amount: "7.77", currency: CAD}
+          total_amount: {amount: "1072.77", currency: CAD}
+          grace_days: 3
+          minimum_amount: {amount: "25.00", currency: CAD}
+          interest_rate_percent: "9.000"
+          below_minimum_notice_count: 1
+          below_minimum_amount: {amount: "12.50", currency: CAD}
           disputed_item_count: 1
           disputed_amount: {amount: "400.00", currency: CAD}
           disputed_items:
@@ -55151,7 +55167,7 @@ components:
     DunningNoticeItem:
       type: object
       description: "An item of a dunning notice: a customer's open item overdue on the run's key date, as the run read it."
-      required: [item_no, fiscal_year, journal_entry_id, line_no, document_number, document_date, net_due_date, days_overdue, amount, local_amount, previous_level, level]
+      required: [item_no, fiscal_year, journal_entry_id, line_no, document_number, document_date, net_due_date, days_overdue, amount, local_amount, previous_level, level, interest_amount]
       properties:
         item_no: {type: integer, format: int32, minimum: 1, description: "The item's number in the notice.", readOnly: true}
         fiscal_year: {type: integer, format: int32, description: "The fiscal year of the item's journal entry.", readOnly: true}
@@ -55166,10 +55182,11 @@ components:
         local_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, as it was booked."}
         previous_level: {type: integer, format: int32, minimum: 0, maximum: 9, description: "The dunning level the item was last dunned at when the run was started, the highest a confirmed run recorded for it; 0 for an item never dunned.", readOnly: true}
         level: {type: integer, format: int32, minimum: 1, maximum: 9, description: "The dunning level the item would reach: the last level whose days overdue it has reached, one above `previous_level` at most.", readOnly: true}
+        interest_amount: {$ref: "#/components/schemas/Money", description: "The interest on the item at `level`, in the company's currency (T76d): when the level charges interest (`companies[].dunning.levels[].interest`), `local_amount` × the run's `interest_rate_percent` ÷ 100 × `days_overdue` ÷ 365, rounded half away from zero; 0 otherwise."}
     DunningNotice:
       type: object
       description: "A dunning notice (collections, ADR-0065 §3): what a dunning run proposes for one customer."
-      required: [id, dunning_run_id, customer_id, customer_number, customer_name, level, item_count, overdue_amount, items]
+      required: [id, dunning_run_id, customer_id, customer_number, customer_name, level, item_count, overdue_amount, charge_amount, interest_amount, total_amount, items]
       properties:
         id: {type: string, format: uuid, description: "The notice's id.", readOnly: true}
         dunning_run_id: {type: string, format: uuid, description: "The run that proposed it (`GET /v1/dunning-runs/{id}`).", readOnly: true}
@@ -55179,6 +55196,9 @@ components:
         level: {type: integer, format: int32, minimum: 1, maximum: 9, description: "The notice's dunning level: the highest among its items.", readOnly: true}
         item_count: {type: integer, format: int32, minimum: 1, description: "The notice's items.", readOnly: true}
         overdue_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' `local_amount`, in the company's currency."}
+        charge_amount: {$ref: "#/components/schemas/Money", description: "The dunning charge of the notice's level (`companies[].dunning.levels[].charge`, T76d), in the company's currency; 0 when the level charges none."}
+        interest_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' `interest_amount`, in the company's currency (T76d)."}
+        total_amount: {$ref: "#/components/schemas/Money", description: "What the notice asks the customer for: `overdue_amount`, `charge_amount` and `interest_amount` together. Nothing is posted."}
         items:
           type: array
           items: {$ref: "#/components/schemas/DunningNoticeItem"}
@@ -55193,6 +55213,9 @@ components:
           level: 1
           item_count: 1
           overdue_amount: {amount: "1050.00", currency: CAD}
+          charge_amount: {amount: "0.00", currency: CAD}
+          interest_amount: {amount: "0.00", currency: CAD}
+          total_amount: {amount: "1050.00", currency: CAD}
           items:
             - item_no: 1
               fiscal_year: 2026
@@ -55207,6 +55230,7 @@ components:
               local_amount: {amount: "1050.00", currency: CAD}
               previous_level: 0
               level: 1
+              interest_amount: {amount: "0.00", currency: CAD}
     DunningNoticePage:
       type: object
       description: One page of a dunning run's notices.

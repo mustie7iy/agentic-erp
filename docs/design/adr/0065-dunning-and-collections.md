@@ -616,3 +616,77 @@ each listed for the product owner's digest.
   proposes the invoice again (since T105b in `step_collections_agent`,
   step 98, once the collections agent has recommended on the worklist
   while the case is open; ADR-0072 As built).
+
+### T76d Dunning charges, interest, grace days and minimum amounts (migration 000350)
+
+Decided by default under this ADR (`plan-depth-1.md` §T76d; SAP
+S/4HANA's dunning procedure, FBMP, as the reference; product owner
+2026-11-17: the variants start), each listed for the product owner's
+digest. It answers question 1 above for the first version: charges,
+interest and a minimum amount are the tenant's configuration, and no
+rule of law is built in.
+
+- **Configuration.** `companies[].dunning` is the company's one dunning
+  procedure (procedures per customer stay later): `grace_days` (0-365),
+  `minimum_amount` (in the company's currency), `interest_rate_percent`
+  (a year, above 0 and below 100, three places at most) and per level
+  `charge` (in the company's currency) and `interest` (true: the level's
+  items are charged interest; the rate is then required). Validated
+  with each field named (`config.validation_failed`); tier 2 as the
+  levels, since nothing is posted. None is shipped.
+- **Grace days.** An item overdue by no more than the grace days is not
+  proposed, whatever level its days reach (SAP's line item grace
+  periods). The levels' days still count from the net due date, and the
+  worklist, which proposes nothing, ignores them.
+- **Minimum amount.** One per procedure, compared with a notice's
+  overdue amount before charges and interest (SAP keeps one per level
+  and currency: later). A notice below it is not proposed: its items are
+  in no notice and are not recorded when the run is confirmed, so their
+  level stays. The run counts such notices (`below_minimum_notice_count`,
+  `below_minimum_amount`) and names no customer for them. The minimum
+  applies after the disputed items are left out.
+- **Charge.** The charge of the notice's level, a fixed amount in the
+  company's currency, once per notice (SAP's charges per level; a
+  charge by percentage or per currency is later).
+- **Interest.** Per item at a level whose `interest` is true:
+  `amount_lc × rate ÷ 100 × days overdue ÷ 365`, actual days over a
+  year of 365, from the net due date to the key date, rounded half away
+  from zero once per item in the company's currency
+  (`collections.interestOn`). It is the interest to the key date, not
+  the interest since the last notice: each notice states it in full. A
+  statutory rate (a central bank's base rate plus points, as some
+  countries set for late payment) is not built in: the tenant sets the
+  rate (specialist question below).
+- **Nothing is posted.** Charges and interest are what the notices ask
+  for. Posting them to the customer's account is later, as SAP's
+  dunning run does not post them either.
+- **Stored.** The run keeps the procedure as it applied it (grace days,
+  minimum amount, rate, null for none) and its charge, interest and
+  below-minimum totals; a notice its charge and interest; an item its
+  interest. Columns with defaults (06 §6.4 expand only): earlier runs
+  read as without a procedure. The application's update grant on a run
+  leaves them out, and notices and items stay insert-only. The checks
+  are in 03 §3.27 and `db/collections_test.go` (`TestDunningCharges`).
+- **API and events.** `DunningRun` gains `charge_amount`,
+  `interest_amount`, `total_amount`, `grace_days`, `minimum_amount`,
+  `interest_rate_percent` (absent for none),
+  `below_minimum_notice_count` and `below_minimum_amount`;
+  `DunningNotice` `charge_amount`, `interest_amount` and `total_amount`;
+  `DunningNoticeItem` `interest_amount`. `DunningRunChanged` carries the
+  run's charges and interest, `DunningNoticeIssued` the notice's and its
+  total. Every amount carries its currency. Amounts that add up past an
+  amount's range are refused, 422 `collections.amount_too_large`, as
+  before.
+- **Walkthrough.** `step_dunning_charges` (step 109): a new customer,
+  Lakeshore Hardware, with a CAD 30.00 invoice on NT30 and a CAD 600.00
+  one on NT60; Ada sets 7 grace days, a CAD 50.00 minimum, 9% interest
+  and level 2's CAD 15.00 and level 3's CAD 25.00 with interest through a
+  tier 2 change; a run 6 days past the small invoice's due date leaves
+  it out, one 10 days past counts Lakeshore's notice as below the
+  minimum; at 50 and 20 days the notice is proposed at level 1 for CAD
+  630.00 without charges and confirmed; at 70 and 40 days it is level 2:
+  CAD 15.00 and interest of 0.52 and 5.92, CAD 651.44 in all.
+- **Specialist question.** Whether a pilot country fixes the rate or
+  the day count of interest on late payment, or caps dunning charges,
+  for business customers: not built in, the tenant's rate and charges
+  apply as configured.

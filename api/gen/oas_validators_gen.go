@@ -32548,6 +32548,39 @@ func (s *DunningNotice) Validate() error {
 		})
 	}
 	if err := func() error {
+		if err := s.ChargeAmount.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "charge_amount",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.InterestAmount.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "interest_amount",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.TotalAmount.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "total_amount",
+			Error: err,
+		})
+	}
+	if err := func() error {
 		if s.Items == nil {
 			return errors.New("nil is invalid value")
 		}
@@ -32711,6 +32744,17 @@ func (s *DunningNoticeItem) Validate() error {
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
 			Name:  "level",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.InterestAmount.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "interest_amount",
 			Error: err,
 		})
 	}
@@ -32890,6 +32934,133 @@ func (s *DunningRun) Validate() error {
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
 			Name:  "overdue_amount",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ChargeAmount.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "charge_amount",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.InterestAmount.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "interest_amount",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.TotalAmount.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "total_amount",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := (validate.Int{
+			MinSet:        true,
+			Min:           0,
+			MaxSet:        true,
+			Max:           365,
+			MinExclusive:  false,
+			MaxExclusive:  false,
+			MultipleOfSet: false,
+			MultipleOf:    0,
+			Pattern:       nil,
+		}).Validate(int64(s.GraceDays)); err != nil {
+			return errors.Wrap(err, "int")
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "grace_days",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.MinimumAmount.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "minimum_amount",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if value, ok := s.InterestRatePercent.Get(); ok {
+			if err := func() error {
+				if err := (validate.String{
+					MinLength:     0,
+					MinLengthSet:  false,
+					MaxLength:     0,
+					MaxLengthSet:  false,
+					Email:         false,
+					Hostname:      false,
+					Regex:         regexMap["^[0-9]{1,2}\\.[0-9]{3}$"],
+					MinNumeric:    0,
+					MinNumericSet: false,
+					MaxNumeric:    0,
+					MaxNumericSet: false,
+				}).Validate(string(value)); err != nil {
+					return errors.Wrap(err, "string")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "interest_rate_percent",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := (validate.Int{
+			MinSet:        true,
+			Min:           0,
+			MaxSet:        false,
+			Max:           0,
+			MinExclusive:  false,
+			MaxExclusive:  false,
+			MultipleOfSet: false,
+			MultipleOf:    0,
+			Pattern:       nil,
+		}).Validate(int64(s.BelowMinimumNoticeCount)); err != nil {
+			return errors.Wrap(err, "int")
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "below_minimum_notice_count",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.BelowMinimumAmount.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "below_minimum_amount",
 			Error: err,
 		})
 	}

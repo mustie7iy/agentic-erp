@@ -40133,6 +40133,14 @@ type DunningNotice struct {
 	ItemCount int32 `json:"item_count"`
 	// The sum of the items' `local_amount`, in the company's currency.
 	OverdueAmount Money `json:"overdue_amount"`
+	// The dunning charge of the notice's level (`companies[].dunning.levels[].charge`, T76d), in the
+	// company's currency; 0 when the level charges none.
+	ChargeAmount Money `json:"charge_amount"`
+	// The sum of the items' `interest_amount`, in the company's currency (T76d).
+	InterestAmount Money `json:"interest_amount"`
+	// What the notice asks the customer for: `overdue_amount`, `charge_amount` and `interest_amount`
+	// together. Nothing is posted.
+	TotalAmount Money `json:"total_amount"`
 	// The customer's overdue items, by item number.
 	Items []DunningNoticeItem `json:"items"`
 }
@@ -40175,6 +40183,21 @@ func (s *DunningNotice) GetItemCount() int32 {
 // GetOverdueAmount returns the value of OverdueAmount.
 func (s *DunningNotice) GetOverdueAmount() Money {
 	return s.OverdueAmount
+}
+
+// GetChargeAmount returns the value of ChargeAmount.
+func (s *DunningNotice) GetChargeAmount() Money {
+	return s.ChargeAmount
+}
+
+// GetInterestAmount returns the value of InterestAmount.
+func (s *DunningNotice) GetInterestAmount() Money {
+	return s.InterestAmount
+}
+
+// GetTotalAmount returns the value of TotalAmount.
+func (s *DunningNotice) GetTotalAmount() Money {
+	return s.TotalAmount
 }
 
 // GetItems returns the value of Items.
@@ -40222,6 +40245,21 @@ func (s *DunningNotice) SetOverdueAmount(val Money) {
 	s.OverdueAmount = val
 }
 
+// SetChargeAmount sets the value of ChargeAmount.
+func (s *DunningNotice) SetChargeAmount(val Money) {
+	s.ChargeAmount = val
+}
+
+// SetInterestAmount sets the value of InterestAmount.
+func (s *DunningNotice) SetInterestAmount(val Money) {
+	s.InterestAmount = val
+}
+
+// SetTotalAmount sets the value of TotalAmount.
+func (s *DunningNotice) SetTotalAmount(val Money) {
+	s.TotalAmount = val
+}
+
 // SetItems sets the value of Items.
 func (s *DunningNotice) SetItems(val []DunningNoticeItem) {
 	s.Items = val
@@ -40261,6 +40299,10 @@ type DunningNoticeItem struct {
 	// The dunning level the item would reach: the last level whose days overdue it has reached, one above
 	// `previous_level` at most.
 	Level int32 `json:"level"`
+	// The interest on the item at `level`, in the company's currency (T76d): when the level charges
+	// interest (`companies[].dunning.levels[].interest`), `local_amount` × the run's
+	// `interest_rate_percent` ÷ 100 × `days_overdue` ÷ 365, rounded half away from zero; 0 otherwise.
+	InterestAmount Money `json:"interest_amount"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -40328,6 +40370,11 @@ func (s *DunningNoticeItem) GetLevel() int32 {
 	return s.Level
 }
 
+// GetInterestAmount returns the value of InterestAmount.
+func (s *DunningNoticeItem) GetInterestAmount() Money {
+	return s.InterestAmount
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *DunningNoticeItem) SetItemNo(val int32) {
 	s.ItemNo = val
@@ -40391,6 +40438,11 @@ func (s *DunningNoticeItem) SetPreviousLevel(val int32) {
 // SetLevel sets the value of Level.
 func (s *DunningNoticeItem) SetLevel(val int32) {
 	s.Level = val
+}
+
+// SetInterestAmount sets the value of InterestAmount.
+func (s *DunningNoticeItem) SetInterestAmount(val Money) {
+	s.InterestAmount = val
 }
 
 // One page of a dunning run's notices.
@@ -40462,6 +40514,34 @@ type DunningRun struct {
 	// The sum of the notices' `overdue_amount`: the items' amounts in the company's currency, as they were
 	// booked.
 	OverdueAmount Money `json:"overdue_amount"`
+	// The sum of the notices' `charge_amount`, in the company's currency (T76d); 0 when their levels
+	// charge none.
+	ChargeAmount Money `json:"charge_amount"`
+	// The sum of the notices' `interest_amount`, in the company's currency (T76d); 0 when their levels
+	// charge none.
+	InterestAmount Money `json:"interest_amount"`
+	// What the notices ask for in all: `overdue_amount`, `charge_amount` and `interest_amount` together.
+	// Nothing is posted.
+	TotalAmount Money `json:"total_amount"`
+	// The company's grace days when the run was started (`companies[].dunning.grace_days`, T76d): an item
+	// overdue by no more days was not proposed; 0 for none, and for runs started before grace days
+	// existed.
+	GraceDays int32 `json:"grace_days"`
+	// The company's minimum amount when the run was started (`companies[].dunning.minimum_amount`, T76d),
+	// in its currency: a notice whose `overdue_amount` would have been below it was not proposed; 0 for
+	// none.
+	MinimumAmount Money `json:"minimum_amount"`
+	// The company's annual dunning interest rate when the run was started
+	// (`companies[].dunning.interest_rate_percent`, T76d), in percent with three places; absent when it
+	// has none.
+	InterestRatePercent OptString `json:"interest_rate_percent"`
+	// The customers whose notice the run left out because its overdue amount was below `minimum_amount`
+	// (T76d); their items are in no notice, are not recorded as dunned when the run is confirmed, and
+	// count in none of the run's other totals.
+	BelowMinimumNoticeCount int32 `json:"below_minimum_notice_count"`
+	// What those notices' items add up to in the company's currency, as they were booked; 0 when none was
+	// below the minimum.
+	BelowMinimumAmount Money `json:"below_minimum_amount"`
 	// The items the run left out for their open dispute cases (`disputed_items`); 0 when none was
 	// disputed.
 	DisputedItemCount int32 `json:"disputed_item_count"`
@@ -40547,6 +40627,46 @@ func (s *DunningRun) GetItemCount() int32 {
 // GetOverdueAmount returns the value of OverdueAmount.
 func (s *DunningRun) GetOverdueAmount() Money {
 	return s.OverdueAmount
+}
+
+// GetChargeAmount returns the value of ChargeAmount.
+func (s *DunningRun) GetChargeAmount() Money {
+	return s.ChargeAmount
+}
+
+// GetInterestAmount returns the value of InterestAmount.
+func (s *DunningRun) GetInterestAmount() Money {
+	return s.InterestAmount
+}
+
+// GetTotalAmount returns the value of TotalAmount.
+func (s *DunningRun) GetTotalAmount() Money {
+	return s.TotalAmount
+}
+
+// GetGraceDays returns the value of GraceDays.
+func (s *DunningRun) GetGraceDays() int32 {
+	return s.GraceDays
+}
+
+// GetMinimumAmount returns the value of MinimumAmount.
+func (s *DunningRun) GetMinimumAmount() Money {
+	return s.MinimumAmount
+}
+
+// GetInterestRatePercent returns the value of InterestRatePercent.
+func (s *DunningRun) GetInterestRatePercent() OptString {
+	return s.InterestRatePercent
+}
+
+// GetBelowMinimumNoticeCount returns the value of BelowMinimumNoticeCount.
+func (s *DunningRun) GetBelowMinimumNoticeCount() int32 {
+	return s.BelowMinimumNoticeCount
+}
+
+// GetBelowMinimumAmount returns the value of BelowMinimumAmount.
+func (s *DunningRun) GetBelowMinimumAmount() Money {
+	return s.BelowMinimumAmount
 }
 
 // GetDisputedItemCount returns the value of DisputedItemCount.
@@ -40637,6 +40757,46 @@ func (s *DunningRun) SetItemCount(val int32) {
 // SetOverdueAmount sets the value of OverdueAmount.
 func (s *DunningRun) SetOverdueAmount(val Money) {
 	s.OverdueAmount = val
+}
+
+// SetChargeAmount sets the value of ChargeAmount.
+func (s *DunningRun) SetChargeAmount(val Money) {
+	s.ChargeAmount = val
+}
+
+// SetInterestAmount sets the value of InterestAmount.
+func (s *DunningRun) SetInterestAmount(val Money) {
+	s.InterestAmount = val
+}
+
+// SetTotalAmount sets the value of TotalAmount.
+func (s *DunningRun) SetTotalAmount(val Money) {
+	s.TotalAmount = val
+}
+
+// SetGraceDays sets the value of GraceDays.
+func (s *DunningRun) SetGraceDays(val int32) {
+	s.GraceDays = val
+}
+
+// SetMinimumAmount sets the value of MinimumAmount.
+func (s *DunningRun) SetMinimumAmount(val Money) {
+	s.MinimumAmount = val
+}
+
+// SetInterestRatePercent sets the value of InterestRatePercent.
+func (s *DunningRun) SetInterestRatePercent(val OptString) {
+	s.InterestRatePercent = val
+}
+
+// SetBelowMinimumNoticeCount sets the value of BelowMinimumNoticeCount.
+func (s *DunningRun) SetBelowMinimumNoticeCount(val int32) {
+	s.BelowMinimumNoticeCount = val
+}
+
+// SetBelowMinimumAmount sets the value of BelowMinimumAmount.
+func (s *DunningRun) SetBelowMinimumAmount(val Money) {
+	s.BelowMinimumAmount = val
 }
 
 // SetDisputedItemCount sets the value of DisputedItemCount.

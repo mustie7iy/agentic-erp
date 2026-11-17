@@ -99859,6 +99859,18 @@ func (s *DunningNotice) encodeFields(e *jx.Encoder) {
 		s.OverdueAmount.Encode(e)
 	}
 	{
+		e.FieldStart("charge_amount")
+		s.ChargeAmount.Encode(e)
+	}
+	{
+		e.FieldStart("interest_amount")
+		s.InterestAmount.Encode(e)
+	}
+	{
+		e.FieldStart("total_amount")
+		s.TotalAmount.Encode(e)
+	}
+	{
 		e.FieldStart("items")
 		e.ArrStart()
 		for _, elem := range s.Items {
@@ -99868,16 +99880,19 @@ func (s *DunningNotice) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfDunningNotice = [9]string{
-	0: "id",
-	1: "dunning_run_id",
-	2: "customer_id",
-	3: "customer_number",
-	4: "customer_name",
-	5: "level",
-	6: "item_count",
-	7: "overdue_amount",
-	8: "items",
+var jsonFieldsNameOfDunningNotice = [12]string{
+	0:  "id",
+	1:  "dunning_run_id",
+	2:  "customer_id",
+	3:  "customer_number",
+	4:  "customer_name",
+	5:  "level",
+	6:  "item_count",
+	7:  "overdue_amount",
+	8:  "charge_amount",
+	9:  "interest_amount",
+	10: "total_amount",
+	11: "items",
 }
 
 // Decode decodes DunningNotice from json.
@@ -99983,8 +99998,38 @@ func (s *DunningNotice) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"overdue_amount\"")
 			}
-		case "items":
+		case "charge_amount":
 			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				if err := s.ChargeAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"charge_amount\"")
+			}
+		case "interest_amount":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				if err := s.InterestAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"interest_amount\"")
+			}
+		case "total_amount":
+			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				if err := s.TotalAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"total_amount\"")
+			}
+		case "items":
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				s.Items = make([]DunningNoticeItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -100012,7 +100057,7 @@ func (s *DunningNotice) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11111111,
-		0b00000001,
+		0b00001111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -100121,9 +100166,13 @@ func (s *DunningNoticeItem) encodeFields(e *jx.Encoder) {
 		e.FieldStart("level")
 		e.Int32(s.Level)
 	}
+	{
+		e.FieldStart("interest_amount")
+		s.InterestAmount.Encode(e)
+	}
 }
 
-var jsonFieldsNameOfDunningNoticeItem = [13]string{
+var jsonFieldsNameOfDunningNoticeItem = [14]string{
 	0:  "item_no",
 	1:  "fiscal_year",
 	2:  "journal_entry_id",
@@ -100137,6 +100186,7 @@ var jsonFieldsNameOfDunningNoticeItem = [13]string{
 	10: "local_amount",
 	11: "previous_level",
 	12: "level",
+	13: "interest_amount",
 }
 
 // Decode decodes DunningNoticeItem from json.
@@ -100298,6 +100348,16 @@ func (s *DunningNoticeItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"level\"")
 			}
+		case "interest_amount":
+			requiredBitSet[1] |= 1 << 5
+			if err := func() error {
+				if err := s.InterestAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"interest_amount\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -100309,7 +100369,7 @@ func (s *DunningNoticeItem) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11011111,
-		0b00011111,
+		0b00111111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -100550,6 +100610,40 @@ func (s *DunningRun) encodeFields(e *jx.Encoder) {
 		s.OverdueAmount.Encode(e)
 	}
 	{
+		e.FieldStart("charge_amount")
+		s.ChargeAmount.Encode(e)
+	}
+	{
+		e.FieldStart("interest_amount")
+		s.InterestAmount.Encode(e)
+	}
+	{
+		e.FieldStart("total_amount")
+		s.TotalAmount.Encode(e)
+	}
+	{
+		e.FieldStart("grace_days")
+		e.Int32(s.GraceDays)
+	}
+	{
+		e.FieldStart("minimum_amount")
+		s.MinimumAmount.Encode(e)
+	}
+	{
+		if s.InterestRatePercent.Set {
+			e.FieldStart("interest_rate_percent")
+			s.InterestRatePercent.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("below_minimum_notice_count")
+		e.Int32(s.BelowMinimumNoticeCount)
+	}
+	{
+		e.FieldStart("below_minimum_amount")
+		s.BelowMinimumAmount.Encode(e)
+	}
+	{
 		e.FieldStart("disputed_item_count")
 		e.Int32(s.DisputedItemCount)
 	}
@@ -100567,7 +100661,7 @@ func (s *DunningRun) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfDunningRun = [18]string{
+var jsonFieldsNameOfDunningRun = [26]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -100583,9 +100677,17 @@ var jsonFieldsNameOfDunningRun = [18]string{
 	12: "notice_count",
 	13: "item_count",
 	14: "overdue_amount",
-	15: "disputed_item_count",
-	16: "disputed_amount",
-	17: "disputed_items",
+	15: "charge_amount",
+	16: "interest_amount",
+	17: "total_amount",
+	18: "grace_days",
+	19: "minimum_amount",
+	20: "interest_rate_percent",
+	21: "below_minimum_notice_count",
+	22: "below_minimum_amount",
+	23: "disputed_item_count",
+	24: "disputed_amount",
+	25: "disputed_items",
 }
 
 // Decode decodes DunningRun from json.
@@ -100593,7 +100695,7 @@ func (s *DunningRun) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode DunningRun to nil")
 	}
-	var requiredBitSet [3]uint8
+	var requiredBitSet [4]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -100773,8 +100875,92 @@ func (s *DunningRun) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"overdue_amount\"")
 			}
-		case "disputed_item_count":
+		case "charge_amount":
 			requiredBitSet[1] |= 1 << 7
+			if err := func() error {
+				if err := s.ChargeAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"charge_amount\"")
+			}
+		case "interest_amount":
+			requiredBitSet[2] |= 1 << 0
+			if err := func() error {
+				if err := s.InterestAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"interest_amount\"")
+			}
+		case "total_amount":
+			requiredBitSet[2] |= 1 << 1
+			if err := func() error {
+				if err := s.TotalAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"total_amount\"")
+			}
+		case "grace_days":
+			requiredBitSet[2] |= 1 << 2
+			if err := func() error {
+				v, err := d.Int32()
+				s.GraceDays = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"grace_days\"")
+			}
+		case "minimum_amount":
+			requiredBitSet[2] |= 1 << 3
+			if err := func() error {
+				if err := s.MinimumAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"minimum_amount\"")
+			}
+		case "interest_rate_percent":
+			if err := func() error {
+				s.InterestRatePercent.Reset()
+				if err := s.InterestRatePercent.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"interest_rate_percent\"")
+			}
+		case "below_minimum_notice_count":
+			requiredBitSet[2] |= 1 << 5
+			if err := func() error {
+				v, err := d.Int32()
+				s.BelowMinimumNoticeCount = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"below_minimum_notice_count\"")
+			}
+		case "below_minimum_amount":
+			requiredBitSet[2] |= 1 << 6
+			if err := func() error {
+				if err := s.BelowMinimumAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"below_minimum_amount\"")
+			}
+		case "disputed_item_count":
+			requiredBitSet[2] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int32()
 				s.DisputedItemCount = int32(v)
@@ -100786,7 +100972,7 @@ func (s *DunningRun) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"disputed_item_count\"")
 			}
 		case "disputed_amount":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[3] |= 1 << 0
 			if err := func() error {
 				if err := s.DisputedAmount.Decode(d); err != nil {
 					return err
@@ -100796,7 +100982,7 @@ func (s *DunningRun) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"disputed_amount\"")
 			}
 		case "disputed_items":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[3] |= 1 << 1
 			if err := func() error {
 				s.DisputedItems = make([]DunningRunDisputedItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -100822,9 +101008,10 @@ func (s *DunningRun) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [3]uint8{
+	for i, mask := range [4]uint8{
 		0b11011111,
 		0b11111111,
+		0b11101111,
 		0b00000011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
