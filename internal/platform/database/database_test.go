@@ -189,7 +189,10 @@ func TestOpenAndBeginErrors(t *testing.T) {
 	if _, err := bad.Begin(ctx, database.Scope{}); err == nil {
 		t.Fatal("negative timeout accepted")
 	}
-	tx, _ := pool.Begin(ctx, database.Scope{})
+	tx, err := pool.Begin(ctx, database.Scope{})
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
 	tx.Rollback(ctx)
 	if err := database.SetActor(ctx, tx, uuid.New()); err == nil {
 		t.Fatal("closed transaction accepted")

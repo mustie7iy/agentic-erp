@@ -34,6 +34,13 @@ func ScanWaiting(r pgx.CollectableRow) (Waiting, error) {
 	return w, errs.Wrapf(err, "scan waiting operation")
 }
 
+// resourceID holds for an operation whose resource ends in a uuid, the
+// only rows the listings below cast: they read every tenant's operations,
+// and one row of one tenant whose resource ended otherwise (written by a
+// bug, since each context writes /v1/<resources>/<id>) would fail the cast
+// and stop every tenant's work. Such an operation is left where it is.
+const resourceID = `resource ~* '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'`
+
 // QueuedOf lists, across active tenants (ADR-0015) and in the order they were queued, the
 // operations of a kind waiting for a workflow whose resource is the path
 // of what they work on (/v1/depreciation-runs/{id}), the resource being
@@ -45,7 +52,7 @@ func ScanWaiting(r pgx.CollectableRow) (Waiting, error) {
 // not read: the operation alone is the hand-off.
 func QueuedOf(ctx context.Context, tx pgx.Tx, kind string) ([]Waiting, error) {
 	rows, _ := tx.Query(ctx, `SELECT kind, tenant_id, id, substring(resource from '[^/]+$')::uuid, '00000000-0000-0000-0000-000000000000'::uuid, '', 0
-		FROM platform.operation WHERE kind = $1 AND status IN ('queued', 'cancelled') AND workflow_id IS NULL AND resource IS NOT NULL
+		FROM platform.operation WHERE kind = $1 AND status IN ('queued', 'cancelled') AND workflow_id IS NULL AND `+resourceID+`
 		AND tenant_id IN `+database.ActiveTenants+` ORDER BY id`, kind)
 	waiting, err := pgx.CollectRows(rows, ScanWaiting)
 	return waiting, errs.Wrapf(err, "operations: list the %s operations waiting for a workflow", kind)
@@ -74,7 +81,7 @@ func TenantsOf(ctx context.Context, tx pgx.Tx, kind string) ([]uuid.UUID, error)
 // one a workflow took, is not taken up.
 func StillQueuedOf(ctx context.Context, tx pgx.Tx, kind string) ([]Waiting, error) {
 	rows, _ := tx.Query(ctx, `SELECT kind, tenant_id, id, substring(resource from '[^/]+$')::uuid, '00000000-0000-0000-0000-000000000000'::uuid, '', 0
-		FROM platform.operation WHERE kind = $1 AND status = 'queued' AND workflow_id IS NULL AND resource IS NOT NULL
+		FROM platform.operation WHERE kind = $1 AND status = 'queued' AND workflow_id IS NULL AND `+resourceID+`
 		AND tenant_id IN `+database.ActiveTenants+` ORDER BY id`, kind)
 	waiting, err := pgx.CollectRows(rows, ScanWaiting)
 	return waiting, errs.Wrapf(err, "operations: list the %s operations still queued", kind)

@@ -408,7 +408,10 @@ func TestDatabaseFailures(t *testing.T) {
 	}
 	// Queries on a transaction that has ended fail.
 	pool := pgtest.Pool(t)
-	tx, _ := pool.Begin(context.Background(), database.Scope{Role: "erp_app", TenantID: ten.ID})
+	tx, err := pool.Begin(context.Background(), database.Scope{Role: "erp_app", TenantID: ten.ID})
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
 	tx.Rollback(context.Background())
 	dead := reqctx.WithPrincipal(reqctx.WithTx(context.Background(), tx), reqctx.Principal{ID: ten.Human.ID, Kind: "human", TenantID: ten.ID})
 	if _, err := e.GetOperation(dead, gen.GetOperationParams{ID: uuid.New()}); err == nil {
@@ -579,10 +582,42 @@ func TestStartTaken(t *testing.T) {
 	}); err == nil {
 		t.Error("an unencodable request: got nil error, want an error")
 	}
-	tx, _ := pgtest.Pool(t).Begin(context.Background(), database.Scope{Role: "erp_app", TenantID: ten.ID})
+	tx, err := pgtest.Pool(t).Begin(context.Background(), database.Scope{Role: "erp_app", TenantID: ten.ID})
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
 	tx.Rollback(context.Background())
 	dead := reqctx.WithPrincipal(reqctx.WithTx(context.Background(), tx), reqctx.Principal{ID: ten.Human.ID, Kind: "human", TenantID: ten.ID})
 	if err := operations.StartTaken(dead, uuid.New(), "test.scheduled", nil, "/v1/things/1", "w"); err == nil {
 		t.Error("a transaction that has ended: got nil error, want an error")
+	}
+}
+
+// TestWaitingSkipsMalformedResources: the dispatcher's listings read every
+// tenant's operations, so one whose resource does not end in a uuid is
+// left out rather than failing the cast for all of them.
+func TestWaitingSkipsMalformedResources(t *testing.T) {
+	ten := pgtest.NewTenant(t, perms...)
+	good, bad := start(t, ten, "test.waiting"), start(t, ten, "test.waiting")
+	pgtest.Exec(t, `UPDATE platform.operation SET resource = '/v1/things/' || id::text, version = version + 1 WHERE id = $1`, good.ID)
+	pgtest.Exec(t, `UPDATE platform.operation SET resource = '/v1/things/not-a-uuid', version = version + 1 WHERE id = $1`, bad.ID)
+	for name, list := range map[string]func(context.Context, pgx.Tx, string) ([]operations.Waiting, error){
+		"queued": operations.QueuedOf, "still queued": operations.StillQueuedOf,
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := pgtest.Pool(t).InTx(context.Background(), database.Scope{Role: "erp_worker", ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
+				got, err := list(ctx, tx, "test.waiting")
+				if err != nil {
+					return err
+				}
+				if len(got) != 1 || got[0].ID != good.ID || got[0].Resource != good.ID {
+					t.Errorf("waiting: got %+v, want operation %s on resource %s alone", got, good.ID, good.ID)
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatalf("list: %v", err)
+			}
+		})
 	}
 }
