@@ -108,7 +108,10 @@ func (a *Agent) Help(ctx context.Context, q Question) (Helped, error) {
 		return Helped{}, err
 	}
 	res := Helped{Session: s.ID}
-	tools, _ := apitools.Tools(a.API, s, HelpReads...) // reads of the contract open to agents (TestHelpTools)
+	tools, err := s.Tools(ctx, HelpReads...)
+	if err != nil {
+		return res, err
+	}
 	h := &helping{res: &res, asked: asked(q), name: q.Field + q.Problem, active: config.Readable(v.Document), roles: roles,
 		sources: []string{e.Operation.Summary, e.Operation.Description, e.FieldDescription},
 		allowed: append([]string{q.Field + q.Problem, e.Operation.ID, e.Operation.Permission}, e.Operation.ProblemCodes...)}

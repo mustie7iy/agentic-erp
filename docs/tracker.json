@@ -7543,6 +7543,20 @@
       "r": "ADR-0036 · T42",
       "src": "baseline",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "Agent tools whose guards or observers share a run's state run each call whole: the runner executes a turn's tool calls concurrently, and the cash forecast, close, reconciliation, configuration, test and migration agents counted, listed and checked without a lock (the pattern's and the tax agent's tools already held one); a session whose tools cannot be built is ended, failed, not left running, and tools are found by name, never by position",
+      "r": "apitools.Session.Tools · Tool.Exclusive in cashagent, closeagent, reconagent, delivery/configagent, testagent, migrationagent · supportagent, enablementagent help · TestExplainTogether, TestAccrualsTogether, TestReviewHeldToTheLine, TestHandleOwnChangesOnly, TestReviewHeldToTheChange, TestAssessStartsOnlyItsRehearsals (-race) · TestSessionTools · ADR-0072 as built (hardening 2)",
+      "src": "review:batch76",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "Every agent's writes are held to its run's object: the reconciliation agent proposes only for its statement, line and session; the accounts payable exceptions agent is an agent of the recommending pattern, its recommendation held to the run's invoice; the configuration agent changes only the change requests its session created, never a person's; the test agent records one recommendation, on its change request, and captures at most one suite",
+      "r": "internal/reconagent ErrOtherLine · internal/agent on recommend.Agent · delivery/configagent ErrNotCreated · delivery/testagent ErrOtherChange, ErrSecondCapture · TestReviewHeldToTheLine · TestReviewHeldToTheInvoice · TestHandleOwnChangesOnly · TestReviewHeldToTheChange · ADR-0072 as built (hardening 2)",
+      "src": "review:batch76",
+      "c": []
      }
     ]
    },
@@ -10300,6 +10314,13 @@
       "t": "On foundation: rehearsals only, through API tools in a recorded session",
       "r": "internal/delivery/migrationagent · apitools",
       "src": "baseline",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "An agent creates and starts only rehearsals: the migration agent's guard held only the creation, so it could start a run that would stay loaded; it now starts only a rehearsal its session created, and the API refuses an agent a run that is not a rehearsal, created or started, whoever created it (403 identity.agent_not_allowed)",
+      "r": "delivery/migrationagent run.start · internal/integration runs.go rehearsalOnly (CreateRun, StartRun) · api/openapi.yaml createMigrationRun, startMigrationRun · TestAgentRehearsesOnly · TestAssessStartsOnlyItsRehearsals · ADR-0072 as built (hardening 2) · ADR-0010",
+      "src": "review:batch76",
       "c": []
      }
     ]

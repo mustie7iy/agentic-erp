@@ -148,7 +148,8 @@ func (cs checks) check(t *testing.T) {
 }
 
 // TestReviewToolsUnknown: a tool the contract does not have fails the
-// line's review rather than run the model without it.
+// line's review rather than run the model without it, and ends its
+// session.
 func TestReviewToolsUnknown(t *testing.T) {
 	f, api, _ := setup(t)
 	s := statement(t, f)
@@ -164,6 +165,11 @@ func TestReviewToolsUnknown(t *testing.T) {
 	}
 	if !strings.Contains(res.Errors[0], "noSuchOperation") {
 		t.Errorf("error: got %s, want the tool named", res.Errors[0])
+	}
+	// The session is ended rather than left running (review:batch76).
+	sessions, _ := f.Must(200, "GET", "/v1/agent-sessions?status=running", "", "")
+	if items := sessions["items"].([]any); len(items) != 0 {
+		t.Errorf("sessions running: got %v, want none", items)
 	}
 }
 
@@ -205,4 +211,40 @@ func TestReviewFailures(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestReviewHeldToTheLine: a proposal for another line or statement is
+// refused before the API, whatever a remittance text asks, and proposals
+// the model sends in one turn, which the runner executes concurrently,
+// each run whole (run with -race, review:batch76).
+func TestReviewHeldToTheLine(t *testing.T) {
+	f, api, _ := setup(t)
+	s := statement(t, f)
+	exclude := map[string]any{"exclude": true, "reason": "The bank's charge."}
+	elsewhere := func(field, value string) func(string) any {
+		return func(conversation string) any {
+			in := propose(map[string]any{"exclude": true, "reason": "Another line."})(conversation).(map[string]any)
+			in[field] = value
+			return in
+		}
+	}
+	model := llmtest.New(t,
+		llmtest.Together(llmtest.ToolFn("proposeBankStatementLine", propose(exclude)),
+			llmtest.ToolFn("proposeBankStatementLine", elsewhere("line_no", "2")),
+			llmtest.ToolFn("proposeBankStatementLine", elsewhere("id", uuid.NewString()))),
+		llmtest.Final("Proposed excluding the line."))
+	res, err := (&reconagent.Agent{LLM: model.Runner(), API: api, MaxLines: 1}).Review(context.Background(), s)
+	if err != nil {
+		t.Fatalf("review: %v", err)
+	}
+	ms, _ := f.Must(200, "GET", "/v1/bank-statements/"+s+"/matches", "", "")
+	items := ms["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("matches: got %v, want line 1's proposal alone", items)
+	}
+	checks{
+		"proposals":              {res.Proposals, 1},
+		"the line proposed for":  {fmt.Sprint(items[0].(map[string]any)["line_no"]), "1"},
+		"the refusals the model": {strings.Count(model.Requests[1], reconagent.ErrOtherLine.Error()), 2},
+	}.check(t)
 }

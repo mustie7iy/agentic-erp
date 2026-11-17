@@ -445,3 +445,26 @@ func TestEach(t *testing.T) {
 		t.Errorf("pages read: got %d, want 2", pages)
 	}
 }
+
+// TestSessionTools: a session's tools record into it; one the contract
+// does not have fails, named, and ends the session rather than leave it
+// running (review:batch76).
+func TestSessionTools(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	s, err := apitools.StartSession(ctx, e.agent, "Read connectors", "m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools, err := s.Tools(ctx, "listConnectors")
+	if err != nil || len(tools) != 1 || tools[0].Name() != "listConnectors" {
+		t.Fatalf("tools: got %v %v, want listConnectors", tools, err)
+	}
+	if _, err := s.Tools(ctx, "listConnectors", "noSuchOperation"); err == nil || !strings.Contains(err.Error(), "noSuchOperation") {
+		t.Errorf("an operation not in the contract: got %v, want it named", err)
+	}
+	got, _ := e.api.Must(200, "GET", "/v1/agent-sessions/"+s.ID, "", "")
+	if got["status"] != "failed" {
+		t.Errorf("the session: got %v, want failed", got["status"])
+	}
+}

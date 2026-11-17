@@ -133,7 +133,10 @@ func (a *Agent) Ask(ctx context.Context, question string) (Result, error) {
 		return Result{}, err
 	}
 	res := Result{Session: s.ID}
-	tools, _ := apitools.Tools(a.API, s, Reads...) // reads of the contract open to agents (TestTools)
+	tools, err := s.Tools(ctx, Reads...)
+	if err != nil {
+		return res, err
+	}
 	r := &replying{res: &res, question: question, active: config.Readable(v.Document)}
 	tools = append(tools, apitools.Contract(s), r.tool(s))
 	var mu sync.Mutex

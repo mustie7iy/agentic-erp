@@ -181,10 +181,9 @@ func (a *Agent) Explain(ctx context.Context, reg, periodStart string) (Result, e
 		return Result{}, err
 	}
 	res := Result{Session: s.ID}
-	tools, err := apitools.Tools(a.API, s, Tools...)
+	tools, err := s.Tools(ctx, Tools...)
 	if err != nil {
-		// The session is ended rather than left running: nothing was asked.
-		return res, errors.Join(err, s.End(ctx, "failed", anthropic.BetaUsage{}))
+		return res, err
 	}
 	newRun(&res, s.ID, r, d).hold(tools)
 	prompt := fmt.Sprintf("The draft %s of tax registration %s (id %s, company %s, legal entity %s) for the period %s to %s.\nYour session id is %s.",

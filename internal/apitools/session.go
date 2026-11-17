@@ -2,6 +2,7 @@ package apitools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -63,6 +64,18 @@ func (s *Session) End(ctx context.Context, status string, usage anthropic.BetaUs
 		return fmt.Errorf("apitools: end session: %w", err)
 	}
 	return nil
+}
+
+// Tools builds the tools of the named operations, calling the API with
+// the session's client and recording into the session. When one cannot be
+// built (an operation the contract does not have) the session is ended,
+// failed, rather than left running: nothing was asked.
+func (s *Session) Tools(ctx context.Context, operationIDs ...string) ([]*Tool, error) {
+	tools, err := Tools(s.client, s, operationIDs...)
+	if err != nil {
+		return nil, errors.Join(err, s.End(ctx, "failed", anthropic.BetaUsage{}))
+	}
+	return tools, nil
 }
 
 // SessionHeader names the session a model call belongs to, for the cell's

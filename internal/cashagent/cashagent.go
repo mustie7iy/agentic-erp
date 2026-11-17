@@ -27,6 +27,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"sync"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 
@@ -157,19 +158,23 @@ func (a *Agent) Explain(ctx context.Context, p Period) (Result, error) {
 		return Result{}, err
 	}
 	res := Result{Session: s.ID}
-	tools, err := apitools.Tools(a.API, s, Tools...)
+	tools, err := s.Tools(ctx, Tools...)
 	if err != nil {
-		// The session is ended rather than left running: nothing was asked.
-		return res, errors.Join(err, s.End(ctx, "failed", anthropic.BetaUsage{}))
+		return res, err
 	}
+	// The runner executes one turn's tool calls concurrently, and the
+	// guards and observers share the result: each call runs whole under mu.
+	var mu sync.Mutex
 	for _, t := range tools {
 		switch t.Name() {
 		case "proposeForecastVarianceComment":
 			t.Guard(res.guard(func(in map[string]any) bool { return sameVariance(in, le, p) }))
 			t.Observe(res.record(&res.Comments))
+			t.Exclusive(&mu)
 		case "proposeMemoRecord":
 			t.Guard(res.guard(func(in map[string]any) bool { return sameCompany(in, le) }))
 			t.Observe(res.record(&res.Memos))
+			t.Exclusive(&mu)
 		}
 	}
 	prompt := fmt.Sprintf("The forecast variance of company %s (legal entity %s) from %s to %s at lag %d.\nYour session id is %s.",
