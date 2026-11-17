@@ -64,7 +64,7 @@ var Kinds = []string{"approve", "reject", "needs_evidence"}
 var (
 	// ErrOtherChange refuses a recommendation that is not the run's one on
 	// its change request: another session, object or kind, or a second.
-	ErrOtherChange = errors.New("testagent: a recommendation is this run's one on its change request (session, object_type change_request, its id, a kind of approve, reject or needs_evidence)")
+	ErrOtherChange = errors.New("testagent: a recommendation is this run's one on its change request (session, object_type change_request, its id, one of Kinds)")
 	// ErrSecondCapture refuses a second capture in a run: one suite is
 	// what the change's simulation replays.
 	ErrSecondCapture = errors.New("testagent: a run captures at most one regression suite")

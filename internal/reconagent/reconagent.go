@@ -187,11 +187,23 @@ type lineRun struct {
 // guard refuses a proposal for another statement, line or session.
 func (l *lineRun) guard(in map[string]any) error {
 	b, _ := in["body"].(map[string]any) // no body: refused below, as the API would
-	if !strings.EqualFold(fmt.Sprint(in["id"]), l.statement) || fmt.Sprint(in["line_no"]) != strconv.Itoa(int(l.line)) ||
-		fmt.Sprint(b["session_id"]) != l.session {
+	if !strings.EqualFold(fmt.Sprint(in["id"]), l.statement) || !l.sameLine(in["line_no"]) || fmt.Sprint(b["session_id"]) != l.session {
 		return ErrOtherLine
 	}
 	return nil
+}
+
+// sameLine reports whether a line number as the model sent it, a JSON
+// number or its text, is the run's: compared as a number, since a large
+// one prints in exponent form.
+func (l *lineRun) sameLine(v any) bool {
+	switch n := v.(type) {
+	case float64:
+		return n == float64(l.line)
+	case string:
+		return n == strconv.Itoa(int(l.line))
+	}
+	return false
 }
 
 // observe keeps whether the API took the proposal.

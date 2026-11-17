@@ -221,7 +221,7 @@ func TestReviewHeldToTheLine(t *testing.T) {
 	f, api, _ := setup(t)
 	s := statement(t, f)
 	exclude := map[string]any{"exclude": true, "reason": "The bank's charge."}
-	elsewhere := func(field, value string) func(string) any {
+	elsewhere := func(field string, value any) func(string) any {
 		return func(conversation string) any {
 			in := propose(map[string]any{"exclude": true, "reason": "Another line."})(conversation).(map[string]any)
 			in[field] = value
@@ -231,6 +231,8 @@ func TestReviewHeldToTheLine(t *testing.T) {
 	model := llmtest.New(t,
 		llmtest.Together(llmtest.ToolFn("proposeBankStatementLine", propose(exclude)),
 			llmtest.ToolFn("proposeBankStatementLine", elsewhere("line_no", "2")),
+			llmtest.ToolFn("proposeBankStatementLine", elsewhere("line_no", 2)),
+			llmtest.ToolFn("proposeBankStatementLine", elsewhere("line_no", true)),
 			llmtest.ToolFn("proposeBankStatementLine", elsewhere("id", uuid.NewString()))),
 		llmtest.Final("Proposed excluding the line."))
 	res, err := (&reconagent.Agent{LLM: model.Runner(), API: api, MaxLines: 1}).Review(context.Background(), s)
@@ -245,6 +247,6 @@ func TestReviewHeldToTheLine(t *testing.T) {
 	checks{
 		"proposals":              {res.Proposals, 1},
 		"the line proposed for":  {fmt.Sprint(items[0].(map[string]any)["line_no"]), "1"},
-		"the refusals the model": {strings.Count(model.Requests[1], reconagent.ErrOtherLine.Error()), 2},
+		"the refusals the model": {strings.Count(model.Requests[1], reconagent.ErrOtherLine.Error()), 4},
 	}.check(t)
 }
