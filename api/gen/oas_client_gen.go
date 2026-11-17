@@ -626,7 +626,10 @@ type Invoker interface {
 	CloseDisputeCase(ctx context.Context, request *DisputeCaseClose, params CloseDisputeCaseParams) (CloseDisputeCaseRes, error)
 	// CloseFiscalPeriod invokes closeFiscalPeriod operation.
 	//
-	// Closes the period for postings. Requires status `open`.
+	// Closes the period for postings. Requires status `open`. Refused while a payment run of the company
+	// is being released, or stopped and waiting to be resumed, with payments dated in the period not
+	// posted yet (409 `ledger.payment_release_pending`, naming the runs): resume the release (`:release`)
+	// and let it finish first.
 	//
 	// POST /v1/fiscal-periods/{id}:close
 	CloseFiscalPeriod(ctx context.Context, params CloseFiscalPeriodParams) (CloseFiscalPeriodRes, error)
@@ -5870,7 +5873,9 @@ type Invoker interface {
 	//
 	// Locks the period for good: a locked period refuses postings, reversals and clearings dated in it, as
 	// a closed one does, and `:open` cannot reopen it; only an approved unlock request returns it to
-	// `closed`. Requires status `closed`, so the postings under way have finished. Human-only.
+	// `closed`. Requires status `closed`, so the postings under way have finished, and no payment run of
+	// the company being released, or stopped and waiting to be resumed, with payments dated in the period
+	// not posted yet (409 `ledger.payment_release_pending`). Human-only.
 	//
 	// POST /v1/fiscal-periods/{id}:lock
 	LockFiscalPeriod(ctx context.Context, params LockFiscalPeriodParams) (LockFiscalPeriodRes, error)
@@ -15236,7 +15241,10 @@ func (c *Client) sendCloseDisputeCase(ctx context.Context, request *DisputeCaseC
 
 // CloseFiscalPeriod invokes closeFiscalPeriod operation.
 //
-// Closes the period for postings. Requires status `open`.
+// Closes the period for postings. Requires status `open`. Refused while a payment run of the company
+// is being released, or stopped and waiting to be resumed, with payments dated in the period not
+// posted yet (409 `ledger.payment_release_pending`, naming the runs): resume the release (`:release`)
+// and let it finish first.
 //
 // POST /v1/fiscal-periods/{id}:close
 func (c *Client) CloseFiscalPeriod(ctx context.Context, params CloseFiscalPeriodParams) (CloseFiscalPeriodRes, error) {
@@ -88582,7 +88590,9 @@ func (c *Client) sendLockCostCenter(ctx context.Context, request *CostCenterLock
 //
 // Locks the period for good: a locked period refuses postings, reversals and clearings dated in it, as
 // a closed one does, and `:open` cannot reopen it; only an approved unlock request returns it to
-// `closed`. Requires status `closed`, so the postings under way have finished. Human-only.
+// `closed`. Requires status `closed`, so the postings under way have finished, and no payment run of
+// the company being released, or stopped and waiting to be resumed, with payments dated in the period
+// not posted yet (409 `ledger.payment_release_pending`). Human-only.
 //
 // POST /v1/fiscal-periods/{id}:lock
 func (c *Client) LockFiscalPeriod(ctx context.Context, params LockFiscalPeriodParams) (LockFiscalPeriodRes, error) {

@@ -331,7 +331,7 @@ func controllingEndpoints(cfg Config) *controlling.Endpoints {
 // taxFiling is the tax filing context as the API wires it.
 func taxFiling(cfg Config, library *countrypack.Library) *taxfiling.Endpoints {
 	return &taxfiling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now,
-		Items: ledger.TaxItems{}, Packs: library, Approvals: opener(), Periods: ledger.ReturnPeriods{}}
+		Items: ledger.TaxItems{}, Packs: library, Approvals: opener(), Periods: ledger.ReturnPeriods{Releases: payments.PeriodReleases{}}}
 }
 
 // loopbackOf is cfg's loopback, or a new one.
@@ -416,7 +416,7 @@ func Configuration(cfg Config) configuration.Dependencies {
 func Ledger(cfg Config) *ledger.Endpoints {
 	return &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, CostObjects: controlling.CostObjects{},
 		Numbers: configuration.Numbers{}, Orders: procurement.Orders{}, Approvals: opener(), Settings: configuration.Settings{}, TaxReturns: taxfiling.Holds{},
-		PartnerNames: LedgerPartners{}, Now: cfg.Now, People: identity.Actors{}, PersonNames: LedgerPeople{}}
+		PartnerNames: LedgerPartners{}, Now: cfg.Now, People: identity.Actors{}, PersonNames: LedgerPeople{}, Releases: payments.PeriodReleases{}}
 }
 
 // Payments is the payments context as the API wires it, for the proposal

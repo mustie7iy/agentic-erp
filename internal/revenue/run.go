@@ -263,13 +263,21 @@ func (e *Endpoints) activeContracts(ctx context.Context, tx pgx.Tx, le tenancy.E
 
 // posted is, per contract and obligation, what the runs so far posted
 // for the obligation: its recognized less billed at the contract's last
-// posting, which holds every obligation of the contract.
+// posting, which holds every obligation of the contract. The last posting
+// of each of the company's contracts is found once (DISTINCT ON, through
+// recognition_posting_by_contract), not once per obligation row; of two
+// runs posted on one date, the later created (ids are UUIDv7).
 func posted(ctx context.Context, tx pgx.Tx, le tenancy.Entity) (map[uuid.UUID]map[int32]money.Minor, error) {
-	rows, _ := tx.Query(ctx, `SELECT o.contract_id, o.obligation_no, o.recognized_amount - o.billed_amount
-		FROM revenue.recognition_posting_obligation o
-		WHERE o.run_id = (SELECT r.id FROM revenue.recognition_posting p JOIN revenue.recognition_run r ON r.tenant_id = p.tenant_id AND r.id = p.run_id
-				WHERE p.tenant_id = o.tenant_id AND p.contract_id = o.contract_id ORDER BY r.posting_date DESC LIMIT 1)
-			AND EXISTS (SELECT FROM revenue.contract k WHERE k.tenant_id = o.tenant_id AND k.id = o.contract_id AND k.legal_entity_id = $1)`, le.ID)
+	rows, _ := tx.Query(ctx, `WITH last AS (
+			SELECT DISTINCT ON (p.contract_id) p.tenant_id, p.contract_id, p.run_id
+			FROM revenue.contract k
+			JOIN revenue.recognition_posting p ON p.tenant_id = k.tenant_id AND p.contract_id = k.id
+			JOIN revenue.recognition_run r ON r.tenant_id = p.tenant_id AND r.id = p.run_id
+			WHERE k.legal_entity_id = $1
+			ORDER BY p.contract_id, r.posting_date DESC, r.id DESC)
+		SELECT o.contract_id, o.obligation_no, o.recognized_amount - o.billed_amount
+		FROM last JOIN revenue.recognition_posting_obligation o ON o.tenant_id = last.tenant_id AND o.run_id = last.run_id
+			AND o.contract_id = last.contract_id`, le.ID)
 	out := map[uuid.UUID]map[int32]money.Minor{}
 	var contract uuid.UUID
 	var no int32

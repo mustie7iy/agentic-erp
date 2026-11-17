@@ -1,7 +1,6 @@
 package payments
 
 import (
-	"context"
 	"testing"
 
 	"github.com/google/uuid"
@@ -27,21 +26,5 @@ func TestItemReason(t *testing.T) {
 				t.Errorf("got %s, want %s", got, c.want)
 			}
 		})
-	}
-}
-
-// TestResumedReleaseRechecksNothing: a releasing run being resumed is
-// not refused for its items or requests (dropPayment drops what cannot
-// post); the checks read nothing, which a context without ledger or
-// payables proves.
-func TestResumedReleaseRechecksNothing(t *testing.T) {
-	e := &Endpoints{}
-	r := Run{Status: Releasing}
-	pays := []Payment{{Kind: KindDownPayment, RequestID: new(uuid.UUID)}}
-	if err := e.recheckItems(context.Background(), r, pays); err != nil {
-		t.Errorf("recheckItems: got %v, want nil", err)
-	}
-	if err := e.recheckRequests(context.Background(), r, pays); err != nil {
-		t.Errorf("recheckRequests: got %v, want nil", err)
 	}
 }

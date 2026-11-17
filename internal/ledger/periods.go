@@ -89,24 +89,31 @@ func GetPeriod(ctx context.Context, id uuid.UUID) (Period, error) {
 // OpenPeriod opens a closed period for postings; a locked period stays
 // locked.
 func OpenPeriod(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (Period, error) {
-	return changePeriod(ctx, id, ifMatch, Closed, Open, "open", "period_opened")
+	return changePeriod(ctx, id, ifMatch, Closed, Open, "open", "period_opened", nil)
 }
 
-// ClosePeriod closes an open period for postings.
-func ClosePeriod(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (Period, error) {
-	return changePeriod(ctx, id, ifMatch, Open, Closed, "close", "period_closed")
+// ClosePeriod closes an open period for postings, refused while a payment
+// run of its company is releasing with payments dated in it not posted
+// yet (noRelease).
+func ClosePeriod(ctx context.Context, releases PaymentReleases, id uuid.UUID, ifMatch func(int32) error) (Period, error) {
+	return changePeriod(ctx, id, ifMatch, Open, Closed, "close", "period_closed", func(p Period) error { return noRelease(ctx, releases, p, Closed) })
 }
 
 // LockPeriod locks a closed period for good: it refuses postings as a
 // closed period does, and OpenPeriod does not reopen it. Locking a closed
 // period, not an open one, means the postings under way have finished
 // (ClosePeriod waited for them); the database refuses any other way in or
-// out of locked (000050).
-func LockPeriod(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (Period, error) {
-	return changePeriod(ctx, id, ifMatch, Closed, Locked, "lock", "period_locked")
+// out of locked (000050). A period closed while a release started, before
+// its first payment found it closed, is not locked until that release has
+// gone back to proposed (noRelease).
+func LockPeriod(ctx context.Context, releases PaymentReleases, id uuid.UUID, ifMatch func(int32) error) (Period, error) {
+	return changePeriod(ctx, id, ifMatch, Closed, Locked, "lock", "period_locked", func(p Period) error { return noRelease(ctx, releases, p, Locked) })
 }
 
-func changePeriod(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, from, to, action, event string) (Period, error) {
+// changePeriod moves period id from status from to status to, once
+// allowed, when not nil, lets it: a close's or a lock's check that no
+// payment release still posts in the period (noRelease).
+func changePeriod(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, from, to, action, event string, allowed func(Period) error) (Period, error) {
 	tx, actor, err := reqctx.Request(ctx)
 	if err != nil {
 		return Period{}, err
@@ -120,6 +127,11 @@ func changePeriod(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, 
 	}
 	if p.Status != from {
 		return Period{}, problem.Conflict("ledger.invalid_period_status", "The period is "+p.Status+"; this requires status "+from+".")
+	}
+	if allowed != nil {
+		if err := allowed(p); err != nil {
+			return Period{}, err
+		}
 	}
 	if _, err := tx.Exec(ctx, `UPDATE ledger.period_status SET status = $2, version = version + 1, updated_by = $3 WHERE id = $1`, id, to, actor.ID); err != nil {
 		return Period{}, fmt.Errorf("ledger: %s fiscal period %s: %w", action, id, err)

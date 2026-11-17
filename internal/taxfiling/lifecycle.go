@@ -176,7 +176,9 @@ func readReturn(ctx context.Context, tx pgx.Tx, id uuid.UUID, access *authz.Acce
 }
 
 // visibleFrom is the visible condition with its two parameters numbered
-// from n.
+// from n. Sprintf writes only the placeholders' numbers, integers this
+// code chooses, never a value: the values (all companies, the company
+// ids) are bound as the parameters themselves.
 func visibleFrom(n int) string {
 	return fmt.Sprintf(`($%d OR legal_entity_id = ANY($%d) OR group_member_ids && $%d::uuid[])`, n, n+1, n+1)
 }

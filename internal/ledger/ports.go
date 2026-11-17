@@ -233,6 +233,15 @@ type storedTerms struct {
 	pct1, pct2   *string
 }
 
+// scanWithTerms scans row into dest, then the terms columns that follow
+// them (termsColumns) and, after those, into rest; it returns the item's
+// terms, nil for none. what names the item in the error.
+func scanWithTerms(row pgx.Row, what string, dest []any, rest ...any) (*ItemTerms, error) {
+	var t storedTerms
+	err := errs.Wrapf(row.Scan(append(append(dest, t.fields()...), rest...)...), what)
+	return t.terms(), err
+}
+
 func (s *storedTerms) fields() []any {
 	return []any{&s.code, &s.baseline, &s.netDays, &s.days1, &s.pct1, &s.days2, &s.pct2}
 }

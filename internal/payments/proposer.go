@@ -15,8 +15,9 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 )
 
-// Proposer builds the proposals that payment-runs:propose queues (ADR-0012
-// until Temporal arrives): a round finds the tenants with jobs, then does
+// Proposer builds the proposals that payment-runs:propose queues in a cell
+// without a workflow engine (ADR-0012; with Temporal, the proposal
+// workflow builds them): a round finds the tenants with jobs, then does
 // each job in one transaction of its tenant, as the principal that proposed
 // it. A job that fails for a reason other than a problem stays queued and
 // is retried; claimed jobs are skipped by other replicas.

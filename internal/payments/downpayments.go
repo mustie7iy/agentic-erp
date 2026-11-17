@@ -233,29 +233,33 @@ func (e *Endpoints) inputRate(ctx context.Context, legalEntity uuid.UUID, code s
 // payments.proposal_outdated): nothing is posted yet, so the run is
 // rejected and proposed again, which leaves the request out.
 func (e *Endpoints) recheckRequests(ctx context.Context, r Run, pays []Payment) error {
-	if r.Status != Proposed {
-		return nil
-	}
-	var requests []DownPayment
 	for _, p := range pays {
 		if p.Kind != KindDownPayment {
 			continue
 		}
-		d, err := e.DownPayments.Request(ctx, *p.RequestID)
+		d, check, err := e.requestTax(ctx, r, p)
 		if err != nil {
 			return err
 		}
-		requests = append(requests, d)
-	}
-	for _, d := range requests {
-		check, ok, err := e.checkTax(ctx, r, d)
-		if err != nil {
-			return err
-		}
-		if !ok {
+		if check.code != nil {
 			return problem.Conflict("payments.proposal_outdated", "Down payment request "+d.DocumentNumber+" has tax code "+*d.TaxCode+" ("+check.rates()+
 				"), whose tax can no longer be paid on the run date; reject the run, and propose again, which leaves the request out.")
 		}
 	}
 	return nil
+}
+
+// requestTax is the request a down payment's payment p pays and why its
+// tax cannot be paid on the run date (checkTax): check.code is nil when
+// it can.
+func (e *Endpoints) requestTax(ctx context.Context, r Run, p Payment) (DownPayment, taxCheck, error) {
+	d, err := e.DownPayments.Request(ctx, *p.RequestID)
+	if err != nil {
+		return DownPayment{}, taxCheck{}, err
+	}
+	check, ok, err := e.checkTax(ctx, r, d)
+	if err != nil || ok {
+		return d, taxCheck{}, err
+	}
+	return d, check, nil
 }

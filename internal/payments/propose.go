@@ -32,7 +32,7 @@ const (
 	BankChangeHold    = "bank_change_hold"
 	// BankAccountChanged: the supplier's bank account in force on the run
 	// date is not the one its payment was proposed to (a resumed release
-	// drops the payment, dropUnpaidSuppliers).
+	// drops the payment, dropUnpayable).
 	BankAccountChanged = "bank_account_changed"
 	DebitBalance       = "debit_balance"
 	// A release drops a payment whose item was reversed, or is no longer
@@ -41,7 +41,8 @@ const (
 	ItemNotOpen  = "item_not_open"
 	// TaxCodeInvalid leaves out a down payment request whose input tax
 	// code is not valid on the run date (T46c); the supplier's items may
-	// still be paid.
+	// still be paid. A resumed release drops such a request's payment
+	// (dropUnpayable).
 	TaxCodeInvalid = "tax_code_invalid"
 	// NoHouseBank leaves out, in a run proposed without a house bank, a
 	// supplier's items or request when none of its payment methods has a

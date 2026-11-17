@@ -11,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -157,7 +158,7 @@ func TestMigratedClearingAndSignOffLockInOneOrder(t *testing.T) {
 			holder, release := holdShare(t, held)
 			signPID, signed := apitest.Started(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 				for _, code := range fixture.LockOrder {
-					if _, err := ledger.LockPeriod(ctx, periods[code], func(int32) error { return nil }); err != nil {
+					if _, err := ledger.LockPeriod(ctx, payments.PeriodReleases{}, periods[code], func(int32) error { return nil }); err != nil {
 						return err
 					}
 				}
