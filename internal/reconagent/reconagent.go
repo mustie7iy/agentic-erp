@@ -14,6 +14,7 @@ package reconagent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -194,16 +195,12 @@ func (l *lineRun) guard(in map[string]any) error {
 }
 
 // sameLine reports whether a line number as the model sent it, a JSON
-// number or its text, is the run's: compared as a number, since a large
-// one prints in exponent form.
+// number or its text, is the run's: written back as JSON, since a large
+// number prints in exponent form and JSON writes it whole.
 func (l *lineRun) sameLine(v any) bool {
-	switch n := v.(type) {
-	case float64:
-		return n == float64(l.line)
-	case string:
-		return n == strconv.Itoa(int(l.line))
-	}
-	return false
+	b, _ := json.Marshal(v) // a value decoded from JSON encodes again
+	want := strconv.Itoa(int(l.line))
+	return string(b) == want || string(b) == strconv.Quote(want)
 }
 
 // observe keeps whether the API took the proposal.
