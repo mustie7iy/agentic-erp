@@ -40597,7 +40597,9 @@ type DunningNotice struct {
 	// The sum of the items' `local_amount`, in the company's currency.
 	OverdueAmount Money `json:"overdue_amount"`
 	// The dunning charge of the notice's level (`companies[].dunning.levels[].charge`, T76d), in the
-	// company's currency; 0 when the level charges none.
+	// company's currency; 0 when the level charges none. A level above the configured ones (kept from a
+	// confirmed run after the company dropped levels) takes the highest configured level's charge and
+	// interest.
 	ChargeAmount Money `json:"charge_amount"`
 	// The sum of the items' `interest_amount`, in the company's currency (T76d).
 	InterestAmount Money `json:"interest_amount"`
@@ -40764,7 +40766,8 @@ type DunningNoticeItem struct {
 	Level int32 `json:"level"`
 	// The interest on the item at `level`, in the company's currency (T76d): when the level charges
 	// interest (`companies[].dunning.levels[].interest`), `local_amount` × the run's
-	// `interest_rate_percent` ÷ 100 × `days_overdue` ÷ 365, rounded half away from zero; 0 otherwise.
+	// `interest_rate_percent` ÷ 100 × `days_overdue` ÷ 365, rounded half away from zero; 0 otherwise. A
+	// level above the configured ones takes the highest configured level's rule.
 	InterestAmount Money `json:"interest_amount"`
 }
 

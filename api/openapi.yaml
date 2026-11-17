@@ -55471,7 +55471,7 @@ components:
         local_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, as it was booked."}
         previous_level: {type: integer, format: int32, minimum: 0, maximum: 9, description: "The dunning level the item was last dunned at when the run was started, the highest a confirmed run recorded for it; 0 for an item never dunned.", readOnly: true}
         level: {type: integer, format: int32, minimum: 1, maximum: 9, description: "The dunning level the item would reach: the last level whose days overdue it has reached, one above `previous_level` at most.", readOnly: true}
-        interest_amount: {$ref: "#/components/schemas/Money", description: "The interest on the item at `level`, in the company's currency (T76d): when the level charges interest (`companies[].dunning.levels[].interest`), `local_amount` × the run's `interest_rate_percent` ÷ 100 × `days_overdue` ÷ 365, rounded half away from zero; 0 otherwise."}
+        interest_amount: {$ref: "#/components/schemas/Money", description: "The interest on the item at `level`, in the company's currency (T76d): when the level charges interest (`companies[].dunning.levels[].interest`), `local_amount` × the run's `interest_rate_percent` ÷ 100 × `days_overdue` ÷ 365, rounded half away from zero; 0 otherwise. A level above the configured ones takes the highest configured level's rule."}
     DunningNotice:
       type: object
       description: "A dunning notice (collections, ADR-0065 §3): what a dunning run proposes for one customer."
@@ -55485,7 +55485,7 @@ components:
         level: {type: integer, format: int32, minimum: 1, maximum: 9, description: "The notice's dunning level: the highest among its items.", readOnly: true}
         item_count: {type: integer, format: int32, minimum: 1, description: "The notice's items.", readOnly: true}
         overdue_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' `local_amount`, in the company's currency."}
-        charge_amount: {$ref: "#/components/schemas/Money", description: "The dunning charge of the notice's level (`companies[].dunning.levels[].charge`, T76d), in the company's currency; 0 when the level charges none."}
+        charge_amount: {$ref: "#/components/schemas/Money", description: "The dunning charge of the notice's level (`companies[].dunning.levels[].charge`, T76d), in the company's currency; 0 when the level charges none. A level above the configured ones (kept from a confirmed run after the company dropped levels) takes the highest configured level's charge and interest."}
         interest_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' `interest_amount`, in the company's currency (T76d)."}
         total_amount: {$ref: "#/components/schemas/Money", description: "What the notice asks the customer for: `overdue_amount`, `charge_amount` and `interest_amount` together. Nothing is posted."}
         items:
