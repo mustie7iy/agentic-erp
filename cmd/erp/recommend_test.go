@@ -42,6 +42,7 @@ func TestAgentCreditScore(t *testing.T) {
 	fails(t, "want -company CODE -customer ID", "agent", "credit-score", "-customer", "c1")
 	fails(t, "404", "agent", "credit-score", "-company", "3000", "-customer", "c1")
 	scored := sessionRoutes(routes{"GET /v1/legal-entities": {ok(`{"items": [{"id": "le", "code": "3000"}]}`)},
+		"GET /v1/legal-entities/le/today": {ok(`{"legal_entity_id": "le", "date": "2026-11-17", "time_zone": "America/Toronto"}`)},
 		"GET /v1/credit-exposure": {ok(`{"company_code": "3000", "customer_id": "c1", "customer_number": "100042", "currency": "CAD", "has_limit": true,
 			"credit_limit_id": "l1", "limit": {"amount": "2470.00", "currency": "CAD"}}`)},
 		"POST /v1/recommendations": {reply{201, `{"id": "r1", "object_type": "credit_limit", "object_id": "l1", "kind": "keep_limit"}`}}})

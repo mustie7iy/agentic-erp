@@ -82,23 +82,23 @@ var webForbidden = []string{"platform/uow", "platform/outbox", "platform/audit",
 // makes today, by importing unit. A new one fails TestImportRules; one that
 // is no longer made fails it too, so the list stays exact.
 var allowed = map[string][]string{
-	"accessagent":             {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration, what it reads before its session and its check
-	"agent":                   {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072 As built, hardening 2): its declaration
-	"bidagent":                {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration and its check
-	"integrationagent":        {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its survey and its check
-	"controlagent":            {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration, the matrix it reads before its session and its check
-	"riskagent":               {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration, the register it reads before its session and its check
-	"planningagent":           {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration, what it reads before its session and its check
-	"analytics":               {"apitools", "config", "configuration"},
+	"accessagent":             {"apitools", "llm", "recommend"},               // a recommending agent (ADR-0072): its declaration, what it reads before its session and its check
+	"agent":                   {"apitools", "llm", "recommend"},               // a recommending agent (ADR-0072 As built, hardening 2): its declaration
+	"bidagent":                {"apitools", "llm", "recommend"},               // a recommending agent (ADR-0072): its declaration and its check
+	"integrationagent":        {"apitools", "llm", "recommend"},               // a recommending agent (ADR-0072): its survey and its check
+	"controlagent":            {"apitools", "llm", "recommend"},               // a recommending agent (ADR-0072): its declaration, the matrix it reads before its session and its check
+	"riskagent":               {"apitools", "llm", "recommend"},               // a recommending agent (ADR-0072): its declaration, the register it reads before its session and its check
+	"planningagent":           {"apitools", "llm", "recommend"},               // a recommending agent (ADR-0072): its declaration, what it reads before its session and its check
+	"analytics":               {"apitools", "config", "configuration", "llm"}, // llm: its runner of in-process tools (Runner.Params, RunTools; ADR-0072 As built, hardening 3)
 	"apitools":                {"llm"},
 	"app":                     {"countrypack"}, // apitest releases a test's own country packs
 	"approvals":               {"config"},
 	"assets":                  {"config"},                                       // a leaf (ADR-0057 §2): configuration and tenancy through ports the composition root wires
 	"audit":                   {"approvals", "ledger", "operations", "tenancy"}, // evidence exports (T101a): tenancy's legal entities, the ledger's journal and the approval requests on its entries' source documents through its ports, by the types their published APIs give
 	"capture":                 {"llm"},
-	"cash":                    {"config"},                          // a leaf (ADR-0051 §2): the ledger, payments, payables and procurement through ports the composition root wires
-	"changedraft":             {"apitools", "config", "recommend"}, // a configuration change request drafted by a recommending agent (ADR-0072 As built, T107b, T108c), shared by the agents that draft
-	"closeagent":              {"apitools", "llm"},
+	"cash":                    {"config"},                                 // a leaf (ADR-0051 §2): the ledger, payments, payables and procurement through ports the composition root wires
+	"changedraft":             {"apitools", "config", "recommend"},        // a configuration change request drafted by a recommending agent (ADR-0072 As built, T107b, T108c), shared by the agents that draft
+	"closeagent":              {"apitools", "llm", "recommend"},           // recommend: its default bound on model requests (Iterations; ADR-0072 As built, hardening 3)
 	"closing":                 {"config"},                                 // a leaf (ADR-0058 §2): configuration, tenancy, the ledger and controlling through ports the composition root wires
 	"collections":             {"config", "ledger", "partner", "tenancy"}, // a leaf (ADR-0065 §1): the ledger's customer open items, partners' names, tenancy and configuration through its ports, by the types their published APIs give
 	"config":                  {"bankfile"},
@@ -111,7 +111,7 @@ var allowed = map[string][]string{
 	"creditagent":             {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration and its check
 	"controlplane":            {"agents", "audit", "config", "directory", "identity", "offboarding", "provisioning", "tenancy"},
 	"delivery/configagent":    {"apitools", "llm"},
-	"delivery/migrationagent": {"apitools", "llm"},
+	"delivery/migrationagent": {"apitools", "llm", "recommend"}, // recommend: its default bound on model requests (Iterations; ADR-0072 As built, hardening 3)
 	"delivery/sapconfig":      {"config", "sap"},
 	"delivery/testagent":      {"apitools", "llm"},
 	"directory":               {"tenancy"},
@@ -137,12 +137,12 @@ var allowed = map[string][]string{
 	"reconagent":              {"apitools", "llm"},
 	"recommend":               {"apitools", "llm"},                                       // the recommending agents' one pattern (ADR-0072): every such agent imports it, and it no agent
 	"regulatoryagent":         {"apitools", "changedraft", "config", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration and its check; config: the paths it names, as config.Diff names them; changedraft: the change it drafts (T107b)
-	"cashagent":               {"apitools", "llm"},
+	"cashagent":               {"apitools", "llm", "recommend"},                          // recommend: its default bound on model requests (Iterations; ADR-0072 As built, hardening 3)
 	"router":                  {"directory"},
 	"savingsagent":            {"apitools", "llm", "recommend"},                          // a recommending agent (ADR-0072): its declaration, the opportunities it finds before its session and its check
 	"enablementagent":         {"apitools", "config", "llm", "recommend"},                // a recommending agent (ADR-0072 As built, T109a) and its help (T109b): config, the settings it cites; recommend, its quotations and numbers
 	"supportagent":            {"apitools", "changedraft", "config", "llm", "recommend"}, // the support agent (ADR-0072 As built, T108a): a reply only, not the pattern's run; config: the settings it cites; recommend: its numbers (Numbers); changedraft: the fix it drafts (T108c)
-	"taxagent":                {"apitools", "llm"},
+	"taxagent":                {"apitools", "llm", "recommend"},                          // recommend: its default bound on model requests (Iterations; ADR-0072 As built, hardening 3)
 	// Registrations from the configuration, companies from the directory
 	// (ADR-0049 §10); returns from the ledger's tax items through
 	// ledger.TaxItems and the country packs' returns.yaml (§11, T61h);
