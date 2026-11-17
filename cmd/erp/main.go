@@ -47,6 +47,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
+	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
@@ -442,13 +443,22 @@ func configCmd(ctx context.Context, args []string) error {
 	return fmt.Errorf("unknown config command %q", args[0])
 }
 
+// newSAPClient makes the OData client; tests make it fail.
+var newSAPClient = func() (*egress.Client, error) { return sap.NewClient() }
+
 func parseSource(s string) (sap.Source, error) {
 	kind, target, ok := strings.Cut(s, ":")
 	switch {
 	case ok && kind == "file":
 		return sap.FileSource{Path: target}, nil
 	case ok && kind == "odata":
-		return &sap.ODataSource{BaseURL: target, User: getenv("SAP_USER"), Password: getenv("SAP_PASSWORD"), Client: getenv("SAP_CLIENT")}, nil
+		// The same egress client the server reads tenants' systems through (ADR-0041 as built):
+		// https to public addresses, each page bounded; a system on a private network is read from an extract file.
+		client, err := newSAPClient()
+		if err != nil {
+			return nil, fmt.Errorf("erp: %w", err)
+		}
+		return &sap.ODataSource{BaseURL: target, User: getenv("SAP_USER"), Password: getenv("SAP_PASSWORD"), Client: getenv("SAP_CLIENT"), HTTP: client}, nil
 	}
 	return nil, fmt.Errorf("invalid -source %q: want file:PATH or odata:URL", s)
 }

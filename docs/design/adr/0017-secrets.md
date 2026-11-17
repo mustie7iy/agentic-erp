@@ -45,9 +45,12 @@ to an address the tenant chose. The product owner decided on 16 Nov 2026:
   environment and files, so they are refused for tenants; they stay for
   the server's settings, which only the operator sets. Path segments and
   the field are letters, digits, `.`, `_` and `-`, never `.` or `..`, so
-  no reading of the path (Vault's, a proxy's, a URL decoder's) leaves the
-  prefix; the deployment's Vault policy grants the server that prefix per
-  tenant.
+  no reading of the path (Vault's, a proxy's, a URL decoder's) leaves
+  `tenants/<tenant_id>/`. The check is the guard, not Vault: the server
+  reads with one token, so a tenant may name any mount that token reads,
+  but only its own namespace under it; a deployment keeps tenants' secrets
+  in a mount of their own and grants the token nothing else under
+  `tenants/`.
 - **Refused when written and when used.** Creating or changing a
   connector with another reference answers 422
   `integration.invalid_secret_ref` (field `secret_ref`); a reference

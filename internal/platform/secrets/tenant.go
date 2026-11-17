@@ -22,10 +22,12 @@ const TenantNamespace = "tenants"
 // TenantRef checks that ref, given by a tenant, names a secret under that
 // tenant's namespace, vault:<mount>/tenants/<tenant_id>/<path>#<field>. An
 // env: or file: reference is refused, as is any other vault path: the
-// replica's environment and files are the server's, and the vault
-// policy grants per tenant only by that prefix. The segments are held to
-// letters, digits, '.', '_' and '-', never "." or "..", so no reading of
-// the path (Vault's, a proxy's, a URL decoder's) can leave the prefix.
+// replica's environment and files are the server's. This check is the
+// guard, not Vault: the server reads with one token, so the mount the
+// tenant names may be any its token reads, but only the tenant's own
+// tenants/<tenant_id>/ under it. The segments are held to letters,
+// digits, '.', '_' and '-', never "." or "..", so no reading of the path
+// (Vault's, a proxy's, a URL decoder's) can leave that prefix.
 func TenantRef(ref string, tenant uuid.UUID) error {
 	rest, ok := strings.CutPrefix(ref, SchemeVault+":")
 	if !ok {

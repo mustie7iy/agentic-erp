@@ -356,7 +356,10 @@ same rule to SFTP:
   client answers 503. Decided by default: the URL's host is not resolved
   when written (webhooks do it): the connector is used by runs, which
   refuse it at once on the address dialled, and a write-time lookup would
-  add DNS to every connector change.
+  add DNS to every connector change. The operator CLI's `erp config
+  generate -source odata:URL` reads through the same client (decided by
+  default as the safer posture); a system on a private network is read
+  from an extract file.
 - **SFTP channels** (`bank_sftp`, `treasury_export`): the SFTP server is
   the tenant's, so `sftpclient.Endpoint` dials only through a control,
   `egress.DialControl`: public addresses only, and an endpoint without a
