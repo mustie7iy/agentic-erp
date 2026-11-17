@@ -120,7 +120,7 @@ func TestAnswers(t *testing.T) {
 	if !strings.HasSuffix(got, "ask for a smaller page)") {
 		t.Errorf("truncated answer: got ...%s, want it to end asking for a smaller page", got[max(0, len(got)-40):])
 	}
-	body = `["` + strings.Repeat("é", maxResult) + `"]` // two bytes each: the cut falls inside one unless moved
+	body = `["x` + strings.Repeat("é", maxResult) + `"]` // two bytes each after an odd prefix: the cut falls inside one unless moved
 	if got := result(t); !utf8.ValidString(got) {
 		t.Errorf("truncated answer: got invalid UTF-8 at the cut ...%q", got[max(0, len(got)-48):])
 	}

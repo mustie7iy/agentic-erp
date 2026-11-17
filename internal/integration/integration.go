@@ -36,7 +36,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
-	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
@@ -161,12 +160,8 @@ type Secrets interface {
 // file: reference, or another tenant's path, would hand a tenant the
 // server's or another tenant's credentials. A reference stored before the
 // rule is refused here, on use.
-func tenantSecret(ctx context.Context, r Secrets, ref string) (string, error) {
-	_, p, err := reqctx.Request(ctx)
-	if err != nil {
-		return "", err
-	}
-	v, err := secrets.ResolveTenant(ctx, r, p.TenantID, ref)
+func tenantSecret(ctx context.Context, r Secrets, tenant uuid.UUID, ref string) (string, error) {
+	v, err := secrets.ResolveTenant(ctx, r, tenant, ref)
 	if err != nil {
 		return "", fmt.Errorf("integration: secret_ref %s: %w", ref, err)
 	}

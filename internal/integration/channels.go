@@ -70,7 +70,7 @@ type sftpChannel struct {
 // server is the tenant's, so it is dialled to public addresses only, the
 // stand-in apart (product owner 2026-11-16, ADR-0041 As built).
 func resolve(ctx context.Context, keys secrets.Resolver, control func(string, string, syscall.RawConn) error, id uuid.UUID, k sftpChannel) (sftpclient.Endpoint, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return sftpclient.Endpoint{}, err
 	}
@@ -94,7 +94,7 @@ func resolve(ctx context.Context, keys secrets.Resolver, control func(string, st
 	if ep.Control = control; control == nil {
 		ep.Control = egress.RefusePrivate
 	}
-	if ep.Signer, err = signer(ctx, keys, k.noun, *c.SecretRef); err != nil {
+	if ep.Signer, err = signer(ctx, keys, p.TenantID, k.noun, *c.SecretRef); err != nil {
 		return sftpclient.Endpoint{}, err
 	}
 	return ep, nil
@@ -110,8 +110,8 @@ func notChannel(k sftpChannel, c Connector) error {
 }
 
 // signer resolves the channel's private key.
-func signer(ctx context.Context, keys Secrets, noun, ref string) (ssh.Signer, error) {
-	key, err := tenantSecret(ctx, keys, ref)
+func signer(ctx context.Context, keys Secrets, tenant uuid.UUID, noun, ref string) (ssh.Signer, error) {
+	key, err := tenantSecret(ctx, keys, tenant, ref)
 	if err != nil {
 		return nil, problem.Unprocessable("integration.secret_unavailable", "The "+noun+"'s private key ("+ref+") cannot be resolved.").WithCause(err)
 	}

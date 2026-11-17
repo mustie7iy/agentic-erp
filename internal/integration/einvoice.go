@@ -144,7 +144,7 @@ type EInvoiceConnector struct {
 // credentials are resolved on each use, so a rotated secret takes effect
 // without a restart.
 func (p EInvoiceProviders) Provider(ctx context.Context, id uuid.UUID) (EInvoiceConnector, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, principal, err := reqctx.Request(ctx)
 	if err != nil {
 		return EInvoiceConnector{}, err
 	}
@@ -169,7 +169,7 @@ func (p EInvoiceProviders) Provider(ctx context.Context, id uuid.UUID) (EInvoice
 	if p.RefuseStandIn && s.Adapter == StandInAdapter {
 		return EInvoiceConnector{}, standInRefused()
 	}
-	secret, err := tenantSecret(ctx, p.Secrets, *c.SecretRef)
+	secret, err := tenantSecret(ctx, p.Secrets, principal.TenantID, *c.SecretRef)
 	if err != nil {
 		return EInvoiceConnector{}, problem.Unprocessable("integration.secret_unavailable",
 			"The e-invoicing provider's credentials ("+*c.SecretRef+") cannot be resolved.").WithCause(err)

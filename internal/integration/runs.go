@@ -178,7 +178,7 @@ func system(c Connector) string {
 // source is the SAP reader a connector describes. Its settings were
 // checked when they were saved and are checked again here: stored settings
 // may predate a rule, and a run must answer 422, not panic, on them.
-func (e *Endpoints) source(ctx context.Context, c Connector) (sap.Source, error) {
+func (e *Endpoints) source(ctx context.Context, tenant uuid.UUID, c Connector) (sap.Source, error) {
 	if err := checkSettings(c.Kind, c.Settings); err != nil {
 		return nil, err
 	}
@@ -199,7 +199,7 @@ func (e *Endpoints) source(ctx context.Context, c Connector) (sap.Source, error)
 		o.PageSize = int(v)
 	}
 	if c.SecretRef != nil {
-		credentials, err := tenantSecret(ctx, e.Secrets, *c.SecretRef)
+		credentials, err := tenantSecret(ctx, e.Secrets, tenant, *c.SecretRef)
 		user, password, found := strings.Cut(credentials, ":")
 		if err != nil || !found {
 			return nil, problem.Unprocessable("integration.secret_unavailable", "The connector's credentials ("+*c.SecretRef+") cannot be resolved as user:password.").WithCause(err)
@@ -215,7 +215,7 @@ func (e *Endpoints) source(ctx context.Context, c Connector) (sap.Source, error)
 // prepare reads what the platform holds for the run's scope and extracts
 // the scope from the connector. An extraction that fails is 503: the run
 // stays queued (or loaded) for another attempt.
-func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap.Extract, Connector, error) {
+func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, r Run) (target, *sap.Extract, Connector, error) {
 	c, err := getConnector(ctx, tx, r.ConnectorID, false)
 	if err != nil {
 		return target{}, nil, c, err
@@ -253,7 +253,7 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap
 	if t.exponents, err = currency.Load(ctx, tx); err != nil {
 		return t, nil, c, fmt.Errorf("integration: read the currency exponents for run %s: %w", r.ID, err)
 	}
-	ext, err := e.extract(ctx, c, scope, &t)
+	ext, err := e.extract(ctx, tenant, c, scope, &t)
 	if err != nil {
 		return t, nil, c, err
 	}
@@ -293,8 +293,8 @@ func (t *target) configure(doc *config.Config, now time.Time) error {
 // extract reads the scope from the connector's source and gives the
 // target the form of the extract's amounts with the decimals its TCURX
 // gives (amounts.go).
-func (e *Endpoints) extract(ctx context.Context, c Connector, scope sap.Scope, t *target) (*sap.Extract, error) {
-	src, err := e.source(ctx, c)
+func (e *Endpoints) extract(ctx context.Context, tenant uuid.UUID, c Connector, scope sap.Scope, t *target) (*sap.Extract, error) {
+	src, err := e.source(ctx, tenant, c)
 	if err != nil {
 		return nil, err
 	}
@@ -421,7 +421,7 @@ func (e *Endpoints) runStep(ctx context.Context, id uuid.UUID, ifMatch func(int3
 		}
 		return e.hand(ctx, tx, p, r, st.kind, st.action)
 	}
-	t, ext, c, err := e.prepare(ctx, tx, r)
+	t, ext, c, err := e.prepare(ctx, tx, p.TenantID, r)
 	if err != nil {
 		return operations.Operation{}, err
 	}
@@ -439,7 +439,7 @@ func (e *Endpoints) prepareAs(ctx context.Context, tx pgx.Tx, p reqctx.Principal
 	if err := e.Requesters.MayAct(ctx, tx, p.ID); err != nil {
 		return target{}, nil, Connector{}, fmt.Errorf("integration: the requester of migration run %s: %w", r.ID, err)
 	}
-	return e.prepare(ctx, tx, r)
+	return e.prepare(ctx, tx, p.TenantID, r)
 }
 
 // activeConnector is the run's connector, active.
