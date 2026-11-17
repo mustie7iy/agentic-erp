@@ -138,13 +138,14 @@ advisory lock of the report, so replicas never run one report at once:
   database, a busy server) leaves the day due for the next round.
 - A run that succeeds keeps its specification and results as one JSON
   object written once to object storage under the tenant
-  (`report-runs/<run id>.json`), recorded with its SHA-256, which every
+  (`report-runs/<report id>/<run date>.json` since 2026-11-17, before
+  `report-runs/<run id>.json`), recorded with its SHA-256, which every
   read compares (409 `analytics.report_run_changed` when the bytes differ).
 - A run is recorded once per report and day (`report_run_once`): a second
   worker, or a second round, finds the day's run and makes none.
 - The results are written before the run's row: a round that fails
-  after the write (its transaction lost) leaves an object no row names,
-  under the run's own id, which a later round never reuses; no row or
+  after the write (its transaction lost) leaves the day's object, which
+  the next round's run takes as its results (2026-11-17, below); no row or
   event is ever without its object.
 - Each run is audited (`analytics.report_run.complete`) and published as
   `ReportRunCompleted` with its outcome, from the analytics context's
@@ -434,6 +435,14 @@ one transaction as its owner, writes the results to object storage with
 none open, and keeps the run in a second transaction that first finds the
 day still without a run. An object store's write held inside the first
 transaction kept a connection and the report's lock for as long as the
-write took. A replica that keeps the day's run meanwhile leaves this
-one's object unreferenced (its key is the run's own id), never two runs
-of a day (`report_run_once`).
+write took. Never two runs of a day (`report_run_once`).
+
+**One object per report and day (2026-11-17, batch 77 review).** The
+results are stored under the day's key, `report-runs/<report id>/<run
+date>.json`, no longer the run's id: an attempt that stored them and was
+not kept (a replica that stopped after the write, or one whose day another
+replica kept meanwhile) left an object no run named. A write that finds
+the key taken (`blobstore.ErrExists`) takes the results there as the
+day's, and the run keeps them with their SHA-256 and data date; results
+there that cannot be read, or are no report's, leave the day due. Runs
+kept before keep the keys they were kept with.

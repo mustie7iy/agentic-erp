@@ -11466,6 +11466,13 @@
        },
        {
         "s": "T",
+        "t": "A configuration change request names its author and a configuration version who activated it only by id (ChangeRequest.author_id, ConfigVersion.activated_by): their names beside them, as other resources give a principal's (R3 of the batch 77 review, API-consumer class: an identifier without the name its consumer needs).",
+        "r": "api/openapi.yaml ChangeRequest, ConfigVersion · internal/configuration api.go (crToAPI and the version mapping) · ADR-0050 names beside ids",
+        "src": "review:batch77",
+        "c": []
+       },
+       {
+        "s": "T",
         "t": "The tax agent's recommendation half still hand-writes what recommend.Agent now provides (a recommendation held to the run's object); the accounts payable exceptions agent was moved onto it in batch 77 (R6 of the batch 76 review).",
         "r": "internal/taxagent · internal/recommend Agent · ADR-0072 as built (hardening 2)",
         "src": "review:batch76",
