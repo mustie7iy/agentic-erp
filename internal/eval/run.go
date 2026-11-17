@@ -192,6 +192,8 @@ func spent(ctx context.Context, admin *apitools.Client, alias string) (money.Mic
 		return 0, "", []string{}, nil
 	}
 	cur, _ := at(usage, "cost.currency")
+	// The cost is in USD, the prices' currency (getAiUsage), so in cents; a
+	// currency other than the suite's is refused when the run is summed.
 	minor, err := money.ParseDecimal(text(amount), 2)
 	if err != nil {
 		return 0, "", nil, fmt.Errorf("eval: the usage's cost %s: %w", text(amount), err)

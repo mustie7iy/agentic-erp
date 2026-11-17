@@ -195,3 +195,17 @@ client certificates in production (ADR-0033). Today:
   presented in minor units.
 - Usage reporting (cost per agent per month, `getAiUsage`) reads
   `model_call`, the ledger; `agents.spend` is what the budgets hold.
+
+## As built (hardening 2, review:batch76)
+
+- The gateway bounds the provider's call by its timeout (`Gateway.Timeout`,
+  `api.ModelCallTimeout` by default), which the call's reservation and its
+  answer's write deadline are set from; a provider slower than that fails
+  the call as `agents.model_unreachable` (502), recorded and settled as any
+  failed call.
+- Redaction fails closed: a system prompt, messages or a content block in a
+  shape the screener cannot read (a system prompt or content that is
+  neither text nor a list of objects, a block's text that is not text) is
+  refused with 400 `request.invalid_body` before anything leaves the cell,
+  rather than forwarded unredacted for the provider to judge. A block's
+  type stays the provider's to judge.
