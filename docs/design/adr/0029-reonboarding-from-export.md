@@ -90,3 +90,9 @@ happened; re-publishing them would replay history to consumers.
   revaluation runs, variance comments and accrual proposals start in their
   first state. A tenant holding such rows past those states is not yet
   importable.
+- **An import holds one part in memory** (review:batch77, 2026-11-17). It
+  reads, checks and inserts a table's parts one at a time, as the export
+  writes them (`ChunkRows`, 10,000 rows), instead of reading every part of
+  every table before the first insert; a table that waits for a later pass
+  is read from the store again then. A part that fails its hash or row
+  count still fails the import, whose one transaction then writes nothing.

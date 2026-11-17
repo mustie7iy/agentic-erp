@@ -777,6 +777,11 @@ func (d Decider) Approve(ctx context.Context, id uuid.UUID, ifMatch func(int32) 
 	step := r.Steps[r.CurrentStep-1]
 	switch {
 	case step.Approvals+1 < step.Required:
+		// The step's approvals change as the request reads, so its version
+		// (the ETag) moves as for any other change.
+		if _, err := tx.Exec(ctx, `UPDATE workflow.approval_request SET version = version + 1 WHERE id = $1`, id); err != nil {
+			return Request{}, fmt.Errorf("approvals: record an approval of request %s: %w", id, err)
+		}
 	case int(r.CurrentStep) < len(r.Steps):
 		if _, err := tx.Exec(ctx, `UPDATE workflow.approval_request SET current_step = current_step + 1, version = version + 1 WHERE id = $1`, id); err != nil {
 			return Request{}, fmt.Errorf("approvals: advance request %s: %w", id, err)

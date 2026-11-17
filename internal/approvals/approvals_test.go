@@ -339,8 +339,15 @@ func TestSteps(t *testing.T) {
 	}
 	large := open(5000000) // 50,000.00 EUR: two steps
 	pgtest.Exec(t, `UPDATE workflow.approval_step SET required = 2 WHERE request_id = $1 AND step_no = 1`, large)
+	before, err := as(t, f.Approver, func(ctx context.Context) (approvals.Request, error) { return approvals.GetRequest(ctx, large) })
+	if err != nil {
+		t.Fatalf("large: %v", err)
+	}
 	if r, err = as(t, f.Approver, func(ctx context.Context) (approvals.Request, error) { return d.Approve(ctx, large, any, "") }); err != nil {
 		t.Fatalf("first approval: %v", err)
+	}
+	if r.Version != before.Version+1 { // the step's approvals changed: an ETag read before is stale
+		t.Errorf("first approval version: got %d, want %d", r.Version, before.Version+1)
 	}
 	if r.CurrentStep != 1 {
 		t.Errorf("first approval current step: got %d, want 1", r.CurrentStep)
@@ -567,6 +574,12 @@ func TestDatabaseFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	apitest.EveryFailure(t, f.Tenant, f.Approver, "next step", func(ctx context.Context) error {
+		_, err := e.Approve(ctx, multi, func(int32) error { return nil }, "")
+		return err
+	})
+	// So does an approval that leaves its step short of the approvals it needs.
+	pgtest.Exec(t, `UPDATE workflow.approval_step SET required = 2 WHERE request_id = $1 AND step_no = 1`, multi)
+	apitest.EveryFailure(t, f.Tenant, f.Approver, "short of the step's approvals", func(ctx context.Context) error {
 		_, err := e.Approve(ctx, multi, func(int32) error { return nil }, "")
 		return err
 	})

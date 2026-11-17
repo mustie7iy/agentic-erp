@@ -210,3 +210,17 @@ why any other write on it had not happened. The general mechanism:
   objects, and of creates (they have no object yet). A reader that needs
   them adds the operations to the list; a create's refusal needs an
   object of its own first.
+
+## As built (review:batch77, 2026-11-17): anchoring holds no lock across the store
+
+The anchorer reads a tenant's chain head without locking it, writes the
+anchor object, then records the row with `ON CONFLICT DO NOTHING`, each
+step in its own transaction. It used to hold the chain head `FOR UPDATE`
+across the object store's call, and every audited write of the tenant
+takes that row lock: a store slower than the lock timeout (5 s; S3's
+client waits 10 s) turned the tenant's writes into lock timeouts every
+round. No lock is needed: the hash at a sequence never changes; a second
+replica writing the same head finds the object (`ErrExists`) and checks
+that it says what the chain says; and the anchor's primary key lets one
+of them record it. `TestAnchoringHoldsNoLockAcrossTheStore` writes an
+audit event while the store's call is held.

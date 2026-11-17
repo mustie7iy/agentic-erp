@@ -7072,6 +7072,13 @@
           "r": "internal/offboarding exportTable, tenantTable.order (primary key from pg_index; the row's text without one) · TestResumedExportReadsInKeyOrder · TestExportOrder · ADR-0021",
           "src": "review:batch76",
           "c": []
+         },
+         {
+          "s": "D",
+          "t": "The erasure never deletes the tenant's export or its audit anchors and counts them kept: a versioned S3 bucket under Object Lock answers a DELETE without a version with a delete marker, so they vanished from reads (the export could not be reinstated, the verifier reported tampering), and a store without retention deleted them outright; production refuses ERP_OBJECT_RETENTION 0 or shorter than ERP_OFFBOARD_GRACE, and the S3 test double answers a DELETE of a locked object as S3 does (R2 B1 of the batch 77 review).",
+          "r": "offboarding eraseObjects · blobstore.S3.Delete · blobstoretest (delete markers, Versions) · config checkRetention · TestErasureKeepsExportAndAnchors · TestListAndDelete · TestProductionFailsClosed · ADR-0021 As built 2026-11-17",
+          "src": "review:batch77",
+          "c": []
          }
         ]
        },
@@ -7173,6 +7180,13 @@
       "t": "Cancelling an operation tells the workflow engine only once the cancellation has committed (reqctx.OnCommit): a request that failed after the engine call left the operation running with its workflow cancelled (R2 B2 of the batch 76 review).",
       "r": "internal/operations CancelOperation · reqctx.OnCommit · ADR-0012 · TestCancelOperation",
       "src": "review:batch76",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "No row lock is held across a call to an external service: the audit anchorer held the tenant's chain head FOR UPDATE across the object store's write, which every audited write of the tenant waits for, so a slow store turned them into lock timeouts; it now reads the head unlocked, writes the object, then records the row ON CONFLICT DO NOTHING. The dispatcher recorded each started workflow (operation, approval request) in the transaction that went on calling the engine; each is now recorded in a transaction of its own (R2 B2 of the batch 77 review).",
+      "r": "audit.Anchorer anchor, readHead, writeObject, record · workflows.Dispatcher RunOnce, read, startRecorded · approvals.Watched · TestAnchoringHoldsNoLockAcrossTheStore · TestAnchoringRecordFails · TestDispatcher (no row lock is held across a call to the engine) · TestApprovalDeadline (no request is locked across a call to the engine) · ADR-0011 As built 2026-11-17 · ADR-0012 As built",
+      "src": "review:batch77",
       "c": []
      }
     ]

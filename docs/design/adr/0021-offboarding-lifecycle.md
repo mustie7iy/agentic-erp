@@ -66,9 +66,10 @@ export's and the erasure's own entries are its last. The outbox events
   operation, `List` and `Delete` on the store port (the only deletion).
 - Audit entries keep their details after the erasure; minimizing what
   entries carry about erased objects is a separate design.
-- Large tenants export table by table in memory; streaming exports and
-  multipart uploads are for when a tenant's table exceeds a replica's
-  memory.
+- Large tenants export table by table in parts of bounded size
+  (`ChunkRows`), and an import reads them a part at a time (ADR-0029 As
+  built); multipart uploads are for when one part exceeds what a replica
+  holds.
 
 ## Amendment (2026-10-16, ADR-0031)
 
@@ -96,3 +97,20 @@ verified (ADR-0030). They are skipped like the outboxes.
   objects counted are those deleted and kept by the round that completes the
   erasure: a store failing part-way may already have deleted others, and an
   object store keeps no record of that round.
+
+## As built (2026-11-17, batch 77 review)
+
+- **The erasure keeps the export and the audit anchors by itself, not by the
+  store's lock** (coordinator 2026-11-17, ERP practice). It never deletes a
+  key under the tenant's `exports/` or `audit/anchors/` and counts each as
+  kept (`objects_kept`). The lock could not keep them readable: Object Lock
+  needs a versioned bucket, where a DELETE without a version id is not
+  refused but writes a delete marker, so the export vanished from reads
+  (no reinstatement, ADR-0029) and the verifier found the anchors gone and
+  reported the chain tampered; and a store without retention
+  (`ERP_OBJECT_RETENTION=0`) deleted them outright. `S3.Delete` therefore
+  never answers `ErrLocked`; `Dir` still refuses a locked object, which the
+  erasure counts as kept. Production refuses `ERP_OBJECT_RETENTION` of 0 or
+  shorter than `ERP_OFFBOARD_GRACE`, so an export stays locked at least until
+  the tenant is erased. The S3 test double is versioned as the bucket is: a
+  DELETE writes a delete marker and keeps the version, locked or not.
