@@ -121,7 +121,7 @@ func TestOrderFromQuotation(t *testing.T) {
 	want := map[string]any{"sales_order_id": id, "document_number": got["document_number"], "legal_entity_id": e.DE.String(),
 		"legal_entity_code": "2000", "customer_id": e.customer.String(), "customer_number": "BP70000001", "quotation_id": quotation,
 		"order_date": got["order_date"], "payment_term_code": "NT30", "net_amount": map[string]any{"amount": "28.03", "currency": "EUR"},
-		"status": "draft", "status_before": nil, "credit_block": "none", "version": float64(1)}
+		"status": "draft", "status_before": nil, "credit_block": "none", "version": float64(1), "changes": float64(0), "requested_delivery_date": nil}
 	if a, b := mustJSON(t, e.events(t, "sales_order_changed", "sales_order_id", id)), mustJSON(t, []map[string]any{want}); a != b {
 		t.Errorf("SalesOrderChanged: got %s, want %s", a, b)
 	}

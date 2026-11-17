@@ -16462,6 +16462,146 @@ func (s *BankStatusReport) SetReason(val OptString) {
 	s.Reason = val
 }
 
+// The cancellation of a billing document (ADR-0067, As built T79c): a document of its own, with the
+// customer credit memo that reversed a posted document's invoice.
+// Ref: #/components/schemas/BillingCancellation
+type BillingCancellation struct {
+	// The cancellation's id: the credit memo's `source_document_id`.
+	ID uuid.UUID `json:"id"`
+	// Its document number, from the company's `billing_document` number range.
+	DocumentNumber string `json:"document_number"`
+	// Its date, and a posted document's credit memo's date and posting date.
+	CancellationDate time.Time `json:"cancellation_date"`
+	// Why the document was cancelled.
+	Reason string `json:"reason"`
+	// The customer credit memo that reversed the document's invoice (`GET /v1/customer-invoices/{id}`);
+	// absent for a document cancelled before it was posted.
+	CustomerInvoiceID OptUUID `json:"customer_invoice_id"`
+	// The credit memo's document number; absent as `customer_invoice_id` is.
+	CustomerInvoiceNumber OptString `json:"customer_invoice_number"`
+	// The journal entry the credit memo posted (`GET /v1/journal-entries/{id}`); absent as
+	// `customer_invoice_id` is.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The entry's fiscal year; absent as `customer_invoice_id` is.
+	JournalEntryYear OptInt32 `json:"journal_entry_year"`
+	// The entry's document number; absent as `customer_invoice_id` is.
+	JournalEntryNumber OptString `json:"journal_entry_number"`
+	// When the document was cancelled.
+	CreatedAt time.Time `json:"created_at"`
+	// Who cancelled it (`GET /v1/principals/{id}`).
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *BillingCancellation) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *BillingCancellation) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetCancellationDate returns the value of CancellationDate.
+func (s *BillingCancellation) GetCancellationDate() time.Time {
+	return s.CancellationDate
+}
+
+// GetReason returns the value of Reason.
+func (s *BillingCancellation) GetReason() string {
+	return s.Reason
+}
+
+// GetCustomerInvoiceID returns the value of CustomerInvoiceID.
+func (s *BillingCancellation) GetCustomerInvoiceID() OptUUID {
+	return s.CustomerInvoiceID
+}
+
+// GetCustomerInvoiceNumber returns the value of CustomerInvoiceNumber.
+func (s *BillingCancellation) GetCustomerInvoiceNumber() OptString {
+	return s.CustomerInvoiceNumber
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *BillingCancellation) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *BillingCancellation) GetJournalEntryYear() OptInt32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *BillingCancellation) GetJournalEntryNumber() OptString {
+	return s.JournalEntryNumber
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *BillingCancellation) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *BillingCancellation) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *BillingCancellation) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *BillingCancellation) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetCancellationDate sets the value of CancellationDate.
+func (s *BillingCancellation) SetCancellationDate(val time.Time) {
+	s.CancellationDate = val
+}
+
+// SetReason sets the value of Reason.
+func (s *BillingCancellation) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetCustomerInvoiceID sets the value of CustomerInvoiceID.
+func (s *BillingCancellation) SetCustomerInvoiceID(val OptUUID) {
+	s.CustomerInvoiceID = val
+}
+
+// SetCustomerInvoiceNumber sets the value of CustomerInvoiceNumber.
+func (s *BillingCancellation) SetCustomerInvoiceNumber(val OptString) {
+	s.CustomerInvoiceNumber = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *BillingCancellation) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *BillingCancellation) SetJournalEntryYear(val OptInt32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *BillingCancellation) SetJournalEntryNumber(val OptString) {
+	s.JournalEntryNumber = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *BillingCancellation) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *BillingCancellation) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
 // Merged schema.
 // Ref: #/components/schemas/BillingDocument
 type BillingDocument struct {
@@ -16504,9 +16644,10 @@ type BillingDocument struct {
 	Currency string `json:"currency"`
 	// The sum of the items' amounts.
 	NetAmount Money `json:"net_amount"`
-	// `created`: created, not posted. `posted`: posted as a customer invoice (`postBillingDocument`). Open
-	// enumeration: clients must accept and preserve values not listed here; values may be added within
-	// /v1.
+	// `created`: created, not posted. `posted`: posted as a customer invoice (`postBillingDocument`).
+	// `cancelled`: cancelled, once, from either (`cancelBillingDocument`, T79c): a posted one keeps what
+	// it posted with and names the credit memo that reversed it in `cancellation`. Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
 	Status string `json:"status"`
 	// The date the document posted on, its customer invoice's posting date. Absent until posted.
 	PostingDate OptDate `json:"posting_date"`
@@ -16521,6 +16662,8 @@ type BillingDocument struct {
 	JournalEntryYear OptInt32 `json:"journal_entry_year"`
 	// The entry's document number. Absent until posted.
 	JournalEntryNumber OptString `json:"journal_entry_number"`
+	// The document's cancellation; absent unless `status` is `cancelled`.
+	Cancellation OptBillingCancellation `json:"cancellation"`
 	// The items, by item number.
 	Items []BillingDocumentItem `json:"items"`
 }
@@ -16653,6 +16796,11 @@ func (s *BillingDocument) GetJournalEntryYear() OptInt32 {
 // GetJournalEntryNumber returns the value of JournalEntryNumber.
 func (s *BillingDocument) GetJournalEntryNumber() OptString {
 	return s.JournalEntryNumber
+}
+
+// GetCancellation returns the value of Cancellation.
+func (s *BillingDocument) GetCancellation() OptBillingCancellation {
+	return s.Cancellation
 }
 
 // GetItems returns the value of Items.
@@ -16790,9 +16938,44 @@ func (s *BillingDocument) SetJournalEntryNumber(val OptString) {
 	s.JournalEntryNumber = val
 }
 
+// SetCancellation sets the value of Cancellation.
+func (s *BillingDocument) SetCancellation(val OptBillingCancellation) {
+	s.Cancellation = val
+}
+
 // SetItems sets the value of Items.
 func (s *BillingDocument) SetItems(val []BillingDocumentItem) {
 	s.Items = val
+}
+
+// Cancel a billing document (`cancelBillingDocument`).
+// Ref: #/components/schemas/BillingDocumentCancel
+type BillingDocumentCancel struct {
+	// Why the document is cancelled; kept on its cancellation.
+	Reason string `json:"reason"`
+	// The cancellation's date, and a posted document's credit memo's date and posting date: not before the
+	// billing date, nor the posting date. Absent: today, the company's date in its time zone.
+	CancellationDate OptDate `json:"cancellation_date"`
+}
+
+// GetReason returns the value of Reason.
+func (s *BillingDocumentCancel) GetReason() string {
+	return s.Reason
+}
+
+// GetCancellationDate returns the value of CancellationDate.
+func (s *BillingDocumentCancel) GetCancellationDate() OptDate {
+	return s.CancellationDate
+}
+
+// SetReason sets the value of Reason.
+func (s *BillingDocumentCancel) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetCancellationDate sets the value of CancellationDate.
+func (s *BillingDocumentCancel) SetCancellationDate(val OptDate) {
+	s.CancellationDate = val
 }
 
 // Create a billing document for a sales order: it bills what is delivered of the order's items and not
@@ -18146,6 +18329,70 @@ type CancelAssetUnprocessableEntity Problem
 
 func (*CancelAssetUnprocessableEntity) cancelAssetRes() {}
 
+type CancelBillingDocumentBadRequest Problem
+
+func (*CancelBillingDocumentBadRequest) cancelBillingDocumentRes() {}
+
+type CancelBillingDocumentForbidden Problem
+
+func (*CancelBillingDocumentForbidden) cancelBillingDocumentRes() {}
+
+type CancelBillingDocumentNotFound Problem
+
+func (*CancelBillingDocumentNotFound) cancelBillingDocumentRes() {}
+
+// CancelBillingDocumentOKHeaders wraps BillingDocument with response headers.
+type CancelBillingDocumentOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           BillingDocument
+}
+
+// GetETag returns the value of ETag.
+func (s *CancelBillingDocumentOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CancelBillingDocumentOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *CancelBillingDocumentOKHeaders) GetResponse() BillingDocument {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CancelBillingDocumentOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CancelBillingDocumentOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CancelBillingDocumentOKHeaders) SetResponse(val BillingDocument) {
+	s.Response = val
+}
+
+func (*CancelBillingDocumentOKHeaders) cancelBillingDocumentRes() {}
+func (*CancelBillingDocumentOKHeaders) postBillingDocumentRes()   {}
+
+type CancelBillingDocumentPreconditionFailed Problem
+
+func (*CancelBillingDocumentPreconditionFailed) cancelBillingDocumentRes() {}
+
+type CancelBillingDocumentPreconditionRequired Problem
+
+func (*CancelBillingDocumentPreconditionRequired) cancelBillingDocumentRes() {}
+
+type CancelBillingDocumentUnprocessableEntity Problem
+
+func (*CancelBillingDocumentUnprocessableEntity) cancelBillingDocumentRes() {}
+
 type CancelContractBadRequest Problem
 
 func (*CancelContractBadRequest) cancelContractRes() {}
@@ -18478,6 +18725,72 @@ func (*CancelRevaluationRunPreconditionRequired) cancelRevaluationRunRes() {}
 type CancelRevaluationRunUnprocessableEntity Problem
 
 func (*CancelRevaluationRunUnprocessableEntity) cancelRevaluationRunRes() {}
+
+type CancelSalesOrderBadRequest Problem
+
+func (*CancelSalesOrderBadRequest) cancelSalesOrderRes() {}
+
+type CancelSalesOrderForbidden Problem
+
+func (*CancelSalesOrderForbidden) cancelSalesOrderRes() {}
+
+type CancelSalesOrderNotFound Problem
+
+func (*CancelSalesOrderNotFound) cancelSalesOrderRes() {}
+
+// CancelSalesOrderOKHeaders wraps SalesOrder with response headers.
+type CancelSalesOrderOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           SalesOrder
+}
+
+// GetETag returns the value of ETag.
+func (s *CancelSalesOrderOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CancelSalesOrderOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *CancelSalesOrderOKHeaders) GetResponse() SalesOrder {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CancelSalesOrderOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CancelSalesOrderOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CancelSalesOrderOKHeaders) SetResponse(val SalesOrder) {
+	s.Response = val
+}
+
+func (*CancelSalesOrderOKHeaders) cancelSalesOrderRes()             {}
+func (*CancelSalesOrderOKHeaders) changeSalesOrderRes()             {}
+func (*CancelSalesOrderOKHeaders) confirmSalesOrderRes()            {}
+func (*CancelSalesOrderOKHeaders) releaseSalesOrderCreditBlockRes() {}
+
+type CancelSalesOrderPreconditionFailed Problem
+
+func (*CancelSalesOrderPreconditionFailed) cancelSalesOrderRes() {}
+
+type CancelSalesOrderPreconditionRequired Problem
+
+func (*CancelSalesOrderPreconditionRequired) cancelSalesOrderRes() {}
+
+type CancelSalesOrderUnprocessableEntity Problem
+
+func (*CancelSalesOrderUnprocessableEntity) cancelSalesOrderRes() {}
 
 type CancelSupplierInvoiceBadRequest Problem
 
@@ -23272,6 +23585,30 @@ func (s *ChangeRequestUpdateProposed) init() ChangeRequestUpdateProposed {
 	return m
 }
 
+type ChangeSalesOrderBadRequest Problem
+
+func (*ChangeSalesOrderBadRequest) changeSalesOrderRes() {}
+
+type ChangeSalesOrderForbidden Problem
+
+func (*ChangeSalesOrderForbidden) changeSalesOrderRes() {}
+
+type ChangeSalesOrderNotFound Problem
+
+func (*ChangeSalesOrderNotFound) changeSalesOrderRes() {}
+
+type ChangeSalesOrderPreconditionFailed Problem
+
+func (*ChangeSalesOrderPreconditionFailed) changeSalesOrderRes() {}
+
+type ChangeSalesOrderPreconditionRequired Problem
+
+func (*ChangeSalesOrderPreconditionRequired) changeSalesOrderRes() {}
+
+type ChangeSalesOrderUnprocessableEntity Problem
+
+func (*ChangeSalesOrderUnprocessableEntity) changeSalesOrderRes() {}
+
 type CheckCloseTaskBadRequest Problem
 
 func (*CheckCloseTaskBadRequest) checkCloseTaskRes() {}
@@ -26635,46 +26972,6 @@ type ConfirmSalesOrderNotFound Problem
 
 func (*ConfirmSalesOrderNotFound) confirmSalesOrderRes() {}
 
-// ConfirmSalesOrderOKHeaders wraps SalesOrder with response headers.
-type ConfirmSalesOrderOKHeaders struct {
-	ETag               OptString
-	IdempotentReplayed OptBool
-	Response           SalesOrder
-}
-
-// GetETag returns the value of ETag.
-func (s *ConfirmSalesOrderOKHeaders) GetETag() OptString {
-	return s.ETag
-}
-
-// GetIdempotentReplayed returns the value of IdempotentReplayed.
-func (s *ConfirmSalesOrderOKHeaders) GetIdempotentReplayed() OptBool {
-	return s.IdempotentReplayed
-}
-
-// GetResponse returns the value of Response.
-func (s *ConfirmSalesOrderOKHeaders) GetResponse() SalesOrder {
-	return s.Response
-}
-
-// SetETag sets the value of ETag.
-func (s *ConfirmSalesOrderOKHeaders) SetETag(val OptString) {
-	s.ETag = val
-}
-
-// SetIdempotentReplayed sets the value of IdempotentReplayed.
-func (s *ConfirmSalesOrderOKHeaders) SetIdempotentReplayed(val OptBool) {
-	s.IdempotentReplayed = val
-}
-
-// SetResponse sets the value of Response.
-func (s *ConfirmSalesOrderOKHeaders) SetResponse(val SalesOrder) {
-	s.Response = val
-}
-
-func (*ConfirmSalesOrderOKHeaders) confirmSalesOrderRes()            {}
-func (*ConfirmSalesOrderOKHeaders) releaseSalesOrderCreditBlockRes() {}
-
 type ConfirmSalesOrderPreconditionFailed Problem
 
 func (*ConfirmSalesOrderPreconditionFailed) confirmSalesOrderRes() {}
@@ -26737,6 +27034,7 @@ func (*ConflictHeaders) blockPrincipalRes()                        {}
 func (*ConflictHeaders) callOffScheduleLineRes()                   {}
 func (*ConflictHeaders) cancelApprovalRequestRes()                 {}
 func (*ConflictHeaders) cancelAssetRes()                           {}
+func (*ConflictHeaders) cancelBillingDocumentRes()                 {}
 func (*ConflictHeaders) cancelContractRes()                        {}
 func (*ConflictHeaders) cancelDownPaymentRequestRes()              {}
 func (*ConflictHeaders) cancelMemoRecordRes()                      {}
@@ -26746,9 +27044,11 @@ func (*ConflictHeaders) cancelPurchaseOrderChangeRes()             {}
 func (*ConflictHeaders) cancelPurchaseOrderRes()                   {}
 func (*ConflictHeaders) cancelRequisitionRes()                     {}
 func (*ConflictHeaders) cancelRevaluationRunRes()                  {}
+func (*ConflictHeaders) cancelSalesOrderRes()                      {}
 func (*ConflictHeaders) cancelSupplierInvoiceRes()                 {}
 func (*ConflictHeaders) captureSalesOrderRes()                     {}
 func (*ConflictHeaders) captureSupplierInvoiceRes()                {}
+func (*ConflictHeaders) changeSalesOrderRes()                      {}
 func (*ConflictHeaders) checkCloseTaskRes()                        {}
 func (*ConflictHeaders) checkYearCloseTaskRes()                    {}
 func (*ConflictHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
@@ -62208,6 +62508,18 @@ type ListSalesDeliveriesNotFound Problem
 
 func (*ListSalesDeliveriesNotFound) listSalesDeliveriesRes() {}
 
+type ListSalesOrderChangesBadRequest Problem
+
+func (*ListSalesOrderChangesBadRequest) listSalesOrderChangesRes() {}
+
+type ListSalesOrderChangesForbidden Problem
+
+func (*ListSalesOrderChangesForbidden) listSalesOrderChangesRes() {}
+
+type ListSalesOrderChangesNotFound Problem
+
+func (*ListSalesOrderChangesNotFound) listSalesOrderChangesRes() {}
+
 type ListSalesOrdersBadRequest Problem
 
 func (*ListSalesOrdersBadRequest) listSalesOrdersRes() {}
@@ -69039,6 +69351,52 @@ func (o OptBankReconciliationFigures) Get() (v BankReconciliationFigures, ok boo
 
 // Or returns value if set, or given parameter if does not.
 func (o OptBankReconciliationFigures) Or(d BankReconciliationFigures) BankReconciliationFigures {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptBillingCancellation returns new OptBillingCancellation with value set to v.
+func NewOptBillingCancellation(v BillingCancellation) OptBillingCancellation {
+	return OptBillingCancellation{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptBillingCancellation is optional BillingCancellation.
+type OptBillingCancellation struct {
+	Value BillingCancellation
+	Set   bool
+}
+
+// IsSet returns true if OptBillingCancellation was set.
+func (o OptBillingCancellation) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptBillingCancellation) Reset() {
+	var v BillingCancellation
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptBillingCancellation) SetTo(v BillingCancellation) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptBillingCancellation) Get() (v BillingCancellation, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptBillingCancellation) Or(d BillingCancellation) BillingCancellation {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -79955,45 +80313,6 @@ func (*PostBillingDocumentForbidden) postBillingDocumentRes() {}
 type PostBillingDocumentNotFound Problem
 
 func (*PostBillingDocumentNotFound) postBillingDocumentRes() {}
-
-// PostBillingDocumentOKHeaders wraps BillingDocument with response headers.
-type PostBillingDocumentOKHeaders struct {
-	ETag               OptString
-	IdempotentReplayed OptBool
-	Response           BillingDocument
-}
-
-// GetETag returns the value of ETag.
-func (s *PostBillingDocumentOKHeaders) GetETag() OptString {
-	return s.ETag
-}
-
-// GetIdempotentReplayed returns the value of IdempotentReplayed.
-func (s *PostBillingDocumentOKHeaders) GetIdempotentReplayed() OptBool {
-	return s.IdempotentReplayed
-}
-
-// GetResponse returns the value of Response.
-func (s *PostBillingDocumentOKHeaders) GetResponse() BillingDocument {
-	return s.Response
-}
-
-// SetETag sets the value of ETag.
-func (s *PostBillingDocumentOKHeaders) SetETag(val OptString) {
-	s.ETag = val
-}
-
-// SetIdempotentReplayed sets the value of IdempotentReplayed.
-func (s *PostBillingDocumentOKHeaders) SetIdempotentReplayed(val OptBool) {
-	s.IdempotentReplayed = val
-}
-
-// SetResponse sets the value of Response.
-func (s *PostBillingDocumentOKHeaders) SetResponse(val BillingDocument) {
-	s.Response = val
-}
-
-func (*PostBillingDocumentOKHeaders) postBillingDocumentRes() {}
 
 type PostBillingDocumentPreconditionFailed Problem
 
@@ -96667,9 +96986,24 @@ type SalesOrder struct {
 	PaymentTermCode string `json:"payment_term_code"`
 	// The sum of the items' net values.
 	NetAmount Money `json:"net_amount"`
-	// `draft`: created; `confirmed`: confirmed, once (`:confirm`). Open enumeration: clients must accept
-	// and preserve values not listed here; values may be added within /v1.
+	// `draft`: created; `confirmed`: confirmed, once (`:confirm`); `cancelled`: cancelled, once, with
+	// nothing delivered (`:cancel`, T78d). Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
 	Status string `json:"status"`
+	// The day the customer asks to be delivered on; absent when none is asked for. Changed by
+	// `changeSalesOrder`.
+	RequestedDeliveryDate OptDate `json:"requested_delivery_date"`
+	// How many changes the order has had (`changeSalesOrder`); they are listed by `listSalesOrderChanges`.
+	Changes int32 `json:"changes"`
+	// Why the order was cancelled; absent unless `status` is `cancelled`.
+	CancellationReason OptString `json:"cancellation_reason"`
+	// Who cancelled it (`GET /v1/principals/{id}`); absent unless `status` is `cancelled`.
+	CancelledBy OptUUID `json:"cancelled_by"`
+	// The name of who cancelled it, as it was when they cancelled it; absent unless `status` is
+	// `cancelled`.
+	CancelledByName OptString `json:"cancelled_by_name"`
+	// When it was cancelled; absent unless `status` is `cancelled`.
+	CancelledAt OptDateTime `json:"cancelled_at"`
 	// The order's credit block (ADR-0066, T77b). `none`: a draft, which is not checked, or an order
 	// confirmed within the customer's credit limit or for a customer without one; `blocked`: confirmed
 	// over the limit, taking no delivery until it is released; `released`: the block was released
@@ -96787,6 +97121,36 @@ func (s *SalesOrder) GetNetAmount() Money {
 // GetStatus returns the value of Status.
 func (s *SalesOrder) GetStatus() string {
 	return s.Status
+}
+
+// GetRequestedDeliveryDate returns the value of RequestedDeliveryDate.
+func (s *SalesOrder) GetRequestedDeliveryDate() OptDate {
+	return s.RequestedDeliveryDate
+}
+
+// GetChanges returns the value of Changes.
+func (s *SalesOrder) GetChanges() int32 {
+	return s.Changes
+}
+
+// GetCancellationReason returns the value of CancellationReason.
+func (s *SalesOrder) GetCancellationReason() OptString {
+	return s.CancellationReason
+}
+
+// GetCancelledBy returns the value of CancelledBy.
+func (s *SalesOrder) GetCancelledBy() OptUUID {
+	return s.CancelledBy
+}
+
+// GetCancelledByName returns the value of CancelledByName.
+func (s *SalesOrder) GetCancelledByName() OptString {
+	return s.CancelledByName
+}
+
+// GetCancelledAt returns the value of CancelledAt.
+func (s *SalesOrder) GetCancelledAt() OptDateTime {
+	return s.CancelledAt
 }
 
 // GetCreditBlock returns the value of CreditBlock.
@@ -96917,6 +97281,36 @@ func (s *SalesOrder) SetNetAmount(val Money) {
 // SetStatus sets the value of Status.
 func (s *SalesOrder) SetStatus(val string) {
 	s.Status = val
+}
+
+// SetRequestedDeliveryDate sets the value of RequestedDeliveryDate.
+func (s *SalesOrder) SetRequestedDeliveryDate(val OptDate) {
+	s.RequestedDeliveryDate = val
+}
+
+// SetChanges sets the value of Changes.
+func (s *SalesOrder) SetChanges(val int32) {
+	s.Changes = val
+}
+
+// SetCancellationReason sets the value of CancellationReason.
+func (s *SalesOrder) SetCancellationReason(val OptString) {
+	s.CancellationReason = val
+}
+
+// SetCancelledBy sets the value of CancelledBy.
+func (s *SalesOrder) SetCancelledBy(val OptUUID) {
+	s.CancelledBy = val
+}
+
+// SetCancelledByName sets the value of CancelledByName.
+func (s *SalesOrder) SetCancelledByName(val OptString) {
+	s.CancelledByName = val
+}
+
+// SetCancelledAt sets the value of CancelledAt.
+func (s *SalesOrder) SetCancelledAt(val OptDateTime) {
+	s.CancelledAt = val
 }
 
 // SetCreditBlock sets the value of CreditBlock.
@@ -97166,6 +97560,369 @@ func (s *SalesOrderCapturedItem) SetPriceSource(val string) {
 	s.PriceSource = val
 }
 
+// A change of a sales order (ADR-0067, As built T78d), as it was made: never altered.
+// Ref: #/components/schemas/SalesOrderChange
+type SalesOrderChange struct {
+	// The change's id.
+	ID uuid.UUID `json:"id"`
+	// The change's number within the order, from 1.
+	ChangeNo int32 `json:"change_no"`
+	// The order changed.
+	SalesOrderID uuid.UUID `json:"sales_order_id"`
+	// The order's version after the change.
+	Version int32 `json:"version"`
+	// Why the order changed; absent when none was given.
+	Reason OptString `json:"reason"`
+	// The order's net value before the change.
+	NetAmountBefore Money `json:"net_amount_before"`
+	// The order's net value after it.
+	NetAmountAfter Money `json:"net_amount_after"`
+	// The requested delivery date before the change; absent when there was none.
+	RequestedDeliveryDateBefore OptDate `json:"requested_delivery_date_before"`
+	// The requested delivery date after it; absent when there is none.
+	RequestedDeliveryDateAfter OptDate `json:"requested_delivery_date_after"`
+	// The order's credit block before the change. Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	CreditBlockBefore string `json:"credit_block_before"`
+	// Its credit block after it: `blocked` when the change raised a confirmed order's value beyond the
+	// customer's limit. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	CreditBlockAfter string `json:"credit_block_after"`
+	// The items the change changed, by item number; none when it changed the requested delivery date
+	// alone.
+	Items []SalesOrderChangeItem `json:"items"`
+	// When the change was made.
+	CreatedAt time.Time `json:"created_at"`
+	// Who made it (`GET /v1/principals/{id}`).
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *SalesOrderChange) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetChangeNo returns the value of ChangeNo.
+func (s *SalesOrderChange) GetChangeNo() int32 {
+	return s.ChangeNo
+}
+
+// GetSalesOrderID returns the value of SalesOrderID.
+func (s *SalesOrderChange) GetSalesOrderID() uuid.UUID {
+	return s.SalesOrderID
+}
+
+// GetVersion returns the value of Version.
+func (s *SalesOrderChange) GetVersion() int32 {
+	return s.Version
+}
+
+// GetReason returns the value of Reason.
+func (s *SalesOrderChange) GetReason() OptString {
+	return s.Reason
+}
+
+// GetNetAmountBefore returns the value of NetAmountBefore.
+func (s *SalesOrderChange) GetNetAmountBefore() Money {
+	return s.NetAmountBefore
+}
+
+// GetNetAmountAfter returns the value of NetAmountAfter.
+func (s *SalesOrderChange) GetNetAmountAfter() Money {
+	return s.NetAmountAfter
+}
+
+// GetRequestedDeliveryDateBefore returns the value of RequestedDeliveryDateBefore.
+func (s *SalesOrderChange) GetRequestedDeliveryDateBefore() OptDate {
+	return s.RequestedDeliveryDateBefore
+}
+
+// GetRequestedDeliveryDateAfter returns the value of RequestedDeliveryDateAfter.
+func (s *SalesOrderChange) GetRequestedDeliveryDateAfter() OptDate {
+	return s.RequestedDeliveryDateAfter
+}
+
+// GetCreditBlockBefore returns the value of CreditBlockBefore.
+func (s *SalesOrderChange) GetCreditBlockBefore() string {
+	return s.CreditBlockBefore
+}
+
+// GetCreditBlockAfter returns the value of CreditBlockAfter.
+func (s *SalesOrderChange) GetCreditBlockAfter() string {
+	return s.CreditBlockAfter
+}
+
+// GetItems returns the value of Items.
+func (s *SalesOrderChange) GetItems() []SalesOrderChangeItem {
+	return s.Items
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *SalesOrderChange) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *SalesOrderChange) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *SalesOrderChange) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetChangeNo sets the value of ChangeNo.
+func (s *SalesOrderChange) SetChangeNo(val int32) {
+	s.ChangeNo = val
+}
+
+// SetSalesOrderID sets the value of SalesOrderID.
+func (s *SalesOrderChange) SetSalesOrderID(val uuid.UUID) {
+	s.SalesOrderID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *SalesOrderChange) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetReason sets the value of Reason.
+func (s *SalesOrderChange) SetReason(val OptString) {
+	s.Reason = val
+}
+
+// SetNetAmountBefore sets the value of NetAmountBefore.
+func (s *SalesOrderChange) SetNetAmountBefore(val Money) {
+	s.NetAmountBefore = val
+}
+
+// SetNetAmountAfter sets the value of NetAmountAfter.
+func (s *SalesOrderChange) SetNetAmountAfter(val Money) {
+	s.NetAmountAfter = val
+}
+
+// SetRequestedDeliveryDateBefore sets the value of RequestedDeliveryDateBefore.
+func (s *SalesOrderChange) SetRequestedDeliveryDateBefore(val OptDate) {
+	s.RequestedDeliveryDateBefore = val
+}
+
+// SetRequestedDeliveryDateAfter sets the value of RequestedDeliveryDateAfter.
+func (s *SalesOrderChange) SetRequestedDeliveryDateAfter(val OptDate) {
+	s.RequestedDeliveryDateAfter = val
+}
+
+// SetCreditBlockBefore sets the value of CreditBlockBefore.
+func (s *SalesOrderChange) SetCreditBlockBefore(val string) {
+	s.CreditBlockBefore = val
+}
+
+// SetCreditBlockAfter sets the value of CreditBlockAfter.
+func (s *SalesOrderChange) SetCreditBlockAfter(val string) {
+	s.CreditBlockAfter = val
+}
+
+// SetItems sets the value of Items.
+func (s *SalesOrderChange) SetItems(val []SalesOrderChangeItem) {
+	s.Items = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *SalesOrderChange) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *SalesOrderChange) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// An item a change changed, with its quantity, unit price, price unit and net value before and after.
+// Ref: #/components/schemas/SalesOrderChangeItem
+type SalesOrderChangeItem struct {
+	// The order's item.
+	ItemNo int32 `json:"item_no"`
+	// Its quantity before.
+	QuantityBefore Quantity `json:"quantity_before"`
+	// Its quantity after.
+	QuantityAfter Quantity `json:"quantity_after"`
+	// Its unit price before.
+	UnitPriceBefore Money `json:"unit_price_before"`
+	// Its unit price after.
+	UnitPriceAfter Money `json:"unit_price_after"`
+	// Its price unit before.
+	PriceUnitBefore int32 `json:"price_unit_before"`
+	// Its price unit after.
+	PriceUnitAfter int32 `json:"price_unit_after"`
+	// Its net value before.
+	NetAmountBefore Money `json:"net_amount_before"`
+	// Its net value after.
+	NetAmountAfter Money `json:"net_amount_after"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *SalesOrderChangeItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetQuantityBefore returns the value of QuantityBefore.
+func (s *SalesOrderChangeItem) GetQuantityBefore() Quantity {
+	return s.QuantityBefore
+}
+
+// GetQuantityAfter returns the value of QuantityAfter.
+func (s *SalesOrderChangeItem) GetQuantityAfter() Quantity {
+	return s.QuantityAfter
+}
+
+// GetUnitPriceBefore returns the value of UnitPriceBefore.
+func (s *SalesOrderChangeItem) GetUnitPriceBefore() Money {
+	return s.UnitPriceBefore
+}
+
+// GetUnitPriceAfter returns the value of UnitPriceAfter.
+func (s *SalesOrderChangeItem) GetUnitPriceAfter() Money {
+	return s.UnitPriceAfter
+}
+
+// GetPriceUnitBefore returns the value of PriceUnitBefore.
+func (s *SalesOrderChangeItem) GetPriceUnitBefore() int32 {
+	return s.PriceUnitBefore
+}
+
+// GetPriceUnitAfter returns the value of PriceUnitAfter.
+func (s *SalesOrderChangeItem) GetPriceUnitAfter() int32 {
+	return s.PriceUnitAfter
+}
+
+// GetNetAmountBefore returns the value of NetAmountBefore.
+func (s *SalesOrderChangeItem) GetNetAmountBefore() Money {
+	return s.NetAmountBefore
+}
+
+// GetNetAmountAfter returns the value of NetAmountAfter.
+func (s *SalesOrderChangeItem) GetNetAmountAfter() Money {
+	return s.NetAmountAfter
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *SalesOrderChangeItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetQuantityBefore sets the value of QuantityBefore.
+func (s *SalesOrderChangeItem) SetQuantityBefore(val Quantity) {
+	s.QuantityBefore = val
+}
+
+// SetQuantityAfter sets the value of QuantityAfter.
+func (s *SalesOrderChangeItem) SetQuantityAfter(val Quantity) {
+	s.QuantityAfter = val
+}
+
+// SetUnitPriceBefore sets the value of UnitPriceBefore.
+func (s *SalesOrderChangeItem) SetUnitPriceBefore(val Money) {
+	s.UnitPriceBefore = val
+}
+
+// SetUnitPriceAfter sets the value of UnitPriceAfter.
+func (s *SalesOrderChangeItem) SetUnitPriceAfter(val Money) {
+	s.UnitPriceAfter = val
+}
+
+// SetPriceUnitBefore sets the value of PriceUnitBefore.
+func (s *SalesOrderChangeItem) SetPriceUnitBefore(val int32) {
+	s.PriceUnitBefore = val
+}
+
+// SetPriceUnitAfter sets the value of PriceUnitAfter.
+func (s *SalesOrderChangeItem) SetPriceUnitAfter(val int32) {
+	s.PriceUnitAfter = val
+}
+
+// SetNetAmountBefore sets the value of NetAmountBefore.
+func (s *SalesOrderChangeItem) SetNetAmountBefore(val Money) {
+	s.NetAmountBefore = val
+}
+
+// SetNetAmountAfter sets the value of NetAmountAfter.
+func (s *SalesOrderChangeItem) SetNetAmountAfter(val Money) {
+	s.NetAmountAfter = val
+}
+
+// One page of a sales order's changes.
+// Ref: #/components/schemas/SalesOrderChangePage
+type SalesOrderChangePage struct {
+	// The changes on this page.
+	Items []SalesOrderChange `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *SalesOrderChangePage) GetItems() []SalesOrderChange {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *SalesOrderChangePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *SalesOrderChangePage) SetItems(val []SalesOrderChange) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *SalesOrderChangePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*SalesOrderChangePage) listSalesOrderChangesRes() {}
+
+// What a change of a sales order changes (`changeSalesOrder`): items' quantities and unit prices and
+// the requested delivery date; what is absent stays.
+// Ref: #/components/schemas/SalesOrderChangeRequest
+type SalesOrderChangeRequest struct {
+	// Why the order changes; kept with the change.
+	Reason OptString `json:"reason"`
+	// The day the customer asks to be delivered on: the order's date or later; `null` clears it.
+	RequestedDeliveryDate OptNilDate `json:"requested_delivery_date"`
+	// The items that change, each named by its number, once.
+	Items []SalesOrderItemChange `json:"items"`
+}
+
+// GetReason returns the value of Reason.
+func (s *SalesOrderChangeRequest) GetReason() OptString {
+	return s.Reason
+}
+
+// GetRequestedDeliveryDate returns the value of RequestedDeliveryDate.
+func (s *SalesOrderChangeRequest) GetRequestedDeliveryDate() OptNilDate {
+	return s.RequestedDeliveryDate
+}
+
+// GetItems returns the value of Items.
+func (s *SalesOrderChangeRequest) GetItems() []SalesOrderItemChange {
+	return s.Items
+}
+
+// SetReason sets the value of Reason.
+func (s *SalesOrderChangeRequest) SetReason(val OptString) {
+	s.Reason = val
+}
+
+// SetRequestedDeliveryDate sets the value of RequestedDeliveryDate.
+func (s *SalesOrderChangeRequest) SetRequestedDeliveryDate(val OptNilDate) {
+	s.RequestedDeliveryDate = val
+}
+
+// SetItems sets the value of Items.
+func (s *SalesOrderChangeRequest) SetItems(val []SalesOrderItemChange) {
+	s.Items = val
+}
+
 // Create a sales order: from an accepted quotation (`quotation_id` alone, with `payment_term_code` if
 // wanted), or directly (`legal_entity_id`, `customer_id`, `currency` and `items`). It is created
 // `draft`, dated the company's date today.
@@ -97184,6 +97941,9 @@ type SalesOrderCreate struct {
 	Currency OptString `json:"currency"`
 	// The payment term the order is billed with: a configured term; absent: the customer's in the company.
 	PaymentTermCode OptString `json:"payment_term_code"`
+	// The day the customer asks to be delivered on: the order's date, the company's date today, or later
+	// (422 `sales.invalid_requested_delivery_date`). Absent: none is asked for.
+	RequestedDeliveryDate OptDate `json:"requested_delivery_date"`
 	// The items, numbered in this order from 1. Required without `quotation_id`, refused with it.
 	Items []SalesItemCreate `json:"items"`
 }
@@ -97211,6 +97971,11 @@ func (s *SalesOrderCreate) GetCurrency() OptString {
 // GetPaymentTermCode returns the value of PaymentTermCode.
 func (s *SalesOrderCreate) GetPaymentTermCode() OptString {
 	return s.PaymentTermCode
+}
+
+// GetRequestedDeliveryDate returns the value of RequestedDeliveryDate.
+func (s *SalesOrderCreate) GetRequestedDeliveryDate() OptDate {
+	return s.RequestedDeliveryDate
 }
 
 // GetItems returns the value of Items.
@@ -97241,6 +98006,11 @@ func (s *SalesOrderCreate) SetCurrency(val OptString) {
 // SetPaymentTermCode sets the value of PaymentTermCode.
 func (s *SalesOrderCreate) SetPaymentTermCode(val OptString) {
 	s.PaymentTermCode = val
+}
+
+// SetRequestedDeliveryDate sets the value of RequestedDeliveryDate.
+func (s *SalesOrderCreate) SetRequestedDeliveryDate(val OptDate) {
+	s.RequestedDeliveryDate = val
 }
 
 // SetItems sets the value of Items.
@@ -97504,6 +98274,63 @@ func (s *SalesOrderItem) SetBilledQuantity(val Quantity) {
 // SetReturnedQuantity sets the value of ReturnedQuantity.
 func (s *SalesOrderItem) SetReturnedQuantity(val Quantity) {
 	s.ReturnedQuantity = val
+}
+
+// A change of one item of a sales order: its new quantity, its new unit price, or both.
+// Ref: #/components/schemas/SalesOrderItemChange
+type SalesOrderItemChange struct {
+	// The order's item that changes.
+	ItemNo int32 `json:"item_no"`
+	// The new quantity, more than zero, in the item's own unit, and not below what is delivered of it.
+	// Absent: the quantity stays.
+	Quantity OptQuantity `json:"quantity"`
+	// The new net price per `price_unit`, in the order's currency, entered (`price_source` `manual`) and
+	// final, as an entered price is (`SalesItemCreate`). Absent: an entered price stays, and a price from
+	// the price records is taken again on the order's date.
+	UnitPrice OptMoney `json:"unit_price"`
+	// The quantity the new unit price refers to; 1 when absent. It is sent with `unit_price` alone (422
+	// `request.validation_failed` naming `items[i].price_unit`).
+	PriceUnit OptInt32 `json:"price_unit"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *SalesOrderItemChange) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *SalesOrderItemChange) GetQuantity() OptQuantity {
+	return s.Quantity
+}
+
+// GetUnitPrice returns the value of UnitPrice.
+func (s *SalesOrderItemChange) GetUnitPrice() OptMoney {
+	return s.UnitPrice
+}
+
+// GetPriceUnit returns the value of PriceUnit.
+func (s *SalesOrderItemChange) GetPriceUnit() OptInt32 {
+	return s.PriceUnit
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *SalesOrderItemChange) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *SalesOrderItemChange) SetQuantity(val OptQuantity) {
+	s.Quantity = val
+}
+
+// SetUnitPrice sets the value of UnitPrice.
+func (s *SalesOrderItemChange) SetUnitPrice(val OptMoney) {
+	s.UnitPrice = val
+}
+
+// SetPriceUnit sets the value of PriceUnit.
+func (s *SalesOrderItemChange) SetPriceUnit(val OptInt32) {
+	s.PriceUnit = val
 }
 
 // One page of sales orders.
@@ -103914,6 +104741,7 @@ func (*TooManyRequestsHeaders) blockPrincipalRes()                        {}
 func (*TooManyRequestsHeaders) callOffScheduleLineRes()                   {}
 func (*TooManyRequestsHeaders) cancelApprovalRequestRes()                 {}
 func (*TooManyRequestsHeaders) cancelAssetRes()                           {}
+func (*TooManyRequestsHeaders) cancelBillingDocumentRes()                 {}
 func (*TooManyRequestsHeaders) cancelContractRes()                        {}
 func (*TooManyRequestsHeaders) cancelDownPaymentRequestRes()              {}
 func (*TooManyRequestsHeaders) cancelMemoRecordRes()                      {}
@@ -103923,9 +104751,11 @@ func (*TooManyRequestsHeaders) cancelPurchaseOrderChangeRes()             {}
 func (*TooManyRequestsHeaders) cancelPurchaseOrderRes()                   {}
 func (*TooManyRequestsHeaders) cancelRequisitionRes()                     {}
 func (*TooManyRequestsHeaders) cancelRevaluationRunRes()                  {}
+func (*TooManyRequestsHeaders) cancelSalesOrderRes()                      {}
 func (*TooManyRequestsHeaders) cancelSupplierInvoiceRes()                 {}
 func (*TooManyRequestsHeaders) captureSalesOrderRes()                     {}
 func (*TooManyRequestsHeaders) captureSupplierInvoiceRes()                {}
+func (*TooManyRequestsHeaders) changeSalesOrderRes()                      {}
 func (*TooManyRequestsHeaders) checkCloseTaskRes()                        {}
 func (*TooManyRequestsHeaders) checkYearCloseTaskRes()                    {}
 func (*TooManyRequestsHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
@@ -104319,6 +105149,7 @@ func (*TooManyRequestsHeaders) listRoleAssignmentsRes()                   {}
 func (*TooManyRequestsHeaders) listRolePermissionsRes()                   {}
 func (*TooManyRequestsHeaders) listRolesRes()                             {}
 func (*TooManyRequestsHeaders) listSalesDeliveriesRes()                   {}
+func (*TooManyRequestsHeaders) listSalesOrderChangesRes()                 {}
 func (*TooManyRequestsHeaders) listSalesOrdersRes()                       {}
 func (*TooManyRequestsHeaders) listSalesPricesRes()                       {}
 func (*TooManyRequestsHeaders) listScheduleLinesRes()                     {}
@@ -104807,6 +105638,7 @@ func (*UnauthorizedHeaders) blockPrincipalRes()                        {}
 func (*UnauthorizedHeaders) callOffScheduleLineRes()                   {}
 func (*UnauthorizedHeaders) cancelApprovalRequestRes()                 {}
 func (*UnauthorizedHeaders) cancelAssetRes()                           {}
+func (*UnauthorizedHeaders) cancelBillingDocumentRes()                 {}
 func (*UnauthorizedHeaders) cancelContractRes()                        {}
 func (*UnauthorizedHeaders) cancelDownPaymentRequestRes()              {}
 func (*UnauthorizedHeaders) cancelMemoRecordRes()                      {}
@@ -104816,9 +105648,11 @@ func (*UnauthorizedHeaders) cancelPurchaseOrderChangeRes()             {}
 func (*UnauthorizedHeaders) cancelPurchaseOrderRes()                   {}
 func (*UnauthorizedHeaders) cancelRequisitionRes()                     {}
 func (*UnauthorizedHeaders) cancelRevaluationRunRes()                  {}
+func (*UnauthorizedHeaders) cancelSalesOrderRes()                      {}
 func (*UnauthorizedHeaders) cancelSupplierInvoiceRes()                 {}
 func (*UnauthorizedHeaders) captureSalesOrderRes()                     {}
 func (*UnauthorizedHeaders) captureSupplierInvoiceRes()                {}
+func (*UnauthorizedHeaders) changeSalesOrderRes()                      {}
 func (*UnauthorizedHeaders) checkCloseTaskRes()                        {}
 func (*UnauthorizedHeaders) checkYearCloseTaskRes()                    {}
 func (*UnauthorizedHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
@@ -105212,6 +106046,7 @@ func (*UnauthorizedHeaders) listRoleAssignmentsRes()                   {}
 func (*UnauthorizedHeaders) listRolePermissionsRes()                   {}
 func (*UnauthorizedHeaders) listRolesRes()                             {}
 func (*UnauthorizedHeaders) listSalesDeliveriesRes()                   {}
+func (*UnauthorizedHeaders) listSalesOrderChangesRes()                 {}
 func (*UnauthorizedHeaders) listSalesOrdersRes()                       {}
 func (*UnauthorizedHeaders) listSalesPricesRes()                       {}
 func (*UnauthorizedHeaders) listScheduleLinesRes()                     {}

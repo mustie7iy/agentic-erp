@@ -314,9 +314,10 @@ func billedTo(item sales.OrderItem, day time.Time) money.Minor {
 // recognized less billed less what was posted; and the contract's sums.
 // moved says whether any obligation's movement is not zero: the
 // contract's position moves only with one. Every amount is within the
-// contract's transaction price, and a movement, the change of
-// recognized less the change of billed since the last posting, neither
-// of which falls, is too.
+// contract's transaction price, and so is a movement, the change of
+// recognized less the change of billed since the last posting: billed
+// falls only by a cancelled billing (T79c), never below what is billed
+// still, which is not negative.
 func figures(s Schedule, order sales.Order, day time.Time, before map[int32]money.Minor) (p Posting, moved bool) {
 	k := s.Contract
 	items := make(map[int32]sales.OrderItem, len(order.Items))

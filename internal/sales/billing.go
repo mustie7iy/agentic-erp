@@ -18,7 +18,7 @@ import (
 )
 
 // The statuses of a billing document: created, then posted once as a
-// customer invoice (T79b; ADR-0067 §9).
+// customer invoice (T79b; ADR-0067 §9); either is Cancelled once (T79c).
 const (
 	Created = "created"
 	Posted  = "posted"
@@ -64,12 +64,15 @@ type BillingDocument struct {
 	InvoiceNumber   *string
 	EntryYear       *int16
 	EntryID         *uuid.UUID
-	Items           []BillingItem
-	Version         int32
-	CreatedAt       time.Time
-	CreatedBy       uuid.UUID
-	UpdatedAt       time.Time
-	UpdatedBy       uuid.UUID
+	// Cancellation is the document's cancellation, nil unless it is
+	// Cancelled (T79c).
+	Cancellation *BillingCancellation
+	Items        []BillingItem
+	Version      int32
+	CreatedAt    time.Time
+	CreatedBy    uuid.UUID
+	UpdatedAt    time.Time
+	UpdatedBy    uuid.UUID
 }
 
 // BillingInput is a billing document as a client sends it: the order to
@@ -81,31 +84,38 @@ type BillingInput struct {
 
 // billingSelect names the order by subqueries, not a join, for the
 // reason orderSelect names the quotation by one. An item reads what it
-// names, its price, the price's source and the conditions applied to it
-// from the order's item, which nothing changes: the conditions are the
-// order item's, for its whole quantity, and add up to its net value, of
-// which this item's amount is the share billed.
+// names, its account and tax code from the order's item, which nothing
+// changes, and its price, the price's source and the conditions applied
+// to it as they were when it was billed (migration 000356), since an
+// order item's price changes once nothing of it is billed (T78d): the
+// conditions are the order item's, for its whole quantity, and add up to
+// its net value then, of which this item's amount is the share billed.
 const billingSelect = `SELECT b.id, b.document_number, b.legal_entity_id, b.customer_id, b.sales_order_id,
 		(SELECT o.document_number FROM sales.sales_order o WHERE o.tenant_id = b.tenant_id AND o.id = b.sales_order_id),
 		(SELECT o.payment_term_code FROM sales.sales_order o WHERE o.tenant_id = b.tenant_id AND o.id = b.sales_order_id),
 		b.billing_date, b.currency, c.exponent, b.net_amount, b.status, b.posting_date, b.customer_invoice_id, b.customer_invoice_number,
 		b.journal_entry_year, b.journal_entry_id,
 		(SELECT json_agg(json_build_object('item_no', i.item_no, 'item_key', t.item_key, 'description', t.description,
-			'quantity', trim_scale(i.quantity)::text, 'unit', t.uom_code, 'unit_price', t.unit_price, 'price_unit', t.price_unit,
-			'price_source', t.price_source, 'conditions', t.conditions, 'net_amount', i.net_amount, 'account_id', t.account_id, 'tax_code', t.tax_code, 'order_item_no', i.order_item_no,
+			'quantity', trim_scale(i.quantity)::text, 'unit', t.uom_code, 'unit_price', i.unit_price, 'price_unit', i.price_unit,
+			'price_source', i.price_source, 'conditions', i.conditions, 'net_amount', i.net_amount, 'account_id', t.account_id, 'tax_code', t.tax_code, 'order_item_no', i.order_item_no,
 			'credited_amount', (SELECT coalesce(sum(c.net_amount), 0) FROM sales.credit_memo_request_item c JOIN sales.credit_memo_request r
 				ON r.tenant_id = c.tenant_id AND r.id = c.request_id
 				WHERE c.tenant_id = i.tenant_id AND c.billing_document_id = i.billing_document_id AND c.billing_item_no = i.item_no AND r.status = 'posted')) ORDER BY i.item_no)
 		 FROM sales.billing_document_item i JOIN sales.sales_order_item t ON t.tenant_id = i.tenant_id AND t.sales_order_id = i.sales_order_id
 			AND t.item_no = i.order_item_no
 		 WHERE i.tenant_id = b.tenant_id AND i.billing_document_id = b.id),
+		(SELECT json_build_object('id', x.id, 'document_number', x.document_number,
+			'cancellation_date', to_char(x.cancellation_date, 'YYYY-MM-DD"T00:00:00Z"'), 'reason', x.reason,
+			'customer_invoice_id', x.customer_invoice_id, 'customer_invoice_number', x.customer_invoice_number,
+			'journal_entry_year', x.journal_entry_year, 'journal_entry_id', x.journal_entry_id, 'created_at', x.created_at, 'created_by', x.created_by)
+		 FROM sales.billing_cancellation x WHERE x.tenant_id = b.tenant_id AND x.billing_document_id = b.id),
 		b.version, b.created_at, b.created_by, b.updated_at, b.updated_by
 	FROM sales.billing_document b JOIN ref.currency c ON c.code = b.currency`
 
 func scanBilling(row pgx.Row) (BillingDocument, error) {
 	var b BillingDocument
 	err := row.Scan(&b.ID, &b.DocumentNumber, &b.LegalEntityID, &b.CustomerID, &b.OrderID, &b.OrderNumber, &b.PaymentTermCode, &b.BillingDate,
-		&b.Currency, &b.Exponent, &b.Net, &b.Status, &b.PostingDate, &b.InvoiceID, &b.InvoiceNumber, &b.EntryYear, &b.EntryID, &b.Items, &b.Version, &b.CreatedAt, &b.CreatedBy, &b.UpdatedAt, &b.UpdatedBy)
+		&b.Currency, &b.Exponent, &b.Net, &b.Status, &b.PostingDate, &b.InvoiceID, &b.InvoiceNumber, &b.EntryYear, &b.EntryID, &b.Items, &b.Cancellation, &b.Version, &b.CreatedAt, &b.CreatedBy, &b.UpdatedAt, &b.UpdatedBy)
 	return b, errs.Wrapf(err, "scan billing document")
 }
 
@@ -231,11 +241,13 @@ func billable(ctx context.Context, tx pgx.Tx, o Order) ([]BillingItem, error) {
 	return items, nil
 }
 
-// billedAmounts are the amounts earlier billing documents billed of each
-// of the order's items, by the order's item number.
+// billedAmounts are the amounts earlier billing documents that are not
+// cancelled billed of each of the order's items, by the order's item
+// number (T79c: a cancelled document's quantities are billable again).
 func billedAmounts(ctx context.Context, tx pgx.Tx, orderID uuid.UUID) (map[int32]money.Minor, error) {
-	rows, _ := tx.Query(ctx, `SELECT order_item_no, sum(net_amount)::bigint FROM sales.billing_document_item
-		WHERE sales_order_id = $1 GROUP BY order_item_no ORDER BY order_item_no`, orderID)
+	rows, _ := tx.Query(ctx, `SELECT i.order_item_no, sum(i.net_amount)::bigint FROM sales.billing_document_item i
+		JOIN sales.billing_document b ON b.tenant_id = i.tenant_id AND b.id = i.billing_document_id
+		WHERE i.sales_order_id = $1 AND b.status <> $2 GROUP BY i.order_item_no ORDER BY i.order_item_no`, orderID, Cancelled)
 	out := map[int32]money.Minor{}
 	var no int32
 	var amount money.Minor

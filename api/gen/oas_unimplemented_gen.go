@@ -507,6 +507,40 @@ func (UnimplementedHandler) CancelAsset(ctx context.Context, params CancelAssetP
 	return r, ht.ErrNotImplemented
 }
 
+// CancelBillingDocument implements cancelBillingDocument operation.
+//
+// Cancels a `created` or `posted` billing document, once (ADR-0067, As built T79c), at the version the
+// caller read (`If-Match`), with a reason, as SAP's billing cancellation does: a cancellation document
+// is created, numbered from the company's `billing_document` number range of its date's fiscal year. A
+// created document posted nothing, so its cancellation posts nothing either. For a posted one,
+// accounts receivable enters and posts a customer credit memo in the same transaction (`kind`
+// `credit_memo`, document type `DG`) naming the document's customer invoice (`reference_invoice_id`)
+// and the cancellation as its source, with the invoice's items one for one: each item's account,
+// amount and the output tax the invoice's item bore, so receivables, revenue and output tax move back
+// by exactly the invoice's net, tax and gross. Its credit line is the customer's open credit item; it
+// is not cleared against the invoice, which stays open until it is cleared (`createClearing`) or paid.
+// Either way the document becomes `cancelled`, names its `cancellation`, and what it billed of the
+// order's items is billable again: each order item's `billed_quantity` falls by the document's
+// quantity and the order's `version` moves, and a later billing document bills the delivered
+// quantities at the order's prices as the cumulative rule says over the documents not cancelled.
+// `cancellation_date` is the cancellation's date and, for a posted document, the credit memo's date,
+// which is its tax date, and posting date, in an open period (409 `ledger.period_not_open`); absent:
+// today, the company's date in its time zone; it is not before the billing date, nor before the
+// posting date of a posted one (422 `sales.invalid_cancellation_date`). The document's row and then
+// its order's are read under a lock: of two requests to cancel one document one does and the other
+// meets another version (412). A cancelled document is refused (409 `sales.invalid_status`), as is one
+// a returns order or a credit memo request that is not rejected names (409
+// `sales.billing_document_referenced`): those are settled first. What accounts receivable or the
+// ledger refuses leaves the document as it was and is answered with their code, the document's number
+// leading the detail and the document's own fields named, as `postBillingDocument` answers. Audited,
+// and published as BillingDocumentCancelled, beside the credit memo's own events. A retry with the
+// same `Idempotency-Key` answers the cancelled document. Human-only (`x-agent: false`).
+//
+// POST /v1/billing-documents/{id}:cancel
+func (UnimplementedHandler) CancelBillingDocument(ctx context.Context, req *BillingDocumentCancel, params CancelBillingDocumentParams) (r CancelBillingDocumentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CancelContract implements cancelContract operation.
 //
 // Cancels a draft contract that was never used (status `cancelled`). Active contracts are ended with
@@ -610,6 +644,25 @@ func (UnimplementedHandler) CancelRevaluationRun(ctx context.Context, req *Reaso
 	return r, ht.ErrNotImplemented
 }
 
+// CancelSalesOrder implements cancelSalesOrder operation.
+//
+// Cancels a `draft` or `confirmed` sales order of which nothing is delivered (ADR-0067, As built
+// T78d), at the version the caller read (`If-Match`), with a reason: the order is read under a row
+// lock and moves to `cancelled` once, naming the reason, who cancelled it and when. An order already
+// cancelled is refused (409 `sales.invalid_status`), as is one with a quantity delivered (409
+// `sales.order_delivered`) and a confirmed one with a revenue contract (409
+// `sales.revenue_contract_exists`), whose obligations hold the order's values: since only what is
+// delivered is billed, nothing of a cancelled order is billed. A cancelled order takes no change,
+// delivery or billing document, and leaves the customer's open orders (`getCreditExposure`). The
+// quotation it came from stays ordered. Nothing is posted. Audited, and published as
+// SalesOrderChanged. A retry with the same `Idempotency-Key` answers the cancelled order. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/sales-orders/{id}:cancel
+func (UnimplementedHandler) CancelSalesOrder(ctx context.Context, req *ReasonInput, params CancelSalesOrderParams) (r CancelSalesOrderRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CancelSupplierInvoice implements cancelSupplierInvoice operation.
 //
 // Cancels a parked or held invoice (status `cancelled`); its supplier reference can then be entered
@@ -668,6 +721,40 @@ func (UnimplementedHandler) CaptureSalesOrder(ctx context.Context, req *SalesOrd
 //
 // POST /v1/supplier-invoices:capture
 func (UnimplementedHandler) CaptureSupplierInvoice(ctx context.Context, req *SupplierInvoiceCaptureMultipart, params CaptureSupplierInvoiceParams) (r CaptureSupplierInvoiceRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ChangeSalesOrder implements changeSalesOrder operation.
+//
+// Changes a `draft` or `confirmed` sales order in place (ADR-0067, As built T78d), at the version the
+// caller read (`If-Match`): items' quantities and unit prices and the order's requested delivery date.
+// The order is read under a row lock; a cancelled order is not changed (409 `sales.invalid_status`).
+// Each item named by its number (422 `sales.unknown_order_item` naming `items[i].item_no`, once: 422
+// `sales.item_repeated`) takes the quantity given, in its own unit (422 `sales.unit_mismatch`), and
+// the unit price given, in the order's currency, with its price unit; what is not given stays. A
+// changed item is checked and priced again as an item given directly is (`createSalesOrder`), on the
+// order's date: an entered price stays entered, an item priced from the price records takes the record
+// valid on that date again, with the pricing procedure's discounts; its account and tax code are
+// checked again on that date (422 `sales.account_not_postable`, `sales.unknown_tax_code`). An item's
+// quantity is never below what is delivered of it (422 `sales.quantity_below_delivered` naming
+// `items[i].quantity.value`), and an item of which something is billed keeps its quantity and price
+// (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first
+// (`cancelBillingDocument`). A confirmed order with a revenue contract (`createRevenueContract`, or
+// made when the order is confirmed) keeps its items' quantities and prices (409
+// `sales.revenue_contract_exists`): the contract holds their values, and follows no change of them;
+// its requested delivery date still changes. `requested_delivery_date` is on or after the order's date
+// (422 `sales.invalid_requested_delivery_date`); `null` clears it. A request that changes nothing is
+// refused (422 `sales.nothing_changed`). The order's net value is the sum of its items' again. A
+// change that raises a confirmed order's net value checks the customer's credit for the increase, as a
+// confirmation checks the order (`confirmSalesOrder`): an order that no longer fits the limit is
+// blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked), whatever an earlier
+// release; a lower value leaves the block as it is. The change is kept, numbered within the order,
+// with its reason and its values before and after (`listSalesOrderChanges`), and the order's `changes`
+// counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
+// `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`).
+//
+// POST /v1/sales-orders/{id}:change
+func (UnimplementedHandler) ChangeSalesOrder(ctx context.Context, req *SalesOrderChangeRequest, params ChangeSalesOrderParams) (r ChangeSalesOrderRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -960,20 +1047,20 @@ func (UnimplementedHandler) ConfirmSalesDelivery(ctx context.Context, req *Sales
 // Confirms a `draft` sales order (ADR-0067 §5, T78b), at the version the caller read (`If-Match`):
 // the order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused
 // (409 `sales.invalid_status`). Confirming is by permission, without an approval; a confirmed order is
-// not changed or cancelled in the first version. Nothing is posted. The confirmation checks the
-// customer's credit (ADR-0066, T77b), once: the order's gross value, its net value plus the output tax
-// its items' tax codes give on the order's date, in the company's currency (an order in another
-// currency at the average rate valid on its date), is compared with the customer's credit limit in the
-// company less its exposure, its open items and its other confirmed orders not yet billed, as
-// `getCreditExposure` gives them. An order that is within the limit, and every order of a customer
-// without a limit, is confirmed with `credit_block` `none`. One that is not is confirmed all the same,
-// with `credit_block` `blocked`: it takes no delivery, and so no billing, until a person holding
-// `sales.order.credit_release` releases it (`releaseSalesOrderCreditBlock`). Two orders of one
-// customer confirmed at once are checked one after the other, so they cannot both take the room only
-// one fits. The order is not checked again after its confirmation. The value must be calculable: a tax
-// code that is no longer an output tax code on the order's date (422 `sales.unknown_tax_code`), an
-// order in another currency without a rate into the company's on its date (422
-// `ledger.no_exchange_rate`) or a value with its tax too large for an amount (422
+// changed (`changeSalesOrder`) and cancelled (`cancelSalesOrder`) as a draft is. Nothing is posted.
+// The confirmation checks the customer's credit (ADR-0066, T77b), once: the order's gross value, its
+// net value plus the output tax its items' tax codes give on the order's date, in the company's
+// currency (an order in another currency at the average rate valid on its date), is compared with the
+// customer's credit limit in the company less its exposure, its open items and its other confirmed
+// orders not yet billed, as `getCreditExposure` gives them. An order that is within the limit, and
+// every order of a customer without a limit, is confirmed with `credit_block` `none`. One that is not
+// is confirmed all the same, with `credit_block` `blocked`: it takes no delivery, and so no billing,
+// until a person holding `sales.order.credit_release` releases it (`releaseSalesOrderCreditBlock`).
+// Two orders of one customer confirmed at once are checked one after the other, so they cannot both
+// take the room only one fits. The order is not checked again after its confirmation. The value must
+// be calculable: a tax code that is no longer an output tax code on the order's date (422
+// `sales.unknown_tax_code`), an order in another currency without a rate into the company's on its
+// date (422 `ledger.no_exchange_rate`) or a value with its tax too large for an amount (422
 // `sales.amount_too_large`) refuses the confirmation, whether the customer has a limit or not, since a
 // confirmed order counts in its exposure. An exposure that adds up, with the order, to more than an
 // amount holds is refused too (422 `credit.amount_too_large`). Audited, with the amount checked, the
@@ -7077,6 +7164,20 @@ func (UnimplementedHandler) ListSalesDeliveries(ctx context.Context, params List
 	return r, ht.ErrNotImplemented
 }
 
+// ListSalesOrderChanges implements listSalesOrderChanges operation.
+//
+// The changes of a sales order (ADR-0067, As built T78d), each as `changeSalesOrder` made it: its
+// number within the order, the order's version after it, its reason, who made it and when, and what it
+// changed with its values before and after: the net value, the requested delivery date, the credit
+// block and each item changed. A change is kept as it was made and never altered. An order of a
+// company the caller may not act in is not found (404), as one that does not exist. Sortable by:
+// `change_no`.
+//
+// GET /v1/sales-orders/{id}/changes
+func (UnimplementedHandler) ListSalesOrderChanges(ctx context.Context, params ListSalesOrderChangesParams) (r ListSalesOrderChangesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListSalesOrders implements listSalesOrders operation.
 //
 // The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as
@@ -7616,11 +7717,11 @@ func (UnimplementedHandler) PostBankStatementLine(ctx context.Context, req OptSt
 // not carry (422 `ledger.cost_center_required`, `items[i].account_id`); a tax code that is no longer
 // an output tax code of the company with a rate on the billing date (422
 // `receivables.unknown_tax_code`, `items[i].tax_code`); a company without the `customer_invoice` or
-// `journal_dr` number range (422 `config.no_number_range`). An order's items are not changed in the
-// first version, so a document refused for an item's account or tax code cannot be posted until the
-// configuration allows it again. A posted billing document is not reversed or cancelled in the first
-// version: the ledger's `reverseJournalEntry` refuses its entry (409 `ledger.entry_owned_elsewhere`).
-// Human-only (`x-agent: false`).
+// `journal_dr` number range (422 `config.no_number_range`). A document refused for an item's account
+// or tax code is posted once the configuration allows it again, or cancelled
+// (`cancelBillingDocument`). A posted billing document is cancelled by `cancelBillingDocument`, which
+// posts a credit memo; the ledger's `reverseJournalEntry` refuses its entry (409
+// `ledger.entry_owned_elsewhere`). Human-only (`x-agent: false`).
 //
 // POST /v1/billing-documents/{id}:post
 func (UnimplementedHandler) PostBillingDocument(ctx context.Context, req OptBillingDocumentPost, params PostBillingDocumentParams) (r PostBillingDocumentRes, _ error) {
@@ -8440,11 +8541,11 @@ func (UnimplementedHandler) ReleasePurchaseOrder(ctx context.Context, params Rel
 // the order takes deliveries and is billed as any confirmed order, and it counts in the customer's
 // exposure, which may then exceed the limit: the release is the credit manager's decision, whatever
 // the amount. An order without a block, or whose block is already released, is refused (409
-// `sales.order_not_credit_blocked`). The release is by its own permission,
-// `sales.order.credit_release`; no rule sets the person who releases apart from the one who confirmed
-// the order. Nothing is checked again and nothing is posted. Audited, and published as
-// SalesOrderCreditReleased. A retry with the same `Idempotency-Key` answers the released order.
-// Human-only (`x-agent: false`).
+// `sales.order_not_credit_blocked`), and a cancelled one too (409 `sales.invalid_status`). The release
+// is by its own permission, `sales.order.credit_release`; no rule sets the person who releases apart
+// from the one who confirmed the order. Nothing is checked again and nothing is posted. Audited, and
+// published as SalesOrderCreditReleased. A retry with the same `Idempotency-Key` answers the released
+// order. Human-only (`x-agent: false`).
 //
 // POST /v1/sales-orders/{id}:releaseCreditBlock
 func (UnimplementedHandler) ReleaseSalesOrderCreditBlock(ctx context.Context, params ReleaseSalesOrderCreditBlockParams) (r ReleaseSalesOrderCreditBlockRes, _ error) {

@@ -63,9 +63,13 @@ const Draft = "draft"
 const PointInTime = "point_in_time"
 
 // SalesOrders reads a sales order with its items (sales context,
-// ADR-0067 §5). Company access is the caller's to check.
+// ADR-0067 §5); Shared reads it under a share lock, as a contract is made
+// from it, so a change or cancellation of the order and the contract's
+// creation are serialized (ADR-0067, As built T78d). Company access is
+// the caller's to check.
 type SalesOrders interface {
 	Order(ctx context.Context, id uuid.UUID) (sales.Order, bool, error)
+	Shared(ctx context.Context, id uuid.UUID) (sales.Order, bool, error)
 }
 
 // LegalEntities is what revenue reads about legal entities (tenancy

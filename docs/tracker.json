@@ -4815,8 +4815,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A sales representative changes an open sales order (an item's quantity and price, the requested delivery date), each change kept with its values before and after, and cancels an order of which nothing is delivered, with a reason (POST /v1/sales-orders/{id}:change, :cancel)",
+        "r": "T78d · docs/design/plan-depth-1.md §T78d · db/migrations/000355 · sales.sales_order_change · POST /v1/sales-orders/{id}:change · GET /v1/sales-orders/{id}/changes · POST /v1/sales-orders/{id}:cancel · walkthrough step_sales_order_change · ADR-0067 As built",
+        "src": "split:T78b · po:2026-11-17",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: sales order variants: changing or cancelling an order and its versions, sales organizations and sales areas, partner functions, order types, schedule lines and requested delivery dates per item, incompletion checks, approval, the order confirmation as a document, custom fields, taking open orders over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "later: sales order variants: adding and removing items and changing the payment term, cancelling an order with deliveries (a reason for rejection per item), sales organizations and sales areas, partner functions, order types, schedule lines and requested delivery dates per item, incompletion checks, approval, the order confirmation as a document, custom fields, taking open orders over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T78b, Later",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
@@ -4976,8 +4983,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A billing clerk cancels a billing document: a created one simply, a posted one by a cancellation document whose customer credit memo reverses the invoice's receivable, revenue and output tax exactly; the order's items are billable again (POST /v1/billing-documents/{id}:cancel)",
+        "r": "T79c · docs/design/plan-depth-1.md §T79c · db/migrations/000356 · sales.billing_cancellation · POST /v1/billing-documents/{id}:cancel · BillingDocumentCancelled · walkthrough step_billing_cancellation · ADR-0067 As built",
+        "src": "split:T79a · po:2026-11-17",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: billing document variants: cancelling a billing document, collective billing and invoice splits, billing plans, milestones and down payment requests, pro forma invoices, billing without delivery, intercompany billing, the billing due list as a scheduled run, the invoice as a document sent to the customer and as an e-invoice (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "later: billing document variants: collective billing and invoice splits, billing plans, milestones and down payment requests, pro forma invoices, billing without delivery, intercompany billing, the billing due list as a scheduled run, the invoice as a document sent to the customer and as an e-invoice (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T79a, Later",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
@@ -4998,7 +5012,7 @@
        },
        {
         "s": "T",
-        "t": "later: billing posting variants: revenue account determination by customer and item group, reversal of a posted billing document, credit and debit memos from billing, posting to a profit center or segment derived from the sales organization, cost of goods sold, rebate accruals, a tax date other than the billing date (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "later: billing posting variants: revenue account determination by customer and item group, credit and debit memos from billing, posting to a profit center or segment derived from the sales organization, cost of goods sold, rebate accruals, a tax date other than the billing date (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T79b, Later",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []

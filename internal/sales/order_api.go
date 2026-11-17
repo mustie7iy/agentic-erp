@@ -40,7 +40,10 @@ func orderAPI(o Order, refs references) gen.SalesOrder {
 		QuotationID: apitypes.OptUUID(o.QuotationID), QuotationNumber: apitypes.OptString(o.QuotationNumber), OrderDate: o.OrderDate,
 		Currency: o.Currency, PaymentTermCode: o.PaymentTermCode, NetAmount: apitypes.Money(o.Net, o.Currency, o.Exponent), Status: o.Status,
 		CreditBlock: o.CreditBlock, CreditReleasedBy: apitypes.OptUUID(o.CreditReleasedBy),
-		CreditReleasedByName: apitypes.OptString(o.CreditReleasedByName), Items: make([]gen.SalesOrderItem, len(o.Items))}
+		CreditReleasedByName: apitypes.OptString(o.CreditReleasedByName), RequestedDeliveryDate: apitypes.OptDate(o.DeliveryDate),
+		Changes: o.Changes, CancellationReason: apitypes.OptString(o.CancellationReason), CancelledBy: apitypes.OptUUID(o.CancelledBy),
+		CancelledByName: apitypes.OptString(o.CancelledByName),
+		CancelledAt:     apitypes.OptDateTime(o.CancelledAt), Items: make([]gen.SalesOrderItem, len(o.Items))}
 	if o.CreditReleasedAt != nil {
 		out.CreditReleasedAt.SetTo(*o.CreditReleasedAt)
 	}
@@ -77,7 +80,7 @@ func (e *Endpoints) orderAnswer(ctx context.Context, o Order) (gen.SalesOrder, e
 func (e *Endpoints) CreateSalesOrder(ctx context.Context, req *gen.SalesOrderCreate, _ gen.CreateSalesOrderParams) (gen.CreateSalesOrderRes, error) {
 	in := OrderInput{QuotationID: apitypes.Ptr[uuid.UUID](req.QuotationID), LegalEntityID: apitypes.Ptr[uuid.UUID](req.LegalEntityID),
 		CustomerID: apitypes.Ptr[uuid.UUID](req.CustomerID), Currency: apitypes.Ptr[string](req.Currency),
-		PaymentTermCode: apitypes.Ptr[string](req.PaymentTermCode)}
+		PaymentTermCode: apitypes.Ptr[string](req.PaymentTermCode), DeliveryDate: apitypes.Ptr[time.Time](req.RequestedDeliveryDate)}
 	if req.Items != nil {
 		in.Items = itemInputs(req.Items)
 	}
@@ -126,7 +129,7 @@ func (e *Endpoints) ConfirmSalesOrder(ctx context.Context, params gen.ConfirmSal
 	if err != nil {
 		return nil, err
 	}
-	return &gen.ConfirmSalesOrderOKHeaders{ETag: gen.NewOptString(etag.Format(o.Version)), Response: out}, nil
+	return &gen.CancelSalesOrderOKHeaders{ETag: gen.NewOptString(etag.Format(o.Version)), Response: out}, nil
 }
 
 // ReleaseSalesOrderCreditBlock implements POST
@@ -140,7 +143,7 @@ func (e *Endpoints) ReleaseSalesOrderCreditBlock(ctx context.Context, params gen
 	if err != nil {
 		return nil, err
 	}
-	return &gen.ConfirmSalesOrderOKHeaders{ // ogen gives the two actions one answer type
+	return &gen.CancelSalesOrderOKHeaders{ // ogen gives the order's actions one answer type
 		ETag: gen.NewOptString(etag.Format(o.Version)), Response: out}, nil
 }
 

@@ -311,6 +311,20 @@ func encodeCancelApprovalRequestRequest(
 	return nil
 }
 
+func encodeCancelBillingDocumentRequest(
+	req *BillingDocumentCancel,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCancelDownPaymentRequestRequest(
 	req *ReasonInput,
 	r *http.Request,
@@ -360,6 +374,20 @@ func encodeCancelParkedJournalEntryRequest(
 }
 
 func encodeCancelRevaluationRunRequest(
+	req *ReasonInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCancelSalesOrderRequest(
 	req *ReasonInput,
 	r *http.Request,
 ) error {
@@ -461,6 +489,20 @@ func encodeCaptureSupplierInvoiceRequest(
 		return nil
 	})
 	ht.SetCloserBody(r, body, mime.FormatMediaType(contentType, map[string]string{"boundary": boundary}))
+	return nil
+}
+
+func encodeChangeSalesOrderRequest(
+	req *SalesOrderChangeRequest,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
 	return nil
 }
 
