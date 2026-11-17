@@ -489,8 +489,12 @@ func (s *SessionSweeper) endIdle(ctx context.Context, tenant uuid.UUID, ids []uu
 		return fmt.Errorf("identity: end idle sessions of tenant %s: %w", tenant, err)
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `UPDATE identity.session SET ended_at = $2, end_reason = 'idle', version = version + 1
-		WHERE id = ANY($1) AND ended_at IS NULL AND last_seen_at < $3 RETURNING id, started_at, last_seen_at`, ids, now, now.Add(-MaxIdleTimeout))
+	// The entries go into the audit chain in the sessions' id order: an
+	// UPDATE returns its rows in no order of its own, and the chain's order
+	// should not depend on the plan.
+	rows, _ := tx.Query(ctx, `WITH ended AS (UPDATE identity.session SET ended_at = $2, end_reason = 'idle', version = version + 1
+		WHERE id = ANY($1) AND ended_at IS NULL AND last_seen_at < $3 RETURNING id, started_at, last_seen_at)
+		SELECT id, started_at, last_seen_at FROM ended ORDER BY id`, ids, now, now.Add(-MaxIdleTimeout))
 	var entries []audit.Entry
 	var id uuid.UUID
 	var started, lastSeen time.Time
