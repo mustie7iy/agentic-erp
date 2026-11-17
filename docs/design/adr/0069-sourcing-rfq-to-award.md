@@ -461,7 +461,7 @@ its own items; one may instead be created from a requisition.
 - **Code.** `internal/procurement/rfq_requisition.go` (`sourced`,
   `sourcedInputs`); `createRFQ` and `writeRFQ` in `rfq.go`
   (`rfqContent`); the requisition's `rfq_id` in `requisitionSelect`.
-- **Walkthrough.** `step_rfq_requisition` (step 109): Ben raises a
+- **Walkthrough.** `step_rfq_requisition` (step 115): Ben raises a
   requisition for two items, Priya approves it, and Ben creates an RFQ
   from it, which takes its items, quantities and need date; the
   requisition reads `in_sourcing` naming the RFQ; a second RFQ from it and
@@ -532,7 +532,7 @@ replaced: an award to a quotation not ranked first now needs a reason.
   `Award.reasoned`, `awardedDocument`, `awardPayload`) and
   `rfq_award_order.go` (`awardedOrder`, `orderOf`); `orderedRequisition`
   in `purchase_orders.go` by `NewOrder.sourcedFrom`.
-- **Walkthrough.** `step_rfq_requisition` (step 109) extended: both
+- **Walkthrough.** `step_rfq_requisition` (step 115) extended: both
   suppliers quote; an award to a contract and one without a reason are
   refused; the RFQ is awarded to Tyrell's dearer quotation as a purchase
   order with the reason; the order carries the quoted prices, the need

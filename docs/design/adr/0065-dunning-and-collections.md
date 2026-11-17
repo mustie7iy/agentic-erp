@@ -683,7 +683,7 @@ rule of law is built in.
   total. Every amount carries its currency. Amounts that add up past an
   amount's range are refused, 422 `collections.amount_too_large`, as
   before.
-- **Walkthrough.** `step_dunning_charges` (step 109): a new customer,
+- **Walkthrough.** `step_dunning_charges` (step 111): a new customer,
   Lakeshore Hardware, with a CAD 30.00 invoice on NT30 and a CAD 600.00
   one on NT60; Ada sets 7 grace days, a CAD 50.00 minimum, 9% interest
   and level 2's CAD 15.00 and level 3's CAD 25.00 with interest through a
@@ -767,9 +767,9 @@ digest.
   name the items it holds back (decided by default).
 - **Not in the worklist.** The collection worklist does not show blocks
   yet (later).
-- **Walkthrough.** `step_dunning_blocks` (step 110): Ruth blocks
+- **Walkthrough.** `step_dunning_blocks` (step 112): Ruth blocks
   Lakeshore's gasket invoice up to a date 120 days away and a run at
-  step 109's last key date names it as blocked and duns the pump invoice
+  step 111's last key date names it as blocked and duns the pump invoice
   alone; an end date in the past is refused; a colleague's proposal is
   refused as stale once Ruth blocks the whole customer for a payment
   plan; a run at the key date duns nothing of Lakeshore's, each invoice

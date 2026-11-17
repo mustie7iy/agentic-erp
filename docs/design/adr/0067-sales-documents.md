@@ -1707,7 +1707,7 @@ delivered, are the reference.
   the audit records `sales.sales_order.change` (change number, reason,
   items changed, net value before) and `sales.sales_order.cancel`
   (reason).
-- Walkthrough step 109 (`step_sales_order_change`): Ruth sets
+- Walkthrough step 113 (`step_sales_order_change`): Ruth sets
   Northwind's limit 1,000.00 above its exposure; Sally creates an order,
   changes its quantity, price and requested delivery date while it is a
   draft and reads the change back; a stale version is refused; she
@@ -1796,7 +1796,7 @@ its own whose accounting document reverses the invoice) is the reference.
   (T92a) takes the document's gross and discount off on the
   cancellation's date; a document's discount share leaves out documents
   cancelled before it was created.
-- Walkthrough step 110 (`step_billing_cancellation`): step 109's order
+- Walkthrough step 114 (`step_billing_cancellation`): step 113's order
   delivered, billed, posted and cancelled; the credit memo reverses 1200,
   4000 and 2300 by the invoice's 735.00, 700.00 and 35.00; Northwind's
   open amount is back where it was; a new document bills the 50 brackets

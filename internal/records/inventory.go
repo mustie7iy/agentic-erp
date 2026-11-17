@@ -90,6 +90,7 @@ var Inventory = []Entry{
 	{"partner", "tax_identifier", "value_last4", CategoryIdentifier, "The tax identifier's last four characters, shown instead of it.", partner("partner_id")},
 	{"payments", "bank_statement_line", "details", CategoryBankDetails, "The transactions a bank statement line holds as the bank gave them, with the counterparty's name and account.", nil},
 	{"payments", "bank_statement_line", "text", CategoryFreeText, "The bank's text of a statement line, which may name the counterparty.", nil},
+	{"sales", "sales_order", "cancelled_by_name", CategoryName, "The name of the person who cancelled an order, kept as cancelled.", principal("cancelled_by")},
 	{"sales", "sales_order", "credit_released_by_name", CategoryName, "The name of the person who released an order's credit block, kept as released.", principal("credit_released_by")},
 }
 

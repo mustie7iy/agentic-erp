@@ -65,9 +65,10 @@ const MaxCustomers = 20
 
 // Never are the operations the agent never calls (ADR-0072): starting or
 // confirming a dunning run and opening, changing or closing a dispute
-// case; nothing in the contract sends a message to a customer, and its
-// tools hold none of these.
-var Never = []string{"createDunningRun", "confirmDunningRun", "createDisputeCase", "updateDisputeCase", "closeDisputeCase"}
+// case, placing or releasing a dunning block (T76e); nothing in the
+// contract sends a message to a customer, and its tools hold none of these.
+var Never = []string{"createDunningRun", "confirmDunningRun", "createDisputeCase", "updateDisputeCase", "closeDisputeCase",
+	"createDunningBlock", "releaseDunningBlock"}
 
 // Reads are the operations the agent reads with (ADR-0072 As built,
 // T105b): the plan's, the dunning runs a notice is listed under, a

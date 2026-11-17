@@ -251,8 +251,15 @@ func TestOrderCancelled(t *testing.T) {
 	e.In(t).Problem(409, "sales.invalid_status", "POST", cancelling(id), `{"reason": "Again"}`, `"3"`)
 	e.In(t).Problem(409, "sales.invalid_status", "POST", changing(id), changeBody("", itemChange("1 2 EA", "")), `"3"`)
 	e.In(t).Problem(409, "sales.invalid_status", "POST", "/v1/sales-orders/"+id+":confirm", "", `"3"`)
-	if n := e.audits(t, "sales.sales_order.cancel", id); n != 1 {
-		t.Errorf("audit records of the cancellation: got %d, want 1", n)
+	// The cancellation, and the second one refused (httpapi.RefusalsAudited).
+	if n := e.audits(t, "sales.sales_order.cancel", id); n != 2 {
+		t.Errorf("audit records of the cancellation and its refusal: got %d, want 2", n)
+	}
+	var refused int
+	pgtest.Scan(t, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'sales.sales_order.cancel' AND object_id = $2 AND outcome = 'refused'`,
+		[]any{e.Tenant.ID, id}, &refused)
+	if refused != 1 {
+		t.Errorf("refusals of the cancellation audited: got %d, want 1", refused)
 	}
 	events := e.events(t, "sales_order_changed", "sales_order_id", id)
 	fields(t, events[len(events)-1], map[string]any{"status": "cancelled", "status_before": "confirmed", "version": float64(3)})

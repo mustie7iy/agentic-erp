@@ -39,6 +39,8 @@ var RefusalsAudited = map[string]audit.Entry{
 	"createGrIrClearing":               {Action: "procurement.gr_ir_clearing.create", ObjectType: "procurement.purchase_order"},
 	"confirmSalesOrder":                {Action: "sales.sales_order.confirm", ObjectType: "sales.sales_order"},
 	"releaseSalesOrderCreditBlock":     {Action: "sales.sales_order.release_credit_block", ObjectType: "sales.sales_order"},
+	"changeSalesOrder":                 {Action: "sales.sales_order.change", ObjectType: "sales.sales_order"},
+	"cancelSalesOrder":                 {Action: "sales.sales_order.cancel", ObjectType: "sales.sales_order"},
 	"confirmSalesDelivery":             {Action: "sales.delivery.confirm", ObjectType: "sales.sales_order"},
 	"submitPaymentRun":                 {Action: "payments.payment_run.submit", ObjectType: "payments.payment_run"},
 	"releasePaymentRun":                {Action: "payments.payment_run.release", ObjectType: "payments.payment_run"},
