@@ -193,8 +193,8 @@ func (w *Transmitter) claim(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (*
 	return c, true, err
 }
 
-// withdraw returns a file whose transmission was cancelled while it waited
-// for a claim to created: nothing was sent.
+// withdraw puts back to created a file whose transmission was cancelled
+// while it waited for a claim: nothing was sent.
 func withdraw(ctx context.Context, tx pgx.Tx, f BankFile, q queued) error {
 	if _, err := tx.Exec(ctx, `UPDATE payments.bank_file SET status = 'created', attempts = 0, next_attempt_at = NULL, transmit_operation_id = NULL,
 		transmit_requested_by = NULL, version = version + 1 WHERE id = $1`, f.ID); err != nil {

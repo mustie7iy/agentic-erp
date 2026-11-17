@@ -264,6 +264,22 @@ func TestCancelOperation(t *testing.T) {
 	if !strings.Contains(logs.String(), "did not take the cancellation") {
 		t.Fatalf("logs: got %s, want the refused cancellation logged", logs.String())
 	}
+	// A request that fails after the cancellation leaves the workflow alone:
+	// the engine is told only once the cancellation has committed.
+	engine.cancelled = nil
+	ox := start(t, ten, "payments.propose")
+	pgtest.Exec(t, `UPDATE platform.operation SET workflow_id = 'wf-rolled-back', version = version + 1 WHERE id = $1`, ox.ID)
+	e := &operations.Endpoints{Workflows: engine}
+	if err := inRequest(t, ten, ten.Agent, false, func(ctx context.Context) error { // no audit buffer: the request fails after the update
+		ctx, _ = reqctx.WithCommit(ctx) // the unit of work runs it only after a commit, which this request never reaches
+		_, err := e.CancelOperation(ctx, gen.CancelOperationParams{ID: ox.ID, IfMatch: "*"})
+		return err
+	}); err == nil {
+		t.Fatal("cancel without an audit buffer: got nil error, want the failure reported")
+	}
+	if len(engine.cancelled) != 0 {
+		t.Fatalf("engine cancellations after a rolled-back request: got %v, want none", engine.cancelled)
+	}
 	// A retry with the same key returns the same answer and changes nothing.
 	replay := api.Do(apitest.Req{Method: "POST", Path: path, Tenant: ten.ID, As: ten.Agent, Key: key, IfMatch: `"1"`})
 	if replay.Code != 200 {
@@ -392,7 +408,10 @@ func TestDatabaseFailures(t *testing.T) {
 	}
 	// Queries on a transaction that has ended fail.
 	pool := pgtest.Pool(t)
-	tx, _ := pool.Begin(context.Background(), database.Scope{Role: "erp_app", TenantID: ten.ID})
+	tx, err := pool.Begin(context.Background(), database.Scope{Role: "erp_app", TenantID: ten.ID})
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
 	tx.Rollback(context.Background())
 	dead := reqctx.WithPrincipal(reqctx.WithTx(context.Background(), tx), reqctx.Principal{ID: ten.Human.ID, Kind: "human", TenantID: ten.ID})
 	if _, err := e.GetOperation(dead, gen.GetOperationParams{ID: uuid.New()}); err == nil {
@@ -563,10 +582,48 @@ func TestStartTaken(t *testing.T) {
 	}); err == nil {
 		t.Error("an unencodable request: got nil error, want an error")
 	}
-	tx, _ := pgtest.Pool(t).Begin(context.Background(), database.Scope{Role: "erp_app", TenantID: ten.ID})
+	tx, err := pgtest.Pool(t).Begin(context.Background(), database.Scope{Role: "erp_app", TenantID: ten.ID})
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
 	tx.Rollback(context.Background())
 	dead := reqctx.WithPrincipal(reqctx.WithTx(context.Background(), tx), reqctx.Principal{ID: ten.Human.ID, Kind: "human", TenantID: ten.ID})
 	if err := operations.StartTaken(dead, uuid.New(), "test.scheduled", nil, "/v1/things/1", "w"); err == nil {
 		t.Error("a transaction that has ended: got nil error, want an error")
+	}
+}
+
+// TestWaitingSkipsMalformedResources: the dispatcher's listings read every
+// tenant's operations, so one whose resource does not end in a uuid is
+// left out rather than failing the cast for all of them.
+func TestWaitingSkipsMalformedResources(t *testing.T) {
+	ten := pgtest.NewTenant(t, perms...)
+	good, bad := start(t, ten, "test.waiting"), start(t, ten, "test.waiting")
+	pgtest.Exec(t, `UPDATE platform.operation SET resource = '/v1/things/' || id::text, version = version + 1 WHERE id = $1`, good.ID)
+	pgtest.Exec(t, `UPDATE platform.operation SET resource = '/v1/things/not-a-uuid', version = version + 1 WHERE id = $1`, bad.ID)
+	for name, list := range map[string]func(context.Context, pgx.Tx, string) ([]operations.Waiting, error){
+		"queued": operations.QueuedOf, "still queued": operations.StillQueuedOf,
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := pgtest.Pool(t).InTx(context.Background(), database.Scope{Role: "erp_worker", ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
+				all, err := list(ctx, tx, "test.waiting")
+				if err != nil {
+					return err
+				}
+				var got []operations.Waiting
+				for _, w := range all { // the package's other tenants' operations (an earlier run of this test) are theirs
+					if w.TenantID == ten.ID {
+						got = append(got, w)
+					}
+				}
+				if len(got) != 1 || got[0].ID != good.ID || got[0].Resource != good.ID {
+					t.Errorf("waiting: got %+v, want operation %s on resource %s alone", got, good.ID, good.ID)
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatalf("list: %v", err)
+			}
+		})
 	}
 }

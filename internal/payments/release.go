@@ -38,9 +38,12 @@ import (
 // the release workflow posts each payment with the entry that clears its
 // items, one transaction per payment, and writes the bank file, after which
 // the run is released. A run whose release operation failed or was
-// cancelled (nothing or
-// some payments posted) is released again by the same call, which resumes
-// the work: payments already posted are skipped.
+// cancelled with some payments posted is released again by the same call,
+// which resumes the work: payments already posted are skipped and stand,
+// and a payment not posted whose supplier can no longer be paid is dropped
+// (product owner 2026-11-16), where refusing would leave the run releasing
+// for good, since a run with payments posted is neither rejected nor
+// proposed again.
 func (e *Endpoints) StartRelease(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, comment string) (operations.Operation, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -69,7 +72,16 @@ func (e *Endpoints) StartRelease(ctx context.Context, id uuid.UUID, ifMatch func
 	if len(pays) == 0 {
 		return operations.Operation{}, problem.Conflict("payments.nothing_to_pay", "The run has no payments; reject it.")
 	}
-	if err := e.recheck(ctx, r, pays); err != nil {
+	resumed, dropped := r.Status == Releasing, 0
+	if resumed {
+		// Dropped before the new operation starts: a drop reports the run's
+		// progress on its release operation, which would set a queued one
+		// running, where no dispatcher takes it up; the failed or cancelled
+		// one it reports on here takes no progress.
+		if dropped, err = e.dropUnpaidSuppliers(ctx, tx, p, r, pays); err != nil {
+			return operations.Operation{}, err
+		}
+	} else if err := e.recheck(ctx, r, pays); err != nil {
 		return operations.Operation{}, err
 	}
 	op, err := operations.StartFor(ctx, ReleaseKind, map[string]any{"payment_run_id": r.ID, "comment": comment}, "/v1/payment-runs/"+r.ID.String())
@@ -80,7 +92,43 @@ func (e *Endpoints) StartRelease(ctx context.Context, id uuid.UUID, ifMatch func
 		version = version + 1, updated_by = $2 WHERE id = $1`, r.ID, p.ID, op.ID); err != nil {
 		return operations.Operation{}, fmt.Errorf("payments: release run %s: %w", r.ID, err)
 	}
-	return op, record(ctx, "payments.payment_run.release", r.ID, map[string]any{"comment": comment, "payments": len(pays), "operation_id": op.ID, "resumed": r.Status == Releasing})
+	return op, record(ctx, "payments.payment_run.release", r.ID, map[string]any{"comment": comment, "payments": len(pays) - dropped, "operation_id": op.ID,
+		"resumed": resumed, "dropped": dropped})
+}
+
+// dropUnpaidSuppliers drops, from a releasing run being resumed, each
+// payment not posted yet whose supplier can no longer be paid as proposed
+// (supplierReasons), and returns how many it dropped. Posted payments are
+// not checked again: their entries stand, and their bank file is produced
+// with the release (product owner 2026-11-16).
+func (e *Endpoints) dropUnpaidSuppliers(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, r Run, pays []Payment) (int, error) {
+	var unposted []Payment
+	for _, pay := range pays {
+		if pay.JournalEntryID == nil {
+			unposted = append(unposted, pay)
+		}
+	}
+	if len(unposted) == 0 {
+		return 0, nil
+	}
+	doc, _, err := e.Settings.Document(ctx)
+	if err != nil {
+		return 0, err
+	}
+	reasons, err := e.supplierReasons(ctx, r, unposted, doc)
+	if err != nil {
+		return 0, err
+	}
+	dropped := 0
+	for _, pay := range unposted {
+		if reason := reasons[pay.ID]; reason != "" {
+			if err := e.dropPayment(ctx, tx, actor, r, pay, reason); err != nil {
+				return dropped, err
+			}
+			dropped++
+		}
+	}
+	return dropped, nil
 }
 
 // releasable: a proposed run, or a releasing one whose release operation
@@ -171,7 +219,7 @@ func (e *Endpoints) PostPayment(ctx context.Context, r Run, pay uuid.UUID) (post
 		return false, err
 	}
 	if len(unpayable) > 0 {
-		return false, e.dropPayment(ctx, tx, actor, r, p, unpayable)
+		return false, e.dropPayment(ctx, tx, actor, r, p, itemReason(unpayable))
 	}
 	hb, err := payingBank(ctx, tx, r, p)
 	if err != nil {
@@ -230,29 +278,39 @@ func itemRefs(p Payment) []ledger.ItemRef {
 	return items
 }
 
-// dropPayment takes a payment that can never post out of its releasing
-// run: an item it settles was reversed, or is no longer open, since the
-// proposal (neither changes back). Its supplier is excluded with the
-// reason (for a payment of items fixing a method, those items alone), its
-// items are freed here and in the ledger, the run's total no longer counts
-// it, and the release goes on with the other payments, so a run is never
-// stuck releasing on a payment no retry can post. The run is read FOR
-// UPDATE by the release step, and a dropped payment is skipped by every
-// later step, so it is dropped once.
-func (e *Endpoints) dropPayment(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, r Run, p Payment, unpayable map[ledger.ItemRef]string) error {
-	reason := ItemNotOpen
+// itemReason is the exclusion reason for a payment whose items can no
+// longer be paid: item_reversed when one was reversed, item_not_open
+// otherwise.
+func itemReason(unpayable map[ledger.ItemRef]string) string {
 	for _, why := range unpayable {
 		if why == ledger.ItemReversed {
-			reason = ItemReversed
+			return ItemReversed
 		}
 	}
+	return ItemNotOpen
+}
+
+// dropPayment takes a payment that cannot post out of its releasing run:
+// an item it settles was reversed, or is no longer open, since the
+// proposal (neither changes back), or, when the release is resumed, its
+// supplier can no longer be paid as proposed. Its supplier is excluded with
+// the reason (for a payment of items fixing a method, those items alone),
+// its items are freed here and in the ledger, the run's total no longer
+// counts it, and the release goes on with the other payments, so a run is
+// never stuck releasing on a payment no retry can post. The run is read
+// FOR UPDATE by the release step and by :release, and a dropped payment is
+// skipped by every later step, so it is dropped once.
+func (e *Endpoints) dropPayment(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, r Run, p Payment, reason string) error {
 	// The exclusion is of the group the payment pays: the supplier's items
-	// fixing its method, or those that fix none (dropped).
+	// fixing its method, those that fix none, or the down payment request
+	// it pays (dropped).
 	if _, err := tx.Exec(ctx, `WITH fixed AS (INSERT INTO payments.method_exclusion (tenant_id, id, payment_run_id, supplier_id, payment_method, reason_code, amount)
-			SELECT $1, $6, $2, $3, $7, $4, $5 WHERE $8)
+			SELECT $1, $6, $2, $3, $7, $4, $5 WHERE $8 AND $9::uuid IS NULL),
+		request AS (INSERT INTO payments.request_exclusion (tenant_id, payment_run_id, down_payment_request_id, supplier_id, reason_code, amount)
+			SELECT $1, $2, $9, $3, $4, $5 WHERE $9::uuid IS NOT NULL)
 		INSERT INTO payments.payment_exclusion (tenant_id, payment_run_id, supplier_id, reason_code, amount)
-		SELECT $1, $2, $3, $4, $5 WHERE NOT $8`, actor.TenantID, r.ID, p.SupplierID, reason, p.Amount, uuid.Must(uuid.NewV7()), p.Method,
-		p.MethodFixed); err != nil {
+		SELECT $1, $2, $3, $4, $5 WHERE NOT $8 AND $9::uuid IS NULL`, actor.TenantID, r.ID, p.SupplierID, reason, p.Amount, uuid.Must(uuid.NewV7()), p.Method,
+		p.MethodFixed, p.RequestID); err != nil {
 		return fmt.Errorf("payments: exclude supplier %s from run %s: %w", p.SupplierID, r.ID, err)
 	}
 	freed, err := tx.Exec(ctx, `UPDATE payments.payment_item SET is_active = false WHERE payment_id = $1 AND is_active`, p.ID)
@@ -280,7 +338,8 @@ func (e *Endpoints) dropPayment(ctx context.Context, tx pgx.Tx, actor reqctx.Pri
 // master data (a partner may be a person) out of them; whether a supplier's
 // name may go into an event delivered by webhook is a question of security
 // posture for the product owner (ADR-0038, as built). A supplier the
-// partner context does not hold is an error, as supplierNamed's.
+// partner context does not hold is an error, as supplierNamed's. A down
+// payment's names the request it frees by id and number.
 func (e *Endpoints) recordExcluded(ctx context.Context, r Run, p Payment, reason string, freed int64) error {
 	company, err := e.companyCode(ctx, r.LegalEntityID)
 	if err != nil {
@@ -290,11 +349,18 @@ func (e *Endpoints) recordExcluded(ctx context.Context, r Run, p Payment, reason
 	if err != nil {
 		return fmt.Errorf("payments: name supplier %s: %w", p.SupplierID, err)
 	}
-	return record(ctx, "payments.payment_run.drop_payment", r.ID, map[string]any{"payment_id": p.ID, "supplier_id": p.SupplierID,
-		"reason": reason, "freed_items": freed},
-		runEvent(r, company, "payment_excluded", map[string]any{"payment_id": p.ID, "supplier_id": p.SupplierID,
-			"supplier_number": named[p.SupplierID].Number, "reason_code": reason,
-			"amount": money.EventAmount(p.Amount, r.Currency, r.Exponent), "released_item_count": freed}))
+	detail := map[string]any{"payment_id": p.ID, "supplier_id": p.SupplierID, "reason": reason, "freed_items": freed}
+	payload := map[string]any{"payment_id": p.ID, "supplier_id": p.SupplierID, "supplier_number": named[p.SupplierID].Number, "reason_code": reason,
+		"amount": money.EventAmount(p.Amount, r.Currency, r.Exponent), "released_item_count": freed}
+	if p.RequestID != nil { // a down payment's: the request it frees, by id and number, as the run's exclusion names it
+		d, err := e.DownPayments.Request(ctx, *p.RequestID)
+		if err != nil {
+			return err
+		}
+		detail["down_payment_request_id"], detail["down_payment_request_number"] = d.ID, d.DocumentNumber
+		payload["down_payment_request_id"], payload["down_payment_request_number"] = d.ID, d.DocumentNumber
+	}
+	return record(ctx, "payments.payment_run.drop_payment", r.ID, detail, runEvent(r, company, "payment_excluded", payload))
 }
 
 // paymentOf reads one payment of the run, dropped or not.
@@ -423,28 +489,21 @@ func (e *Endpoints) FailRelease(ctx context.Context, r Run, why *problem.Problem
 		"cancelled": cancelled})
 }
 
-// recheck refuses a release when a supplier can no longer be paid as
-// proposed: blocked since, bank details changed or about to, or held.
+// recheck refuses the release of a proposed run when a supplier can no
+// longer be paid as proposed: blocked since, bank details changed or about
+// to, or held. Nothing is posted yet, so the run is rejected and proposed
+// again.
 func (e *Endpoints) recheck(ctx context.Context, r Run, pays []Payment) error {
 	doc, _, err := e.Settings.Document(ctx)
 	if err != nil {
 		return err
 	}
-	suppliers := make([]uuid.UUID, len(pays))
-	for i, pay := range pays {
-		suppliers[i] = pay.SupplierID
-	}
-	payees, err := e.Payees.Payees(ctx, r.LegalEntityID, suppliers, r.RunDate)
+	reasons, err := e.supplierReasons(ctx, r, pays, doc)
 	if err != nil {
 		return err
 	}
 	for _, pay := range pays {
-		payee, found := payees[pay.SupplierID]
-		reason := exclusion(payee, found, r.RunDate, doc.Payments.BankChangeHoldDays)
-		if reason == "" && *payee.BankAccountID != pay.BankAccountID {
-			reason = "bank_account_changed"
-		}
-		if reason != "" {
+		if reason := reasons[pay.ID]; reason != "" {
 			return e.refuse(ctx, "payments.proposal_outdated", pay.SupplierID, func(supplier string) string {
 				return "Supplier " + supplier + " can no longer be paid as proposed (" + reason + "); reject the run and propose again."
 			})
@@ -457,6 +516,33 @@ func (e *Endpoints) recheck(ctx context.Context, r Run, pays []Payment) error {
 		return err
 	}
 	return e.recheckItems(ctx, r, pays)
+}
+
+// supplierReasons is why each payment's supplier can no longer be paid as
+// proposed on the run date, by payment: blocked since, bank details
+// changed or about to, or held; a payment whose supplier still can be paid
+// is absent.
+func (e *Endpoints) supplierReasons(ctx context.Context, r Run, pays []Payment, doc *config.Config) (map[uuid.UUID]string, error) {
+	suppliers := make([]uuid.UUID, len(pays))
+	for i, pay := range pays {
+		suppliers[i] = pay.SupplierID
+	}
+	payees, err := e.Payees.Payees(ctx, r.LegalEntityID, suppliers, r.RunDate)
+	if err != nil {
+		return nil, err
+	}
+	reasons := map[uuid.UUID]string{}
+	for _, pay := range pays {
+		payee, found := payees[pay.SupplierID]
+		reason := exclusion(payee, found, r.RunDate, doc.Payments.BankChangeHoldDays)
+		if reason == "" && *payee.BankAccountID != pay.BankAccountID {
+			reason = BankAccountChanged
+		}
+		if reason != "" {
+			reasons[pay.ID] = reason
+		}
+	}
+	return reasons, nil
 }
 
 // recheckDiscounts refuses the release of a proposed run after the last day

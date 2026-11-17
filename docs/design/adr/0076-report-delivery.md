@@ -427,3 +427,13 @@ bytes.
   refused as the workbook is: the CSV was answered before, and refusing it
   now would break a consumer (additive change only). Decided by default;
   kept by the product owner on 2026-11-16.
+
+**A scheduled run stores its results with no transaction open
+(2026-11-16, batch 76 review).** The scheduler runs a report's queries in
+one transaction as its owner, writes the results to object storage with
+none open, and keeps the run in a second transaction that first finds the
+day still without a run. An object store's write held inside the first
+transaction kept a connection and the report's lock for as long as the
+write took. A replica that keeps the day's run meanwhile leaves this
+one's object unreferenced (its key is the run's own id), never two runs
+of a day (`report_run_once`).

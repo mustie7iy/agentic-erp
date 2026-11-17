@@ -32,21 +32,24 @@ type prepared struct {
 
 // prepare prepares the registration's return of the period starting on
 // start, of the kind (Original or Amendment), and opens its approval
-// request (ADR-0049 §11). The registration is locked first, so two
-// prepares of it run one after the other and the second finds the first's
-// return; the items are claimed by an update that skips those another
+// request (ADR-0049 §11). The registration is locked first, before it is
+// read, so two prepares of it run one after the other and the second finds
+// the first's return; the items are claimed by an update that skips those another
 // return claimed, so no item is in two returns.
 func (e *Endpoints) prepare(ctx context.Context, id uuid.UUID, start time.Time, kind string) (Return, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Return{}, err
 	}
+	// Locked before its scope is read, so the registration the return is
+	// prepared from (its companies, frequency, periods) is the one the
+	// lock holds, not one a change committed while this waited replaced.
+	if _, err := tx.Exec(ctx, `SELECT FROM tax.registration WHERE id = $1 FOR UPDATE`, id); err != nil {
+		return Return{}, fmt.Errorf("taxfiling: lock tax registration %s: %w", id, err)
+	}
 	s, err := e.scope(ctx, id, start)
 	if err != nil {
 		return Return{}, err
-	}
-	if _, err := tx.Exec(ctx, `SELECT FROM tax.registration WHERE id = $1 FOR UPDATE`, id); err != nil {
-		return Return{}, fmt.Errorf("taxfiling: lock tax registration %s: %w", s.reg.Code, err)
 	}
 	pr := prepared{r: Return{ID: uuid.Must(uuid.NewV7()), Kind: kind}}
 	if pr.amended, err = e.standing(ctx, tx, s, kind); err != nil {

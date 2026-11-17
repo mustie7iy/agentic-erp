@@ -623,16 +623,10 @@ func (sc *failuresScenario) eraseBeginFailing(t *testing.T) {
 
 // eraseCommitsAndTakeover is the step "erase commits and takeover" of TestOffboardingFailures.
 func (sc *failuresScenario) eraseCommitsAndTakeover(t *testing.T) {
-	// Commits that fail, and a tenant erased by another round between the transactions.
-	for k := 1; k <= 2; k++ {
-		if !t.Run(fmt.Sprintf("erase commit %d failing", k), func(t *testing.T) {
-			sc.plain.Begin = brokenCommitAt(sc.pool, k)
-			if _, err := sc.plain.Erase(sc.ctx, sc.tenant, offboarding.Actor, nil); !errors.Is(err, pgtest.ErrInjected) {
-				t.Fatalf("got %v, want %v", err, pgtest.ErrInjected)
-			}
-		}) {
-			t.FailNow()
-		}
+	// The commit failing (the first transaction only reads), and a tenant erased by another round between the transactions.
+	sc.plain.Begin = brokenCommitAt(sc.pool, 2)
+	if _, err := sc.plain.Erase(sc.ctx, sc.tenant, offboarding.Actor, nil); !errors.Is(err, pgtest.ErrInjected) {
+		t.Fatalf("erase commit failing: got %v, want %v", err, pgtest.ErrInjected)
 	}
 	sc.plain.Begin = interfering(sc.pool, 2, func() {
 		pgtest.Exec(t, `UPDATE tenancy.tenant SET erased_at = now(), version = version + 1 WHERE id = $1`, sc.tenant)
@@ -641,6 +635,21 @@ func (sc *failuresScenario) eraseCommitsAndTakeover(t *testing.T) {
 		t.Fatalf("erased by another round: %v", err)
 	}
 	pgtest.Exec(t, `UPDATE tenancy.tenant SET erased_at = NULL, version = version + 1 WHERE id = $1`, sc.tenant)
+	// Another round that records its erasure while this one deletes the rows:
+	// this one's record finds the tenant erased and its deletion rolls back.
+	sc.plain.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+		tx, err := sc.pool.Begin(ctx, s)
+		return beforeErase{Tx: tx, fn: func() {
+			pgtest.Exec(t, `UPDATE tenancy.tenant SET erased_at = now(), version = version + 1 WHERE id = $1`, sc.tenant)
+		}}, err
+	}
+	if _, err := sc.plain.Erase(sc.ctx, sc.tenant, offboarding.Actor, nil); problem.From(err).Code != "tenancy.invalid_transition" {
+		t.Fatalf("erased by another round meanwhile: got %v, want tenancy.invalid_transition", err)
+	}
+	pgtest.Exec(t, `UPDATE tenancy.tenant SET erased_at = NULL, version = version + 1 WHERE id = $1`, sc.tenant)
+	if n := count(t, `SELECT count(*) FROM identity.principal WHERE tenant_id = $1`, sc.tenant); n == 0 {
+		t.Fatal("erased by another round meanwhile: got the rows deleted, want the deletion rolled back")
+	}
 }
 
 // eachEraseStatementFailing is the step "each erase statement failing" of TestOffboardingFailures.
@@ -654,6 +663,11 @@ func (sc *failuresScenario) eachEraseStatementFailing(t *testing.T) {
 	}
 	if n := count(t, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'tenancy.tenant.erase' AND detail ->> 'operator' = 'ops|alice'`, sc.tenant); n != 1 {
 		t.Fatalf("%d erase entries naming the operator", n)
+	}
+	// The rounds that failed before, the store's among them, deleted no row
+	// for good, so the erasure that completed counts the tenant's rows.
+	if n := count(t, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'tenancy.tenant.erase' AND detail -> 'rows' <> '{}'::jsonb`, sc.tenant); n != 1 {
+		t.Fatalf("erase entries counting the deleted rows: got %d, want 1", n)
 	}
 }
 
@@ -770,6 +784,20 @@ func brokenCommitAt(pool *database.Pool, k int) func(context.Context, database.S
 		}
 		return &pgtest.FailingTx{Tx: tx, FailCommit: true}, nil
 	}
+}
+
+// beforeErase runs fn (another round's work) just before the transaction
+// erases the tenant's rows.
+type beforeErase struct {
+	pgx.Tx
+	fn func()
+}
+
+func (b beforeErase) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if strings.Contains(sql, "platform.erase_tenant") {
+		b.fn()
+	}
+	return b.Tx.QueryRow(ctx, sql, args...)
 }
 
 // interfering runs fn (another round's work) before the k-th transaction.

@@ -8,6 +8,7 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -207,12 +208,41 @@ func (p *Pool) setup(ctx context.Context, tx pgx.Tx, s Scope) error {
 		tenant, ms(p.settings.LockTimeout), ms(p.settings.StatementTimeout)); err != nil {
 		return fmt.Errorf("database: scope: %w", err)
 	}
-	if s.Role != "" {
-		if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+pgx.Identifier{s.Role}.Sanitize()); err != nil {
-			return fmt.Errorf("database: role %s: %w", s.Role, err)
-		}
+	return setRole(ctx, tx, s.Role)
+}
+
+func setRole(ctx context.Context, tx pgx.Tx, role string) error {
+	if role == "" {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+pgx.Identifier{role}.Sanitize()); err != nil {
+		return fmt.Errorf("database: role %s: %w", role, err)
 	}
 	return nil
+}
+
+// Rescope moves a transaction to another scope's tenant and role for the
+// rest of it (its timeouts stay), so that one transaction does work that
+// needs two roles and commits or fails as one: offboarding erases a
+// tenant's rows as the worker and records the erasure, with the counts it
+// returned, as the application in the tenant's scope (ADR-0021).
+//
+// It fails closed: a scope without a role is refused (Begin's "keep the
+// login role" would here keep the previous role, which may bypass
+// row-level security), and so is one asking for a read-only transaction
+// or an isolation level, which a transaction under way cannot take.
+func Rescope(ctx context.Context, tx pgx.Tx, s Scope) error {
+	if s.Role == "" || s.ReadOnly || s.Isolation != "" {
+		return errors.New("database: rescope: a role is required, and a transaction under way takes no read-only mode or isolation level")
+	}
+	tenant := ""
+	if s.TenantID != uuid.Nil {
+		tenant = s.TenantID.String()
+	}
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenant); err != nil {
+		return fmt.Errorf("database: rescope: %w", err)
+	}
+	return setRole(ctx, tx, s.Role)
 }
 
 func ms(d time.Duration) string { return fmt.Sprintf("%dms", d.Milliseconds()) }

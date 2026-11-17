@@ -244,8 +244,18 @@ func requireAuthor(c ChangeRequest, actor reqctx.Principal) error {
 // activeVersion locks and returns the tenant's active version number;
 // requests that create versions or change request numbers serialize on it.
 func activeVersion(ctx context.Context, tx pgx.Tx) (int32, error) {
+	return readActiveVersion(ctx, tx, true)
+}
+
+// readActiveVersion reads the active version's number, locked FOR UPDATE
+// when lock is set.
+func readActiveVersion(ctx context.Context, tx pgx.Tx, lock bool) (int32, error) {
+	q := `SELECT number FROM config.active_version`
+	if lock {
+		q += ` FOR UPDATE`
+	}
 	var n int32
-	err := tx.QueryRow(ctx, `SELECT number FROM config.active_version FOR UPDATE`).Scan(&n)
+	err := tx.QueryRow(ctx, q).Scan(&n)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, problem.Conflict("config.not_bootstrapped", "The tenant has no configuration yet.")
 	}

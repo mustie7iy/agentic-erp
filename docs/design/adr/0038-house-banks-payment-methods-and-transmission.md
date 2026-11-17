@@ -1517,3 +1517,29 @@ hidden copy is now named `.partial-<random>-<name>`, the upload's own, so
 two uploads of one name at once never write into the same copy.
 `sftptest` starts outside a test too (`Start`, `Close`, `Stored`), for
 the walkthrough's stand-in SFTP server (`sftptest/sftpstub`).
+
+## As built: a resumed release drops the payments its suppliers can no longer take (product owner 2026-11-16, review:batch76)
+
+A release that failed or was cancelled with payments posted stays
+`releasing`, and `:release` resumes it. It used to check every supplier
+again, the posted payments' too, and refuse the whole resumption
+(`payments.proposal_outdated`) when one could no longer be paid as
+proposed; since a run with payments posted is neither rejected nor
+proposed again, the run stayed `releasing` for good, its bank file never
+written and the other payments' items reserved. PO 2026-11-16: a resumed
+release checks again only the payments not posted yet, and drops each
+whose supplier can no longer be paid as proposed, as a payment whose item
+can no longer be paid is dropped (`dropPayment`): the supplier is
+excluded with the reason (`supplier_blocked`, `payment_blocked`,
+`no_bank_account`, `bank_change_pending`, `bank_change_hold`, or the new
+`bank_account_changed`: the bank account in force on the run date is not
+the one the payment was proposed to), its items go back to open here and
+in the ledger, the run's total no longer counts it, and
+`PaymentExcluded` is published. Posted payments stand and are paid by the
+release's bank file. A down payment's payment is dropped too, by an
+exclusion of its request (`request_exclusion`, as the proposal leaves a
+request out), which frees the request for a later run. A proposed run is
+refused as before: nothing is posted, so it is rejected and proposed
+again. The new reason is allowed by the three exclusion tables' checks
+(000348, validated by 000349) and listed in the exclusion's open
+enumeration and in `PaymentExcludedV1.reason_code`.

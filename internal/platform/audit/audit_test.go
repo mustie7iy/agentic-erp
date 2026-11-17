@@ -271,7 +271,10 @@ func TestErrors(t *testing.T) {
 		t.Fatal("head failure not reported")
 	}
 	// Verification on a broken transaction reports the error.
-	tx, _ := pool.Begin(context.Background(), database.Scope{Role: "erp_app", TenantID: ten.ID})
+	tx, err := pool.Begin(context.Background(), database.Scope{Role: "erp_app", TenantID: ten.ID})
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
 	tx.Rollback(context.Background())
 	if _, err := audit.Verify(context.Background(), tx, ten.ID); err == nil {
 		t.Fatal("closed transaction accepted")

@@ -25,6 +25,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/db"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/backoff"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 )
 
@@ -44,19 +45,20 @@ func Main(m *testing.M) {
 	// Random, not a clock reading: binaries started in the same clock tick
 	// (a microsecond on macOS) would name the same database.
 	name := "erp_pkg_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	var err error
-	for attempt := 1; ; attempt++ {
-		if conn, err = pgx.Connect(ctx, admin); err == nil {
-			if _, err = conn.Exec(ctx, "CREATE DATABASE "+name); err == nil {
-				break
-			}
-			_ = conn.Close(ctx) // the CREATE failure is the one reported if every attempt fails
+	if err := backoff.Retry(ctx, 20, backoff.Linear(250*time.Millisecond), func() error {
+		c, err := pgx.Connect(ctx, admin)
+		if err != nil {
+			return fmt.Errorf("connecting: %w", err)
 		}
-		if attempt == 20 {
-			fmt.Fprintln(os.Stderr, "pgtest: setting up the package database:", err)
-			os.Exit(1)
+		if _, err := c.Exec(ctx, "CREATE DATABASE "+name); err != nil {
+			_ = c.Close(ctx) // the CREATE failure is the one reported if every attempt fails
+			return fmt.Errorf("creating %s: %w", name, err)
 		}
-		time.Sleep(time.Duration(attempt) * 250 * time.Millisecond)
+		conn = c
+		return nil
+	}); err != nil {
+		fmt.Fprintln(os.Stderr, "pgtest: setting up the package database:", err)
+		os.Exit(1)
 	}
 	u, _ := url.Parse(admin)
 	u.Path = "/" + name

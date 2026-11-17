@@ -57,6 +57,12 @@ type plane struct {
 	srv *httptest.Server
 }
 
+// opID is the id the audit trail names the operator with the subject by
+// (OperatorFrom): its details never carry the subject itself.
+func (p *plane) opID(subject string) string {
+	return controlplane.OperatorFrom(reqctx.Claims{Issuer: p.is.URL, Subject: subject}).ID.String()
+}
+
 func newPlane(t *testing.T) *plane {
 	t.Helper()
 	return newPlaneIn(t, authn.Development)
@@ -518,8 +524,8 @@ func (s *lifecycle) eventsAndAudit(t *testing.T) {
 	if entries[0].Kind != "human" {
 		t.Errorf("provision entry kind: got %s, want human", entries[0].Kind)
 	}
-	if entries[0].Operator != "ops|alice" {
-		t.Errorf("provision entry operator: got %s, want ops|alice", entries[0].Operator)
+	if entries[0].Operator != alice.ID.String() {
+		t.Errorf("provision entry operator: got %s, want alice's id %s", entries[0].Operator, alice.ID)
 	}
 	if entries[0].Action != "tenancy.tenant.provision" {
 		t.Errorf("provision entry action: got %s, want tenancy.tenant.provision", entries[0].Action)
@@ -538,17 +544,20 @@ func (s *lifecycle) eventsAndAudit(t *testing.T) {
 		if e.Actor != alice.ID {
 			t.Errorf("%s entry actor: got %v, want %v", want, e.Actor, alice.ID)
 		}
-		if e.Operator != "ops|alice" {
-			t.Errorf("%s entry operator: got %s, want ops|alice", want, e.Operator)
+		if e.Operator != alice.ID.String() {
+			t.Errorf("%s entry operator: got %s, want alice's id %s", want, e.Operator, alice.ID)
 		}
 	}
 	if entries[3].Actor == alice.ID {
 		t.Errorf("offboard entry actor: got alice %v, want bob", entries[3].Actor)
 	}
-	if entries[3].Operator != "ops|bob" {
-		t.Errorf("offboard entry operator: got %s, want ops|bob", entries[3].Operator)
+	if bob := s.p.opID("ops|bob"); entries[3].Operator != bob {
+		t.Errorf("offboard entry operator: got %s, want bob's id %s", entries[3].Operator, bob)
 	}
-	tx, _ := conn.Begin(ctx)
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
 	defer tx.Rollback(ctx)
 	res, err := audit.Verify(ctx, tx, ten.ID)
 	if err != nil {
@@ -628,7 +637,7 @@ func (s *lifecycle) erasure(t *testing.T) {
 	if n != 0 {
 		t.Fatalf("%d principals left after the erasure", n)
 	}
-	if detail := auditDetail(t, uuid.MustParse(id), "tenancy.tenant.erase"); detail["operator"] != "ops|bob" {
+	if detail := auditDetail(t, uuid.MustParse(id), "tenancy.tenant.erase"); detail["operator"] != p.opID("ops|bob") {
 		t.Fatalf("erase audit entry: %v", detail)
 	}
 	p.s.Offboarding = nil
@@ -1100,8 +1109,8 @@ func (s *rotationScenario) resealed(t *testing.T) {
 	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT action, detail->>'operator' FROM audit.audit_event WHERE tenant_id = $1 AND action = 'tenancy.tenant.rotate_key'`, uuid.MustParse(id)).Scan(&action, &operator); err != nil {
 		t.Fatalf("read the rotation audit: %v", err)
 	}
-	if operator != "ops|alice" {
-		t.Fatalf("audit: %s %s", action, operator)
+	if operator != s.p.opID("ops|alice") {
+		t.Fatalf("audit: got %s by %s, want by alice's id %s", action, operator, s.p.opID("ops|alice"))
 	}
 }
 

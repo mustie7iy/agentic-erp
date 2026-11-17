@@ -36,6 +36,10 @@ func (e *Endpoints) ConfirmRun(ctx context.Context, id uuid.UUID, ifMatch func(i
 	if err != nil {
 		return Run{}, err
 	}
+	// Read without a lock: the If-Match is checked on this read, and the
+	// update that confirms the run is guarded by its status (markConfirmed;
+	// a proposed run changes in no other way), so a confirmation that raced
+	// this one is refused there and nothing of this one is recorded.
 	run, err := GetRun(ctx, id)
 	if err != nil {
 		return Run{}, err

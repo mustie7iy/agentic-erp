@@ -1363,7 +1363,9 @@ func TestItemReservationsHoldOnce(t *testing.T) {
 }
 
 // TestExclusionReasons: a run excludes a supplier for one of the known
-// reasons, among them the two a release drops a payment for (000035).
+// reasons, among them the two a release drops a payment for (000035) and
+// the bank account changed since the proposal, for which a resumed
+// release drops one, a down payment's by its request (000348).
 func TestExclusionReasons(t *testing.T) {
 	need(t)
 	f := newFixture(t)
@@ -1382,7 +1384,7 @@ func TestExclusionReasons(t *testing.T) {
 				f.tenant, run, id(), reason)
 		}
 	}
-	for _, reason := range []string{"item_reversed", "item_not_open", "debit_balance"} {
+	for _, reason := range []string{"item_reversed", "item_not_open", "debit_balance", "bank_account_changed"} {
 		mustApp(t, f.tenant, exclude(reason))
 	}
 	failsWith(t, asApp(t, f.tenant, exclude("item_lost")), "payment_exclusion_reason_code_check")
@@ -1397,6 +1399,7 @@ func TestExclusionReasons(t *testing.T) {
 	}
 	mustApp(t, f.tenant, excludeRequest(request, "tax_code_invalid", 100))
 	mustApp(t, f.tenant, excludeRequest(id(), "supplier_blocked", 100))
+	mustApp(t, f.tenant, excludeRequest(id(), "bank_account_changed", 100))
 	for _, c := range []struct {
 		name   string
 		insert func(tx pgx.Tx) error
