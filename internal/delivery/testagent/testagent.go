@@ -123,7 +123,7 @@ func (r *run) hold(tools []*apitools.Tool) {
 // recommendation refuses a recommendation that is not the run's one on
 // its change request.
 func (r *run) recommendation(in map[string]any) error {
-	b, _ := in["body"].(map[string]any) // no body: refused below, as the API would
+	b := apitools.Body(in)
 	if r.rev.Recommended || fmt.Sprint(b["session_id"]) != r.session || fmt.Sprint(b["object_type"]) != "change_request" ||
 		strings.ToLower(fmt.Sprint(b["object_id"])) != r.change || !slices.Contains(Kinds, fmt.Sprint(b["kind"])) {
 		return ErrOtherChange

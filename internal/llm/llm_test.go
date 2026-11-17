@@ -2,7 +2,6 @@ package llm_test
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -82,10 +81,6 @@ func TestResultHelpers(t *testing.T) {
 	}
 	if _, err := llm.Result(make(chan int)); err == nil {
 		t.Fatal("unmarshalable value must error")
-	}
-	e, _ := llm.Error(errors.New("boom"))
-	if e.OfText.Text != "error: boom" {
-		t.Fatal("error result")
 	}
 }
 

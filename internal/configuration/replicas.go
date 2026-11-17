@@ -12,6 +12,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
@@ -74,7 +75,7 @@ func (r *Replica) Run(ctx context.Context) error {
 	}
 	tick := time.NewTicker(interval)
 	defer tick.Stop()
-	last := r.now()
+	last := clock.Now(r.Now)
 	for {
 		select {
 		case <-ctx.Done():
@@ -85,21 +86,14 @@ func (r *Replica) Run(ctx context.Context) error {
 		err := r.record(ctx)
 		switch {
 		case err == nil:
-			last = r.now()
+			last = clock.Now(r.Now)
 		case ctx.Err() != nil: // stopping: the next round leaves
-		case r.now().Sub(last) >= ReplicaExpiry/2:
+		case clock.Now(r.Now).Sub(last) >= ReplicaExpiry/2:
 			return fmt.Errorf("configuration: the replica has not been recorded since %s: %w", last.UTC().Format(time.RFC3339), err)
 		default:
 			r.Log.WarnContext(ctx, "recording the replica failed; trying again", "error", err)
 		}
 	}
-}
-
-func (r *Replica) now() time.Time {
-	if r.Now != nil {
-		return r.Now()
-	}
-	return time.Now()
 }
 
 // record writes the replica's row, sighted now, and removes the rows of

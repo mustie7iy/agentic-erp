@@ -3,15 +3,15 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"mime/multipart"
+	"maps"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -21,6 +21,12 @@ import (
 // requestLimit is the API's request body limit (04-api-design §4.11);
 // documents above it go through an upload.
 const requestLimit = 5 << 20
+
+// uploads PUTs a document where its upload says, object storage's signed
+// URL or a path on the API, which takes no bearer token: a client of its
+// own, bounded, so a store that stops answering does not hold the command
+// for ever (review:batch77).
+var uploads = &http.Client{Timeout: 10 * time.Minute}
 
 // captureCmd captures a supplier invoice, or a customer's purchase order
 // (-order, T90a), from a document file:
@@ -178,7 +184,7 @@ func uploadFor(ctx context.Context, c *apitools.Client, doc []byte, contentType,
 	for k, v := range up.Headers {
 		req.Header.Set(k, v)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := uploads.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("capture: upload %s: %w", up.ID, err)
 	}
@@ -193,43 +199,24 @@ func uploadFor(ctx context.Context, c *apitools.Client, doc []byte, contentType,
 	return up.ID, nil
 }
 
-// capture posts the multipart capture request and returns the Operation.
+// capture posts the multipart capture request and returns the Operation
+// (apitools.Client.Form: the form, its Idempotency-Key and the problem of
+// a refusal are the client's).
 func capture(ctx context.Context, c *apitools.Client, fields map[string]string, document []byte) (map[string]any, error) {
-	var body bytes.Buffer
-	// The multipart writer writes to a bytes.Buffer, whose writes never
-	// fail, so none of these calls can return an error.
-	w := multipart.NewWriter(&body)
-	for k, v := range fields {
-		_ = w.WriteField(k, v)
-	}
+	form := maps.Clone(fields)
 	if document != nil {
 		// A value, not a file part: the contract's document is a string of
 		// bytes (contentMediaType), which the server reads from the form's
 		// values.
-		_ = w.WriteField("document", string(document))
+		form["document"] = string(document)
 	}
-	_ = w.Close()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.BaseURL, "/")+"/v1/supplier-invoices:capture", &body) // a fixed method and URL always parse
-	req.Header.Set("Authorization", "Bearer "+c.Token)
-	req.Header.Set("Content-Type", w.FormDataContentType())
-	req.Header.Set("Idempotency-Key", uuid.NewString())
-	resp, err := http.DefaultClient.Do(req)
+	res, err := c.Form(ctx, "/v1/supplier-invoices:capture", form)
 	if err != nil {
 		return nil, fmt.Errorf("capture: send: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
-	raw, err := io.ReadAll(resp.Body)
-	if err != nil { // an answer cut off is not one that is not JSON
-		return nil, fmt.Errorf("capture: read the answer (%d): %w", resp.StatusCode, err)
+	var op map[string]any
+	if err := res.Decode(&op); err != nil {
+		return nil, fmt.Errorf("capture: %w", err)
 	}
-	var m map[string]any
-	if len(raw) > 0 && json.Unmarshal(raw, &m) != nil {
-		return nil, fmt.Errorf("the API answered %d with a body that is not JSON", resp.StatusCode)
-	}
-	if resp.StatusCode >= 300 {
-		code, _ := m["code"].(string)
-		detail, _ := m["detail"].(string)
-		return nil, &apitools.Error{Status: resp.StatusCode, Code: code, Detail: detail}
-	}
-	return m, nil
+	return op, nil
 }

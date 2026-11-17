@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -231,12 +233,18 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, r 
 	if t.entities, err = e.entities(ctx, r.Scope); err != nil {
 		return t, nil, c, err
 	}
-	scope := sap.Scope{FiscalYear: strconv.Itoa(int(r.Scope.FiscalYear))}
-	for code, le := range t.entities {
-		scope.CompanyCodes = append(scope.CompanyCodes, code)
-		if t.charts[code], err = e.Accounts.Chart(ctx, le.ID); err != nil {
+	scope := extractScope(t.entities, r.Scope.FiscalYear)
+	for _, code := range scope.CompanyCodes {
+		if t.charts[code], err = e.Accounts.Chart(ctx, t.entities[code].ID); err != nil {
 			return t, nil, c, err
 		}
+	}
+	// The extract reads the connector's system page by page, for minutes
+	// at worst: the configuration is held only after it (review:batch77),
+	// so an activation does not wait on SAP.
+	ext, err := e.extract(ctx, tenant, c, scope, &t)
+	if err != nil {
+		return t, nil, c, err
 	}
 	// The load gives suppliers payment methods under the partner context's
 	// method lock and then draws numbers from ranges; an activation locks
@@ -256,12 +264,15 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, r 
 	if t.exponents, err = currency.Load(ctx, tx); err != nil {
 		return t, nil, c, fmt.Errorf("integration: read the currency exponents for run %s: %w", r.ID, err)
 	}
-	ext, err := e.extract(ctx, tenant, c, scope, &t)
-	if err != nil {
-		return t, nil, c, err
-	}
 	t.partners, err = e.groupCompanies(ctx, ext)
 	return t, ext, c, err
+}
+
+// extractScope is the SAP scope of a run's companies, their codes sorted
+// so that two runs of a scope extract, check and load them in the same
+// order (review:batch77).
+func extractScope(entities map[string]tenancy.Entity, year int32) sap.Scope {
+	return sap.Scope{FiscalYear: strconv.Itoa(int(year)), CompanyCodes: slices.Sorted(maps.Keys(entities))}
 }
 
 // configure gives the target what the active configuration says of the

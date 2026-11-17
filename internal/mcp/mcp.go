@@ -314,8 +314,9 @@ func (s *Server) toolCall(ctx context.Context, p params, modern bool) (any, *rpc
 		return nil, fail(codeInvalidParams, "Unknown tool: %s", *p.Name)
 	}
 	input := map[string]any{}
-	if len(p.Arguments) > 0 && string(p.Arguments) != "null" {
-		if err := json.Unmarshal(p.Arguments, &input); err != nil {
+	if len(p.Arguments) > 0 {
+		var err error
+		if input, err = apitools.DecodeInput(p.Arguments); err != nil {
 			return nil, fail(codeInvalidParams, "Invalid params: arguments are an object")
 		}
 	}

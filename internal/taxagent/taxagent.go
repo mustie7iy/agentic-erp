@@ -35,6 +35,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
+	"github.com/mustie7iy/agentic-erp/internal/recommend"
 )
 
 // Type is the tax agent's type, as its profile names it and its
@@ -188,10 +189,7 @@ func (a *Agent) Explain(ctx context.Context, reg, periodStart string) (Result, e
 	newRun(&res, s.ID, r, d).hold(tools)
 	prompt := fmt.Sprintf("The draft %s of tax registration %s (id %s, company %s, legal entity %s) for the period %s to %s.\nYour session id is %s.",
 		d.ReturnType, r.Code, r.ID, r.CompanyCode, r.LegalEntityID, d.PeriodStart, d.PeriodEnd, s.ID)
-	iterations := a.MaxIterations
-	if iterations <= 0 {
-		iterations = 30
-	}
+	iterations := recommend.Iterations(a.MaxIterations, recommend.DefaultIterations)
 	msg, err := apitools.Run(ctx, a.LLM, s, tools, a.LLM.Params(system, anthropic.NewBetaTextBlock(prompt)), iterations)
 	if msg != nil {
 		res.Reply = llm.Text(msg)
@@ -297,7 +295,7 @@ var isoDate = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
 // period's first and last day) or a correction (its object a parked
 // document of the registration's companies the run read, of its type).
 func (r *run) recommendation(in map[string]any) error {
-	b, _ := in["body"].(map[string]any) // no body: refused below, as the API would
+	b := apitools.Body(in)
 	object, objectType := fmt.Sprint(b["object_id"]), fmt.Sprint(b["object_type"])
 	ok := fmt.Sprint(b["session_id"]) == r.session && !r.recommended[object]
 	switch fmt.Sprint(b["kind"]) {
@@ -341,7 +339,7 @@ var day = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 // reports it once a person posts it), and with a line carrying a tax
 // code (an entry without one would be no item of any return).
 func (r *run) adjustment(in map[string]any) error {
-	b, _ := in["body"].(map[string]any) // no body: refused below, as the API would
+	b := apitools.Body(in)
 	taxDate := fmt.Sprint(b["tax_date"])
 	lines, _ := b["lines"].([]any)
 	coded := slices.ContainsFunc(lines, func(l any) bool {

@@ -187,7 +187,7 @@ type lineRun struct {
 
 // guard refuses a proposal for another statement, line or session.
 func (l *lineRun) guard(in map[string]any) error {
-	b, _ := in["body"].(map[string]any) // no body: refused below, as the API would
+	b := apitools.Body(in)
 	if !strings.EqualFold(fmt.Sprint(in["id"]), l.statement) || !l.sameLine(in["line_no"]) || fmt.Sprint(b["session_id"]) != l.session {
 		return ErrOtherLine
 	}

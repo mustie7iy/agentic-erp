@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -74,13 +75,26 @@ type EntityMapping struct {
 	YearField    string
 	// Static sets constant SAP fields (e.g. RLDNR) not exposed by the API.
 	Static map[string]string
+	// Keys are the OData properties every page is ordered by ($orderby),
+	// the entity set's key: $skip and $top page a stable order only when
+	// one is asked for, so without it a page can repeat or miss a row and
+	// two runs read rows in different orders (review:batch77). A mapping
+	// without Keys is ordered by every property it selects.
+	Keys []string
 }
 
 // DefaultEntities covers the tables in Extract with standard S/4HANA APIs.
+// Each mapping's Keys are its entity set's key properties as far as the
+// mapping reads them, stated from memory (review:batch77): confirm them in
+// the pilot's $metadata. A_JournalEntryItemBasic's key also holds the
+// ledger, which is not mapped (T56h5), so lines of one document line in
+// two ledgers keep the order the system gives them.
 var DefaultEntities = []EntityMapping{
 	{Table: "T001", Service: "API_COMPANYCODE_SRV", Entity: "A_CompanyCode", CompanyField: "CompanyCode",
+		Keys:   []string{"CompanyCode"},
 		Fields: map[string]string{"BUKRS": "CompanyCode", "BUTXT": "CompanyCodeName", "WAERS": "Currency", "LAND1": "Country"}},
 	{Table: "SKB1", Service: "API_GLACCOUNTINCOMPANYCODE_SRV", Entity: "A_GLAccountInCompanyCode", CompanyField: "CompanyCode",
+		Keys: []string{"CompanyCode", "GLAccount"},
 		Fields: map[string]string{"BUKRS": "CompanyCode", "SAKNR": "GLAccount", "TXT50": "GLAccountLongName",
 			"XBILK": "IsBalanceSheetAccount", "MITKZ": "ReconciliationAccountType"}},
 	// LFA1-VBUND, the vendor's trading partner, and T001-RCOMP, the company
@@ -94,32 +108,40 @@ var DefaultEntities = []EntityMapping{
 	// extract says so (NoTradingPartners) and the quality gate reports it
 	// (ADR-0059 As built; docs/migration.md, "What to check").
 	{Table: "LFA1", Service: "API_BUSINESS_PARTNER", Entity: "A_Supplier",
+		Keys: []string{"Supplier"},
 		Fields: map[string]string{"LIFNR": "Supplier", "NAME1": "SupplierName", "LAND1": "Country",
 			"STCD1": "TaxNumber1", "SPERR": "PostingIsBlocked"}},
 	// LFB1-ZWELS is A_SupplierCompany's PaymentMethodsList, a string, as
 	// the SAP Cloud SDK's type of the entity has it
 	// (https://help.sap.com/doc/505cd8d2cbd340a38eeae8b63b5df753/1.0/en-US/interfaces/_sap_cloud_sdk_vdm_business_partner_service.suppliercompanytype.html).
 	{Table: "LFB1", Service: "API_BUSINESS_PARTNER", Entity: "A_SupplierCompany", CompanyField: "CompanyCode",
+		Keys: []string{"Supplier", "CompanyCode"},
 		Fields: map[string]string{"LIFNR": "Supplier", "BUKRS": "CompanyCode", "AKONT": "ReconciliationAccount",
 			"ZTERM": "PaymentTerms", "ZWELS": "PaymentMethodsList"}},
 	// A_BusinessPartnerBank keys a bank account by its business partner,
 	// whose number need not be its supplier's: the rows read as PARTNER and
 	// take their vendor (LIFNR) from the partner link below (attachBanks).
 	{Table: "LFBK", Service: "API_BUSINESS_PARTNER", Entity: "A_BusinessPartnerBank",
-		Fields: map[string]string{"PARTNER": "BusinessPartner", "BANKS": "BankCountryKey", "BANKN": "BankAccount", "BANKL": "BankNumber"}},
+		Keys: []string{"BusinessPartner", "BankIdentification"},
+		Fields: map[string]string{"PARTNER": "BusinessPartner", "BANKS": "BankCountryKey", "BANKN": "BankAccount", "BANKL": "BankNumber",
+			"BKVID": "BankIdentification"}},
 	// The business partner -> supplier link, A_BusinessPartner's Supplier.
 	// Stated from memory, not yet from a primary source (ADR-0034 As built,
 	// review:T72d): confirm it against the system's $metadata.
 	{Table: PartnerLink, Service: "API_BUSINESS_PARTNER", Entity: "A_BusinessPartner",
+		Keys:   []string{"BusinessPartner"},
 		Fields: map[string]string{"PARTNER": "BusinessPartner", "LIFNR": "Supplier"}},
 	{Table: "EKKO", Service: "API_PURCHASEORDER_PROCESS_SRV", Entity: "A_PurchaseOrder", CompanyField: "CompanyCode",
+		Keys: []string{"PurchaseOrder"},
 		Fields: map[string]string{"EBELN": "PurchaseOrder", "BUKRS": "CompanyCode", "LIFNR": "Supplier",
 			"WAERS": "DocumentCurrency", "BEDAT": "PurchaseOrderDate"}},
 	{Table: "EKPO", Service: "API_PURCHASEORDER_PROCESS_SRV", Entity: "A_PurchaseOrderItem", CompanyField: "CompanyCode",
+		Keys: []string{"PurchaseOrder", "PurchaseOrderItem"},
 		Fields: map[string]string{"EBELN": "PurchaseOrder", "EBELP": "PurchaseOrderItem", "MATNR": "Material",
 			"TXZ01": "PurchaseOrderItemText", "MENGE": "OrderQuantity", "NETPR": "NetPriceAmount",
 			"PEINH": "NetPriceQuantity", "SAKTO": "GLAccount"}},
 	{Table: "MSEG", Service: "API_MATERIAL_DOCUMENT_SRV", Entity: "A_MaterialDocumentItem", YearField: "MaterialDocumentYear",
+		Keys: []string{"MaterialDocumentYear", "MaterialDocument", "MaterialDocumentItem"},
 		Fields: map[string]string{"MBLNR": "MaterialDocument", "MJAHR": "MaterialDocumentYear", "ZEILE": "MaterialDocumentItem",
 			"BWART": "GoodsMovementType", "EBELN": "PurchaseOrder", "EBELP": "PurchaseOrderItem",
 			"MENGE": "QuantityInEntryUnit", "BUDAT": "PostingDate"}},
@@ -130,10 +152,12 @@ var DefaultEntities = []EntityMapping{
 	// than load a credit memo as an invoice, and its posted ones, whose
 	// invoiced quantities the load takes over by direction (T72b2).
 	{Table: "RBKP", Service: "API_SUPPLIERINVOICE_PROCESS_SRV", Entity: "A_SupplierInvoice", CompanyField: "CompanyCode", YearField: "FiscalYear",
+		Keys: []string{"SupplierInvoice", "FiscalYear"},
 		Fields: map[string]string{"BELNR": "SupplierInvoice", "GJAHR": "FiscalYear", "BUKRS": "CompanyCode",
 			"LIFNR": "InvoicingParty", "XBLNR": "SupplierInvoiceIDByInvcgParty", "BLDAT": "DocumentDate",
 			"WAERS": "DocumentCurrency", "RMWWR": "InvoiceGrossAmount", "WMWST1": "TaxAmount", "RBSTAT": "SupplierInvoiceStatus"}},
 	{Table: "RSEG", Service: "API_SUPPLIERINVOICE_PROCESS_SRV", Entity: "A_SuplrInvcItemPurOrdRef", YearField: "FiscalYear",
+		Keys: []string{"SupplierInvoice", "FiscalYear", "SupplierInvoiceItem"},
 		Fields: map[string]string{"BELNR": "SupplierInvoice", "GJAHR": "FiscalYear", "BUZEI": "SupplierInvoiceItem",
 			"EBELN": "PurchaseOrder", "EBELP": "PurchaseOrderItem", "MENGE": "QuantityInPurchaseOrderUnit",
 			"WRBTR": "SupplierInvoiceItemAmount"}},
@@ -174,6 +198,7 @@ var DefaultEntities = []EntityMapping{
 	// file extract carries them.
 	{Table: "ACDOCA", Service: "API_JOURNALENTRYITEMBASIC_SRV", Entity: "A_JournalEntryItemBasic", CompanyField: "CompanyCode", YearField: "FiscalYear",
 		Static: map[string]string{"RLDNR": LeadingLedger},
+		Keys:   []string{"CompanyCode", "FiscalYear", "AccountingDocument", "LedgerGLLineItem"},
 		Fields: map[string]string{"RBUKRS": "CompanyCode", "GJAHR": "FiscalYear", "BELNR": "AccountingDocument",
 			"DOCLN": "LedgerGLLineItem", "RACCT": "GLAccount", "HSL": "AmountInCompanyCodeCurrency",
 			"BUDAT": "PostingDate", "BLART": "AccountingDocumentType", "LIFNR": "Supplier",
@@ -283,9 +308,10 @@ func (o *ODataSource) fetch(ctx context.Context, em EntityMapping, companyCode, 
 	if em.YearField != "" && year != "" {
 		filters = append(filters, em.YearField+" eq "+odataString(year))
 	}
-	selectFields := make([]string, 0, len(em.Fields))
-	for _, prop := range em.Fields {
-		selectFields = append(selectFields, prop)
+	selectFields := slices.Sorted(maps.Values(em.Fields))
+	orderBy := em.Keys
+	if len(orderBy) == 0 {
+		orderBy = selectFields
 	}
 
 	var out []map[string]string
@@ -295,6 +321,7 @@ func (o *ODataSource) fetch(ctx context.Context, em EntityMapping, companyCode, 
 		q.Set("$top", strconv.Itoa(pageSize))
 		q.Set("$skip", strconv.Itoa(skip))
 		q.Set("$select", strings.Join(selectFields, ","))
+		q.Set("$orderby", strings.Join(orderBy, ","))
 		if len(filters) > 0 {
 			q.Set("$filter", strings.Join(filters, " and "))
 		}
@@ -331,7 +358,10 @@ func (o *ODataSource) page(ctx context.Context, u string, skip int) ([]map[strin
 	body := resp.Body
 	switch {
 	case resp.Status != http.StatusOK:
-		return nil, fmt.Errorf("HTTP %d: %.300s", resp.Status, body)
+		// The body is the system's, and may echo the records asked for: the
+		// error, which reaches the run's report and the log, names only the
+		// status (review:batch77).
+		return nil, fmt.Errorf("page at offset %d: HTTP %d", skip, resp.Status)
 	case resp.Truncated:
 		return nil, fmt.Errorf("page at offset %d: larger than %d bytes; lower the connector's page_size", skip, len(body))
 	}

@@ -5,8 +5,10 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -36,7 +38,7 @@ func TestODataValue(t *testing.T) {
 
 func TestODataSourcePagesAndFilters(t *testing.T) {
 	const total = 5
-	var filters []string
+	var filters, orders []string
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if u, p, _ := r.BasicAuth(); u != "user" || p != "pw" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -47,6 +49,7 @@ func TestODataSourcePagesAndFilters(t *testing.T) {
 			return
 		}
 		filters = append(filters, r.URL.Query().Get("$filter"))
+		orders = append(orders, r.URL.Query().Get("$orderby"))
 		skip, _ := strconv.Atoi(r.URL.Query().Get("$skip"))
 		top, _ := strconv.Atoi(r.URL.Query().Get("$top"))
 		var results []map[string]any
@@ -80,6 +83,62 @@ func TestODataSourcePagesAndFilters(t *testing.T) {
 	}
 	if len(filters) != 3 || filters[0] != "CompanyCode eq '1000'" {
 		t.Fatalf("unexpected paging/filters: %v", filters)
+	}
+	for i, o := range orders {
+		if o != "PurchaseOrder" {
+			t.Errorf("$orderby of page %d: got %q, want the entity key PurchaseOrder", i, o)
+		}
+	}
+}
+
+// TestODataPagesInKeyOrder: every default mapping pages in the order of
+// keys it reads, so $skip and $top neither repeat nor miss a row; a
+// mapping without keys orders by every property it selects
+// (review:batch77).
+func TestODataPagesInKeyOrder(t *testing.T) {
+	for _, em := range DefaultEntities {
+		t.Run(em.Entity, func(t *testing.T) {
+			if len(em.Keys) == 0 {
+				t.Fatal("keys: got none, want the entity set's key")
+			}
+			for _, k := range em.Keys {
+				if !slices.Contains(slices.Collect(maps.Values(em.Fields)), k) {
+					t.Errorf("key %s: not a property the mapping reads", k)
+				}
+			}
+		})
+	}
+	var order string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		order = r.URL.Query().Get("$orderby")
+		w.Write([]byte(`{"d":{"results":[]}}`))
+	}))
+	defer srv.Close()
+	src := &ODataSource{HTTP: via(t, srv), BaseURL: srv.URL,
+		Entities: []EntityMapping{{Table: "T001", Service: "S", Entity: "E", Fields: map[string]string{"WAERS": "Currency", "BUKRS": "CompanyCode"}}}}
+	if _, err := src.Extract(context.Background(), Scope{}); err != nil {
+		t.Fatal(err)
+	}
+	if order != "CompanyCode,Currency" {
+		t.Errorf("$orderby without keys: got %q, want every selected property, sorted", order)
+	}
+}
+
+// TestODataErrorOmitsTheBody: a page the system refuses fails with its
+// status alone; the body, which may echo records, never reaches the run's
+// report or the log (review:batch77).
+func TestODataErrorOmitsTheBody(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "vendor 100001 IBAN DE89370400440532013000", http.StatusBadRequest)
+	}))
+	defer srv.Close()
+	src := &ODataSource{HTTP: via(t, srv), BaseURL: srv.URL, Entities: []EntityMapping{entity(t, "T001")}}
+	_, err := src.Extract(context.Background(), Scope{CompanyCodes: []string{"1000"}})
+	if err == nil || !strings.Contains(err.Error(), "HTTP 400") {
+		t.Fatalf("Extract: got %v, want an error naming HTTP 400", err)
+	}
+	if strings.Contains(err.Error(), "DE89") {
+		t.Errorf("Extract: got %v, want no part of the body", err)
 	}
 }
 
@@ -380,5 +439,33 @@ func TestODataEgress(t *testing.T) {
 	}
 	if _, err := NewClient(egress.ResponseLimit(0)); err == nil {
 		t.Error("NewClient with a response limit of 0: got a client, want an error")
+	}
+}
+
+// TestLoadedBanks: a vendor's account loaded is the lowest by bank details
+// ID and then by LFBK's key, whatever order the extract holds them in, and
+// each vendor's accounts are counted (review:batch77).
+func TestLoadedBanks(t *testing.T) {
+	rows := []LFBK{
+		{LIFNR: "1", BKVID: "0002", BANKS: "DE", BANKN: "a"},
+		{LIFNR: "1", BKVID: "0001", BANKS: "DE", BANKN: "b"},
+		{LIFNR: "2", BANKS: "US", BANKL: "2", BANKN: "c"},
+		{LIFNR: "2", BANKS: "US", BANKL: "1", BANKN: "d"},
+		{LIFNR: "3", BANKS: "DE", BANKN: "e"},
+	}
+	reversed := slices.Clone(rows)
+	slices.Reverse(reversed)
+	for name, in := range map[string][]LFBK{"extract order": rows, "reversed": reversed} {
+		t.Run(name, func(t *testing.T) {
+			banks, count := LoadedBanks(&Extract{LFBK: in})
+			for lifnr, want := range map[string]string{"1": "b", "2": "d", "3": "e"} {
+				if banks[lifnr].BANKN != want {
+					t.Errorf("vendor %s: got account %q, want %q", lifnr, banks[lifnr].BANKN, want)
+				}
+			}
+			if fmt.Sprint(count) != "map[1:2 2:2 3:1]" {
+				t.Errorf("count: got %v, want map[1:2 2:2 3:1]", count)
+			}
+		})
 	}
 }
