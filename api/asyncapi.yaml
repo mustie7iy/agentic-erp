@@ -4236,7 +4236,8 @@ components:
         Emitted when an incoming payment waiting on a house bank's incoming
         payments clearing account is applied to a customer's open items
         (ADR-0063 §6, §9, T75c): one clearing entry cleared the receipt and
-        the items, which equal it exactly. It carries the amount and the
+        the items, which equal it, net of the residual items it left and the
+        payment difference it wrote off (T75f). It carries the amount and the
         number of items, not the items, and names the customer by id and
         number, never by name. `GET /v1/incoming-payments/{id}` returns the
         document, which never changes. Subject is the incoming payment id.
@@ -4250,7 +4251,7 @@ components:
       examples:
         - name: applied
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f03, source: /erp/eu-1/receivables, type: com.example.erp.receivables.incoming_payment_applied.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-11-12T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {incoming_payment_id: 0192a000-0000-7000-8000-000000000f41, document_number: IP100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, posting_date: '2026-11-12', amount: {amount: '1050.00', currency: CAD}, receipt_journal_entry_id: 0192a000-0000-7000-8000-000000000f32, journal_entry_id: 0192a000-0000-7000-8000-000000000f33, journal_entry_year: 2026, journal_entry_number: '1400000001', item_count: 1}
+          payload: {incoming_payment_id: 0192a000-0000-7000-8000-000000000f41, document_number: IP100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, posting_date: '2026-11-12', amount: {amount: '1050.00', currency: CAD}, receipt_journal_entry_id: 0192a000-0000-7000-8000-000000000f32, journal_entry_id: 0192a000-0000-7000-8000-000000000f33, journal_entry_year: 2026, journal_entry_number: '1400000001', item_count: 1, residual_count: 0, difference: {amount: '0.00', currency: CAD}}
     QuotationChanged:
       name: QuotationChanged
       x-webhook: true
@@ -5591,12 +5592,14 @@ components:
         customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
         customer_number: {type: string, description: "The customer's business partner number."}
         posting_date: {$ref: '#/components/schemas/Date', description: The posting date of the clearing entry.}
-        amount: {$ref: '#/components/schemas/Money', description: "What was received and applied: the receipt's amount, the sum of the items'."}
+        amount: {$ref: '#/components/schemas/Money', description: "What was received: the receipt's amount."}
         receipt_journal_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.journal_entry.id` of the receipt, the entry the bank statement line posted.'}
         journal_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.journal_entry.id` of the clearing entry.'}
         journal_entry_year: {type: integer, description: "The clearing entry's fiscal year."}
         journal_entry_number: {type: string, description: "The clearing entry's document number."}
         item_count: {type: integer, description: "How many open items of the customer the payment was applied to."}
+        residual_count: {type: integer, description: "How many of those it paid in part, leaving a residual item of the customer (T75f)."}
+        difference: {$ref: '#/components/schemas/Money', description: "The payment difference written off within the company's payment tolerance: what the items, net of their residuals, exceed the receipt by; positive an underpayment, negative an overpayment, zero for none (T75f)."}
     QuotationChangedV1:
       type: object
       required: [quotation_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, quotation_date, valid_until, net_amount, status, status_before, version]

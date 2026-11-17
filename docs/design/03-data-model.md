@@ -4513,14 +4513,19 @@ erDiagram
     uuid receipt_account_id "ledger: the incoming payments clearing account"
     date posting_date
     char currency
-    bigint amount "above 0: the receipt's, the items' sum"
+    bigint amount "above 0: the receipt's"
+    bigint difference "written off within tolerance (T75f)"
     smallint clearing_entry_year
     uuid clearing_entry_id "ledger: cleared receipt and items" }
   incoming_payment_item { int item_no PK
     smallint fiscal_year
     uuid journal_entry_id "ledger: the open item"
     int line_no
-    bigint amount "debit positive; a credit negative" }
+    bigint amount "debit positive; a credit negative"
+    bigint residual_amount "T75f: what stayed open, under amount"
+    int residual_line_no "its line in the clearing entry"
+    text residual_reason
+    text residual_reason_text }
 ```
 
 - `receivables.customer_invoice`: amounts are minor units of `currency`,
@@ -4563,8 +4568,18 @@ erDiagram
   each with the amount it stood at in the payment's currency, never zero
   (`incoming_payment_item_amount_not_zero`), a credit of the customer's
   negative; an open item is applied once (`incoming_payment_item_once`).
-  Insert-only. The items add up to the payment's amount, which the ledger
-  holds the application to (`ledger.Postings.ApplyReceipt`).
+  Insert-only. The items, less their residuals, add up to the payment's
+  amount and `difference`, which the ledger holds the application to
+  (`ledger.Postings.ApplyReceipt`). T75f (migration 000350): an item paid
+  in part names its residual item, a line of the clearing entry, with
+  what stayed open, more than zero and less than the item, which is a
+  debit, and its reason, all together (`incoming_payment_item_residual`;
+  a reason of 1 to 40 characters,
+  `incoming_payment_item_residual_reason_length`, and a free text of 1
+  to 200, `incoming_payment_item_residual_text_length`); the payment's
+  `difference`, 0 by default, is what the items net of their residuals
+  exceed the receipt by, written off within the company's payment
+  tolerance. The down migration is refused while either holds a value.
 - `receivables.outbox`, `receivables.inbox`: the context's events
   (`CustomerInvoiceChanged`, `CustomerInvoicePosted`,
   `IncomingPaymentApplied`).
@@ -5761,7 +5776,9 @@ erDiagram
   `lease_liability`, and `ledger.journal_entry` the source context
   `leases` (T88b, both checks validated by 000328); and the lease run's
   keys `lease_interest`, `right_of_use_depreciation` and
-  `right_of_use_accumulated_depreciation` (T88c, validated by 000333).
+  `right_of_use_accumulated_depreciation` (T88c, validated by 000333);
+  and the payment difference keys `payment_difference_expense` and
+  `payment_difference_revenue` (T75f, validated by 000351).
 - `leases.outbox`, `leases.inbox`: the context's events
   (`LeaseContractChanged`, `LeaseRunPosted`).
 - Permissions `leases.contract.read`, `.write` and `.activate`, and

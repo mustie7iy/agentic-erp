@@ -61,12 +61,12 @@ func TestDatabaseFailures(t *testing.T) {
 	createMemo.Kind, createMemo.ReferenceInvoiceID = gen.NewOptString("credit_memo"), gen.NewOptUUID(credited)
 	// A receipt to apply to an invoice, and one applied already.
 	receipt, spent := e.receipt(t, 10000, "2026-03-14"), e.receipt(t, 5000, "2026-03-14")
-	owed := gen.ClearingItemRef{FiscalYear: 2026, JournalEntryID: entryOf(t, e.invoiced(t, e.customer, "100.00", "2026-03-10")), LineNo: 1}
+	owed := gen.IncomingPaymentItemRef{FiscalYear: 2026, JournalEntryID: entryOf(t, e.invoiced(t, e.customer, "100.00", "2026-03-10")), LineNo: 1}
 	applied, _ := e.Must(201, "POST", "/v1/incoming-payments", e.payment(e.customer, spent.ID, "2026-03-15", e.invoiced(t, e.customer, "50.00", "2026-03-10")), "")
 	apply := func(receipt uuid.UUID, day gen.OptDate) func(ctx context.Context) error {
 		return func(ctx context.Context) error {
 			_, err := h.CreateIncomingPayment(ctx, &gen.IncomingPaymentCreate{LegalEntityID: e.DE, CustomerID: e.customer, ReceiptJournalEntryID: receipt,
-				PostingDate: day, Items: []gen.ClearingItemRef{owed}}, gen.CreateIncomingPaymentParams{})
+				PostingDate: day, Items: []gen.IncomingPaymentItemRef{owed}}, gen.CreateIncomingPaymentParams{})
 			return err
 		}
 	}

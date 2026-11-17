@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
@@ -41,12 +42,39 @@ type ReceiptApplication struct {
 	// CustomerID is the customer whose items Items are: open items on
 	// customer reconciliation accounts, invoices and credits alike, that
 	// together are the receipt exactly.
-	CustomerID       uuid.UUID
-	Items            []ItemRef
+	CustomerID uuid.UUID
+	Items      []ItemRef
+	// Residuals, one per item or none, are what stays open of the items
+	// paid in part (T75f): a residual's Amount, more than zero and less
+	// than its debit item, is posted as a new item of the customer on the
+	// item's account, at the item's rate, with its due date; zero: the
+	// item is paid in full.
+	Residuals []Residual
+	// Under and Over bound the payment difference the application writes
+	// off (config.PaymentTolerance, T75f): what the items, net of their
+	// residuals, exceed or fall short of the receipt by. Zero limits allow
+	// none, so the items must total the receipt exactly.
+	Under, Over config.ToleranceLimit
+	// OnAccount is the customer reconciliation account what the receipt
+	// leaves after the items is posted to as the customer's credit on
+	// account (T75g); uuid.Nil: none, so nothing may be left beyond the
+	// overpayment tolerance.
+	OnAccount uuid.UUID
+	// Credit says the receipt is a credit of the customer's on account
+	// (T75g): Receipt names its line, on ReceiptAccountID, a customer
+	// reconciliation account, with the customer as its partner.
+	Credit           bool
 	Reference        *string
 	HeaderText       *string
 	SourceContext    string
 	SourceDocumentID uuid.UUID
+}
+
+// Residual is what stays open of an item paid in part, with the text its
+// line carries (nil: the application's header text).
+type Residual struct {
+	Amount money.Minor
+	Text   *string
 }
 
 // AppliedReceipt is a receipt applied: the clearing entry, what the
@@ -57,6 +85,17 @@ type AppliedReceipt struct {
 	Entry   Entry
 	Receipt money.Minor
 	Items   []money.Minor
+	// ResidualLines are the entry's line of each item's residual item, in
+	// the order of Items; 0 for an item paid in full.
+	ResidualLines []int32
+	// Difference is what the items, net of their residuals, exceed the
+	// receipt by and was written off: positive an underpayment, negative an
+	// overpayment, zero for none.
+	Difference money.Minor
+	// OnAccount is what the receipt left on the customer's account, a
+	// credit, positive; OnAccountLine its line in the entry, 0 for none.
+	OnAccount     money.Minor
+	OnAccountLine int32
 }
 
 // ApplyReceipt posts the entry that applies the receipt to the customer's
@@ -78,10 +117,7 @@ func (p Postings) ApplyReceipt(ctx context.Context, in ReceiptApplication) (Appl
 	if err != nil {
 		return AppliedReceipt{}, err
 	}
-	if len(in.Items) == 0 {
-		return AppliedReceipt{}, problem.Unprocessable("ledger.no_items", "A receipt is applied to at least one open item.")
-	}
-	if err := requireDistinct(in.Items); err != nil {
+	if err := checkApplication(in); err != nil {
 		return AppliedReceipt{}, err
 	}
 	e := p.endpoints()
@@ -89,23 +125,21 @@ func (p Postings) ApplyReceipt(ctx context.Context, in ReceiptApplication) (Appl
 	if err != nil {
 		return AppliedReceipt{}, err
 	}
-	receipt, err := accountLines(ctx, tx, le.ID, in.ReceiptAccountID, []ItemRef{in.Receipt})
+	receipt, err := receiptLine(ctx, tx, le.ID, in)
 	if err != nil {
 		return AppliedReceipt{}, err
 	}
-	if len(receipt) != 1 {
-		return AppliedReceipt{}, notAReceipt(fmt.Sprintf("has %d lines on the account", len(receipt)))
-	}
-	items, err := loadItems(ctx, tx, append(receipt, in.Items...))
+	items, err := loadItems(ctx, tx, append([]ItemRef{receipt}, in.Items...))
 	if err != nil {
 		return AppliedReceipt{}, err
 	}
-	lines, err := receiptLines(ctx, tx, in, le.ID, items)
+	plan, err := receiptLines(ctx, tx, in, le.ID, items)
 	if err != nil {
 		return AppliedReceipt{}, err
 	}
+	lines := plan.lines
 	if err := e.checkAccounts(ctx, tx, le.ID, lines, false); err != nil {
-		return AppliedReceipt{}, namingLine(err, len(in.Items))
+		return AppliedReceipt{}, namingLine(err, len(in.Items), plan.kinds)
 	}
 	ledgers, err := itemLedgers(ctx, tx, items)
 	if err != nil {
@@ -126,7 +160,11 @@ func (p Postings) ApplyReceipt(ctx context.Context, in ReceiptApplication) (Appl
 	if err != nil {
 		return AppliedReceipt{}, err
 	}
-	out := AppliedReceipt{Entry: entry, Receipt: -first.tc, Items: make([]money.Minor, len(in.Items))}
+	if err := keepResidualTerms(ctx, tx, entry, items[1:], plan.residualLines); err != nil {
+		return AppliedReceipt{}, err
+	}
+	out := AppliedReceipt{Entry: entry, Receipt: -first.tc, Items: make([]money.Minor, len(in.Items)), ResidualLines: plan.residualLines,
+		Difference: plan.difference, OnAccount: plan.onAccount, OnAccountLine: plan.onAccountLine}
 	for i, it := range items[1:] {
 		out.Items[i] = it.tc
 	}
@@ -145,47 +183,38 @@ func notAReceipt(why string) *problem.Problem {
 
 // receiptLines are the application's lines: one offsetting the receipt
 // (items[0]) and one each of the customer's items, in their order
-// (clearWithEntry clears item i with line i+1), then the exchange
-// differences. The receipt is an open credit line; the items are open
-// items of the customer on customer reconciliation accounts of the legal
-// entity, in the receipt's currency and ledger, and total it exactly; the
+// (clearWithEntry clears item i with line i+1), then the residual items,
+// what is left on account or the payment difference, and the exchange
+// differences (applicationLines). The receipt is an open credit line; the
+// items are open items of the customer on customer reconciliation
+// accounts of the legal entity, in the receipt's currency and ledger; the
 // application is not dated before any of them was posted (notBeforeItems).
-func receiptLines(ctx context.Context, tx pgx.Tx, in ReceiptApplication, le uuid.UUID, items []item) ([]Line, error) {
-	customer, err := customerAccounts(ctx, tx, items[1:])
+func receiptLines(ctx context.Context, tx pgx.Tx, in ReceiptApplication, le uuid.UUID, items []item) (application, error) {
+	customer, err := customerAccounts(ctx, tx, items)
 	if err != nil {
-		return nil, err
+		return application{}, err
 	}
-	lines, tc, lc, gc, err := offsetItems(items, in.Currency, in.HeaderText, func(i int, it item) error {
-		if i == 0 {
-			return checkReceipt(it)
+	lines, _, _, _, err := offsetItems(items, in.Currency, in.HeaderText, func(i int, it item) error {
+		switch {
+		case i > 0:
+			return checkCustomerItem(i-1, it, le, in, customer)
+		case in.Credit:
+			return checkCredit(it, le, in, customer)
 		}
-		return checkCustomerItem(i-1, it, le, in, customer)
+		return checkReceipt(it)
 	})
 	if err != nil {
-		return nil, err
+		return application{}, err
 	}
-	if tc != 0 {
-		exps, err := exponents(ctx, tx, in.Currency)
-		if err != nil {
-			return nil, err
-		}
-		exp := exps[in.Currency]
-		return nil, problem.Unprocessable("ledger.clearing_not_balanced", fmt.Sprintf("The items applied do not total the receipt of %s %s: they differ from it by %s. "+
-			"A receipt is applied in full and exactly.", (-items[0].tc).Plain(exp), in.Currency, tc.Plain(exp)),
-			problem.FieldError{Field: "items", Code: "not_balanced", Message: "items that total the receipt"})
+	plan, err := applicationLines(ctx, tx, in, le, items, lines)
+	if err != nil {
+		return application{}, err
 	}
 	// The receipt's own line counts: it is not applied before the bank posted it.
 	if err := notBeforeItems(items, in.PostingDate, "posting_date"); err != nil {
-		return nil, err
+		return application{}, err
 	}
-	// What the offsets leave in local and in group currency is the items'
-	// total there: a receipt booked at more than the receivable is a gain.
-	fx, err := fxLines(ctx, le, lc, gc, in.HeaderText)
-	if err != nil {
-		return nil, err
-	}
-	withTradingPartner(fx, sharedTradingPartner(items[1:])) // a difference line takes the items' trading partner (ADR-0059 §4)
-	return append(lines, fx...), nil
+	return plan, nil
 }
 
 // checkReceipt checks the receipt's line: a line of the leading ledger
@@ -240,11 +269,13 @@ func namingItem(err error, field string) error {
 
 // namingLine turns a refusal of one of the entry's lines, which names the
 // line (lines[k]: the receipt's offset, then one per item, then the
-// exchange differences; receiptLines), into one that names what the
-// caller gave: item k of the application as items[k-1], the receipt, or
-// the account determination's exchange difference account, neither of
-// which is a field of the items. The request has no lines.
-func namingLine(err error, items int) error {
+// lines kinds names in their order, k-items-1 for line k; receiptLines),
+// into one that names what the caller gave: item k of the application as
+// items[k-1], the receipt, or the line's account by its kind (the
+// exchange difference's, the payment difference's, the residual's, the
+// account the credit is left on), none of which is a field of the items.
+// The request has no lines.
+func namingLine(err error, items int, kinds []string) error {
 	var p *problem.Problem
 	if !errors.As(err, &p) || len(p.Errors) == 0 {
 		return err
@@ -260,7 +291,7 @@ func namingLine(err error, items int) error {
 			p.Detail = "Item " + fmt.Sprint(k) + "'s account cannot be posted: " + reason + "."
 			p.Errors = []problem.FieldError{{Field: fmt.Sprintf("items[%d]", k-1), Code: p.Errors[0].Code, Message: reason}}
 		default:
-			p.Detail, p.Errors = "The exchange difference's account (fx_gain or fx_loss of the account determination) cannot be posted: "+reason+".", nil
+			p.Detail, p.Errors = kinds[k-items-1]+" cannot be posted: "+reason+".", nil
 		}
 	}
 	return err

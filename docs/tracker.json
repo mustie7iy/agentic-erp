@@ -1156,9 +1156,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "An AR accountant applies a receipt that is less than the invoices it pays: a residual item keeps the rest open, linked to the invoice with a reason, or a difference within the company's payment tolerance is written off (an overpayment within tolerance kept as revenue)",
-        "r": "T75f · docs/design/plan-depth-1.md §T75f · residual on POST /v1/incoming-payments items, companies[].receivables.payment_tolerance, account determination payment_difference_expense and payment_difference_revenue · ledger.Postings.ApplyReceipt · walkthrough step_partial_payment · ADR-0063 §6 and As built",
+        "r": "T75f · docs/design/plan-depth-1.md §T75f · residual on POST /v1/incoming-payments items, companies[].receivables.payment_tolerance, account determination payment_difference_expense and payment_difference_revenue · db/migrations/000350, 000351 · ledger.Postings.ApplyReceipt (internal/ledger/receiptdiff.go) · walkthrough step_partial_payment · ADR-0063 §6 and As built",
         "src": "split:T75c · adr:ADR-0063",
         "c": []
        },

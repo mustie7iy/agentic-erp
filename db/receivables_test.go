@@ -523,3 +523,120 @@ func TestIncomingPaymentRules(t *testing.T) {
 		})
 	}
 }
+
+// TestIncomingPaymentResidualRules (T75f, migration 000350; ADR-0063 §6
+// As built): a payment's difference defaults to zero; an item's residual
+// is its amount, its line in the clearing entry and its reason together,
+// more than zero and less than the item, which the customer owed (a
+// debit), with a reason of 1 to 40 and a free text of 1 to 200
+// characters.
+func TestIncomingPaymentResidualRules(t *testing.T) {
+	need(t)
+	const header = `INSERT INTO receivables.incoming_payment (tenant_id, id, document_number, legal_entity_id, customer_id, receipt_entry_year,
+		receipt_entry_id, receipt_account_id, posting_date, currency, amount, clearing_entry_year, clearing_entry_id, created_by)
+		VALUES ($1, $2, 'IP1', gen_random_uuid(), gen_random_uuid(), 2026, gen_random_uuid(), gen_random_uuid(), '2026-03-21', 'EUR', 6000, 2026,
+			gen_random_uuid(), $1)`
+	const item = `INSERT INTO receivables.incoming_payment_item (tenant_id, incoming_payment_id, item_no, fiscal_year, journal_entry_id, line_no, amount,
+		residual_amount, residual_line_no, residual_reason, residual_reason_text) VALUES ($1, $2, 1, 2026, gen_random_uuid(), 1, $3, $4, $5, $6, $7)`
+	var none *int64
+	var noLine *int32
+	var noText *string
+	amount, line, reason, text := int64(4000), int32(3), "disputed", "The second visit"
+	long, longText := strings.Repeat("r", 41), strings.Repeat("t", 201)
+	cases := []struct {
+		name string
+		args []any // amount, residual amount, line, reason, text
+		want string
+	}{
+		{"an item paid in full", []any{int64(10000), none, noLine, noText, noText}, ""},
+		{"a residual with its reason and text", []any{int64(10000), &amount, &line, &reason, &text}, ""},
+		{"a residual without its line", []any{int64(10000), &amount, noLine, &reason, noText}, "incoming_payment_item_residual"},
+		{"a residual without its reason", []any{int64(10000), &amount, &line, noText, noText}, "incoming_payment_item_residual"},
+		{"a text without a residual", []any{int64(10000), none, noLine, noText, &text}, "incoming_payment_item_residual"},
+		{"a residual of the whole item", []any{int64(4000), &amount, &line, &reason, noText}, "incoming_payment_item_residual"},
+		{"a residual of a credit", []any{int64(-10000), &amount, &line, &reason, noText}, "incoming_payment_item_residual"},
+		{"a reason of 41 characters", []any{int64(10000), &amount, &line, &long, noText}, "incoming_payment_item_residual_reason_length"},
+		{"a text of 201 characters", []any{int64(10000), &amount, &line, &reason, &longText}, "incoming_payment_item_residual_text_length"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tenant, doc := id(), id()
+			err := asApp(t, tenant, func(tx pgx.Tx) error {
+				return all(tx, step(header, tenant, doc), step(item, append([]any{tenant, doc}, c.args...)...))
+			})
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+	t.Run("a residual of zero", func(t *testing.T) {
+		tenant, doc := id(), id()
+		zero := int64(0)
+		failsWith(t, asApp(t, tenant, func(tx pgx.Tx) error {
+			return all(tx, step(header, tenant, doc), step(item, tenant, doc, int64(10000), &zero, &line, &reason, noText))
+		}), "incoming_payment_item_residual")
+	})
+	t.Run("a difference by default zero", func(t *testing.T) {
+		tenant, doc := id(), id()
+		var difference int64 = -1
+		mustApp(t, tenant, func(tx pgx.Tx) error {
+			if err := all(tx, step(header, tenant, doc)); err != nil {
+				return err
+			}
+			return tx.QueryRow(context.Background(), `SELECT difference FROM receivables.incoming_payment WHERE id = $1`, doc).Scan(&difference)
+		})
+		if difference != 0 {
+			t.Errorf("difference: got %d, want 0", difference)
+		}
+	})
+}
+
+// TestPaymentDifferenceKeys (T75f, migrations 000350 and 000351): the
+// account determination takes the payment difference keys.
+func TestPaymentDifferenceKeys(t *testing.T) {
+	need(t)
+	f := newOrders(t)
+	for _, key := range []string{"payment_difference_expense", "payment_difference_revenue"} {
+		t.Run(key, func(t *testing.T) {
+			mustApp(t, f.tenant, func(tx pgx.Tx) error {
+				return exec(tx, "INSERT INTO ledger.account_determination (tenant_id, legal_entity_id, key, account_id, updated_by) VALUES ($1,$2,$3,$4,$5)",
+					f.tenant, f.entity, key, f.expense, f.actor)
+			})
+		})
+	}
+}
+
+// TestPaymentResidualsRevert (T75f, migration 000350's down): the revert
+// is refused while a payment left a residual item or wrote a difference
+// off, whose clearing entry the ledger holds.
+func TestPaymentResidualsRevert(t *testing.T) {
+	need(t)
+	down := migrationNamed(t, "000350_payment_residuals").Down
+	for name, insert := range map[string]string{
+		"a residual": `INSERT INTO receivables.incoming_payment_item (tenant_id, incoming_payment_id, item_no, fiscal_year, journal_entry_id, line_no, amount,
+			residual_amount, residual_line_no, residual_reason) VALUES ($1, $2, 1, 2026, gen_random_uuid(), 1, 10000, 4000, 3, 'disputed')`,
+		"a difference": `UPDATE receivables.incoming_payment SET difference = 3 WHERE tenant_id = $1 AND id = $2`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			tx, err := testDB.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback(ctx)
+			tenant, doc := id(), id()
+			if err := all(tx, step(`ALTER TABLE receivables.incoming_payment DISABLE TRIGGER incoming_payment_immutable`),
+				step(`INSERT INTO receivables.incoming_payment (tenant_id, id, document_number, legal_entity_id, customer_id, receipt_entry_year,
+					receipt_entry_id, receipt_account_id, posting_date, currency, amount, clearing_entry_year, clearing_entry_id, created_by)
+					VALUES ($1, $2, 'IP1', $1, $1, 2026, gen_random_uuid(), $1, '2026-03-21', 'EUR', 6000, 2026, gen_random_uuid(), $1)`, tenant, doc),
+				step(insert, tenant, doc)); err != nil {
+				t.Fatal(err)
+			}
+			failsWith(t, exec(tx, down), "reverting would lose them")
+		})
+	}
+}

@@ -852,3 +852,68 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   enters (batch 71: merged after it) has no item that must name a
   jurisdiction and names none; passing the emirate through sales is a
   later slice.
+
+### T75f Partial payment: residual items and payment differences within tolerance (migrations 000350, 000351)
+The first variant of §6 (product owner 16–17 November 2026: variants
+start; `plan-depth-1.md` §T75f). §6's "in full and exactly" stays the
+rule of a company without a tolerance and of an item without a residual.
+
+- **Residual items** (SAP's residual item of F-28, from memory): each
+  item of `POST /v1/incoming-payments` may name a `residual`, what stays
+  open of it: an amount in the receipt's currency, more than zero and
+  less than the item, which must be a debit (an invoice; what is left of
+  a credit is not a residual), and a reason `short_payment`, `disputed`,
+  `deduction` or `other` (an open enumeration) with an optional free
+  text. The ledger (`ledger.Postings.ApplyReceipt`,
+  `internal/ledger/receiptdiff.go`) clears the item in full, as before,
+  and posts the residual as a new debit line of the clearing entry on the
+  item's account with the customer, at the **item's own rate** (its local
+  and group amounts the item's, prorated), so the part still owed
+  realizes no exchange difference; its text names the residual and its
+  reason. The residual takes the item's terms (`ledger.open_item_terms`:
+  code, baseline date, net days) **without cash discount tiers**, so it
+  falls due when the item did and earns no second discount; an item
+  without terms leaves its residual without, due on the application's
+  date as any customer item without terms is. The payment names each
+  residual by its line in the clearing entry (`incoming_payment_item`'s
+  residual columns); `GET /v1/open-items` lists it while it is open, and
+  aging, dunning and the collection worklist read it as any customer item.
+- **Payment differences** (SAP OBA3's customer tolerance group, from
+  memory): what the items, net of their residuals, differ from the
+  receipt by is written off when it is within the company's
+  `companies[].receivables.payment_tolerance` for its direction: an
+  amount in the company's currency and a percent of the items applied
+  (net of residuals), **the lower binding**; both set together or not at
+  all, and a direction allowing a difference needs its account
+  (configuration validation). An underpayment is debited to the account
+  determination's `payment_difference_expense`, an overpayment credited
+  to `payment_difference_revenue` (422 `ledger.no_payment_difference_account`
+  without it), at the **receipt's rate**; anything beyond the tolerance is
+  refused as before (422 `ledger.clearing_not_balanced`, the message now
+  giving the difference and its direction). The payment shows the
+  difference (`difference`, positive an underpayment); the configuration
+  change is tier 3 (it decides what is written off to profit and loss).
+- **Events and audit:** IncomingPaymentApplied carries `residual_count`
+  and `difference` (optional fields, so a consumer of v1 is unaffected);
+  the audit record carries both.
+- **Schema** (000350): `incoming_payment.difference` (default 0) and the
+  residual columns of `incoming_payment_item`, all together or none,
+  checked; the two account determination keys (added NOT VALID, validated
+  by 000351). The down migration is refused while a residual or a
+  difference exists.
+- **Decided by default:** (1) a residual only on a debit item; (2) the
+  residual at the item's rate, the difference at the receipt's; (3) the
+  residual's terms copied without discount tiers; (4) the tolerance's
+  percent is of the items applied net of their residuals, and both limits
+  must allow the difference (the lower binds), as SAP's tolerance group
+  does (from memory); (5) a tolerance of zero or none allows nothing,
+  keeping T75c's exact rule; (6) reason codes are a fixed open
+  enumeration, not configuration (configurable reasons stay in the
+  "later" leaf); (7) the difference is written off gross: **no output
+  tax is corrected on it** (specialist question below); (8) the payment
+  tolerance is a tier 3 configuration change.
+- **For the specialist:** whether a payment difference written off on a
+  taxable invoice must reduce the output tax (a tax adjustment as a cash
+  discount granted would make) in Canada (GST/HST) and the UAE (VAT); the
+  first version posts none. Not built: cash discount granted, configurable
+  reason codes.

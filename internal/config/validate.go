@@ -280,6 +280,9 @@ func (v *validator) company(p string, co *Company) {
 	v.houseBanks(p, co)
 	v.paymentMethods(p, co)
 	v.bankStatements(p, co, exp, known)
+	if known {
+		v.receivables(p, co, exp)
+	}
 	v.companyControlling(p, co)
 	v.operations(p, co)
 	v.closes(p, co, exp, known)
@@ -758,6 +761,12 @@ func (v *validator) accountDetermination(p string, co *Company) {
 		check("lease_liability", ad.LeaseLiability, Liability, false)
 	}
 	v.leaseRunAccounts(p, co)
+	if ad.PaymentDifferenceExpense != "" {
+		check("payment_difference_expense", ad.PaymentDifferenceExpense, Expense, false)
+	}
+	if ad.PaymentDifferenceRevenue != "" {
+		check("payment_difference_revenue", ad.PaymentDifferenceRevenue, Revenue, false)
+	}
 }
 
 // leaseRunAccounts checks the accounts a lease run posts to (ADR-0073 §9):

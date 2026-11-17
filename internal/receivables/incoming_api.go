@@ -86,7 +86,8 @@ func paymentToAPI(v IncomingPayment, refs paymentReferences) gen.IncomingPayment
 	out := gen.IncomingPayment{ID: v.ID, Version: paymentVersion, CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, UpdatedAt: v.CreatedAt,
 		UpdatedBy: gen.NewOptUUID(v.CreatedBy), DocumentNumber: v.DocumentNumber, LegalEntityID: v.LegalEntityID, CompanyCode: le.Code,
 		CompanyName: le.Name, CustomerID: v.CustomerID, CustomerNumber: customer.Number, CustomerName: customer.Name, PostingDate: v.PostingDate,
-		Currency: v.Currency, Amount: apitypes.Money(v.Amount, v.Currency, v.Exponent), ReceiptJournalEntryID: v.ReceiptEntryID,
+		Currency: v.Currency, Amount: apitypes.Money(v.Amount, v.Currency, v.Exponent), Difference: apitypes.Money(v.Difference, v.Currency, v.Exponent),
+		ReceiptJournalEntryID:   v.ReceiptEntryID,
 		ReceiptJournalEntryYear: int32(v.ReceiptYear), ReceiptJournalEntryNumber: refs.numbers[v.ReceiptEntryID], ReceiptAccountID: v.ReceiptAccountID,
 		ReceiptAccountNumber: account.Number, ReceiptAccountName: account.Name, JournalEntryID: v.EntryID, JournalEntryYear: int32(v.EntryYear),
 		JournalEntryNumber: refs.numbers[v.EntryID], Items: make([]gen.IncomingPaymentItem, len(v.Items))}
@@ -98,6 +99,11 @@ func paymentToAPI(v IncomingPayment, refs paymentReferences) gen.IncomingPayment
 	for i, it := range v.Items {
 		out.Items[i] = gen.IncomingPaymentItem{ItemNo: it.ItemNo, FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID, LineNo: it.LineNo,
 			JournalEntryNumber: refs.numbers[it.EntryID], Reference: refs.references[it.EntryID], Amount: apitypes.Money(it.Amount, v.Currency, v.Exponent)}
+		if it.ResidualAmount != nil { // stored with its line and reason (incoming_payment_item_residual)
+			out.Items[i].Residual.SetTo(gen.IncomingPaymentResidual{Amount: apitypes.Money(*it.ResidualAmount, v.Currency, v.Exponent), Reason: *it.ResidualReason,
+				ReasonText: apitypes.OptString(it.ResidualText), FiscalYear: int32(v.EntryYear), JournalEntryID: v.EntryID, JournalEntryNumber: refs.numbers[v.EntryID],
+				LineNo: *it.ResidualLineNo})
+		}
 	}
 	return out
 }
@@ -105,9 +111,12 @@ func paymentToAPI(v IncomingPayment, refs paymentReferences) gen.IncomingPayment
 // CreateIncomingPayment implements POST /v1/incoming-payments.
 func (e *Endpoints) CreateIncomingPayment(ctx context.Context, req *gen.IncomingPaymentCreate, _ gen.CreateIncomingPaymentParams) (gen.CreateIncomingPaymentRes, error) {
 	in := PaymentInput{LegalEntityID: req.LegalEntityID, CustomerID: req.CustomerID, ReceiptEntryID: req.ReceiptJournalEntryID,
-		PostingDate: apitypes.Ptr[time.Time](req.PostingDate), Items: make([]ledger.ItemRef, len(req.Items))}
+		PostingDate: apitypes.Ptr[time.Time](req.PostingDate), Items: make([]ledger.ItemRef, len(req.Items)), Residuals: make([]*ResidualInput, len(req.Items))}
 	for i, it := range req.Items {
 		in.Items[i] = ledger.ItemRef{FiscalYear: int16(it.FiscalYear), EntryID: it.JournalEntryID, LineNo: it.LineNo} // the contract bounds fiscal_year to 1900..2999
+		if r, ok := it.Residual.Get(); ok {
+			in.Residuals[i] = &ResidualInput{Value: r.Amount.Amount, Currency: r.Amount.Currency, Reason: r.Reason, Text: apitypes.Ptr[string](r.ReasonText)}
+		}
 	}
 	v, err := e.ApplyPayment(ctx, in)
 	if err != nil {
