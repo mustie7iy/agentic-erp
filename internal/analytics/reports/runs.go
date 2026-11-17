@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -120,9 +119,9 @@ func (s *Scheduler) scheduled(ctx context.Context) ([]scheduled, error) {
 // results are stored with none open (an object store's write may take a
 // while, and a transaction held across it would hold a connection and the
 // report's lock as long), and the run is kept in a second, which finds
-// the day still due before it keeps it: never two runs of a day. The
-// results are stored under the day's key (store), so an attempt that is
-// not kept leaves no object that no run refers to.
+// the day still due before it keeps it: a run another replica kept
+// meanwhile leaves this one's object unreferenced, never two runs of a
+// day.
 func (s *Scheduler) runReport(ctx context.Context, sc scheduled) (bool, error) {
 	var run *keptRun
 	var body []byte
@@ -133,8 +132,8 @@ func (s *Scheduler) runReport(ctx context.Context, sc scheduled) (bool, error) {
 		return false, err
 	}
 	if body != nil {
-		if err := s.store(ctx, run, body); err != nil {
-			return false, err
+		if err := s.Reports.Objects.Put(ctx, run.ObjectKey, body, blobstore.PutOptions{ContentType: "application/json"}); err != nil {
+			return false, fmt.Errorf("analytics: keep run %s of report %s: %w", run.ID, run.Report.ID, err)
 		}
 	}
 	ran := false
@@ -153,39 +152,6 @@ func (s *Scheduler) runReport(ctx context.Context, sc scheduled) (bool, error) {
 		return keep(ctx, tx, p, *run)
 	})
 	return ran && err == nil, err
-}
-
-// store writes the run's results under its day's key. An earlier attempt
-// at the day that stored them and was never kept (a replica that stopped
-// after the write, or one whose day another replica kept) left results
-// there: those are the day's, and the run keeps them, with their digest
-// and data date, rather than leave them referred to by no run
-// (review:batch77).
-func (s *Scheduler) store(ctx context.Context, run *keptRun, body []byte) error {
-	err := s.Reports.Objects.Put(ctx, run.ObjectKey, body, blobstore.PutOptions{ContentType: "application/json"})
-	if errors.Is(err, blobstore.ErrExists) {
-		var stored []byte
-		if stored, _, err = s.Reports.Objects.Get(ctx, run.ObjectKey); err == nil {
-			err = adopt(run, stored)
-		}
-	}
-	if err != nil {
-		return fmt.Errorf("analytics: keep run %s of report %s: %w", run.ID, run.Report.ID, err)
-	}
-	return nil
-}
-
-// adopt makes the results an earlier attempt stored the run's.
-func adopt(run *keptRun, stored []byte) error {
-	var res struct {
-		DataThrough string `json:"data_through"`
-	}
-	if err := json.Unmarshal(stored, &res); err != nil {
-		return fmt.Errorf("the results stored before are not a report's: %w", err)
-	}
-	sum := sha256.Sum256(stored)
-	run.SHA256, run.DataThrough = sum[:], res.DataThrough
-	return nil
 }
 
 // asOwner runs fn in a transaction of the report's tenant as its owner,
@@ -302,7 +268,7 @@ func (s *Scheduler) execute(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	api := resultsToAPI(res)
 	body, _ := api.MarshalJSON() // the generated type always encodes
 	sum := sha256.Sum256(body)
-	key := blobstore.Key(p.TenantID, blobstore.KindReportRuns, run.Report.ID.String()+"/"+run.Date.Format(time.DateOnly)+".json")
+	key := blobstore.Key(p.TenantID, blobstore.KindReportRuns, run.ID.String()+".json")
 	run.ObjectKey, run.SHA256, run.DataThrough, run.Companies, run.Permissions = key, sum[:], res.DataThrough, companies, permissions
 	return body, nil
 }

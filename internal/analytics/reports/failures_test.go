@@ -3,12 +3,8 @@ package reports_test
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -566,105 +562,5 @@ func TestSchedulerRunKeptMeanwhile(t *testing.T) {
 	}
 	if runs := e.runs(t, id); len(runs) != 1 {
 		t.Errorf("runs: got %d, want 1, the other replica's", len(runs))
-	}
-}
-
-// stopsAfterWrite is a store whose write lands and then fails, as a
-// replica that stopped after storing a run's results and before keeping
-// the run.
-type stopsAfterWrite struct{ blobstore.Dir }
-
-func (s stopsAfterWrite) Put(ctx context.Context, key string, body []byte, opts blobstore.PutOptions) error {
-	if err := s.Dir.Put(ctx, key, body, opts); err != nil {
-		return err
-	}
-	return errStore
-}
-
-// TestSchedulerKeepsTheResultsStoredBefore: results an attempt stored and
-// never kept are the day's: the next round keeps its run on them, with
-// their digest, and the store holds one object of the day, not one no
-// run refers to (review:batch77).
-func TestSchedulerKeepsTheResultsStoredBefore(t *testing.T) {
-	e := withObjects(t)
-	id := e.scheduled(t)
-	stopped := *e.s
-	rep := *stopped.Reports
-	rep.Objects = stopsAfterWrite{blobstore.Dir{Root: e.root}}
-	stopped.Reports = &rep
-	if _, err := stopped.RunOnce(context.Background()); !errors.Is(err, errStore) {
-		t.Fatalf("the stopped round: got %v, want %v", err, errStore)
-	}
-	if _, err := e.s.RunOnce(context.Background()); err != nil {
-		t.Fatalf("round: %v", err)
-	}
-	runs := e.runs(t, id)
-	if len(runs) != 1 {
-		t.Fatalf("runs: got %d, want 1", len(runs))
-	}
-	var objects []string
-	if err := filepath.WalkDir(e.root, func(p string, d fs.DirEntry, err error) error {
-		if err == nil && !d.IsDir() && strings.HasSuffix(p, ".json") {
-			objects = append(objects, p)
-		}
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if len(objects) != 1 {
-		t.Fatalf("objects: got %v, want the day's one", objects)
-	}
-	body, err := os.ReadFile(objects[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	sum := sha256.Sum256(body)
-	if got, want := fmt.Sprint(runs[0]["sha256"]), hex.EncodeToString(sum[:]); got != want {
-		t.Errorf("run's digest: got %s, want the stored results' %s", got, want)
-	}
-}
-
-// takenKey is a store whose every key is taken, by results it cannot read
-// back (unreadable) or that are no report's.
-type takenKey struct {
-	blobstore.Dir
-	unreadable bool
-}
-
-func (s takenKey) Put(context.Context, string, []byte, blobstore.PutOptions) error {
-	return blobstore.ErrExists
-}
-
-func (s takenKey) Get(context.Context, string) ([]byte, string, error) {
-	if s.unreadable {
-		return nil, "", errStore
-	}
-	return []byte("not a report"), "application/json", nil
-}
-
-// TestSchedulerResultsStoredBeforeUnusable: results stored before that
-// cannot be read, or are no report's, keep no run: the day stays due.
-func TestSchedulerResultsStoredBeforeUnusable(t *testing.T) {
-	for name, c := range map[string]struct {
-		store takenKey
-		want  string
-	}{
-		"unreadable":     {takenKey{unreadable: true}, errStore.Error()},
-		"not a report's": {takenKey{}, "not a report's"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			e := withObjects(t)
-			id := e.scheduled(t)
-			s := *e.s
-			rep := *s.Reports
-			rep.Objects = c.store
-			s.Reports = &rep
-			if _, err := s.RunOnce(context.Background()); err == nil || !strings.Contains(err.Error(), c.want) {
-				t.Errorf("round: got %v, want an error saying %q", err, c.want)
-			}
-			if runs := e.runs(t, id); len(runs) != 0 {
-				t.Errorf("runs: got %v, want none", runs)
-			}
-		})
 	}
 }
