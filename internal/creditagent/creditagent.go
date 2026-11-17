@@ -30,7 +30,6 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
-	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/recommend"
 )
 
@@ -139,11 +138,15 @@ func (a *Agent) Score(ctx context.Context, company, customer string) (recommend.
 	if err != nil {
 		return recommend.Result{}, fmt.Errorf("creditagent: the credit exposure of customer %s in company %s: %w", customer, company, err)
 	}
+	today, err := apitools.Days{API: a.API, Now: a.Now}.Of(ctx, le)
+	if err != nil {
+		return recommend.Result{}, fmt.Errorf("creditagent: company %s: %w", company, err)
+	}
 	r := &review{e: e}
 	task := recommend.Task{
 		Purpose: fmt.Sprintf("Review the credit limit of customer %s in company %s", e.CustomerNumber, e.CompanyCode),
-		Prompt: fmt.Sprintf("Customer %s %s (business partner %s) in company %s (legal entity %s), whose currency is %s. %s Today is %s (UTC).",
-			e.CustomerNumber, e.CustomerName, e.CustomerID, e.CompanyCode, le, e.Currency, limitNow(e), a.today()),
+		Prompt: fmt.Sprintf("Customer %s %s (business partner %s) in company %s (legal entity %s), whose currency is %s. %s Today is %s in the company's time zone.",
+			e.CustomerNumber, e.CustomerName, e.CustomerID, e.CompanyCode, le, e.Currency, limitNow(e), today),
 		Objects: map[string]string{e.CustomerID: CustomerObject},
 		Observe: map[string]func(apitools.Response){},
 		Check:   r.check,
@@ -155,11 +158,6 @@ func (a *Agent) Score(ctx context.Context, company, customer string) (recommend.
 		task.Observe[read] = r.read
 	}
 	return agent(a.MaxIterations).Run(ctx, a.LLM, a.API, task)
-}
-
-// today is the run's date, in UTC.
-func (a *Agent) today() string {
-	return clock.Now(a.Now).UTC().Format(time.DateOnly)
 }
 
 // Reads are the operations the agent reads with (ADR-0072, T105a).

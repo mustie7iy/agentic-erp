@@ -40,6 +40,7 @@ type fakeAPI struct {
 	noLimit  bool
 	exposure int  // the exposure's status; 0: 200
 	invoices int  // the invoices' status; 0: 200
+	today    int  // the company's day's status; 0: 200
 	draft    bool // the customer's one invoice was never posted
 	made     int
 }
@@ -65,6 +66,10 @@ func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch path := r.URL.Path; {
 	case path == "/v1/legal-entities":
 		answer(200, `{"items": [{"id": "`+le+`", "code": "3000"}]}`)
+	case path == "/v1/legal-entities/"+le+"/today" && a.today != 0:
+		answer(a.today, `{"code": "identity.permission_missing", "status": 403}`)
+	case path == "/v1/legal-entities/"+le+"/today":
+		answer(200, `{"legal_entity_id": "`+le+`", "date": "2026-11-12", "time_zone": "America/Toronto"}`)
 	case path == "/v1/credit-exposure" && a.exposure == 200:
 		answer(200, `[]`)
 	case path == "/v1/credit-exposure" && a.exposure != 0:
@@ -145,6 +150,8 @@ var (
 // not start with the limit recommended in the company's
 // currency, or whose limit does not fit its kind; nothing refused
 // reaches the API.
+// The run is dated on the company's day: at 23:30 in Toronto it is the
+// 12th there, though the 13th in UTC (review:batch77).
 func TestScore(t *testing.T) {
 	a := &fakeAPI{}
 	model := llmtest.New(t, exposureRead, invoicesRead, paymentsRead,
@@ -178,7 +185,7 @@ func TestScore(t *testing.T) {
 	if got := len(a.sent("recommendations")); got != 1 {
 		t.Errorf("recommendations sent: got %d, want 1: the check keeps the others from the API", got)
 	}
-	prompt := "Customer 100042 Northwind Traders (business partner " + customer + ") in company 3000 (legal entity " + le + "), whose currency is CAD. It has a credit limit, " + limit + ". Today is 2026-11-13 (UTC)."
+	prompt := "Customer 100042 Northwind Traders (business partner " + customer + ") in company 3000 (legal entity " + le + "), whose currency is CAD. It has a credit limit, " + limit + ". Today is 2026-11-12 in the company's time zone."
 	if !strings.Contains(model.Requests[0], prompt) {
 		t.Errorf("prompt: got %s, want %q", model.Requests[0], prompt)
 	}
@@ -314,10 +321,11 @@ func TestScoreRefusals(t *testing.T) {
 		company string
 		want    string
 	}{
-		"another company":       {client(t, &fakeAPI{}), "9999", "no company 9999"},
-		"an exposure refused":   {client(t, &fakeAPI{exposure: 404}), "3000", "request.not_found"},
-		"an exposure that is 0": {client(t, &fakeAPI{exposure: 200}), "3000", "the credit exposure of customer " + customer + " in company 3000"},
-		"the API gone":          {gone, "3000", "127.0.0.1:1"},
+		"another company":           {client(t, &fakeAPI{}), "9999", "no company 9999"},
+		"an exposure refused":       {client(t, &fakeAPI{exposure: 404}), "3000", "request.not_found"},
+		"the company's day refused": {client(t, &fakeAPI{today: 403}), "3000", "creditagent: company 3000"},
+		"an exposure that is 0":     {client(t, &fakeAPI{exposure: 200}), "3000", "the credit exposure of customer " + customer + " in company 3000"},
+		"the API gone":              {gone, "3000", "127.0.0.1:1"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			res, err := (&creditagent.Agent{LLM: model.Runner(), API: c.api}).Score(context.Background(), c.company, customer)
