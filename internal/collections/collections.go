@@ -157,24 +157,37 @@ type Run struct {
 }
 
 // DisputedLC is what the run's disputed items add up to in its currency.
-func (r Run) DisputedLC() money.Minor {
-	return heldLC(r.Disputed, func(d DisputedItem) HeldItem { return d.HeldItem })
-}
+func (r Run) DisputedLC() money.Minor { return heldLC(heldAmounts(r.Disputed, DisputedItem.held)) }
 
 // BlockedLC is what the run's blocked items add up to in its currency.
-func (r Run) BlockedLC() money.Minor {
-	return heldLC(r.Blocked, func(b BlockedItem) HeldItem { return b.HeldItem })
+func (r Run) BlockedLC() money.Minor { return heldLC(heldAmounts(r.Blocked, BlockedItem.held)) }
+
+// heldLC adds up the amounts of items a run held back, which sums
+// checked for range when the run was proposed.
+func heldLC(amounts []money.Minor) money.Minor {
+	sum, _ := money.Sum(amounts...) // in range: sums refused the run otherwise when it was proposed
+	return sum
 }
 
-// heldLC adds up the amounts in the run's currency of items a run held
-// back, which sums checked for range when the run was proposed.
-func heldLC[T any](items []T, held func(T) HeldItem) money.Minor {
+// heldAmounts are the amounts in the run's currency of items a run held
+// back.
+func heldAmounts[T any](items []T, held func(T) HeldItem) []money.Minor {
 	amounts := make([]money.Minor, len(items))
 	for i, it := range items {
 		amounts[i] = held(it).AmountLC
 	}
-	sum, _ := money.Sum(amounts...) // in range: sums refused the run otherwise when it was proposed
-	return sum
+	return amounts
+}
+
+// stored is a copy of a run's list as it is written, each item changed by
+// strip: a list, empty and not null without any.
+func stored[T any](items []T, strip func(*T)) []T {
+	out := make([]T, len(items))
+	copy(out, items)
+	for i := range out {
+		strip(&out[i])
+	}
+	return out
 }
 
 // HeldItem is an item a run would have proposed but held back, with what
@@ -203,12 +216,16 @@ type DisputedItem struct {
 	HeldItem
 }
 
+func (d DisputedItem) held() HeldItem { return d.HeldItem }
+
 // BlockedItem is an item a run left out for a dunning block of the item
 // or its customer, named (T76e).
 type BlockedItem struct {
 	BlockID uuid.UUID `json:"dunning_block_id"`
 	HeldItem
 }
+
+func (b BlockedItem) held() HeldItem { return b.HeldItem }
 
 // Item is a row of collections.dunning_notice_item: a customer's open
 // item overdue on its run's key date, as the run read it. Amount is minor

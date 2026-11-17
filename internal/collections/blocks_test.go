@@ -145,6 +145,7 @@ func TestBlockLists(t *testing.T) {
 		{"Northwind's", "?customer_id=" + e.north.String(), first},
 		{"active", "?status=active", second},
 		{"released", "?status=released", first},
+		{"a status no block has", "?status=expired", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			page, _ := e.In(t).Must(200, "GET", "/v1/dunning-blocks"+c.query, "", "")

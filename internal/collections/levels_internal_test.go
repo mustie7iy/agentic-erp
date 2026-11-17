@@ -48,6 +48,22 @@ func TestReach(t *testing.T) {
 	})
 }
 
+// TestRuleOfDroppedLevel (review round 1): an item kept at level 3 after
+// the company dropped to two levels is charged as level 2, the highest,
+// not refused or failed.
+func TestRuleOfDroppedLevel(t *testing.T) {
+	proc := procedure{levels: []config.DunningLevel{{Level: 1, DaysOverdue: 5}, {Level: 2, DaysOverdue: 20, Charge: "15.00", Interest: true}},
+		rate: 9000, exp: 2}
+	run := Run{}
+	notices, err := charge(&run, []Notice{{Items: []Item{{Level: 3, AmountLC: 16000, DaysOverdue: 61}}}}, proc)
+	if err != nil || len(notices) != 1 {
+		t.Fatalf("got %v, %v, want one notice", notices, err)
+	}
+	if n := notices[0]; n.Level != 3 || n.ChargeAmount != 1500 || n.InterestAmount != 241 {
+		t.Errorf("got level %d, charge %d, interest %d, want 3, 1500, 241", n.Level, n.ChargeAmount, n.InterestAmount)
+	}
+}
+
 // TestInterestOn: interest is amount × rate × days ÷ 365, the rate in
 // thousandths of a percent a year, rounded half away from zero in the
 // amount's minor units; out of range is an error (T76d).

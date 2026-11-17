@@ -19,12 +19,12 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
-// The statuses of a dunning block (T76e): Active, it holds for the runs
-// at a key date up to its end date; Released, released before and holding
+// The statuses of a dunning block (T76e): BlockActive, it holds for the
+// runs at a key date up to its end date; BlockReleased, released before and holding
 // for none.
 const (
-	Active   = "active"
-	Released = "released"
+	BlockActive   = "active"
+	BlockReleased = "released"
 )
 
 // Block is a row of collections.dunning_block (ADR-0065 As built, T76e):
@@ -50,12 +50,12 @@ type Block struct {
 	UpdatedBy      uuid.UUID
 }
 
-// Status is Released for a released block, Active otherwise.
+// Status is BlockReleased for a released block, BlockActive otherwise.
 func (b Block) Status() string {
 	if b.ReleasedAt != nil {
-		return Released
+		return BlockReleased
 	}
-	return Active
+	return BlockActive
 }
 
 const blockSelect = `SELECT b.id, b.legal_entity_id, b.customer_id, b.customer_number, b.fiscal_year, b.journal_entry_id, b.line_no, b.document_number,

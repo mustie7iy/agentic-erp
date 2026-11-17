@@ -10,6 +10,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/collections"
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -130,6 +131,39 @@ func TestDunningWithoutProcedure(t *testing.T) {
 	if g := fields(t, got, "charge_amount", "interest_amount", "total_amount", "grace_days", "minimum_amount", "interest_rate_percent",
 		"below_minimum_notice_count", "below_minimum_amount"); g != want {
 		t.Errorf("got %s, want %s", g, want)
+	}
+}
+
+// zeroLocal are the ledger's open items with the first one's amount in
+// the company's currency 0, as a tiny foreign-currency item is booked.
+type zeroLocal struct{ ledger.OpenItems }
+
+func (z zeroLocal) Receivable(ctx context.Context, legalEntity uuid.UUID, customers []uuid.UUID) ([]ledger.ReceivableItem, error) {
+	items, err := z.OpenItems.Receivable(ctx, legalEntity, customers)
+	if err == nil {
+		items[0].AmountLC = 0
+	}
+	return items, err
+}
+
+// TestNoticeAmountingToZero (review round 1): a notice whose items amount
+// to 0.00 in the company's currency is below the minimum and counted,
+// with no amount, and the run is stored.
+func TestNoticeAmountingToZero(t *testing.T) {
+	e := setupWith(t, charged)
+	e.story(t)
+	h := endpoints(t)
+	h.OpenItems = zeroLocal{}
+	var got collections.Run
+	if err := e.inRequest(t, func(ctx context.Context) (err error) {
+		// On 15 April only CI-A, due 31 March, is overdue past the grace days.
+		got, err = h.ProposeRun(ctx, collections.RunInput{LegalEntityID: e.DE, KeyDate: date(t, "2026-04-15")})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got.NoticeCount != 0 || got.BelowMinimumCount != 1 || got.BelowMinimumAmount != 0 {
+		t.Errorf("got %d notices, %d below the minimum for %d, want 0, 1 for 0", got.NoticeCount, got.BelowMinimumCount, got.BelowMinimumAmount)
 	}
 }
 

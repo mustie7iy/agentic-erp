@@ -533,7 +533,8 @@ func TestDunningRunDisputedItems(t *testing.T) {
 // TestDunningCharges (T76d, migration 000350): a run's grace days are 0 to
 // 365, its minimum amount, charges and interest are not negative, its
 // interest rate above 0 and below 100 percent; a run counts notices below
-// the minimum with their amount and only with a minimum; a notice's
+// the minimum only with a minimum, and an amount below it only with
+// notices (which may amount to 0); a notice's
 // charge and interest and an item's interest are not negative. Each
 // defaults to none, as the previous version's rows have it, and the
 // application's update grant leaves them out.
@@ -558,10 +559,9 @@ func TestDunningCharges(t *testing.T) {
 		{"a rate of four places", ", interest_rate_percent", ", 9.1234", "", "", "", "", ""},
 		{"a negative charge", ", charge_amount", ", -1", "", "", "", "", "dunning_run_charge_amount_check"},
 		{"negative interest", ", interest_amount", ", -1", "", "", "", "", "dunning_run_interest_amount_check"},
-		{"a negative count below the minimum", ", minimum_amount, below_minimum_count, below_minimum_amount", ", 100, -1, 50", "", "", "", "", "dunning_run_below_minimum_count_check"},
+		{"a negative count below the minimum", ", minimum_amount, below_minimum_count, below_minimum_amount", ", 100, -1, 0", "", "", "", "", "dunning_run_below_minimum_count_check"},
 		{"a negative amount below the minimum", ", minimum_amount, below_minimum_count, below_minimum_amount", ", 100, 1, -1", "", "", "", "", "dunning_run_below_minimum_amount_check"},
-		{"notices below the minimum without their amount", ", minimum_amount, below_minimum_count", ", 100, 1", "", "", "", "",
-			"dunning_run_below_minimum_check"},
+		{"a notice below the minimum amounting to 0", ", minimum_amount, below_minimum_count", ", 100, 1", "", "", "", "", ""},
 		{"an amount below the minimum without notices", ", minimum_amount, below_minimum_amount", ", 100, 1", "", "", "", "",
 			"dunning_run_below_minimum_check"},
 		{"notices below no minimum", ", below_minimum_count, below_minimum_amount", ", 1, 100", "", "", "", "", "dunning_run_below_minimum_check"},

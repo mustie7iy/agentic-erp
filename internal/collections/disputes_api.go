@@ -62,7 +62,7 @@ func (e *Endpoints) named(ctx context.Context, what string, les, customers []uui
 		return caseRefs{}, fmt.Errorf("collections: customers of %d %s: %w", len(customers), what, err)
 	}
 	if out.people, err = idref.Resolve(ctx, e.People.PersonNames, people, personRef); err != nil {
-		return caseRefs{}, fmt.Errorf("collections: people of %d %s: %w", len(customers), what, err)
+		return caseRefs{}, fmt.Errorf("collections: people of %d %s: %w", len(people), what, err)
 	}
 	return out, nil
 }

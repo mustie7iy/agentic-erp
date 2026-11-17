@@ -26,9 +26,10 @@ ALTER TABLE collections.dunning_run
     CONSTRAINT dunning_run_below_minimum_count_check CHECK (below_minimum_count >= 0),
   ADD COLUMN below_minimum_amount bigint NOT NULL DEFAULT 0
     CONSTRAINT dunning_run_below_minimum_amount_check CHECK (below_minimum_amount >= 0),
-  -- Notices left out for being below the minimum have an amount, and are
-  -- below a minimum.
-  ADD CONSTRAINT dunning_run_below_minimum_check CHECK ((below_minimum_count = 0) = (below_minimum_amount = 0)
+  -- An amount below the minimum is that of notices left out, and notices
+  -- are left out below a minimum only. A notice may amount to 0 in the
+  -- company's currency (a foreign-currency item booked at 0.00).
+  ADD CONSTRAINT dunning_run_below_minimum_check CHECK ((below_minimum_count > 0 OR below_minimum_amount = 0)
     AND (below_minimum_count = 0 OR minimum_amount > 0));
 
 ALTER TABLE collections.dunning_notice

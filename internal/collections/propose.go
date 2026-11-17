@@ -135,6 +135,14 @@ type procedure struct {
 	exp      int
 }
 
+// rule is the configured level whose charge and interest apply at a
+// level. A level above the configured ones, which an item keeps from a
+// confirmed run after the company dropped levels (a level never falls),
+// takes the highest configured level's (T76d, ADR-0065 As built).
+func (p procedure) rule(level int32) config.DunningLevel {
+	return p.levels[min(int(level), len(p.levels))-1]
+}
+
 // procedure reads the company's dunning in the active configuration; a
 // company without levels has no dunning and its run is refused.
 func (e *Endpoints) procedure(ctx context.Context, tx pgx.Tx, le tenancy.Entity) (procedure, error) {
@@ -306,7 +314,7 @@ func charge(run *Run, notices []Notice, proc procedure) ([]Notice, error) {
 		for j := range n.Items {
 			it := &n.Items[j]
 			n.Level, local[j] = max(n.Level, it.Level), it.AmountLC
-			if proc.levels[it.Level-1].Interest {
+			if proc.rule(it.Level).Interest {
 				it.InterestAmount = a.interest(it.AmountLC, proc.rate, it.DaysOverdue)
 			}
 			interest[j] = it.InterestAmount
@@ -315,7 +323,7 @@ func charge(run *Run, notices []Notice, proc procedure) ([]Notice, error) {
 			below = append(below, n.OverdueAmount)
 			continue
 		}
-		n.ChargeAmount, n.InterestAmount = proc.levels[n.Level-1].ChargeOf(proc.exp), a.sum(interest...)
+		n.ChargeAmount, n.InterestAmount = proc.rule(n.Level).ChargeOf(proc.exp), a.sum(interest...)
 		a.sum(n.OverdueAmount, n.ChargeAmount, n.InterestAmount) // the notice's total, which the API gives
 		kept = append(kept, n)
 	}
@@ -380,16 +388,8 @@ func sums(run *Run, overdue, charges, interest []money.Minor) error {
 	var a adder
 	run.OverdueAmount, run.ChargeAmount, run.InterestAmount = a.sum(overdue...), a.sum(charges...), a.sum(interest...)
 	a.sum(run.OverdueAmount, run.ChargeAmount, run.InterestAmount)
-	var held []money.Minor
-	for _, d := range run.Disputed {
-		held = append(held, d.AmountLC)
-	}
-	a.sum(held...)
-	held = held[:0]
-	for _, b := range run.Blocked {
-		held = append(held, b.AmountLC)
-	}
-	a.sum(held...)
+	a.sum(heldAmounts(run.Disputed, DisputedItem.held)...)
+	a.sum(heldAmounts(run.Blocked, BlockedItem.held)...)
 	return a.err
 }
 
@@ -398,16 +398,8 @@ func sums(run *Run, overdue, charges, interest []money.Minor) error {
 func insertRun(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le tenancy.Entity, run Run, notices []Notice) error {
 	// Stored as lists, empty and not null without any, each item without
 	// its currency's digits, which the run is read with.
-	disputed := make([]DisputedItem, len(run.Disputed))
-	for i, d := range run.Disputed {
-		d.Exponent = 0
-		disputed[i] = d
-	}
-	blocked := make([]BlockedItem, len(run.Blocked))
-	for i, b := range run.Blocked {
-		b.Exponent = 0
-		blocked[i] = b
-	}
+	disputed := stored(run.Disputed, func(d *DisputedItem) { d.Exponent = 0 })
+	blocked := stored(run.Blocked, func(b *BlockedItem) { b.Exponent = 0 })
 	if _, err := tx.Exec(ctx, `INSERT INTO collections.dunning_run (tenant_id, id, legal_entity_id, key_date, status, currency, notice_count,
 			item_count, overdue_amount, disputed_items, grace_days, minimum_amount, interest_rate_percent, charge_amount, interest_amount,
 			below_minimum_count, below_minimum_amount, blocked_items, created_by, updated_by)

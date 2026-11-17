@@ -644,7 +644,13 @@ rule of law is built in.
   in no notice and are not recorded when the run is confirmed, so their
   level stays. The run counts such notices (`below_minimum_notice_count`,
   `below_minimum_amount`) and names no customer for them. The minimum
-  applies after the disputed items are left out.
+  applies after the disputed items are left out. A notice amounting to
+  0.00 in the company's currency (a foreign-currency item booked at 0)
+  is below any minimum and counted (review round 1).
+- **Levels dropped.** An item keeps a level a confirmed run recorded
+  even after the company drops that level (a level never falls, §4);
+  its charge and interest are then the highest configured level's
+  (`procedure.rule`, review round 1).
 - **Charge.** The charge of the notice's level, a fixed amount in the
   company's currency, once per notice (SAP's charges per level; a
   charge by percentage or per currency is later).

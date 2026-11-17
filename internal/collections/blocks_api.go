@@ -135,7 +135,7 @@ func (e *Endpoints) ListDunningBlocks(ctx context.Context, params gen.ListDunnin
 		return nil, fmt.Errorf("collections: company access for dunning blocks: %w", err)
 	}
 	q, args := ks.SQL(blockSelect+` WHERE ($1 OR b.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR b.legal_entity_id = $3)
-		AND ($4::uuid IS NULL OR b.customer_id = $4) AND ($5 = '' OR ($5 = 'released') = (b.released_at IS NOT NULL))`,
+		AND ($4::uuid IS NULL OR b.customer_id = $4) AND ($5 = '' OR ($5 = 'active' AND b.released_at IS NULL) OR ($5 = 'released' AND b.released_at IS NOT NULL))`,
 		[]any{access.All, access.IDs, le, customer, params.Status.Value})
 	rows, _ := tx.Query(ctx, q, args...)
 	blocks, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Block, error) { return scanBlock(r) })

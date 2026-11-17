@@ -4723,8 +4723,9 @@ erDiagram
   `dunning_run_interest_amount_check`); the notices it left out below
   the minimum, `below_minimum_count` and `below_minimum_amount`, not
   negative (`dunning_run_below_minimum_count_check`,
-  `dunning_run_below_minimum_amount_check`), both 0 or neither and only
-  with a minimum (`dunning_run_below_minimum_check`). Each defaults to
+  `dunning_run_below_minimum_amount_check`), an amount only with notices
+  (which may amount to 0, an item booked at 0.00) and notices only with
+  a minimum (`dunning_run_below_minimum_check`). Each defaults to
   none, and the application's update grant leaves them out.
 - `collections.dunning_notice`: one per customer in a run
   (`dunning_notice_customer_once`), at a level from 1 to 9
