@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -354,21 +355,31 @@ func BlockPrincipal(ctx context.Context, id uuid.UUID, ifMatch func(int32) error
 			Payload: map[string]any{"principal_id": id, "kind": p.Kind, "previous_status": p.Status, "status": Blocked}})
 }
 
-// lockBlockers locks the principal to block and the actor, in id order,
+// lockBlockers locks the principal to block (FOR UPDATE) and the actor
+// (FOR SHARE, which leaves the actor's other writes free), in id order,
 // and refuses an actor that is no longer active. Locking the principal
 // alone, two administrators blocking each other at once would each lock
-// only the other and both commit, leaving neither active; under both
+// only the other and both commit, leaving neither active; under these
 // locks the second waits for the first and then finds itself blocked
 // (ADR-0008). The id order keeps the two from deadlocking.
 func lockBlockers(ctx context.Context, tx pgx.Tx, actor, id uuid.UUID) error {
-	var active bool
-	err := tx.QueryRow(ctx, `WITH locked AS (SELECT id, status FROM identity.principal WHERE id IN ($1, $2) ORDER BY id FOR UPDATE)
-		SELECT coalesce(bool_and(status = 'active') FILTER (WHERE id = $1), true) FROM locked`, actor, id).Scan(&active)
-	if err != nil {
-		return fmt.Errorf("identity: lock principals %s and %s: %w", actor, id, err)
+	order := []uuid.UUID{actor, id}
+	if bytes.Compare(id[:], actor[:]) < 0 {
+		order = []uuid.UUID{id, actor}
 	}
-	if !active {
-		return problem.Forbidden("identity.principal_blocked", "You were blocked or deprovisioned while this request ran; it blocks no one.")
+	for _, p := range order {
+		q := `SELECT status FROM identity.principal WHERE id = $1 FOR UPDATE`
+		if p == actor {
+			q = `SELECT status FROM identity.principal WHERE id = $1 FOR SHARE`
+		}
+		var status string
+		switch err := tx.QueryRow(ctx, q, p).Scan(&status); {
+		case errors.Is(err, pgx.ErrNoRows): // the target is answered 404 next; an actor without a row (a system) is not a principal to block
+		case err != nil:
+			return fmt.Errorf("identity: lock principal %s: %w", p, err)
+		case p == actor && status != Active:
+			return problem.Forbidden("identity.principal_blocked", "You were blocked or deprovisioned while this request ran; it blocks no one.")
+		}
 	}
 	return nil
 }

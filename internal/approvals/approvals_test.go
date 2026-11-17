@@ -577,6 +577,12 @@ func TestDatabaseFailures(t *testing.T) {
 		_, err := e.Approve(ctx, multi, func(int32) error { return nil }, "")
 		return err
 	})
+	// So does an approval that leaves its step short of the approvals it needs.
+	pgtest.Exec(t, `UPDATE workflow.approval_step SET required = 2 WHERE request_id = $1 AND step_no = 1`, multi)
+	apitest.EveryFailure(t, f.Tenant, f.Approver, "short of the step's approvals", func(ctx context.Context) error {
+		_, err := e.Approve(ctx, multi, func(int32) error { return nil }, "")
+		return err
+	})
 	if _, err := e.Approve(context.Background(), multi, nil, ""); err == nil {
 		t.Error("approve outside a unit of work")
 	}

@@ -6,7 +6,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -49,14 +48,10 @@ func TestAnchoringHoldsNoLockAcrossTheStore(t *testing.T) {
 	var release sync.Once
 	t.Cleanup(func() { release.Do(func() { close(store.release) }) }) // the round ends should the test fail first
 	<-store.entered
-	start := time.Now()
 	if err := apitest.Committed(t, c.Tenant, c.Tenant.Human, func(ctx context.Context) error {
 		return trail.Add(ctx, trail.Entry{Action: "test.thing.do", ObjectType: "test.thing", Outcome: "succeeded"})
 	}); err != nil {
 		t.Fatalf("got %v writing an audit event while the anchor is stored, want it written", err)
-	}
-	if took := time.Since(start); took > 2*time.Second {
-		t.Errorf("the audited write took %v while the anchor was stored, want it not to wait for the store", took)
 	}
 	release.Do(func() { close(store.release) })
 	if err := <-done; err != nil {
@@ -90,6 +85,15 @@ func TestAnchoringRecordFails(t *testing.T) {
 	if !errors.Is(err, pgtest.ErrInjected) || !strings.Contains(err.Error(), "record anchor") {
 		t.Fatalf("got %v, want the injected failure of the row's insert", err)
 	}
+	// The row's transaction failing to begin is reported too.
+	w.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+		if s.TenantID == c.Tenant.ID && !s.ReadOnly {
+			return nil, errors.New("database down for the record")
+		}
+		return pool.Begin(ctx, s)
+	}
+	_, err = w.RunOnce(context.Background())
+	pgtest.WantErr(t, err, "database down for the record")
 	w.Begin = nil
 	if _, err := w.RunOnce(context.Background()); err != nil {
 		t.Fatalf("next round: %v", err)

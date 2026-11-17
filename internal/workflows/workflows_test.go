@@ -589,7 +589,10 @@ func (s *dispatchScenario) databaseFailures(t *testing.T) {
 	e, d, pool, ctx := s.e.in(t), s.d, s.pool, context.Background()
 	defer func() { d.Begin = nil }()
 	e.propose(t, "2026-04-19")
-	for n := 1; n < 10; n++ {
+	// Every read of a round counted: deadlines and the fetches watched too.
+	d.Deadline, d.Statements, d.EInvoices = time.Hour, time.Hour, time.Hour
+	defer func() { d.Deadline, d.Statements, d.EInvoices = 0, 0, 0 }()
+	for n := 1; n < 30; n++ {
 		count := 0
 		d.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
 			tx, err := pool.Begin(ctx, scope)
@@ -613,6 +616,15 @@ func (s *dispatchScenario) databaseFailures(t *testing.T) {
 	_, err := d.RunOnce(ctx)
 	pgtest.WantErr(t, err, "database down")
 	e.propose(t, "2026-04-23") // a start to record
+	// The read goes through and the record's transaction fails to begin.
+	d.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
+		if !scope.ReadOnly {
+			return nil, errors.New("database down for writes")
+		}
+		return pool.Begin(ctx, scope)
+	}
+	_, err = d.RunOnce(ctx)
+	pgtest.WantErr(t, err, "database down for writes")
 	d.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
 		tx, err := pool.Begin(ctx, scope)
 		if err != nil {

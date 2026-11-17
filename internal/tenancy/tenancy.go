@@ -133,7 +133,10 @@ func getOU(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (OrgUnit, er
 	}
 	q := `SELECT ` + ouColumns + ` FROM tenancy.org_unit WHERE id = $1`
 	if lock {
-		q += ` FOR UPDATE`
+		// NO KEY UPDATE, as the update of its columns takes: a FOR UPDATE
+		// would wait for, and be waited on by, a move under this unit,
+		// whose parent foreign key holds it FOR KEY SHARE (ADR-0008).
+		q += ` FOR NO KEY UPDATE`
 	}
 	u, err := scanOU(tx.QueryRow(ctx, q, id))
 	if err = authz.Visible(err, access, u.LegalEntityID, problem.NotFoundOf("org unit"), "tenancy: read org unit %s", id); err != nil {

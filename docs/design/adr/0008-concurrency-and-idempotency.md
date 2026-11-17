@@ -52,9 +52,10 @@ A check that reads rows the request does not lock is write skew when two
 requests can each pass it before the other commits. Three were found and
 now take a lock both requests share before checking, each with a test
 racing two transactions (`apitest.Race`): moving an org unit takes the
-legal entity's tree lock (`tenancy.org_unit_tree`) before its cycle check
-(two units moved under each other were already kept apart by the parent's
-foreign key lock, three were not); the agent-approval check of a role
+legal entity's tree lock (`tenancy.org_unit_tree`) before its cycle check,
+and holds its own row `FOR NO KEY UPDATE`, as the update takes, so a move
+under it (whose foreign key holds it `FOR KEY SHARE`) and its own move do
+not deadlock; the agent-approval check of a role
 assignment or a permission grant runs after the tenant's
 segregation-of-duties lock (`identity.lockGrants`), as the SoD check did;
 and blocking a principal locks the principal and the actor in id order and
