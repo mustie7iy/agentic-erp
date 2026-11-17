@@ -12057,6 +12057,77 @@ step_sales_order_change() {
   passed
 }
 
+# step_billing_cancellation is T79c (ADR-0067, As built T79c): the order
+# of step_sales_order_change is delivered, and Ruth bills and posts it.
+# She cancels the posted document: a cancellation numbered from the
+# billing range, whose customer credit memo names the invoice and the
+# cancellation and moves receivables, revenue and GST back by exactly the
+# invoice's amounts; Northwind's open amount is where it was before the
+# billing. The order's items show nothing billed; Sally corrects their
+# price and a new billing document bills them at it, the cancelled one
+# reading as it was billed; a second cancellation is refused.
+step_billing_cancellation() {
+  heading "Step 110 — Billing documents cancelled: a posted billing document cancelled by a cancellation document whose credit memo reverses the invoice's receivable, revenue and GST exactly; the order's items billable again, their price corrected and billed by a new document; cancelled once"
+  local customer=$CUSTOMER order=$SALES_CHANGED_ORDER day doc number invoice cancel memo entry before after
+  [ -n "$order" ] || fail "step 109's order is not there"
+  as sally
+  day=$(company_day)
+  say "The 70 brackets of step 109's order leave; Sally confirms the delivery:"
+  api 201 '"delivery \(.delivery_no) of sales order \(.sales_order_number) on \(.delivery_date)"' confirmSalesDelivery -p "id=$order" \
+    -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"70\", \"unit\": \"EA\"}}]}"
+  as ruth
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer" -p page_size=200
+  before=$(field '[.items[].amount.amount | sub("\\."; "") | tonumber] | add // 0')
+  say "Ruth bills the order and posts the billing document: 980.00 net, 49.00 GST, 1,029.00 owed."
+  api 201 '"billing document \(.document_number): \(.status), net \(.net_amount.amount) \(.net_amount.currency)"' createBillingDocument -body "{\"sales_order_id\": \"$order\"}"
+  doc=$(field .id)
+  number=$(field .document_number)
+  api 200 '"billing document \(.document_number): \(.status) as customer invoice \(.customer_invoice_number)"' postBillingDocument -p "id=$doc" -if-match '"1"'
+  invoice=$(field .customer_invoice_id)
+  QUIET=1 api 200 '' getCustomerInvoice -p "id=$invoice"
+  expect "the invoice's net, tax and gross" "$(field '"\(.net_amount.amount) \(.tax_amount.amount) \(.gross_amount.amount)"')" "980.00 49.00 1029.00"
+  say "Northwind points out that the price agreed for 70 was lower. Ruth cancels the posted document (SAP's VF11): a"
+  say "cancellation numbered from the billing range, and a customer credit memo in accounts receivable naming the invoice,"
+  say "posted in the same transaction, which gives back the invoice's net, its GST and its gross to the cent."
+  api 200 '"billing document \(.document_number): \(.status), version \(.version); cancellation \(.cancellation.document_number) on \(.cancellation.cancellation_date): \(.cancellation.reason), credit memo \(.cancellation.customer_invoice_number), entry \(.cancellation.journal_entry_number)"' \
+    cancelBillingDocument -p "id=$doc" -if-match '"2"' -body '{"reason": "Billed at the price for 50; the price for 70 is lower"}'
+  expect "the cancelled document" "$(field '"\(.status) \(.version) \(.customer_invoice_id)"')" "cancelled 3 $invoice"
+  cancel=$(field .cancellation.id)
+  memo=$(field .cancellation.customer_invoice_id)
+  entry=$(field .cancellation.journal_entry_id)
+  [ "$(field .cancellation.document_number)" != "$number" ] || fail "the cancellation has the document's own number"
+  api 200 '"customer credit memo \(.document_number): \(.kind) \(.status), for \(.reference_invoice_number), from \(.source_document_number), net \(.net_amount.amount), tax \(.tax_amount.amount), gross \(.gross_amount.amount) \(.currency)"' \
+    getCustomerInvoice -p "id=$memo"
+  expect "the credit memo names the invoice and the cancellation" "$(field '"\(.kind) \(.status) \(.reference_invoice_id) \(.source_document_id)"')" \
+    "credit_memo posted $invoice $cancel"
+  expect "net, tax and gross" "$(field '"\(.net_amount.amount) \(.tax_amount.amount) \(.gross_amount.amount)"')" "980.00 49.00 1029.00"
+  say "The DG entry credits Northwind on 1200 and debits 4000 Sales and 2300 GST/HST payable: receivables, revenue and"
+  say "output tax moved back by exactly the invoice's amounts."
+  api 200 '"journal entry \(.document_number), \(.document_type)", (.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' getJournalEntry -p "id=$entry"
+  expect "the entry's amounts" "$(field '[.lines[].amount.amount] | join(" ")')" "-1029.00 980.00 49.00"
+  expect "the entry's accounts" "$(field '[.lines[].account_id] | join(" ")')" "$(account 1200) $(account 4000) $(account 2300)"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer" -p page_size=200
+  after=$(field '[.items[].amount.amount | sub("\\."; "") | tonumber] | add // 0')
+  expect "Northwind's open amount, the invoice and its credit memo together" "$after" "$before"
+  say "The order's brackets are billable again, so their price can be corrected: Sally changes it to 13.50 (T78d)."
+  as sally
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  expect "the order's billed quantity" "$(field '.items[0] | "\(.delivered_quantity.value) \(.billed_quantity.value)"')" "70 0"
+  api 200 '"sales order \(.document_number): change \(.changes), net \(.net_amount.amount)"' changeSalesOrder -p "id=$order" -if-match "$ETAG" \
+    -body '{"reason": "The price agreed for 70", "items": [{"item_no": 1, "unit_price": {"amount": "13.50", "currency": "CAD"}}]}'
+  expect "the corrected order" "$(field '"\(.changes) \(.net_amount.amount)"')" "3 945.00"
+  as ruth
+  say "A new billing document bills the brackets at the corrected price; the cancelled one still reads as it was billed:"
+  api 201 '"billing document \(.document_number): \(.status), \(.items[0].quantity.value) \(.items[0].quantity.unit) at \(.items[0].unit_price.amount), net \(.net_amount.amount)"' \
+    createBillingDocument -body "{\"sales_order_id\": \"$order\"}"
+  expect "the new document" "$(field '"\(.status) \(.items[0].unit_price.amount) \(.net_amount.amount)"')" "created 13.50 945.00"
+  QUIET=1 api 200 '' getBillingDocument -p "id=$doc"
+  expect "the cancelled document's price" "$(field '"\(.items[0].unit_price.amount) \(.net_amount.amount)"')" "14.00 980.00"
+  say "A document is cancelled once:"
+  refused 409 sales.invalid_status cancelBillingDocument -p "id=$doc" -if-match '"3"' -body '{"reason": "Again"}'
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -14087,7 +14158,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_sales_order_change step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_sales_order_change step_billing_cancellation step_close'
 
 main() {
   stop_unseen

@@ -5788,6 +5788,241 @@ func (s *Server) handleCancelAssetRequest(args [1]string, argsEscaped bool, w ht
 	}
 }
 
+// handleCancelBillingDocumentRequest handles cancelBillingDocument operation.
+//
+// Cancels a `created` or `posted` billing document, once (ADR-0067, As built T79c), at the version the
+// caller read (`If-Match`), with a reason, as SAP's billing cancellation does: a cancellation document
+// is created, numbered from the company's `billing_document` number range of its date's fiscal year. A
+// created document posted nothing, so its cancellation posts nothing either. For a posted one,
+// accounts receivable enters and posts a customer credit memo in the same transaction (`kind`
+// `credit_memo`, document type `DG`) naming the document's customer invoice (`reference_invoice_id`)
+// and the cancellation as its source, with the invoice's items one for one: each item's account,
+// amount and the output tax the invoice's item bore, so receivables, revenue and output tax move back
+// by exactly the invoice's net, tax and gross. Its credit line is the customer's open credit item; it
+// is not cleared against the invoice, which stays open until it is cleared (`createClearing`) or paid.
+// Either way the document becomes `cancelled`, names its `cancellation`, and what it billed of the
+// order's items is billable again: each order item's `billed_quantity` falls by the document's
+// quantity and the order's `version` moves, and a later billing document bills the delivered
+// quantities at the order's prices as the cumulative rule says over the documents not cancelled.
+// `cancellation_date` is the cancellation's date and, for a posted document, the credit memo's date,
+// which is its tax date, and posting date, in an open period (409 `ledger.period_not_open`); absent:
+// today, the company's date in its time zone; it is not before the billing date, nor before the
+// posting date of a posted one (422 `sales.invalid_cancellation_date`). The document's row and then
+// its order's are read under a lock: of two requests to cancel one document one does and the other
+// meets another version (412). A cancelled document is refused (409 `sales.invalid_status`), as is one
+// a returns order or a credit memo request that is not rejected names (409
+// `sales.billing_document_referenced`): those are settled first. What accounts receivable or the
+// ledger refuses leaves the document as it was and is answered with their code, the document's number
+// leading the detail and the document's own fields named, as `postBillingDocument` answers. Audited,
+// and published as BillingDocumentCancelled, beside the credit memo's own events. A retry with the
+// same `Idempotency-Key` answers the cancelled document. Human-only (`x-agent: false`).
+//
+// POST /v1/billing-documents/{id}:cancel
+func (s *Server) handleCancelBillingDocumentRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("cancelBillingDocument"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/billing-documents/{id}:cancel"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CancelBillingDocumentOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CancelBillingDocumentOperation,
+			ID:   "cancelBillingDocument",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CancelBillingDocumentOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCancelBillingDocumentParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCancelBillingDocumentRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CancelBillingDocumentRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CancelBillingDocumentOperation,
+			OperationSummary: "Cancel a billing document",
+			OperationID:      "cancelBillingDocument",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *BillingDocumentCancel
+			Params   = CancelBillingDocumentParams
+			Response = CancelBillingDocumentRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCancelBillingDocumentParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CancelBillingDocument(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CancelBillingDocument(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCancelBillingDocumentResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCancelContractRequest handles cancelContract operation.
 //
 // Cancels a draft contract that was never used (status `cancelled`). Active contracts are ended with
@@ -8509,8 +8744,8 @@ func (s *Server) handleCaptureSupplierInvoiceRequest(args [0]string, argsEscaped
 // checked again on that date (422 `sales.account_not_postable`, `sales.unknown_tax_code`). An item's
 // quantity is never below what is delivered of it (422 `sales.quantity_below_delivered` naming
 // `items[i].quantity.value`), and an item of which something is billed keeps its quantity and price
-// (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first.
-// `requested_delivery_date` is on or after the order's date (422
+// (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first
+// (`cancelBillingDocument`). `requested_delivery_date` is on or after the order's date (422
 // `sales.invalid_requested_delivery_date`); `null` clears it. A request that changes nothing is
 // refused (422 `sales.nothing_changed`). The order's net value is the sum of its items' again. A
 // change that raises a confirmed order's net value checks the customer's credit for the increase, as a
@@ -96961,11 +97196,11 @@ func (s *Server) handlePostBankStatementLineRequest(args [2]string, argsEscaped 
 // not carry (422 `ledger.cost_center_required`, `items[i].account_id`); a tax code that is no longer
 // an output tax code of the company with a rate on the billing date (422
 // `receivables.unknown_tax_code`, `items[i].tax_code`); a company without the `customer_invoice` or
-// `journal_dr` number range (422 `config.no_number_range`). An order's items are not changed in the
-// first version, so a document refused for an item's account or tax code cannot be posted until the
-// configuration allows it again. A posted billing document is not reversed or cancelled in the first
-// version: the ledger's `reverseJournalEntry` refuses its entry (409 `ledger.entry_owned_elsewhere`).
-// Human-only (`x-agent: false`).
+// `journal_dr` number range (422 `config.no_number_range`). A document refused for an item's account
+// or tax code is posted once the configuration allows it again, or cancelled
+// (`cancelBillingDocument`). A posted billing document is cancelled by `cancelBillingDocument`, which
+// posts a credit memo; the ledger's `reverseJournalEntry` refuses its entry (409
+// `ledger.entry_owned_elsewhere`). Human-only (`x-agent: false`).
 //
 // POST /v1/billing-documents/{id}:post
 func (s *Server) handlePostBillingDocumentRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

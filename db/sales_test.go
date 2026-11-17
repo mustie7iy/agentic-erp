@@ -545,7 +545,7 @@ func TestBillingRules(t *testing.T) {
 			return all(tx, with(s, bill(s, id(), "BD1", s.order, "EUR", 100, "created"))...)
 		}, "billing_document_number_once"},
 		{"created in an unknown status", func(tx pgx.Tx, s scene) error {
-			return all(tx, append(ordered(s), bill(s, s.doc, "BD1", s.order, "EUR", 100, "cancelled"))...)
+			return all(tx, append(ordered(s), bill(s, s.doc, "BD1", s.order, "EUR", 100, "void"))...)
 		}, "billing_document_status_check"},
 		{"a net value of zero", func(tx pgx.Tx, s scene) error {
 			return all(tx, append(ordered(s), bill(s, s.doc, "BD1", s.order, "EUR", 0, "created"))...)

@@ -16442,6 +16442,146 @@ func (s *BankStatusReport) SetReason(val OptString) {
 	s.Reason = val
 }
 
+// The cancellation of a billing document (ADR-0067, As built T79c): a document of its own, with the
+// customer credit memo that reversed a posted document's invoice.
+// Ref: #/components/schemas/BillingCancellation
+type BillingCancellation struct {
+	// The cancellation's id: the credit memo's `source_document_id`.
+	ID uuid.UUID `json:"id"`
+	// Its document number, from the company's `billing_document` number range.
+	DocumentNumber string `json:"document_number"`
+	// Its date, and a posted document's credit memo's date and posting date.
+	CancellationDate time.Time `json:"cancellation_date"`
+	// Why the document was cancelled.
+	Reason string `json:"reason"`
+	// The customer credit memo that reversed the document's invoice (`GET /v1/customer-invoices/{id}`);
+	// absent for a document cancelled before it was posted.
+	CustomerInvoiceID OptUUID `json:"customer_invoice_id"`
+	// The credit memo's document number; absent as `customer_invoice_id` is.
+	CustomerInvoiceNumber OptString `json:"customer_invoice_number"`
+	// The journal entry the credit memo posted (`GET /v1/journal-entries/{id}`); absent as
+	// `customer_invoice_id` is.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The entry's fiscal year; absent as `customer_invoice_id` is.
+	JournalEntryYear OptInt32 `json:"journal_entry_year"`
+	// The entry's document number; absent as `customer_invoice_id` is.
+	JournalEntryNumber OptString `json:"journal_entry_number"`
+	// When the document was cancelled.
+	CreatedAt time.Time `json:"created_at"`
+	// Who cancelled it (`GET /v1/principals/{id}`).
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *BillingCancellation) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *BillingCancellation) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetCancellationDate returns the value of CancellationDate.
+func (s *BillingCancellation) GetCancellationDate() time.Time {
+	return s.CancellationDate
+}
+
+// GetReason returns the value of Reason.
+func (s *BillingCancellation) GetReason() string {
+	return s.Reason
+}
+
+// GetCustomerInvoiceID returns the value of CustomerInvoiceID.
+func (s *BillingCancellation) GetCustomerInvoiceID() OptUUID {
+	return s.CustomerInvoiceID
+}
+
+// GetCustomerInvoiceNumber returns the value of CustomerInvoiceNumber.
+func (s *BillingCancellation) GetCustomerInvoiceNumber() OptString {
+	return s.CustomerInvoiceNumber
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *BillingCancellation) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *BillingCancellation) GetJournalEntryYear() OptInt32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *BillingCancellation) GetJournalEntryNumber() OptString {
+	return s.JournalEntryNumber
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *BillingCancellation) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *BillingCancellation) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *BillingCancellation) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *BillingCancellation) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetCancellationDate sets the value of CancellationDate.
+func (s *BillingCancellation) SetCancellationDate(val time.Time) {
+	s.CancellationDate = val
+}
+
+// SetReason sets the value of Reason.
+func (s *BillingCancellation) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetCustomerInvoiceID sets the value of CustomerInvoiceID.
+func (s *BillingCancellation) SetCustomerInvoiceID(val OptUUID) {
+	s.CustomerInvoiceID = val
+}
+
+// SetCustomerInvoiceNumber sets the value of CustomerInvoiceNumber.
+func (s *BillingCancellation) SetCustomerInvoiceNumber(val OptString) {
+	s.CustomerInvoiceNumber = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *BillingCancellation) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *BillingCancellation) SetJournalEntryYear(val OptInt32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *BillingCancellation) SetJournalEntryNumber(val OptString) {
+	s.JournalEntryNumber = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *BillingCancellation) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *BillingCancellation) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
 // Merged schema.
 // Ref: #/components/schemas/BillingDocument
 type BillingDocument struct {
@@ -16484,9 +16624,10 @@ type BillingDocument struct {
 	Currency string `json:"currency"`
 	// The sum of the items' amounts.
 	NetAmount Money `json:"net_amount"`
-	// `created`: created, not posted. `posted`: posted as a customer invoice (`postBillingDocument`). Open
-	// enumeration: clients must accept and preserve values not listed here; values may be added within
-	// /v1.
+	// `created`: created, not posted. `posted`: posted as a customer invoice (`postBillingDocument`).
+	// `cancelled`: cancelled, once, from either (`cancelBillingDocument`, T79c): a posted one keeps what
+	// it posted with and names the credit memo that reversed it in `cancellation`. Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
 	Status string `json:"status"`
 	// The date the document posted on, its customer invoice's posting date. Absent until posted.
 	PostingDate OptDate `json:"posting_date"`
@@ -16501,6 +16642,8 @@ type BillingDocument struct {
 	JournalEntryYear OptInt32 `json:"journal_entry_year"`
 	// The entry's document number. Absent until posted.
 	JournalEntryNumber OptString `json:"journal_entry_number"`
+	// The document's cancellation; absent unless `status` is `cancelled`.
+	Cancellation OptBillingCancellation `json:"cancellation"`
 	// The items, by item number.
 	Items []BillingDocumentItem `json:"items"`
 }
@@ -16633,6 +16776,11 @@ func (s *BillingDocument) GetJournalEntryYear() OptInt32 {
 // GetJournalEntryNumber returns the value of JournalEntryNumber.
 func (s *BillingDocument) GetJournalEntryNumber() OptString {
 	return s.JournalEntryNumber
+}
+
+// GetCancellation returns the value of Cancellation.
+func (s *BillingDocument) GetCancellation() OptBillingCancellation {
+	return s.Cancellation
 }
 
 // GetItems returns the value of Items.
@@ -16770,9 +16918,44 @@ func (s *BillingDocument) SetJournalEntryNumber(val OptString) {
 	s.JournalEntryNumber = val
 }
 
+// SetCancellation sets the value of Cancellation.
+func (s *BillingDocument) SetCancellation(val OptBillingCancellation) {
+	s.Cancellation = val
+}
+
 // SetItems sets the value of Items.
 func (s *BillingDocument) SetItems(val []BillingDocumentItem) {
 	s.Items = val
+}
+
+// Cancel a billing document (`cancelBillingDocument`).
+// Ref: #/components/schemas/BillingDocumentCancel
+type BillingDocumentCancel struct {
+	// Why the document is cancelled; kept on its cancellation.
+	Reason string `json:"reason"`
+	// The cancellation's date, and a posted document's credit memo's date and posting date: not before the
+	// billing date, nor the posting date. Absent: today, the company's date in its time zone.
+	CancellationDate OptDate `json:"cancellation_date"`
+}
+
+// GetReason returns the value of Reason.
+func (s *BillingDocumentCancel) GetReason() string {
+	return s.Reason
+}
+
+// GetCancellationDate returns the value of CancellationDate.
+func (s *BillingDocumentCancel) GetCancellationDate() OptDate {
+	return s.CancellationDate
+}
+
+// SetReason sets the value of Reason.
+func (s *BillingDocumentCancel) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetCancellationDate sets the value of CancellationDate.
+func (s *BillingDocumentCancel) SetCancellationDate(val OptDate) {
+	s.CancellationDate = val
 }
 
 // Create a billing document for a sales order: it bills what is delivered of the order's items and not
@@ -18125,6 +18308,70 @@ func (*CancelAssetPreconditionRequired) cancelAssetRes() {}
 type CancelAssetUnprocessableEntity Problem
 
 func (*CancelAssetUnprocessableEntity) cancelAssetRes() {}
+
+type CancelBillingDocumentBadRequest Problem
+
+func (*CancelBillingDocumentBadRequest) cancelBillingDocumentRes() {}
+
+type CancelBillingDocumentForbidden Problem
+
+func (*CancelBillingDocumentForbidden) cancelBillingDocumentRes() {}
+
+type CancelBillingDocumentNotFound Problem
+
+func (*CancelBillingDocumentNotFound) cancelBillingDocumentRes() {}
+
+// CancelBillingDocumentOKHeaders wraps BillingDocument with response headers.
+type CancelBillingDocumentOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           BillingDocument
+}
+
+// GetETag returns the value of ETag.
+func (s *CancelBillingDocumentOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CancelBillingDocumentOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *CancelBillingDocumentOKHeaders) GetResponse() BillingDocument {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CancelBillingDocumentOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CancelBillingDocumentOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CancelBillingDocumentOKHeaders) SetResponse(val BillingDocument) {
+	s.Response = val
+}
+
+func (*CancelBillingDocumentOKHeaders) cancelBillingDocumentRes() {}
+func (*CancelBillingDocumentOKHeaders) postBillingDocumentRes()   {}
+
+type CancelBillingDocumentPreconditionFailed Problem
+
+func (*CancelBillingDocumentPreconditionFailed) cancelBillingDocumentRes() {}
+
+type CancelBillingDocumentPreconditionRequired Problem
+
+func (*CancelBillingDocumentPreconditionRequired) cancelBillingDocumentRes() {}
+
+type CancelBillingDocumentUnprocessableEntity Problem
+
+func (*CancelBillingDocumentUnprocessableEntity) cancelBillingDocumentRes() {}
 
 type CancelContractBadRequest Problem
 
@@ -26766,6 +27013,7 @@ func (*ConflictHeaders) blockPrincipalRes()                        {}
 func (*ConflictHeaders) callOffScheduleLineRes()                   {}
 func (*ConflictHeaders) cancelApprovalRequestRes()                 {}
 func (*ConflictHeaders) cancelAssetRes()                           {}
+func (*ConflictHeaders) cancelBillingDocumentRes()                 {}
 func (*ConflictHeaders) cancelContractRes()                        {}
 func (*ConflictHeaders) cancelDownPaymentRequestRes()              {}
 func (*ConflictHeaders) cancelMemoRecordRes()                      {}
@@ -67702,6 +67950,52 @@ func (o OptBankReconciliationFigures) Or(d BankReconciliationFigures) BankReconc
 	return d
 }
 
+// NewOptBillingCancellation returns new OptBillingCancellation with value set to v.
+func NewOptBillingCancellation(v BillingCancellation) OptBillingCancellation {
+	return OptBillingCancellation{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptBillingCancellation is optional BillingCancellation.
+type OptBillingCancellation struct {
+	Value BillingCancellation
+	Set   bool
+}
+
+// IsSet returns true if OptBillingCancellation was set.
+func (o OptBillingCancellation) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptBillingCancellation) Reset() {
+	var v BillingCancellation
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptBillingCancellation) SetTo(v BillingCancellation) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptBillingCancellation) Get() (v BillingCancellation, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptBillingCancellation) Or(d BillingCancellation) BillingCancellation {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptBillingDocumentPost returns new OptBillingDocumentPost with value set to v.
 func NewOptBillingDocumentPost(v BillingDocumentPost) OptBillingDocumentPost {
 	return OptBillingDocumentPost{
@@ -78472,45 +78766,6 @@ func (*PostBillingDocumentForbidden) postBillingDocumentRes() {}
 type PostBillingDocumentNotFound Problem
 
 func (*PostBillingDocumentNotFound) postBillingDocumentRes() {}
-
-// PostBillingDocumentOKHeaders wraps BillingDocument with response headers.
-type PostBillingDocumentOKHeaders struct {
-	ETag               OptString
-	IdempotentReplayed OptBool
-	Response           BillingDocument
-}
-
-// GetETag returns the value of ETag.
-func (s *PostBillingDocumentOKHeaders) GetETag() OptString {
-	return s.ETag
-}
-
-// GetIdempotentReplayed returns the value of IdempotentReplayed.
-func (s *PostBillingDocumentOKHeaders) GetIdempotentReplayed() OptBool {
-	return s.IdempotentReplayed
-}
-
-// GetResponse returns the value of Response.
-func (s *PostBillingDocumentOKHeaders) GetResponse() BillingDocument {
-	return s.Response
-}
-
-// SetETag sets the value of ETag.
-func (s *PostBillingDocumentOKHeaders) SetETag(val OptString) {
-	s.ETag = val
-}
-
-// SetIdempotentReplayed sets the value of IdempotentReplayed.
-func (s *PostBillingDocumentOKHeaders) SetIdempotentReplayed(val OptBool) {
-	s.IdempotentReplayed = val
-}
-
-// SetResponse sets the value of Response.
-func (s *PostBillingDocumentOKHeaders) SetResponse(val BillingDocument) {
-	s.Response = val
-}
-
-func (*PostBillingDocumentOKHeaders) postBillingDocumentRes() {}
 
 type PostBillingDocumentPreconditionFailed Problem
 
@@ -102879,6 +103134,7 @@ func (*TooManyRequestsHeaders) blockPrincipalRes()                        {}
 func (*TooManyRequestsHeaders) callOffScheduleLineRes()                   {}
 func (*TooManyRequestsHeaders) cancelApprovalRequestRes()                 {}
 func (*TooManyRequestsHeaders) cancelAssetRes()                           {}
+func (*TooManyRequestsHeaders) cancelBillingDocumentRes()                 {}
 func (*TooManyRequestsHeaders) cancelContractRes()                        {}
 func (*TooManyRequestsHeaders) cancelDownPaymentRequestRes()              {}
 func (*TooManyRequestsHeaders) cancelMemoRecordRes()                      {}
@@ -103770,6 +104026,7 @@ func (*UnauthorizedHeaders) blockPrincipalRes()                        {}
 func (*UnauthorizedHeaders) callOffScheduleLineRes()                   {}
 func (*UnauthorizedHeaders) cancelApprovalRequestRes()                 {}
 func (*UnauthorizedHeaders) cancelAssetRes()                           {}
+func (*UnauthorizedHeaders) cancelBillingDocumentRes()                 {}
 func (*UnauthorizedHeaders) cancelContractRes()                        {}
 func (*UnauthorizedHeaders) cancelDownPaymentRequestRes()              {}
 func (*UnauthorizedHeaders) cancelMemoRecordRes()                      {}

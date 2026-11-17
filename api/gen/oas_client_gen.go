@@ -411,6 +411,37 @@ type Invoker interface {
 	//
 	// POST /v1/assets/{id}:cancel
 	CancelAsset(ctx context.Context, params CancelAssetParams) (CancelAssetRes, error)
+	// CancelBillingDocument invokes cancelBillingDocument operation.
+	//
+	// Cancels a `created` or `posted` billing document, once (ADR-0067, As built T79c), at the version the
+	// caller read (`If-Match`), with a reason, as SAP's billing cancellation does: a cancellation document
+	// is created, numbered from the company's `billing_document` number range of its date's fiscal year. A
+	// created document posted nothing, so its cancellation posts nothing either. For a posted one,
+	// accounts receivable enters and posts a customer credit memo in the same transaction (`kind`
+	// `credit_memo`, document type `DG`) naming the document's customer invoice (`reference_invoice_id`)
+	// and the cancellation as its source, with the invoice's items one for one: each item's account,
+	// amount and the output tax the invoice's item bore, so receivables, revenue and output tax move back
+	// by exactly the invoice's net, tax and gross. Its credit line is the customer's open credit item; it
+	// is not cleared against the invoice, which stays open until it is cleared (`createClearing`) or paid.
+	// Either way the document becomes `cancelled`, names its `cancellation`, and what it billed of the
+	// order's items is billable again: each order item's `billed_quantity` falls by the document's
+	// quantity and the order's `version` moves, and a later billing document bills the delivered
+	// quantities at the order's prices as the cumulative rule says over the documents not cancelled.
+	// `cancellation_date` is the cancellation's date and, for a posted document, the credit memo's date,
+	// which is its tax date, and posting date, in an open period (409 `ledger.period_not_open`); absent:
+	// today, the company's date in its time zone; it is not before the billing date, nor before the
+	// posting date of a posted one (422 `sales.invalid_cancellation_date`). The document's row and then
+	// its order's are read under a lock: of two requests to cancel one document one does and the other
+	// meets another version (412). A cancelled document is refused (409 `sales.invalid_status`), as is one
+	// a returns order or a credit memo request that is not rejected names (409
+	// `sales.billing_document_referenced`): those are settled first. What accounts receivable or the
+	// ledger refuses leaves the document as it was and is answered with their code, the document's number
+	// leading the detail and the document's own fields named, as `postBillingDocument` answers. Audited,
+	// and published as BillingDocumentCancelled, beside the credit memo's own events. A retry with the
+	// same `Idempotency-Key` answers the cancelled document. Human-only (`x-agent: false`).
+	//
+	// POST /v1/billing-documents/{id}:cancel
+	CancelBillingDocument(ctx context.Context, request *BillingDocumentCancel, params CancelBillingDocumentParams) (CancelBillingDocumentRes, error)
 	// CancelContract invokes cancelContract operation.
 	//
 	// Cancels a draft contract that was never used (status `cancelled`). Active contracts are ended with
@@ -567,8 +598,8 @@ type Invoker interface {
 	// checked again on that date (422 `sales.account_not_postable`, `sales.unknown_tax_code`). An item's
 	// quantity is never below what is delivered of it (422 `sales.quantity_below_delivered` naming
 	// `items[i].quantity.value`), and an item of which something is billed keeps its quantity and price
-	// (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first.
-	// `requested_delivery_date` is on or after the order's date (422
+	// (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first
+	// (`cancelBillingDocument`). `requested_delivery_date` is on or after the order's date (422
 	// `sales.invalid_requested_delivery_date`); `null` clears it. A request that changes nothing is
 	// refused (422 `sales.nothing_changed`). The order's net value is the sum of its items' again. A
 	// change that raises a confirmed order's net value checks the customer's credit for the increase, as a
@@ -6181,11 +6212,11 @@ type Invoker interface {
 	// not carry (422 `ledger.cost_center_required`, `items[i].account_id`); a tax code that is no longer
 	// an output tax code of the company with a rate on the billing date (422
 	// `receivables.unknown_tax_code`, `items[i].tax_code`); a company without the `customer_invoice` or
-	// `journal_dr` number range (422 `config.no_number_range`). An order's items are not changed in the
-	// first version, so a document refused for an item's account or tax code cannot be posted until the
-	// configuration allows it again. A posted billing document is not reversed or cancelled in the first
-	// version: the ledger's `reverseJournalEntry` refuses its entry (409 `ledger.entry_owned_elsewhere`).
-	// Human-only (`x-agent: false`).
+	// `journal_dr` number range (422 `config.no_number_range`). A document refused for an item's account
+	// or tax code is posted once the configuration allows it again, or cancelled
+	// (`cancelBillingDocument`). A posted billing document is cancelled by `cancelBillingDocument`, which
+	// posts a credit memo; the ledger's `reverseJournalEntry` refuses its entry (409
+	// `ledger.entry_owned_elsewhere`). Human-only (`x-agent: false`).
 	//
 	// POST /v1/billing-documents/{id}:post
 	PostBillingDocument(ctx context.Context, request OptBillingDocumentPost, params PostBillingDocumentParams) (PostBillingDocumentRes, error)
@@ -12634,6 +12665,191 @@ func (c *Client) sendCancelAsset(ctx context.Context, params CancelAssetParams) 
 	return result, nil
 }
 
+// CancelBillingDocument invokes cancelBillingDocument operation.
+//
+// Cancels a `created` or `posted` billing document, once (ADR-0067, As built T79c), at the version the
+// caller read (`If-Match`), with a reason, as SAP's billing cancellation does: a cancellation document
+// is created, numbered from the company's `billing_document` number range of its date's fiscal year. A
+// created document posted nothing, so its cancellation posts nothing either. For a posted one,
+// accounts receivable enters and posts a customer credit memo in the same transaction (`kind`
+// `credit_memo`, document type `DG`) naming the document's customer invoice (`reference_invoice_id`)
+// and the cancellation as its source, with the invoice's items one for one: each item's account,
+// amount and the output tax the invoice's item bore, so receivables, revenue and output tax move back
+// by exactly the invoice's net, tax and gross. Its credit line is the customer's open credit item; it
+// is not cleared against the invoice, which stays open until it is cleared (`createClearing`) or paid.
+// Either way the document becomes `cancelled`, names its `cancellation`, and what it billed of the
+// order's items is billable again: each order item's `billed_quantity` falls by the document's
+// quantity and the order's `version` moves, and a later billing document bills the delivered
+// quantities at the order's prices as the cumulative rule says over the documents not cancelled.
+// `cancellation_date` is the cancellation's date and, for a posted document, the credit memo's date,
+// which is its tax date, and posting date, in an open period (409 `ledger.period_not_open`); absent:
+// today, the company's date in its time zone; it is not before the billing date, nor before the
+// posting date of a posted one (422 `sales.invalid_cancellation_date`). The document's row and then
+// its order's are read under a lock: of two requests to cancel one document one does and the other
+// meets another version (412). A cancelled document is refused (409 `sales.invalid_status`), as is one
+// a returns order or a credit memo request that is not rejected names (409
+// `sales.billing_document_referenced`): those are settled first. What accounts receivable or the
+// ledger refuses leaves the document as it was and is answered with their code, the document's number
+// leading the detail and the document's own fields named, as `postBillingDocument` answers. Audited,
+// and published as BillingDocumentCancelled, beside the credit memo's own events. A retry with the
+// same `Idempotency-Key` answers the cancelled document. Human-only (`x-agent: false`).
+//
+// POST /v1/billing-documents/{id}:cancel
+func (c *Client) CancelBillingDocument(ctx context.Context, request *BillingDocumentCancel, params CancelBillingDocumentParams) (CancelBillingDocumentRes, error) {
+	res, err := c.sendCancelBillingDocument(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCancelBillingDocument(ctx context.Context, request *BillingDocumentCancel, params CancelBillingDocumentParams) (res CancelBillingDocumentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("cancelBillingDocument"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/billing-documents/{id}:cancel"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CancelBillingDocumentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/billing-documents/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":cancel"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCancelBillingDocumentRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CancelBillingDocumentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCancelBillingDocumentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CancelContract invokes cancelContract operation.
 //
 // Cancels a draft contract that was never used (status `cancelled`). Active contracts are ended with
@@ -14736,8 +14952,8 @@ func (c *Client) sendCaptureSupplierInvoice(ctx context.Context, request *Suppli
 // checked again on that date (422 `sales.account_not_postable`, `sales.unknown_tax_code`). An item's
 // quantity is never below what is delivered of it (422 `sales.quantity_below_delivered` naming
 // `items[i].quantity.value`), and an item of which something is billed keeps its quantity and price
-// (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first.
-// `requested_delivery_date` is on or after the order's date (422
+// (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first
+// (`cancelBillingDocument`). `requested_delivery_date` is on or after the order's date (422
 // `sales.invalid_requested_delivery_date`); `null` clears it. A request that changes nothing is
 // refused (422 `sales.nothing_changed`). The order's net value is the sum of its items' again. A
 // change that raises a confirmed order's net value checks the customer's credit for the increase, as a
@@ -91905,11 +92121,11 @@ func (c *Client) sendPostBankStatementLine(ctx context.Context, request OptState
 // not carry (422 `ledger.cost_center_required`, `items[i].account_id`); a tax code that is no longer
 // an output tax code of the company with a rate on the billing date (422
 // `receivables.unknown_tax_code`, `items[i].tax_code`); a company without the `customer_invoice` or
-// `journal_dr` number range (422 `config.no_number_range`). An order's items are not changed in the
-// first version, so a document refused for an item's account or tax code cannot be posted until the
-// configuration allows it again. A posted billing document is not reversed or cancelled in the first
-// version: the ledger's `reverseJournalEntry` refuses its entry (409 `ledger.entry_owned_elsewhere`).
-// Human-only (`x-agent: false`).
+// `journal_dr` number range (422 `config.no_number_range`). A document refused for an item's account
+// or tax code is posted once the configuration allows it again, or cancelled
+// (`cancelBillingDocument`). A posted billing document is cancelled by `cancelBillingDocument`, which
+// posts a credit memo; the ledger's `reverseJournalEntry` refuses its entry (409
+// `ledger.entry_owned_elsewhere`). Human-only (`x-agent: false`).
 //
 // POST /v1/billing-documents/{id}:post
 func (c *Client) PostBillingDocument(ctx context.Context, request OptBillingDocumentPost, params PostBillingDocumentParams) (PostBillingDocumentRes, error) {

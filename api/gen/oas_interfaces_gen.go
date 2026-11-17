@@ -109,6 +109,10 @@ type CancelAssetRes interface {
 	cancelAssetRes()
 }
 
+type CancelBillingDocumentRes interface {
+	cancelBillingDocumentRes()
+}
+
 type CancelContractRes interface {
 	cancelContractRes()
 }

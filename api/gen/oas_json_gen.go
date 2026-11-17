@@ -36576,6 +36576,273 @@ func (s *BankStatusReport) UnmarshalJSON(data []byte) error {
 }
 
 // Encode implements json.Marshaler.
+func (s *BillingCancellation) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *BillingCancellation) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("id")
+		json.EncodeUUID(e, s.ID)
+	}
+	{
+		e.FieldStart("document_number")
+		e.Str(s.DocumentNumber)
+	}
+	{
+		e.FieldStart("cancellation_date")
+		json.EncodeDate(e, s.CancellationDate)
+	}
+	{
+		e.FieldStart("reason")
+		e.Str(s.Reason)
+	}
+	{
+		if s.CustomerInvoiceID.Set {
+			e.FieldStart("customer_invoice_id")
+			s.CustomerInvoiceID.Encode(e)
+		}
+	}
+	{
+		if s.CustomerInvoiceNumber.Set {
+			e.FieldStart("customer_invoice_number")
+			s.CustomerInvoiceNumber.Encode(e)
+		}
+	}
+	{
+		if s.JournalEntryID.Set {
+			e.FieldStart("journal_entry_id")
+			s.JournalEntryID.Encode(e)
+		}
+	}
+	{
+		if s.JournalEntryYear.Set {
+			e.FieldStart("journal_entry_year")
+			s.JournalEntryYear.Encode(e)
+		}
+	}
+	{
+		if s.JournalEntryNumber.Set {
+			e.FieldStart("journal_entry_number")
+			s.JournalEntryNumber.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("created_at")
+		json.EncodeDateTime(e, s.CreatedAt)
+	}
+	{
+		e.FieldStart("created_by")
+		json.EncodeUUID(e, s.CreatedBy)
+	}
+}
+
+var jsonFieldsNameOfBillingCancellation = [11]string{
+	0:  "id",
+	1:  "document_number",
+	2:  "cancellation_date",
+	3:  "reason",
+	4:  "customer_invoice_id",
+	5:  "customer_invoice_number",
+	6:  "journal_entry_id",
+	7:  "journal_entry_year",
+	8:  "journal_entry_number",
+	9:  "created_at",
+	10: "created_by",
+}
+
+// Decode decodes BillingCancellation from json.
+func (s *BillingCancellation) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode BillingCancellation to nil")
+	}
+	var requiredBitSet [2]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.ID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"id\"")
+			}
+		case "document_number":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.DocumentNumber = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"document_number\"")
+			}
+		case "cancellation_date":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.CancellationDate = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cancellation_date\"")
+			}
+		case "reason":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Str()
+				s.Reason = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reason\"")
+			}
+		case "customer_invoice_id":
+			if err := func() error {
+				s.CustomerInvoiceID.Reset()
+				if err := s.CustomerInvoiceID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"customer_invoice_id\"")
+			}
+		case "customer_invoice_number":
+			if err := func() error {
+				s.CustomerInvoiceNumber.Reset()
+				if err := s.CustomerInvoiceNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"customer_invoice_number\"")
+			}
+		case "journal_entry_id":
+			if err := func() error {
+				s.JournalEntryID.Reset()
+				if err := s.JournalEntryID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"journal_entry_id\"")
+			}
+		case "journal_entry_year":
+			if err := func() error {
+				s.JournalEntryYear.Reset()
+				if err := s.JournalEntryYear.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"journal_entry_year\"")
+			}
+		case "journal_entry_number":
+			if err := func() error {
+				s.JournalEntryNumber.Reset()
+				if err := s.JournalEntryNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"journal_entry_number\"")
+			}
+		case "created_at":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				v, err := json.DecodeDateTime(d)
+				s.CreatedAt = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"created_at\"")
+			}
+		case "created_by":
+			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.CreatedBy = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"created_by\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode BillingCancellation")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [2]uint8{
+		0b00001111,
+		0b00000110,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfBillingCancellation) {
+					name = jsonFieldsNameOfBillingCancellation[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *BillingCancellation) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *BillingCancellation) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
 func (s *BillingDocument) Encode(e *jx.Encoder) {
 	e.ObjStart()
 	s.encodeFields(e)
@@ -36703,6 +36970,12 @@ func (s *BillingDocument) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.Cancellation.Set {
+			e.FieldStart("cancellation")
+			s.Cancellation.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("items")
 		e.ArrStart()
 		for _, elem := range s.Items {
@@ -36712,7 +36985,7 @@ func (s *BillingDocument) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfBillingDocument = [27]string{
+var jsonFieldsNameOfBillingDocument = [28]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -36739,7 +37012,8 @@ var jsonFieldsNameOfBillingDocument = [27]string{
 	23: "journal_entry_id",
 	24: "journal_entry_year",
 	25: "journal_entry_number",
-	26: "items",
+	26: "cancellation",
+	27: "items",
 }
 
 // Decode decodes BillingDocument from json.
@@ -37047,8 +37321,18 @@ func (s *BillingDocument) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"journal_entry_number\"")
 			}
+		case "cancellation":
+			if err := func() error {
+				s.Cancellation.Reset()
+				if err := s.Cancellation.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cancellation\"")
+			}
 		case "items":
-			requiredBitSet[3] |= 1 << 2
+			requiredBitSet[3] |= 1 << 3
 			if err := func() error {
 				s.Items = make([]BillingDocumentItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -37078,7 +37362,7 @@ func (s *BillingDocument) Decode(d *jx.Decoder) error {
 		0b11011111,
 		0b11111111,
 		0b00001111,
-		0b00000100,
+		0b00001000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -37120,6 +37404,119 @@ func (s *BillingDocument) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *BillingDocument) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *BillingDocumentCancel) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *BillingDocumentCancel) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("reason")
+		e.Str(s.Reason)
+	}
+	{
+		if s.CancellationDate.Set {
+			e.FieldStart("cancellation_date")
+			s.CancellationDate.Encode(e, json.EncodeDate)
+		}
+	}
+}
+
+var jsonFieldsNameOfBillingDocumentCancel = [2]string{
+	0: "reason",
+	1: "cancellation_date",
+}
+
+// Decode decodes BillingDocumentCancel from json.
+func (s *BillingDocumentCancel) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode BillingDocumentCancel to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "reason":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.Reason = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reason\"")
+			}
+		case "cancellation_date":
+			if err := func() error {
+				s.CancellationDate.Reset()
+				if err := s.CancellationDate.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cancellation_date\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode BillingDocumentCancel")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000001,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfBillingDocumentCancel) {
+					name = jsonFieldsNameOfBillingDocumentCancel[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *BillingDocumentCancel) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *BillingDocumentCancel) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -41054,6 +41451,234 @@ func (s *CancelAssetUnprocessableEntity) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *CancelAssetUnprocessableEntity) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes CancelBillingDocumentBadRequest as json.
+func (s *CancelBillingDocumentBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes CancelBillingDocumentBadRequest from json.
+func (s *CancelBillingDocumentBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CancelBillingDocumentBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = CancelBillingDocumentBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CancelBillingDocumentBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CancelBillingDocumentBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes CancelBillingDocumentForbidden as json.
+func (s *CancelBillingDocumentForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes CancelBillingDocumentForbidden from json.
+func (s *CancelBillingDocumentForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CancelBillingDocumentForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = CancelBillingDocumentForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CancelBillingDocumentForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CancelBillingDocumentForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes CancelBillingDocumentNotFound as json.
+func (s *CancelBillingDocumentNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes CancelBillingDocumentNotFound from json.
+func (s *CancelBillingDocumentNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CancelBillingDocumentNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = CancelBillingDocumentNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CancelBillingDocumentNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CancelBillingDocumentNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes CancelBillingDocumentPreconditionFailed as json.
+func (s *CancelBillingDocumentPreconditionFailed) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes CancelBillingDocumentPreconditionFailed from json.
+func (s *CancelBillingDocumentPreconditionFailed) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CancelBillingDocumentPreconditionFailed to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = CancelBillingDocumentPreconditionFailed(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CancelBillingDocumentPreconditionFailed) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CancelBillingDocumentPreconditionFailed) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes CancelBillingDocumentPreconditionRequired as json.
+func (s *CancelBillingDocumentPreconditionRequired) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes CancelBillingDocumentPreconditionRequired from json.
+func (s *CancelBillingDocumentPreconditionRequired) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CancelBillingDocumentPreconditionRequired to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = CancelBillingDocumentPreconditionRequired(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CancelBillingDocumentPreconditionRequired) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CancelBillingDocumentPreconditionRequired) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes CancelBillingDocumentUnprocessableEntity as json.
+func (s *CancelBillingDocumentUnprocessableEntity) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes CancelBillingDocumentUnprocessableEntity from json.
+func (s *CancelBillingDocumentUnprocessableEntity) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CancelBillingDocumentUnprocessableEntity to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = CancelBillingDocumentUnprocessableEntity(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CancelBillingDocumentUnprocessableEntity) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CancelBillingDocumentUnprocessableEntity) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -177358,6 +177983,39 @@ func (s OptBankReconciliationFigures) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *OptBankReconciliationFigures) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes BillingCancellation as json.
+func (o OptBillingCancellation) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	o.Value.Encode(e)
+}
+
+// Decode decodes BillingCancellation from json.
+func (o *OptBillingCancellation) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptBillingCancellation to nil")
+	}
+	o.Set = true
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptBillingCancellation) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptBillingCancellation) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

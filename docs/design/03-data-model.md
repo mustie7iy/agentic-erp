@@ -4899,7 +4899,7 @@ erDiagram
     date billing_date
     char currency "the order's"
     bigint net_amount "sum of the items'"
-    text status "created, posted"
+    text status "created, posted, cancelled"
     date posting_date "when posted"
     uuid customer_invoice_id "receivables, when posted"
     text customer_invoice_number "when posted"
@@ -4913,6 +4913,15 @@ erDiagram
     int order_item_no "once per document"
     numeric quantity "above zero"
     bigint net_amount "above zero"
+  }
+  billing_document ||--o| billing_cancellation : "is cancelled by"
+  billing_cancellation { uuid id PK
+    uuid billing_document_id "unique"
+    text document_number "billing_document range, unique per company"
+    date cancellation_date
+    text reason
+    uuid customer_invoice_id "receivables credit memo, when the document was posted"
+    uuid journal_entry_id "ledger, with the credit memo"
   }
   billing_document ||--o{ returns_order : "is returned by"
   returns_order ||--|{ returns_order_item : "has"
@@ -5140,10 +5149,31 @@ erDiagram
   and never above what is delivered (`sales_order_item_quantities`); the
   amounts billed of an order item never exceed its net value and are its
   net value once it is billed in full (`billing_document_item_amounts`).
-  What an item names, its unit price, account and tax code are read from
-  the order's item, which nothing changes. Insert-only
-  (`platform.forbid_mutation`); `billing_document_item_by_order_item`
-  serves what earlier documents billed of an order item.
+  What an item names, its account and tax code are read from the order's
+  item. T79c (migration 000351) keeps on the item the order item's
+  `unit_price`, `price_unit`, `price_source`, `conditions` and net value
+  (`order_net_amount`) when it is billed, filled by the trigger
+  `billing_document_item_pricing` (existing rows backfilled), since an
+  order item's price may change once nothing of it is billed (T78d);
+  `billing_document_item_amounts` counts the documents not cancelled.
+  Insert-only (`platform.forbid_mutation`);
+  `billing_document_item_by_order_item` serves what earlier documents
+  billed of an order item.
+- `sales.billing_cancellation` (T79c, migration 000351; ADR-0067, As
+  built T79c): a billing document's cancellation, one per document
+  (`billing_cancellation_once`), numbered once per company from the
+  `billing_document` range (`billing_cancellation_number_once`), with
+  its date, a reason (not white space, at most 500 characters) and,
+  exactly when the document was posted, the receivables credit memo that
+  reversed its invoice by id and number with the credit memo's journal
+  entry and year (`billing_cancellation_credit_memo`). Its trigger
+  `billing_cancellation_recorded` (the tables' owner) cancels the
+  document, created or posted with the credit memo
+  (`billing_cancellation_document_open`), takes the document's
+  quantities off the order items' `billed_quantity` and moves the
+  order's `version`. Insert-only. A billing document's status may now
+  be `cancelled`, keeping what it posted with (`billing_document_posted`
+  widened), set by that trigger alone (`billing_document_posted_once`).
 - `sales.returns_order` (T85a, migration 000306; ADR-0067, As built
   T85a): quantities of a posted billing document's items that the
   customer sends back, numbered once per company

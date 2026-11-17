@@ -33,6 +33,7 @@ const (
 	CallOffScheduleLineOperation                   OperationName = "CallOffScheduleLine"
 	CancelApprovalRequestOperation                 OperationName = "CancelApprovalRequest"
 	CancelAssetOperation                           OperationName = "CancelAsset"
+	CancelBillingDocumentOperation                 OperationName = "CancelBillingDocument"
 	CancelContractOperation                        OperationName = "CancelContract"
 	CancelDownPaymentRequestOperation              OperationName = "CancelDownPaymentRequest"
 	CancelMemoRecordOperation                      OperationName = "CancelMemoRecord"

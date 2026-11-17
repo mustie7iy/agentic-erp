@@ -17,8 +17,8 @@ import (
 )
 
 // billingRefs reads what the billing documents name by id: what every
-// sales document names and, for the posted ones, their journal entries
-// by number.
+// sales document names and, for the posted ones and the cancellations
+// that posted a credit memo, their journal entries by number.
 func (e *Endpoints) billingRefs(ctx context.Context, docs []BillingDocument) (references, error) {
 	out := make([]named, len(docs))
 	var entries []uuid.UUID
@@ -30,6 +30,9 @@ func (e *Endpoints) billingRefs(ctx context.Context, docs []BillingDocument) (re
 		out[i] = named{legalEntity: b.LegalEntityID, customer: b.CustomerID, items: items}
 		if b.EntryID != nil {
 			entries = append(entries, *b.EntryID)
+		}
+		if c := b.Cancellation; c != nil && c.EntryID != nil {
+			entries = append(entries, *c.EntryID)
 		}
 	}
 	refs, err := e.references(ctx, out)
@@ -58,12 +61,28 @@ func billingAPI(b BillingDocument, refs references) gen.BillingDocument {
 		out.JournalEntryYear.SetTo(int32(*b.EntryYear))
 		out.JournalEntryNumber.SetTo(refs.entries[*b.EntryID])
 	}
+	if c := b.Cancellation; c != nil {
+		out.Cancellation = gen.NewOptBillingCancellation(cancellationAPI(*c, refs))
+	}
 	for i, it := range b.Items {
 		base := itemAPI(it.Item, b.Currency, b.Exponent, refs)
 		out.Items[i] = gen.BillingDocumentItem{ItemNo: base.ItemNo, ItemKey: base.ItemKey, Description: base.Description, Quantity: base.Quantity,
 			UnitPrice: base.UnitPrice, PriceUnit: base.PriceUnit, PriceSource: base.PriceSource, Conditions: base.Conditions, NetAmount: base.NetAmount, AccountID: base.AccountID,
 			AccountNumber: base.AccountNumber, AccountName: base.AccountName, TaxCode: base.TaxCode, OrderItemNo: it.OrderItemNo,
 			CreditedAmount: apitypes.Money(it.Credited, b.Currency, b.Exponent)}
+	}
+	return out
+}
+
+// cancellationAPI is a billing document's cancellation as the API gives
+// it, with its credit memo's entry by number when it posted one.
+func cancellationAPI(c BillingCancellation, refs references) gen.BillingCancellation {
+	out := gen.BillingCancellation{ID: c.ID, DocumentNumber: c.DocumentNumber, CancellationDate: c.Date, Reason: c.Reason,
+		CustomerInvoiceID: apitypes.OptUUID(c.InvoiceID), CustomerInvoiceNumber: apitypes.OptString(c.InvoiceNumber),
+		JournalEntryID: apitypes.OptUUID(c.EntryID), CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy}
+	if c.EntryID != nil { // a credit memo's entry has its year and number with it (billing_cancellation_credit_memo)
+		out.JournalEntryYear.SetTo(int32(*c.EntryYear))
+		out.JournalEntryNumber.SetTo(refs.entries[*c.EntryID])
 	}
 	return out
 }
@@ -101,7 +120,21 @@ func (e *Endpoints) PostBillingDocument(ctx context.Context, req gen.OptBillingD
 	if err != nil {
 		return nil, err
 	}
-	return &gen.PostBillingDocumentOKHeaders{ETag: gen.NewOptString(etag.Format(b.Version)), Response: out}, nil
+	return &gen.CancelBillingDocumentOKHeaders{ETag: gen.NewOptString(etag.Format(b.Version)), Response: out}, nil
+}
+
+// CancelBillingDocument implements POST /v1/billing-documents/{id}:cancel.
+func (e *Endpoints) CancelBillingDocument(ctx context.Context, req *gen.BillingDocumentCancel, params gen.CancelBillingDocumentParams) (gen.CancelBillingDocumentRes, error) {
+	b, err := e.CancelBilling(ctx, params.ID, etag.IfMatch(params.IfMatch), CancellationInput{Reason: req.Reason,
+		Date: apitypes.Ptr[time.Time](req.CancellationDate)})
+	if err != nil {
+		return nil, err
+	}
+	out, err := e.billingAnswer(ctx, b)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.CancelBillingDocumentOKHeaders{ETag: gen.NewOptString(etag.Format(b.Version)), Response: out}, nil
 }
 
 // GetBillingDocument implements GET /v1/billing-documents/{id}.

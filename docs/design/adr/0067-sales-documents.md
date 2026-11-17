@@ -1706,3 +1706,83 @@ delivered, are the reference.
   quotation stays ordered; (8) the revenue contract of a changed or
   cancelled order is not changed: the `revenue-contracts` consumer reads
   confirmations alone (a gap for the product owner).
+
+### T79c Billing document cancelled (migration 000351)
+
+`docs/design/plan-depth-1.md` §T79c (product owner 2026-11-17). It lifts
+§9's "a posted document is not reversed or cancelled in the first
+version"; SAP's billing cancellation (VF11, a cancellation document of
+its own whose accounting document reverses the invoice) is the reference.
+
+- `internal/sales/billing_cancel.go` (`CancelBilling`, `cancellable`,
+  `cancellation`, `reversal`, `insertCancellation`), `billing_api.go`
+  (`cancelBillingDocument`, the document's `cancellation`); `billing.go`
+  bills over the documents not cancelled and reads an item's pricing as
+  billed; `billing_post.go`'s published billings and `segments.go`'s net
+  revenue count a cancellation.
+- Migration 000351: table `sales.billing_cancellation` (one per document,
+  numbered once per company from the `billing_document` range, a date, a
+  reason, and a credit memo with its entry exactly when the document was
+  posted; insert-only); its trigger cancels the document (created or
+  posted, never anything else), takes the document's quantities off the
+  order items' `billed_quantity` and moves the order's version, as the
+  tables' owner; the status `cancelled`, a cancelled document keeping
+  what it posted with (`billing_document_posted` widened,
+  `billing_document_posted_once` admitting the cancellation's trigger
+  alone); `billing_document_item` keeps the unit price, price unit,
+  price source, conditions and the order item's net value it was billed
+  at, filled by a trigger from the order item (existing rows backfilled);
+  `billing_document_item_amounts` counts the documents not cancelled.
+  Schema tests in `db/sales_cancel_test.go` (`TestBillingCancellationRules`).
+- `POST /v1/billing-documents/{id}:cancel` (`sales.billing.post`,
+  `If-Match`, idempotent, human-only; `reason`, optional
+  `cancellation_date`). A posted document's invoice is reversed by a
+  receivables credit memo (kind `credit_memo`, DG) naming the invoice and
+  the cancellation as its source, the invoice's items one for one with
+  the tax each bore (`ItemInput.Tax`, as T85d gives it), so its net, tax
+  and gross are the invoice's to the minor unit; it is dated, and posts
+  on, the cancellation's date. Refusals: a cancelled document 409
+  `sales.invalid_status`; one a returns order or a credit memo request
+  not rejected names 409 `sales.billing_document_referenced`; a date
+  before the billing or posting date 422 `sales.invalid_cancellation_date`;
+  a blank reason 422 `request.validation_failed`; what receivables or the
+  ledger refuses, with their code, the document's number leading the
+  detail and its fields named (`asPosting`).
+- Locks (ADR-0008): the document FOR UPDATE, then its order FOR UPDATE,
+  the order the returns order and credit memo request creations lock
+  before they read the document, so a follow-on document and a
+  cancellation are serialized; PostCredit locks its request, then the
+  order. Two cancellations of one document: one cancels, the other gets
+  412 (`TestBillingCancelsRacing`).
+- `BillingDocumentCancelled` (not `x-webhook`, product owner 2026-11-12):
+  the cancellation by id and number, its date and reason, the net value
+  and, for a posted document, the credit memo's tax and gross, the credit
+  memo, the invoice it credits and its entry. The audit record
+  `sales.billing_document.cancel`.
+- `sales.Orders.Order`: a cancelled posted document stays among an
+  item's billings, and its cancellation is one more, negative, on its
+  date (number, credit memo and entry its own), so revenue recognition's
+  billed-to-date (T81d) falls by it on that day. Net revenue by segment
+  (T92a) takes the document's gross and discount off on the
+  cancellation's date; a document's discount share leaves out documents
+  cancelled before it was created.
+- Walkthrough step 110 (`step_billing_cancellation`): step 109's order
+  delivered, billed, posted and cancelled; the credit memo reverses 1200,
+  4000 and 2300 by the invoice's 1,029.00, 980.00 and 49.00; Northwind's
+  open amount is back where it was; Sally corrects the price to 13.50 and
+  a new document bills 945.00 while the cancelled one reads 14.00; a
+  second cancellation is refused.
+- **Decided by default:** (1) `:cancel` serves a created and a posted
+  document alike (SAP's VF11 for both), a custom method creating a new
+  document as 04 §4.3's corrections do; (2) the cancellation takes its
+  number from the `billing_document` range, as SAP's S1 does, so no new
+  range is configured; (3) the credit memo is not cleared against the
+  invoice: both stay open until cleared (`createClearing`) or paid, as
+  T85d's credit memo; (4) the tax given back is what the invoice bore
+  (product owner 2026-11-12, what was billed is credited), held by the
+  ledger to the code's rate on the cancellation's date; (5) a document a
+  returns order or an unrejected credit memo request names is not
+  cancelled; (6) cancelling takes `sales.billing.post`; (7) the revenue
+  contract is not changed, its run reading the negative billing; (8) the
+  analytical store's `sales_lines` (ADR-0044, the analytics context's
+  extract) lists posted documents only, so a cancelled one leaves it.

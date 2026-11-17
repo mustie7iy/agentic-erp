@@ -20724,7 +20724,7 @@ paths:
       tags:
         - sales
       summary: Change a sales order
-      description: "Changes a `draft` or `confirmed` sales order in place (ADR-0067, As built T78d), at the version the caller read (`If-Match`): items' quantities and unit prices and the order's requested delivery date. The order is read under a row lock; a cancelled order is not changed (409 `sales.invalid_status`). Each item named by its number (422 `sales.unknown_order_item` naming `items[i].item_no`, once: 422 `sales.item_repeated`) takes the quantity given, in its own unit (422 `sales.unit_mismatch`), and the unit price given, in the order's currency, with its price unit; what is not given stays. A changed item is checked and priced again as an item given directly is (`createSalesOrder`), on the order's date: an entered price stays entered, an item priced from the price records takes the record valid on that date again, with the pricing procedure's discounts; its account and tax code are checked again on that date (422 `sales.account_not_postable`, `sales.unknown_tax_code`). An item's quantity is never below what is delivered of it (422 `sales.quantity_below_delivered` naming `items[i].quantity.value`), and an item of which something is billed keeps its quantity and price (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first. `requested_delivery_date` is on or after the order's date (422 `sales.invalid_requested_delivery_date`); `null` clears it. A request that changes nothing is refused (422 `sales.nothing_changed`). The order's net value is the sum of its items' again. A change that raises a confirmed order's net value checks the customer's credit for the increase, as a confirmation checks the order (`confirmSalesOrder`): an order that no longer fits the limit is blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked), whatever an earlier release; a lower value leaves the block as it is. The change is kept, numbered within the order, with its reason and its values before and after (`listSalesOrderChanges`), and the order's `changes` counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`)."
+      description: "Changes a `draft` or `confirmed` sales order in place (ADR-0067, As built T78d), at the version the caller read (`If-Match`): items' quantities and unit prices and the order's requested delivery date. The order is read under a row lock; a cancelled order is not changed (409 `sales.invalid_status`). Each item named by its number (422 `sales.unknown_order_item` naming `items[i].item_no`, once: 422 `sales.item_repeated`) takes the quantity given, in its own unit (422 `sales.unit_mismatch`), and the unit price given, in the order's currency, with its price unit; what is not given stays. A changed item is checked and priced again as an item given directly is (`createSalesOrder`), on the order's date: an entered price stays entered, an item priced from the price records takes the record valid on that date again, with the pricing procedure's discounts; its account and tax code are checked again on that date (422 `sales.account_not_postable`, `sales.unknown_tax_code`). An item's quantity is never below what is delivered of it (422 `sales.quantity_below_delivered` naming `items[i].quantity.value`), and an item of which something is billed keeps its quantity and price (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first (`cancelBillingDocument`). `requested_delivery_date` is on or after the order's date (422 `sales.invalid_requested_delivery_date`); `null` clears it. A request that changes nothing is refused (422 `sales.nothing_changed`). The order's net value is the sum of its items' again. A change that raises a confirmed order's net value checks the customer's credit for the increase, as a confirmation checks the order (`confirmSalesOrder`): an order that no longer fits the limit is blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked), whatever an earlier release; a lower value leaves the block as it is. The change is kept, numbered within the order, with its reason and its values before and after (`listSalesOrderChanges`), and the order's `changes` counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`)."
       x-permission: sales.order.write
       x-agent: false
       x-problem-codes:
@@ -21033,6 +21033,8 @@ paths:
             description: "Billing document status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
             x-extensible-enum:
               - created
+              - posted
+              - cancelled
         - $ref: "#/components/parameters/DocumentNumber"
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
@@ -22098,7 +22100,7 @@ paths:
       tags:
         - sales
       summary: Post a billing document as a customer invoice
-      description: "Posts a `created` billing document, once (ADR-0067 §9, T79b), at the version the caller read (`If-Match`): a customer invoice is entered in accounts receivable and posted, in the same transaction as the document's change, so either all of it happens or none. The invoice has the document's company, customer and currency, the billing date as its invoice date, which is its tax date, the sales order's payment term, and the document's items one for one, each with its description, account, amount and tax code; it names the billing document as its source (`source_document_id`, `source_document_number`). Accounts receivable calculates the output tax at the billing date's rates and posts the entry (document type `DR`, `source_context` `receivables`): it debits the customer's reconciliation account in the company with the invoice's gross amount, which is the customer's open item (`GET /v1/open-items`) with the order's payment term, and credits each item's account with its amount and output tax per tax code. The invoice's net amount is the document's to the minor unit, and its gross is net and tax exactly. Revenue is recognized as billed. The posting date is the request's, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`). The document becomes `posted` and names its `posting_date`, its `customer_invoice_id` and `customer_invoice_number` and the invoice's `journal_entry_id`, `journal_entry_year` and `journal_entry_number`; an audit record and BillingDocumentPosted are written with it, beside the invoice's own (CustomerInvoiceChanged, CustomerInvoicePosted). The document's row is read under a lock: of two requests to post one document, one posts it and the other meets another version (412). One that is not `created` is refused (409 `sales.invalid_status`); a retry with the same `Idempotency-Key` answers the posted document. What accounts receivable or the ledger refuses leaves the document `created` and nothing posted, and is answered with their code, the document's number leading the detail and the document's own fields named: a customer that is not active, no longer a customer or blocked for posting in the company (422 `receivables.customer_not_usable`, `customer_id`) or whose data in the company is no longer there (the same code, without a field); an item's account that can no longer be posted (422 `receivables.account_not_postable`, `items[i].account_id`) or asks for a cost center the item does not carry (422 `ledger.cost_center_required`, `items[i].account_id`); a tax code that is no longer an output tax code of the company with a rate on the billing date (422 `receivables.unknown_tax_code`, `items[i].tax_code`); a company without the `customer_invoice` or `journal_dr` number range (422 `config.no_number_range`). An order's items are not changed in the first version, so a document refused for an item's account or tax code cannot be posted until the configuration allows it again. A posted billing document is not reversed or cancelled in the first version: the ledger's `reverseJournalEntry` refuses its entry (409 `ledger.entry_owned_elsewhere`). Human-only (`x-agent: false`)."
+      description: "Posts a `created` billing document, once (ADR-0067 §9, T79b), at the version the caller read (`If-Match`): a customer invoice is entered in accounts receivable and posted, in the same transaction as the document's change, so either all of it happens or none. The invoice has the document's company, customer and currency, the billing date as its invoice date, which is its tax date, the sales order's payment term, and the document's items one for one, each with its description, account, amount and tax code; it names the billing document as its source (`source_document_id`, `source_document_number`). Accounts receivable calculates the output tax at the billing date's rates and posts the entry (document type `DR`, `source_context` `receivables`): it debits the customer's reconciliation account in the company with the invoice's gross amount, which is the customer's open item (`GET /v1/open-items`) with the order's payment term, and credits each item's account with its amount and output tax per tax code. The invoice's net amount is the document's to the minor unit, and its gross is net and tax exactly. Revenue is recognized as billed. The posting date is the request's, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`). The document becomes `posted` and names its `posting_date`, its `customer_invoice_id` and `customer_invoice_number` and the invoice's `journal_entry_id`, `journal_entry_year` and `journal_entry_number`; an audit record and BillingDocumentPosted are written with it, beside the invoice's own (CustomerInvoiceChanged, CustomerInvoicePosted). The document's row is read under a lock: of two requests to post one document, one posts it and the other meets another version (412). One that is not `created` is refused (409 `sales.invalid_status`); a retry with the same `Idempotency-Key` answers the posted document. What accounts receivable or the ledger refuses leaves the document `created` and nothing posted, and is answered with their code, the document's number leading the detail and the document's own fields named: a customer that is not active, no longer a customer or blocked for posting in the company (422 `receivables.customer_not_usable`, `customer_id`) or whose data in the company is no longer there (the same code, without a field); an item's account that can no longer be posted (422 `receivables.account_not_postable`, `items[i].account_id`) or asks for a cost center the item does not carry (422 `ledger.cost_center_required`, `items[i].account_id`); a tax code that is no longer an output tax code of the company with a rate on the billing date (422 `receivables.unknown_tax_code`, `items[i].tax_code`); a company without the `customer_invoice` or `journal_dr` number range (422 `config.no_number_range`). A document refused for an item's account or tax code is posted once the configuration allows it again, or cancelled (`cancelBillingDocument`). A posted billing document is cancelled by `cancelBillingDocument`, which posts a credit memo; the ledger's `reverseJournalEntry` refuses its entry (409 `ledger.entry_owned_elsewhere`). Human-only (`x-agent: false`)."
       x-permission: sales.billing.post
       x-agent: false
       x-problem-codes:
@@ -22202,6 +22204,139 @@ paths:
       responses:
         "200":
           description: "The billing document, posted."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/billing-documents/{id}:cancel":
+    post:
+      operationId: cancelBillingDocument
+      tags:
+        - sales
+      summary: Cancel a billing document
+      description: "Cancels a `created` or `posted` billing document, once (ADR-0067, As built T79c), at the version the caller read (`If-Match`), with a reason, as SAP's billing cancellation does: a cancellation document is created, numbered from the company's `billing_document` number range of its date's fiscal year. A created document posted nothing, so its cancellation posts nothing either. For a posted one, accounts receivable enters and posts a customer credit memo in the same transaction (`kind` `credit_memo`, document type `DG`) naming the document's customer invoice (`reference_invoice_id`) and the cancellation as its source, with the invoice's items one for one: each item's account, amount and the output tax the invoice's item bore, so receivables, revenue and output tax move back by exactly the invoice's net, tax and gross. Its credit line is the customer's open credit item; it is not cleared against the invoice, which stays open until it is cleared (`createClearing`) or paid. Either way the document becomes `cancelled`, names its `cancellation`, and what it billed of the order's items is billable again: each order item's `billed_quantity` falls by the document's quantity and the order's `version` moves, and a later billing document bills the delivered quantities at the order's prices as the cumulative rule says over the documents not cancelled. `cancellation_date` is the cancellation's date and, for a posted document, the credit memo's date, which is its tax date, and posting date, in an open period (409 `ledger.period_not_open`); absent: today, the company's date in its time zone; it is not before the billing date, nor before the posting date of a posted one (422 `sales.invalid_cancellation_date`). The document's row and then its order's are read under a lock: of two requests to cancel one document one does and the other meets another version (412). A cancelled document is refused (409 `sales.invalid_status`), as is one a returns order or a credit memo request that is not rejected names (409 `sales.billing_document_referenced`): those are settled first. What accounts receivable or the ledger refuses leaves the document as it was and is answered with their code, the document's number leading the detail and the document's own fields named, as `postBillingDocument` answers. Audited, and published as BillingDocumentCancelled, beside the credit memo's own events. A retry with the same `Idempotency-Key` answers the cancelled document. Human-only (`x-agent: false`)."
+      x-permission: sales.billing.post
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - receivables.account_not_postable
+        - receivables.amount_not_positive
+        - receivables.amount_too_large
+        - receivables.credit_exceeds_invoice
+        - receivables.currency_mismatch
+        - receivables.customer_not_usable
+        - receivables.invalid_reference_invoice
+        - receivables.invalid_status
+        - receivables.items_required
+        - receivables.no_tax_account
+        - receivables.reference_not_allowed
+        - receivables.tax_changed
+        - receivables.tax_jurisdiction_not_levied
+        - receivables.tax_jurisdiction_required
+        - receivables.unknown_currency
+        - receivables.unknown_kind
+        - receivables.unknown_payment_term
+        - receivables.unknown_tax_code
+        - request.invalid_amount
+        - request.validation_failed
+        - request.version_mismatch
+        - sales.billing_document_referenced
+        - sales.invalid_cancellation_date
+        - sales.invalid_status
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Why and when the document is cancelled.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillingDocumentCancel"
+            examples:
+              cancel:
+                summary: Cancelled today
+                value:
+                  reason: Billed at the wrong price.
+      responses:
+        "200":
+          description: "The billing document, cancelled."
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
@@ -55975,7 +56110,7 @@ components:
           x-extensible-enum: [manual, price_list]
           description: "`manual`: the item took the price printed; `price_list`: none was printed and the item took its item key's price record (its `unit_price` on the order's item). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
     SalesOrder:
-      description: "A sales order (sales, ADR-0067 §5): what a customer ordered. Amounts are net. Its `version` moves when it is confirmed, when its credit block is released (`releaseSalesOrderCreditBlock`) and with each delivery confirmed against it (`confirmSalesDelivery`) and each billing document created for it (`createBillingDocument`), which change what its items show as delivered and billed, and with each returns order created for one of its billing documents (`createReturnsOrder`), which changes what they show as returned. It moves too with each change (`changeSalesOrder`) and its cancellation (`cancelSalesOrder`)."
+      description: "A sales order (sales, ADR-0067 §5): what a customer ordered. Amounts are net. Its `version` moves when it is confirmed, when its credit block is released (`releaseSalesOrderCreditBlock`) and with each delivery confirmed against it (`confirmSalesDelivery`) and each billing document created for it (`createBillingDocument`), which change what its items show as delivered and billed, and with each returns order created for one of its billing documents (`createReturnsOrder`), which changes what they show as returned. It moves too with each change (`changeSalesOrder`), its cancellation (`cancelSalesOrder`) and each billing document of it cancelled (`cancelBillingDocument`)."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -56227,8 +56362,35 @@ components:
         posting_date: {type: string, format: date, description: "The posting date of the customer invoice the document posts as; absent: today, the company's date in its time zone (`companies[].time_zone`)."}
       examples:
         - posting_date: "2026-11-20"
+    BillingDocumentCancel:
+      type: object
+      description: "Cancel a billing document (`cancelBillingDocument`)."
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason: {type: string, minLength: 1, maxLength: 500, description: "Why the document is cancelled; kept on its cancellation."}
+        cancellation_date: {type: string, format: date, description: "The cancellation's date, and a posted document's credit memo's date and posting date: not before the billing date, nor the posting date. Absent: today, the company's date in its time zone."}
+      examples:
+        - reason: Billed at the wrong price.
+    BillingCancellation:
+      type: object
+      description: "The cancellation of a billing document (ADR-0067, As built T79c): a document of its own, with the customer credit memo that reversed a posted document's invoice."
+      required: [id, document_number, cancellation_date, reason, created_at, created_by]
+      readOnly: true
+      properties:
+        id: {type: string, format: uuid, description: "The cancellation's id: the credit memo's `source_document_id`."}
+        document_number: {type: string, description: "Its document number, from the company's `billing_document` number range."}
+        cancellation_date: {type: string, format: date, description: "Its date, and a posted document's credit memo's date and posting date."}
+        reason: {type: string, description: "Why the document was cancelled."}
+        customer_invoice_id: {type: string, format: uuid, description: "The customer credit memo that reversed the document's invoice (`GET /v1/customer-invoices/{id}`); absent for a document cancelled before it was posted."}
+        customer_invoice_number: {type: string, description: "The credit memo's document number; absent as `customer_invoice_id` is."}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry the credit memo posted (`GET /v1/journal-entries/{id}`); absent as `customer_invoice_id` is."}
+        journal_entry_year: {type: integer, format: int32, description: "The entry's fiscal year; absent as `customer_invoice_id` is."}
+        journal_entry_number: {type: string, description: "The entry's document number; absent as `customer_invoice_id` is."}
+        created_at: {type: string, format: date-time, description: "When the document was cancelled."}
+        created_by: {type: string, format: uuid, description: "Who cancelled it (`GET /v1/principals/{id}`)."}
     BillingDocumentItem:
-      description: "An item of a billing document (ADR-0067 §9): what is billed of one item of the sales order. `quantity` is the quantity billed and `net_amount` its amount in this document; what is sold, the unit price, `price_source`, the account and the tax code are the order item's. `conditions` are the order item's too, for its whole ordered quantity: their amounts add up to the order item's net value, of which this item's `net_amount` is the share billed, so a discounted item's amount is less than its quantity at the unit price."
+      description: "An item of a billing document (ADR-0067 §9): what is billed of one item of the sales order. `quantity` is the quantity billed and `net_amount` its amount in this document; what is sold, the account and the tax code are the order item's; the unit price, `price_source` and `conditions` are the order item's as they were when it was billed (T79c: an order item's price changes once nothing of it is billed, `changeSalesOrder`). `conditions` are for the order item's whole ordered quantity: their amounts add up to the order item's net value then, of which this item's `net_amount` is the share billed, so a discounted item's amount is less than its quantity at the unit price."
       allOf:
         - $ref: "#/components/schemas/SalesItem"
         - type: object
@@ -56259,8 +56421,8 @@ components:
             net_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' amounts."}
             status:
               type: string
-              x-extensible-enum: [created, posted]
-              description: "`created`: created, not posted. `posted`: posted as a customer invoice (`postBillingDocument`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [created, posted, cancelled]
+              description: "`created`: created, not posted. `posted`: posted as a customer invoice (`postBillingDocument`). `cancelled`: cancelled, once, from either (`cancelBillingDocument`, T79c): a posted one keeps what it posted with and names the credit memo that reversed it in `cancellation`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
             posting_date: {type: string, format: date, description: "The date the document posted on, its customer invoice's posting date. Absent until posted.", readOnly: true}
             customer_invoice_id: {type: string, format: uuid, description: "The customer invoice the document posted as (`GET /v1/customer-invoices/{id}`): it shows the tax, the gross amount and the net due date. Absent until posted.", readOnly: true}
@@ -56268,6 +56430,7 @@ components:
             journal_entry_id: {type: string, format: uuid, description: "The journal entry the customer invoice posted (`GET /v1/journal-entries/{id}`). Absent until posted.", readOnly: true}
             journal_entry_year: {type: integer, format: int32, description: "The entry's fiscal year. Absent until posted.", readOnly: true}
             journal_entry_number: {type: string, description: "The entry's document number. Absent until posted.", readOnly: true}
+            cancellation: {$ref: "#/components/schemas/BillingCancellation", description: "The document's cancellation; absent unless `status` is `cancelled`."}
             items:
               type: array
               items: {$ref: "#/components/schemas/BillingDocumentItem"}

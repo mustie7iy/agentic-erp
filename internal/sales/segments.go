@@ -36,30 +36,42 @@ type Segment struct {
 // segmentsSQL adds up the segments. A billing item's gross value is its
 // net value and its part of its order item's discount: the order item's
 // price, its first condition (pricing's conditioned), less its net value,
-// none without conditions. An item billed in one part takes the whole; one
+// none without conditions, both as they were when the item was billed
+// (migration 000351). An item billed in one part takes the whole; one
 // billed in parts shares it as billing shares the net value (billable):
 // the discount × the net billed of the item so far, this part included, ÷
 // the item's net value, rounded half away from zero (numeric round), less
 // the same for the parts billed before it, in the order their documents
-// were created. The parts of a fully billed item add up to its discount to
-// the minor unit, and each part is fixed once billed. A credit counts its
-// own posting date and its billing item's segment.
-const segmentsSQL = `WITH billed AS (
-	SELECT b.customer_id, oi.item_key, i.net_amount,
-		CASE WHEN d.discount = 0 OR i.net_amount = oi.net_amount THEN d.discount
-		ELSE (round(d.discount * (p.before + i.net_amount) / oi.net_amount) - round(d.discount * p.before / oi.net_amount))::bigint END AS discount
+// were created, a document cancelled before this one was created left
+// out (T79c), as billing leaves it out. The parts of a fully billed item
+// add up to its discount to the minor unit, but for a minor unit a
+// cancellation may leave, and each part is fixed once billed. A document
+// that posted counts on its posting date; its cancellation (T79c) counts
+// on its own date, the document's gross and discount taken off. A credit
+// counts its own posting date and its billing item's segment.
+const segmentsSQL = `WITH parts AS (
+	SELECT b.id, b.customer_id, b.posting_date, oi.item_key, i.net_amount,
+		CASE WHEN d.discount = 0 OR i.net_amount = i.order_net_amount THEN d.discount
+		ELSE (round(d.discount * (p.before + i.net_amount) / i.order_net_amount) - round(d.discount * p.before / i.order_net_amount))::bigint END AS discount
 	FROM sales.billing_document b
 	JOIN sales.billing_document_item i ON i.tenant_id = b.tenant_id AND i.billing_document_id = b.id
 	JOIN sales.sales_order_item oi ON oi.tenant_id = i.tenant_id AND oi.sales_order_id = i.sales_order_id AND oi.item_no = i.order_item_no
-	CROSS JOIN LATERAL (SELECT CASE WHEN oi.conditions->0->>'kind' = 'price' THEN (oi.conditions->0->>'amount')::bigint - oi.net_amount ELSE 0 END
+	CROSS JOIN LATERAL (SELECT CASE WHEN i.conditions->0->>'kind' = 'price' THEN (i.conditions->0->>'amount')::bigint - i.order_net_amount ELSE 0 END
 		AS discount) d
 	LEFT JOIN LATERAL (SELECT coalesce(sum(e.net_amount), 0)::numeric AS before FROM sales.billing_document_item e
 		JOIN sales.billing_document eb ON eb.tenant_id = e.tenant_id AND eb.id = e.billing_document_id
-		WHERE d.discount <> 0 AND i.net_amount <> oi.net_amount
+		WHERE d.discount <> 0 AND i.net_amount <> i.order_net_amount
 			AND e.tenant_id = i.tenant_id AND e.sales_order_id = i.sales_order_id AND e.order_item_no = i.order_item_no
-			AND (eb.created_at, eb.id) < (b.created_at, b.id)) p ON true
-	WHERE b.legal_entity_id = $1 AND b.status = 'posted' AND b.posting_date BETWEEN $2 AND $3 AND b.currency = $4
-		AND ($5::uuid IS NULL OR b.customer_id = $5)
+			AND (eb.created_at, eb.id) < (b.created_at, b.id)
+			AND NOT EXISTS (SELECT FROM sales.billing_cancellation x WHERE x.tenant_id = eb.tenant_id AND x.billing_document_id = eb.id
+				AND x.created_at < b.created_at)) p ON true
+	WHERE b.legal_entity_id = $1 AND b.posting_date IS NOT NULL AND b.currency = $4 AND ($5::uuid IS NULL OR b.customer_id = $5)
+), billed AS (
+	SELECT customer_id, item_key, net_amount, discount FROM parts WHERE posting_date BETWEEN $2 AND $3
+	UNION ALL
+	SELECT p.customer_id, p.item_key, -p.net_amount, -p.discount FROM parts p
+	JOIN sales.billing_cancellation x ON x.billing_document_id = p.id
+	WHERE x.customer_invoice_id IS NOT NULL AND x.cancellation_date BETWEEN $2 AND $3
 ), credited AS (
 	SELECT r.customer_id, oi.item_key, c.net_amount
 	FROM sales.credit_memo_request r
@@ -76,11 +88,15 @@ FROM (SELECT customer_id, item_key, (net_amount + discount)::numeric AS gross, d
 GROUP BY customer_id, item_key
 ORDER BY customer_id, item_key NULLS FIRST`
 
-// foreignSQL counts the posted billing documents and credit memo
-// requests the query selects but for their currency.
+// foreignSQL counts the posted billing documents, their cancellations
+// with a credit memo and the credit memo requests the query selects but
+// for their currency.
 const foreignSQL = `SELECT
 	(SELECT count(*) FROM sales.billing_document b
-		WHERE b.legal_entity_id = $1 AND b.status = 'posted' AND b.posting_date BETWEEN $2 AND $3 AND b.currency <> $4
+		WHERE b.legal_entity_id = $1 AND b.posting_date BETWEEN $2 AND $3 AND b.currency <> $4
+			AND ($5::uuid IS NULL OR b.customer_id = $5))
+	+ (SELECT count(*) FROM sales.billing_cancellation x JOIN sales.billing_document b ON b.tenant_id = x.tenant_id AND b.id = x.billing_document_id
+		WHERE x.legal_entity_id = $1 AND x.customer_invoice_id IS NOT NULL AND x.cancellation_date BETWEEN $2 AND $3 AND b.currency <> $4
 			AND ($5::uuid IS NULL OR b.customer_id = $5))
 	+ (SELECT count(*) FROM sales.credit_memo_request r JOIN sales.billing_document b ON b.tenant_id = r.tenant_id AND b.id = r.billing_document_id
 		WHERE r.legal_entity_id = $1 AND r.status = 'posted' AND r.posting_date BETWEEN $2 AND $3 AND b.currency <> $4

@@ -62,7 +62,18 @@ func TestDatabaseFailures(t *testing.T) {
 	requested, _ := e.Must(201, "POST", creditRequests, byAmount(creditedFrom, "Goodwill", "1 0.10"), "")
 	request := uuid.MustParse(requested["id"].(string))
 	toPostCredit := uuid.MustParse(e.approvedRequest(t, byAmount(creditedFrom, "Goodwill", "1 0.20"))["id"].(string))
+	// A posted billing document nothing names, to cancel.
+	_, cancellable, _ := e.postedOrder(t, []string{e.item(line{quantity: "2", code: "A1"})}, "1 2 EA")
+	toCancel := uuid.MustParse(cancellable)
 	calls := map[string]func(ctx context.Context) error{
+		"cancel a posted billing document": func(ctx context.Context) error {
+			_, err := h.CancelBillingDocument(ctx, &gen.BillingDocumentCancel{Reason: "Wrong"}, gen.CancelBillingDocumentParams{ID: toCancel, IfMatch: `"2"`})
+			return err
+		},
+		"cancel a created billing document": func(ctx context.Context) error {
+			_, err := h.CancelBillingDocument(ctx, &gen.BillingDocumentCancel{Reason: "Wrong"}, gen.CancelBillingDocumentParams{ID: postable, IfMatch: `"1"`})
+			return err
+		},
 		"request a credit for a return": func(ctx context.Context) error {
 			_, err := h.CreateCreditMemoRequest(ctx, &gen.CreditMemoRequestCreate{BillingDocumentID: creditDoc, ReturnsOrderID: gen.NewOptUUID(creditFor),
 				Reason: gen.NewOptString("Returned")}, gen.CreateCreditMemoRequestParams{})

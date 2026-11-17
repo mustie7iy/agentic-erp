@@ -4934,9 +4934,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A billing clerk cancels a billing document: a created one simply, a posted one by a cancellation document whose customer credit memo reverses the invoice's receivable, revenue and output tax exactly; the order's items are billable again (POST /v1/billing-documents/{id}:cancel)",
-        "r": "T79c · docs/design/plan-depth-1.md §T79c · sales.billing_cancellation · POST /v1/billing-documents/{id}:cancel · BillingDocumentCancelled · walkthrough step_billing_cancellation · ADR-0067 As built",
+        "r": "T79c · docs/design/plan-depth-1.md §T79c · db/migrations/000351 · sales.billing_cancellation · POST /v1/billing-documents/{id}:cancel · BillingDocumentCancelled · walkthrough step_billing_cancellation · ADR-0067 As built",
         "src": "split:T79a · po:2026-11-17",
         "c": []
        },
