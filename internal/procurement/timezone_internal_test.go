@@ -13,7 +13,7 @@ import (
 func TestTodayUnknownZone(t *testing.T) {
 	e := &Endpoints{Settings: zoneSettings{zone: "America/Nowhere"},
 		Now: func() time.Time { return time.Date(2026, 4, 16, 21, 0, 0, 0, time.UTC) }}
-	if _, _, err := e.today(context.Background(), "2000"); err == nil || !strings.Contains(err.Error(), "procurement: company 2000") {
+	if _, _, err := e.today(context.Background(), "2000"); err == nil || !strings.Contains(err.Error(), "procurement: today in company 2000: company 2000: time zone") {
 		t.Errorf("got %v, want the company's zone refused", err)
 	}
 }
