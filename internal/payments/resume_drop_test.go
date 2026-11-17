@@ -163,13 +163,13 @@ func (failingPayees) Payees(context.Context, uuid.UUID, []uuid.UUID, time.Time) 
 }
 
 func (f failingPayees) BankDetails(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]partner.BankDetail, error) {
-	return f.inner.BankDetails(ctx, ids) //nolint:wrapcheck // a test double passing the real port's answer through
+	return f.inner.BankDetails(ctx, ids)
 }
 
 func (f failingPayees) Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]partner.Named, error) {
-	return f.inner.Names(ctx, ids) //nolint:wrapcheck // as above
+	return f.inner.Names(ctx, ids)
 }
 
 func (f failingPayees) BankAccounts(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]partner.BankAccount, error) {
-	return f.inner.BankAccounts(ctx, ids) //nolint:wrapcheck // as above
+	return f.inner.BankAccounts(ctx, ids)
 }

@@ -23,12 +23,12 @@ type recording struct {
 
 func (r recording) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	*r.sql = append(*r.sql, sql)
-	return r.Tx.Exec(ctx, sql, args...) //nolint:wrapcheck // a test double passing the real answer through
+	return r.Tx.Exec(ctx, sql, args...)
 }
 
 func (r recording) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	*r.sql = append(*r.sql, sql)
-	return r.Tx.Query(ctx, sql, args...) //nolint:wrapcheck // as above
+	return r.Tx.Query(ctx, sql, args...)
 }
 
 func (r recording) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
