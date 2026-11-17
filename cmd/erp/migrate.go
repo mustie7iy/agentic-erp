@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/platform/backoff"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 )
 
@@ -61,7 +62,9 @@ func act(ctx context.Context, c *apitools.Client, path, method string) error {
 		return nil // not an operation: nothing to wait for
 	}
 	for op.Status == "queued" || op.Status == "running" {
-		time.Sleep(pollInterval)
+		if err := backoff.Wait(ctx, pollInterval); err != nil {
+			return err
+		}
 		resp, err := c.Do(ctx, http.MethodGet, "/v1/operations/"+op.ID, nil, nil, "")
 		if err != nil {
 			return err

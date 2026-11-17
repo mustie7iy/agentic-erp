@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"go.temporal.io/sdk/client"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/backoff"
 )
 
 var (
@@ -50,18 +52,16 @@ func Server(tb testing.TB) string {
 		tb.Fatalf("workflowtest: %v", err)
 	}
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	deadline := time.Now().Add(60 * time.Second)
-	for {
+	// Up to a minute, every 200 ms.
+	if err := backoff.Retry(context.Background(), 300, backoff.Constant(200*time.Millisecond), func() error {
 		c, err := client.DialContext(context.Background(), client.Options{HostPort: addr})
 		if err == nil {
 			c.Close()
-			break
 		}
-		if time.Now().After(deadline) {
-			_ = cmd.Process.Kill()
-			tb.Fatalf("workflowtest: the development server did not come up: %v", err)
-		}
-		time.Sleep(200 * time.Millisecond)
+		return err
+	}); err != nil {
+		_ = cmd.Process.Kill()
+		tb.Fatalf("workflowtest: the development server did not come up: %v", err)
 	}
 	address = addr
 	stop = func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }

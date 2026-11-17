@@ -23,6 +23,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/platform/backoff"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
@@ -401,7 +402,7 @@ func (s *Stack) Drain(timeout time.Duration) error {
 				return fmt.Errorf("projecting the backlog: %w", err)
 			}
 		}
-		time.Sleep(50 * time.Millisecond)
+		_ = backoff.Wait(context.Background(), 50*time.Millisecond) // a background context never ends: the wait is the whole 50 ms
 	}
 }
 
