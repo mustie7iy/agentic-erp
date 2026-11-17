@@ -176,9 +176,6 @@ func (e *Endpoints) checker(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUI
 }
 
 // invalid is a 422 on one field.
-func invalid(code, detail, field, message string) *problem.Problem {
-	return problem.Unprocessable(code, detail, problem.FieldError{Field: field, Code: "invalid", Message: message})
-}
 
 // values checks a memo record and gives its stored values.
 func (c *checker) values(ctx context.Context, in MemoInput) (memoValues, error) {
@@ -198,7 +195,7 @@ func (c *checker) values(ctx context.Context, in MemoInput) (memoValues, error) 
 		v.certainty = CertaintyExpected
 	}
 	if !slices.Contains(memoCertainties, v.certainty) {
-		return memoValues{}, invalid("request.validation_failed", "A memo record is confirmed, expected or planned.", "certainty", "confirmed, expected or planned")
+		return memoValues{}, problem.InvalidDetail("request.validation_failed", "A memo record is confirmed, expected or planned.", "certainty", "confirmed, expected or planned")
 	}
 	if err := v.dates(in.ExpiresOn); err != nil {
 		return memoValues{}, err
@@ -211,7 +208,7 @@ func (c *checker) amount(ctx context.Context, amount, code string) (money.Minor,
 	exp, ok := c.exponents[code]
 	if !ok {
 		var err error
-		if exp, err = currency.Exponent(ctx, c.tx, code, invalid("cash.unknown_currency", "The currency is not known.", "amount.currency",
+		if exp, err = currency.Exponent(ctx, c.tx, code, problem.InvalidDetail("cash.unknown_currency", "The currency is not known.", "amount.currency",
 			"an ISO 4217 currency in the reference data")); err != nil {
 			return 0, err
 		}
@@ -223,7 +220,7 @@ func (c *checker) amount(ctx context.Context, amount, code string) (money.Minor,
 			problem.FieldError{Field: "amount.amount", Code: "invalid", Message: err.Error()})
 	}
 	if m == 0 {
-		return 0, invalid("cash.invalid_amount", "A memo record expects a receipt (a positive amount) or a payment (a negative one), not zero.", "amount.amount", "not zero")
+		return 0, problem.InvalidDetail("cash.invalid_amount", "A memo record expects a receipt (a positive amount) or a payment (a negative one), not zero.", "amount.amount", "not zero")
 	}
 	return m, nil
 }
@@ -236,7 +233,7 @@ func (c *checker) bank(v memoValues) error {
 	}
 	b, ok := c.banks[*v.houseBank]
 	if !ok || b.Currency != v.currency {
-		return invalid("cash.house_bank_invalid", "The house bank is not an active house bank of the legal entity in the record's currency.", "house_bank_id",
+		return problem.InvalidDetail("cash.house_bank_invalid", "The house bank is not an active house bank of the legal entity in the record's currency.", "house_bank_id",
 			"an active house bank of the legal entity in "+v.currency)
 	}
 	return nil
@@ -248,9 +245,9 @@ func (c *checker) item(v memoValues) error {
 	direction, ok := c.items[v.item]
 	switch {
 	case !ok:
-		return invalid("cash.liquidity_item_invalid", "The liquidity item is not one of the configuration's active items.", "liquidity_item", "an active liquidity item")
+		return problem.InvalidDetail("cash.liquidity_item_invalid", "The liquidity item is not one of the configuration's active items.", "liquidity_item", "an active liquidity item")
 	case direction == "inflow" && v.amount < 0, direction == "outflow" && v.amount > 0:
-		return invalid("cash.liquidity_item_invalid", "The liquidity item is for "+direction+"s; the amount's sign says otherwise.", "liquidity_item",
+		return problem.InvalidDetail("cash.liquidity_item_invalid", "The liquidity item is for "+direction+"s; the amount's sign says otherwise.", "liquidity_item",
 			"an item for "+direction+"s takes a "+map[string]string{"inflow": "positive", "outflow": "negative"}[direction]+" amount")
 	}
 	return nil
@@ -264,7 +261,7 @@ func (v *memoValues) dates(expires *time.Time) error {
 		v.expiresOn = *expires
 	}
 	if v.expiresOn.Before(v.valueDate) {
-		return invalid("request.validation_failed", "A memo record expires on or after its value date.", "expires_on", "on or after the value date")
+		return problem.InvalidDetail("request.validation_failed", "A memo record expires on or after its value date.", "expires_on", "on or after the value date")
 	}
 	r := v.recurrence
 	if r == nil {
@@ -273,13 +270,13 @@ func (v *memoValues) dates(expires *time.Time) error {
 	}
 	switch {
 	case !slices.Contains([]string{Weekly, Monthly, Quarterly}, r.Frequency):
-		return invalid("request.validation_failed", "A series is weekly, monthly or quarterly.", "recurrence.frequency", "weekly, monthly or quarterly")
+		return problem.InvalidDetail("request.validation_failed", "A series is weekly, monthly or quarterly.", "recurrence.frequency", "weekly, monthly or quarterly")
 	case r.Until != nil && r.Count != nil:
-		return invalid("request.validation_failed", "A series ends on a day or after a count, not both.", "recurrence.until", "until or count")
+		return problem.InvalidDetail("request.validation_failed", "A series ends on a day or after a count, not both.", "recurrence.until", "until or count")
 	case r.Until != nil && r.Until.Before(v.valueDate):
-		return invalid("request.validation_failed", "A series ends on or after its value date.", "recurrence.until", "on or after the value date")
+		return problem.InvalidDetail("request.validation_failed", "A series ends on or after its value date.", "recurrence.until", "on or after the value date")
 	case v.recurrenceOf != nil:
-		return invalid("request.validation_failed", "An occurrence's override is a single record, not a series.", "recurrence", "none on an override")
+		return problem.InvalidDetail("request.validation_failed", "An occurrence's override is a single record, not a series.", "recurrence", "none on an override")
 	}
 	v.countsUntil = nil
 	if last, ok := r.last(v.valueDate); ok {

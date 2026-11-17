@@ -172,23 +172,20 @@ func (e *Endpoints) company(ctx context.Context, id uuid.UUID) (Company, error) 
 func classOf(doc *config.Config, co Company, code string) (*config.AssetClass, *config.AssetAccounts, error) {
 	cls := doc.AssetClass(code)
 	if cls == nil {
-		return nil, nil, invalid("assets.class_unknown", "The configuration has no asset class "+code+".", "class_code", "an asset class of the configuration")
+		return nil, nil, problem.InvalidDetail("assets.class_unknown", "The configuration has no asset class "+code+".", "class_code", "an asset class of the configuration")
 	}
 	var accounts *config.AssetAccounts
 	if c := doc.Company(co.Code); c != nil {
 		accounts = c.AssetAccountsOf(code)
 	}
 	if accounts == nil {
-		return nil, nil, invalid("assets.class_not_in_company", fmt.Sprintf("Company %s has no asset accounts for class %s, so it cannot hold its assets.", co.Code, code),
+		return nil, nil, problem.InvalidDetail("assets.class_not_in_company", fmt.Sprintf("Company %s has no asset accounts for class %s, so it cannot hold its assets.", co.Code, code),
 			"class_code", "a class the company has asset accounts for")
 	}
 	return cls, accounts, nil
 }
 
 // invalid is a 422 on one field.
-func invalid(code, detail, field, message string) *problem.Problem {
-	return problem.Unprocessable(code, detail, problem.FieldError{Field: field, Code: "invalid", Message: message})
-}
 
 // createAsset creates a planned asset (ADR-0057 §5, §7, §8): numbered from
 // the company's asset range of the fiscal year its date today falls in,
@@ -252,7 +249,7 @@ func (e *Endpoints) assign(ctx context.Context, le uuid.UUID, day time.Time, yea
 		return nil, fmt.Errorf("assets: centers: %w", err)
 	}
 	if a.CostCenterRequired {
-		return nil, invalid("assets.cost_center_required", fmt.Sprintf("The class's depreciation account %s needs a cost center and has no default "+
+		return nil, problem.InvalidDetail("assets.cost_center_required", fmt.Sprintf("The class's depreciation account %s needs a cost center and has no default "+
 			"cost center in the company; give the asset one.", account), "cost_center_id", "a cost center of the company")
 	}
 	return a.ProfitCenterID, nil

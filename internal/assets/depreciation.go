@@ -162,7 +162,7 @@ func assetIDs(ds map[uuid.UUID]*depreciable) []pgtype.UUID {
 // that is not set up or lacks the period (422 ledger.no_fiscal_period).
 func (e *Endpoints) periodOf(ctx context.Context, le uuid.UUID, year int16, number int16) (Period, error) {
 	if number > 12 {
-		return Period{}, invalid("assets.special_period", fmt.Sprintf("Period %d is a special period, which takes no depreciation; "+
+		return Period{}, problem.InvalidDetail("assets.special_period", fmt.Sprintf("Period %d is a special period, which takes no depreciation; "+
 			"depreciation is per regular period (1-12).", number), "period", "a regular period, 1 to 12")
 	}
 	periods, err := e.Ledger.Periods(ctx, le, year)

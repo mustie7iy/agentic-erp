@@ -177,7 +177,7 @@ func (e *Endpoints) prepareManual(ctx context.Context, tx pgx.Tx, doc *config.Co
 		return err
 	}
 	if _, isClearing := clearing[off.ID]; !ok || isClearing {
-		return invalid("assets.offset_account_invalid", fmt.Sprintf("Account %s cannot be the offset of an acquisition in company %s: it is not "+
+		return problem.InvalidDetail("assets.offset_account_invalid", fmt.Sprintf("Account %s cannot be the offset of an acquisition in company %s: it is not "+
 			"postable there, is a reconciliation or GR/IR account, or is an asset clearing account.", *in.OffsetAccountID, a.company.Code),
 			"offset_account_id", "a postable G/L account of the company, no reconciliation and no asset clearing account")
 	}
@@ -251,13 +251,13 @@ func (e *Endpoints) sourceLine(ctx context.Context, a *acquiring, in LineKey) er
 	}
 	switch {
 	case !ok || !l.Leading || l.LegalEntityID != a.asset.LegalEntityID || l.AccountID != a.clearing || l.SourceContext == sourceAssets:
-		return invalid("assets.not_clearing_line", fmt.Sprintf("Line %d of entry %s is no line of the leading ledger on the clearing account of class %s in "+
+		return problem.InvalidDetail("assets.not_clearing_line", fmt.Sprintf("Line %d of entry %s is no line of the leading ledger on the clearing account of class %s in "+
 			"the asset's company.", in.LineNo, in.EntryID, a.asset.Class), "source", "a line on the class's clearing account (GET /v1/asset-clearing-items)")
 	case l.ReversedBy != nil:
-		return invalid("assets.source_reversed", fmt.Sprintf("Entry %s was reversed by entry %s; its line cannot be capitalised, and its reversal's "+
+		return problem.InvalidDetail("assets.source_reversed", fmt.Sprintf("Entry %s was reversed by entry %s; its line cannot be capitalised, and its reversal's "+
 			"line takes the cost off the assets holding it.", l.DocumentNumber, l.ReversedBy.DocumentNumber), "source", "a line of an entry that is not reversed")
 	case !l.InEveryLedger:
-		return invalid("assets.source_not_in_every_ledger", fmt.Sprintf("Entry %s was not posted to every ledger the company keeps, so an acquisition, "+
+		return problem.InvalidDetail("assets.source_not_in_every_ledger", fmt.Sprintf("Entry %s was not posted to every ledger the company keeps, so an acquisition, "+
 			"which posts to each, cannot take its line.", l.DocumentNumber), "source", "a line of an entry posted to every ledger")
 	}
 	a.line, a.currency, a.currencyLC, a.currencyGC = l, l.Currency, l.CurrencyLC, l.CurrencyGC
@@ -283,7 +283,7 @@ func takeOff(ctx context.Context, tx pgx.Tx, a acquiring, amount *money.Minor) (
 		return nil, fmt.Errorf("assets: what asset %s holds of line %d of entry %s: %w", a.asset.Number, a.line.LineNo, a.reverses.EntryID, err)
 	}
 	if held == 0 {
-		return nil, invalid("assets.source_reversed", fmt.Sprintf("Entry %s reverses an entry whose line %d asset %s holds nothing of; its line "+
+		return nil, problem.InvalidDetail("assets.source_reversed", fmt.Sprintf("Entry %s reverses an entry whose line %d asset %s holds nothing of; its line "+
 			"takes cost off only the assets holding the reversed line.", a.line.DocumentNumber, a.line.LineNo, a.asset.Number),
 			"source", "a reversal's line, onto an asset holding the line it reverses")
 	}
@@ -293,7 +293,7 @@ func takeOff(ctx context.Context, tx pgx.Tx, a acquiring, amount *money.Minor) (
 	}
 	// An amount of the other sign is take's to refuse.
 	if bound == 0 || (bound > 0 && *amount > bound) || (bound < 0 && *amount < bound) {
-		return nil, invalid("assets.amount_exceeds_line", fmt.Sprintf("Asset %s may take %d minor units of %s off through the reversal's line: what it "+
+		return nil, problem.InvalidDetail("assets.amount_exceeds_line", fmt.Sprintf("Asset %s may take %d minor units of %s off through the reversal's line: what it "+
 			"holds from the line reversed less what it took through this one.", a.asset.Number, int64(bound), a.line.Currency),
 			"amount", "at most what the asset may take off")
 	}
@@ -329,7 +329,7 @@ func (e *Endpoints) datesOf(ctx context.Context, tx pgx.Tx, doc *config.Config, 
 		return fmt.Errorf("assets: period of %s: %w", a.posting.Format(time.DateOnly), err)
 	}
 	if a.value.After(per.End) {
-		return invalid("assets.value_date_in_future", fmt.Sprintf("The value date %s is after the end of the posting date's period, %s.",
+		return problem.InvalidDetail("assets.value_date_in_future", fmt.Sprintf("The value date %s is after the end of the posting date's period, %s.",
 			a.value.Format(time.DateOnly), per.End.Format(time.DateOnly)), "value_date", "a date on or before "+per.End.Format(time.DateOnly))
 	}
 	from, err := latestAssignment(ctx, tx, a.asset.ID)
@@ -360,7 +360,7 @@ func (u clearingUse) take(amount *money.Minor, currency string) (share, error) {
 		tc = *amount
 	}
 	if tc == 0 || (tc > 0) != (u.line.tc > 0) || (tc > 0 && tc > left) || (tc < 0 && tc < left) {
-		return share{}, invalid("assets.amount_exceeds_line", fmt.Sprintf("The line has %d minor units of %s left; an acquisition takes an amount of "+
+		return share{}, problem.InvalidDetail("assets.amount_exceeds_line", fmt.Sprintf("The line has %d minor units of %s left; an acquisition takes an amount of "+
 			"the line's sign up to that.", left, u.currency), "amount", "an amount of the line's sign, at most what is left")
 	}
 	used := u.used.tc + tc

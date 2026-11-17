@@ -13,12 +13,13 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 // termsMissing refuses a ledger the asset has no terms in.
 func termsMissing(number string) error {
-	return invalid("assets.ledger_terms_missing", fmt.Sprintf("Asset %s has no depreciation terms in this ledger; give it terms there with PATCH "+
+	return problem.InvalidDetail("assets.ledger_terms_missing", fmt.Sprintf("Asset %s has no depreciation terms in this ledger; give it terms there with PATCH "+
 		"/v1/assets/{id} (a ledger its company keeps).", number), "ledger_id", "a ledger the asset has terms in")
 }
 

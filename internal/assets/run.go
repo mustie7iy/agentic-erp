@@ -103,7 +103,7 @@ func (e *Endpoints) runTarget(ctx context.Context, le uuid.UUID, ledgerID *uuid.
 		return Company{}, LedgerRef{}, Period{}, err
 	}
 	if !ok {
-		return Company{}, LedgerRef{}, Period{}, invalid("ledger.ledger_not_kept", fmt.Sprintf("Company %s does not keep this ledger.", co.Code), "ledger_id",
+		return Company{}, LedgerRef{}, Period{}, problem.InvalidDetail("ledger.ledger_not_kept", fmt.Sprintf("Company %s does not keep this ledger.", co.Code), "ledger_id",
 			"a ledger the company keeps")
 	}
 	p, err := e.periodOf(ctx, co.ID, int16(year), int16(period))
