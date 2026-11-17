@@ -27100,6 +27100,7 @@ func (*ConflictHeaders) createForecastVarianceCommentRes()         {}
 func (*ConflictHeaders) createGrIrClearingRes()                    {}
 func (*ConflictHeaders) createHierarchyRes()                       {}
 func (*ConflictHeaders) createIncomingPaymentRes()                 {}
+func (*ConflictHeaders) createInternalOrderBudgetChangeRes()       {}
 func (*ConflictHeaders) createInternalOrderRes()                   {}
 func (*ConflictHeaders) createLeaseContractRes()                   {}
 func (*ConflictHeaders) createLeaseRunRes()                        {}
@@ -27276,6 +27277,7 @@ func (*ConflictHeaders) reverseAssetAcquisitionRes()               {}
 func (*ConflictHeaders) reverseAssetRetirementRes()                {}
 func (*ConflictHeaders) reverseAssetTransferRes()                  {}
 func (*ConflictHeaders) reverseGoodsReceiptRes()                   {}
+func (*ConflictHeaders) reverseInternalOrderSettlementRes()        {}
 func (*ConflictHeaders) reverseJournalEntryRes()                   {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()                {}
 func (*ConflictHeaders) rotateWebhookSubscriptionSecretRes()       {}
@@ -34356,6 +34358,30 @@ func (*CreateIncomingPaymentUnprocessableEntity) createIncomingPaymentRes() {}
 type CreateInternalOrderBadRequest Problem
 
 func (*CreateInternalOrderBadRequest) createInternalOrderRes() {}
+
+type CreateInternalOrderBudgetChangeBadRequest Problem
+
+func (*CreateInternalOrderBudgetChangeBadRequest) createInternalOrderBudgetChangeRes() {}
+
+type CreateInternalOrderBudgetChangeForbidden Problem
+
+func (*CreateInternalOrderBudgetChangeForbidden) createInternalOrderBudgetChangeRes() {}
+
+type CreateInternalOrderBudgetChangeNotFound Problem
+
+func (*CreateInternalOrderBudgetChangeNotFound) createInternalOrderBudgetChangeRes() {}
+
+type CreateInternalOrderBudgetChangePreconditionFailed Problem
+
+func (*CreateInternalOrderBudgetChangePreconditionFailed) createInternalOrderBudgetChangeRes() {}
+
+type CreateInternalOrderBudgetChangePreconditionRequired Problem
+
+func (*CreateInternalOrderBudgetChangePreconditionRequired) createInternalOrderBudgetChangeRes() {}
+
+type CreateInternalOrderBudgetChangeUnprocessableEntity Problem
+
+func (*CreateInternalOrderBudgetChangeUnprocessableEntity) createInternalOrderBudgetChangeRes() {}
 
 type CreateInternalOrderForbidden Problem
 
@@ -54554,6 +54580,40 @@ func (s *InternalOrder) SetStatus(val string) {
 	s.Status = val
 }
 
+// An order budget's availability control (ADR-0064 §3, T60h): limits on the order's consumption, its
+// actual costs (commitments are not counted yet), each a whole percentage of the budget. A posting
+// that adds to the order's consumption is refused when the consumption after it is above the refusal
+// limit (422 `ledger.internal_order_invalid` with the reason `budget_exceeded`), and accepted and
+// published as InternalOrderBudgetWarned when it is above the warning limit. Either limit may be left
+// out; the warning limit is below the refusal limit.
+// Ref: #/components/schemas/InternalOrderAvailabilityControl
+type InternalOrderAvailabilityControl struct {
+	// The warning limit, in percent of the budget.
+	WarnPercent OptInt32 `json:"warn_percent"`
+	// The refusal limit, in percent of the budget; above 100 it tolerates a consumption beyond the budget.
+	RefusePercent OptInt32 `json:"refuse_percent"`
+}
+
+// GetWarnPercent returns the value of WarnPercent.
+func (s *InternalOrderAvailabilityControl) GetWarnPercent() OptInt32 {
+	return s.WarnPercent
+}
+
+// GetRefusePercent returns the value of RefusePercent.
+func (s *InternalOrderAvailabilityControl) GetRefusePercent() OptInt32 {
+	return s.RefusePercent
+}
+
+// SetWarnPercent sets the value of WarnPercent.
+func (s *InternalOrderAvailabilityControl) SetWarnPercent(val OptInt32) {
+	s.WarnPercent = val
+}
+
+// SetRefusePercent sets the value of RefusePercent.
+func (s *InternalOrderAvailabilityControl) SetRefusePercent(val OptInt32) {
+	s.RefusePercent = val
+}
+
 // The actual costs of an internal order on one account in one fiscal period (ADR-0064 §2), in the
 // legal entity's local currency.
 // Ref: #/components/schemas/InternalOrderBalance
@@ -54839,6 +54899,19 @@ type InternalOrderBudget struct {
 	Remaining OptMoney `json:"remaining"`
 	// Whether the actual exceeds the budget. False while the budget was never set.
 	Exceeded bool `json:"exceeded"`
+	// The actual in percent of the budget, a decimal with two places ("30.00"), negative when the credits
+	// exceed the debits. Absent while the budget was never set and while it is zero. Commitments are not
+	// counted yet (T60h).
+	ConsumedPercent OptString `json:"consumed_percent"`
+	// The budget's availability control (T60h): its warning and refusal limits. Absent while it has none:
+	// then nothing is refused or warned about for the budget.
+	AvailabilityControl OptInternalOrderAvailabilityControl `json:"availability_control"`
+	// Where the actual stands against the availability control's limits, present exactly with
+	// `availability_control`: `within` (above neither limit), `above_warning` (above the warning limit and
+	// not the refusal limit), `above_refusal` (above the refusal limit, possible after the budget or the
+	// limit was lowered, or through postings that are never checked: a reversal). Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Availability OptString `json:"availability"`
 	// When the budget was last set (UTC). Absent while it was never set.
 	UpdatedAt OptDateTime `json:"updated_at"`
 	// The principal who last set the budget. Absent while it was never set.
@@ -54888,6 +54961,21 @@ func (s *InternalOrderBudget) GetRemaining() OptMoney {
 // GetExceeded returns the value of Exceeded.
 func (s *InternalOrderBudget) GetExceeded() bool {
 	return s.Exceeded
+}
+
+// GetConsumedPercent returns the value of ConsumedPercent.
+func (s *InternalOrderBudget) GetConsumedPercent() OptString {
+	return s.ConsumedPercent
+}
+
+// GetAvailabilityControl returns the value of AvailabilityControl.
+func (s *InternalOrderBudget) GetAvailabilityControl() OptInternalOrderAvailabilityControl {
+	return s.AvailabilityControl
+}
+
+// GetAvailability returns the value of Availability.
+func (s *InternalOrderBudget) GetAvailability() OptString {
+	return s.Availability
 }
 
 // GetUpdatedAt returns the value of UpdatedAt.
@@ -54945,6 +55033,21 @@ func (s *InternalOrderBudget) SetExceeded(val bool) {
 	s.Exceeded = val
 }
 
+// SetConsumedPercent sets the value of ConsumedPercent.
+func (s *InternalOrderBudget) SetConsumedPercent(val OptString) {
+	s.ConsumedPercent = val
+}
+
+// SetAvailabilityControl sets the value of AvailabilityControl.
+func (s *InternalOrderBudget) SetAvailabilityControl(val OptInternalOrderAvailabilityControl) {
+	s.AvailabilityControl = val
+}
+
+// SetAvailability sets the value of Availability.
+func (s *InternalOrderBudget) SetAvailability(val OptString) {
+	s.Availability = val
+}
+
 // SetUpdatedAt sets the value of UpdatedAt.
 func (s *InternalOrderBudget) SetUpdatedAt(val OptDateTime) {
 	s.UpdatedAt = val
@@ -54954,6 +55057,274 @@ func (s *InternalOrderBudget) SetUpdatedAt(val OptDateTime) {
 func (s *InternalOrderBudget) SetUpdatedBy(val OptUUID) {
 	s.UpdatedBy = val
 }
+
+// One version of an internal order's budget (ADR-0064 §3, T60h): how it changed. Never changed.
+// Ref: #/components/schemas/InternalOrderBudgetChange
+type InternalOrderBudgetChange struct {
+	// The change's id.
+	ID uuid.UUID `json:"id"`
+	// The internal order (`GET /v1/internal-orders/{id}`).
+	InternalOrderID uuid.UUID `json:"internal_order_id"`
+	// The budget's version the change made.
+	Version int32 `json:"version"`
+	// `set` (the budget or its availability control set by `PATCH`), `supplement` or `return`. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Kind string `json:"kind"`
+	// The budget before the change, in the legal entity's local currency. Absent when the order had none.
+	BudgetBefore OptMoney `json:"budget_before"`
+	// The budget after the change.
+	Budget Money `json:"budget"`
+	// How much the budget moved: the budget after less the budget before (the whole budget when there was
+	// none); positive for a supplement, negative for a return, zero when only the availability control
+	// changed.
+	Change Money `json:"change"`
+	// The availability control after the change. Absent when the budget had none.
+	AvailabilityControl OptInternalOrderAvailabilityControl `json:"availability_control"`
+	// Why the budget changed, as the supplement or return gave it. Absent on a change without one.
+	Text OptString `json:"text"`
+	// When the change was made (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// The principal who made it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *InternalOrderBudgetChange) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetInternalOrderID returns the value of InternalOrderID.
+func (s *InternalOrderBudgetChange) GetInternalOrderID() uuid.UUID {
+	return s.InternalOrderID
+}
+
+// GetVersion returns the value of Version.
+func (s *InternalOrderBudgetChange) GetVersion() int32 {
+	return s.Version
+}
+
+// GetKind returns the value of Kind.
+func (s *InternalOrderBudgetChange) GetKind() string {
+	return s.Kind
+}
+
+// GetBudgetBefore returns the value of BudgetBefore.
+func (s *InternalOrderBudgetChange) GetBudgetBefore() OptMoney {
+	return s.BudgetBefore
+}
+
+// GetBudget returns the value of Budget.
+func (s *InternalOrderBudgetChange) GetBudget() Money {
+	return s.Budget
+}
+
+// GetChange returns the value of Change.
+func (s *InternalOrderBudgetChange) GetChange() Money {
+	return s.Change
+}
+
+// GetAvailabilityControl returns the value of AvailabilityControl.
+func (s *InternalOrderBudgetChange) GetAvailabilityControl() OptInternalOrderAvailabilityControl {
+	return s.AvailabilityControl
+}
+
+// GetText returns the value of Text.
+func (s *InternalOrderBudgetChange) GetText() OptString {
+	return s.Text
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *InternalOrderBudgetChange) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *InternalOrderBudgetChange) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *InternalOrderBudgetChange) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetInternalOrderID sets the value of InternalOrderID.
+func (s *InternalOrderBudgetChange) SetInternalOrderID(val uuid.UUID) {
+	s.InternalOrderID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *InternalOrderBudgetChange) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetKind sets the value of Kind.
+func (s *InternalOrderBudgetChange) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetBudgetBefore sets the value of BudgetBefore.
+func (s *InternalOrderBudgetChange) SetBudgetBefore(val OptMoney) {
+	s.BudgetBefore = val
+}
+
+// SetBudget sets the value of Budget.
+func (s *InternalOrderBudgetChange) SetBudget(val Money) {
+	s.Budget = val
+}
+
+// SetChange sets the value of Change.
+func (s *InternalOrderBudgetChange) SetChange(val Money) {
+	s.Change = val
+}
+
+// SetAvailabilityControl sets the value of AvailabilityControl.
+func (s *InternalOrderBudgetChange) SetAvailabilityControl(val OptInternalOrderAvailabilityControl) {
+	s.AvailabilityControl = val
+}
+
+// SetText sets the value of Text.
+func (s *InternalOrderBudgetChange) SetText(val OptString) {
+	s.Text = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *InternalOrderBudgetChange) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *InternalOrderBudgetChange) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// A supplement to an internal order's budget or a return of part of it (T60h).
+// Ref: #/components/schemas/InternalOrderBudgetChangeCreate
+type InternalOrderBudgetChangeCreate struct {
+	// `supplement` adds the amount to the budget; `return` takes it off (422
+	// `controlling.order_budget_invalid` on `kind`, code `unsupported`, for another value). Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Kind string `json:"kind"`
+	// The amount supplemented or returned, positive, in the legal entity's local currency.
+	Amount Money `json:"amount"`
+	// Why the budget changes, kept with the change.
+	Text OptString `json:"text"`
+}
+
+// GetKind returns the value of Kind.
+func (s *InternalOrderBudgetChangeCreate) GetKind() string {
+	return s.Kind
+}
+
+// GetAmount returns the value of Amount.
+func (s *InternalOrderBudgetChangeCreate) GetAmount() Money {
+	return s.Amount
+}
+
+// GetText returns the value of Text.
+func (s *InternalOrderBudgetChangeCreate) GetText() OptString {
+	return s.Text
+}
+
+// SetKind sets the value of Kind.
+func (s *InternalOrderBudgetChangeCreate) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *InternalOrderBudgetChangeCreate) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetText sets the value of Text.
+func (s *InternalOrderBudgetChangeCreate) SetText(val OptString) {
+	s.Text = val
+}
+
+// InternalOrderBudgetChangeHeaders wraps InternalOrderBudgetChange with response headers.
+type InternalOrderBudgetChangeHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           InternalOrderBudgetChange
+}
+
+// GetETag returns the value of ETag.
+func (s *InternalOrderBudgetChangeHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *InternalOrderBudgetChangeHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *InternalOrderBudgetChangeHeaders) GetResponse() InternalOrderBudgetChange {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *InternalOrderBudgetChangeHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *InternalOrderBudgetChangeHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *InternalOrderBudgetChangeHeaders) SetResponse(val InternalOrderBudgetChange) {
+	s.Response = val
+}
+
+func (*InternalOrderBudgetChangeHeaders) createInternalOrderBudgetChangeRes() {}
+
+// One page of an internal order budget's changes.
+// Ref: #/components/schemas/InternalOrderBudgetChangePage
+type InternalOrderBudgetChangePage struct {
+	// The changes on this page.
+	Items []InternalOrderBudgetChange `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *InternalOrderBudgetChangePage) GetItems() []InternalOrderBudgetChange {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *InternalOrderBudgetChangePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *InternalOrderBudgetChangePage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *InternalOrderBudgetChangePage) SetItems(val []InternalOrderBudgetChange) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *InternalOrderBudgetChangePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *InternalOrderBudgetChangePage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+func (*InternalOrderBudgetChangePage) listInternalOrderBudgetChangesRes() {}
 
 // InternalOrderBudgetHeaders wraps InternalOrderBudget with response headers.
 type InternalOrderBudgetHeaders struct {
@@ -54983,21 +55354,65 @@ func (s *InternalOrderBudgetHeaders) SetResponse(val InternalOrderBudget) {
 
 func (*InternalOrderBudgetHeaders) getInternalOrderBudgetRes() {}
 
-// The budget an internal order is given (a merge patch of its budget: `budget` is replaced whole).
+// The budget an internal order is given, its availability control, or both (a merge patch of its
+// budget: `budget` and `availability_control` are each replaced whole). At least one is named; an
+// order without a budget needs `budget`.
 // Ref: #/components/schemas/InternalOrderBudgetUpdate
 type InternalOrderBudgetUpdate struct {
 	// One overall amount for the order, zero or more, in the legal entity's local currency.
-	Budget Money `json:"budget"`
+	Budget OptMoney `json:"budget"`
+	// The warning and refusal limits, each a whole percentage of the budget from 1 to 999, the warning
+	// limit below the refusal limit; replaced whole. Send null to remove the availability control.
+	AvailabilityControl OptNilInternalOrderBudgetUpdateAvailabilityControl `json:"availability_control"`
 }
 
 // GetBudget returns the value of Budget.
-func (s *InternalOrderBudgetUpdate) GetBudget() Money {
+func (s *InternalOrderBudgetUpdate) GetBudget() OptMoney {
 	return s.Budget
 }
 
+// GetAvailabilityControl returns the value of AvailabilityControl.
+func (s *InternalOrderBudgetUpdate) GetAvailabilityControl() OptNilInternalOrderBudgetUpdateAvailabilityControl {
+	return s.AvailabilityControl
+}
+
 // SetBudget sets the value of Budget.
-func (s *InternalOrderBudgetUpdate) SetBudget(val Money) {
+func (s *InternalOrderBudgetUpdate) SetBudget(val OptMoney) {
 	s.Budget = val
+}
+
+// SetAvailabilityControl sets the value of AvailabilityControl.
+func (s *InternalOrderBudgetUpdate) SetAvailabilityControl(val OptNilInternalOrderBudgetUpdateAvailabilityControl) {
+	s.AvailabilityControl = val
+}
+
+// The warning and refusal limits, each a whole percentage of the budget from 1 to 999, the warning
+// limit below the refusal limit; replaced whole. Send null to remove the availability control.
+type InternalOrderBudgetUpdateAvailabilityControl struct {
+	// The warning limit, in percent of the budget.
+	WarnPercent OptInt32 `json:"warn_percent"`
+	// The refusal limit, in percent of the budget.
+	RefusePercent OptInt32 `json:"refuse_percent"`
+}
+
+// GetWarnPercent returns the value of WarnPercent.
+func (s *InternalOrderBudgetUpdateAvailabilityControl) GetWarnPercent() OptInt32 {
+	return s.WarnPercent
+}
+
+// GetRefusePercent returns the value of RefusePercent.
+func (s *InternalOrderBudgetUpdateAvailabilityControl) GetRefusePercent() OptInt32 {
+	return s.RefusePercent
+}
+
+// SetWarnPercent sets the value of WarnPercent.
+func (s *InternalOrderBudgetUpdateAvailabilityControl) SetWarnPercent(val OptInt32) {
+	s.WarnPercent = val
+}
+
+// SetRefusePercent sets the value of RefusePercent.
+func (s *InternalOrderBudgetUpdateAvailabilityControl) SetRefusePercent(val OptInt32) {
+	s.RefusePercent = val
 }
 
 // A new internal order.
@@ -55178,7 +55593,8 @@ func (s *InternalOrderSettle) SetFiscalPeriod(val int32) {
 }
 
 // A settlement of an internal order (ADR-0064 §3): the journal entry that moved the order's unsettled
-// balance up to a period to the receiving cost center, account by account. Never changed.
+// balance up to a period to the receiving cost center, account by account. Never changed; its reversal
+// (T60i) is shown beside it.
 // Ref: #/components/schemas/InternalOrderSettlement
 type InternalOrderSettlement struct {
 	// The settlement's id.
@@ -55210,6 +55626,15 @@ type InternalOrderSettlement struct {
 	CreatedAt time.Time `json:"created_at"`
 	// The principal who settled it.
 	CreatedBy uuid.UUID `json:"created_by"`
+	// The entry that reversed the settlement's entry (`GET /v1/journal-entries/{id}`), dated the
+	// settlement's posting date. Absent while the settlement is not reversed.
+	ReversalJournalEntryID OptUUID `json:"reversal_journal_entry_id"`
+	// The reversal entry's document number. Absent while the settlement is not reversed.
+	ReversalJournalEntryNumber OptString `json:"reversal_journal_entry_number"`
+	// When the settlement was reversed (UTC). Absent while it is not.
+	ReversedAt OptDateTime `json:"reversed_at"`
+	// The principal who reversed it. Absent while it is not.
+	ReversedBy OptUUID `json:"reversed_by"`
 }
 
 // GetID returns the value of ID.
@@ -55277,6 +55702,26 @@ func (s *InternalOrderSettlement) GetCreatedBy() uuid.UUID {
 	return s.CreatedBy
 }
 
+// GetReversalJournalEntryID returns the value of ReversalJournalEntryID.
+func (s *InternalOrderSettlement) GetReversalJournalEntryID() OptUUID {
+	return s.ReversalJournalEntryID
+}
+
+// GetReversalJournalEntryNumber returns the value of ReversalJournalEntryNumber.
+func (s *InternalOrderSettlement) GetReversalJournalEntryNumber() OptString {
+	return s.ReversalJournalEntryNumber
+}
+
+// GetReversedAt returns the value of ReversedAt.
+func (s *InternalOrderSettlement) GetReversedAt() OptDateTime {
+	return s.ReversedAt
+}
+
+// GetReversedBy returns the value of ReversedBy.
+func (s *InternalOrderSettlement) GetReversedBy() OptUUID {
+	return s.ReversedBy
+}
+
 // SetID sets the value of ID.
 func (s *InternalOrderSettlement) SetID(val uuid.UUID) {
 	s.ID = val
@@ -55341,6 +55786,65 @@ func (s *InternalOrderSettlement) SetCreatedAt(val time.Time) {
 func (s *InternalOrderSettlement) SetCreatedBy(val uuid.UUID) {
 	s.CreatedBy = val
 }
+
+// SetReversalJournalEntryID sets the value of ReversalJournalEntryID.
+func (s *InternalOrderSettlement) SetReversalJournalEntryID(val OptUUID) {
+	s.ReversalJournalEntryID = val
+}
+
+// SetReversalJournalEntryNumber sets the value of ReversalJournalEntryNumber.
+func (s *InternalOrderSettlement) SetReversalJournalEntryNumber(val OptString) {
+	s.ReversalJournalEntryNumber = val
+}
+
+// SetReversedAt sets the value of ReversedAt.
+func (s *InternalOrderSettlement) SetReversedAt(val OptDateTime) {
+	s.ReversedAt = val
+}
+
+// SetReversedBy sets the value of ReversedBy.
+func (s *InternalOrderSettlement) SetReversedBy(val OptUUID) {
+	s.ReversedBy = val
+}
+
+// InternalOrderSettlementHeaders wraps InternalOrderSettlement with response headers.
+type InternalOrderSettlementHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           InternalOrderSettlement
+}
+
+// GetETag returns the value of ETag.
+func (s *InternalOrderSettlementHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *InternalOrderSettlementHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *InternalOrderSettlementHeaders) GetResponse() InternalOrderSettlement {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *InternalOrderSettlementHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *InternalOrderSettlementHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *InternalOrderSettlementHeaders) SetResponse(val InternalOrderSettlement) {
+	s.Response = val
+}
+
+func (*InternalOrderSettlementHeaders) reverseInternalOrderSettlementRes() {}
 
 // One page of an internal order's settlements.
 // Ref: #/components/schemas/InternalOrderSettlementPage
@@ -56804,11 +57308,12 @@ type JournalLineInput struct {
 	// an order. The order must be one of the entry's legal entity and released, the account a primary cost
 	// account, and the line must name no cost center (422 `ledger.internal_order_invalid` on the line's
 	// field, with the reason as the field error's code: `unknown`, `not_in_company`, `not_released`,
-	// `closed`, `with_cost_center`, `not_a_cost_account`, `cost_center_not_valid_on_date`). The line takes
-	// its profit center and segment from the order's responsible cost center on the posting date, and a
-	// different profit center given is refused (422 `ledger.profit_center_mismatch`). Only on an entry
-	// that is posted: a parked entry or an entry template naming an order is refused in this version (422
-	// `ledger.internal_order_not_parkable`).
+	// `closed`, `with_cost_center`, `not_a_cost_account`, `cost_center_not_valid_on_date`,
+	// `budget_exceeded`: the entry would take the order's consumption above its budget's refusal limit,
+	// T60h). The line takes its profit center and segment from the order's responsible cost center on the
+	// posting date, and a different profit center given is refused (422 `ledger.profit_center_mismatch`).
+	// Only on an entry that is posted: a parked entry or an entry template naming an order is refused in
+	// this version (422 `ledger.internal_order_not_parkable`).
 	InternalOrderID OptUUID `json:"internal_order_id"`
 	// Trading partner of the line (ADR-0059 §4): the tenant's company on the other side of an
 	// intercompany transaction, a legal entity of the tenant other than the entry's own (422
@@ -61987,6 +62492,18 @@ func (*ListInternalOrderBalancesForbidden) listInternalOrderBalancesRes() {}
 type ListInternalOrderBalancesUnprocessableEntity Problem
 
 func (*ListInternalOrderBalancesUnprocessableEntity) listInternalOrderBalancesRes() {}
+
+type ListInternalOrderBudgetChangesBadRequest Problem
+
+func (*ListInternalOrderBudgetChangesBadRequest) listInternalOrderBudgetChangesRes() {}
+
+type ListInternalOrderBudgetChangesForbidden Problem
+
+func (*ListInternalOrderBudgetChangesForbidden) listInternalOrderBudgetChangesRes() {}
+
+type ListInternalOrderBudgetChangesNotFound Problem
+
+func (*ListInternalOrderBudgetChangesNotFound) listInternalOrderBudgetChangesRes() {}
 
 type ListInternalOrderSettlementsBadRequest Problem
 
@@ -71289,6 +71806,52 @@ func (o OptInt64) Or(d int64) int64 {
 	return d
 }
 
+// NewOptInternalOrderAvailabilityControl returns new OptInternalOrderAvailabilityControl with value set to v.
+func NewOptInternalOrderAvailabilityControl(v InternalOrderAvailabilityControl) OptInternalOrderAvailabilityControl {
+	return OptInternalOrderAvailabilityControl{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptInternalOrderAvailabilityControl is optional InternalOrderAvailabilityControl.
+type OptInternalOrderAvailabilityControl struct {
+	Value InternalOrderAvailabilityControl
+	Set   bool
+}
+
+// IsSet returns true if OptInternalOrderAvailabilityControl was set.
+func (o OptInternalOrderAvailabilityControl) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptInternalOrderAvailabilityControl) Reset() {
+	var v InternalOrderAvailabilityControl
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptInternalOrderAvailabilityControl) SetTo(v InternalOrderAvailabilityControl) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptInternalOrderAvailabilityControl) Get() (v InternalOrderAvailabilityControl, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptInternalOrderAvailabilityControl) Or(d InternalOrderAvailabilityControl) InternalOrderAvailabilityControl {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptInternalOrderSettlement returns new OptInternalOrderSettlement with value set to v.
 func NewOptInternalOrderSettlement(v InternalOrderSettlement) OptInternalOrderSettlement {
 	return OptInternalOrderSettlement{
@@ -72291,6 +72854,74 @@ func (o OptNilInt32) Get() (v int32, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptNilInt32) Or(d int32) int32 {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptNilInternalOrderBudgetUpdateAvailabilityControl returns new OptNilInternalOrderBudgetUpdateAvailabilityControl with value set to v.
+func NewOptNilInternalOrderBudgetUpdateAvailabilityControl(v InternalOrderBudgetUpdateAvailabilityControl) OptNilInternalOrderBudgetUpdateAvailabilityControl {
+	return OptNilInternalOrderBudgetUpdateAvailabilityControl{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptNilInternalOrderBudgetUpdateAvailabilityControl is optional nullable InternalOrderBudgetUpdateAvailabilityControl.
+type OptNilInternalOrderBudgetUpdateAvailabilityControl struct {
+	Value InternalOrderBudgetUpdateAvailabilityControl
+	Set   bool
+	Null  bool
+}
+
+// IsSet returns true if OptNilInternalOrderBudgetUpdateAvailabilityControl was set.
+func (o OptNilInternalOrderBudgetUpdateAvailabilityControl) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptNilInternalOrderBudgetUpdateAvailabilityControl) Reset() {
+	var v InternalOrderBudgetUpdateAvailabilityControl
+	o.Value = v
+	o.Set = false
+	o.Null = false
+}
+
+// SetTo sets value to v.
+func (o *OptNilInternalOrderBudgetUpdateAvailabilityControl) SetTo(v InternalOrderBudgetUpdateAvailabilityControl) {
+	o.Set = true
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o OptNilInternalOrderBudgetUpdateAvailabilityControl) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *OptNilInternalOrderBudgetUpdateAvailabilityControl) SetToNull() {
+	o.Set = true
+	o.Null = true
+	var v InternalOrderBudgetUpdateAvailabilityControl
+	o.Value = v
+}
+
+// IsEmpty returns true if the field was omitted from the payload (not Set and not Null).
+func (o OptNilInternalOrderBudgetUpdateAvailabilityControl) IsEmpty() bool {
+	return !o.Set && !o.Null
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptNilInternalOrderBudgetUpdateAvailabilityControl) Get() (v InternalOrderBudgetUpdateAvailabilityControl, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptNilInternalOrderBudgetUpdateAvailabilityControl) Or(d InternalOrderBudgetUpdateAvailabilityControl) InternalOrderBudgetUpdateAvailabilityControl {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -93405,6 +94036,30 @@ type ReverseGoodsReceiptUnprocessableEntity Problem
 
 func (*ReverseGoodsReceiptUnprocessableEntity) reverseGoodsReceiptRes() {}
 
+type ReverseInternalOrderSettlementBadRequest Problem
+
+func (*ReverseInternalOrderSettlementBadRequest) reverseInternalOrderSettlementRes() {}
+
+type ReverseInternalOrderSettlementForbidden Problem
+
+func (*ReverseInternalOrderSettlementForbidden) reverseInternalOrderSettlementRes() {}
+
+type ReverseInternalOrderSettlementNotFound Problem
+
+func (*ReverseInternalOrderSettlementNotFound) reverseInternalOrderSettlementRes() {}
+
+type ReverseInternalOrderSettlementPreconditionFailed Problem
+
+func (*ReverseInternalOrderSettlementPreconditionFailed) reverseInternalOrderSettlementRes() {}
+
+type ReverseInternalOrderSettlementPreconditionRequired Problem
+
+func (*ReverseInternalOrderSettlementPreconditionRequired) reverseInternalOrderSettlementRes() {}
+
+type ReverseInternalOrderSettlementUnprocessableEntity Problem
+
+func (*ReverseInternalOrderSettlementUnprocessableEntity) reverseInternalOrderSettlementRes() {}
+
 type ReverseJournalEntryBadRequest Problem
 
 func (*ReverseJournalEntryBadRequest) reverseJournalEntryRes() {}
@@ -99646,6 +100301,7 @@ func (*ServiceUnavailableHeaders) createExchangeRateRes()                    {}
 func (*ServiceUnavailableHeaders) createForecastVarianceCommentRes()         {}
 func (*ServiceUnavailableHeaders) createGrIrClearingRes()                    {}
 func (*ServiceUnavailableHeaders) createHierarchyRes()                       {}
+func (*ServiceUnavailableHeaders) createInternalOrderBudgetChangeRes()       {}
 func (*ServiceUnavailableHeaders) createInternalOrderRes()                   {}
 func (*ServiceUnavailableHeaders) createLegalEntityRes()                     {}
 func (*ServiceUnavailableHeaders) createMemoRecordRes()                      {}
@@ -99763,6 +100419,7 @@ func (*ServiceUnavailableHeaders) reverseAssetAcquisitionRes()               {}
 func (*ServiceUnavailableHeaders) reverseAssetRetirementRes()                {}
 func (*ServiceUnavailableHeaders) reverseAssetTransferRes()                  {}
 func (*ServiceUnavailableHeaders) reverseGoodsReceiptRes()                   {}
+func (*ServiceUnavailableHeaders) reverseInternalOrderSettlementRes()        {}
 func (*ServiceUnavailableHeaders) reverseJournalEntryRes()                   {}
 func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()                {}
 func (*ServiceUnavailableHeaders) rotateWebhookSubscriptionSecretRes()       {}
@@ -104807,6 +105464,7 @@ func (*TooManyRequestsHeaders) createForecastVarianceCommentRes()         {}
 func (*TooManyRequestsHeaders) createGrIrClearingRes()                    {}
 func (*TooManyRequestsHeaders) createHierarchyRes()                       {}
 func (*TooManyRequestsHeaders) createIncomingPaymentRes()                 {}
+func (*TooManyRequestsHeaders) createInternalOrderBudgetChangeRes()       {}
 func (*TooManyRequestsHeaders) createInternalOrderRes()                   {}
 func (*TooManyRequestsHeaders) createLeaseContractRes()                   {}
 func (*TooManyRequestsHeaders) createLeaseRunRes()                        {}
@@ -105092,6 +105750,7 @@ func (*TooManyRequestsHeaders) listHouseBanksRes()                        {}
 func (*TooManyRequestsHeaders) listIncomingPaymentsRes()                  {}
 func (*TooManyRequestsHeaders) listIntercompanyDifferencesRes()           {}
 func (*TooManyRequestsHeaders) listInternalOrderBalancesRes()             {}
+func (*TooManyRequestsHeaders) listInternalOrderBudgetChangesRes()        {}
 func (*TooManyRequestsHeaders) listInternalOrderSettlementsRes()          {}
 func (*TooManyRequestsHeaders) listInternalOrdersRes()                    {}
 func (*TooManyRequestsHeaders) listJournalEntriesRes()                    {}
@@ -105243,6 +105902,7 @@ func (*TooManyRequestsHeaders) reverseAssetAcquisitionRes()               {}
 func (*TooManyRequestsHeaders) reverseAssetRetirementRes()                {}
 func (*TooManyRequestsHeaders) reverseAssetTransferRes()                  {}
 func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()                   {}
+func (*TooManyRequestsHeaders) reverseInternalOrderSettlementRes()        {}
 func (*TooManyRequestsHeaders) reverseJournalEntryRes()                   {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()                {}
 func (*TooManyRequestsHeaders) rotateWebhookSubscriptionSecretRes()       {}
@@ -105704,6 +106364,7 @@ func (*UnauthorizedHeaders) createForecastVarianceCommentRes()         {}
 func (*UnauthorizedHeaders) createGrIrClearingRes()                    {}
 func (*UnauthorizedHeaders) createHierarchyRes()                       {}
 func (*UnauthorizedHeaders) createIncomingPaymentRes()                 {}
+func (*UnauthorizedHeaders) createInternalOrderBudgetChangeRes()       {}
 func (*UnauthorizedHeaders) createInternalOrderRes()                   {}
 func (*UnauthorizedHeaders) createLeaseContractRes()                   {}
 func (*UnauthorizedHeaders) createLeaseRunRes()                        {}
@@ -105989,6 +106650,7 @@ func (*UnauthorizedHeaders) listHouseBanksRes()                        {}
 func (*UnauthorizedHeaders) listIncomingPaymentsRes()                  {}
 func (*UnauthorizedHeaders) listIntercompanyDifferencesRes()           {}
 func (*UnauthorizedHeaders) listInternalOrderBalancesRes()             {}
+func (*UnauthorizedHeaders) listInternalOrderBudgetChangesRes()        {}
 func (*UnauthorizedHeaders) listInternalOrderSettlementsRes()          {}
 func (*UnauthorizedHeaders) listInternalOrdersRes()                    {}
 func (*UnauthorizedHeaders) listJournalEntriesRes()                    {}
@@ -106140,6 +106802,7 @@ func (*UnauthorizedHeaders) reverseAssetAcquisitionRes()               {}
 func (*UnauthorizedHeaders) reverseAssetRetirementRes()                {}
 func (*UnauthorizedHeaders) reverseAssetTransferRes()                  {}
 func (*UnauthorizedHeaders) reverseGoodsReceiptRes()                   {}
+func (*UnauthorizedHeaders) reverseInternalOrderSettlementRes()        {}
 func (*UnauthorizedHeaders) reverseJournalEntryRes()                   {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()                {}
 func (*UnauthorizedHeaders) rotateWebhookSubscriptionSecretRes()       {}

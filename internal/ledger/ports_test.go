@@ -299,6 +299,7 @@ func TestReversalBelongsToTheOwner(t *testing.T) {
 		{"procurement", "/v1/goods-receipts/"},
 		{"receivables", "no reversal path exists yet"},
 		{"assets", "/v1/asset-acquisitions/"},
+		{"controlling", "/v1/internal-orders/"},
 	} {
 		t.Run(c.source, func(t *testing.T) {
 			entry := post(c.source)

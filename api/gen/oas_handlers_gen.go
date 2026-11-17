@@ -20536,6 +20536,230 @@ func (s *Server) handleCreateInternalOrderRequest(args [0]string, argsEscaped bo
 	}
 }
 
+// handleCreateInternalOrderBudgetChangeRequest handles createInternalOrderBudgetChange operation.
+//
+// Supplements an internal order's budget or returns part of it (ADR-0064 §3, T60h): `kind`
+// `supplement` adds the amount to the budget, `return` takes it off. The amount is positive and in the
+// order's legal entity's local currency (422 `controlling.order_budget_invalid` on `amount.amount` or
+// `amount.currency`). The order needs a budget set first (409 `controlling.order_budget_missing`). A
+// return never takes the budget below the order's actual costs, the debits less the credits of the
+// leading ledger's lines naming it over every fiscal year, nor below zero (409
+// `controlling.order_budget_return_too_large`, naming what may be returned): budget that is used is
+// not returned. `If-Match` is the budget's version as `GET /v1/internal-orders/{id}/budget` gave it;
+// the order is read under a row lock, so of two changes at one version the second is refused (412).
+// The change is one new version of the budget, kept with the budget before and after it and an
+// optional text, audited and published as InternalOrderBudgetChanged; the answer's `ETag` is the
+// budget's new version, the `If-Match` of the next change. The availability control is kept as it is.
+// Changed directly by permission, with no approval request; the amounts are budget amounts, and the
+// return's check reads the actual costs, so the caller also needs `ledger.entry.read`. An order of a
+// legal entity the caller cannot act in is answered as missing (404). Agents may not change a budget.
+//
+// POST /v1/internal-orders/{id}/budget-changes
+func (s *Server) handleCreateInternalOrderBudgetChangeRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createInternalOrderBudgetChange"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/internal-orders/{id}/budget-changes"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CreateInternalOrderBudgetChangeOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CreateInternalOrderBudgetChangeOperation,
+			ID:   "createInternalOrderBudgetChange",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CreateInternalOrderBudgetChangeOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCreateInternalOrderBudgetChangeParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCreateInternalOrderBudgetChangeRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CreateInternalOrderBudgetChangeRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CreateInternalOrderBudgetChangeOperation,
+			OperationSummary: "Supplement or return an internal order's budget",
+			OperationID:      "createInternalOrderBudgetChange",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *InternalOrderBudgetChangeCreate
+			Params   = CreateInternalOrderBudgetChangeParams
+			Response = CreateInternalOrderBudgetChangeRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCreateInternalOrderBudgetChangeParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CreateInternalOrderBudgetChange(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CreateInternalOrderBudgetChange(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCreateInternalOrderBudgetChangeResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCreateLeaseContractRequest handles createLeaseContract operation.
 //
 // Creates a lease contract a company enters as lessee (ADR-0073 §3-§4, T88a), with its payment
@@ -47948,10 +48172,12 @@ func (s *Server) handleGetInternalOrderRequest(args [1]string, argsEscaped bool,
 // of the read (the total of `GET /v1/internal-order-balances` over the years); what remains, the
 // budget less the actual, negative once the actual exceeds the budget; and `exceeded`, which says so.
 // An order whose budget was never set has `version` 0 and no `budget` or `remaining`. Exceeding a
-// budget is shown here and refuses no posting. The `ETag` is the budget's version, the one `PATCH`
-// takes. An order of a legal entity the caller cannot act in is answered as missing (404). The actual
-// is a ledger amount, so besides `controlling.order.read` the caller needs `ledger.entry.read`, as for
-// the order's balances (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+// budget refuses no posting unless the budget has an availability control (T60h): then
+// `availability_control` gives its limits and `availability` says where the actual stands against
+// them; a posting above the refusal limit is refused. The `ETag` is the budget's version, the one
+// `PATCH` takes. An order of a legal entity the caller cannot act in is answered as missing (404). The
+// actual is a ledger amount, so besides `controlling.order.read` the caller needs `ledger.entry.read`,
+// as for the order's balances (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
 //
 // GET /v1/internal-orders/{id}/budget
 func (s *Server) handleGetInternalOrderBudgetRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -78682,15 +78908,223 @@ func (s *Server) handleListInternalOrderBalancesRequest(args [0]string, argsEsca
 	}
 }
 
+// handleListInternalOrderBudgetChangesRequest handles listInternalOrderBudgetChanges operation.
+//
+// The versions of one internal order's budget (ADR-0064 §3, T60h), latest first: each change with its
+// kind (`set` by `PATCH /v1/internal-orders/{id}/budget`, `supplement` or `return` by `POST`), the
+// budget before and after it, the availability control after it, its text, who made it and when. A
+// change is never changed or removed. Changes made before T60h are not kept, so a budget's history may
+// start after its version 1. An order of a legal entity the caller cannot act in is answered as
+// missing (404). Sortable by: `version`.
+//
+// GET /v1/internal-orders/{id}/budget-changes
+func (s *Server) handleListInternalOrderBudgetChangesRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listInternalOrderBudgetChanges"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/internal-orders/{id}/budget-changes"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListInternalOrderBudgetChangesOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListInternalOrderBudgetChangesOperation,
+			ID:   "listInternalOrderBudgetChanges",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListInternalOrderBudgetChangesOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListInternalOrderBudgetChangesParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListInternalOrderBudgetChangesRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListInternalOrderBudgetChangesOperation,
+			OperationSummary: "List the changes of an internal order's budget",
+			OperationID:      "listInternalOrderBudgetChanges",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+				{
+					Name: "include",
+					In:   "query",
+				}: params.Include,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListInternalOrderBudgetChangesParams
+			Response = ListInternalOrderBudgetChangesRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListInternalOrderBudgetChangesParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListInternalOrderBudgetChanges(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListInternalOrderBudgetChanges(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListInternalOrderBudgetChangesResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleListInternalOrderSettlementsRequest handles listInternalOrderSettlements operation.
 //
 // The settlements of one internal order (ADR-0064 §3), latest first: each with its period, the day it
 // was posted on, the receiving cost center with its code, the amount moved in the legal entity's local
 // currency, the number of accounts it moved and its journal entry (`GET /v1/journal-entries/{id}`),
-// which shows the lines. A settlement is never changed. An order of a legal entity the caller cannot
-// act in is answered as missing (404). Sortable by: `posting_date`. The amounts are ledger amounts, so
-// besides `controlling.order.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
-// `identity.permission_missing` otherwise).
+// which shows the lines, and its reversal when it was reversed (T60i). A settlement is never changed.
+// An order of a legal entity the caller cannot act in is answered as missing (404). Sortable by:
+// `posting_date`. The amounts are ledger amounts, so besides `controlling.order.read` the caller needs
+// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
 //
 // GET /v1/internal-orders/{id}/settlements
 func (s *Server) handleListInternalOrderSettlementsRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -110988,6 +111422,221 @@ func (s *Server) handleReverseGoodsReceiptRequest(args [1]string, argsEscaped bo
 	}
 }
 
+// handleReverseInternalOrderSettlementRequest handles reverseInternalOrderSettlement operation.
+//
+// Reverses an internal order's latest settlement (ADR-0064 §3, T60i): the settlement's journal entry
+// is reversed through the ledger in every ledger it was posted to, dated the settlement's own posting
+// date, the settled period's last day, so the period must still be open (409
+// `ledger.period_not_open`). Per account the order is debited and the receiving cost center credited
+// again: the order's balance is what it was before the settlement, and the cost center's report gives
+// the cost back. The reversed settlement no longer bounds the period the order is next settled up to,
+// and the order may be settled again. Only the order's latest settlement that is not reversed is
+// reversed (409 `controlling.settlement_not_latest`: reverse the later ones first), and once (409
+// `controlling.settlement_reversed`). The order must be released (409
+// `controlling.internal_order_not_released`) and not closed (409 `controlling.internal_order_closed`).
+// `If-Match` is the order's version, as `:settle` takes it; a reversal does not move it. The order is
+// held under a row lock, so two reversals never reverse one settlement twice. Kept on the settlement
+// (`GET /v1/internal-orders/{id}/settlements`), audited and published as
+// InternalOrderSettlementReversed. A settlement that is none of the order's, or an order of a legal
+// entity the caller cannot act in, is answered as missing (404). The amounts are ledger amounts, so
+// besides `controlling.order.settle` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
+// `identity.permission_missing` otherwise). Agents may not reverse a settlement.
+//
+// POST /v1/internal-orders/{id}/settlements/{settlement_id}:reverse
+func (s *Server) handleReverseInternalOrderSettlementRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("reverseInternalOrderSettlement"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/internal-orders/{id}/settlements/{settlement_id}:reverse"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ReverseInternalOrderSettlementOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ReverseInternalOrderSettlementOperation,
+			ID:   "reverseInternalOrderSettlement",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ReverseInternalOrderSettlementOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeReverseInternalOrderSettlementParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ReverseInternalOrderSettlementRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ReverseInternalOrderSettlementOperation,
+			OperationSummary: "Reverse an internal order's settlement",
+			OperationID:      "reverseInternalOrderSettlement",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "settlement_id",
+					In:   "path",
+				}: params.SettlementID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ReverseInternalOrderSettlementParams
+			Response = ReverseInternalOrderSettlementRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackReverseInternalOrderSettlementParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ReverseInternalOrderSettlement(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ReverseInternalOrderSettlement(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeReverseInternalOrderSettlementResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleReverseJournalEntryRequest handles reverseJournalEntry operation.
 //
 // Reverses every entry of the posting group (one reversal entry per ledger, the first returned); a
@@ -119801,16 +120450,22 @@ func (s *Server) handleUpdateEntryTemplateRequest(args [1]string, argsEscaped bo
 
 // handleUpdateInternalOrderBudgetRequest handles updateInternalOrderBudget operation.
 //
-// Sets or replaces the budget of an internal order (ADR-0064 §3): one overall amount, zero or more,
-// in the order's legal entity's local currency (422 `controlling.order_budget_invalid`, whose field
-// error names `budget.currency` or `budget.amount`). JSON Merge Patch (RFC 7396) of the order's
-// budget, whose one field, `budget`, is replaced whole. `If-Match` is the budget's version as `GET`
-// gave it, `"0"` for an order whose budget was never set; the order is read under a row lock, so of
-// two changes at one version the second is refused (412). The budget may be set on an order in any
-// status and may be below the order's actual costs: nothing is refused for it. Set directly by
-// permission, with no approval request. Audited with the amounts before and after, and published as
-// InternalOrderBudgetChanged. The answer is the budget against the actual costs, as `GET` gives it, so
-// the caller also needs `ledger.entry.read`. Agents may not set a budget.
+// Sets or replaces the budget of an internal order (ADR-0064 §3), its availability control (T60h), or
+// both. JSON Merge Patch (RFC 7396) of the order's budget: `budget`, one overall amount, zero or more,
+// in the order's legal entity's local currency, is replaced whole (422
+// `controlling.order_budget_invalid`, whose field error names `budget.currency` or `budget.amount`);
+// `availability_control`, the warning and refusal limits, is replaced whole, and null removes it (422
+// `controlling.order_budget_invalid` on `availability_control.warn_percent` when the warning limit is
+// not below the refusal limit). An order whose budget was never set needs `budget` (422
+// `controlling.order_budget_invalid` on `budget`), and a patch naming neither field is refused the
+// same way. `If-Match` is the budget's version as `GET` gave it, `"0"` for an order whose budget was
+// never set; the order is read under a row lock, so of two changes at one version the second is
+// refused (412). The budget may be set on an order in any status and may be below the order's actual
+// costs. Set directly by permission, with no approval request. Each patch is one new version of the
+// budget, kept in its history (`GET /v1/internal-orders/{id}/budget-changes`, kind `set`), audited
+// with the amounts and limits before and after, and published as InternalOrderBudgetChanged. The
+// answer is the budget against the actual costs, as `GET` gives it, so the caller also needs
+// `ledger.entry.read`. Agents may not set a budget.
 //
 // PATCH /v1/internal-orders/{id}/budget
 func (s *Server) handleUpdateInternalOrderBudgetRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

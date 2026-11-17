@@ -8414,7 +8414,7 @@ paths:
       tags:
         - controlling
       summary: Get an internal order's budget against its actual costs
-      description: "The budget of one internal order against its actual costs (ADR-0064 §3), in the order's legal entity's local currency: the budget, one overall amount for the order; the actual, the balance of the leading ledger's journal lines that name the order over every fiscal year, exact at the moment of the read (the total of `GET /v1/internal-order-balances` over the years); what remains, the budget less the actual, negative once the actual exceeds the budget; and `exceeded`, which says so. An order whose budget was never set has `version` 0 and no `budget` or `remaining`. Exceeding a budget is shown here and refuses no posting. The `ETag` is the budget's version, the one `PATCH` takes. An order of a legal entity the caller cannot act in is answered as missing (404). The actual is a ledger amount, so besides `controlling.order.read` the caller needs `ledger.entry.read`, as for the order's balances (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      description: "The budget of one internal order against its actual costs (ADR-0064 §3), in the order's legal entity's local currency: the budget, one overall amount for the order; the actual, the balance of the leading ledger's journal lines that name the order over every fiscal year, exact at the moment of the read (the total of `GET /v1/internal-order-balances` over the years); what remains, the budget less the actual, negative once the actual exceeds the budget; and `exceeded`, which says so. An order whose budget was never set has `version` 0 and no `budget` or `remaining`. Exceeding a budget refuses no posting unless the budget has an availability control (T60h): then `availability_control` gives its limits and `availability` says where the actual stands against them; a posting above the refusal limit is refused. The `ETag` is the budget's version, the one `PATCH` takes. An order of a legal entity the caller cannot act in is answered as missing (404). The actual is a ledger amount, so besides `controlling.order.read` the caller needs `ledger.entry.read`, as for the order's balances (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
       x-permission: controlling.order.read
       x-also-permissions:
         - ledger.entry.read
@@ -8446,7 +8446,7 @@ paths:
       tags:
         - controlling
       summary: Set an internal order's budget
-      description: "Sets or replaces the budget of an internal order (ADR-0064 §3): one overall amount, zero or more, in the order's legal entity's local currency (422 `controlling.order_budget_invalid`, whose field error names `budget.currency` or `budget.amount`). JSON Merge Patch (RFC 7396) of the order's budget, whose one field, `budget`, is replaced whole. `If-Match` is the budget's version as `GET` gave it, `\"0\"` for an order whose budget was never set; the order is read under a row lock, so of two changes at one version the second is refused (412). The budget may be set on an order in any status and may be below the order's actual costs: nothing is refused for it. Set directly by permission, with no approval request. Audited with the amounts before and after, and published as InternalOrderBudgetChanged. The answer is the budget against the actual costs, as `GET` gives it, so the caller also needs `ledger.entry.read`. Agents may not set a budget."
+      description: "Sets or replaces the budget of an internal order (ADR-0064 §3), its availability control (T60h), or both. JSON Merge Patch (RFC 7396) of the order's budget: `budget`, one overall amount, zero or more, in the order's legal entity's local currency, is replaced whole (422 `controlling.order_budget_invalid`, whose field error names `budget.currency` or `budget.amount`); `availability_control`, the warning and refusal limits, is replaced whole, and null removes it (422 `controlling.order_budget_invalid` on `availability_control.warn_percent` when the warning limit is not below the refusal limit). An order whose budget was never set needs `budget` (422 `controlling.order_budget_invalid` on `budget`), and a patch naming neither field is refused the same way. `If-Match` is the budget's version as `GET` gave it, `\"0\"` for an order whose budget was never set; the order is read under a row lock, so of two changes at one version the second is refused (412). The budget may be set on an order in any status and may be below the order's actual costs. Set directly by permission, with no approval request. Each patch is one new version of the budget, kept in its history (`GET /v1/internal-orders/{id}/budget-changes`, kind `set`), audited with the amounts and limits before and after, and published as InternalOrderBudgetChanged. The answer is the budget against the actual costs, as `GET` gives it, so the caller also needs `ledger.entry.read`. Agents may not set a budget."
       x-permission: controlling.order.budget
       x-also-permissions:
         - ledger.entry.read
@@ -8485,6 +8485,99 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/internal-orders/{id}/budget-changes":
+    get:
+      operationId: listInternalOrderBudgetChanges
+      tags:
+        - controlling
+      summary: List the changes of an internal order's budget
+      description: "The versions of one internal order's budget (ADR-0064 §3, T60h), latest first: each change with its kind (`set` by `PATCH /v1/internal-orders/{id}/budget`, `supplement` or `return` by `POST`), the budget before and after it, the availability control after it, its text, who made it and when. A change is never changed or removed. Changes made before T60h are not kept, so a budget's history may start after its version 1. An order of a legal entity the caller cannot act in is answered as missing (404). Sortable by: `version`."
+      x-permission: controlling.order.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of the budget's changes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrderBudgetChangePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createInternalOrderBudgetChange
+      tags:
+        - controlling
+      summary: Supplement or return an internal order's budget
+      description: "Supplements an internal order's budget or returns part of it (ADR-0064 §3, T60h): `kind` `supplement` adds the amount to the budget, `return` takes it off. The amount is positive and in the order's legal entity's local currency (422 `controlling.order_budget_invalid` on `amount.amount` or `amount.currency`). The order needs a budget set first (409 `controlling.order_budget_missing`). A return never takes the budget below the order's actual costs, the debits less the credits of the leading ledger's lines naming it over every fiscal year, nor below zero (409 `controlling.order_budget_return_too_large`, naming what may be returned): budget that is used is not returned. `If-Match` is the budget's version as `GET /v1/internal-orders/{id}/budget` gave it; the order is read under a row lock, so of two changes at one version the second is refused (412). The change is one new version of the budget, kept with the budget before and after it and an optional text, audited and published as InternalOrderBudgetChanged; the answer's `ETag` is the budget's new version, the `If-Match` of the next change. The availability control is kept as it is. Changed directly by permission, with no approval request; the amounts are budget amounts, and the return's check reads the actual costs, so the caller also needs `ledger.entry.read`. An order of a legal entity the caller cannot act in is answered as missing (404). Agents may not change a budget."
+      x-permission: controlling.order.budget
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - controlling.order_budget_invalid
+        - controlling.order_budget_missing
+        - controlling.order_budget_return_too_large
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The supplement or return.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InternalOrderBudgetChangeCreate"
+      responses:
+        "201":
+          description: "The change, the budget's new version."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrderBudgetChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "412":
           $ref: "#/components/responses/PreconditionFailed"
         "422":
@@ -8700,7 +8793,7 @@ paths:
       tags:
         - controlling
       summary: List an internal order's settlements
-      description: "The settlements of one internal order (ADR-0064 §3), latest first: each with its period, the day it was posted on, the receiving cost center with its code, the amount moved in the legal entity's local currency, the number of accounts it moved and its journal entry (`GET /v1/journal-entries/{id}`), which shows the lines. A settlement is never changed. An order of a legal entity the caller cannot act in is answered as missing (404). Sortable by: `posting_date`. The amounts are ledger amounts, so besides `controlling.order.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      description: "The settlements of one internal order (ADR-0064 §3), latest first: each with its period, the day it was posted on, the receiving cost center with its code, the amount moved in the legal entity's local currency, the number of accounts it moved and its journal entry (`GET /v1/journal-entries/{id}`), which shows the lines, and its reversal when it was reversed (T60i). A settlement is never changed. An order of a legal entity the caller cannot act in is answered as missing (404). Sortable by: `posting_date`. The amounts are ledger amounts, so besides `controlling.order.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
       x-permission: controlling.order.read
       x-also-permissions:
         - ledger.entry.read
@@ -8731,6 +8824,100 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/internal-orders/{id}/settlements/{settlement_id}:reverse":
+    post:
+      operationId: reverseInternalOrderSettlement
+      tags:
+        - controlling
+      summary: Reverse an internal order's settlement
+      description: "Reverses an internal order's latest settlement (ADR-0064 §3, T60i): the settlement's journal entry is reversed through the ledger in every ledger it was posted to, dated the settlement's own posting date, the settled period's last day, so the period must still be open (409 `ledger.period_not_open`). Per account the order is debited and the receiving cost center credited again: the order's balance is what it was before the settlement, and the cost center's report gives the cost back. The reversed settlement no longer bounds the period the order is next settled up to, and the order may be settled again. Only the order's latest settlement that is not reversed is reversed (409 `controlling.settlement_not_latest`: reverse the later ones first), and once (409 `controlling.settlement_reversed`). The order must be released (409 `controlling.internal_order_not_released`) and not closed (409 `controlling.internal_order_closed`). `If-Match` is the order's version, as `:settle` takes it; a reversal does not move it. The order is held under a row lock, so two reversals never reverse one settlement twice. Kept on the settlement (`GET /v1/internal-orders/{id}/settlements`), audited and published as InternalOrderSettlementReversed. A settlement that is none of the order's, or an order of a legal entity the caller cannot act in, is answered as missing (404). The amounts are ledger amounts, so besides `controlling.order.settle` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not reverse a settlement."
+      x-permission: controlling.order.settle
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.number_range_exhausted
+        - controlling.internal_order_closed
+        - controlling.internal_order_not_released
+        - controlling.settlement_not_latest
+        - controlling.settlement_reversed
+        - ledger.account_not_postable
+        - ledger.already_reversed
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cannot_reverse_reversal
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.entry_cleared
+        - ledger.entry_is_copy
+        - ledger.entry_owned_elsewhere
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.item_already_cleared
+        - ledger.item_reserved
+        - ledger.legal_entity_not_active
+        - ledger.no_fiscal_period
+        - ledger.no_price_difference_account
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unknown_unit
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: settlement_id
+          in: path
+          required: true
+          description: "The settlement (`GET /v1/internal-orders/{id}/settlements`)."
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The settlement, with its reversal."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrderSettlement"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   "/v1/internal-orders/{id}:close":
     post:
       operationId: closeInternalOrder
@@ -41016,7 +41203,7 @@ components:
         internal_order_id:
           type: string
           format: uuid
-          description: "Internal order the line's cost is posted to (ADR-0064 §2, `GET /v1/internal-orders`), instead of a cost center: a line on a primary cost account carries exactly one real cost object, a cost center or an order. The order must be one of the entry's legal entity and released, the account a primary cost account, and the line must name no cost center (422 `ledger.internal_order_invalid` on the line's field, with the reason as the field error's code: `unknown`, `not_in_company`, `not_released`, `closed`, `with_cost_center`, `not_a_cost_account`, `cost_center_not_valid_on_date`). The line takes its profit center and segment from the order's responsible cost center on the posting date, and a different profit center given is refused (422 `ledger.profit_center_mismatch`). Only on an entry that is posted: a parked entry or an entry template naming an order is refused in this version (422 `ledger.internal_order_not_parkable`)."
+          description: "Internal order the line's cost is posted to (ADR-0064 §2, `GET /v1/internal-orders`), instead of a cost center: a line on a primary cost account carries exactly one real cost object, a cost center or an order. The order must be one of the entry's legal entity and released, the account a primary cost account, and the line must name no cost center (422 `ledger.internal_order_invalid` on the line's field, with the reason as the field error's code: `unknown`, `not_in_company`, `not_released`, `closed`, `with_cost_center`, `not_a_cost_account`, `cost_center_not_valid_on_date`, `budget_exceeded`: the entry would take the order's consumption above its budget's refusal limit, T60h). The line takes its profit center and segment from the order's responsible cost center on the posting date, and a different profit center given is refused (422 `ledger.profit_center_mismatch`). Only on an entry that is posted: a parked entry or an entry template naming an order is refused in this version (422 `ledger.internal_order_not_parkable`)."
         trading_partner_id:
           type: string
           format: uuid
@@ -44641,6 +44828,21 @@ components:
           type: boolean
           description: "Whether the actual exceeds the budget. False while the budget was never set."
           readOnly: true
+        consumed_percent:
+          type: string
+          description: "The actual in percent of the budget, a decimal with two places (\"30.00\"), negative when the credits exceed the debits. Absent while the budget was never set and while it is zero. Commitments are not counted yet (T60h)."
+          readOnly: true
+        availability_control:
+          $ref: "#/components/schemas/InternalOrderAvailabilityControl"
+          description: "The budget's availability control (T60h): its warning and refusal limits. Absent while it has none: then nothing is refused or warned about for the budget."
+        availability:
+          type: string
+          description: "Where the actual stands against the availability control's limits, present exactly with `availability_control`: `within` (above neither limit), `above_warning` (above the warning limit and not the refusal limit), `above_refusal` (above the refusal limit, possible after the budget or the limit was lowered, or through postings that are never checked: a reversal). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - within
+            - above_warning
+            - above_refusal
+          readOnly: true
         updated_at:
           type: string
           format: date-time
@@ -44667,22 +44869,203 @@ components:
             amount: "18500.00"
             currency: EUR
           exceeded: false
+          consumed_percent: "7.50"
+          availability_control:
+            warn_percent: 90
+            refuse_percent: 105
+          availability: within
           updated_at: "2026-11-12T10:00:00Z"
           updated_by: "0192a000-0000-7000-8000-000000000101"
+    InternalOrderAvailabilityControl:
+      type: object
+      description: "An order budget's availability control (ADR-0064 §3, T60h): limits on the order's consumption, its actual costs (commitments are not counted yet), each a whole percentage of the budget. A posting that adds to the order's consumption is refused when the consumption after it is above the refusal limit (422 `ledger.internal_order_invalid` with the reason `budget_exceeded`), and accepted and published as InternalOrderBudgetWarned when it is above the warning limit. Either limit may be left out; the warning limit is below the refusal limit."
+      minProperties: 1
+      properties:
+        warn_percent:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 999
+          description: "The warning limit, in percent of the budget."
+        refuse_percent:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 999
+          description: "The refusal limit, in percent of the budget; above 100 it tolerates a consumption beyond the budget."
+      additionalProperties: false
+      examples:
+        - warn_percent: 90
+          refuse_percent: 105
     InternalOrderBudgetUpdate:
       type: object
-      description: "The budget an internal order is given (a merge patch of its budget: `budget` is replaced whole)."
-      required:
-        - budget
+      description: "The budget an internal order is given, its availability control, or both (a merge patch of its budget: `budget` and `availability_control` are each replaced whole). At least one is named; an order without a budget needs `budget`."
       properties:
         budget:
           $ref: "#/components/schemas/Money"
           description: "One overall amount for the order, zero or more, in the legal entity's local currency."
+        availability_control:
+          type:
+            - object
+            - "null"
+          description: "The warning and refusal limits, each a whole percentage of the budget from 1 to 999, the warning limit below the refusal limit; replaced whole. Send null to remove the availability control."
+          minProperties: 1
+          properties:
+            warn_percent:
+              type: integer
+              format: int32
+              minimum: 1
+              maximum: 999
+              description: "The warning limit, in percent of the budget."
+            refuse_percent:
+              type: integer
+              format: int32
+              minimum: 1
+              maximum: 999
+              description: "The refusal limit, in percent of the budget."
+          additionalProperties: false
       additionalProperties: false
       examples:
         - budget:
             amount: "20000.00"
             currency: EUR
+          availability_control:
+            warn_percent: 90
+            refuse_percent: 105
+    InternalOrderBudgetChangeCreate:
+      type: object
+      description: "A supplement to an internal order's budget or a return of part of it (T60h)."
+      required:
+        - kind
+        - amount
+      properties:
+        kind:
+          type: string
+          description: "`supplement` adds the amount to the budget; `return` takes it off (422 `controlling.order_budget_invalid` on `kind`, code `unsupported`, for another value). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - supplement
+            - return
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "The amount supplemented or returned, positive, in the legal entity's local currency."
+        text:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: "Why the budget changes, kept with the change."
+      additionalProperties: false
+      examples:
+        - kind: supplement
+          amount:
+            amount: "2500.00"
+            currency: EUR
+          text: Second exhibition hall booked
+    InternalOrderBudgetChange:
+      type: object
+      description: "One version of an internal order's budget (ADR-0064 §3, T60h): how it changed. Never changed."
+      required:
+        - id
+        - internal_order_id
+        - version
+        - kind
+        - budget
+        - change
+        - created_at
+        - created_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The change's id.
+          readOnly: true
+        internal_order_id:
+          type: string
+          format: uuid
+          description: "The internal order (`GET /v1/internal-orders/{id}`)."
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          minimum: 1
+          description: "The budget's version the change made."
+          readOnly: true
+        kind:
+          type: string
+          description: "`set` (the budget or its availability control set by `PATCH`), `supplement` or `return`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - set
+            - supplement
+            - return
+          readOnly: true
+        budget_before:
+          $ref: "#/components/schemas/Money"
+          description: "The budget before the change, in the legal entity's local currency. Absent when the order had none."
+          readOnly: true
+        budget:
+          $ref: "#/components/schemas/Money"
+          description: "The budget after the change."
+          readOnly: true
+        change:
+          $ref: "#/components/schemas/Money"
+          description: "How much the budget moved: the budget after less the budget before (the whole budget when there was none); positive for a supplement, negative for a return, zero when only the availability control changed."
+          readOnly: true
+        availability_control:
+          $ref: "#/components/schemas/InternalOrderAvailabilityControl"
+          description: "The availability control after the change. Absent when the budget had none."
+        text:
+          type: string
+          description: "Why the budget changed, as the supplement or return gave it. Absent on a change without one."
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: When the change was made (UTC).
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: The principal who made it.
+          readOnly: true
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000c21"
+          internal_order_id: "0192a000-0000-7000-8000-000000000c01"
+          version: 3
+          kind: supplement
+          budget_before:
+            amount: "20000.00"
+            currency: EUR
+          budget:
+            amount: "22500.00"
+            currency: EUR
+          change:
+            amount: "2500.00"
+            currency: EUR
+          availability_control:
+            warn_percent: 90
+            refuse_percent: 105
+          text: Second exhibition hall booked
+          created_at: "2026-11-17T10:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+    InternalOrderBudgetChangePage:
+      type: object
+      description: One page of an internal order budget's changes.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/InternalOrderBudgetChange"
+          description: The changes on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
     InternalOrderSettlementRule:
       type: object
       description: "The settlement rule of an internal order (ADR-0064 §3): one receiver, a cost center of the order's legal entity, taking the whole."
@@ -44783,7 +45166,7 @@ components:
           fiscal_period: 11
     InternalOrderSettlement:
       type: object
-      description: "A settlement of an internal order (ADR-0064 §3): the journal entry that moved the order's unsettled balance up to a period to the receiving cost center, account by account. Never changed."
+      description: "A settlement of an internal order (ADR-0064 §3): the journal entry that moved the order's unsettled balance up to a period to the receiving cost center, account by account. Never changed; its reversal (T60i) is shown beside it."
       required:
         - id
         - internal_order_id
@@ -44865,6 +45248,25 @@ components:
           type: string
           format: uuid
           description: The principal who settled it.
+          readOnly: true
+        reversal_journal_entry_id:
+          type: string
+          format: uuid
+          description: "The entry that reversed the settlement's entry (`GET /v1/journal-entries/{id}`), dated the settlement's posting date. Absent while the settlement is not reversed."
+          readOnly: true
+        reversal_journal_entry_number:
+          type: string
+          description: "The reversal entry's document number. Absent while the settlement is not reversed."
+          readOnly: true
+        reversed_at:
+          type: string
+          format: date-time
+          description: "When the settlement was reversed (UTC). Absent while it is not."
+          readOnly: true
+        reversed_by:
+          type: string
+          format: uuid
+          description: "The principal who reversed it. Absent while it is not."
           readOnly: true
       examples:
         - id: "0192a000-0000-7000-8000-000000000c11"

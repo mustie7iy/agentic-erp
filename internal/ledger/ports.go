@@ -518,6 +518,21 @@ func (p Postings) Reverse(ctx context.Context, entryID uuid.UUID, postingDate *t
 	return p.endpoints().reverseJournalEntry(ctx, entryID, func(Entry) error { return nil }, postingDate, headerText)
 }
 
+// LockEntries takes the entries' locks (lockEntries) before the caller
+// locks rows of its own that a reversal of one of them would wait for: a
+// controlling settlement's reversal holds its order FOR UPDATE, and the
+// ledger's own reversal of an entry naming the order takes the entry's
+// lock first and the order's FOR SHARE after it (ADR-0064 As built,
+// T60i), so the reversal of a settlement takes the entry's lock first
+// too. Reverse takes it again, which holds it already.
+func (Postings) LockEntries(ctx context.Context, ids []uuid.UUID) error {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return err
+	}
+	return lockEntries(ctx, tx, false, ids)
+}
+
 // IsCleared reports whether any line of the entry is cleared. Cleared is
 // not paid: a reversal clears the reversed entry's open items too.
 func (Postings) IsCleared(ctx context.Context, fiscalYear int16, entryID uuid.UUID) (bool, error) {

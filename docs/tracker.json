@@ -3529,9 +3529,16 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A controller supplements an order's budget or returns part of it, each change a version kept with its amounts before and after, and gives the budget an availability control: a posting taking the order's consumption above the refusal limit is refused, one above the warning limit accepted and published as a warning",
+        "r": "T60h · docs/design/plan-depth-1.md §T60h · migration 000357 · internal/controlling/budgetchanges.go, availability.go · ledger.CostObjects.Consume · ADR-0064 As built T60h · scripts/walkthrough.sh step_order_budget",
+        "src": "split:T60c · adr:ADR-0064",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: order budget variants: budgets per year, supplements, returns and transfers, availability control with tolerances, commitments counted, approval of budget changes (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T60c, Later",
+        "t": "later: order budget variants: budgets per year, transfers, commitments counted against the budget, tolerances by activity group in a budget profile, approval of budget changes, a warning on the posting's own answer",
+        "r": "docs/design/plan-breadth-week1.md §T60c, Later · docs/design/plan-depth-1.md §T60h, Later",
         "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        }
@@ -3550,9 +3557,16 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A controller reverses an order's latest settlement in its settled period: the order's balance is restored, the receiver's cost taken back, and the order can be settled again",
+        "r": "T60i · docs/design/plan-depth-1.md §T60i · migration 000358 · internal/controlling/settlementreversal.go · ledger.Postings.LockEntries · ADR-0064 As built T60i · scripts/walkthrough.sh step_order_settlement",
+        "src": "split:T60e · adr:ADR-0064",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: order settlement variants: settling many orders in one run, reversing a settlement, settlement to assets under construction and G/L accounts, settlement through a settlement cost element, settlement as a close task (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T60e, Later",
+        "t": "later: order settlement variants: settling many orders in one run, settlement to assets under construction and G/L accounts, settlement through a settlement cost element, settlement as a close task, reversing into a later period when the settled one is closed",
+        "r": "docs/design/plan-breadth-week1.md §T60e, Later · docs/design/plan-depth-1.md §T60i, Later",
         "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        }

@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/controlling"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
@@ -53,6 +54,15 @@ func TestPlanDatabaseFailures(t *testing.T) {
 	c.charge(t, charged.String(), "2026-06-10", c.office, "20.00")
 	budgeted := uuid.MustParse(c.order(t, "BUDGETED"))
 	c.Must(200, "PATCH", "/v1/internal-orders/"+budgeted.String()+"/budget", budgetBody("5.00", "EUR"), `"0"`)
+	// An order with two versions of its budget, and one whose limit a
+	// posting passes (T60h).
+	history := uuid.MustParse(c.order(t, "HISTORY"))
+	c.Must(200, "PATCH", "/v1/internal-orders/"+history.String()+"/budget", budgetBody("5.00", "EUR"), `"0"`)
+	c.Must(201, "POST", "/v1/internal-orders/"+history.String()+"/budget-changes", changeBody("supplement", "1.00", "EUR", ""), `"1"`)
+	warned := uuid.MustParse(c.order(t, "WARNED"))
+	c.Must(200, "PATCH", "/v1/internal-orders/"+warned.String()+"/budget", `{"budget": {"amount": "10.00", "currency": "EUR"},
+		"availability_control": {"warn_percent": 50}}`, `"0"`)
+	changes := gen.ListInternalOrderBudgetChangesParams{ID: history, PageSize: gen.NewOptInt32(1)}
 	ruled := uuid.MustParse(c.order(t, "RULED"))
 	c.Must(200, "PATCH", "/v1/internal-orders/"+ruled.String()+"/settlement-rule", ruleBody(c.c.Sales), `"1"`)
 	balances := gen.ListInternalOrderBalancesParams{InternalOrderID: charged, FiscalYear: 2026, PageSize: gen.NewOptInt32(1)}
@@ -68,6 +78,10 @@ func TestPlanDatabaseFailures(t *testing.T) {
 		c.Must(200, "POST", settledPath+":settle", settleBody(2026, m), `"3"`)
 	}
 	unsettled, settled := uuid.MustParse(unsettledID), uuid.MustParse(settledID)
+	// The settled order's June settlement, its latest, to reverse (T60i).
+	var lastSettlement uuid.UUID
+	pgtest.Scan(t, `SELECT id FROM controlling.order_settlement WHERE tenant_id = $1 AND internal_order_id = $2 AND fiscal_period = 6`,
+		[]any{c.Tenant.ID, settled}, &lastSettlement)
 	settlements := gen.ListInternalOrderSettlementsParams{ID: settled, PageSize: gen.NewOptInt32(1)}
 	// A cycle run for May, with costs to run for June, and a second cycle.
 	ranCycle := uuid.MustParse(c.cycle(t, "RAN", share{c.c.Sales, "100"}))
@@ -118,7 +132,31 @@ func TestPlanDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"set an order's budget": func(ctx context.Context) error {
-			_, err := h.UpdateInternalOrderBudget(ctx, &gen.InternalOrderBudgetUpdate{Budget: amount}, gen.UpdateInternalOrderBudgetParams{ID: budgeted, IfMatch: `"1"`})
+			_, err := h.UpdateInternalOrderBudget(ctx, &gen.InternalOrderBudgetUpdate{Budget: gen.NewOptMoney(amount)}, gen.UpdateInternalOrderBudgetParams{ID: budgeted, IfMatch: `"1"`})
+			return err
+		},
+		"supplement an order's budget": func(ctx context.Context) error {
+			_, err := h.CreateInternalOrderBudgetChange(ctx, &gen.InternalOrderBudgetChangeCreate{Kind: "supplement",
+				Amount: amount}, gen.CreateInternalOrderBudgetChangeParams{ID: budgeted, IfMatch: `"1"`})
+			return err
+		},
+		"return an order's budget": func(ctx context.Context) error {
+			_, err := h.CreateInternalOrderBudgetChange(ctx, &gen.InternalOrderBudgetChangeCreate{Kind: "return",
+				Amount: amount}, gen.CreateInternalOrderBudgetChangeParams{ID: budgeted, IfMatch: `"1"`})
+			return err
+		},
+		"list an order budget's changes, a page after the first": func(ctx context.Context) error {
+			res, err := h.ListInternalOrderBudgetChanges(ctx, changes)
+			if err != nil {
+				return err
+			}
+			next := changes
+			next.PageToken = gen.NewOptString(res.(*gen.InternalOrderBudgetChangePage).NextPageToken.Or("none"))
+			_, err = h.ListInternalOrderBudgetChanges(ctx, next)
+			return err
+		},
+		"a posting checked against an order's budget, with a warning": func(ctx context.Context) error {
+			_, err := controlling.CostObjects{}.Consume(ctx, c.DE, "EUR", uuid.New(), map[uuid.UUID]money.Minor{warned: 600})
 			return err
 		},
 		"the ledger's balance of an order": func(ctx context.Context) error {
@@ -146,6 +184,10 @@ func TestPlanDatabaseFailures(t *testing.T) {
 			next := settlements
 			next.PageToken = gen.NewOptString(res.(*gen.InternalOrderSettlementPage).NextPageToken.Or("none"))
 			_, err = h.ListInternalOrderSettlements(ctx, next)
+			return err
+		},
+		"reverse an order's settlement": func(ctx context.Context) error {
+			_, err := h.ReverseInternalOrderSettlement(ctx, gen.ReverseInternalOrderSettlementParams{ID: settled, SettlementID: lastSettlement, IfMatch: `"3"`})
 			return err
 		},
 		"close an order": func(ctx context.Context) error {

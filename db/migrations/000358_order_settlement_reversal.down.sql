@@ -1,0 +1,1 @@
+DROP TABLE controlling.order_settlement_reversal;

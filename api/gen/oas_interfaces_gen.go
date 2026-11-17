@@ -377,6 +377,10 @@ type CreateIncomingPaymentRes interface {
 	createIncomingPaymentRes()
 }
 
+type CreateInternalOrderBudgetChangeRes interface {
+	createInternalOrderBudgetChangeRes()
+}
+
 type CreateInternalOrderRes interface {
 	createInternalOrderRes()
 }
@@ -1517,6 +1521,10 @@ type ListInternalOrderBalancesRes interface {
 	listInternalOrderBalancesRes()
 }
 
+type ListInternalOrderBudgetChangesRes interface {
+	listInternalOrderBudgetChangesRes()
+}
+
 type ListInternalOrderSettlementsRes interface {
 	listInternalOrderSettlementsRes()
 }
@@ -2119,6 +2127,10 @@ type ReverseAssetTransferRes interface {
 
 type ReverseGoodsReceiptRes interface {
 	reverseGoodsReceiptRes()
+}
+
+type ReverseInternalOrderSettlementRes interface {
+	reverseInternalOrderSettlementRes()
 }
 
 type ReverseJournalEntryRes interface {

@@ -6184,9 +6184,12 @@ step_internal_order() {
 # §3, T60c): Carla gives the trade fair's order a budget, one overall
 # amount in Maple's currency, and reads what remains of it after the
 # expense step_internal_order posted. A budget below the actual costs is
-# shown as exceeded; nothing is refused for it.
+# shown as exceeded. She then supplements the budget and returns part of
+# it, each change a version kept in its history, and gives it an
+# availability control (T60h): a posting above its refusal limit is
+# refused.
 step_order_budget() {
-  heading "Step 50 — An order's budget: the trade fair's order is given a budget; what remains is the budget less the costs posted to the order, and a budget below them is shown as exceeded"
+  heading "Step 50 — An order's budget: the trade fair's order is given a budget, supplemented and partly returned; a posting above its availability control's refusal limit is refused"
   as carla
   local order line tag
   line='"order \(.internal_order_code) \(.internal_order_name): budget \(.budget.amount // "none"), actual \(.actual.amount), remaining \(.remaining.amount // "none") \(.actual.currency)\(if .exceeded then ", exceeded" else "" end) (version \(.version))"'
@@ -6210,6 +6213,44 @@ step_order_budget() {
   api 200 "$line" updateInternalOrderBudget -p "id=$order" -if-match "$tag" -body '{"budget": {"amount": "5000.00", "currency": "CAD"}}'
   api 200 "$line" getInternalOrderBudget -p "id=$order"
   expect "budget, actual and what remains" "$(field '"\(.version) \(.budget.amount) \(.actual.amount) \(.remaining.amount) \(.remaining.currency) \(.exceeded)"')" "2 5000.00 1500.00 3500.00 CAD false"
+  tag=$ETAG
+  local change expense bank
+  change='"budget version \(.version), \(.kind): \(.budget_before.amount // "none") -> \(.budget.amount) \(.budget.currency) (\(.change.amount))\(if .text then ", \(.text)" else "" end)"'
+  say "A second exhibition hall is booked. Carla supplements the budget by CAD 1,000.00 and later returns CAD 2,000.00 the"
+  say "fair will not need (T60h); each change is a new version of the budget, kept with the amounts before and after:"
+  api 201 "$change" createInternalOrderBudgetChange -p "id=$order" -if-match "$tag" \
+    -body '{"kind": "supplement", "amount": {"amount": "1000.00", "currency": "CAD"}, "text": "Second exhibition hall"}'
+  tag=$ETAG
+  expect "the supplement" "$(field '"\(.version) \(.kind) \(.budget_before.amount) \(.budget.amount) \(.change.amount)"')" "3 supplement 5000.00 6000.00 1000.00"
+  api 201 "$change" createInternalOrderBudgetChange -p "id=$order" -if-match "$tag" -body '{"kind": "return", "amount": {"amount": "2000.00", "currency": "CAD"}}'
+  tag=$ETAG
+  expect "the return" "$(field '"\(.version) \(.kind) \(.budget.amount) \(.change.amount)"')" "4 return 4000.00 -2000.00"
+  say "Budget that is used is not returned: of CAD 4,000.00 the fair has used CAD 1,500.00, so CAD 3,000.00 is refused:"
+  refused 409 controlling.order_budget_return_too_large createInternalOrderBudgetChange -p "id=$order" -if-match "$tag" \
+    -body '{"kind": "return", "amount": {"amount": "3000.00", "currency": "CAD"}}'
+  expect "what may be returned" "$(field .detail)" "At most 2500.00 CAD of the budget may be returned: the budget less the order's actual costs."
+  say "Carla gives the budget an availability control: a warning above 30 percent of it, a refusal above 100 percent."
+  say "Postings to the order are checked against it; the fair's CAD 1,500.00 is above the warning limit already:"
+  api 200 '"budget \(.budget.amount) \(.budget.currency), actual \(.actual.amount), consumed \(.consumed_percent)%, limits \(.availability_control.warn_percent)/\(.availability_control.refuse_percent): \(.availability) (version \(.version))"' \
+    updateInternalOrderBudget -p "id=$order" -if-match "$tag" -body '{"availability_control": {"warn_percent": 30, "refuse_percent": 100}}'
+  tag=$ETAG
+  expect "the budget's availability" "$(field '"\(.version) \(.budget.amount) \(.consumed_percent) \(.availability_control.warn_percent) \(.availability_control.refuse_percent) \(.availability)"')" \
+    "5 4000.00 37.50 30 100 above_warning"
+  api 200 '.items[] | "  version \(.version) \(.kind): \(.budget_before.amount // "none") -> \(.budget.amount) \(.budget.currency)\(if .availability_control then ", limits \(.availability_control.warn_percent)/\(.availability_control.refuse_percent)" else "" end)"' \
+    listInternalOrderBudgetChanges -p "id=$order"
+  expect "the budget's versions, latest first" "$(field '[.items[] | "\(.version) \(.kind)"] | join("; ")')" "5 set; 4 return; 3 supplement; 2 set; 1 set"
+  as alex
+  accounts
+  expense=$(account 510000)
+  bank=$(account 100000)
+  say "Alex posts the stand's lighting, CAD 2,600.00, to the order. With it the fair would cost CAD 4,100.00, above the"
+  say "budget's refusal limit, so the entry is refused and nothing is posted:"
+  refused 422 ledger.internal_order_invalid postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"2600.00\", \"currency\": \"CAD\"}, \"internal_order_id\": \"$order\"}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-2600.00\", \"currency\": \"CAD\"}}]}"
+  expect "why the entry is refused" "$(field '.errors[0] | "\(.field) \(.code)"')" "lines[0].internal_order_id budget_exceeded"
+  as carla
+  api 200 "$line" getInternalOrderBudget -p "id=$order"
+  expect "the order's actual costs, unchanged" "$(field .actual.amount)" 1500.00
   passed
 }
 
@@ -6233,7 +6274,9 @@ cents_plain() { printf '%d.%02d' $(($1 / 100)) $(($1 % 100)); }
 # settles the order up to this period: one entry moves the order's costs
 # to the receiver on the account they were posted on, the order's balance
 # is zero and the cost center's report shows the cost; settling again
-# posts nothing. The settled order is closed and takes no posting.
+# posts nothing. She reverses the settlement (T60i), which gives the order
+# its cost back, and settles it again. The settled order is closed and
+# takes no posting.
 step_order_settlement() {
   heading "Step 51 — An order's settlement: the trade fair's order names the cost center that receives its costs, is settled to it on the original account, and is closed"
   as carla
@@ -6295,9 +6338,24 @@ step_order_settlement() {
   api 200 '"order \(.internal_order_code) settled up to \(.fiscal_year)/\(.fiscal_period): \(if .settled then "an entry posted" else "nothing to settle" end)"' \
     settleInternalOrder -p "id=$order" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
   expect "a second settlement" "$(field '"\(.settled) \(.settlement // "none")"')" "false none"
-  api 200 '.items[] | "  settlement up to \(.fiscal_year)/\(.fiscal_period): \(.amount.amount) \(.amount.currency) to \(.receiver_cost_center_code), entry \(.journal_entry_number)"' \
+  say "Carla reverses the settlement, as when it was run too early (T60i): its entry is reversed on its own date, so"
+  say "the order holds the cost again and the cost center gives it back."
+  api 200 '"settlement up to \(.fiscal_year)/\(.fiscal_period) of \(.amount.amount) \(.amount.currency) reversed by entry \(.reversal_journal_entry_number)"' \
+    reverseInternalOrderSettlement -p "id=$order" -p "settlement_id=$settlement" -if-match "$tag"
+  expect "the reversal names its entry" "$(field '.reversal_journal_entry_id != null')" true
+  QUIET=1 api 200 '' listInternalOrderBalances -p "internal_order_id=$order" -p "fiscal_year=$YEAR"
+  expect "the order's balance restored" "$(field '"\(.totals.debit.amount) \(.totals.credit.amount) \(.totals.balance.amount)"')" "3000.00 1500.00 1500.00"
+  expect "the cost center's cost taken back, in cents" "$(( $(center_costs "$cc" "$expense") - before ))" 0
+  say "A settlement is reversed once:"
+  refused 409 controlling.settlement_reversed reverseInternalOrderSettlement -p "id=$order" -p "settlement_id=$settlement" -if-match "$tag"
+  say "She settles the order again; the reversed settlement no longer stands in the way:"
+  api 200 '"order \(.internal_order_code) settled up to \(.fiscal_year)/\(.fiscal_period): \(.settlement.amount.amount) \(.settlement.amount.currency) to \(.settlement.receiver_cost_center_code)"' \
+    settleInternalOrder -p "id=$order" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  expect "settled again" "$(field '"\(.settled) \(.settlement.amount.amount)"')" "true 1500.00"
+  expect "the cost center's cost again, in cents" "$(( $(center_costs "$cc" "$expense") - before ))" 150000
+  api 200 '.items[] | "  settlement up to \(.fiscal_year)/\(.fiscal_period): \(.amount.amount) \(.amount.currency) to \(.receiver_cost_center_code), entry \(.journal_entry_number)\(if .reversal_journal_entry_number then ", reversed by \(.reversal_journal_entry_number)" else "" end)"' \
     listInternalOrderSettlements -p "id=$order"
-  expect "the order's settlements" "$(field '[.items[].id] | join(" ")')" "$settlement"
+  expect "the order's settlements, latest first" "$(field '[.items[] | (.reversal_journal_entry_number != null)] | map(tostring) | join(" ")')" "false true"
   say "Carla closes the settled order. A closed order takes no posting:"
   api 200 '"internal order \(.code): \(.status), version \(.version)"' closeInternalOrder -p "id=$order" -if-match "$tag"
   expect "the closed order's status" "$(field .status)" closed
