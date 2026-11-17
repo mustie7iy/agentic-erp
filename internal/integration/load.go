@@ -178,7 +178,8 @@ func (l *loader) load(ctx context.Context) error {
 
 func (l *loader) partners(ctx context.Context) error {
 	companies := vendorCompanies(l.ext)
-	banks, as := firstBanks(l.ext), addressesOf(l.ext)
+	banks, _ := sap.LoadedBanks(l.ext) // the quality gate warned of the accounts that do not load
+	as := addressesOf(l.ext)
 	vendors := slices.Clone(l.ext.LFA1)
 	slices.SortFunc(vendors, func(a, b sap.LFA1) int { return cmp.Compare(a.LIFNR, b.LIFNR) })
 	reason := "Migration run " + l.run.ID.String()

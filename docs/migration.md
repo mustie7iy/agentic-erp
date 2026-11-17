@@ -613,7 +613,11 @@ ACDOCA, so no plan filter is needed.
   shows as a difference rather than being assumed. A `balances` run has
   no such control: its opening entry carries the profit and loss balances
   without centers
-- Each vendor's payments bank account: SAP's first LFBK row as it loads
+- Each vendor's payments bank account: the LFBK row that loads, the lowest
+  bank details ID (A_BusinessPartnerBank's BankIdentification) and then the
+  lowest by bank country, bank key and account number (review:batch77; the
+  quality gate warns of each vendor with more than one, whose others do not
+  load), as it loads
   (scheme, bank country, Canadian routing, last four characters) against the
   supplier's account valid today (differences listed by vendor; T72d). The
   account loads valid from the day before UTC's: on a cutover evening in
@@ -829,6 +833,9 @@ others record a confirmation.
   `BankCountryKey`, `BankNumber`, `BankAccount`, `IBAN`, `SWIFTCode`,
   `BankControlKey` and `BankAccountHolderName`; `A_BusinessPartner`'s
   `Supplier`, and in reverse `A_Supplier`'s `Supplier`.
+- OData pages are ordered by each entity set's key properties (`$orderby`,
+  `EntityMapping.Keys` in `internal/sap/odata.go`), stated from memory:
+  confirm them in `$metadata` (review:batch77).
 - Canadian vendor bank accounts (LFBK, bank country CA) load as scheme `ca`
   only with the bank key (BANKL) in the Canadian Payments Association's
   electronic routing form, 0 + institution (3 digits) + transit (5 digits),

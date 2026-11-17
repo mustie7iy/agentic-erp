@@ -158,3 +158,35 @@ func TestCutoverEveningBankAccount(t *testing.T) {
 		t.Errorf("reconcile: got %v, want reconciled: %v", got["status"], got["report"])
 	}
 }
+
+// TestVendorWithTwoBankAccounts: of a vendor's two bank accounts the one
+// with the lowest bank details ID loads, whatever order the extract holds
+// them in, the quality gate warns that the other does not, and the
+// reconciliation compares the same one (review:batch77).
+func TestVendorWithTwoBankAccounts(t *testing.T) {
+	e := setup(t)
+	x := tiny()
+	x.LFBK = []sap.LFBK{{LIFNR: "0000000001", BKVID: "0002", BANKS: "CA", BANKL: "000300002", BANKN: "7654321"},
+		{LIFNR: "0000000001", BKVID: "0001", BANKS: "CA", BANKL: "000300002", BANKN: "1234567"}}
+	write(t, e.dir, "two.json", x)
+	run := e.run(t, e.connector(t, "two.json"), "documents", false, e.DE.String())
+	_, got := e.act(t, run, "start")
+	if got["status"] != "loaded" {
+		t.Fatalf("run status: got %v, want loaded: %v", got["status"], got["report"])
+	}
+	quality := fmt.Sprint(got["report"].(map[string]any)["quality"])
+	want := `key:0000000001 message:vendor "Tiny GmbH" has 2 bank accounts; only the one with the lowest bank details ID (0001, ending 4567) loads, as its payments account severity:warning table:LFBK`
+	if !strings.Contains(quality, want) {
+		t.Errorf("quality gate: got %s, want it to report %q", quality, want)
+	}
+	var last4 string
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT account_last4 FROM partner.bank_account WHERE tenant_id = $1`, e.Tenant.ID).Scan(&last4); err != nil {
+		t.Fatal(err)
+	}
+	if last4 != "4567" {
+		t.Errorf("account loaded: got one ending %s, want the lowest bank details ID's, ending 4567", last4)
+	}
+	if _, got := e.act(t, run, "reconcile"); got["status"] != "reconciled" {
+		t.Errorf("reconcile: got %v, want reconciled: %v", got["status"], checks(got["report"].(map[string]any)))
+	}
+}

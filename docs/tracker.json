@@ -925,6 +925,20 @@
        },
        {
         "s": "D",
+        "t": "A vendor's payments bank account is the same on every run: the one with the lowest bank details ID (A_BusinessPartnerBank's BankIdentification, then LFBK's key), not the first in extract order, which an OData extract paged without $orderby did not fix; the quality gate warns of every vendor with more than one account (R5 B1 of the batch 77 review; coordinator 2026-11-17, ERP practice)",
+        "r": "sap.LoadedBanks, LFBK.BKVID · integration load, vendorBanks, bankAccounts · TestLoadedBanks · TestVendorWithTwoBankAccounts · ADR-0034 As built",
+        "src": "review:batch77",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A migration run extracts its company codes in sorted order and every OData page is ordered by its entity set's keys ($orderby), so two runs of a scope read, check and load in the same order and $skip paging neither repeats nor misses a row (R5 B2 of the batch 77 review)",
+        "r": "integration prepare (company codes sorted) · sap.EntityMapping.Keys, ODataSource.fetch $orderby · TestODataPagesInKeyOrder · TestRunExtractsCompaniesInOrder · ADR-0034 As built",
+        "src": "review:batch77",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "House banks show their Canadian routing (pre-existing finding on T72d, API-consumer classes): listHouseBanks returns institution and transit numbers, and account_last4 is not described as of the IBAN",
         "r": "api/openapi.yaml HouseBank · internal/payments",
         "src": "review:T72d",
