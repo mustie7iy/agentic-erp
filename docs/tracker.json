@@ -1121,6 +1121,13 @@
       "r": "internal/ledger releasing.go (PaymentReleases, noRelease), periods.go ClosePeriod/LockPeriod, ClosePeriods and ReturnPeriods Releases · internal/payments releasing.go PeriodReleases, release.go dropUnpayable/dropReason, downpayments.go requestTax · api/openapi.yaml closeFiscalPeriod, lockFiscalPeriod, signOffPeriodClose, signOffYearClose, fileTaxReturn problem codes and exclusion reason_code · api/asyncapi.yaml PaymentExcludedV1 · ADR-0038 as built · TestReleaseHoldsItsPeriodOpen, TestResumedReleaseDropsAnEndedTaxCode, TestNoRelease",
       "src": "review:batch77",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "The web workspace explains a period close, lock, sign-off or tax filing refused with ledger.payment_release_pending (409, a payment run of the company still releasing with unposted payments dated in the period) only with the generic refusal: PeriodProblems has no message for the code (found in the batch 77 integration review).",
+      "r": "internal/web/i18n problems.go PeriodProblems · locales en.json, fr-CA.json · internal/web close.go, period.go, close_checks.go explainIn · ADR-0038 As built (coordinator 2026-11-17, decision 1)",
+      "src": "review:batch77",
+      "c": []
      }
     ]
    },
@@ -2814,7 +2821,14 @@
        },
        {
         "s": "T",
-        "t": "later: revenue contract variants: combining several orders into one contract and one order into several, obligations that are not order items (bundles, implied promises, options and material rights, warranties), contract modifications, contracts in a foreign currency, contracts without a sales order, principal or agent, costs to obtain and fulfil a contract, disclosures, taking contracts over from SAP RAR (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "A revenue contract follows a change of its sales order: changed quantities or prices update its obligations' order values and the transaction price's allocation, and a cancelled order ends the contract's unrecognized obligations (split from the revenue contract variants placeholder after T78d).",
+        "r": "T81a · docs/design/plan-breadth-week2.md §T81a, Later · T78d sales order change and cancel · ADR-0068",
+        "src": "split:T81a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: revenue contract variants: combining several orders into one contract and one order into several, obligations that are not order items (bundles, implied promises, options and material rights, warranties), contract modifications other than a change or cancellation of the sales order, contracts in a foreign currency, contracts without a sales order, principal or agent, costs to obtain and fulfil a contract, disclosures, taking contracts over from SAP RAR (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T81a, Later · contracts created automatically are built with T81a (product owner 2026-11-12, ADR-0068 §4)",
         "src": "po:2026-11-10 · po:2026-11-12 · design:01 §1.2",
         "c": []
@@ -4531,7 +4545,14 @@
        },
        {
         "s": "T",
-        "t": "later: RFQ variants: a requisition sourced in part or several requisitions in one RFQ, suppliers answering themselves through a portal or the supplier network, several rounds and revised quotations, sealed bids, auctions, attachments and questions, sending the RFQ as a document, cancelling or closing an RFQ without an award, quotations in another currency (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "A buyer cancels or closes an RFQ without an award, with a reason: a requisition it was created from leaves sourcing (approved again, available to a new RFQ or an order), and the change is audited and published as an event (split from the RFQ variants placeholder).",
+        "r": "T82b · docs/design/plan-breadth-week2.md §T82b, Later · T82e (a requisition in sourcing) · ADR-0069",
+        "src": "split:T82b",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: RFQ variants: a requisition sourced in part or several requisitions in one RFQ, suppliers answering themselves through a portal or the supplier network, several rounds and revised quotations, sealed bids, auctions, attachments and questions, sending the RFQ as a document, quotations in another currency (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T82b, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
@@ -4590,6 +4611,13 @@
         "t": "later: award variants: an award of a requisition's RFQ to a contract, splitting an award between suppliers or by item, approval of an award above an amount, notifying the suppliers not awarded, withdrawing an award (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T82d, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Cancelling a purchase order created by an RFQ's award moves its requisition back without an event, and the RFQ still names the cancelled order as its award (found in the batch 78 rfq lane review).",
+        "r": "internal/procurement order cancel (requisition back from ordered) · rfq_award_order.go · T82f · ADR-0007 outbox · ADR-0069",
+        "src": "review:batch78",
         "c": []
        }
       ]
@@ -6805,6 +6833,13 @@
        },
        {
         "s": "T",
+        "t": "A scheduled report run stores its results object before it keeps the run; when the run is then not kept (the report removed or unscheduled meanwhile, or the day kept by another replica) the object stays in the store with no run naming it and is never deleted (R3 of the batch 77 review).",
+        "r": "internal/analytics/reports runs.go runReport (Objects.Put before keep) · T95b · ADR-0039 retention",
+        "src": "review:batch77",
+        "c": []
+       },
+       {
+        "s": "T",
         "t": "later: scheduled delivery variants: delivery by email and to a file share (needs email transmission, not built), delivery only when a condition holds, bursting one report per company or cost center, retention of old runs, a schedule in the web workspace (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week3.md §T95b, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
@@ -7004,6 +7039,13 @@
         "t": "getProcessEventLog has no x-snapshot, no x-slo-class report and no row in 01 §1.3: its case_count and its page are separate statements, so a page can disagree with the count beside it (found in T103a's review).",
         "r": "api/openapi.yaml getProcessEventLog · internal/processmining · docs/design/01-requirements.md §1.3 · done in hnames: x-snapshot and x-slo-class report on getProcessEventLog, 01 §1.3's row (TestEventLogBudget p95 0.1-0.28 s), TestSnapshotOperations, ADR-0080 as built",
         "src": "review:T103a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The purchase-to-pay event log has no activity for procurement.requisition.in_sourcing (T82e: an RFQ created from the requisition), so a case sourced by an RFQ shows no sourcing step between approval and the order (found in the batch 78 rfq lane review).",
+        "r": "internal/processmining log.go activities · T103a · T82e",
+        "src": "review:batch78",
         "c": []
        },
        {
@@ -7277,6 +7319,13 @@
       "s": "D",
       "t": "No row lock is held across a call to an external service: the audit anchorer held the tenant's chain head FOR UPDATE across the object store's write, which every audited write of the tenant waits for, so a slow store turned them into lock timeouts; it now reads the head unlocked, writes the object, then records the row ON CONFLICT DO NOTHING. The dispatcher recorded each started workflow (operation, approval request) in the transaction that went on calling the engine; each is now recorded in a transaction of its own (R2 B2 of the batch 77 review).",
       "r": "audit.Anchorer anchor, readHead, writeObject, record · workflows.Dispatcher RunOnce, read, startRecorded · approvals.Watched · TestAnchoringHoldsNoLockAcrossTheStore · TestAnchoringRecordFails · TestDispatcher (no row lock is held across a call to the engine) · TestApprovalDeadline (no request is locked across a call to the engine) · ADR-0011 As built 2026-11-17 · ADR-0012 As built",
+      "src": "review:batch77",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "approvals.Watched and the dispatcher's recordOperation set workflow_id and move the version without a guard on workflow_id IS NULL: a second record for the same row (two dispatcher rounds, or a replica's, finding it unrecorded) moves the version again, so a client holding the ETag it read gets a spurious 412 (found in the batch 77 hplat review).",
+      "r": "internal/approvals escalate.go Watched · internal/workflows dispatch.go recordOperation · ADR-0008 version guard · ADR-0012 idempotent records",
       "src": "review:batch77",
       "c": []
      }
@@ -10952,6 +11001,20 @@
       "r": "internal/sap odata.go (the mapping's comment) · found by go-reviewer in the step bstat, round 1 (Pre-existing)",
       "src": "review:batch63",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "A migration run's prepare holds its transaction and the run's row lock (FOR UPDATE) across the OData extract, page by page for minutes at worst; batch 77 moved only Settings.Hold after it: the extract belongs before the run's lock or in a transaction of its own (found in the batch 77 hinteg review; bug class: a lock held across slow work).",
+      "r": "internal/integration runs.go prepare, prepareAs (e.extract) · REVIEW.md locks · bug class: a row lock held across an external call",
+      "src": "review:batch77",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "ACDOCA's OData pages are ordered by CompanyCode, FiscalYear, AccountingDocument and LedgerGLLineItem but not the ledger: with more than one ledger in the extract two lines share that key, so the page order is not total and a line can be read twice or missed across pages (found in the batch 77 hinteg review, T56h5).",
+      "r": "internal/sap odata.go entity map ACDOCA Keys (Ledger) · $orderby · T56h5 · SAP specialist A16 (leading ledger at export)",
+      "src": "review:batch77",
+      "c": []
      }
     ]
    },
@@ -11630,6 +11693,13 @@
         "t": "getMemoRecord lists the 422 response it gives since the one company-date helper refuses a memo record whose legal entity the directory does not know (request.reference_not_found); every other operation whose call graph reaches config.EntityDay lists 422 already",
         "r": "found in batch 28's integration review: api/openapi.yaml getMemoRecord listed no 422 · checked by the operations whose handler reaches config.EntityDay in TestProblemCodes' call graph: acceptMemoRecordProposal, approveApprovalRequest, assignProfitCenter, cancelMemoRecord, createCostCenter, createMemoRecord, getMemoRecord, listMemoRecords, lockCostCenter, lockProfitCenter, moveCostCenter, moveProfitCenter, postSupplierInvoice, proposeMemoRecord, realiseMemoRecord, redateCostCenter, redateProfitCenter, rejectMemoRecordProposal, releasePaymentRun, reverseGoodsReceipt, reverseSupplierInvoice, submitRequisition, updateMemoRecord; listMemoRecords reaches it only through readDaysOf's filter, which answers an empty page rather than refusing, so it gives no 422 · built: getMemoRecord's 422 response (additive, oasdiff) and its description · ADR-0051 as built (one company-date helper) · no walkthrough step: a contract fix",
         "src": "review:batch28",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The savings opportunity agent's default period (no period given) ends on today's date in UTC, not the company's day (coordinator decision 4 of 17 November, ADR-0052): a Canadian company's evening, or a UAE company's early morning, reads the wrong year to date.",
+        "r": "internal/savingsagent savingsagent.go period (clock.Now(a.Now).UTC()) · config.EntityDay · ADR-0052 · ADR-0072 As built",
+        "src": "review:batch77",
         "c": []
        }
       ]
